@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "title": "Paramètres",
+    "language": "Langue",
+    "notifications": "Notifications",
+    "theme": "Apparence",
+    "privacy": "Politique de confidentialité",
+    "terms": "Conditions d'utilisation",
+    "logout": "Déconnexion",
+    "deleteAccount": "Supprimer le compte",
+    "version": "Version"
+  },
+  "profile": {
+    "trips": "Trajets",
+    "rating": "Note",
+    "editProfile": "Modifier le profil",
+    "wallet": "Portefeuille EyeGo",
+    "promotions": "Promotions",
+    "savedPlaces": "Lieux enregistrés",
+    "tripHistory": "Historique des trajets",
+    "notifications": "Notifications",
+    "helpSupport": "Aide et support",
+    "safety": "Sécurité & SOS",
+    "accountTier": "Niveau de compte"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "Aucune notification",
+    "emptySubtitle": "Nous vous informerons ici de vos trajets et offres.",
+    "markAllRead": "Tout marquer comme lu"
+  },
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "back": "Retour",
+    "loading": "Chargement...",
+    "error": "Une erreur s'est produite",
+    "retry": "Réessayer"
+  }
+}

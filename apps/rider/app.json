@@ -1,0 +1,82 @@
+{
+  "expo": {
+    "name": "EyeGo",
+    "slug": "eyego-rider",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "eyego",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#091009"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.eyego.rider",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "EyeGo needs your location to show nearby rides.",
+        "NSLocationAlwaysUsageDescription": "EyeGo uses your location to track your ride.",
+        "NSCameraUsageDescription": "EyeGo needs camera access to update your profile photo.",
+        "NSPhotoLibraryUsageDescription": "EyeGo needs photo library access to update your profile photo.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#091009"
+      },
+      "package": "com.eyego.rider",
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "@rnmapbox/maps",
+        {
+          "RNMapboxMapsImpl": "mapbox",
+          "RNMapboxMapsDownloadToken": ""
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#4be277"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow EyeGo to access your photos to update your profile picture."
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser",
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "30035ca0-774a-4488-9ce9-0370e76c9634"
+      }
+    },
+    "owner": "spencergeee"
+  }
+}

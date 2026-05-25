@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "title": "Configuración",
+    "language": "Idioma",
+    "notifications": "Notificaciones",
+    "theme": "Apariencia",
+    "privacy": "Política de privacidad",
+    "terms": "Términos de servicio",
+    "logout": "Cerrar sesión",
+    "deleteAccount": "Eliminar cuenta",
+    "version": "Versión"
+  },
+  "profile": {
+    "trips": "Viajes",
+    "rating": "Calificación",
+    "editProfile": "Editar perfil",
+    "wallet": "Billetera EyeGo",
+    "promotions": "Promociones",
+    "savedPlaces": "Lugares guardados",
+    "tripHistory": "Historial de viajes",
+    "notifications": "Notificaciones",
+    "helpSupport": "Ayuda y soporte",
+    "safety": "Seguridad y SOS",
+    "accountTier": "Nivel de cuenta"
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "empty": "Sin notificaciones",
+    "emptySubtitle": "Te notificaremos sobre tus viajes y ofertas aquí.",
+    "markAllRead": "Marcar todo como leído"
+  },
+  "common": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "back": "Atrás",
+    "loading": "Cargando...",
+    "error": "Algo salió mal",
+    "retry": "Reintentar"
+  }
+}

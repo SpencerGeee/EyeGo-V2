@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "notifications": "Notifications",
+    "theme": "Appearance",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "logout": "Logout",
+    "deleteAccount": "Delete Account",
+    "version": "Version"
+  },
+  "profile": {
+    "trips": "Trips",
+    "rating": "Rating",
+    "editProfile": "Edit Profile",
+    "wallet": "EyeGo Wallet & Pay",
+    "promotions": "Promotions & Referrals",
+    "savedPlaces": "Saved Places",
+    "tripHistory": "Trip History",
+    "notifications": "Notifications",
+    "helpSupport": "Help & Support",
+    "safety": "Safety & SOS",
+    "accountTier": "Account Tier"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications yet",
+    "emptySubtitle": "We'll notify you about your trips and offers here.",
+    "markAllRead": "Mark all as read"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "back": "Back",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "title": "Nhyehyɛe",
+    "language": "Kasa",
+    "notifications": "Amanneɛ",
+    "theme": "Nhwɛso",
+    "privacy": "Gyinadie Ho Amammere",
+    "terms": "Dwuma Ho Mmara",
+    "logout": "Pue",
+    "deleteAccount": "Yi Account No",
+    "version": "Ɛkwan"
+  },
+  "profile": {
+    "trips": "Akwantu",
+    "rating": "Nhyehyɛe",
+    "editProfile": "Sesa W'ahosɛpɛ",
+    "wallet": "EyeGo Wallet",
+    "promotions": "Akyɛde",
+    "savedPlaces": "Bɔkɔ Beae",
+    "tripHistory": "Akwantu Nhyehyɛe",
+    "notifications": "Amanneɛ",
+    "helpSupport": "Mmoa ne Kɔmpan",
+    "safety": "Ahobammɔ",
+    "accountTier": "Account Mmɔso"
+  },
+  "notifications": {
+    "title": "Amanneɛ",
+    "empty": "Amanneɛ biara nni ha",
+    "emptySubtitle": "Yɛbɛka w'akwantu ne akyɛde ho asɛm akyerɛ wo ha.",
+    "markAllRead": "Kyerɛ Nyinaa Sɛ Wakenkan"
+  },
+  "common": {
+    "save": "Sie",
+    "cancel": "Gyae",
+    "confirm": "Gyina So",
+    "back": "San Kɔ",
+    "loading": "Hwɛ...",
+    "error": "Biribi yɛɛ mfomso",
+    "retry": "Yɛ Bio"
+  }
+}
