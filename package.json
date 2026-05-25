@@ -1,0 +1,40 @@
+{
+  "name": "eyego",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "rider": "yarn workspace @eyego/rider start",
+    "rider:android": "yarn workspace @eyego/rider android",
+    "rider:ios": "yarn workspace @eyego/rider ios",
+    "driver": "yarn workspace @eyego/driver start",
+    "driver:android": "yarn workspace @eyego/driver android",
+    "driver:ios": "yarn workspace @eyego/driver ios",
+    "build:packages": "yarn workspaces run build"
+  },
+  "dependencies": {
+    "@rnmapbox/maps": "10.1.27",
+    "expo-contacts": "^55.0.14",
+    "expo-localization": "^55.0.15",
+    "expo-notifications": "^55.0.23",
+    "i18next": "^26.2.0",
+    "react": "19.1.0",
+    "react-i18next": "^17.0.8",
+    "react-native": "0.81.5",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-worklets": "0.5.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.10",
+    "patch-package": "^8.0.1",
+    "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-worklets": "0.5.1"
+  }
+}

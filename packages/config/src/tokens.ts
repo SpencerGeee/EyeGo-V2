@@ -1,0 +1,170 @@
+/**
+ * EyeGo Design Tokens
+ * Sourced from design system v2 HTML mockups (Material You dark theme)
+ */
+
+export const colors = {
+  // Backgrounds
+  backgroundDeep: '#091009',       // surface-container-lowest — darkest bg
+  background: '#0e150e',           // surface-dim — main bg
+  surfaceContainer: '#1a221a',     // surface-container — cards
+  surfaceContainerHigh: '#242c24', // elevated cards
+  surfaceContainerHighest: '#2f372e',
+
+  // Brand
+  primary: '#4be277',              // green CTA
+  primaryDim: '#4ae176',
+  onPrimary: '#002109',
+  inversePrimary: '#006e2f',
+  primaryFixed: '#b1f2c5',
+  primaryFixedDim: '#4ae176',
+  onPrimaryFixed: '#002109',
+  onPrimaryFixedVariant: '#005321',
+
+  // Secondary (blue — comfort tier)
+  secondary: '#adc6ff',
+  secondaryContainer: '#284777',
+  onSecondary: '#001a42',
+  onSecondaryContainer: '#e6ecff',
+  secondaryFixed: '#d8e2ff',
+  secondaryFixedDim: '#adc6ff',
+
+  // Tertiary (red/coral)
+  tertiary: '#ffb5ab',
+  tertiaryContainer: '#ff8b7c',
+  onTertiary: '#60130d',
+  onTertiaryContainer: '#76231b',
+
+  // Text
+  onBackground: '#dce5d9',         // primary text
+  onSurface: '#dce5d9',
+  onSurfaceVariant: '#bccbb9',     // secondary text
+  inverseOnSurface: '#2a322a',
+  inverseSurface: '#dce5d9',
+
+  // UI
+  outline: '#869585',              // borders, dividers
+  outlineVariant: '#3d4b3c',
+  surfaceTint: '#4ae176',
+  scrim: '#000000',
+
+  // Semantic
+  error: '#ffb4ab',
+  onError: '#690005',
+  errorContainer: '#93000a',
+  onErrorContainer: '#ffdad6',
+
+  // Glows
+  glowPrimary: 'rgba(75, 226, 119, 0.4)',
+  glowSecondary: 'rgba(5, 102, 217, 0.4)',
+  glowError: 'rgba(255, 180, 171, 0.4)',
+} as const;
+
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  base: 16,
+  lg: 20,
+  xl: 24,
+  '2xl': 32,
+  '3xl': 40,
+  '4xl': 48,
+  '5xl': 64,
+} as const;
+
+export const radii = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  '2xl': 24,
+  '3xl': 28,
+  full: 9999,
+} as const;
+
+export const shadows = {
+  primaryGlow: {
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  card: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  elevated: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+} as const;
+
+// ── Driver App Design Tokens (Electric Blue) ─────────────────────────────────
+export const driverColors = {
+  backgroundDeep: '#030C18',
+  background: '#060F1A',
+  surfaceContainer: '#0D1B2A',
+  surfaceContainerHigh: '#112240',
+  surfaceContainerHighest: '#162B4F',
+
+  primary: '#3B82F6',
+  primaryDim: '#2563EB',
+  onPrimary: '#EFF6FF',
+  accent: '#60A5FA',
+  accentDim: '#3B82F6',
+
+  secondary: '#60A5FA',
+  secondaryContainer: '#1E3A5F',
+
+  onBackground: '#E2E8F0',
+  onSurface: '#E2E8F0',
+  onSurfaceVariant: '#94A3B8',
+  inverseOnSurface: '#0D1B2A',
+  inverseSurface: '#E2E8F0',
+
+  outline: '#1E3A5F',
+  outlineVariant: '#0F2239',
+  scrim: '#000000',
+
+  error: '#F87171',
+  onError: '#7F1D1D',
+  errorContainer: '#991B1B',
+  onErrorContainer: '#FEE2E2',
+
+  online: '#3B82F6',
+  offline: '#64748B',
+
+  glowPrimary: 'rgba(59, 130, 246, 0.4)',
+  glowAccent: 'rgba(96, 165, 250, 0.25)',
+  glowError: 'rgba(248, 113, 113, 0.4)',
+} as const;
+
+export const animation = {
+  spring: {
+    type: 'spring' as const,
+    stiffness: 300,
+    damping: 20,
+  },
+  springFast: {
+    type: 'spring' as const,
+    stiffness: 400,
+    damping: 25,
+  },
+  springBouncy: {
+    type: 'spring' as const,
+    stiffness: 200,
+    damping: 15,
+  },
+  timing: (duration = 300) => ({
+    type: 'timing' as const,
+    duration,
+  }),
+} as const;

@@ -1,0 +1,27 @@
+node_modules/
+.expo/
+dist/
+build/
+.env
+.env.local
+.env*.local
+apps/*/.env
+apps/*/.env.local
+apps/*/.env*.local
+*.log
+ios/
+android/
+apps/*/ios/
+apps/*/android/
+.DS_Store
+*.tsbuildinfo
+
+# EAS submission credentials
+google-service-account.json
+
+# Native signing artifacts
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision

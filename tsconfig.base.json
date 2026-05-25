@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "jsx": "react-native",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@eyego/config": ["./packages/config/src/index.ts"],
+      "@eyego/ui": ["./packages/ui/src/index.ts"],
+      "@eyego/api": ["./packages/api/src/index.ts"],
+      "@eyego/types": ["./packages/types/src/index.ts"],
+      "@eyego/utils": ["./packages/utils/src/index.ts"]
+    }
+  }
+}
