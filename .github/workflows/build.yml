@@ -69,7 +69,6 @@ jobs:
         env:
           # Runtime API config — set these in GitHub → Settings → Secrets
           EXPO_PUBLIC_API_URL: ${{ secrets.RIDER_API_URL }}
-          EXPO_PUBLIC_API_PORT: ${{ secrets.API_PORT }}
           EXPO_PUBLIC_MAPBOX_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           # Build-time secret for Mapbox SDK download (never commit this)
@@ -112,5 +111,4 @@ jobs:
             --no-wait
         env:
           EXPO_PUBLIC_API_URL: ${{ secrets.DRIVER_API_URL }}
-          EXPO_PUBLIC_API_PORT: ${{ secrets.API_PORT }}
           EXPO_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
