@@ -15,10 +15,10 @@ on:
         options: [preview, production]
         default: preview
       platform:
-        description: Platform
+        description: Platform (iOS requires paid Apple Developer account)
         type: choice
-        options: [all, ios, android]
-        default: all
+        options: [android, all, ios]
+        default: android
 
   # Also auto-build on version tags (e.g. git tag v1.2.3 && git push --tags)
   push:
