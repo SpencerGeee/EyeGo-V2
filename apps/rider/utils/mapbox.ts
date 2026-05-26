@@ -87,10 +87,13 @@ function buildExpoGoAdapter() {
 
       React.useEffect(() => {
         if (!ctx || !centerCoordinate) return;
+        const lat = centerCoordinate[1];
+        const lng = centerCoordinate[0];
+        if (isNaN(lat) || isNaN(lng)) return;
         const delta = zoomToDelta(zoomLevel ?? 12);
         ctx.setRegion({
-          latitude: centerCoordinate[1],
-          longitude: centerCoordinate[0],
+          latitude: lat,
+          longitude: lng,
           latitudeDelta: delta,
           longitudeDelta: delta,
         });

@@ -4,6 +4,7 @@ import * as Location from 'expo-location';
 interface Coords {
   latitude: number;
   longitude: number;
+  heading?: number | null;
   speed?: number | null;
 }
 
@@ -53,6 +54,7 @@ export function useDriverLocation({ enabled = true }: Options = {}) {
         setLocation({
           latitude: initial.coords.latitude,
           longitude: initial.coords.longitude,
+          heading: initial.coords.heading,
           speed: initial.coords.speed,
         });
       }
@@ -81,6 +83,7 @@ export function useDriverLocation({ enabled = true }: Options = {}) {
           setLocation({
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
+            heading: pos.coords.heading,
             speed: pos.coords.speed,
           });
         }

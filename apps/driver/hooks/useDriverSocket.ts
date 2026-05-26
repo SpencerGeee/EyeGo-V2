@@ -55,6 +55,8 @@ export function useDriverSocket({ tripId, enabled = false }: Options) {
       driverSocketEvents.emitLocation({
         lat: location.latitude,
         lng: location.longitude,
+        heading: location.heading ?? 0,
+        speed: location.speed ?? 0,
       });
     };
 
