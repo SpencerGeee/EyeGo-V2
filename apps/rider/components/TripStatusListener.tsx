@@ -1,9 +1,10 @@
 'use client';
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Animated, View, StyleSheet, Platform } from 'react-native';
+import { Animated, View, StyleSheet, Platform, Pressable } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
-import { socketEvents, connectSocket, disconnectSocket, queryKeys } from '@eyego/api';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { BlurView } from 'expo-blur';
+import { socketEvents, connectSocket, disconnectSocket, bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../stores/ride.store';
 import { useAuthStore } from '../stores/auth.store';
 import { useColors } from '../utils/useColors';
@@ -11,13 +12,37 @@ import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes } from '@eyego/config';
 
+// Hermes-safe property accessor — wraps reads in try-catch because Hermes
+// throws ReferenceError for properties that don't exist on Zustand-persisted
+// objects deserialized from AsyncStorage. See: Property 'tripId' doesn't exist.
+function safeRead(obj: unknown, key: string, fallback?: string): string | undefined {
+  try {
+    if (obj && typeof obj === 'object') {
+      // Support dot-path access like 'trip.driverId'
+      if (key.includes('.')) {
+        const parts = key.split('.');
+        let cursor: any = obj;
+        for (const part of parts) {
+          if (cursor == null || typeof cursor !== 'object') return fallback;
+          cursor = (cursor as Record<string, any>)[part];
+        }
+        return (cursor ?? fallback) as string | undefined;
+      }
+      return ((obj as Record<string, any>)[key] ?? fallback) as string | undefined;
+    }
+  } catch {
+    // Hermes ReferenceError swallowed here
+  }
+  return fallback;
+}
+
 /**
  * TripStatusListener — mounted once at the root layout.
  *
  * Connects to the passenger socket whenever the user has an activeBooking and
  * broadcasts trip-status banners + auto-navigation to every screen in the app.
- * This makes trip events (driver en-route, departed, arrived) consistent
- * regardless of which screen the rider is currently on.
+ * Automatically fetches active booking on boot if Zustand has been cleared/reset.
+ * Listens to driver location and ETA in the background to ensure no snap/lag.
  */
 export function TripStatusListener() {
   const router = useRouter();
@@ -27,10 +52,42 @@ export function TripStatusListener() {
   const { isLoggedIn } = useAuthStore();
   const { activeBooking, selectedTrip } = useRideStore();
 
+  // ── Safely extract booking properties ──
+  // Must come BEFORE useQuery hooks because safeRead wraps try-catch for Hermes
+  // compat, and activeBookingId is used in the enabled guard below.
+  const activeBookingId = safeRead(activeBooking, 'id');
+  const computedTripId = safeRead(activeBooking, 'tripId', safeRead(selectedTrip, 'id'));
+  const computedDriverId =
+    safeRead(activeBooking, 'trip.driverId') ??
+    safeRead(activeBooking, 'trip.id') ??
+    safeRead(selectedTrip, 'driverId') ??
+    safeRead(selectedTrip, 'driver.id');
+
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
   const [bannerIcon, setBannerIcon] = useState<any>('notifications');
-  const bannerAnim = useRef(new Animated.Value(-100)).current;
+  const bannerAnim = useRef(new Animated.Value(-120)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tracks where tapping the banner should navigate ('chat' or null → tracking)
+  const bannerDestinationRef = useRef<'chat' | null>(null);
+
+  // Hydrate active booking from backend on boot if local state is null
+  const { data: apiActiveBooking } = useQuery({
+    queryKey: ['bookings', 'active-root-listener'],
+    queryFn: () => bookingsApi.getActive(),
+    enabled: isLoggedIn && !activeBookingId,
+    select: (r) => {
+      const raw = (r.data as any)?.data;
+      return (raw?.booking ?? raw) ?? null;
+    },
+    staleTime: 30_000,
+  });
+
+  // Hydrate Zustand store dynamically
+  useEffect(() => {
+    if (apiActiveBooking && !activeBooking) {
+      useRideStore.getState().setActiveBooking(apiActiveBooking);
+    }
+  }, [apiActiveBooking, activeBooking]);
 
   // Refs so socket callbacks never read stale closure values
   const activeBookingRef = useRef(activeBooking);
@@ -55,38 +112,63 @@ export function TripStatusListener() {
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => {
       Animated.timing(bannerAnim, {
-        toValue: -100,
+        toValue: -120,
         duration: 300,
         useNativeDriver: true,
       }).start(() => setBannerMsg(null));
     }, 5000);
   }, [bannerAnim]);
 
+  // ── Socket connection: connect as soon as user is logged in ──
+  // We do NOT gate on activeBooking?.id because the persisted Zustand
+  // state may not be hydrated yet on cold boot. Connecting early ensures
+  // the socket pipe is always ready by the time driverId resolves.
+  // Ref-counting ensures the socket stays connected as long as any
+  // other component also holds a reference (e.g. tracking, seat, chat).
   useEffect(() => {
-    if (!isLoggedIn || !activeBooking?.id) return;
-
-    const tripId = activeBooking.tripId;
-    const driverId =
-      (activeBooking as any).trip?.driverId ??
-      (activeBooking as any).trip?.driver?.id ??
-      selectedTrip?.driverId ??
-      (selectedTrip?.driver as any)?.id;
+    if (!isLoggedIn) return;
 
     connectSocket();
-    if (tripId && driverId) {
-      socketEvents.joinTripRoom(tripId, driverId);
-    }
+
+    return () => {
+      disconnectSocket();
+    };
+  }, [isLoggedIn]);
+
+  // ── Join trip room once driverId becomes available ──
+  // Deduplication ref: track which tripId we've already joined to prevent double-join.
+  const joinedTripRoomRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!computedTripId || !computedDriverId) return;
+    // Only join if we haven't already joined this specific tripId
+    if (joinedTripRoomRef.current === computedTripId) return;
+    joinedTripRoomRef.current = computedTripId;
+    socketEvents.joinTripRoom(computedTripId, computedDriverId);
+
+    return () => {
+      // Leave room when tripId changes or component unmounts
+      if (joinedTripRoomRef.current) {
+        socketEvents.leaveTripRoom(joinedTripRoomRef.current);
+        joinedTripRoomRef.current = undefined;
+      }
+    };
+  }, [computedTripId, computedDriverId]);
+
+  // ── Subscribe to trip-status / location / ETA events ──
+  useEffect(() => {
+    if (!isLoggedIn) return;
 
     // Re-join on reconnect (network blip recovery)
     const unsubConnect = socketEvents.onConnect(() => {
       const booking = activeBookingRef.current;
       const trip = selectedTripRef.current;
-      const tId = booking?.tripId;
+      const tId = safeRead(booking, 'tripId');
       const dId =
-        (booking as any)?.trip?.driverId ??
-        (booking as any)?.trip?.driver?.id ??
-        trip?.driverId ??
-        (trip?.driver as any)?.id;
+        safeRead(booking, 'trip.driverId') ??
+        safeRead(booking, 'trip.id') ??
+        safeRead(trip, 'driverId') ??
+        safeRead(trip, 'driver.id');
       if (tId && dId) socketEvents.joinTripRoom(tId, dId);
     });
 
@@ -99,6 +181,15 @@ export function TripStatusListener() {
         showBanner('Your driver has started the trip', 'car-outline');
       } else if (data.status === 'IN_PROGRESS') {
         showBanner('EyeGo has departed — enjoy the ride!', 'navigate-outline');
+      } else if (data.status === 'CANCELLED' || data.status === 'NO_SHOW' || data.status === 'REFUNDED') {
+        showBanner('Trip was cancelled', 'close-circle');
+        disconnectSocket();
+        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+        queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
+        useRideStore.getState().clearRideState();
+        setTimeout(() => {
+          router.replace('/(tabs)/home' as any);
+        }, 1500);
       } else if (data.status === 'COMPLETED') {
         // Refresh all relevant query caches
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
@@ -107,8 +198,9 @@ export function TripStatusListener() {
 
         if (!isOnTrackingScreen) {
           // User is on home/trips/etc — push them to the trip complete screen
-          const bookingId = activeBookingRef.current?.id ?? '';
-          const tId = activeBookingRef.current?.tripId ?? (data as any).tripId ?? tripId;
+          const booking = activeBookingRef.current;
+          const bookingId = safeRead(booking, 'id') ?? '';
+          const tId = safeRead(booking, 'tripId') ?? (data as any).tripId ?? safeRead(selectedTripRef.current, 'id');
 
           showBanner('You have arrived! Rate your trip', 'checkmark-circle');
           setTimeout(() => {
@@ -122,50 +214,103 @@ export function TripStatusListener() {
       }
     });
 
+    // Capture driver location in background to keep store hydrated
+    const unsubLocation = socketEvents.onDriverLocation((data) => {
+      useRideStore.getState().setDriverLocation({
+        latitude: data.latitude,
+        longitude: data.longitude,
+        heading: data.heading,
+      });
+    });
+
+    // Capture dynamic ETA in background to keep store hydrated
+    const unsubEta = socketEvents.onTripEta((data) => {
+      useRideStore.getState().setTripEta(data.etaMinutes);
+    });
+
+    // ── Listen for safety check events (route deviation, stopped too long) ──
+    // Show a banner/alert so the rider is aware their trip is being monitored
+    const unsubSafetyCheck = socketEvents.onSafetyCheck((data) => {
+      // Only show for the current active trip
+      const currentBooking = activeBookingRef.current;
+      const currentTripId = safeRead(currentBooking, 'tripId') ?? safeRead(selectedTripRef.current, 'id');
+      if (data.tripId && data.tripId !== currentTripId) return;
+
+      if (data.reason === 'ROUTE_DEVIATION') {
+        showBanner('Your trip has deviated from the expected route. Are you safe?', 'warning');
+      } else if (data.reason === 'STOPPED_TOO_LONG') {
+        showBanner('Your driver has been stopped for a while — everything okay?', 'time-outline');
+      } else if (data.reason === 'UNEXPECTED_DROP') {
+        showBanner('Unexpected stop detected — tap to check in', 'location-outline');
+      }
+    });
+
+    // ── Chat message banners (app-wide) ──
+    // Show a banner on every screen except the chat screen itself.
+    // Tapping the banner navigates to the chat screen.
+    const unsubChat = socketEvents.onChatMessage((msg) => {
+      const segs = segmentsRef.current;
+      const isOnChatScreen = segs.some((s) => s === 'chat');
+      if (isOnChatScreen) return;
+
+      const preview = msg.text.length > 55 ? msg.text.slice(0, 52) + '\u2026' : msg.text;
+      bannerDestinationRef.current = 'chat';
+      showBanner(`${msg.senderName ?? 'Driver'}: ${preview}`, 'chatbubble-ellipses');
+    });
+
     return () => {
       unsubConnect();
       unsubStatus();
+      unsubLocation();
+      unsubEta();
+      unsubSafetyCheck();
+      unsubChat();
     };
-  // Re-subscribe whenever the active booking changes (new trip started)
-  }, [activeBooking?.id, isLoggedIn, showBanner, queryClient, router]);
+  }, [isLoggedIn, showBanner, queryClient, router]);
 
   // Cleanup timer on unmount
   useEffect(() => () => {
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
   }, []);
 
-  // Don't render when tracking screen has its own banner, or nothing to show
+  // Don't render when the relevant screen already handles its own banner
   const isOnTrackingScreen = segments.some((s) => s === 'tracking');
-  if (!bannerMsg || isOnTrackingScreen) return null;
+  const isOnChatScreen = segments.some((s) => s === 'chat');
+  if (!bannerMsg || isOnTrackingScreen || isOnChatScreen) return null;
+
+  const handleBannerPress = () => {
+    const tId = safeRead(activeBooking, 'tripId');
+    if (!tId) return;
+    if (bannerDestinationRef.current === 'chat') {
+      bannerDestinationRef.current = null;
+      router.push(`/ride/${tId}/chat` as any);
+    } else {
+      router.push(`/ride/${tId}/tracking` as any);
+    }
+  };
 
   return (
     <Animated.View
       style={[styles.container, { transform: [{ translateY: bannerAnim }] }]}
       pointerEvents="box-none"
     >
-      <View
-        style={[
-          styles.banner,
-          {
-            backgroundColor: colors.surfaceContainerHigh,
-            borderColor: colors.primary + '70',
-            shadowColor: colors.primary,
-          },
-        ]}
-      >
-        <View style={[styles.iconCircle, { backgroundColor: colors.primary }]}>
-          <Ionicons name={bannerIcon} size={16} color="#050508" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.label, { color: colors.primary }]}>TRIP UPDATE</Text>
-          <Text style={[styles.body, { color: colors.onSurface }]}>{bannerMsg}</Text>
-        </View>
-      </View>
+      <Pressable onPress={handleBannerPress} style={styles.pressable}>
+        <BlurView intensity={85} tint="dark" style={styles.blurContainer}>
+          <View style={[styles.iconCircle, { backgroundColor: colors.primary }]}>
+            <Ionicons name={bannerIcon} size={16} color="#050508" />
+          </View>
+          <View style={styles.textContainer}>
+            <Text style={[styles.label, { color: colors.primary }]}>TRIP UPDATE</Text>
+            <Text style={[styles.body, { color: colors.onSurface }]}>{bannerMsg}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.primary} style={styles.chevron} />
+        </BlurView>
+      </Pressable>
     </Animated.View>
   );
 }
 
-const TOP_OFFSET = Platform.OS === 'ios' ? 54 : 42;
+const TOP_OFFSET = Platform.OS === 'ios' ? 56 : 46;
 
 const styles = StyleSheet.create({
   container: {
@@ -176,25 +321,34 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     elevation: 30,
   },
-  banner: {
+  pressable: {
+    borderRadius: radii['2xl'],
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#1DB95450', // Premium Spotify Green border glow
+    shadowColor: '#1DB954',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+  },
+  blurContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md,
     borderRadius: radii['2xl'],
-    borderWidth: 1.5,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
   },
   iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+  },
+  textContainer: {
+    flex: 1,
   },
   label: {
     fontFamily: fonts.semiBold,
@@ -205,5 +359,8 @@ const styles = StyleSheet.create({
   body: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+  },
+  chevron: {
+    paddingLeft: spacing.xs,
   },
 });
