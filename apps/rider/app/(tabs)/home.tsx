@@ -7,15 +7,20 @@ import {
   ScrollView,
   TextInput,
   RefreshControl,
+  Alert,
+  Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { MotiView } from 'moti';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -33,18 +38,36 @@ export default function HomeScreen() {
   const snapPoints = useMemo(() => ['42%', '72%'], []);
   const [activeTier, setActiveTier] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    const unsub = NetInfo.addEventListener((state) => {
+      setIsOnline(state.isConnected ?? true);
+    });
+    return () => unsub();
+  }, []);
 
   const DEFAULT_COORDINATE: [number, number] = [-0.187, 5.6037];
   const [location, setLocation] = useState<[number, number]>(DEFAULT_COORDINATE);
 
   useEffect(() => {
+    let cancelled = false;
     let subscription: Location.LocationSubscription | null = null;
 
     async function startTracking() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled) return;
         if (status !== 'granted') {
-          console.log('Permission to access location was denied');
+          if (__DEV__) { console.log('Permission to access location was denied'); }
+          Alert.alert(
+            'Location Required',
+            'EyeGo needs your location to show nearby rides. Please enable location access in Settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ]
+          );
           return;
         }
 
@@ -52,10 +75,11 @@ export default function HomeScreen() {
         const initialLocation = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
+        if (cancelled) return;
         setLocation([initialLocation.coords.longitude, initialLocation.coords.latitude]);
 
         // Watch for updates
-        subscription = await Location.watchPositionAsync(
+        const sub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.High,
             timeInterval: 5000,
@@ -65,6 +89,11 @@ export default function HomeScreen() {
             setLocation([newLocation.coords.longitude, newLocation.coords.latitude]);
           }
         );
+        if (cancelled) {
+          sub.remove();
+        } else {
+          subscription = sub;
+        }
       } catch (error) {
         console.error('Error tracking location:', error);
       }
@@ -73,15 +102,14 @@ export default function HomeScreen() {
     startTracking();
 
     return () => {
-      if (subscription) {
-        subscription.remove();
-      }
+      cancelled = true;
+      if (subscription) subscription.remove();
     };
   }, []);
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const { data: ridesData, isLoading: ridesLoading, refetch: refetchRides } = useQuery({
+  const { data: ridesData, isLoading: ridesLoading, isError: ridesError, error: ridesErrorObj, refetch: refetchRides } = useQuery({
     queryKey: queryKeys.rides.list({ tier: activeTier }),
     queryFn: () => tripsApi.search({ tier: activeTier === 'All' ? undefined : activeTier.toUpperCase() } as any),
     refetchInterval: 15_000,
@@ -120,7 +148,8 @@ export default function HomeScreen() {
     if (!searchQuery.trim()) return rides;
     const query = searchQuery.toLowerCase();
     return rides.filter((ride: any) => 
-      ride.destination?.address?.toLowerCase().includes(query) ||
+      ride.route?.destinationName?.toLowerCase().includes(query) ||
+      ride.route?.originName?.toLowerCase().includes(query) ||
       ride.route?.name?.toLowerCase().includes(query)
     );
   }, [rides, searchQuery]);
@@ -136,6 +165,35 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Offline banner */}
+      {!isOnline && (
+        <MotiView
+          from={{ translateY: -40, opacity: 0 }}
+          animate={{ translateY: 0, opacity: 1 }}
+          exit={{ translateY: -40, opacity: 0 }}
+          transition={{ type: 'timing', duration: 300 } as any}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 999,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            backgroundColor: '#F59E0B',
+            paddingVertical: 8,
+            paddingTop: 8 + (insets.top > 0 ? insets.top : 0),
+          }}
+        >
+          <Ionicons name="cloud-offline-outline" size={14} color="#000" />
+          <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 12, color: '#000' }}>
+            No internet connection
+          </Text>
+        </MotiView>
+      )}
+
       {/* Map layer */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
@@ -183,8 +241,11 @@ export default function HomeScreen() {
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 65 }}
         >
           <Pressable
-            style={styles.bellButton}
+            style={[styles.bellButton, { minWidth: 44, minHeight: 44 }]}
             onPress={() => router.push('/(tabs)/notifications')}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
           >
             <Ionicons name="notifications-outline" size={20} color={colors.onSurface} />
             {unreadCount > 0 && (
@@ -204,6 +265,7 @@ export default function HomeScreen() {
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandle}
         enablePanDownToClose={false}
+        enableContentPanningGesture={false}
       >
         <BottomSheetScrollView
           contentContainerStyle={styles.sheetContent}
@@ -236,13 +298,41 @@ export default function HomeScreen() {
                 />
               </View>
               {searchQuery.length > 0 ? (
-                <Pressable onPress={() => setSearchQuery('')} hitSlop={10}>
+                <Pressable onPress={() => setSearchQuery('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear search">
                   <Ionicons name="close-circle" size={24} color={colors.onSurfaceVariant} />
                 </Pressable>
               ) : (
                 <Ionicons name="search" size={24} color={colors.primary} />
               )}
             </View>
+          </MotiView>
+
+          {/* Quick-action pills */}
+          <MotiView
+            from={{ opacity: 0, translateY: 6 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+            style={styles.quickActionsRow}
+          >
+            {([
+              { label: 'Saved', icon: 'bookmark-outline', route: '/profile/saved-places' },
+              { label: 'Promos', icon: 'gift-outline', route: '/profile/promotions' },
+              { label: 'Wallet', icon: 'wallet-outline', route: '/profile/wallet' },
+            ] as const).map((action) => (
+              <Pressable
+                key={action.label}
+                onPress={() => router.push(action.route as any)}
+                style={styles.quickActionPill}
+                accessibilityRole="button"
+              >
+                <BlurView intensity={40} tint="dark" style={styles.quickActionBlur}>
+                  <Ionicons name={action.icon} size={16} color={colors.primary} />
+                  <Text style={[styles.quickActionLabel, { color: colors.onSurface }]}>
+                    {action.label}
+                  </Text>
+                </BlurView>
+              </Pressable>
+            ))}
           </MotiView>
 
           {/* Tier filter chips */}
@@ -265,6 +355,9 @@ export default function HomeScreen() {
                     activeTier === tier && styles.tierChipActive,
                   ]}
                   onPress={() => setActiveTier(tier)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: activeTier === tier }}
+                  accessibilityLabel={`${tier} tier${activeTier === tier ? ', selected' : ''}`}
                 >
                   <Text
                     variant="label"
@@ -303,6 +396,23 @@ export default function HomeScreen() {
                 <Skeleton key={i} height={110} borderRadius={radii.xl} style={{ marginBottom: spacing.md }} />
               ))}
             </>
+          ) : ridesError ? (
+            <MotiView
+              from={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              style={styles.emptyRides}
+            >
+              <Ionicons name="cloud-offline-outline" size={32} color={colors.onSurfaceVariant} />
+              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
+                Failed to load rides. Please try again.
+              </Text>
+              <Pressable
+                onPress={() => refetchRides()}
+                style={{ marginTop: spacing.md, backgroundColor: colors.primary, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radii.full }}
+              >
+                <Text variant="label" color={colors.onPrimary}>Retry</Text>
+              </Pressable>
+            </MotiView>
           ) : filteredRides.length === 0 ? (
             <MotiView
               from={{ opacity: 0 }}
@@ -321,8 +431,7 @@ export default function HomeScreen() {
                 id: ride.id,
                 tier: ride.tier === 'ECO' ? 'ECONOMY' : 'COMFORT',
                 scheduledAt: ride.departureTime,
-                // Always use the backend-calculated estimateFare value.
-                farePerSeat: ride.fare ?? 0,
+                farePerSeat: ride.farePerSeat ?? 0,
                 confirmedSeats: ride.bookings?.length ?? 0,
                 maxCapacity: ride.maxSeats ?? 12,
                 pendingSeats: 0,
@@ -528,6 +637,29 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: colors.primary,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  quickActionPill: {
+    flex: 1,
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+  },
+  quickActionBlur: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm + 2,
+  },
+  quickActionLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
   },
   tierScroll: { marginHorizontal: -spacing['2xl'] },
   tierRow: {
