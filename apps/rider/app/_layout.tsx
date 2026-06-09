@@ -1,6 +1,6 @@
 import '../global.css';
 import '../i18n';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '../i18n';
 import MapboxGL from '../utils/mapbox';
@@ -8,7 +8,7 @@ import MapboxGL from '../utils/mapbox';
 MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? 'pk.eyJ1Ijoic3BlbmNlcmdlZWUiLCJhIjoiY21wYmIycDA3MDNjZTMyc2Jqb3Y4dHpkdyJ9.ddGHkuKhBnc2dooWiIVjWQ');
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, View } from 'react-native';
+import { Platform, View, Animated } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Constants from 'expo-constants';
@@ -30,11 +30,20 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
-import { configureApiClient, configureSocket, userApi } from '@eyego/api';
+import { configureApiClient, configureSocket, refreshSocketAuth, userApi } from '@eyego/api';
 import { useColors } from '../utils/useColors';
+import { Text } from '@eyego/ui';
+import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { initSentry, captureException } from '../lib/sentry';
 import { offlineQueue } from '../utils/offlineQueue';
+
+// Initialize crash/error tracking as early as possible (no-op without DSN)
+initSentry();
 import { TripStatusListener } from '../components/TripStatusListener';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import NetInfo from '@react-native-community/netinfo';
+import * as Linking from 'expo-linking';
 
 // Global JS Exception Handler for robust dev logging
 if (global.ErrorUtils && __DEV__) {
@@ -51,6 +60,13 @@ if (global.ErrorUtils && __DEV__) {
 const isExpoGo =
   Constants.appOwnership === 'expo' ||
   (Constants as any).executionEnvironment === 'storeClient';
+
+// ── Global connectivity observer ──
+let globalNetInfoUnsubscribe: (() => void) | null = null;
+let globalIsOffline = false;
+// Exported so any screen or component can read the latest value synchronously
+export function isGloballyOffline(): boolean { return globalIsOffline; }
+export function getGlobalNetInfoUnsubscribe(): (() => void) | null { return globalNetInfoUnsubscribe; }
 
 // Handle foreground notifications
 if (!isExpoGo) {
@@ -112,12 +128,41 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  console.log('[EyeGo] RootLayout mounting — isExpoGo:', isExpoGo, 'appOwnership:', Constants.appOwnership);
+  // isExpoGo is derived above — used for conditional logic throughout
   const { loadFromStorage, accessToken, refreshToken, logout, login, isLoggedIn, isLoading } = useAuthStore();
   const segments = useSegments();
   const { load: loadTheme, isDark } = useThemeStore();
   const colors = useColors();
   const router = useRouter();
+
+  const insets = useSafeAreaInsets();
+
+  const [isOffline, setIsOffline] = useState(false);
+  const offlineAnim = useRef(new Animated.Value(0)).current;
+
+  const [inAppBanner, setInAppBanner] = useState<{ title: string; body: string } | null>(null);
+  const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showInAppBanner = useCallback((title: string, body: string) => {
+    setInAppBanner({ title, body });
+    if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
+    bannerTimeoutRef.current = setTimeout(() => setInAppBanner(null), 4000);
+  }, []);
+
+  useEffect(() => {
+    const unsub = NetInfo.addEventListener((state) => {
+      const offline = !(state.isConnected ?? true);
+      globalIsOffline = offline;
+      setIsOffline(offline);
+      Animated.timing(offlineAnim, {
+        toValue: offline ? 1 : 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    });
+    globalNetInfoUnsubscribe = unsub;
+    return () => { unsub(); globalNetInfoUnsubscribe = null; };
+  }, [offlineAnim]);
 
   const [fontsLoaded] = useFonts({
     SpaceGrotesk_300Light,
@@ -132,17 +177,33 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  // RC2: Catch unhandled fatal errors in production (dev is handled above at module level)
   useEffect(() => {
-    // Flush the offline queue on app boot
-    offlineQueue.flushQueue();
+    if (!__DEV__ && global.ErrorUtils) {
+      const previousHandler = global.ErrorUtils.getGlobalHandler();
+      global.ErrorUtils.setGlobalHandler((error: any, isFatal: any) => {
+        if (isFatal) {
+          captureException(error, { isFatal: true, source: 'globalHandler' });
+          console.error('Fatal error:', error);
+        }
+        if (previousHandler) previousHandler(error, isFatal);
+      });
+    }
+  }, []);
 
-    // Wire up API client token callbacks
+  useEffect(() => {
+    // RC3 / RM4: Configure API client first, THEN flush the offline queue
+    // so queued requests have auth headers attached when replayed.
+    // Intentionally runs once on mount — configures singleton API/socket clients
+    // using store getters (not React state) so no deps are needed.
     configureApiClient({
       getAccessToken: () => useAuthStore.getState().accessToken,
       getRefreshToken: () => useAuthStore.getState().refreshToken,
       onTokenRefreshed: ({ accessToken, refreshToken }) => {
         const user = useAuthStore.getState().user!;
         login(user, { accessToken, refreshToken });
+        // RC1: Re-authenticate socket with the new token
+        refreshSocketAuth();
       },
       onLogout: () => {
         useAuthStore.getState().logout();
@@ -155,6 +216,10 @@ export default function RootLayout() {
 
     loadFromStorage();
     loadTheme();
+
+    // RM4: Flush after configureApiClient so queued requests have auth headers
+    offlineQueue.flushQueue();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Guard: once storage has loaded, if user is not authenticated and not already
@@ -166,7 +231,7 @@ export default function RootLayout() {
     if (!isLoggedIn && !inPublicArea) {
       router.replace('/(auth)/phone');
     }
-  }, [isLoggedIn, isLoading, segments]);
+  }, [isLoggedIn, isLoading, segments, router]);
 
   // Register for push notifications after user is logged in
   useEffect(() => {
@@ -175,25 +240,77 @@ export default function RootLayout() {
     }
   }, [isLoggedIn]);
 
-  // Handle notification tap → deep link
+  // Handle notification tap → deep link + foreground banner
   useEffect(() => {
     if (isExpoGo) return;
     try {
       const Notifications = require('expo-notifications');
-      const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
-        const data = response.notification.request.content.data as any;
-        if (data?.tripId) {
-          router.push(`/ride/${data.tripId}/tracking` as any);
-        } else if (data?.screen) {
-          router.push(data.screen as any);
-        } else if (data?.deepLink) {
-          router.push(data.deepLink as any);
+
+      // Foreground banner handler — shows in-app banner when notification arrives while app is open
+      const receivedSub = Notifications.addNotificationReceivedListener((notification: any) => {
+        const title = notification.request.content.title ?? '';
+        const body = notification.request.content.body ?? '';
+        if (title || body) {
+          showInAppBanner(title, body);
         }
       });
-      return () => subscription.remove();
+
+      const responseSub = Notifications.addNotificationResponseReceivedListener((response: any) => {
+        const data = response.notification.request.content.data as any;
+        const { type, tripId, bookingId, screen, deepLink } = data ?? {};
+        if (type === 'TRIP_CONFIRMED' && bookingId) {
+          router.push(`/ride/${bookingId}` as any);
+        } else if ((type === 'DRIVER_EN_ROUTE' || type === 'ARRIVED_AT_PICKUP') && bookingId) {
+          router.push(`/ride/${bookingId}/tracking` as any);
+        } else if ((type === 'CHAT_MESSAGE' || type === 'PRIVATE_CHAT') && tripId) {
+          router.push(`/ride/${tripId}/chat` as any);
+        } else if (type === 'TRIP_COMPLETED' && bookingId) {
+          router.push(`/ride/${bookingId}/complete` as any);
+        } else if (type === 'SOS_RESOLVED' && tripId) {
+          router.push(`/ride/${tripId}/tracking` as any);
+        } else if (tripId) {
+          router.push(`/ride/${tripId}/tracking` as any);
+        } else if (screen) {
+          router.push(screen as any);
+        } else if (deepLink) {
+          router.push(deepLink as any);
+        }
+      });
+
+      return () => {
+        responseSub.remove();
+        receivedSub.remove();
+        if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
+      };
     } catch (e) {
       console.warn('[Notifications] Error in response listener:', e);
     }
+  }, [router, showInAppBanner]);
+
+  // Handle invite deep links (e.g. eyego://join/abc123 or https://eyego.app/invite/abc123)
+  useEffect(() => {
+    const handleUrl = ({ url }: { url: string }) => {
+      try {
+        const parsed = Linking.parse(url);
+        const path = parsed.path ?? '';
+        // Match both /invite/:token and /join/:token path formats
+        const inviteMatch = path.match(/(?:invite|join)\/([a-zA-Z0-9]+)/);
+        if (inviteMatch) {
+          router.push(`/join/${inviteMatch[1]}` as any);
+        }
+      } catch (e) {
+        console.warn('[Linking] Failed to parse URL:', e);
+      }
+    };
+
+    // Handle links that open the app from cold start
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+
+    // Handle links while app is running
+    const sub = Linking.addEventListener('url', handleUrl);
+    return () => sub.remove();
   }, [router]);
 
   useEffect(() => {
@@ -212,10 +329,8 @@ export default function RootLayout() {
   }, []);
 
   if (!fontsLoaded) {
-    console.log('[EyeGo] Waiting for fonts…');
     return <View style={{ flex: 1, backgroundColor: colors.backgroundDeep ?? '#0a0a0a' }} />;
   }
-  console.log('[EyeGo] Fonts loaded — rendering Stack');
 
   return (
     <I18nextProvider i18n={i18n}>
@@ -355,8 +470,95 @@ export default function RootLayout() {
               options={{ animation: 'fade' }}
             />
           </Stack>
+          {/* Connectivity banner — slides down from top when offline */}
+          <Animated.View
+            style={{
+              position: 'absolute',
+              top: 54,
+              left: 16,
+              right: 16,
+              zIndex: 100,
+              transform: [{
+                translateY: offlineAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-60, 0],
+                }),
+              }],
+              opacity: offlineAnim,
+            }}
+            pointerEvents={isOffline ? 'auto' : 'none'}
+          >
+            <View
+              style={{
+                backgroundColor: '#EF4444',
+                borderRadius: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                shadowColor: '#EF4444',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 6,
+              }}
+            >
+              <Ionicons name="cloud-offline-outline" size={16} color="#fff" />
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontFamily: 'SpaceGrotesk_600SemiBold',
+                    fontSize: 12,
+                    color: '#fff',
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  No internet connection
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: 'Inter_400Regular',
+                    fontSize: 11,
+                    color: 'rgba(255,255,255,0.8)',
+                    marginTop: 2,
+                  }}
+                >
+                  Some features may be unavailable
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
           {/* Global trip-status banner — rendered AFTER Stack so it layers above all screens */}
           <TripStatusListener />
+          {/* Global foreground push notification banner */}
+          {inAppBanner && (
+            <View
+              style={{
+                position: 'absolute',
+                top: insets.top + 8,
+                left: 16,
+                right: 16,
+                backgroundColor: '#1e1e2e',
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: 'rgba(75,226,119,0.4)',
+                padding: 14,
+                gap: 4,
+                zIndex: 9999,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.3,
+                shadowRadius: 8,
+                elevation: 10,
+              }}
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+            >
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }} numberOfLines={1}>{inAppBanner.title}</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} numberOfLines={2}>{inAppBanner.body}</Text>
+            </View>
+          )}
         </QueryClientProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
