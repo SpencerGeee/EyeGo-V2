@@ -18,7 +18,7 @@ import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { MotiView } from 'moti';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../stores/auth.store';
@@ -108,6 +108,7 @@ export default function HomeScreen() {
   }, []);
 
   const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: ridesData, isLoading: ridesLoading, isError: ridesError, error: ridesErrorObj, refetch: refetchRides } = useQuery({
     queryKey: queryKeys.rides.list({ tier: activeTier }),
@@ -119,9 +120,13 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetchRides();
-    setRefreshing(false);
-  }, [refetchRides]);
+    try {
+      await queryClient.invalidateQueries({ queryKey: ['rides'] });
+      await refetchRides();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient, refetchRides]);
 
   const { data: unreadData } = useQuery({
     queryKey: queryKeys.notifications.unreadCount(),
