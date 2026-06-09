@@ -46,6 +46,6 @@ export interface TripEtaEvent {
 
 export interface TripStatusEvent {
   tripId: string;
-  status: import('./trip.types').TripStatus;
+  status: import('./trip.types').TripStatus | 'DRIVER_EN_ROUTE' | 'NO_SHOW' | 'REFUNDED';
   message: string;
 }
