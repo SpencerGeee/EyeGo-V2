@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,7 +8,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  TouchableOpacity,
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,10 +16,12 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { connectSocket, socketEvents, getSocket, tripsApi } from '@eyego/api';
+import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { scheduleLocalNotification } from '../../../utils/notifications';
 import { Text } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 
@@ -32,6 +33,9 @@ interface ChatMessage {
   timestamp: string;
   isMine: boolean;
   status?: 'sending' | 'sent' | 'failed' | 'offline';
+  isPrivate?: boolean;
+  senderRole?: string;
+  readAt?: string | null;
 }
 
 const QUICK_REPLIES = [
@@ -97,7 +101,14 @@ export default function ChatScreen() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [isDriverTyping, setIsDriverTyping] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingRef = useRef(false);
   const flatListRef = useRef<FlatList>(null);
+  const visibleMessageIdsRef = useRef<Set<string>>(new Set());
+  // Track which unread message IDs we've already sent read receipts for
+  // to avoid re-sending on every re-render (race condition fix)
+  const sentReadReceiptsRef = useRef<Set<string>>(new Set());
 
   const driver = syncedTrip?.driver;
 
@@ -137,6 +148,16 @@ export default function ChatScreen() {
     );
   }, [id]);
 
+  // R18: Re-process offline outbox whenever connectivity is restored
+  useEffect(() => {
+    const unsubNetInfo = NetInfo.addEventListener((state) => {
+      if (state.isConnected && getSocket().connected) {
+        processOfflineOutbox();
+      }
+    });
+    return () => unsubNetInfo();
+  }, [processOfflineOutbox]);
+
   // Load cached history on mount
   useEffect(() => {
     if (!id) return;
@@ -158,9 +179,31 @@ export default function ChatScreen() {
     }
   }, [id, messages]);
 
+  // Stable refs to avoid socket re-subscribe on selectedTrip changes
+  const driverIdRef = useRef<string | undefined>(undefined);
+  const joinedRoomRef = useRef(false);
+  // Refs for latest id/user to avoid stale closures in socket callbacks (R11)
+  const idRef = useRef(id);
+  const userRef = useRef(user);
+  useEffect(() => { idRef.current = id; }, [id]);
+  useEffect(() => { userRef.current = user; }, [user]);
+
   useEffect(() => {
+    const driverId = syncedTrip?.driver?.id;
+    if (driverId && driverId !== driverIdRef.current) {
+      driverIdRef.current = driverId;
+    }
+  }, [syncedTrip?.driver?.id]);
+
+  useEffect(() => {
+    if (!id) return;
     connectSocket();
-    socketEvents.joinTripRoom(id!, syncedTrip?.driver?.id);
+
+    // Only join room if we haven't already joined (prevents double-join)
+    if (!joinedRoomRef.current) {
+      socketEvents.joinTripRoom(id, driverIdRef.current);
+      joinedRoomRef.current = true;
+    }
 
     // Process outbox if already connected
     if (getSocket().connected) {
@@ -172,57 +215,153 @@ export default function ChatScreen() {
     });
 
     const unsubHistory = socketEvents.onChatHistory((history) => {
+      // Read latest userId from ref to avoid stale closure
+      const currentUserId = userRef.current?.id;
       const parsed: ChatMessage[] = history.map((msg: any) => ({
         id: `${msg.timestamp}-${msg.senderId}`,
         senderId: msg.senderId,
         senderName: msg.senderName,
         text: msg.text,
         timestamp: msg.timestamp,
-        isMine: msg.senderId === user?.id,
+        isMine: msg.senderId === currentUserId,
+        isPrivate: msg.isPrivate ?? false,
+        senderRole: msg.senderRole,
       }));
-      
+
       setMessages((prev) => {
         const offlineMsgs = prev.filter((m) => m.status === 'offline' || m.status === 'sending');
         return [...offlineMsgs, ...parsed];
       });
     });
 
+    // Listen for read receipts
+    const unsubReadReceipt = socketEvents.onReadReceipt((data) => {
+      if (data.tripId !== id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          data.messageIds.includes(m.id) && !m.isMine
+            ? { ...m, readAt: new Date().toISOString() }
+            : m,
+        ),
+      );
+    });
+
+    const unsubPrivate = socketEvents.onPrivateChatMessage((msg) => {
+      const currentUserId = userRef.current?.id;
+      const incoming: ChatMessage = {
+        id: `${msg.timestamp}-${msg.senderId}-private`,
+        senderId: msg.senderId,
+        senderName: msg.senderName,
+        text: msg.text,
+        timestamp: msg.timestamp,
+        isMine: msg.senderId === currentUserId,
+        isPrivate: true,
+        senderRole: 'DRIVER',
+      };
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === incoming.id)) return prev;
+        return [incoming, ...prev];
+      });
+    });
+
     const unsub = socketEvents.onChatMessage((msg) => {
+      // Read latest userId from ref to avoid stale closure (R11)
+      const currentUserId = userRef.current?.id;
+      const isMine = msg.senderId === currentUserId;
       const incoming: ChatMessage = {
         id: `${msg.timestamp}-${msg.senderId}`,
         senderId: msg.senderId,
         senderName: msg.senderName,
         text: msg.text,
         timestamp: msg.timestamp,
-        isMine: msg.senderId === user?.id,
+        isMine,
+        isPrivate: (msg as any).isPrivate ?? false,
+        senderRole: (msg as any).senderRole,
       };
+      // Notify rider when driver (or another user) sends a message
+      if (!isMine) {
+        scheduleLocalNotification(
+          msg.senderName ?? 'Driver',
+          msg.text,
+          { tripId: id, type: 'chat' },
+        );
+      }
       setMessages((prev) => {
-        if (incoming.isMine) {
-          const index = prev.findIndex(
+        // Exact ID match — already present
+        if (prev.some((m) => m.id === incoming.id)) return prev;
+
+        const fiveSecAgo = Date.now() - 5000;
+
+        if (isMine) {
+          // Replace optimistic entry sent by this rider
+          const idx = prev.findIndex(
             (m) =>
               m.isMine &&
               m.text === incoming.text &&
-              (m.id.endsWith('-me') || m.status === 'offline' || m.status === 'sending')
+              (m.id.endsWith('-me') || m.status === 'offline' || m.status === 'sending'),
           );
-          if (index !== -1) {
+          if (idx !== -1) {
             const updated = [...prev];
-            updated[index] = incoming;
+            updated[idx] = incoming;
+            return updated;
+          }
+        } else {
+          // userRef may not be set yet — also check for a recent optimistic '-me' message
+          // with the same text to prevent a duplicate when the echo arrives before userRef resolves
+          const echoIdx = prev.findIndex(
+            (m) =>
+              m.text === incoming.text &&
+              m.id.endsWith('-me') &&
+              parseInt(m.id.split('-me')[0] ?? '0', 10) > fiveSecAgo,
+          );
+          if (echoIdx !== -1) {
+            const updated = [...prev];
+            updated[echoIdx] = { ...incoming, isMine: true };
             return updated;
           }
         }
-        if (prev.some((m) => m.id === incoming.id)) {
-          return prev;
-        }
         return [incoming, ...prev];
       });
+    });
+
+    const unsubTyping = socketEvents.onTyping((data) => {
+      if (data.senderRole === 'DRIVER') {
+        setIsDriverTyping(data.isTyping);
+        // Auto-clear after 5s in case stop event is missed
+        if (data.isTyping) {
+          setTimeout(() => setIsDriverTyping(false), 5000);
+        }
+      }
     });
 
     return () => {
       unsub();
       unsubHistory();
       unsubConnect();
+      unsubPrivate();
+      unsubReadReceipt();
+      unsubTyping();
+      // Only leave this chat room — do NOT call global disconnectSocket()
+      // as that would tear down the tracking socket used by other screens (R10)
+      if (id) socketEvents.leaveTripRoom(id);
+      // Reset join guard on unmount so re-mount re-joins
+      joinedRoomRef.current = false;
     };
-  }, [id, selectedTrip, user, processOfflineOutbox]);
+  }, [id, processOfflineOutbox]);
+
+  // Auto-send read receipts for messages from others that are visible
+  // Uses a ref to track already-sent receipts to avoid re-sending on re-renders
+  useEffect(() => {
+    if (!id || !getSocket().connected || messages.length === 0) return;
+    const unreadIds = messages
+      .filter((m) => !m.isMine && !m.readAt && !sentReadReceiptsRef.current.has(m.id))
+      .map((m) => m.id);
+    if (unreadIds.length > 0) {
+      // Mark these as sent immediately to prevent re-sending
+      unreadIds.forEach((msgId) => sentReadReceiptsRef.current.add(msgId));
+      socketEvents.sendReadReceipt(id, unreadIds);
+    }
+  }, [id, messages.length]);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -295,8 +434,12 @@ export default function ChatScreen() {
           style={[
             styles.bubble,
             item.isMine ? styles.bubbleMine : styles.bubbleTheirs,
+            item.isPrivate && !item.isMine && styles.bubblePrivate,
           ]}
         >
+          {item.isPrivate && !item.isMine && (
+            <Text style={styles.privateBadge}>🔒 Private message</Text>
+          )}
           <Text
             style={[
               styles.bubbleText,
@@ -306,16 +449,30 @@ export default function ChatScreen() {
             {item.text}
           </Text>
         </View>
-        <Text
-          variant="caption"
-          color={colors.onSurfaceVariant}
-          style={[
-            styles.timestamp,
-            item.isMine ? { textAlign: 'right' } : { textAlign: 'left' },
-          ]}
-        >
-          {formatTime(item.timestamp)}
-        </Text>
+        <View style={styles.timestampRow}>
+          <Text
+            variant="caption"
+            color={colors.onSurfaceVariant}
+            style={[
+              styles.timestamp,
+              item.isMine ? { textAlign: 'right' } : { textAlign: 'left' },
+            ]}
+          >
+            {formatTime(item.timestamp)}
+          </Text>
+          {/* Read receipt indicator — shown on own messages */}
+          {item.isMine && (
+            <View style={styles.readStatus}>
+              {item.readAt ? (
+                <Ionicons name="checkmark-done" size={12} color={colors.onPrimary} />
+              ) : (
+                !item.status && (
+                  <Ionicons name="checkmark" size={12} color="rgba(255,255,255,0.5)" />
+                )
+              )}
+            </View>
+          )}
+        </View>
       </View>
       {!item.isMine && item.status && (
         <Text
@@ -333,9 +490,9 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <View style={styles.headerCenter}>
           <View style={styles.headerAvatar}>
             {driver?.avatarUrl ? (
@@ -351,16 +508,15 @@ export default function ChatScreen() {
             </Text>
           </View>
         </View>
-        <TouchableOpacity
+        <Pressable
           onPress={() => {
             const phone = (driver as any)?.phone;
             if (phone) require('react-native').Linking.openURL(`tel:${phone}`);
           }}
           style={styles.callBtn}
-          activeOpacity={0.7}
         >
           <Ionicons name="call-outline" size={20} color={colors.primary} />
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       <KeyboardAvoidingView
@@ -377,6 +533,38 @@ export default function ChatScreen() {
           inverted
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          ListHeaderComponent={
+            isDriverTyping ? (
+              <MotiView
+                from={{ opacity: 0, translateY: 4 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ type: 'timing', duration: 200 } as any}
+                style={[styles.bubbleWrapper, styles.bubbleWrapperLeft, { marginBottom: spacing.xs }]}
+              >
+                <View style={styles.avatarSmall}>
+                  {driver?.avatarUrl ? (
+                    <Image source={{ uri: driver.avatarUrl }} style={styles.avatarSmallImg} />
+                  ) : (
+                    <Ionicons name="person" size={14} color={colors.onSurfaceVariant} />
+                  )}
+                </View>
+                <View style={[styles.bubble, styles.bubbleTheirs, { paddingVertical: 10, paddingHorizontal: 14 }]}>
+                  <View style={{ flexDirection: 'row', gap: 4, alignItems: 'center' }}>
+                    {[0, 1, 2].map((i) => (
+                      <MotiView
+                        key={i}
+                        from={{ translateY: 0 }}
+                        animate={{ translateY: -4 }}
+                        transition={{ type: 'timing', duration: 400, loop: true, delay: i * 120 } as any}
+                        style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.onSurfaceVariant }}
+                      />
+                    ))}
+                  </View>
+                </View>
+              </MotiView>
+            ) : null
+          }
           ListEmptyComponent={
             <MotiView
               from={{ opacity: 0 }}
@@ -416,7 +604,19 @@ export default function ChatScreen() {
         <View style={styles.inputBar}>
           <TextInput
             value={input}
-            onChangeText={setInput}
+            onChangeText={(text) => {
+              setInput(text);
+              if (!id) return;
+              if (!isTypingRef.current) {
+                isTypingRef.current = true;
+                socketEvents.sendTypingStart(id);
+              }
+              if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+              typingTimeoutRef.current = setTimeout(() => {
+                isTypingRef.current = false;
+                socketEvents.sendTypingStop(id);
+              }, 2000);
+            }}
             placeholder="Message your driver..."
             placeholderTextColor={colors.onSurfaceVariant}
             style={styles.textInput}
@@ -532,12 +732,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceContainerHigh,
     borderBottomLeftRadius: 4,
   },
+  bubblePrivate: {
+    backgroundColor: `${colors.primary}18`,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+  },
+  privateBadge: {
+    fontFamily: fonts.medium,
+    fontSize: 10,
+    color: colors.primary,
+    marginBottom: 4,
+    opacity: 0.8,
+  },
   bubbleText: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
     lineHeight: 20,
   },
+  timestampRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 3,
+  },
   timestamp: { marginTop: 3, paddingHorizontal: spacing.xs },
+  readStatus: {
+    marginTop: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   quickRepliesScroll: {
     borderTopWidth: 1,
     borderTopColor: colors.outlineVariant,
