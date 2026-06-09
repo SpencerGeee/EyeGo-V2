@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, Alert } from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, StyleSheet, Pressable, Alert, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
+import { LinearGradient } from 'expo-linear-gradient';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, queryKeys } from '@eyego/api';
@@ -32,9 +33,9 @@ export default function TripsScreen() {
   const queryClient = useQueryClient();
 
   // Navigate to the cancel screen (with reason picker) instead of a bare Alert
-  const handleCancel = (bookingId: string) => {
+  const handleCancel = useCallback((bookingId: string) => {
     router.push({ pathname: '/ride/[id]/cancel', params: { id: bookingId } } as any);
-  };
+  }, [router]);
 
   const { data: activeData } = useQuery({
     queryKey: ['bookings', 'active'],
@@ -52,7 +53,7 @@ export default function TripsScreen() {
       ? rawBooking
       : null;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch: refetchBookings } = useQuery({
     queryKey: [...queryKeys.bookings.myHistory(), segment],
     queryFn: () =>
       bookingsApi.getHistory(
@@ -62,6 +63,36 @@ export default function TripsScreen() {
       ),
     refetchOnMount: true,
   });
+
+  const renderTripItem = useCallback(({ item }: { item: Booking }) => (
+    <View style={styles.cardWrapper}>
+      <Pressable
+        style={[
+          styles.tripCard,
+          { borderLeftWidth: 3, borderLeftColor: segment === 'Upcoming' ? colors.primary : colors.outlineVariant },
+        ]}
+        onPress={() => router.push(`/ride/${item.tripId}` as any)}
+        accessibilityRole="button"
+        accessibilityLabel={`Trip from ${(item as any).trip?.route?.originName ?? 'Origin'} to ${(item as any).trip?.route?.destinationName ?? 'Destination'}`}
+      >
+        <TripCard
+          booking={item}
+          showCancel={segment === 'Upcoming' && ['CONFIRMED', 'SEAT_HELD', 'BOARDED'].includes(item.status)}
+          onCancel={() => handleCancel(item.id)}
+          showDispute={segment === 'Past' && ['COMPLETED', 'CANCELLED'].includes(displayStatusFor(item as Booking))}
+          onDispute={() => router.push({ pathname: '/ride/[id]/dispute', params: { id: item.id } } as any)}
+        />
+      </Pressable>
+    </View>
+  ), [styles, colors, segment, router, handleCancel]);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await queryClient.invalidateQueries({ queryKey: [...queryKeys.bookings.myHistory(), segment] });
+    await refetchBookings();
+    setRefreshing(false);
+  }, [queryClient, refetchBookings, segment]);
 
   const rawBookings = (data?.data?.data?.bookings ?? []) as Booking[];
   const bookings = useMemo(() => {
@@ -101,29 +132,36 @@ export default function TripsScreen() {
           style={styles.activeBanner}
         >
           <Pressable
-            style={styles.activeBannerInner}
             onPress={() => router.push(`/ride/${activeBooking.tripId}/tracking` as any)}
+            style={styles.activeBannerPressable}
           >
+            <LinearGradient
+              colors={[colors.primary + 'CC', colors.secondary ? colors.secondary + '88' : colors.primary + '44']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.activeBannerInner}
+            >
             <View style={styles.activeBadge}>
               <Text style={styles.activeBadgeText}>In Progress</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text variant="titleSmall" numberOfLines={1}>
+              <Text variant="titleSmall" numberOfLines={1} color={colors.onPrimary}>
                 {(activeBooking as any).trip?.origin?.address?.split(',')[0] ?? 'Active Ride'}
                 {' → '}
                 {(activeBooking as any).trip?.destination?.address?.split(',')[0] ?? ''}
               </Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
+              <Text variant="caption" color={colors.onPrimary + 'CC'}>
                 Seat #{activeBooking.seatNumber ?? '—'} · Tap to track
               </Text>
             </View>
-            <Text variant="fareSmall" color={colors.primary}>
+            <Text variant="fareSmall" color={colors.onPrimary}>
               {formatCurrency(
                 (activeBooking as any).fareAmount ??
                 (activeBooking as any).fare ??
                 (activeBooking as any).trip?.farePerSeat ?? 0
               )}
             </Text>
+            </LinearGradient>
           </Pressable>
         </MotiView>
       )}
@@ -140,6 +178,9 @@ export default function TripsScreen() {
             key={s}
             style={[styles.segmentItem, segment === s && styles.segmentItemActive]}
             onPress={() => setSegment(s)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: segment === s }}
+            accessibilityLabel={`${s} trips${segment === s ? ', selected' : ''}`}
           >
             <Text
               variant="label"
@@ -176,27 +217,15 @@ export default function TripsScreen() {
           estimatedItemSize={108}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item, index }) => (
-            <MotiView
-              from={{ opacity: 0, translateY: 10 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: index * 40 }}
-              style={styles.cardWrapper}
-            >
-              <Pressable
-                style={styles.tripCard}
-                onPress={() => router.push(`/ride/${item.tripId}` as any)}
-              >
-                <TripCard
-                  booking={item}
-                  showCancel={segment === 'Upcoming' && ['CONFIRMED', 'SEAT_HELD', 'BOARDED'].includes(item.status)}
-                  onCancel={() => handleCancel(item.id)}
-                  showDispute={segment === 'Past' && ['COMPLETED', 'CANCELLED'].includes(displayStatusFor(item as Booking))}
-                  onDispute={() => router.push({ pathname: '/ride/[id]/dispute', params: { id: item.id } } as any)}
-                />
-              </Pressable>
-            </MotiView>
-          )}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+          renderItem={renderTripItem}
         />
       )}
     </SafeAreaView>
@@ -244,11 +273,29 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
         </Text>
       </View>
 
+      {/* Your rating of the driver */}
       {booking.rating && (
         <View style={styles.ratingRow}>
+          <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginRight: spacing.sm }}>
+            Your rating:
+          </Text>
           {Array.from({ length: 5 }).map((_, i) => (
-            <Text key={i} style={{ fontSize: 12 }}>
+            <Text key={i} style={{ fontSize: 12, color: i < booking.rating! ? '#F59E0B' : colors.outlineVariant }}>
               {i < booking.rating! ? '★' : '☆'}
+            </Text>
+          ))}
+        </View>
+      )}
+      {/* Driver's rating of you (passenger rating) */}
+      {(booking as any).passengerRating && (
+        <View style={styles.ratingRow}>
+          <Ionicons name="people-outline" size={12} color={colors.onSurfaceVariant} />
+          <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginRight: spacing.xs }}>
+            Driver rated you:
+          </Text>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Text key={i} style={{ fontSize: 11, color: i < (booking as any).passengerRating! ? '#A78BFA' : colors.outlineVariant }}>
+              {i < (booking as any).passengerRating! ? '★' : '☆'}
             </Text>
           ))}
         </View>
@@ -336,18 +383,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginHorizontal: spacing['2xl'],
     marginBottom: spacing.base,
   },
+  activeBannerPressable: {
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: colors.primary + '60',
+  },
   activeBannerInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    backgroundColor: 'rgba(75, 226, 119, 0.10)',
-    borderRadius: radii.xl,
     padding: spacing.base,
-    borderWidth: 1.5,
-    borderColor: colors.primary + '50',
   },
   activeBadge: {
-    backgroundColor: colors.primary,
+    backgroundColor: 'rgba(0,0,0,0.25)',
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: radii.full,
@@ -355,7 +404,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   activeBadgeText: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
-    color: '#050508',
+    color: colors.onPrimary,
     letterSpacing: 0.5,
   },
 });
