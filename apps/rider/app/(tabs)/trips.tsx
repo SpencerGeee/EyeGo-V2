@@ -3,12 +3,11 @@ import { View, StyleSheet, Pressable, Alert, RefreshControl } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { LinearGradient } from 'expo-linear-gradient';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, spacing, radii } from '@eyego/config';
+import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Skeleton, EmptyState, StatusBadge } from '@eyego/ui';
 import { formatCurrency, formatTripDate } from '@eyego/utils';
@@ -125,45 +124,39 @@ export default function TripsScreen() {
 
       {/* Active booking banner */}
       {activeBooking && (
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-          style={styles.activeBanner}
+        <Pressable
+          onPress={() => router.push(`/ride/${activeBooking.tripId}/tracking` as any)}
+          style={[styles.activeBanner, { borderLeftColor: colors.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel="Active ride — tap to track"
         >
-          <Pressable
-            onPress={() => router.push(`/ride/${activeBooking.tripId}/tracking` as any)}
-            style={styles.activeBannerPressable}
-          >
-            <LinearGradient
-              colors={[colors.primary + 'CC', colors.secondary ? colors.secondary + '88' : colors.primary + '44']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.activeBannerInner}
-            >
-            <View style={styles.activeBadge}>
-              <Text style={styles.activeBadgeText}>In Progress</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text variant="titleSmall" numberOfLines={1} color={colors.onPrimary}>
-                {(activeBooking as any).trip?.origin?.address?.split(',')[0] ?? 'Active Ride'}
-                {' → '}
-                {(activeBooking as any).trip?.destination?.address?.split(',')[0] ?? ''}
-              </Text>
-              <Text variant="caption" color={colors.onPrimary + 'CC'}>
-                Seat #{activeBooking.seatNumber ?? '—'} · Tap to track
-              </Text>
-            </View>
-            <Text variant="fareSmall" color={colors.onPrimary}>
+          <View style={styles.activeBannerLeft}>
+            <View style={[styles.activeDot, { backgroundColor: colors.primary }]} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text variant="labelSmall" color={colors.primary} style={{ letterSpacing: 0.8, marginBottom: 2 }}>
+              RIDE IN PROGRESS
+            </Text>
+            <Text variant="titleSmall" numberOfLines={1}>
+              {(activeBooking as any).trip?.route?.originName ??
+                (activeBooking as any).trip?.origin?.address?.split(',')[0] ?? 'Active Ride'}
+              {' → '}
+              {(activeBooking as any).trip?.route?.destinationName ??
+                (activeBooking as any).trip?.destination?.address?.split(',')[0] ?? ''}
+            </Text>
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              Seat #{activeBooking.seatNumber ?? '—'} ·{' '}
               {formatCurrency(
                 (activeBooking as any).fareAmount ??
                 (activeBooking as any).fare ??
                 (activeBooking as any).trip?.farePerSeat ?? 0
               )}
             </Text>
-            </LinearGradient>
-          </Pressable>
-        </MotiView>
+          </View>
+          <View style={[styles.trackBtn, { backgroundColor: colors.primary + '22' }]}>
+            <Text variant="labelSmall" color={colors.primary}>Track →</Text>
+          </View>
+        </Pressable>
       )}
 
       {/* Segmented control */}
@@ -382,29 +375,29 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   activeBanner: {
     marginHorizontal: spacing['2xl'],
     marginBottom: spacing.base,
-  },
-  activeBannerPressable: {
+    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.xl,
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: colors.primary + '60',
-  },
-  activeBannerInner: {
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    borderLeftWidth: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
     padding: spacing.base,
+    gap: spacing.md,
   },
-  activeBadge: {
-    backgroundColor: 'rgba(0,0,0,0.25)',
+  activeBannerLeft: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 20,
+  },
+  activeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  trackBtn: {
     paddingHorizontal: spacing.sm,
-    paddingVertical: 3,
-    borderRadius: radii.full,
-  },
-  activeBadgeText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 10,
-    color: colors.onPrimary,
-    letterSpacing: 0.5,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.md,
   },
 });
