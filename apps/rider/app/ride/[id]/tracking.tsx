@@ -1,6 +1,7 @@
 import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, Animated } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus } from 'react-native';
 import { BlurView } from 'expo-blur';
+import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -19,22 +20,41 @@ import { shareLiveTracking } from '../../../utils/safety';
 function useLocationInterpolation(targetCoords: { latitude: number; longitude: number; heading?: number } | null) {
   const [coords, setCoords] = useState(targetCoords);
   const animRef = useRef<any>(null);
+  const lastTargetRef = useRef<{ lat: number; lng: number; heading: number } | null>(null);
+  // Keep a ref to the latest rendered coords so the effect closure never goes stale.
+  const coordsRef = useRef(coords);
+  coordsRef.current = coords;
 
   useEffect(() => {
     if (!targetCoords) return;
-    if (!coords) {
+    const targetLat = targetCoords.latitude;
+    const targetLng = targetCoords.longitude;
+    const targetHeading = targetCoords.heading ?? 0;
+
+    // Prevent re-triggering animation if target coordinates are effectively the same
+    // (within 5 decimal places ≈ ~1m at the equator). This avoids restarting the
+    // interpolation loop when the store emits the same location with a new object ref.
+    const prev = lastTargetRef.current;
+    if (
+      prev &&
+      Math.abs(prev.lat - targetLat) < 0.00001 &&
+      Math.abs(prev.lng - targetLng) < 0.00001 &&
+      Math.abs(prev.heading - targetHeading) < 1
+    ) {
+      return;
+    }
+    lastTargetRef.current = { lat: targetLat, lng: targetLng, heading: targetHeading };
+
+    const currentCoords = coordsRef.current;
+    if (!currentCoords) {
       setCoords(targetCoords);
       return;
     }
 
-    const startLat = coords.latitude;
-    const startLng = coords.longitude;
-    const startHeading = coords.heading ?? 0;
-    
-    const endLat = targetCoords.latitude;
-    const endLng = targetCoords.longitude;
-    const endHeading = targetCoords.heading ?? 0;
-    
+    const startLat = currentCoords.latitude;
+    const startLng = currentCoords.longitude;
+    const startHeading = currentCoords.heading ?? 0;
+
     const startTime = Date.now();
     const duration = 3500; // 3.5 seconds match the socket interval
 
@@ -46,19 +66,19 @@ function useLocationInterpolation(targetCoords: { latitude: number; longitude: n
       const progress = Math.min(elapsed / duration, 1);
 
       // Lerp latitude and longitude
-      const currentLat = startLat + (endLat - startLat) * progress;
-      const currentLng = startLng + (endLng - startLng) * progress;
-      
+      const currentLat = startLat + (targetLat - startLat) * progress;
+      const currentLng = startLng + (targetLng - startLng) * progress;
+
       // Interpolate heading (shortest path)
-      let diff = endHeading - startHeading;
+      let diff = targetHeading - startHeading;
       if (diff > 180) diff -= 360;
       if (diff < -180) diff += 360;
       const currentHeading = startHeading + diff * progress;
 
-      setCoords({ 
-        latitude: currentLat, 
-        longitude: currentLng, 
-        heading: (currentHeading + 360) % 360 
+      setCoords({
+        latitude: currentLat,
+        longitude: currentLng,
+        heading: (currentHeading + 360) % 360,
       });
 
       if (progress < 1) {
@@ -71,7 +91,11 @@ function useLocationInterpolation(targetCoords: { latitude: number; longitude: n
     return () => {
       if (animRef.current) cancelAnimationFrame(animRef.current);
     };
-  }, [targetCoords?.latitude, targetCoords?.longitude, targetCoords?.heading]);
+  }, [
+    targetCoords?.latitude,
+    targetCoords?.longitude,
+    targetCoords?.heading,
+  ]);
 
   return coords;
 }
@@ -103,6 +127,13 @@ export default function TrackingScreen() {
     staleTime: 30_000,
     refetchOnMount: true,
   });
+
+  // Track mount state so delayed callbacks don't act after unmount.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Capture bookingId early (while trip is still active) into a stable ref.
   // By the time COMPLETED fires, getActive() returns null — the ref keeps the ID.
@@ -137,16 +168,92 @@ export default function TrackingScreen() {
   }, [syncedTrip]);
 
   const passengerPickupCoord: [number, number] = useMemo(() => {
-    if (trip?.origin) {
+    if (trip?.origin && trip.origin.longitude && trip.origin.latitude) {
       return [trip.origin.longitude, trip.origin.latitude];
     }
     return [-0.187, 5.6037];
-  }, [trip]);
+  }, [trip?.origin?.longitude, trip?.origin?.latitude]);
+
+  const destCoord: [number, number] = useMemo(() => {
+    if (trip?.destination?.longitude && trip?.destination?.latitude) {
+      return [trip.destination.longitude, trip.destination.latitude];
+    }
+    return [-0.19, 5.65];
+  }, [trip?.destination?.longitude, trip?.destination?.latitude]);
+
+  // Trip phase determines routing direction
+  const tripInProgress = syncedTrip?.status === 'IN_PROGRESS';
+
+  // Rider's own GPS — used for pre-trip routing (rider → pickup)
+  const [riderLocation, setRiderLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  useEffect(() => {
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+      .then(pos => setRiderLocation(pos.coords))
+      .catch(() => {});
+  }, []);
+
+  // OSRM road-following route.
+  // Pre-trip: rider GPS → pickup  (so rider knows how to get there)
+  // In-trip:  driver GPS → destination  (live trip tracking)
+  const routeFetchedRef = useRef(false);
+  useEffect(() => {
+    if (routeFetchedRef.current) return;
+    const origin: [number, number] | null = tripInProgress
+      ? [animatedDriverCoord?.longitude ?? 0, animatedDriverCoord?.latitude ?? 0]
+      : riderLocation
+        ? [riderLocation.longitude, riderLocation.latitude]
+        : null;
+    const target: [number, number] = tripInProgress ? destCoord : passengerPickupCoord;
+    if (!origin || isNaN(origin[0]) || isNaN(origin[1])) return;
+
+    routeFetchedRef.current = true;
+    fetch(
+      `https://router.project-osrm.org/route/v1/driving/${origin[0]},${origin[1]};${target[0]},${target[1]}?overview=full&geometries=geojson`
+    )
+      .then(r => r.json())
+      .then(data => {
+        const route = data?.routes?.[0];
+        if (!route) return;
+        const coords: [number, number][] = route.geometry?.coordinates ?? [];
+        const durationSec: number = route.duration ?? 0;
+        if (coords.length >= 2) setRouteCoords(coords);
+        if (durationSec > 0) setTripEta(Math.max(1, Math.ceil(durationSec / 60)));
+      })
+      .catch(() => {});
+  }, [
+    tripInProgress,
+    riderLocation?.longitude,
+    riderLocation?.latitude,
+    animatedDriverCoord?.longitude,
+    animatedDriverCoord?.latitude,
+    destCoord[0], destCoord[1],
+    passengerPickupCoord[0], passengerPickupCoord[1],
+  ]);
+
+  // Reset OSRM fetch flag when trip phase changes (DRIVER_EN_ROUTE → IN_PROGRESS)
+  // so the route is re-fetched for the new origin/target pair.
+  const prevInProgressRef = useRef(tripInProgress);
+  useEffect(() => {
+    if (prevInProgressRef.current !== tripInProgress) {
+      prevInProgressRef.current = tripInProgress;
+      routeFetchedRef.current = false;
+      setRouteCoords([]);
+    }
+  }, [tripInProgress]);
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['44%', '65%'], []);
   const cameraRef = useRef<MapboxGL.Camera>(null);
+  // Guarded setters — only update if the value actually changed to prevent
+  // unnecessary re-renders that could cascade into a "Maximum update depth exceeded" loop.
   const [tripStatus, setTripStatus] = useState('En route');
+  const tripStatusRef = useRef(tripStatus);
+  const safeSetTripStatus = useCallback((next: string) => {
+    if (next !== tripStatusRef.current) {
+      tripStatusRef.current = next;
+      setTripStatus(next);
+    }
+  }, []);
   const [stopsAway, setStopsAway] = useState<number | null>(null);
   const [etaDistanceKm, setEtaDistanceKm] = useState<number | null>(null);
   // Real route polyline from Mapbox Directions — [lng, lat][] pairs
@@ -179,6 +286,35 @@ export default function TrackingScreen() {
 
   KeepAwake.useKeepAwake();
 
+  // ── Stale booking detection: when the app comes to foreground, check if
+  // the trip is still active (could have been completed/cancelled while away) ──
+  useEffect(() => {
+    const handleAppState = async (nextState: AppStateStatus) => {
+      if (nextState === 'active' && activeBookingRef.current?.id) {
+        try {
+          // Fetch the latest booking status from the API
+          const { bookingsApi } = require('@eyego/api');
+          const response = await bookingsApi.getActive();
+          const fresh = (response.data as any)?.data?.booking;
+          if (!fresh) {
+            // Booking no longer active — trip was completed/cancelled while we were away
+            showBanner('Trip status changed while you were away');
+            setTimeout(() => {
+              if (!mountedRef.current) return;
+              disconnectSocket();
+              router.replace(`/ride/${id}/complete` as any);
+            }, 2000);
+          }
+        } catch (_) {
+          // API error — stay on screen, re-check on next foreground event
+        }
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppState);
+    return () => subscription.remove();
+  }, [id, router, showBanner]);
+
   useEffect(() => {
     // connectSocket is idempotent — safe to call even if already connected
     connectSocket();
@@ -209,7 +345,7 @@ export default function TrackingScreen() {
       setTripEta(data.etaMinutes);
       setStopsAway(data.stopsAway ?? null);
       setEtaDistanceKm(data.distanceKm ?? null);
-      setTripStatus(data.message);
+      safeSetTripStatus(data.message);
       if (data.geometry?.coordinates && data.geometry.coordinates.length >= 2) {
         setRouteCoords(data.geometry.coordinates);
       }
@@ -227,10 +363,10 @@ export default function TrackingScreen() {
           router.replace(`/ride/${id}/complete${completedBookingId ? `?bookingId=${completedBookingId}` : ''}` as any);
         }, 1200);
       } else if (data.status === 'DRIVER_EN_ROUTE') {
-        setTripStatus('Driver on the way');
+        safeSetTripStatus('Driver on the way');
         showBanner('Your driver has started the trip');
       } else if (data.status === 'IN_PROGRESS') {
-        setTripStatus('Trip in progress');
+        safeSetTripStatus('Trip in progress');
         showBanner('EyeGo has departed — enjoy the ride!');
       }
     });
@@ -245,7 +381,22 @@ export default function TrackingScreen() {
       unsubStatus();
       if (bannerTimer.current) clearTimeout(bannerTimer.current);
     };
-  }, [id, showBanner]);
+  }, [id, showBanner, setDriverLocation, setTripEta, safeSetTripStatus, setStopsAway, setEtaDistanceKm, setRouteCoords, router]);
+
+  // ── Additional foreground detection for re-joining trip room ──
+  useEffect(() => {
+    const handleAppStateJoin = (nextState: AppStateStatus) => {
+      if (nextState === 'active' && id) {
+        const trip = syncedTripRef.current;
+        const driverId = trip?.driverId ?? (trip?.driver as any)?.id;
+        if (driverId) {
+          socketEvents.joinTripRoom(id, driverId);
+        }
+      }
+    };
+    const subscription = AppState.addEventListener('change', handleAppStateJoin);
+    return () => subscription.remove();
+  }, [id]);
 
   // Re-join trip room once driverId is resolved from async trip data
   // This is separate because syncedTrip loads after the socket connects
@@ -255,10 +406,17 @@ export default function TrackingScreen() {
     socketEvents.joinTripRoom(id, driverId);
   }, [id, syncedTrip?.driverId, syncedTrip?.driver?.id]);
 
-  // Driver location with interpolation — seed from DB coords so marker shows immediately
+  // Driver location with interpolation — seed from DB coords so marker shows immediately.
+  // Use useRef for the fallback coord to avoid creating a new object on every render when
+  // driverLocation is null (which would cause the interpolation hook to re-trigger needlessly).
   const driverDbLat = (syncedTrip?.driver?.currentLat as number | undefined) ?? 5.61;
   const driverDbLng = (syncedTrip?.driver?.currentLng as number | undefined) ?? -0.187;
-  const currentDriverCoord = driverLocation ?? { latitude: driverDbLat, longitude: driverDbLng, heading: 0 };
+  const fallbackCoordRef = useRef({ latitude: driverDbLat, longitude: driverDbLng, heading: 0 });
+  // Only update the fallback ref when the DB coordinates actually change
+  useEffect(() => {
+    fallbackCoordRef.current = { latitude: driverDbLat, longitude: driverDbLng, heading: 0 };
+  }, [driverDbLat, driverDbLng]);
+  const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
   const animatedDriverCoord = useLocationInterpolation(currentDriverCoord);
 
   return (
@@ -275,24 +433,39 @@ export default function TrackingScreen() {
       >
         <MapboxGL.Camera
           ref={cameraRef}
-          centerCoordinate={[animatedDriverCoord.longitude, animatedDriverCoord.latitude]}
+          centerCoordinate={
+            tripInProgress
+              ? [animatedDriverCoord.longitude, animatedDriverCoord.latitude]
+              : passengerPickupCoord
+          }
           zoomLevel={13}
           animationMode="none"
           animationDuration={0}
         />
+        {/* Passenger's current location — person marker shown in pre-trip so rider knows where they are */}
+        {!tripInProgress && riderLocation ? (
+          <MapboxGL.MarkerView coordinate={[riderLocation.longitude, riderLocation.latitude]}>
+            <View style={styles.riderSelfMarker}>
+              <Ionicons name="person" size={14} color="#fff" />
+            </View>
+          </MapboxGL.MarkerView>
+        ) : (
+          <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
+        )}
+
         {/* Pickup marker */}
         <MapboxGL.MarkerView coordinate={passengerPickupCoord}>
           <PulseMarker color={colors.secondary} />
         </MapboxGL.MarkerView>
 
-        {/* Driver marker */}
+        {/* Driver marker — styled circle with car icon */}
         <MapboxGL.MarkerView coordinate={[animatedDriverCoord.longitude, animatedDriverCoord.latitude]}>
           <View style={[styles.driverMarker, { transform: [{ rotate: `${animatedDriverCoord.heading ?? 0}deg` }] }]}>
-            <Text style={{ fontSize: 24 }}>🚐</Text>
+            <Ionicons name="car" size={18} color="#fff" />
           </View>
         </MapboxGL.MarkerView>
 
-        {/* Route line — real polyline from Mapbox Directions, falls back to straight line */}
+        {/* Route line — OSRM road-following polyline, straight-line fallback */}
         <MapboxGL.ShapeSource
           id="routeLine"
           shape={{
@@ -301,10 +474,9 @@ export default function TrackingScreen() {
               type: 'LineString',
               coordinates: routeCoords.length >= 2
                 ? routeCoords
-                : [
-                    [animatedDriverCoord.longitude, animatedDriverCoord.latitude],
-                    passengerPickupCoord,
-                  ],
+                : tripInProgress
+                  ? [[animatedDriverCoord.longitude, animatedDriverCoord.latitude], destCoord]
+                  : [[animatedDriverCoord.longitude, animatedDriverCoord.latitude], passengerPickupCoord],
             },
             properties: {},
           }}
@@ -341,7 +513,7 @@ export default function TrackingScreen() {
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
         style={styles.homeFloating}
       >
-        <Pressable onPress={() => router.replace('/(tabs)/home' as any)} style={styles.homeFloatingBtn}>
+        <Pressable onPress={() => router.replace('/(tabs)/home' as any)} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Close tracking">
           <Ionicons name="close" size={24} color={colors.onSurface} />
         </Pressable>
       </MotiView>
@@ -469,19 +641,19 @@ export default function TrackingScreen() {
               </View>
             </View>
             <View style={styles.driverActions}>
-              <Pressable style={styles.actionButton} onPress={() => Alert.alert('Calling...', 'Connecting call to driver...')}>
+              <Pressable style={styles.actionButton} onPress={() => Alert.alert('Calling...', 'Connecting call to driver...')} accessibilityRole="button" accessibilityLabel="Call driver">
                 <Ionicons name="call" size={20} color={colors.primary} />
                 <Text style={styles.actionLabel}>Call</Text>
               </Pressable>
-              <Pressable style={styles.actionButton} onPress={handleChat}>
+              <Pressable style={styles.actionButton} onPress={handleChat} accessibilityRole="button" accessibilityLabel="Chat with driver">
                 <Ionicons name="chatbubble-ellipses" size={20} color={colors.primary} />
                 <Text style={styles.actionLabel}>Chat</Text>
               </Pressable>
-              <Pressable style={styles.actionButton} onPress={() => shareLiveTracking(id, syncedTrip?.driver?.name ?? 'Your Driver', syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate ?? 'Unknown Vehicle')}>
+              <Pressable style={styles.actionButton} onPress={() => shareLiveTracking(syncedTrip?.shortId ?? id, syncedTrip?.driver?.name ?? 'Your Driver', syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate ?? 'Unknown Vehicle')} accessibilityRole="button" accessibilityLabel="Share trip status">
                 <Ionicons name="share-social" size={20} color={colors.primary} />
                 <Text style={styles.actionLabel}>Share</Text>
               </Pressable>
-              <Pressable style={[styles.actionButton, styles.sosButton]} onPress={handleSOS}>
+              <Pressable style={[styles.actionButton, styles.sosButton]} onPress={handleSOS} accessibilityRole="button" accessibilityLabel="Emergency SOS">
                 <Ionicons name="warning" size={20} color="#FF3B30" />
                 <Text style={[styles.actionLabel, { color: '#FF3B30' }]}>SOS</Text>
               </Pressable>
@@ -717,11 +889,34 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: fontSizes.bodySmall,
     color: colors.primary,
   },
-  driverMarker: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.lg,
-    padding: spacing.xs,
+  riderSelfMarker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#22C55E',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: '#fff',
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  driverMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });
