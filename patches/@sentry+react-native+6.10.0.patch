@@ -2,6 +2,13 @@ diff --git a/node_modules/@sentry/react-native/ios/RNSentry.mm b/node_modules/@s
 index de7f82b..6de9682 100644
 --- a/node_modules/@sentry/react-native/ios/RNSentry.mm
 +++ b/node_modules/@sentry/react-native/ios/RNSentry.mm
+@@ -11,7 +11,7 @@
+ #if __has_include(<hermes/hermes.h>) && SENTRY_PROFILING_SUPPORTED
+-#    define SENTRY_PROFILING_ENABLED 1
++#    define SENTRY_PROFILING_ENABLED 0
+ #    import <Sentry/SentryProfilingConditionals.h>
+ #else
+ #    define SENTRY_PROFILING_ENABLED 0
 @@ -40,7 +40,7 @@
  #import "RNSentryDependencyContainer.h"
  #import "RNSentryEvents.h"

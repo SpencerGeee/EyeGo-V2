@@ -47,10 +47,16 @@ jobs:
       # Session Replay. We don't use replay — only basic error capture.
       # Delete the native source files and guard the import with __has_include
       # so the compiler doesn't error on the missing header.
-      - name: Patch @sentry/react-native for Xcode 16
+      - name: Patch @sentry/react-native for Xcode 16 + Hermes
         run: |
+          # 1) Remove Replay sources (Xcode 16 dropped headers)
           find node_modules/@sentry/react-native/ios -name "*Replay*" -delete
           sed -i '' '/__has_include/!s/#if SENTRY_TARGET_REPLAY_SUPPORTED/#if SENTRY_TARGET_REPLAY_SUPPORTED \&\& __has_include("RNSentryReplay.h")/' \
+            node_modules/@sentry/react-native/ios/RNSentry.mm
+          # 2) Disable Hermes Sampling Profiler — newer Hermes removed
+          #    enableSamplingProfiler / disableSamplingProfiler / dumpSampledTraceToStream
+          #    which are called behind #if SENTRY_PROFILING_ENABLED (line 816+).
+          sed -i '' 's/#    define SENTRY_PROFILING_ENABLED 1/#    define SENTRY_PROFILING_ENABLED 0/' \
             node_modules/@sentry/react-native/ios/RNSentry.mm
 
       - name: Generate native iOS project (prebuild)
