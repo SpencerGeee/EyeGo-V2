@@ -1,0 +1,94 @@
+# iOS Sideload IPA — unsigned build for Sideloadly / AltStore
+#
+# Builds the rider app on a free macOS runner (GitHub public repos get
+# unlimited macOS minutes). The output is an unsigned .ipa — Sideloadly
+# re-signs it with your free Apple ID when you install on iPhone.
+#
+# Usage:
+#   1. Push to GitHub (public repo for free macOS minutes)
+#   2. GitHub → Actions → iOS Sideload IPA → Run workflow
+#   3. Download the "eyego-unsigned-ipa" artifact
+#   4. Open Sideloadly on Windows → drag .ipa in → enter Apple ID → install
+#
+# Certificate validity: 7 days. After expiry, re-run this workflow and
+# re-sideload. Takes ~30s in Sideloadly to refresh.
+
+name: iOS Sideload IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Which app to build
+        type: choice
+        options: [rider, driver]
+        default: rider
+
+jobs:
+  build-unsigned-ipa:
+    name: Build unsigned ${{ inputs.app }}.ipa
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --ignore-engines
+
+      - name: Generate native iOS project (prebuild)
+        working-directory: apps/${{ inputs.app }}
+        run: npx expo prebuild --platform ios --clean
+        env:
+          EXPO_PUBLIC_APP_ENV: preview
+
+      - name: Build unsigned .app with xcodebuild
+        working-directory: apps/${{ inputs.app }}/ios
+        run: |
+          SCHEME=$(ls -d *.xcodeproj 2>/dev/null | head -1 | sed 's/\.xcodeproj//')
+          if [ -z "$SCHEME" ]; then
+            # Fallback: look for .xcworkspace
+            SCHEME=$(ls -d *.xcworkspace 2>/dev/null | head -1 | sed 's/\.xcworkspace//')
+          fi
+          echo "Building scheme: $SCHEME"
+          xcodebuild \
+            -workspace "${SCHEME}.xcworkspace" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -derivedDataPath ../build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            | xcpretty && exit ${PIPESTATUS[0]}
+
+      - name: Package unsigned .ipa
+        working-directory: apps/${{ inputs.app }}
+        run: |
+          APP_PATH=$(find build/Build/Products/Release-iphoneos -name "*.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app found in build output"
+            exit 1
+          fi
+          echo "Found .app at: $APP_PATH"
+
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r "${{ inputs.app }}-unsigned.ipa" Payload/
+          rm -rf Payload
+
+          echo "IPA created: $(ls -lh ${{ inputs.app }}-unsigned.ipa)"
+
+      - name: Upload unsigned .ipa as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-unsigned-ipa
+          path: apps/${{ inputs.app }}/${{ inputs.app }}-unsigned.ipa
+          retention-days: 7
