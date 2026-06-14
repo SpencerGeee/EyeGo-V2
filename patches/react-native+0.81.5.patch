@@ -1,8 +1,28 @@
 diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-index 2a67797..72a8ac3 100644
+index 2a67797..469180b 100644
 --- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
 +++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-@@ -435,7 +435,9 @@ void ObjCTurboModule::performVoidMethodInvocation(
+@@ -366,13 +366,12 @@ id ObjCTurboModule::performMethodInvocation(
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      if (isSync) {
+-        // We can only convert NSException to JSError in sync method calls.
+-        // See https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
+-        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
+-      } else {
+-        @throw exception;
+-      }
++      // Re-throw NSException instead of converting to JSError.
++      // convertNSExceptionToJSError accesses the jsi::Runtime to create
++      // error objects, but after an ObjC exception the runtime may be in
++      // an unstable state, causing KERN_INVALID_ADDRESS crashes at far=0x10.
++      // Reference: https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
++      @throw exception;
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }
+@@ -435,7 +434,9 @@ void ObjCTurboModule::performVoidMethodInvocation(
      @try {
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {
