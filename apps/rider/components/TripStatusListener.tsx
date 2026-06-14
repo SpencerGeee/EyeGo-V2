@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { Animated, View, StyleSheet, Platform, Pressable } from 'react-native';
-import { useRouter, useSegments } from 'expo-router';
+import { useRouter, useSegments, type Href } from 'expo-router';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { socketEvents, connectSocket, disconnectSocket, bookingsApi, queryKeys } from '@eyego/api';
@@ -59,25 +59,25 @@ export function TripStatusListener() {
   const computedTripId = safeRead(activeBooking, 'tripId', safeRead(selectedTrip, 'id'));
   const computedDriverId =
     safeRead(activeBooking, 'trip.driverId') ??
-    safeRead(activeBooking, 'trip.id') ??
     safeRead(selectedTrip, 'driverId') ??
     safeRead(selectedTrip, 'driver.id');
 
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
-  const [bannerIcon, setBannerIcon] = useState<any>('notifications');
+  const [bannerIcon, setBannerIcon] = useState<string>('notifications');
   const bannerAnim = useRef(new Animated.Value(-120)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks where tapping the banner should navigate ('chat' or null → tracking)
   const bannerDestinationRef = useRef<'chat' | null>(null);
 
   // Hydrate active booking from backend on boot if local state is null
-  const { data: apiActiveBooking } = useQuery({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: apiActiveBooking } = useQuery<any, Error, import('@eyego/types').Booking | null>({
     queryKey: ['bookings', 'active-root-listener'],
     queryFn: () => bookingsApi.getActive(),
     enabled: isLoggedIn && !activeBookingId,
-    select: (r) => {
-      const raw = (r.data as any)?.data;
-      return (raw?.booking ?? raw) ?? null;
+    select: (r: any) => {
+      const data = (r.data as { data?: { booking?: import('@eyego/types').Booking } | import('@eyego/types').Booking })?.data;
+      return (((data as { booking?: import('@eyego/types').Booking })?.booking ?? data) ?? null) as import('@eyego/types').Booking | null;
     },
     staleTime: 30_000,
   });
@@ -85,7 +85,8 @@ export function TripStatusListener() {
   // Hydrate Zustand store dynamically
   useEffect(() => {
     if (apiActiveBooking && !activeBooking) {
-      useRideStore.getState().setActiveBooking(apiActiveBooking);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      useRideStore.getState().setActiveBooking(apiActiveBooking as any);
     }
   }, [apiActiveBooking, activeBooking]);
 
@@ -98,7 +99,7 @@ export function TripStatusListener() {
   useEffect(() => { selectedTripRef.current = selectedTrip; }, [selectedTrip]);
   useEffect(() => { segmentsRef.current = segments; }, [segments]);
 
-  const showBanner = useCallback((msg: string, icon: any = 'notifications') => {
+  const showBanner = useCallback((msg: string, icon: string = 'notifications') => {
     setBannerMsg(msg);
     setBannerIcon(icon);
     // Slide in
@@ -159,8 +160,15 @@ export function TripStatusListener() {
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    // Re-join on reconnect (network blip recovery)
+    // Show reconnecting banner when socket drops mid-trip
+    const unsubDisconnect = socketEvents.onDisconnect?.(() => {
+      showBanner('Connection lost — reconnecting…', 'wifi-outline');
+    });
+
+    // Re-join on reconnect (network blip recovery) + clear reconnecting banner
     const unsubConnect = socketEvents.onConnect(() => {
+      // Clear any "reconnecting" banner
+      setBannerMsg(null);
       const booking = activeBookingRef.current;
       const trip = selectedTripRef.current;
       const tId = safeRead(booking, 'tripId');
@@ -188,7 +196,7 @@ export function TripStatusListener() {
         queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
         useRideStore.getState().clearRideState();
         setTimeout(() => {
-          router.replace('/(tabs)/home' as any);
+          router.replace('/(tabs)/home' as Href);
         }, 1500);
       } else if (data.status === 'COMPLETED') {
         // Refresh all relevant query caches
@@ -200,13 +208,13 @@ export function TripStatusListener() {
           // User is on home/trips/etc — push them to the trip complete screen
           const booking = activeBookingRef.current;
           const bookingId = safeRead(booking, 'id') ?? '';
-          const tId = safeRead(booking, 'tripId') ?? (data as any).tripId ?? safeRead(selectedTripRef.current, 'id');
+          const tId = safeRead(booking, 'tripId') ?? safeRead(selectedTripRef.current, 'id');
 
           showBanner('You have arrived! Rate your trip', 'checkmark-circle');
           setTimeout(() => {
             disconnectSocket();
             router.push(
-              `/ride/${tId}/complete${bookingId ? `?bookingId=${bookingId}` : ''}` as any
+              `/ride/${tId}/complete${bookingId ? `?bookingId=${bookingId}` : ''}` as Href
             );
           }, 1500);
         }
@@ -259,6 +267,7 @@ export function TripStatusListener() {
     });
 
     return () => {
+      unsubDisconnect?.();
       unsubConnect();
       unsubStatus();
       unsubLocation();
@@ -283,9 +292,9 @@ export function TripStatusListener() {
     if (!tId) return;
     if (bannerDestinationRef.current === 'chat') {
       bannerDestinationRef.current = null;
-      router.push(`/ride/${tId}/chat` as any);
+      router.push(`/ride/${tId}/chat` as Href);
     } else {
-      router.push(`/ride/${tId}/tracking` as any);
+      router.push(`/ride/${tId}/tracking` as Href);
     }
   };
 
@@ -297,7 +306,7 @@ export function TripStatusListener() {
       <Pressable onPress={handleBannerPress} style={styles.pressable}>
         <BlurView intensity={85} tint="dark" style={styles.blurContainer}>
           <View style={[styles.iconCircle, { backgroundColor: colors.primary }]}>
-            <Ionicons name={bannerIcon} size={16} color="#050508" />
+            <Ionicons name={bannerIcon as any} size={16} color="#050508" />
           </View>
           <View style={styles.textContainer}>
             <Text style={[styles.label, { color: colors.primary }]}>TRIP UPDATE</Text>
@@ -310,7 +319,11 @@ export function TripStatusListener() {
   );
 }
 
-const TOP_OFFSET = Platform.OS === 'ios' ? 56 : 46;
+// BUGFIX: Use status bar height from expo-constants for accurate positioning
+// across all devices. The previous hardcoded values (56 iOS / 46 Android) are
+// wrong for Android devices with cutouts or iOS Dynamic Island.
+import Constants from 'expo-constants';
+const TOP_OFFSET = (Constants.statusBarHeight || (Platform.OS === 'ios' ? 56 : 46));
 
 const styles = StyleSheet.create({
   container: {

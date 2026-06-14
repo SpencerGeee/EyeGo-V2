@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,6 +7,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,58 +16,144 @@ import { MotiView } from 'moti';
 import { WebView } from 'react-native-webview';
 import { useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { bookingsApi, paymentsApi, socketEvents } from '@eyego/api';
+import { bookingsApi, paymentsApi, socketEvents, walletApi } from '@eyego/api';
+import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../../stores/ride.store';
+import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, AnimatedFareText } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
+import { captureException } from '../../../lib/sentry';
 
-type PaymentTab = 'momo' | 'card' | 'cash';
+type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
 
 export default function PaymentScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const router = useRouter();
-  const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode } = useRideStore();
+  const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore();
+  const { user } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState<PaymentTab>('momo');
   const [momoPhone, setMomoPhone] = useState('');
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [walletLoading, setWalletLoading] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const MAX_POLL_ATTEMPTS = 30; // ~60s timeout at 2s intervals
+  // Stable idempotency key for the current payment attempt; cleared when the
+  // rider switches payment method (which starts a genuinely new attempt).
+  // BUGFIX: Removed Date.now() from key — idempotency must be STABLE per attempt so
+  // retries collapse to a single charge on the server. Date.now() made each retry unique.
+  const idempotencyKeyRef = useRef<string | null>(null);
+  // Double-submit lock: prevents initPayment.mutate() from running twice in rapid succession
+  const isSubmittingRef = useRef(false);
+  // Mounted guard: prevents state updates and navigation on unmounted component
+  const isMountedRef = useRef(true);
+  const pendingTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
+  const [promoExpanded, setPromoExpanded] = useState(false);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoStatus, setPromoStatus] = useState<'idle' | 'applied'>('idle');
+
+  // Cleanup on unmount: mark unmounted, reset submit lock, cancel all pending navigation timeouts
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      isSubmittingRef.current = false;
+      pendingTimeoutsRef.current.forEach(clearTimeout);
+      pendingTimeoutsRef.current = [];
+    };
+  }, []);
+
+  // Android back button: dismiss WebView instead of navigating back in the app
+  useEffect(() => {
+    if (!checkoutUrl) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setCheckoutUrl(null);
+      return true;
+    });
+    return () => sub.remove();
+  }, [checkoutUrl]);
+
+  // Switching method starts a new payment attempt → new idempotency key.
+  useEffect(() => {
+    idempotencyKeyRef.current = null;
+  }, [activeTab]);
+
+  // Fetch wallet balance on mount when wallet tab is active
+  useEffect(() => {
+    if (activeTab === 'wallet') {
+      setWalletLoading(true);
+      walletApi.getBalance().then((res: { data?: { data?: { balance?: number }; balance?: number } }) => {
+        const bal = res?.data?.data?.balance ?? res?.data?.balance ?? 0;
+        setWalletBalance(bal);
+      }).catch((err: any) => {
+        console.warn('[Payment] Failed to fetch wallet balance:', err?.message ?? err);
+      }).finally(() => setWalletLoading(false));
+    }
+  }, [activeTab]);
 
   // Fare is server-calculated. Order: booking.fareAmount → Zustand computedFare →
-  // trip.fare (server-attached farePerSeat). Never compute on the client — env-driven
-  // rates on the server are the only source of truth.
+  // trip.farePerSeat. Never compute on the client — env-driven rates on the
+  // server are the only source of truth. booking.fareAmount already reflects any
+  // en-route discount, so we never need a client-side adjustment here.
   const serverPerSeat =
-    (activeBooking as any)?.fareAmount ??
+    activeBooking?.fareAmount ??
     computedFare ??
-    (selectedTrip as any)?.fare ??
-    (selectedTrip as any)?.farePerSeat ??
+    selectedTrip?.farePerSeat ??
     0;
-  const cargoSurcharge = (selectedTrip as any)?.heavyCargo ? 10.0 : 0.0;
+  const enRouteRatio: number | null = (activeBooking as { enRouteRatio?: number })?.enRouteRatio ?? null;
+  const enRouteStopName: string | null = (activeBooking as { pickupStop?: { name?: string } })?.pickupStop?.name ?? null;
+  const cargoSurcharge = (selectedTrip as { heavyCargo?: boolean })?.heavyCargo ? 10.0 : 0.0;
   // "Paying for everyone" means this rider covers the *entire* trip cost — not perSeat × group size.
   // The server attaches `totalTripCost` to trip detail / group hub responses for this exact purpose.
-  const payForEveryone = !!(selectedTrip as any)?.payForEveryone;
-  const totalTripCost = (selectedTrip as any)?.totalTripCost ?? null;
+  const payForEveryone = !!(selectedTrip as { payForEveryone?: boolean })?.payForEveryone;
+  const totalTripCost = (selectedTrip as { totalTripCost?: number })?.totalTripCost ?? null;
   const baseFare = serverPerSeat;
   const fareAmount = payForEveryone && totalTripCost
     ? totalTripCost + cargoSurcharge
     : serverPerSeat + cargoSurcharge;
+
+  // Free a SEAT_HELD booking immediately on a hard payment failure instead of
+  // waiting up to ~15 min for the server seat-hold sweep. Best-effort and
+  // idempotent: the backend cancelBooking refuses PAID bookings and re-setting
+  // CANCELLED is a no-op, so this is safe to race against the sweep.
+  const releaseHeldSeat = async () => {
+    const heldId = activeBooking?.id;
+    if (!heldId) return;
+    // Never release a booking that already succeeded.
+    if (status === 'success') return;
+    try {
+      await bookingsApi.cancel(heldId);
+      if (isMountedRef.current) setActiveBooking(null);
+    } catch (e) {
+      // Non-blocking — the seat-hold sweep is the backstop if this fails.
+      console.warn('[Payment] Failed to release held seat:', (e as any)?.message ?? e);
+    }
+  };
 
   const initPayment = useMutation({
     mutationFn: async () => {
       // Declare outside try so the catch block can use the value even if booking was created before the error
       let bookingId = activeBooking?.id ?? '';
       try {
+        // BUGFIX: Double-submit lock — prevent concurrent mutations
+        if (isSubmittingRef.current) {
+          throw new Error('Payment already in progress');
+        }
         if (!bookingId && id && selectedSeat) {
           const { data: bookingData } = await bookingsApi.create({
             tripId: id,
             seatId: selectedSeat.id,
-            paymentMethod: activeTab === 'momo' ? 'MOMO' : activeTab === 'cash' ? 'CASH' : 'CARD',
+            seatNumber: selectedSeat.number,
+            paymentMethod: (activeTab === 'momo' ? 'MOMO' : activeTab === 'cash' ? 'CASH' : activeTab === 'wallet' ? 'WALLET' : 'CARD') as 'MOMO' | 'CARD' | 'WALLET',
+            ...(pickupStopId ? { pickupStopId } : {}),
+            ...(guestInfo ? { guestName: guestInfo.name, guestPhone: guestInfo.phone } : {}),
           });
           const newBooking = bookingData.data;
           bookingId = newBooking.id ?? '';
@@ -83,66 +171,128 @@ export default function PaymentScreen() {
           setPendingPromoCode(null);
         }
 
-        const { data } = await paymentsApi.initialize({
-          bookingId,
-          method: activeTab === 'momo' ? 'MOMO' : activeTab === 'cash' ? 'CASH' : 'CARD',
-          momoPhone: activeTab === 'momo' ? `+233${momoPhone.replace(/\D/g, '')}` : undefined,
-          email: activeTab === 'card' ? 'passenger@eyego.app' : undefined,
-        });
+        // Cash is collected in-person — no payment gateway initiation needed.
+        // Booking already exists; navigate directly to tracking.
+        if (activeTab === 'cash') {
+          return { requiresVerification: false, bookingId, reference: null };
+        }
+
+        // One idempotency key per booking+method attempt — a retry of this exact
+        // attempt collapses to a single charge on the server.
+        // BUGFIX: Removed Date.now() from key format. A stable key (bookingId + method)
+        // ensures retries are idempotent. Date.now() made every attempt unique.
+        if (!idempotencyKeyRef.current) {
+          idempotencyKeyRef.current = `pay_${bookingId}_${activeTab}`;
+        }
+        const { data } = await paymentsApi.initialize(
+          {
+            bookingId,
+            method: ((activeTab as string) === 'momo' ? 'MOMO' : (activeTab as string) === 'cash' ? 'CASH' : (activeTab as string) === 'wallet' ? 'WALLET' : 'CARD') as 'MOMO' | 'CARD' | 'WALLET',
+            momoPhone: activeTab === 'momo' ? `+233${momoPhone.replace(/\D/g, '')}` : undefined,
+            email: activeTab === 'card' ? 'passenger@eyego.app' : undefined,
+          },
+          idempotencyKeyRef.current,
+        );
+        // No mock fallback: a failure here propagates to onError and the rider
+        // sees a real error instead of a fake confirmation.
         return { ...data.data, bookingId };
       } catch (e) {
-        // Safe mock fallback for end-to-end testing
-        return {
-          reference: 'mock-pay-ref-' + Math.random().toString(36).substr(2, 9),
-          authorizationUrl: activeTab === 'card' ? 'https://checkout.paystack.com/mock-auth' : undefined,
-          bookingId,
-        };
+        captureException(e, { screen: 'payment', method: activeTab, bookingId });
+        throw e;
       }
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
+      if (!isMountedRef.current) return;
+      isSubmittingRef.current = false;
       setPaymentRef(data.reference);
+
+      // Wallet & Cash are confirmed synchronously by the server — no polling.
+      if (data.requiresVerification === false) {
+        setStatus('success');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        walletApi.getBalance().catch(() => {});
+        setGuestInfo(null); // clear guest info after successful booking
+        socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
+        const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+        pendingTimeoutsRef.current.push(t);
+        return;
+      }
+
+      // Card → open Paystack hosted checkout in a WebView.
       if (activeTab === 'card' && data.authorizationUrl) {
         setCheckoutUrl(data.authorizationUrl);
-      } else {
-        setIsPolling(true);
-        setStatus('processing');
-        setTimeout(() => {
-          setStatus('success');
-          setIsPolling(false);
-          // Notify the driver instantly!
-          socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-          setTimeout(() => router.replace(`/ride/${id}/tracking` as any), 1500);
-        }, 1500);
+        return;
       }
+
+      // MoMo → the rider approves on their phone; confirmation arrives via the
+      // Paystack webhook. Poll the verify endpoint until the booking is PAID.
+      setIsPolling(true);
+      setStatus('processing');
+      try {
+        await paymentsApi.pollStatus(data.reference, 2000, MAX_POLL_ATTEMPTS);
+        if (!isMountedRef.current) return;
+        setIsPolling(false);
+        setStatus('success');
+        setGuestInfo(null); // clear guest info after successful booking
+        socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
+        const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+        pendingTimeoutsRef.current.push(t);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        setIsPolling(false);
+        setStatus('idle');
+        Alert.alert(
+          'Payment Not Confirmed',
+          'We could not confirm your payment. Please approve the prompt on your phone and try again.',
+          [{ text: 'OK' }]
+        );
+      }
+    },
+    onError: (err: any) => {
+      if (!isMountedRef.current) return;
+      isSubmittingRef.current = false;
+      setStatus('idle');
+      // A genuine init failure created (or left) a SEAT_HELD booking — release it
+      // now so the seat is freed immediately rather than after the sweep.
+      void releaseHeldSeat();
+      const errorMsg = err?.response?.data?.message || err?.message || 'Payment could not be processed. Please try again.';
+      Alert.alert('Payment Failed', errorMsg);
     },
   });
 
   // WebView: detect Paystack success redirect with secure whitelist filtering
   const handleWebViewNavigate = (url: string) => {
-    // Whitelist only checkout domains to prevent redirection hijacks inside WebView
-    if (!url.startsWith('https://checkout.paystack.com') && 
-        !url.startsWith('https://checkout.paystack.co') &&
-        !url.startsWith('https://api.paystack.co') &&
-        !url.startsWith('https://standard.paystack.co')) {
-      // Allow relative local paths or callback redirect callbacks
-      if (url.includes('callback') || url.includes('success') || url.includes('reference=')) {
-        setCheckoutUrl(null);
-        setStatus('success');
-        setTimeout(() => router.replace(`/ride/${id}/tracking` as any), 1500);
-        return;
-      }
-      // block unauthorized urls
-      setCheckoutUrl(null);
-      setStatus('failed');
+    // BUGFIX: WebView URL validation — require reference= parameter for success detection
+    // instead of matching loose keywords like 'callback' or 'success' which could appear
+    // in any URL. Use a proper URL pattern match for Paystack callback references.
+    const hasPaystackReference = /[?&]reference=/i.test(url);
+    const isWhitelistedDomain =
+      url.startsWith('https://checkout.paystack.com') ||
+      url.startsWith('https://checkout.paystack.co') ||
+      url.startsWith('https://api.paystack.co') ||
+      url.startsWith('https://standard.paystack.co');
+
+    // Strict WebView URL validation: only accept Paystack callback redirects
+    // from whitelisted domains. Non-whitelisted domains are ALWAYS rejected —
+    // even if they contain a reference= param — to prevent callback injection attacks.
+    if (!isWhitelistedDomain) {
+      // Block all non-whitelisted URLs immediately. Do NOT accept reference= param
+      // from untrusted domains (could be an attacker's page mimicking the callback).
+      console.warn('[Payment] Blocked non-whitelisted WebView redirect:', url.slice(0, 100));
       return;
     }
 
-    if (url.includes('callback') || url.includes('success') || url.includes('reference=')) {
+    // Whitelisted domain with reference parameter = payment success.
+    // (Single block — this was previously duplicated, which double-fired
+    // emitPaymentConfirmed and double-scheduled the tracking navigation.)
+    if (hasPaystackReference) {
       setCheckoutUrl(null);
       setStatus('success');
+      setGuestInfo(null); // clear guest info after successful booking
       // Notify the driver instantly!
       socketEvents.emitPaymentConfirmed(activeBooking?.id ?? '', id ?? '');
-      setTimeout(() => router.replace(`/ride/${id}/tracking` as any), 1500);
+      const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+      pendingTimeoutsRef.current.push(t);
     }
   };
 
@@ -160,6 +310,15 @@ export default function PaymentScreen() {
           source={{ uri: checkoutUrl }}
           style={{ flex: 1 }}
           onNavigationStateChange={({ url }) => handleWebViewNavigate(url)}
+          onShouldStartLoadWithRequest={(request) => {
+            const { url } = request;
+            // iOS: intercept custom scheme redirects (e.g. eyego://) that the WebView cannot load
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+              handleWebViewNavigate(url);
+              return false;
+            }
+            return true;
+          }}
         />
       </SafeAreaView>
     );
@@ -234,6 +393,14 @@ export default function PaymentScreen() {
             <Text variant="caption" color={colors.onSurfaceVariant}>
               Seat #{selectedSeat?.number ?? '—'} · {selectedTrip?.origin?.address?.split(',')[0] ?? ''} → {selectedTrip?.destination?.address?.split(',')[0] ?? ''}
             </Text>
+            {enRouteRatio != null && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs, backgroundColor: colors.primary + '18', borderRadius: radii.full, paddingHorizontal: spacing.sm, paddingVertical: 3 }}>
+                <Ionicons name="location" size={11} color={colors.primary} />
+                <Text variant="caption" color={colors.primary}>
+                  En-route discount applied{enRouteStopName ? ` · boarding at ${enRouteStopName}` : ''} ({Math.round(enRouteRatio * 100)}% of route)
+                </Text>
+              </View>
+            )}
           </MotiView>
 
           {/* Payment tabs */}
@@ -260,6 +427,12 @@ export default function PaymentScreen() {
                 icon="cash-outline"
                 isActive={activeTab === 'cash'}
                 onPress={() => setActiveTab('cash')}
+              />
+              <PaymentTab
+                label="Wallet"
+                icon="wallet-outline"
+                isActive={activeTab === 'wallet'}
+                onPress={() => setActiveTab('wallet')}
               />
             </View>
 
@@ -320,6 +493,26 @@ export default function PaymentScreen() {
                 </Text>
               </MotiView>
             )}
+
+            {activeTab === 'wallet' && (
+              <MotiView
+                from={{ opacity: 0, translateY: 6 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                style={styles.cardInfo}
+              >
+                <Ionicons name="wallet-outline" size={16} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                    {walletLoading
+                      ? 'Checking wallet balance...'
+                      : walletBalance >= fareAmount
+                      ? `You have ${formatCurrency(walletBalance)} in your wallet. Sufficient balance!`
+                      : `Insufficient wallet balance (${formatCurrency(walletBalance)}). Please top up or use another method.`}
+                  </Text>
+                </View>
+              </MotiView>
+            )}
           </MotiView>
 
           {/* Processing overlay */}
@@ -342,6 +535,82 @@ export default function PaymentScreen() {
             </MotiView>
           )}
 
+          {/* Promo code */}
+          <MotiView
+            from={{ opacity: 0, translateY: 6 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 110 }}
+            style={{ marginHorizontal: spacing['2xl'] }}
+          >
+            <Pressable
+              onPress={() => setPromoExpanded(!promoExpanded)}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}
+            >
+              <Ionicons name="ticket-outline" size={16} color={colors.primary} />
+              <Text variant="bodySmall" color={colors.primary}>
+                {promoExpanded ? 'Hide' : 'Have a promo code?'}
+              </Text>
+            </Pressable>
+            {promoExpanded && (
+              <MotiView
+                from={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 48 }}
+                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                style={{
+                  flexDirection: 'row',
+                  gap: spacing.sm,
+                  marginTop: spacing.sm,
+                }}
+              >
+                <TextInput
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    backgroundColor: colors.surfaceContainer,
+                    borderRadius: radii.lg,
+                    paddingHorizontal: spacing.base,
+                    fontFamily: fonts.medium,
+                    fontSize: fontSizes.bodyMedium,
+                    color: colors.onSurface,
+                    borderWidth: 1,
+                    borderColor: colors.outline,
+                  }}
+                  placeholder="Enter code"
+                  placeholderTextColor={colors.onSurfaceVariant}
+                  value={promoInput}
+                  onChangeText={(t) => {
+                    setPromoInput(t.toUpperCase());
+                    setPromoStatus('idle');
+                  }}
+                  autoCapitalize="characters"
+                />
+                <Pressable
+                  style={{
+                    height: 48,
+                    paddingHorizontal: spacing.lg,
+                    backgroundColor: colors.primary,
+                    borderRadius: radii.lg,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={() => {
+                    if (promoInput.trim()) {
+                      setPendingPromoCode(promoInput.trim());
+                      setPromoStatus('applied');
+                    }
+                  }}
+                >
+                  <Text variant="label" color={colors.backgroundDeep}>Apply</Text>
+                </Pressable>
+              </MotiView>
+            )}
+            {promoStatus === 'applied' && (
+              <Text variant="caption" color={colors.primary} style={{ marginTop: spacing.xs }}>
+                Promo code applied! ✓
+              </Text>
+            )}
+          </MotiView>
+
           {/* Pay button */}
           <View style={{ marginHorizontal: spacing['2xl'] }}>
             <Button
@@ -350,11 +619,18 @@ export default function PaymentScreen() {
                   ? `Pay ${formatCurrency(fareAmount)} with MoMo`
                   : activeTab === 'card'
                   ? `Pay ${formatCurrency(fareAmount)} by Card`
+                  : activeTab === 'wallet'
+                  ? `Pay ${formatCurrency(fareAmount)} with Wallet`
                   : `Confirm Cash Booking · ${formatCurrency(fareAmount)}`
               }
-              onPress={() => initPayment.mutate()}
+              onPress={() => {
+                // BUGFIX: Double-submit lock — prevent rapid taps from creating multiple bookings
+                if (isSubmittingRef.current) return;
+                isSubmittingRef.current = true;
+                initPayment.mutate();
+              }}
               loading={initPayment.isPending || isPolling}
-              disabled={activeTab === 'momo' && momoPhone.length !== 9}
+              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && walletBalance < fareAmount}
             />
           </View>
 
@@ -424,6 +700,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareText: { marginVertical: spacing.sm },
   tabRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     marginHorizontal: spacing['2xl'],
     backgroundColor: colors.surfaceContainer,
     borderRadius: radii['2xl'],
@@ -432,17 +709,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   paymentTab: {
     flex: 1,
+    flexBasis: '45%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs,
     paddingVertical: spacing.sm + 2,
     borderRadius: radii.xl,
+    minHeight: 44,
+    overflow: 'hidden',
   },
   paymentTabActive: {
-    backgroundColor: 'rgba(75, 226, 119, 0.12)',
-    borderWidth: 1,
-    borderColor: colors.primary + '40',
+    backgroundColor: 'rgba(75, 226, 119, 0.15)',
+    borderWidth: 1.5,
+    borderColor: colors.primary + '50',
   },
   momoForm: {
     marginHorizontal: spacing['2xl'],

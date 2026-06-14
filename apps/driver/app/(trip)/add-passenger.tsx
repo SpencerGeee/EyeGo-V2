@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   TextInput,
   KeyboardAvoidingView,
   Platform,
@@ -90,12 +90,12 @@ export default function AddPassengerScreen() {
         >
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity
+            <Pressable
               onPress={() => (mode === 'select' ? router.back() : setMode('select'))}
               style={styles.backBtn}
             >
               <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-            </TouchableOpacity>
+            </Pressable>
             <Text style={styles.headerTitle}>Add Passenger</Text>
             <View style={{ width: 36 }} />
           </View>
@@ -109,10 +109,10 @@ export default function AddPassengerScreen() {
               style={styles.optionsContainer}
             >
               <Text style={styles.sectionTitle}>How is this passenger paying?</Text>
-              <TouchableOpacity
+              <Pressable
                 style={styles.optionCard}
                 onPress={() => setMode('phone')}
-                activeOpacity={0.8}
+        
               >
                 <View style={[styles.optionIcon, { backgroundColor: `${colors.primary}22` }]}>
                   <Ionicons name="phone-portrait-outline" size={24} color={colors.primary} />
@@ -124,12 +124,12 @@ export default function AddPassengerScreen() {
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-              </TouchableOpacity>
+              </Pressable>
 
-              <TouchableOpacity
+              <Pressable
                 style={styles.optionCard}
                 onPress={() => setMode('cash')}
-                activeOpacity={0.8}
+        
               >
                 <View style={[styles.optionIcon, { backgroundColor: `${colors.online}22` }]}>
                   <Ionicons name="cash-outline" size={24} color={colors.online} />
@@ -141,7 +141,7 @@ export default function AddPassengerScreen() {
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-              </TouchableOpacity>
+              </Pressable>
             </MotiView>
           )}
 
@@ -196,24 +196,24 @@ export default function AddPassengerScreen() {
             >
               <Text style={styles.sectionTitle}>Verify OTP</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
-                Ask the passenger for the 6-digit code sent to their number.
+                Ask the passenger for the 4-digit code sent to their number.
               </Text>
               <TextInput
                 style={styles.otpInput}
                 value={otp}
-                onChangeText={(t) => setOtp(t.replace(/\D/g, '').slice(0, 6))}
+                onChangeText={(t) => setOtp(t.replace(/\D/g, '').slice(0, 4))}
                 keyboardType="number-pad"
-                placeholder="_ _ _ _ _ _"
+                placeholder="_ _ _ _"
                 placeholderTextColor={colors.onSurfaceVariant}
                 selectionColor={colors.primary}
-                maxLength={6}
+                maxLength={4}
                 autoFocus
                 textAlign="center"
               />
               <Button
                 label="Verify & Board"
                 onPress={() => verifyOtp.mutate()}
-                disabled={otp.length < 6}
+                disabled={otp.length < 4}
                 loading={verifyOtp.isPending || boardPassenger.isPending}
               />
             </MotiView>
@@ -258,21 +258,21 @@ function SeatPicker({ seatNumber, onDecrement, onIncrement, colors, styles }: {
         Seat number
       </Text>
       <View style={styles.seatPickerRow}>
-        <TouchableOpacity
+        <Pressable
           style={[styles.seatPickerBtn, seatNumber <= 1 && { opacity: 0.4 }]}
           onPress={onDecrement}
           disabled={seatNumber <= 1}
         >
           <Ionicons name="remove" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text style={styles.seatPickerValue}>{seatNumber}</Text>
-        <TouchableOpacity
+        <Pressable
           style={[styles.seatPickerBtn, seatNumber >= 14 && { opacity: 0.4 }]}
           onPress={onIncrement}
           disabled={seatNumber >= 14}
         >
           <Ionicons name="add" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </View>
   );

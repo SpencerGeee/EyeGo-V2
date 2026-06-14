@@ -1,23 +1,28 @@
 import React, { useRef, useMemo, useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
+import { View, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, bookingsApi, queryKeys } from '@eyego/api';
+import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, shadows } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
+import eyegoDarkStyle from '@eyego/map-styles';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton } from '@eyego/ui';
 import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
+import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
+import { captureException } from '../../lib/sentry';
 
 
+// Emoji tier marks replaced with Ionicons (vector) for consistent, crisp icons.
 const TIERS = [
-  { key: 'ECONOMY', label: 'Economy', icon: '🌿' },
-  { key: 'COMFORT', label: 'Comfort', icon: '✨' },
+  { key: 'ECONOMY', label: 'Economy', icon: 'leaf' },
+  { key: 'COMFORT', label: 'Comfort', icon: 'sparkles' },
 ] as const;
 type TierKey = typeof TIERS[number]['key'];
 
@@ -33,48 +38,21 @@ export default function RideDetailScreen() {
   const [selectedTier, setSelectedTier] = useState<TierKey>(
     (tierParam?.toUpperCase() as TierKey) ?? 'ECONOMY'
   );
-  // Lock tier once we get the trip data — rider can't change it from what the driver set
-  const tripTier = (data?.data?.data?.trip?.tier as TierKey | undefined);
-
+  const [showFareBreakdown, setShowFareBreakdown] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.rides.detail(id ?? ''),
     queryFn: () => tripsApi.getById(id ?? ''),
     enabled: !!id,
   });
 
+  // Lock tier once we get the trip data — rider can't change it from what the driver set
+  const tripTier = ((data?.data?.data as any)?.trip?.tier as TierKey | undefined);
+
   const trip = useMemo(() => {
-    const rawTrip = data?.data?.data?.trip;
+    const rawTrip = (data?.data?.data as any)?.trip;
     if (!rawTrip) {
-      return {
-        id: id ?? '1',
-        origin: {
-          address: origin?.address ?? 'Accra Mall, Spintex',
-          latitude: origin?.latitude ?? 5.6037,
-          longitude: origin?.longitude ?? -0.187,
-        },
-        destination: {
-          address: destination?.address ?? 'University of Ghana, Legon',
-          latitude: destination?.latitude ?? 5.65,
-          longitude: destination?.longitude ?? -0.19,
-        },
-        fare: selectedTrip?.fare ?? (id === '2' ? 15.0 : 8.5),
-        availableSeats: 3,
-        totalSeats: 10,
-        departureTime: new Date(Date.now() + 10 * 60000).toISOString(),
-        distanceKm: 8.2,
-        durationMinutes: 15,
-        driver: {
-          name: 'Your Driver',
-          rating: null,
-          totalTrips: 0,
-          avatarUrl: null,
-        },
-        vehicle: {
-          plate: '—',
-          color: '—',
-          make: '—',
-        },
-      };
+      // Return undefined while loading so we don't render stale/fake data
+      return undefined;
     }
 
     return {
@@ -97,7 +75,7 @@ export default function RideDetailScreen() {
   }, [data, id, origin, destination]);
 
   const isAlreadyBooked = useMemo(() => {
-    const rawTrip = data?.data?.data?.trip;
+    const rawTrip = (data?.data?.data as any)?.trip;
     if (rawTrip?.bookings && user?.id) {
       return rawTrip.bookings.some((b: any) => b.userId === user.id);
     }
@@ -106,15 +84,15 @@ export default function RideDetailScreen() {
 
   useEffect(() => {
     if (isAlreadyBooked && id) {
-      router.replace(`/ride/${id}/tracking` as any);
+      router.replace(`/ride/${id}/tracking` as Href);
     }
-  }, [isAlreadyBooked, id]);
+  }, [isAlreadyBooked, id, router]);
 
   useEffect(() => {
     if (trip && selectedTrip?.id !== trip.id) {
-      setSelectedTrip(trip as any);
+      setSelectedTrip(trip);
     }
-  }, [trip, selectedTrip]);
+  }, [trip, selectedTrip, setSelectedTrip]);
 
   useEffect(() => {
     if (!trip) return;
@@ -122,68 +100,79 @@ export default function RideDetailScreen() {
     if (tripTier && tripTier !== selectedTier) {
       setSelectedTier(tripTier);
     }
-    const serverFare = (trip as any).fare ?? 0;
+    const serverFare = trip.farePerSeat ?? trip.fare ?? 0;
     setStoreTier(selectedTier, serverFare);
-  }, [selectedTier, trip, tripTier]);
+  }, [selectedTier, trip, tripTier, setStoreTier]);
 
   const bookTrip = useMutation({
     mutationFn: async () => {
-      try {
-        const { data } = await bookingsApi.create({
-          tripId: id ?? '',
-          seatId: 'seat-1', // default fallback seat
-          paymentMethod: 'CASH',
-        });
-        return data.data;
-      } catch (e) {
-        // Mock fallback booking
-        return {
-          id: 'mock-booking-id-' + Math.random().toString(36).substr(2, 9),
-          tripId: id ?? '',
-          seatNumber: 1,
-          status: 'PENDING',
-        };
-      }
+      // No mock fallback — a booking failure must surface a real error so the
+      // rider never proceeds to payment against a fabricated booking.
+      const { data } = await bookingsApi.create({
+        tripId: id ?? '',
+        seatId: 'seat-1', // default fallback seat
+        paymentMethod: 'CASH' as 'MOMO' | 'CARD' | 'WALLET',
+      });
+      return data.data;
     },
     onSuccess: (bookingData) => {
-      setActiveBooking(bookingData as any);
-      router.push(`/ride/${id}/payment` as any);
+      setActiveBooking(bookingData);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      router.push(`/ride/${id}/payment` as Href);
+    },
+    onError: (err) => {
+      captureException(err, { screen: 'ride-detail', action: 'quick-book', tripId: id });
+      Alert.alert(
+        'Could not reserve seat',
+        'We couldn\'t hold a seat for this trip. It may be full — please try another trip or try again.',
+      );
     },
   });
 
-  const occupiedSeats = (trip?.totalSeats ?? 10) - (trip?.availableSeats ?? 5);
-  const occupancyPercent = trip ? (occupiedSeats / trip.totalSeats) * 100 : 0;
+  const occupiedSeats = trip ? (trip.totalSeats ?? 10) - (trip.availableSeats ?? 0) : 0;
+  const occupancyPercent = trip ? (occupiedSeats / (trip.totalSeats ?? 10)) * 100 : 0;
+
+  // Show loading spinner while trip data is not yet available
+  if (isLoading && !trip) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#050508', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#4BE277" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       {/* Map background */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
-        styleURL="mapbox://styles/mapbox/dark-v11"
+        styleURL={eyegoDarkStyle}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
         rotateEnabled={false}
         scaleBarEnabled={false}
       >
-        <MapboxGL.Camera
-          bounds={{
-            ne: [
-              Math.max(trip.origin.longitude, trip.destination.longitude) + 0.02,
-              Math.max(trip.origin.latitude, trip.destination.latitude) + 0.02,
-            ],
-            sw: [
-              Math.min(trip.origin.longitude, trip.destination.longitude) - 0.02,
-              Math.min(trip.origin.latitude, trip.destination.latitude) - 0.02,
-            ],
-            paddingTop: 80,
-            paddingBottom: 380,
-            paddingLeft: 40,
-            paddingRight: 40,
-          }}
-          animationMode="none"
-          animationDuration={0}
-        />
+        {trip?.origin && trip?.destination && (
+          <MapboxGL.Camera
+            bounds={{
+              ne: [
+                Math.max(trip.origin.longitude, trip.destination.longitude) + 0.02,
+                Math.max(trip.origin.latitude, trip.destination.latitude) + 0.02,
+              ],
+              sw: [
+                Math.min(trip.origin.longitude, trip.destination.longitude) - 0.02,
+                Math.min(trip.origin.latitude, trip.destination.latitude) - 0.02,
+              ],
+              paddingTop: 80,
+              paddingBottom: 380,
+              paddingLeft: 40,
+              paddingRight: 40,
+            }}
+            animationMode="none"
+            animationDuration={0}
+          />
+        )}
         {trip?.origin && (
           <MapboxGL.MarkerView coordinate={[trip.origin.longitude, trip.origin.latitude]}>
             <View style={styles.markerOrigin}>
@@ -225,6 +214,9 @@ export default function RideDetailScreen() {
       <Pressable
         style={[styles.backButton, { top: 60 }]}
         onPress={() => router.back()}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
       >
         <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
       </Pressable>
@@ -262,7 +254,12 @@ export default function RideDetailScreen() {
                   onPress={() => !isLocked && setSelectedTier(t.key)}
                   disabled={isLocked}
                 >
-                  <Text style={styles.tierChipIcon}>{t.icon}</Text>
+                  <Ionicons
+                    name={t.icon}
+                    size={16}
+                    color={isActive ? colors.onPrimary : colors.onSurfaceVariant}
+                    style={styles.tierChipIcon}
+                  />
                   <Text
                     variant="label"
                     color={isActive ? colors.onPrimary : colors.onSurfaceVariant}
@@ -313,31 +310,12 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
               >
                 <DriverInfoCard
-                  driver={trip?.driver as any}
-                  vehicle={trip?.vehicle as any}
+                  driver={trip?.driver}
+                  vehicle={trip?.vehicle}
                   showActions={false}
                 />
               </MotiView>
 
-              {/* HIDDEN — replaced by DriverInfoCard above */}
-              {false && <View style={styles.driverCard}>
-                <View style={styles.driverAvatar}>
-                  <Ionicons name="person" size={22} color={colors.onSurfaceVariant} />
-                </View>
-                <View style={styles.driverInfo}>
-                  <Text variant="titleSmall">{trip?.driver?.name ?? 'Your Driver'}</Text>
-                  <View style={styles.ratingRow}>
-                    <Text variant="caption" color={colors.primary}>★ {trip?.driver?.rating?.toFixed(1) ?? '4.9'}</Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}> · {trip?.driver?.totalTrips ?? 0} trips</Text>
-                  </View>
-                </View>
-                <View style={styles.vehicleInfo}>
-                  <Text variant="label">{trip?.vehicle?.plate ?? '—'}</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    {trip?.vehicle?.color} {trip?.vehicle?.make}
-                  </Text>
-                </View>
-              </View>}
 
               {/* Seat occupancy bar */}
               <MotiView
@@ -359,15 +337,26 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
                 style={styles.fareSection}
               >
-                <AnimatedFareText value={computedFare ?? trip?.fare ?? 0} variant="fareLarge" />
+                <AnimatedFareText value={computedFare ?? trip?.farePerSeat ?? 0} variant="fareLarge" />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   per seat · drops as more join
                 </Text>
                 <View style={styles.fareBreakdown}>
-                  <FareRow label="Base fare" value={formatCurrency(computedFare ?? trip?.fare ?? 0)} />
+                  <FareRow label="Base fare" value={formatCurrency(computedFare ?? trip?.farePerSeat ?? 0)} />
                   <View style={styles.fareDivider} />
-                  <FareRow label="Total" value={formatCurrency(computedFare ?? trip?.fare ?? 0)} bold />
+                  <FareRow label="Total" value={formatCurrency(computedFare ?? trip?.farePerSeat ?? 0)} bold />
                 </View>
+                {/* Tappable link → full per-trip price breakdown sheet */}
+                <Pressable
+                  onPress={() => setShowFareBreakdown(true)}
+                  style={styles.fareDetailsLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="View full price breakdown"
+                >
+                  <Ionicons name="receipt-outline" size={15} color={colors.primary} />
+                  <Text variant="label" color={colors.primary}>View price breakdown</Text>
+                  <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+                </Pressable>
               </MotiView>
 
               {/* Book CTA */}
@@ -378,22 +367,43 @@ export default function RideDetailScreen() {
                 style={styles.ctaSection}
               >
                 <Button
-                  label={`Book This Seat · ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.fare) : '...'}`}
-                  onPress={() => router.push(`/ride/${id}/seat` as any)}
+                  label={`Book This Seat · ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : '...'}`}
+                  onPress={() => router.push(`/ride/${id}/seat` as Href)}
                   loading={bookTrip.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Book this seat for ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : 'loading'}`}
                 />
                 <Pressable
                   style={styles.inviteButton}
-                  onPress={() => router.push(`/ride/${id}/invite` as any)}
+                  onPress={() => router.push(`/ride/${id}/invite` as Href)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Book and invite my group"
                 >
                   <Ionicons name="people-outline" size={18} color={colors.secondary} />
                   <Text variant="label" color={colors.secondary}>Book & invite my group</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.inviteButton, { borderColor: colors.outlineVariant }]}
+                  onPress={() => router.push(`/ride/${id}/guest-selection` as Href)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Book for someone else"
+                >
+                  <Ionicons name="person-add-outline" size={18} color={colors.onSurfaceVariant} />
+                  <Text variant="label" color={colors.onSurfaceVariant}>Book for someone else</Text>
                 </Pressable>
               </MotiView>
             </>
           )}
         </BottomSheetScrollView>
       </BottomSheet>
+
+      <FareBreakdownSheet
+        visible={showFareBreakdown}
+        onClose={() => setShowFareBreakdown(false)}
+        fare={computedFare ?? trip?.farePerSeat ?? 0}
+        seats={trip?.maxSeats ?? 4}
+        surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
+      />
     </View>
   );
 }
@@ -505,6 +515,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   fareRow: { flexDirection: 'row', justifyContent: 'space-between' },
   fareDivider: { height: 1, backgroundColor: colors.outlineVariant },
+  fareDetailsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    paddingVertical: spacing.xs,
+  },
   ctaSection: { gap: spacing.md },
   inviteButton: {
     flexDirection: 'row',

@@ -3,9 +3,11 @@ import { View, StyleSheet, Pressable, Image, ScrollView, Alert } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, queryKeys } from '@eyego/api';
+import { bookingsApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -17,6 +19,11 @@ interface MenuItem {
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   destructive?: boolean;
+}
+
+interface MenuSection {
+  title: string;
+  items: MenuItem[];
 }
 
 export default function ProfileScreen() {
@@ -54,124 +61,173 @@ export default function ProfileScreen() {
     ]);
   };
 
-  const menuItems: MenuItem[] = [
-    { label: 'Edit Profile', icon: 'person-outline', onPress: () => router.push('/profile/edit' as any) },
-    { label: 'EyeGo Wallet & Pay', icon: 'wallet-outline', onPress: () => router.push('/profile/wallet' as any) },
-    { label: 'Payment Methods', icon: 'card-outline', onPress: () => router.push('/profile/payment-methods' as any) },
-    { label: 'Promotions & Referrals', icon: 'gift-outline', onPress: () => router.push('/profile/promotions' as any) },
-    { label: 'Saved Places', icon: 'location-outline', onPress: () => router.push('/profile/saved-places' as any) },
-    { label: 'Emergency Contacts', icon: 'shield-checkmark-outline', onPress: () => router.push('/profile/emergency-contacts' as any) },
-    { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/trips') },
-    { label: 'Notification Preferences', icon: 'notifications-outline', onPress: () => router.push('/profile/notification-preferences' as any) },
-    { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => router.push('/profile/help' as any) },
-    { label: 'General Settings', icon: 'settings-outline', onPress: () => router.push('/profile/settings' as any) },
-    { label: 'Privacy Policy', icon: 'shield-outline', onPress: () => router.push('/profile/privacy' as any) },
-    { label: 'Terms of Service', icon: 'document-text-outline', onPress: () => router.push('/profile/terms' as any) },
-    { label: 'Delete Account', icon: 'trash-outline', onPress: () => router.push('/profile/account-deletion' as any), destructive: true },
-    { label: 'Log Out', icon: 'log-out-outline', onPress: handleLogout, destructive: true },
+  type RiderRoute = Parameters<typeof router.push>[0];
+
+  const menuSections: MenuSection[] = [
+    {
+      title: 'Account',
+      items: [
+        { label: 'Edit Profile', icon: 'person-outline', onPress: () => router.push('/profile/edit' as RiderRoute) },
+        { label: 'EyeGo Wallet & Pay', icon: 'wallet-outline', onPress: () => router.push('/profile/wallet' as RiderRoute) },
+        { label: 'Payment Methods', icon: 'card-outline', onPress: () => router.push('/profile/payment-methods' as RiderRoute) },
+        { label: 'Promotions & Referrals', icon: 'gift-outline', onPress: () => router.push('/profile/promotions' as RiderRoute) },
+        { label: 'Saved Places', icon: 'location-outline', onPress: () => router.push('/profile/saved-places' as RiderRoute) },
+        { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/trips') },
+      ],
+    },
+    {
+      title: 'Safety',
+      items: [
+        { label: 'Emergency Contacts', icon: 'shield-checkmark-outline', onPress: () => router.push('/profile/emergency-contacts' as RiderRoute) },
+        { label: 'Notification Preferences', icon: 'notifications-outline', onPress: () => router.push('/profile/notification-preferences' as RiderRoute) },
+      ],
+    },
+    {
+      title: 'App',
+      items: [
+        { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => router.push('/profile/help' as RiderRoute) },
+        { label: 'General Settings', icon: 'settings-outline', onPress: () => router.push('/profile/settings' as RiderRoute) },
+        { label: 'Privacy Policy', icon: 'shield-outline', onPress: () => router.push('/profile/privacy' as RiderRoute) },
+        { label: 'Terms of Service', icon: 'document-text-outline', onPress: () => router.push('/profile/terms' as RiderRoute) },
+      ],
+    },
+    {
+      title: 'Danger Zone',
+      items: [
+        { label: 'Delete Account', icon: 'trash-outline', onPress: () => router.push('/profile/account-deletion' as RiderRoute), destructive: true },
+        { label: 'Log Out', icon: 'log-out-outline', onPress: handleLogout, destructive: true },
+      ],
+    },
   ];
+
+  // Row delay offset per section
+  let rowDelayOffset = 0;
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-          style={styles.header}
-        >
-          <Text variant="headlineMedium">Profile</Text>
-        </MotiView>
 
-        {/* Avatar + info card */}
+        {/* ── Hero card ── */}
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-          style={styles.profileCard}
+          transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+          style={styles.heroWrapper}
         >
-          {/* Avatar */}
-          <View style={styles.avatarWrapper}>
-            {user?.avatarUrl ? (
-              <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarInitials}>
-                  {user?.name ? getInitials(user.name) : '?'}
-                </Text>
-              </View>
-            )}
-            <Pressable style={styles.editBadge} onPress={() => router.push('/profile/edit' as any)}>
-              <Ionicons name="pencil" size={12} color={colors.onPrimary} />
-            </Pressable>
-          </View>
-
-          {/* Name + phone */}
-          <Text variant="titleLarge" style={{ marginTop: spacing.base }}>
-            {user?.name ?? 'Set your name'}
-          </Text>
-          <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-            {user?.phone ?? ''}
-          </Text>
-
-          {/* Emergency contact chip */}
-          <Pressable
-            onPress={() => router.push('/profile/emergency-contacts' as any)}
-            style={styles.emergencyChip}
+          <LinearGradient
+            colors={[colors.primary + '28', colors.surfaceContainer]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.heroGradient}
           >
-            <Ionicons name="shield-checkmark-outline" size={12} color={(user as any)?.emergencyContact?.name ? colors.primary : colors.onSurfaceVariant} />
-            <Text variant="caption" color={(user as any)?.emergencyContact?.name ? colors.primary : colors.onSurfaceVariant}>
-              {(user as any)?.emergencyContact?.name
-                ? `SOS: ${(user as any).emergencyContact.name}`
-                : 'Add emergency contact'}
-            </Text>
-          </Pressable>
+            {/* Avatar with glow ring */}
+            <View style={styles.avatarWrapper}>
+              <View style={[styles.avatarGlow, { shadowColor: colors.primary, borderColor: colors.primary + '55' }]}>
+                {user?.avatarUrl ? (
+                  <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatarFallback, { backgroundColor: colors.surfaceContainerHigh }]}>
+                    <Text style={[styles.avatarInitials, { color: colors.primary }]}>
+                      {user?.name ? getInitials(user.name) : '?'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Pressable
+                style={[styles.editBadge, { backgroundColor: colors.primary }]}
+                onPress={() => router.push('/profile/edit' as any)}
+                accessibilityLabel="Edit profile"
+                accessibilityRole="button"
+              >
+                <Ionicons name="pencil" size={12} color={colors.onPrimary} />
+              </Pressable>
+            </View>
 
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <StatItem label="Trips" value={tripsCount} />
-            <View style={styles.statDivider} />
-            <StatItem label="Rating" value={(user as any)?.rating ? `${(user as any).rating} ★` : '4.9 ★'} />
-            <View style={styles.statDivider} />
-            <StatItem label="Member" value={memberSince} />
-          </View>
+            {/* Name + phone */}
+            <Text variant="titleLarge" style={{ marginTop: spacing.base, textAlign: 'center' }}>
+              {user?.name ?? 'Set your name'}
+            </Text>
+            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.base }}>
+              {user?.phone ?? ''}
+            </Text>
+
+            {/* Stats pills */}
+            <View style={styles.statsRow}>
+              <BlurView intensity={50} tint="dark" style={styles.statPill}>
+                <Text style={[styles.statValue, { color: colors.primary }]}>{tripsCount}</Text>
+                <Text style={styles.statLabel}>Trips</Text>
+              </BlurView>
+              <BlurView intensity={50} tint="dark" style={styles.statPill}>
+                <Text style={[styles.statValue, { color: colors.primary }]}>
+                  {(user as any)?.rating ? `${(user as any).rating}★` : '4.9★'}
+                </Text>
+                <Text style={styles.statLabel}>Rating</Text>
+              </BlurView>
+              <BlurView intensity={50} tint="dark" style={styles.statPill}>
+                <Text style={[styles.statValue, { color: colors.primary }]}>{memberSince}</Text>
+                <Text style={styles.statLabel}>Since</Text>
+              </BlurView>
+            </View>
+          </LinearGradient>
         </MotiView>
 
-        {/* Menu */}
-        <View style={styles.menuSection}>
-          {menuItems.map((item, i) => (
+        {/* ── Menu sections ── */}
+        {menuSections.map((section, sectionIdx) => {
+          const sectionDelay = 80 + rowDelayOffset * 35;
+          rowDelayOffset += section.items.length + 1;
+          return (
             <MotiView
-              key={item.label}
-              from={{ opacity: 0, translateX: -10 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 + i * 35 }}
+              key={section.title}
+              from={{ opacity: 0, translateY: 8 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 34, delay: sectionDelay }}
+              style={styles.sectionWrapper}
             >
-              <Pressable
-                style={[styles.menuItem, i === menuItems.length - 1 && styles.menuItemLast]}
-                onPress={item.onPress}
-              >
-                <View style={[styles.menuIcon, item.destructive && styles.menuIconDestructive]}>
-                  <Ionicons
-                    name={item.icon}
-                    size={18}
-                    color={item.destructive ? colors.error : colors.onSurface}
-                  />
-                </View>
-                <Text
-                  variant="bodyLarge"
-                  color={item.destructive ? colors.error : colors.onSurface}
-                  style={{ flex: 1 }}
-                >
-                  {item.label}
-                </Text>
-                {!item.destructive && (
-                  <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-                )}
-              </Pressable>
+              <Text style={[styles.sectionHeader, { color: colors.onSurfaceVariant }]}>
+                {section.title.toUpperCase()}
+              </Text>
+              <View style={[styles.sectionCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+                {section.items.map((item, itemIdx) => (
+                  <Pressable
+                    key={item.label}
+                    style={[
+                      styles.menuItem,
+                      { borderBottomColor: colors.outlineVariant },
+                      itemIdx === section.items.length - 1 && styles.menuItemLast,
+                    ]}
+                    onPress={item.onPress}
+                    accessibilityRole="button"
+                  >
+                    <View style={[
+                      styles.iconCircle,
+                      {
+                        backgroundColor: item.destructive
+                          ? 'rgba(255, 59, 48, 0.1)'
+                          : colors.primary + '1A',
+                      },
+                    ]}>
+                      <Ionicons
+                        name={item.icon}
+                        size={17}
+                        color={item.destructive ? colors.error : colors.primary}
+                      />
+                    </View>
+                    <Text
+                      variant="bodyLarge"
+                      color={item.destructive ? colors.error : colors.onSurface}
+                      style={{ flex: 1 }}
+                    >
+                      {item.label}
+                    </Text>
+                    {!item.destructive && (
+                      <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
             </MotiView>
-          ))}
-        </View>
+          );
+        })}
 
         <Text variant="caption" color={colors.onSurfaceVariant} style={styles.version}>
           EyeGo v1.0.0
@@ -181,111 +237,129 @@ export default function ProfileScreen() {
   );
 }
 
-function StatItem({ label, value }: { label: string; value: string }) {
-  const colors = useColors();
-  return (
-    <View style={{ alignItems: 'center', flex: 1 }}>
-      <Text variant="titleMedium" color={colors.primary}>{value}</Text>
-      <Text variant="caption" color={colors.onSurfaceVariant}>{label}</Text>
-    </View>
-  );
-}
-
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.backgroundDeep },
   scroll: { paddingBottom: spacing['3xl'] },
-  header: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.base,
-  },
-  profileCard: {
+
+  heroWrapper: {
     marginHorizontal: spacing['2xl'],
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii['2xl'],
-    padding: spacing.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    marginTop: spacing.xl,
     marginBottom: spacing.xl,
+    borderRadius: radii['2xl'],
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  avatarWrapper: { position: 'relative', width: 80, height: 80 },
-  avatar: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: colors.primary },
+  heroGradient: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xl,
+  },
+
+  avatarWrapper: { position: 'relative', width: 88, height: 88, marginBottom: spacing.xs },
+  avatarGlow: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 2.5,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  avatar: { width: 84, height: 84, borderRadius: 42 },
   avatarFallback: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderWidth: 2,
-    borderColor: colors.outline,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitials: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineMedium,
-    color: colors.onSurfaceVariant,
   },
   editBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
+    bottom: 2,
+    right: 2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.backgroundDeep,
   },
-  emergencyChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.full,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-  },
+
   statsRow: {
     flexDirection: 'row',
-    marginTop: spacing.xl,
-    paddingTop: spacing.base,
-    borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
-    width: '100%',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
-  statDivider: { width: 1, backgroundColor: colors.outlineVariant },
-  menuSection: {
+  statPill: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.primary + '22',
+  },
+  statValue: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.titleMedium,
+  },
+  statLabel: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.caption,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+
+  sectionWrapper: {
     marginHorizontal: spacing['2xl'],
-    backgroundColor: colors.surfaceContainer,
+    marginBottom: spacing.lg,
+  },
+  sectionHeader: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    marginBottom: spacing.xs,
+    marginLeft: spacing.xs,
+  },
+  sectionCard: {
     borderRadius: radii['2xl'],
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
     overflow: 'hidden',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.base,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.md,
     gap: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
   },
   menuItemLast: { borderBottomWidth: 0 },
-  menuIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceContainerHigh,
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: radii.lg,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  menuIconDestructive: { backgroundColor: 'rgba(255, 180, 171, 0.1)' },
   version: {
     textAlign: 'center',
-    marginTop: spacing.xl,
+    marginTop: spacing.lg,
   },
 });

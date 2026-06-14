@@ -23,16 +23,48 @@ export interface TopUpRequest {
   email?: string;
 }
 
+export interface SavedCard {
+  id: string;
+  last4: string;
+  brand: string;
+  expMonth: string;
+  expYear: string;
+  cardholderName?: string;
+  isDefault: boolean;
+  type: 'card';
+  createdAt: string;
+}
+
 export const walletApi = {
   getBalance: () =>
-    apiClient.get<ApiResponse<WalletBalance>>('/driver/wallet/balance'),
+    apiClient.get<ApiResponse<WalletBalance>>('/wallet/balance'),
 
   getTransactions: (params?: { page?: number; limit?: number }) =>
-    apiClient.get<PaginatedResponse<WalletTransaction>>('/driver/wallet/transactions', { params }),
+    apiClient.get<PaginatedResponse<WalletTransaction>>('/wallet/transactions', { params }),
 
   topUp: (data: TopUpRequest) =>
-    apiClient.post<ApiResponse<{ reference: string; authorizationUrl?: string }>>('/driver/wallet/topup', data),
+    apiClient.post<ApiResponse<{ reference: string; authorizationUrl?: string }>>('/wallet/topup', data),
 
   withdraw: (data: { amount: number }) =>
-    apiClient.post<ApiResponse<{ reference: string; message: string }>>('/driver/wallet/withdraw', data),
+    apiClient.post<ApiResponse<{ reference: string; message: string }>>('/wallet/withdraw', data),
+
+  getPaymentMethods: async (): Promise<SavedCard[]> => {
+    const res = await apiClient.get<ApiResponse<{ methods: SavedCard[] }>>('/wallet/payment-methods');
+    return (res.data as any)?.data?.methods ?? [];
+  },
+
+  deletePaymentMethod: (id: string) =>
+    apiClient.delete<ApiResponse<null>>(`/wallet/payment-methods/${id}`),
+
+  initializeCardSave: () =>
+    apiClient.post<ApiResponse<{ reference: string; authorizationUrl: string }>>(
+      '/wallet/payment-methods/initialize',
+      {}
+    ),
+
+  verifyCardSave: (reference: string) =>
+    apiClient.post<ApiResponse<{ card: Pick<SavedCard, 'id' | 'last4' | 'brand' | 'expMonth' | 'expYear'> }>>(
+      '/wallet/payment-methods/verify',
+      { reference }
+    ),
 };

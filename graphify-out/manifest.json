@@ -1,0 +1,987 @@
+{
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\.claude\\settings.local.json": {
+    "mtime": 1779122971.3926582,
+    "ast_hash": "27bfcfb307488acf44d254b195203f8d",
+    "semantic_hash": "27bfcfb307488acf44d254b195203f8d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app.json": {
+    "mtime": 1779726004.4914234,
+    "ast_hash": "37978367450fe78f598459ff3e39a33f",
+    "semantic_hash": "37978367450fe78f598459ff3e39a33f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(auth)\\_layout.tsx": {
+    "mtime": 1779190716.786522,
+    "ast_hash": "fd2d182d8e2fb6291c5376fe8fc92612",
+    "semantic_hash": "fd2d182d8e2fb6291c5376fe8fc92612"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(auth)\\otp.tsx": {
+    "mtime": 1779971781.5574813,
+    "ast_hash": "73b92d0ba2a861e930ae3726641bd476",
+    "semantic_hash": "73b92d0ba2a861e930ae3726641bd476"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(auth)\\phone.tsx": {
+    "mtime": 1779190743.8294435,
+    "ast_hash": "4b0d510bb17d66fcc4d4a58109c8a62e",
+    "semantic_hash": "4b0d510bb17d66fcc4d4a58109c8a62e"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(auth)\\register.tsx": {
+    "mtime": 1779208237.9214525,
+    "ast_hash": "d6882ba73d2d1ce287f51c4368649b17",
+    "semantic_hash": "d6882ba73d2d1ce287f51c4368649b17"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(onboarding)\\index.tsx": {
+    "mtime": 1779716276.5871568,
+    "ast_hash": "12bcf8a4737c3ebb08b14722a0d80c47",
+    "semantic_hash": "12bcf8a4737c3ebb08b14722a0d80c47"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\_layout.tsx": {
+    "mtime": 1779196276.8948834,
+    "ast_hash": "120db4b0d4cacb6e64ba3f518ad01bce",
+    "semantic_hash": "120db4b0d4cacb6e64ba3f518ad01bce"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\account-deletion.tsx": {
+    "mtime": 1779716180.6596835,
+    "ast_hash": "c550fa4b5a40f1e873d413dd347715ff",
+    "semantic_hash": "c550fa4b5a40f1e873d413dd347715ff"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\documents.tsx": {
+    "mtime": 1779286849.4686668,
+    "ast_hash": "b47fa21e9b6252c3c7ac8fed21c06d97",
+    "semantic_hash": "b47fa21e9b6252c3c7ac8fed21c06d97"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\edit.tsx": {
+    "mtime": 1779294543.0659623,
+    "ast_hash": "cd26bf66cc327e121451458d0cb51fa2",
+    "semantic_hash": "cd26bf66cc327e121451458d0cb51fa2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\help.tsx": {
+    "mtime": 1779286931.480178,
+    "ast_hash": "316a928c5a4bcd4ff641f3b79de32d93",
+    "semantic_hash": "316a928c5a4bcd4ff641f3b79de32d93"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\payout-account.tsx": {
+    "mtime": 1779716239.3307388,
+    "ast_hash": "08f7fbbe3f2b8e447510795acdb7f48a",
+    "semantic_hash": "08f7fbbe3f2b8e447510795acdb7f48a"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\performance.tsx": {
+    "mtime": 1779200594.0969765,
+    "ast_hash": "f2cd179d48edb4b203b0201470021191",
+    "semantic_hash": "f2cd179d48edb4b203b0201470021191"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\privacy.tsx": {
+    "mtime": 1779716357.5525074,
+    "ast_hash": "7da6c577efa7d50c88d67fc77d6d4d1f",
+    "semantic_hash": "7da6c577efa7d50c88d67fc77d6d4d1f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\ratings.tsx": {
+    "mtime": 1779286817.3088987,
+    "ast_hash": "1bfbbae8ee73b052b12b8346f3ff51a4",
+    "semantic_hash": "1bfbbae8ee73b052b12b8346f3ff51a4"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\safety.tsx": {
+    "mtime": 1779286885.716082,
+    "ast_hash": "bab40ba5d2d65ec5e3263a78d2e92fd0",
+    "semantic_hash": "bab40ba5d2d65ec5e3263a78d2e92fd0"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\settings.tsx": {
+    "mtime": 1779286976.9468918,
+    "ast_hash": "43c86f782da09770d751c7de1710b4b9",
+    "semantic_hash": "43c86f782da09770d751c7de1710b4b9"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\terms.tsx": {
+    "mtime": 1779716194.746541,
+    "ast_hash": "c1564e6bac997840de762f29adebd2b7",
+    "semantic_hash": "c1564e6bac997840de762f29adebd2b7"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(profile)\\vehicle.tsx": {
+    "mtime": 1779196361.5352361,
+    "ast_hash": "61123a4bd1b5f5fdf9283dba26d09710",
+    "semantic_hash": "61123a4bd1b5f5fdf9283dba26d09710"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(tabs)\\_layout.tsx": {
+    "mtime": 1779369862.0568037,
+    "ast_hash": "47a5ef7683c06418957f9ebb88677dee",
+    "semantic_hash": "47a5ef7683c06418957f9ebb88677dee"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(tabs)\\earnings.tsx": {
+    "mtime": 1779973805.475832,
+    "ast_hash": "f58814e67dbba404fb60f21f617e7656",
+    "semantic_hash": "f58814e67dbba404fb60f21f617e7656"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(tabs)\\home.tsx": {
+    "mtime": 1780051833.2108393,
+    "ast_hash": "56e7eaa91995d526538f0b5284d94f12",
+    "semantic_hash": "56e7eaa91995d526538f0b5284d94f12"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(tabs)\\notifications.tsx": {
+    "mtime": 1779369883.268762,
+    "ast_hash": "c4bb49b7940f7ff17da57df6c5653ddb",
+    "semantic_hash": "c4bb49b7940f7ff17da57df6c5653ddb"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(tabs)\\profile.tsx": {
+    "mtime": 1779971848.2353666,
+    "ast_hash": "836ed831d84e32f112e39ff755e37669",
+    "semantic_hash": "836ed831d84e32f112e39ff755e37669"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(tabs)\\trips.tsx": {
+    "mtime": 1779973786.291835,
+    "ast_hash": "8292a74930efa67f235a42ba11104a98",
+    "semantic_hash": "8292a74930efa67f235a42ba11104a98"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\active\\[id].tsx": {
+    "mtime": 1779973462.333982,
+    "ast_hash": "0b3132f2b0a694f515a07af9ff455046",
+    "semantic_hash": "0b3132f2b0a694f515a07af9ff455046"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\add-passenger.tsx": {
+    "mtime": 1779191305.91413,
+    "ast_hash": "f2c6c9c2e3cffeb7110fcc74bbfcb0ce",
+    "semantic_hash": "f2c6c9c2e3cffeb7110fcc74bbfcb0ce"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\cancel\\[id].tsx": {
+    "mtime": 1779973271.6674123,
+    "ast_hash": "95315d387b34937795641b886b1917b8",
+    "semantic_hash": "95315d387b34937795641b886b1917b8"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\chat\\[id].tsx": {
+    "mtime": 1779822310.9007652,
+    "ast_hash": "3e2d69eb256e39006a361249178357c4",
+    "semantic_hash": "3e2d69eb256e39006a361249178357c4"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\complete\\[id].tsx": {
+    "mtime": 1779973323.3613863,
+    "ast_hash": "b19fc6ab49348251108c0c77ca800928",
+    "semantic_hash": "b19fc6ab49348251108c0c77ca800928"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\create.tsx": {
+    "mtime": 1779813793.7708786,
+    "ast_hash": "8e640699bd47dbd7727214b22aedf8f9",
+    "semantic_hash": "8e640699bd47dbd7727214b22aedf8f9"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\detail\\[id].tsx": {
+    "mtime": 1779971893.1867218,
+    "ast_hash": "220606c4903cc9e171e988d7c7435548",
+    "semantic_hash": "220606c4903cc9e171e988d7c7435548"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\dispatch\\[id].tsx": {
+    "mtime": 1779973822.0003812,
+    "ast_hash": "68785f966016020b404d6bee5a4f14c2",
+    "semantic_hash": "68785f966016020b404d6bee5a4f14c2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\report\\[id].tsx": {
+    "mtime": 1779973298.3190715,
+    "ast_hash": "7914c03226ea06f5bc4371d0f94d0a73",
+    "semantic_hash": "7914c03226ea06f5bc4371d0f94d0a73"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\(trip)\\tracking\\[id].tsx": {
+    "mtime": 1779823114.694268,
+    "ast_hash": "bff885fbccc3f18749012d5e9f6ea0c1",
+    "semantic_hash": "bff885fbccc3f18749012d5e9f6ea0c1"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\_layout.tsx": {
+    "mtime": 1780051759.8682194,
+    "ast_hash": "4c3ef8d063eb123c1676b5ab6d414d17",
+    "semantic_hash": "4c3ef8d063eb123c1676b5ab6d414d17"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\app\\index.tsx": {
+    "mtime": 1779190710.0381188,
+    "ast_hash": "0609f875a36acf9df3905d01d7e6b001",
+    "semantic_hash": "0609f875a36acf9df3905d01d7e6b001"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\babel.config.js": {
+    "mtime": 1779190636.7189083,
+    "ast_hash": "bb8bc0721e69535de7e90594192b524c",
+    "semantic_hash": "bb8bc0721e69535de7e90594192b524c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\components\\EarningsChart.tsx": {
+    "mtime": 1779200812.2513552,
+    "ast_hash": "8a314b3ea5d7159faed13dd846fe5d8d",
+    "semantic_hash": "8a314b3ea5d7159faed13dd846fe5d8d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\components\\OnlineToggle.tsx": {
+    "mtime": 1779191350.9665477,
+    "ast_hash": "c014d637ed3077c8eb2c6327c0e20a85",
+    "semantic_hash": "c014d637ed3077c8eb2c6327c0e20a85"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\components\\SeatMap.tsx": {
+    "mtime": 1779191361.377462,
+    "ast_hash": "05d89cc6d2dd6461dc2a8e583bdc2b1f",
+    "semantic_hash": "05d89cc6d2dd6461dc2a8e583bdc2b1f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\components\\StepIndicator.tsx": {
+    "mtime": 1779191404.3175,
+    "ast_hash": "b31749941ec09153af3d29ae862b2d64",
+    "semantic_hash": "b31749941ec09153af3d29ae862b2d64"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\components\\TripCard.tsx": {
+    "mtime": 1779204458.472002,
+    "ast_hash": "feae20da4ca972e8ebbbf17dbf5f8555",
+    "semantic_hash": "feae20da4ca972e8ebbbf17dbf5f8555"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\eas.json": {
+    "mtime": 1779721570.141863,
+    "ast_hash": "25c89293fb12631600405a7faf460705",
+    "semantic_hash": "25c89293fb12631600405a7faf460705"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\expo-env.d.ts": {
+    "mtime": 1780051250.271679,
+    "ast_hash": "0dd9dccdb4b08595bc83df70d6a154d3",
+    "semantic_hash": "0dd9dccdb4b08595bc83df70d6a154d3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\hooks\\useDriverLocation.ts": {
+    "mtime": 1780051918.8799796,
+    "ast_hash": "74489f1be27b7230004de891219112cc",
+    "semantic_hash": "74489f1be27b7230004de891219112cc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\hooks\\useDriverSocket.ts": {
+    "mtime": 1779973391.7535667,
+    "ast_hash": "e9decfa6615f64b8ab558405bc38a891",
+    "semantic_hash": "e9decfa6615f64b8ab558405bc38a891"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\hooks\\useNetworkStatus.ts": {
+    "mtime": 1779199309.6305044,
+    "ast_hash": "e18318dcfe320e2b16b8786d35f39af3",
+    "semantic_hash": "e18318dcfe320e2b16b8786d35f39af3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\metro.config.js": {
+    "mtime": 1779190642.3474286,
+    "ast_hash": "8dbbc85f68ff3194ac666e8e1055865f",
+    "semantic_hash": "8dbbc85f68ff3194ac666e8e1055865f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\nativewind-env.d.ts": {
+    "mtime": 1779190667.2467265,
+    "ast_hash": "b02bcf4fde15f746f6e5248537d0b156",
+    "semantic_hash": "b02bcf4fde15f746f6e5248537d0b156"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\package.json": {
+    "mtime": 1780051446.0564864,
+    "ast_hash": "25d80fee408fde23c71ef36858c387d4",
+    "semantic_hash": "25d80fee408fde23c71ef36858c387d4"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\stores\\driver.store.ts": {
+    "mtime": 1780051755.265209,
+    "ast_hash": "ad0bb42bfad8ee3926000ffddeffa10c",
+    "semantic_hash": "ad0bb42bfad8ee3926000ffddeffa10c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\stores\\notifications.store.ts": {
+    "mtime": 1779367023.1081207,
+    "ast_hash": "79e241fcd1e2ce14dfe6811384db94bc",
+    "semantic_hash": "79e241fcd1e2ce14dfe6811384db94bc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\tailwind.config.js": {
+    "mtime": 1779190651.763946,
+    "ast_hash": "689a591f1cce0fa2722f73bc3b65fce1",
+    "semantic_hash": "689a591f1cce0fa2722f73bc3b65fce1"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\tsconfig.json": {
+    "mtime": 1779190617.4605088,
+    "ast_hash": "2b639628755176b91c56ddd22a5d4aa0",
+    "semantic_hash": "2b639628755176b91c56ddd22a5d4aa0"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\utils\\mapbox.ts": {
+    "mtime": 1779821974.387665,
+    "ast_hash": "c0824914cd4951c1946128a60f2c4d7f",
+    "semantic_hash": "c0824914cd4951c1946128a60f2c4d7f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\utils\\useColors.ts": {
+    "mtime": 1779200439.211327,
+    "ast_hash": "662447c5c86ada741b35a12c571912d8",
+    "semantic_hash": "662447c5c86ada741b35a12c571912d8"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\.claude\\settings.local.json": {
+    "mtime": 1779144491.4346814,
+    "ast_hash": "8e30b841d405a78c413cf7d4d414e03b",
+    "semantic_hash": "8e30b841d405a78c413cf7d4d414e03b"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\App.tsx": {
+    "mtime": 1779824281.410133,
+    "ast_hash": "fbbf85ca877f8dc8d5bf2e4142ac7536",
+    "semantic_hash": "fbbf85ca877f8dc8d5bf2e4142ac7536"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app.config.js": {
+    "mtime": 1779973383.6675036,
+    "ast_hash": "d931a3add12a38f7b26fb56122ff2d07",
+    "semantic_hash": "d931a3add12a38f7b26fb56122ff2d07"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app.json": {
+    "mtime": 1779722196.8852925,
+    "ast_hash": "9a4ce993473a2929956d9f73742c4a49",
+    "semantic_hash": "9a4ce993473a2929956d9f73742c4a49"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(auth)\\_layout.tsx": {
+    "mtime": 1779140619.6209254,
+    "ast_hash": "43f849eb6e9f7945d269943eb7fcdbcc",
+    "semantic_hash": "43f849eb6e9f7945d269943eb7fcdbcc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(auth)\\otp.tsx": {
+    "mtime": 1779820903.3768435,
+    "ast_hash": "7d5144fc4a4d0f6305e53c61a0b745a8",
+    "semantic_hash": "7d5144fc4a4d0f6305e53c61a0b745a8"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(auth)\\phone.tsx": {
+    "mtime": 1779820850.1056688,
+    "ast_hash": "baaa08c36097baf5ae47e243686d7d3f",
+    "semantic_hash": "baaa08c36097baf5ae47e243686d7d3f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(auth)\\register.tsx": {
+    "mtime": 1779820914.8700733,
+    "ast_hash": "fb5e029b4b28a39b5123b3b7da006f74",
+    "semantic_hash": "fb5e029b4b28a39b5123b3b7da006f74"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(auth)\\social.tsx": {
+    "mtime": 1779143801.8147805,
+    "ast_hash": "0ed4b6f391ed3d12617a8ab6d2ea6da4",
+    "semantic_hash": "0ed4b6f391ed3d12617a8ab6d2ea6da4"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(onboarding)\\_layout.tsx": {
+    "mtime": 1778719631.6142497,
+    "ast_hash": "55de2ceb8d111df92114077512bcf3a6",
+    "semantic_hash": "55de2ceb8d111df92114077512bcf3a6"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(onboarding)\\index.tsx": {
+    "mtime": 1779820925.8526995,
+    "ast_hash": "95f47c5f3d384ad8f752e1a16a87fbfc",
+    "semantic_hash": "95f47c5f3d384ad8f752e1a16a87fbfc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(tabs)\\_layout.tsx": {
+    "mtime": 1779150241.1908185,
+    "ast_hash": "3ba35cf356372efbc19eb3b82b9e74a5",
+    "semantic_hash": "3ba35cf356372efbc19eb3b82b9e74a5"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(tabs)\\home.tsx": {
+    "mtime": 1779973352.6923127,
+    "ast_hash": "e7a5583b5b839ae8ab68d07f96f7a919",
+    "semantic_hash": "e7a5583b5b839ae8ab68d07f96f7a919"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(tabs)\\notifications.tsx": {
+    "mtime": 1779973370.8609333,
+    "ast_hash": "ce2a591f29123b552248b115ea18c848",
+    "semantic_hash": "ce2a591f29123b552248b115ea18c848"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(tabs)\\profile.tsx": {
+    "mtime": 1779971784.6684475,
+    "ast_hash": "e4085033ed3b2502e84a49b88153f349",
+    "semantic_hash": "e4085033ed3b2502e84a49b88153f349"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\(tabs)\\trips.tsx": {
+    "mtime": 1779820353.7552466,
+    "ast_hash": "d38c390e7d6db6d946ea57f7ba894a51",
+    "semantic_hash": "d38c390e7d6db6d946ea57f7ba894a51"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\_layout.tsx": {
+    "mtime": 1780052757.657884,
+    "ast_hash": "b0c74403000002191e541f61e74d200d",
+    "semantic_hash": "b0c74403000002191e541f61e74d200d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\index.tsx": {
+    "mtime": 1779143657.7675045,
+    "ast_hash": "07ff343b17386b1f3fbbc740852ade10",
+    "semantic_hash": "07ff343b17386b1f3fbbc740852ade10"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\payment\\add-card.tsx": {
+    "mtime": 1779971791.8161042,
+    "ast_hash": "be0b75ac113e1ee7567c339bc25f05b6",
+    "semantic_hash": "be0b75ac113e1ee7567c339bc25f05b6"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\account-deletion.tsx": {
+    "mtime": 1779718296.278646,
+    "ast_hash": "0682f34f54f88f9ae8ad4d5a8faa89b3",
+    "semantic_hash": "0682f34f54f88f9ae8ad4d5a8faa89b3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\business.tsx": {
+    "mtime": 1779200099.763198,
+    "ast_hash": "4a386ad8f364d94ee4b175db4c16fb18",
+    "semantic_hash": "4a386ad8f364d94ee4b175db4c16fb18"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\edit.tsx": {
+    "mtime": 1779286800.7269542,
+    "ast_hash": "f42a67a193d7c6d158c36dcdc3f962e3",
+    "semantic_hash": "f42a67a193d7c6d158c36dcdc3f962e3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\emergency-contacts.tsx": {
+    "mtime": 1779718300.0800357,
+    "ast_hash": "a6656bd94ef5cb07c47fd40afa9349c2",
+    "semantic_hash": "a6656bd94ef5cb07c47fd40afa9349c2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\help.tsx": {
+    "mtime": 1779824338.8575604,
+    "ast_hash": "2711102130b83592db9a570ea516fbe9",
+    "semantic_hash": "2711102130b83592db9a570ea516fbe9"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\notification-preferences.tsx": {
+    "mtime": 1779718356.4038732,
+    "ast_hash": "eab0aad73cb9923b0be9492615046077",
+    "semantic_hash": "eab0aad73cb9923b0be9492615046077"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\payment-methods.tsx": {
+    "mtime": 1779718352.3120666,
+    "ast_hash": "b56a17933f0ae3f0eb631325ff509653",
+    "semantic_hash": "b56a17933f0ae3f0eb631325ff509653"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\privacy.tsx": {
+    "mtime": 1779144867.155021,
+    "ast_hash": "fad6351f14bebd63247305869a2381b3",
+    "semantic_hash": "fad6351f14bebd63247305869a2381b3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\promotions.tsx": {
+    "mtime": 1779715917.3499818,
+    "ast_hash": "d52b158ae7d20e43afad18a539292d65",
+    "semantic_hash": "d52b158ae7d20e43afad18a539292d65"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\safety.tsx": {
+    "mtime": 1779820319.9860075,
+    "ast_hash": "2b1db23aff3981dbb8c5c488669475d4",
+    "semantic_hash": "2b1db23aff3981dbb8c5c488669475d4"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\saved-places.tsx": {
+    "mtime": 1779286866.552987,
+    "ast_hash": "13cd6dc0ed8e5fcbf8af940a524762f1",
+    "semantic_hash": "13cd6dc0ed8e5fcbf8af940a524762f1"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\settings.tsx": {
+    "mtime": 1779287047.2138696,
+    "ast_hash": "b16ae2182c4cab6d7c7244f65c88271f",
+    "semantic_hash": "b16ae2182c4cab6d7c7244f65c88271f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\terms.tsx": {
+    "mtime": 1779716178.3673632,
+    "ast_hash": "ec97e3979b3942aef0200fdd81ecde47",
+    "semantic_hash": "ec97e3979b3942aef0200fdd81ecde47"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\profile\\wallet.tsx": {
+    "mtime": 1779824557.1654546,
+    "ast_hash": "b8507627b5eacb3cf7299989888d61c2",
+    "semantic_hash": "b8507627b5eacb3cf7299989888d61c2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id].tsx": {
+    "mtime": 1779973346.4808316,
+    "ast_hash": "1bea72c42c660955f4f8bccc1f952e96",
+    "semantic_hash": "1bea72c42c660955f4f8bccc1f952e96"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\cancel.tsx": {
+    "mtime": 1779820158.5676234,
+    "ast_hash": "eed3f1b357cd35438602dcd8ec108b2f",
+    "semantic_hash": "eed3f1b357cd35438602dcd8ec108b2f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\chat.tsx": {
+    "mtime": 1779971717.6154392,
+    "ast_hash": "621af00e59640025781a5c95fa97f3e3",
+    "semantic_hash": "621af00e59640025781a5c95fa97f3e3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\complete.tsx": {
+    "mtime": 1779971740.1909428,
+    "ast_hash": "b99dafb056ecd72153e1819d7dd6d1be",
+    "semantic_hash": "b99dafb056ecd72153e1819d7dd6d1be"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\dispute.tsx": {
+    "mtime": 1779718324.5670807,
+    "ast_hash": "fa0b7efac61a7e97c994d201cfb25f81",
+    "semantic_hash": "fa0b7efac61a7e97c994d201cfb25f81"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\invite.tsx": {
+    "mtime": 1779384512.2217262,
+    "ast_hash": "f31ad9fc9d9190998437d61491bc0293",
+    "semantic_hash": "f31ad9fc9d9190998437d61491bc0293"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\payment.tsx": {
+    "mtime": 1779973282.099223,
+    "ast_hash": "4467f583ecfa39272667114cd42ca140",
+    "semantic_hash": "4467f583ecfa39272667114cd42ca140"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\rate-tip.tsx": {
+    "mtime": 1779973290.493257,
+    "ast_hash": "a4fad9fb8f5ea3e5bbd57ecaed20521c",
+    "semantic_hash": "a4fad9fb8f5ea3e5bbd57ecaed20521c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\seat.tsx": {
+    "mtime": 1780052870.4876435,
+    "ast_hash": "4fcabb25637c474c8e9b048aefe7e4aa",
+    "semantic_hash": "4fcabb25637c474c8e9b048aefe7e4aa"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\sos.tsx": {
+    "mtime": 1779824865.6742976,
+    "ast_hash": "aadf901f378e1db4ac730e88a6a374dd",
+    "semantic_hash": "aadf901f378e1db4ac730e88a6a374dd"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\[id]\\tracking.tsx": {
+    "mtime": 1779820938.0181594,
+    "ast_hash": "326587455793b5a968e470eaf459b222",
+    "semantic_hash": "326587455793b5a968e470eaf459b222"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\guest-selection.tsx": {
+    "mtime": 1779973314.9337347,
+    "ast_hash": "b42eaa7ec1bed2b47040448de2b94fdd",
+    "semantic_hash": "b42eaa7ec1bed2b47040448de2b94fdd"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\reserve.tsx": {
+    "mtime": 1779201498.1233206,
+    "ast_hash": "155b0d435f7944bdfbfc7d48758dbf23",
+    "semantic_hash": "155b0d435f7944bdfbfc7d48758dbf23"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\schedule.tsx": {
+    "mtime": 1779718336.126567,
+    "ast_hash": "4a40dbf1ba1d85b070feea8de063b7a8",
+    "semantic_hash": "4a40dbf1ba1d85b070feea8de063b7a8"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\app\\ride\\select.tsx": {
+    "mtime": 1779971850.16426,
+    "ast_hash": "1949f02cb55563c179c53770eaf9fd9d",
+    "semantic_hash": "1949f02cb55563c179c53770eaf9fd9d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\lottie\\boarded-check.json": {
+    "mtime": 1779131851.491506,
+    "ast_hash": "e47cddbaeb4dfabaf6afbead56374737",
+    "semantic_hash": "e47cddbaeb4dfabaf6afbead56374737"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\lottie\\empty-state.json": {
+    "mtime": 1779131845.4011235,
+    "ast_hash": "9cec31404449dec6c9fc94ab7c682099",
+    "semantic_hash": "9cec31404449dec6c9fc94ab7c682099"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\lottie\\payment-success.json": {
+    "mtime": 1779131848.3345616,
+    "ast_hash": "3fe9bdf35fb3433bad774d063ca424d0",
+    "semantic_hash": "3fe9bdf35fb3433bad774d063ca424d0"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\babel.config.js": {
+    "mtime": 1779113181.019815,
+    "ast_hash": "bb8bc0721e69535de7e90594192b524c",
+    "semantic_hash": "bb8bc0721e69535de7e90594192b524c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\components\\ErrorBoundary.tsx": {
+    "mtime": 1779208842.4037218,
+    "ast_hash": "7949e4954b8a124e3e60c20ea15f8c20",
+    "semantic_hash": "7949e4954b8a124e3e60c20ea15f8c20"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\components\\TripStatusListener.tsx": {
+    "mtime": 1779971679.4663918,
+    "ast_hash": "fa1df4710145cba0e9afb86b2c97c6ab",
+    "semantic_hash": "fa1df4710145cba0e9afb86b2c97c6ab"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\eas.json": {
+    "mtime": 1779721561.75761,
+    "ast_hash": "25c89293fb12631600405a7faf460705",
+    "semantic_hash": "25c89293fb12631600405a7faf460705"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\expo-env.d.ts": {
+    "mtime": 1780052936.4199114,
+    "ast_hash": "0dd9dccdb4b08595bc83df70d6a154d3",
+    "semantic_hash": "0dd9dccdb4b08595bc83df70d6a154d3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\hooks\\useNetworkStatus.ts": {
+    "mtime": 1779819677.4674575,
+    "ast_hash": "2cf206f0c5d2c759d3082f4d997b6b91",
+    "semantic_hash": "2cf206f0c5d2c759d3082f4d997b6b91"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\i18n\\index.ts": {
+    "mtime": 1779286992.7103798,
+    "ast_hash": "ffd2e26d32f07e44250b62fc73eacaec",
+    "semantic_hash": "ffd2e26d32f07e44250b62fc73eacaec"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\i18n\\locales\\en.json": {
+    "mtime": 1779286997.529915,
+    "ast_hash": "73d385b841bf9fc117714876bcdf9d93",
+    "semantic_hash": "73d385b841bf9fc117714876bcdf9d93"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\i18n\\locales\\es.json": {
+    "mtime": 1779287006.5319612,
+    "ast_hash": "b968c9fba98b81c6e9110ca81bb1b299",
+    "semantic_hash": "b968c9fba98b81c6e9110ca81bb1b299"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\i18n\\locales\\fr.json": {
+    "mtime": 1779287002.1337435,
+    "ast_hash": "bce11544161dc683bb9fa14c53e3ea3e",
+    "semantic_hash": "bce11544161dc683bb9fa14c53e3ea3e"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\i18n\\locales\\tw.json": {
+    "mtime": 1779287016.0647287,
+    "ast_hash": "a29ad78e9a3d97b67d970a74dc5d50fa",
+    "semantic_hash": "a29ad78e9a3d97b67d970a74dc5d50fa"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\index.ts": {
+    "mtime": 499162500.0,
+    "ast_hash": "33caa6d28d87fc7e637c033d0d7124b1",
+    "semantic_hash": "33caa6d28d87fc7e637c033d0d7124b1"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\metro.config.js": {
+    "mtime": 1778724730.9407177,
+    "ast_hash": "e6ba0c996ff519da20691b9765be1e34",
+    "semantic_hash": "e6ba0c996ff519da20691b9765be1e34"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\nativewind-env.d.ts": {
+    "mtime": 1778721233.8650656,
+    "ast_hash": "e3064341eeb31cf4df5b5219396ac00d",
+    "semantic_hash": "e3064341eeb31cf4df5b5219396ac00d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\package.json": {
+    "mtime": 1779819661.4066947,
+    "ast_hash": "7047c9602b135f21b3668fe358f18225",
+    "semantic_hash": "7047c9602b135f21b3668fe358f18225"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\stores\\auth.store.ts": {
+    "mtime": 1779135152.9904644,
+    "ast_hash": "03d75a841cda4ff8e2055e4ef1907fec",
+    "semantic_hash": "03d75a841cda4ff8e2055e4ef1907fec"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\stores\\ride.store.ts": {
+    "mtime": 1779286890.5164404,
+    "ast_hash": "076d04f17c16cceddc59d9c762935da2",
+    "semantic_hash": "076d04f17c16cceddc59d9c762935da2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\stores\\theme.store.ts": {
+    "mtime": 1779143627.1190333,
+    "ast_hash": "58b6ac606fd25c12870600339e7e542c",
+    "semantic_hash": "58b6ac606fd25c12870600339e7e542c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\tailwind.config.js": {
+    "mtime": 1778719437.4905577,
+    "ast_hash": "c87aae07d9e26d772757620a1f148984",
+    "semantic_hash": "c87aae07d9e26d772757620a1f148984"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\tsconfig.json": {
+    "mtime": 1778721253.0997324,
+    "ast_hash": "eeaf1c25284d1604534ab87cd3377a1b",
+    "semantic_hash": "eeaf1c25284d1604534ab87cd3377a1b"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\utils\\mapbox.ts": {
+    "mtime": 1780053421.489777,
+    "ast_hash": "e6863b0f00aefc3056bbf81fcc9d80f7",
+    "semantic_hash": "e6863b0f00aefc3056bbf81fcc9d80f7"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\utils\\notifications.ts": {
+    "mtime": 1779287234.7137153,
+    "ast_hash": "21b57d2dda1f74272ddefc2296632c6f",
+    "semantic_hash": "21b57d2dda1f74272ddefc2296632c6f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\utils\\offlineQueue.ts": {
+    "mtime": 1779196901.444453,
+    "ast_hash": "230aee39e784970c1d173c4ed864b25d",
+    "semantic_hash": "230aee39e784970c1d173c4ed864b25d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\utils\\safety.ts": {
+    "mtime": 1779217453.2741978,
+    "ast_hash": "23124cf9ffae900675615f679cddb840",
+    "semantic_hash": "23124cf9ffae900675615f679cddb840"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\utils\\telemetry.ts": {
+    "mtime": 1779196941.761608,
+    "ast_hash": "a762e1c43ad64f9fe471543d53c52b38",
+    "semantic_hash": "a762e1c43ad64f9fe471543d53c52b38"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\utils\\useColors.ts": {
+    "mtime": 1779143647.4748137,
+    "ast_hash": "2c517717b8b7b09f30d80dcf82ad5fd6",
+    "semantic_hash": "2c517717b8b7b09f30d80dcf82ad5fd6"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\eas.json": {
+    "mtime": 1778759871.1050017,
+    "ast_hash": "b00d443e24ffbe363a88231848721b0a",
+    "semantic_hash": "b00d443e24ffbe363a88231848721b0a"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\package.json": {
+    "mtime": 1779814665.7894294,
+    "ast_hash": "fc37f8073b6a39217b75fcccd5184617",
+    "semantic_hash": "fc37f8073b6a39217b75fcccd5184617"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\package.json": {
+    "mtime": 1778719035.738748,
+    "ast_hash": "7831ab7963f0dfcc0efb9557358fc8fc",
+    "semantic_hash": "7831ab7963f0dfcc0efb9557358fc8fc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\auth.api.ts": {
+    "mtime": 1779190556.7407434,
+    "ast_hash": "cddd6efbf24c125452e60bbdd22deb85",
+    "semantic_hash": "cddd6efbf24c125452e60bbdd22deb85"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\bookings.api.ts": {
+    "mtime": 1779820102.1690016,
+    "ast_hash": "f41d9a5db4018c75eb5336a7fad3217e",
+    "semantic_hash": "f41d9a5db4018c75eb5336a7fad3217e"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\cancellation.api.ts": {
+    "mtime": 1779820140.6300898,
+    "ast_hash": "5ac858f96841c93ffcf35a67e27530e5",
+    "semantic_hash": "5ac858f96841c93ffcf35a67e27530e5"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\client.ts": {
+    "mtime": 1779973263.870705,
+    "ast_hash": "41e5d04eb5ffd65d1b0fd6de93209454",
+    "semantic_hash": "41e5d04eb5ffd65d1b0fd6de93209454"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\config.api.ts": {
+    "mtime": 1779217481.5306766,
+    "ast_hash": "5873fa5ae1d96c3d3a43f2045003e19c",
+    "semantic_hash": "5873fa5ae1d96c3d3a43f2045003e19c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\drivers.api.ts": {
+    "mtime": 1780051851.2883162,
+    "ast_hash": "ba6d17d913db1e440358be23b6861a0b",
+    "semantic_hash": "ba6d17d913db1e440358be23b6861a0b"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\index.ts": {
+    "mtime": 1779973440.7754648,
+    "ast_hash": "ced1d0538f79599481f5ca4f45892d6d",
+    "semantic_hash": "ced1d0538f79599481f5ca4f45892d6d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\notifications.api.ts": {
+    "mtime": 1779130263.7947466,
+    "ast_hash": "bb8a70d3185f9e0388dcdaf06a79d0fb",
+    "semantic_hash": "bb8a70d3185f9e0388dcdaf06a79d0fb"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\payments.api.ts": {
+    "mtime": 1778719079.9183266,
+    "ast_hash": "fe80a1a69b304ad077219e505bcc1923",
+    "semantic_hash": "fe80a1a69b304ad077219e505bcc1923"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\queryKeys.ts": {
+    "mtime": 1779131622.850495,
+    "ast_hash": "d25d08e92588332bed98df45a90da26c",
+    "semantic_hash": "d25d08e92588332bed98df45a90da26c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\referrals.api.ts": {
+    "mtime": 1779820130.2558837,
+    "ast_hash": "ce16e3208918ce021f78e1cb11aa70b6",
+    "semantic_hash": "ce16e3208918ce021f78e1cb11aa70b6"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\routes.api.ts": {
+    "mtime": 1779288601.3254807,
+    "ast_hash": "c5228e68b232e0789e5efe30526d8337",
+    "semantic_hash": "c5228e68b232e0789e5efe30526d8337"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\socket.ts": {
+    "mtime": 1779973229.5887556,
+    "ast_hash": "1ad7de1864d5ceb8d1624d14ad480def",
+    "semantic_hash": "1ad7de1864d5ceb8d1624d14ad480def"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\support.api.ts": {
+    "mtime": 1779820121.1577835,
+    "ast_hash": "8ece6248806ba707c999aaa1bdaf09e9",
+    "semantic_hash": "8ece6248806ba707c999aaa1bdaf09e9"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\trips.api.ts": {
+    "mtime": 1778719066.9216776,
+    "ast_hash": "7cc67447c938e5c8a8f222b90ef59bb5",
+    "semantic_hash": "7cc67447c938e5c8a8f222b90ef59bb5"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\user.api.ts": {
+    "mtime": 1779148604.621938,
+    "ast_hash": "4309eb2f1598c86a75b50420e4605d45",
+    "semantic_hash": "4309eb2f1598c86a75b50420e4605d45"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\api\\src\\wallet.api.ts": {
+    "mtime": 1779824505.7597284,
+    "ast_hash": "5f77d084151df178732e91fbbeafe5b5",
+    "semantic_hash": "5f77d084151df178732e91fbbeafe5b5"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\config\\package.json": {
+    "mtime": 1778718940.8583052,
+    "ast_hash": "04e1ce7660fd9f3ad8a355389c8b9a2d",
+    "semantic_hash": "04e1ce7660fd9f3ad8a355389c8b9a2d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\config\\src\\fonts.ts": {
+    "mtime": 1779131616.1369917,
+    "ast_hash": "23982c228d72ee0767f88836e2805cea",
+    "semantic_hash": "23982c228d72ee0767f88836e2805cea"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\config\\src\\index.ts": {
+    "mtime": 1778718971.661364,
+    "ast_hash": "8c85045c2a1be5cc3f672f82080d9a12",
+    "semantic_hash": "8c85045c2a1be5cc3f672f82080d9a12"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\package.json": {
+    "mtime": 1778718975.9708667,
+    "ast_hash": "adcfe6ece9893d7366c896ca29d7f1e2",
+    "semantic_hash": "adcfe6ece9893d7366c896ca29d7f1e2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\src\\api.types.ts": {
+    "mtime": 1779719035.0291922,
+    "ast_hash": "28bf71d00532fcf0b80af49b95ba58eb",
+    "semantic_hash": "28bf71d00532fcf0b80af49b95ba58eb"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\src\\booking.types.ts": {
+    "mtime": 1778718996.8671856,
+    "ast_hash": "16e6ec655cbe7b0bfb85de2976f9ccc2",
+    "semantic_hash": "16e6ec655cbe7b0bfb85de2976f9ccc2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\src\\index.ts": {
+    "mtime": 1778719012.4167976,
+    "ast_hash": "f375b68490ae0114b5e6e0d3db171b99",
+    "semantic_hash": "f375b68490ae0114b5e6e0d3db171b99"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\src\\payment.types.ts": {
+    "mtime": 1778719003.256641,
+    "ast_hash": "6f3a157f2d1b75a463250920da704239",
+    "semantic_hash": "6f3a157f2d1b75a463250920da704239"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\src\\trip.types.ts": {
+    "mtime": 1778718989.598076,
+    "ast_hash": "aba6f62026dc8bec3e9159d88e39bcd6",
+    "semantic_hash": "aba6f62026dc8bec3e9159d88e39bcd6"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\types\\src\\user.types.ts": {
+    "mtime": 1779715874.4674778,
+    "ast_hash": "e02314ac57c0d671f1d9f6c7e64d07b0",
+    "semantic_hash": "e02314ac57c0d671f1d9f6c7e64d07b0"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\package.json": {
+    "mtime": 1778719097.7873585,
+    "ast_hash": "0b7189858bd052ca971acb93ea5e3a46",
+    "semantic_hash": "0b7189858bd052ca971acb93ea5e3a46"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\AnimatedFareText.tsx": {
+    "mtime": 1779131785.141055,
+    "ast_hash": "b57442e817125644640168297935aa85",
+    "semantic_hash": "b57442e817125644640168297935aa85"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Avatar.tsx": {
+    "mtime": 1779131725.2321496,
+    "ast_hash": "10a58794684b8222be9f3a677db290ed",
+    "semantic_hash": "10a58794684b8222be9f3a677db290ed"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Button.tsx": {
+    "mtime": 1778719130.782832,
+    "ast_hash": "63ec740f49b9dfd29534ef80203a7516",
+    "semantic_hash": "63ec740f49b9dfd29534ef80203a7516"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Card.tsx": {
+    "mtime": 1778719153.8839512,
+    "ast_hash": "664aafefe646cf7288e1d96747eb992f",
+    "semantic_hash": "664aafefe646cf7288e1d96747eb992f"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\DriverInfoCard.tsx": {
+    "mtime": 1779131776.3863401,
+    "ast_hash": "e90b188f99fda1b515717fff78f584b7",
+    "semantic_hash": "e90b188f99fda1b515717fff78f584b7"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\EmptyState.tsx": {
+    "mtime": 1779131794.866738,
+    "ast_hash": "22aca239ca807777d4d312b13c2d4469",
+    "semantic_hash": "22aca239ca807777d4d312b13c2d4469"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Input.tsx": {
+    "mtime": 1779150928.578948,
+    "ast_hash": "d71e0d91a8d897ab7bb7d566b7bbcdbc",
+    "semantic_hash": "d71e0d91a8d897ab7bb7d566b7bbcdbc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\OTPInput.tsx": {
+    "mtime": 1779131807.4240108,
+    "ast_hash": "eb4c2e3ad9b2e6f26a44eb5f46241b9b",
+    "semantic_hash": "eb4c2e3ad9b2e6f26a44eb5f46241b9b"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Pressable.tsx": {
+    "mtime": 1778719118.3179786,
+    "ast_hash": "fd82449488403f82b17c3653298b4ef4",
+    "semantic_hash": "fd82449488403f82b17c3653298b4ef4"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\RideCard.tsx": {
+    "mtime": 1779149241.0122752,
+    "ast_hash": "0031e91b3505c7fad06ac7a2deae2e1d",
+    "semantic_hash": "0031e91b3505c7fad06ac7a2deae2e1d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\SeatBadge.tsx": {
+    "mtime": 1779131751.408996,
+    "ast_hash": "c150653ff3de4bf4384bced475578a7d",
+    "semantic_hash": "c150653ff3de4bf4384bced475578a7d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\SeatBar.tsx": {
+    "mtime": 1779131758.8718092,
+    "ast_hash": "69f7fa6808d2e8769551172fa9e07a9c",
+    "semantic_hash": "69f7fa6808d2e8769551172fa9e07a9c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Skeleton.tsx": {
+    "mtime": 1779131723.6972258,
+    "ast_hash": "f9f37f7876920d47457f948dae43b2f6",
+    "semantic_hash": "f9f37f7876920d47457f948dae43b2f6"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\StatusBadge.tsx": {
+    "mtime": 1779131748.1351428,
+    "ast_hash": "28dc26e9f7aab851d52afb8f3506f09c",
+    "semantic_hash": "28dc26e9f7aab851d52afb8f3506f09c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Text.tsx": {
+    "mtime": 1779152954.2636392,
+    "ast_hash": "df892fb8b09e5d9a512136df373c841c",
+    "semantic_hash": "df892fb8b09e5d9a512136df373c841c"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\TierBadge.tsx": {
+    "mtime": 1779131740.7240875,
+    "ast_hash": "821de318c6628ad2324623f028b7e5a3",
+    "semantic_hash": "821de318c6628ad2324623f028b7e5a3"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\TierSelector.tsx": {
+    "mtime": 1779131765.404194,
+    "ast_hash": "6de73e9694aa1555ad4af5bb100b1973",
+    "semantic_hash": "6de73e9694aa1555ad4af5bb100b1973"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\Toggle.tsx": {
+    "mtime": 1779131736.2115822,
+    "ast_hash": "554165a522a7a0f3962bf69a48f14ff5",
+    "semantic_hash": "554165a522a7a0f3962bf69a48f14ff5"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\ui\\src\\index.ts": {
+    "mtime": 1779131830.109735,
+    "ast_hash": "d48ca175644f315f36c571b8e2d8d3be",
+    "semantic_hash": "d48ca175644f315f36c571b8e2d8d3be"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\utils\\package.json": {
+    "mtime": 1778719016.4600773,
+    "ast_hash": "7b951614009776a79f6954b6574890c2",
+    "semantic_hash": "7b951614009776a79f6954b6574890c2"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\packages\\utils\\src\\index.ts": {
+    "mtime": 1778719031.6472683,
+    "ast_hash": "27ca3dd9bba16c726224a7362365c8dc",
+    "semantic_hash": "27ca3dd9bba16c726224a7362365c8dc"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\tsconfig.base.json": {
+    "mtime": 1778718937.0408168,
+    "ast_hash": "2d302a5e7b64ba290d284d3d3b2e48f7",
+    "semantic_hash": "2d302a5e7b64ba290d284d3d3b2e48f7"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\tsconfig.json": {
+    "mtime": 1779124334.2364812,
+    "ast_hash": "fc5aeefabecedcb47aa7fd1e236c67ab",
+    "semantic_hash": "fc5aeefabecedcb47aa7fd1e236c67ab"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\.github\\workflows\\build.yml": {
+    "mtime": 1779724651.9321876,
+    "ast_hash": "c0cf3371ef4d86cc40e067a1f7e6bc5d",
+    "semantic_hash": "c0cf3371ef4d86cc40e067a1f7e6bc5d"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\assets\\adaptive-icon.png": {
+    "mtime": 1779191547.3761892,
+    "ast_hash": "97dae5a0e62ad8551d8a31897b425e63",
+    "semantic_hash": "97dae5a0e62ad8551d8a31897b425e63"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\assets\\icon.png": {
+    "mtime": 1779191547.270618,
+    "ast_hash": "4e3f888fc8475f69fd5fa32f1ad5216a",
+    "semantic_hash": "4e3f888fc8475f69fd5fa32f1ad5216a"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\driver\\assets\\splash-icon.png": {
+    "mtime": 1779191547.4726443,
+    "ast_hash": "97dae5a0e62ad8551d8a31897b425e63",
+    "semantic_hash": "97dae5a0e62ad8551d8a31897b425e63"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\adaptive-icon.png": {
+    "mtime": 499162500.0,
+    "ast_hash": "97dae5a0e62ad8551d8a31897b425e63",
+    "semantic_hash": "97dae5a0e62ad8551d8a31897b425e63"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\favicon.png": {
+    "mtime": 499162500.0,
+    "ast_hash": "4f1cb2cac2370cd5050681232e8575a8",
+    "semantic_hash": "4f1cb2cac2370cd5050681232e8575a8"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\icon.png": {
+    "mtime": 499162500.0,
+    "ast_hash": "4e3f888fc8475f69fd5fa32f1ad5216a",
+    "semantic_hash": "4e3f888fc8475f69fd5fa32f1ad5216a"
+  },
+  "C:\\Users\\user\\Downloads\\Projects\\EyeGo V2\\eyego\\apps\\rider\\assets\\splash-icon.png": {
+    "mtime": 499162500.0,
+    "ast_hash": "97dae5a0e62ad8551d8a31897b425e63",
+    "semantic_hash": "97dae5a0e62ad8551d8a31897b425e63"
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -8,7 +8,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { apiClient } from '@eyego/api';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const REPORT_TYPES = [
   'Verbal abuse or threats',
@@ -27,14 +27,26 @@ export default function ReportPassengerScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
+  const qc = useQueryClient();
+
   const [selectedType, setSelectedType] = useState('');
   const [details, setDetails] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
+  // D8: guard invalid id — navigate back after all hooks have run
+  useEffect(() => {
+    if (!id || typeof id !== 'string') {
+      router.back();
+    }
+  }, [id, router]);
+
   const { mutate: submitReport, isPending } = useMutation({
     mutationFn: () =>
       apiClient.post(`/driver/trips/${id}/report`, { type: selectedType, details }),
-    onSuccess: () => setSubmitted(true),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['driver', 'trips'] });
+      setSubmitted(true);
+    },
     onError: (err: any) => {
       Alert.alert('Error', err?.message ?? 'Failed to submit report. Please try again.');
     },

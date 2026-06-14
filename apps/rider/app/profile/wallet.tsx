@@ -23,6 +23,7 @@ export default function WalletScreen() {
   const { data: balanceData, isLoading: balanceLoading } = useQuery({
     queryKey: queryKeys.wallet.balance(),
     queryFn: walletApi.getBalance,
+    refetchInterval: 15_000, // 15s — avoids excessive network chatter on a profile screen
   });
 
   const { data: txData, isLoading: txLoading } = useQuery({
@@ -33,15 +34,19 @@ export default function WalletScreen() {
   const { data: historyData } = useQuery({
     queryKey: ['bookings', 'history', 'completed'],
     queryFn: () => bookingsApi.getHistory({ status: 'COMPLETED', limit: 1 }),
-    select: (r) => (r.data as any)?.pagination?.total ?? (r.data as any)?.data?.length ?? 0,
+    // Backend getUserBookings returns { data: { bookings, total, page, totalPages } }
+    // — there is no top-level `pagination` and `data` is an object (no .length),
+    // so the old select always yielded 0 → tier stuck on "Standard". Read data.total.
+    select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.data?.bookings?.length ?? 0,
   });
   const tripCount = historyData ?? 0;
 
+  // Tier icons use Ionicons (vector) names instead of emoji.
   function getAccountTier(count: number, primaryColor: string) {
-    if (count >= 50) return { label: 'Premium', color: '#F59E0B', icon: '⭐' };
-    if (count >= 26) return { label: 'Gold', color: '#EAB308', icon: '🥇' };
-    if (count >= 11) return { label: 'Silver', color: '#94A3B8', icon: '🥈' };
-    return { label: 'Standard', color: primaryColor, icon: '🌿' };
+    if (count >= 50) return { label: 'Premium', color: '#F59E0B', icon: 'star' as const };
+    if (count >= 26) return { label: 'Gold', color: '#EAB308', icon: 'medal' as const };
+    if (count >= 11) return { label: 'Silver', color: '#94A3B8', icon: 'medal-outline' as const };
+    return { label: 'Standard', color: primaryColor, icon: 'leaf' as const };
   }
   const tier = getAccountTier(tripCount, '#4BE277');
 
@@ -50,7 +55,7 @@ export default function WalletScreen() {
 
   const topUp = useMutation({
     mutationFn: (amount: number) =>
-      walletApi.topUp(amount, 'MOMO'),
+      walletApi.topUp({ amount, method: 'MOMO' }),
     onSuccess: (_, amount) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
@@ -75,7 +80,7 @@ export default function WalletScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={16}>
+        <Pressable onPress={() => router.back()} hitSlop={16} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </Pressable>
         <Text variant="titleMedium" style={styles.headerTitle}>EyeGo Wallet</Text>
@@ -106,7 +111,10 @@ export default function WalletScreen() {
             <View style={styles.cardBottom}>
               <View style={styles.cardMetaItem}>
                 <Text style={styles.metaLabel}>ACCOUNT TYPE</Text>
-                <Text style={[styles.metaValue, { color: tier.color }]}>{tier.icon} {tier.label} Rider</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Ionicons name={tier.icon} size={14} color={tier.color} />
+                  <Text style={[styles.metaValue, { color: tier.color }]}>{tier.label} Rider</Text>
+                </View>
               </View>
               <View style={styles.cardMetaDivider} />
               <View style={styles.cardMetaItem}>
@@ -124,7 +132,7 @@ export default function WalletScreen() {
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8, delay: 50 }}
           style={styles.actionRow}
         >
-          <Pressable style={styles.actionButton} onPress={() => setModalVisible(true)}>
+          <Pressable style={styles.actionButton} onPress={() => setModalVisible(true)} accessibilityRole="button" accessibilityLabel="Top up wallet">
             <Ionicons name="add-circle" size={20} color="#050508" />
             <Text style={styles.actionButtonText}>Top Up Wallet</Text>
           </Pressable>
@@ -188,7 +196,7 @@ export default function WalletScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text variant="titleMedium">Top Up Wallet</Text>
-              <Pressable onPress={() => setModalVisible(false)} hitSlop={12}>
+              <Pressable onPress={() => setModalVisible(false)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close top up">
                 <Ionicons name="close" size={24} color="#FFFFFF" />
               </Pressable>
             </View>
@@ -204,6 +212,8 @@ export default function WalletScreen() {
                   style={styles.quickAmtBtn}
                   onPress={() => handleTopUp(amt)}
                   disabled={topUp.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Top up GHS ${amt}`}
                 >
                   <Text style={styles.quickAmtText}>+GHS {amt}</Text>
                 </Pressable>

@@ -17,7 +17,12 @@ export default function MyVehicleScreen() {
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['driver', 'me'],
-    queryFn: () => driverApi.getMe().then((r) => r.data.data),
+    queryFn: () => driverApi.getMe(),
+    select: (r) => {
+      const data = (r.data as any).data;
+      // Backend wraps driver data in { driver: ... } — unwrap it
+      return data?.driver ?? data;
+    },
   });
 
   const vehicle = (profile as any)?.vehicles?.[0] ?? null;

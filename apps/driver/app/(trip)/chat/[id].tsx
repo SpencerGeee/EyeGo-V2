@@ -9,7 +9,7 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { MotiView } from 'moti';
@@ -34,6 +34,7 @@ interface Message {
   isPrivate?: boolean;
   pending?: boolean;
   readAt?: string | null;
+  recipientId?: string;
 }
 
 export default function TripChatScreen() {
@@ -81,12 +82,13 @@ export default function TripChatScreen() {
   const { data: tripData } = useQuery({
     queryKey: ['driver', 'trip', id],
     queryFn: () => driverApi.getTripById(id),
-    select: (r) => (r.data as any)?.data?.trip ?? null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (r: any) => r.data?.data?.trip ?? null,
     staleTime: 30_000,
     enabled: !!id,
   });
-  const activePassengers: any[] = useMemo(() => {
-    const bookings: any[] = tripData?.bookings ?? [];
+  const activePassengers = useMemo(() => {
+    const bookings = tripData?.bookings ?? [];
     return bookings
       .filter((b: any) =>
         ['CONFIRMED', 'BOARDED', 'SEAT_HELD'].includes(b.status) && b.user?.id
@@ -164,14 +166,14 @@ export default function TripChatScreen() {
         id: `${msg.senderId}-${msg.timestamp}`,
         senderId: msg.senderId,
         senderName: msg.senderName,
-        senderRole: (msg as any).senderRole,
-        seatNumber: (msg as any).seatNumber,
+        senderRole: msg.senderRole,
+        seatNumber: msg.seatNumber,
         text: msg.text,
         timestamp: msg.timestamp,
         isDriver: msg.senderId === driverId,
-        isPrivate: (msg as any).isPrivate ?? false,
-        recipientId: (msg as any).recipientId,
-        readAt: (msg as any).readAt ?? null,
+        isPrivate: msg.isPrivate ?? false,
+        recipientId: msg.recipientId,
+        readAt: null,
       }));
       setMessages(parsed);
       scrollToBottom();
@@ -231,8 +233,8 @@ export default function TripChatScreen() {
         timestamp: msg.timestamp,
         isDriver: msg.senderId === driverId,
         isPrivate: true,
-        recipientId: (msg as any).recipientId,
-      } as Message & { recipientId?: string });
+        recipientId: msg.recipientId,
+      });
     });
 
     const unsubTyping = driverSocketEvents.onTyping((data) => {
@@ -267,7 +269,14 @@ export default function TripChatScreen() {
       }
     });
 
+    // Join the trip room now (covers the already-connected case) AND on every
+    // (re)connect. Socket.IO drops all room membership on disconnect, so without
+    // re-joining on reconnect the driver silently stops receiving `chat:message`
+    // — the root cause of "messages only appear after I send one".
     driverSocketEvents.emitJoinTracking?.(id);
+    const unsubConnect = driverSocketEvents.onConnect(() => {
+      driverSocketEvents.emitJoinTracking?.(id);
+    });
 
     return () => {
       unsubHistory();
@@ -275,6 +284,7 @@ export default function TripChatScreen() {
       unsubPrivate();
       unsubReadReceipt();
       unsubTyping();
+      unsubConnect();
       disconnectDriverSocket();
     };
   }, [driverId, id, scrollToBottom, addOrUpdateMessage, scheduleLocalNotification]);
@@ -461,7 +471,7 @@ export default function TripChatScreen() {
             {chatMode === 'group'
               ? 'All Passengers'
               : privateRecipientId
-                ? `Private · Seat ${activePassengers.find(p => p.user?.id === privateRecipientId)?.seatNumber ?? '—'}`
+                ? `Private · Seat ${activePassengers.find((p: any) => p.user?.id === privateRecipientId)?.seatNumber ?? '—'}`
                 : 'Choose a passenger'}
           </Text>
         </View>

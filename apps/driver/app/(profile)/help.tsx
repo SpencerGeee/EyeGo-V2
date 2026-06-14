@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Pressable, Linking, Modal, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Linking, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
@@ -45,19 +45,12 @@ const FAQS = [
 
 function FaqItem({ q, a, colors }: { q: string; a: string; colors: DriverColors }) {
   const [open, setOpen] = useState(false);
-  const height = useSharedValue(0);
-
-  const animStyle = useAnimatedStyle(() => ({
-    maxHeight: withSpring(open ? 300 : 0, { stiffness: 300, damping: 30 }),
-    overflow: 'hidden',
-  }));
 
   return (
     <View style={{ borderBottomWidth: 1, borderBottomColor: `${colors.outline}88` }}>
-      <TouchableOpacity
+      <Pressable
         style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.base, gap: spacing.md }}
         onPress={() => setOpen((v) => !v)}
-        activeOpacity={0.7}
       >
         <Text style={{ flex: 1, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
           {q}
@@ -67,12 +60,14 @@ function FaqItem({ q, a, colors }: { q: string; a: string; colors: DriverColors 
           size={16}
           color={colors.onSurfaceVariant}
         />
-      </TouchableOpacity>
-      <Animated.View style={animStyle}>
-        <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ paddingBottom: spacing.base, lineHeight: 22 }}>
-          {a}
-        </Text>
-      </Animated.View>
+      </Pressable>
+      {open && (
+        <Animated.View entering={FadeInDown.duration(200)} exiting={FadeOut.duration(150)}>
+          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ paddingBottom: spacing.base, lineHeight: 22 }}>
+            {a}
+          </Text>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -219,13 +214,12 @@ export default function HelpScreen() {
               Our support team typically responds within 2 hours.
             </Text>
           </View>
-          <TouchableOpacity
+          <Pressable
             style={styles.contactBtn}
             onPress={() => Linking.openURL('mailto:support@eyego.app?subject=Driver%20App%20Support')}
-            activeOpacity={0.8}
           >
             <Text style={styles.contactBtnText}>Email Us</Text>
-          </TouchableOpacity>
+          </Pressable>
         </MotiView>
       </ScrollView>
 

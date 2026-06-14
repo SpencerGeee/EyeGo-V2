@@ -92,7 +92,7 @@ export default function AccountDeletionScreen() {
                 label="Permanently Delete Account"
                 onPress={() => deleteAccount()}
                 disabled={!canConfirm}
-                style={[styles.dangerBtn, !canConfirm && styles.dangerBtnDisabled]}
+                style={[styles.dangerBtn, ...(!canConfirm ? [styles.dangerBtnDisabled] : [])]}
               />
             )}
           </MotiView>

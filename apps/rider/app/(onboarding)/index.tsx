@@ -6,6 +6,7 @@ import {
   Dimensions,
   Pressable,
   ViewToken,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,6 +20,7 @@ import Animated, {
   withTiming,
   interpolate,
   Extrapolation,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
@@ -202,7 +204,13 @@ export default function OnboardingScreen() {
         transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
         style={styles.headerRow}
       >
-        <Text style={styles.brandText}>EyeGo</Text>
+        <Image
+          source={require('../../assets/logo.png')}
+          style={styles.brandLogo}
+          resizeMode="contain"
+          accessibilityRole="image"
+          accessibilityLabel="EyeGo"
+        />
         <Pressable onPress={handleDone} hitSlop={16} accessibilityRole="button" accessibilityLabel="Skip onboarding">
           <Text variant="label" style={styles.skipButton}>Skip</Text>
         </Pressable>
@@ -261,7 +269,7 @@ function SlideItem({
 }: {
   slide: Slide;
   index: number;
-  scrollX: Animated.SharedValue<number>;
+  scrollX: SharedValue<number>;
 }) {
   const animatedStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -376,13 +384,17 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   brandText: {
-    fontSize: fontSizes.xl,
+    fontSize: fontSizes.titleLarge,
     fontFamily: fonts.bold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
+  brandLogo: {
+    width: 96,
+    height: 40,
+  },
   skipButton: {
-    fontSize: fontSizes.sm,
+    fontSize: fontSizes.bodySmall,
     fontFamily: fonts.medium,
     color: 'rgba(255, 255, 255, 0.5)',
     letterSpacing: 0.2,
@@ -443,7 +455,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tagline: {
-    fontSize: fontSizes.xs,
+    fontSize: fontSizes.caption,
     fontFamily: fonts.bold,
     letterSpacing: 2,
     textTransform: 'uppercase',

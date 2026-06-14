@@ -5,7 +5,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  TouchableOpacity,
   TextInput,
   Pressable,
 } from 'react-native';
@@ -48,7 +47,7 @@ export default function DriverRegisterScreen() {
       return data.data;
     },
     onSuccess: (updatedDriver) => {
-      updateDriver(updatedDriver.driver ?? updatedDriver);
+      updateDriver(updatedDriver);
       router.replace('/(tabs)/home');
     },
     onError: (err: any) => {
@@ -121,7 +120,7 @@ export default function DriverRegisterScreen() {
             transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 60 }}
             style={styles.avatarWrapper}
           >
-            <TouchableOpacity onPress={pickImage} activeOpacity={0.85} style={styles.avatarTouch}>
+            <Pressable onPress={pickImage} style={styles.avatarTouch}>
               <View style={styles.avatarCircle}>
                 {initials ? (
                   <Text style={styles.avatarInitials}>{initials}</Text>
@@ -132,7 +131,7 @@ export default function DriverRegisterScreen() {
               <View style={styles.avatarBadge}>
                 <Ionicons name="add" size={14} color={colors.onPrimary} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
               Add photo (optional)
             </Text>

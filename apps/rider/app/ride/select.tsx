@@ -23,14 +23,59 @@ import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Toggle, Skeleton } from '@eyego/ui';
+import { Text, Button, Toggle, Skeleton, EmptyState } from '@eyego/ui';
 import { formatCurrency, formatDuration } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
+import { captureException } from '../../lib/sentry';
 
-const TIER_INFO: Record<TripTier, { icon: string; label: string; description: string; color: string }> = {
-  ECONOMY: { icon: '🚐', label: 'Economy', description: 'Shared, budget-friendly ride', color: '#4BE277' },
-  COMFORT: { icon: '🚌', label: 'Comfort', description: 'More space, AC, fewer stops', color: '#7DD8F5' },
-  PREMIUM: { icon: '🚙', label: 'Premium', description: 'Private-feel, premium vehicle', color: '#ffb5ab' },
+// R7: The Trip type from @eyego/types doesn't include all runtime API fields.
+// This extended type covers the shape returned by tripsApi.search() so we can
+// drop the `(trip as any)` casts in the results list.
+type TripWithRoute = Trip & {
+  origin?: { address?: string };
+  destination?: { address?: string };
+  departureTime?: string;
+  availableSeats?: number;
+  farePerSeat?: number;
+  fare?: number;
+  maxSeats?: number;
+  route?: {
+    id?: string;
+    name?: string;
+    originName?: string;
+    destinationName?: string;
+    originLat?: number;
+    originLng?: number;
+    destLat?: number;
+    destLng?: number;
+    distanceKm?: number;
+    virtualStops?: Array<{ id: string; name: string; lat: number; lng: number; sequence: number; isActive: boolean }>;
+  };
+};
+
+/** Haversine distance in km — mirrors server-side fare.calculator.js */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLng = (lng2 - lng1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calcEnRouteFare(fullFare: number, stopLat: number, stopLng: number, destLat: number, destLng: number, totalKm: number): number {
+  if (totalKm <= 0) return fullFare;
+  const remaining = haversineKm(stopLat, stopLng, destLat, destLng);
+  const ratio = Math.min(remaining / totalKm, 1.0);
+  return Math.round(fullFare * ratio * 100) / 100;
+}
+
+// Tier marks use Ionicons (vector) names rather than emoji for crisp, themeable icons.
+const TIER_INFO: Record<TripTier, { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; description: string; color: string; minFare: number }> = {
+  ECONOMY: { icon: 'car-outline', label: 'Economy', description: 'Shared, budget-friendly ride', color: '#4BE277', minFare: 8 },
+  COMFORT: { icon: 'bus-outline', label: 'Comfort', description: 'More space, AC, fewer stops', color: '#7DD8F5', minFare: 15 },
+  PREMIUM: { icon: 'car-sport', label: 'Premium', description: 'Private-feel, premium vehicle', color: '#ffb5ab', minFare: 25 },
 };
 
 export default function RideSelectScreen() {
@@ -46,6 +91,8 @@ export default function RideSelectScreen() {
   const [heavyLoad, setHeavyLoad] = useState(false);
   const [stops, setStops] = useState<{ id: string; text: string }[]>([]);
   const [detourWarning, setDetourWarning] = useState<string | null>(null);
+  const [enRoutePickerTripId, setEnRoutePickerTripId] = useState<string | null>(null);
+  const [selectedStopByTrip, setSelectedStopByTrip] = useState<Record<string, { id: string; name: string; fare: number }>>({});
 
   const validateStops = (currentStops: typeof stops) => {
     const oLat = origin?.latitude ?? 5.6037;
@@ -138,28 +185,15 @@ export default function RideSelectScreen() {
         tier: selectedTier,
       }),
     onSuccess: ({ data }) => {
-      const realTrips = data?.data?.trips ?? data?.data ?? [];
-      if (Array.isArray(realTrips) && realTrips.length > 0) {
-        setTrips(realTrips);
-      } else {
-        // Local fallback: map mock trips with selected tier and premium styling
-        const fallback = MOCK_TRIPS.map(t => ({
-          ...t,
-          tier: selectedTier,
-          fare: selectedTier === 'COMFORT' ? 15.0 : 8.5
-        }));
-        setTrips(fallback as unknown as Trip[]);
-      }
+      const realTrips = (data?.data as any)?.trips ?? data?.data ?? [];
+      // No mock fallback: an empty result is a genuine "no rides found" state,
+      // not an excuse to show fabricated trips a rider could try to book.
+      setTrips(Array.isArray(realTrips) ? realTrips : []);
       setSearched(true);
     },
-    onError: () => {
-      // Show mock data in development
-      const fallback = MOCK_TRIPS.map(t => ({
-        ...t,
-        tier: selectedTier,
-        fare: selectedTier === 'COMFORT' ? 15.0 : 8.5
-      }));
-      setTrips(fallback as unknown as Trip[]);
+    onError: (err) => {
+      captureException(err, { screen: 'ride-select', action: 'search', tier: selectedTier });
+      setTrips([]);
       setSearched(true);
     },
   });
@@ -372,7 +406,26 @@ export default function RideSelectScreen() {
         </MotiView>
 
         {/* Results */}
-        {searched && (
+        {searched && trips.length === 0 && (
+          <MotiView
+            from={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ type: 'timing', duration: 300 }}
+          >
+            <EmptyState
+              icon={searchTrips.isError ? '⚠️' : '🚐'}
+              title={searchTrips.isError ? 'Search failed' : 'No rides found'}
+              subtitle={
+                searchTrips.isError
+                  ? 'Something went wrong searching for rides. Please try again.'
+                  : 'No trips match this route right now. Try a different time or destination.'
+              }
+              action={{ label: 'Search again', onPress: () => searchTrips.mutate() }}
+            />
+          </MotiView>
+        )}
+
+        {searched && trips.length > 0 && (
           <MotiView
             from={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -382,42 +435,142 @@ export default function RideSelectScreen() {
               {trips.length} ride{trips.length !== 1 ? 's' : ''} available
             </Text>
             <View style={styles.resultsList}>
-              {trips.map((trip, i) => (
+              {(trips as TripWithRoute[]).map((trip, i) => (
                 <MotiView
-                  key={(trip as any).id ?? i}
+                  key={trip.id ?? i}
                   from={{ opacity: 0, translateY: 10 }}
                   animate={{ opacity: 1, translateY: 0 }}
                   transition={{ type: 'spring', stiffness: 600, damping: 34, delay: i * 40 }}
                 >
-                  <Pressable
-                    style={styles.tripResultCard}
-                    onPress={() => router.push(`/ride/${(trip as any).id}` as any)}
-                  >
-                    <View style={styles.tripResultLeft}>
-                      <Text variant="titleSmall">
-                        {(trip as any).origin?.address?.split(',')[0] ?? originText}
-                      </Text>
-                      <View style={styles.routeArrowRow}>
-                        <View style={styles.routeArrowLine} />
-                        <Ionicons name="arrow-forward" size={10} color={colors.onSurfaceVariant} />
-                      </View>
-                      <Text variant="titleSmall">
-                        {(trip as any).destination?.address?.split(',')[0] ?? destText}
-                      </Text>
-                      <Text variant="caption" color={colors.onSurfaceVariant}>
-                        {(trip as any).departureTime
-                          ? new Date((trip as any).departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
-                          : 'Departing soon'}{' '}
-                        · {(trip as any).availableSeats ?? 3} seats left
-                      </Text>
-                    </View>
-                    <View style={styles.tripResultRight}>
-                      <Text variant="fareMedium">
-                        {formatCurrency((trip as any).fare ?? 8.5)}
-                      </Text>
-                      <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-                    </View>
-                  </Pressable>
+                  {(() => {
+                    const fullFare = trip.farePerSeat ?? 0;
+                    const selectedStop = selectedStopByTrip[trip.id ?? ''];
+                    const displayFare = selectedStop ? selectedStop.fare : fullFare;
+                    const activeStops = trip.route?.virtualStops?.filter(s => s.isActive) ?? [];
+                    const hasEnRoute = activeStops.length > 0;
+                    return (
+                      <>
+                        <Pressable
+                          style={styles.tripResultCard}
+                          onPress={() => {
+                            if (!trip.id) return;
+                            const params = selectedStop
+                              ? `?pickupStopId=${selectedStop.id}`
+                              : '';
+                            router.push(`/ride/${trip.id}${params}` as any);
+                          }}
+                        >
+                          <View style={styles.tripResultLeft}>
+                            <Text variant="titleSmall">
+                              {trip.origin?.address?.split(',')[0] ?? originText}
+                            </Text>
+                            <View style={styles.routeArrowRow}>
+                              <View style={styles.routeArrowLine} />
+                              <Ionicons name="arrow-forward" size={10} color={colors.onSurfaceVariant} />
+                            </View>
+                            <Text variant="titleSmall">
+                              {trip.destination?.address?.split(',')[0] ?? destText}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+                              <Text variant="caption" color={colors.onSurfaceVariant}>
+                                {trip.departureTime
+                                  ? new Date(trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
+                                  : 'Departing soon'}{' '}
+                                · {trip.availableSeats ?? 3} seats left
+                              </Text>
+                              {hasEnRoute && (
+                                <Pressable
+                                  onPress={(e) => {
+                                    e.stopPropagation?.();
+                                    setEnRoutePickerTripId(trip.id ?? null);
+                                  }}
+                                  style={[styles.enRouteChip, selectedStop && styles.enRouteChipActive]}
+                                >
+                                  <Ionicons name="location" size={10} color={selectedStop ? colors.onPrimary : colors.primary} />
+                                  <Text style={[styles.enRouteChipText, selectedStop && { color: colors.onPrimary }]}>
+                                    {selectedStop ? selectedStop.name : 'En-route'}
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </View>
+                          </View>
+                          <View style={styles.tripResultRight}>
+                            <Text variant="fareMedium" accessibilityLabel={`Fare ${formatCurrency(displayFare)}`}>
+                              {formatCurrency(displayFare)}
+                            </Text>
+                            {selectedStop && (
+                              <Text variant="caption" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'line-through' }}>
+                                {formatCurrency(fullFare)}
+                              </Text>
+                            )}
+                            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+                          </View>
+                        </Pressable>
+
+                        {/* En-route stop picker */}
+                        {enRoutePickerTripId === trip.id && (
+                          <MotiView
+                            from={{ opacity: 0, translateY: -8 }}
+                            animate={{ opacity: 1, translateY: 0 }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                            style={styles.stopPickerCard}
+                          >
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+                              <Text variant="labelLarge">Board at a stop</Text>
+                              <Pressable onPress={() => setEnRoutePickerTripId(null)} hitSlop={8}>
+                                <Ionicons name="close" size={18} color={colors.onSurfaceVariant} />
+                              </Pressable>
+                            </View>
+                            {selectedStop && (
+                              <Pressable
+                                style={[styles.stopRow, { borderColor: colors.outlineVariant }]}
+                                onPress={() => {
+                                  const updated = { ...selectedStopByTrip };
+                                  delete updated[trip.id ?? ''];
+                                  setSelectedStopByTrip(updated);
+                                  setEnRoutePickerTripId(null);
+                                }}
+                              >
+                                <Ionicons name="navigate-circle-outline" size={16} color={colors.onSurfaceVariant} />
+                                <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ flex: 1 }}>Full route (from origin)</Text>
+                                <Text variant="labelLarge">{formatCurrency(fullFare)}</Text>
+                              </Pressable>
+                            )}
+                            {activeStops.map(stop => {
+                              const stopFare = calcEnRouteFare(
+                                fullFare,
+                                stop.lat, stop.lng,
+                                trip.route?.destLat ?? 0, trip.route?.destLng ?? 0,
+                                trip.route?.distanceKm ?? 0,
+                              );
+                              const isSelected = selectedStop?.id === stop.id;
+                              return (
+                                <Pressable
+                                  key={stop.id}
+                                  style={[styles.stopRow, isSelected && { borderColor: colors.primary, backgroundColor: colors.primary + '12' }]}
+                                  onPress={() => {
+                                    setSelectedStopByTrip(prev => ({ ...prev, [trip.id ?? '']: { id: stop.id, name: stop.name, fare: stopFare } }));
+                                    setEnRoutePickerTripId(null);
+                                  }}
+                                >
+                                  <Ionicons name="location-outline" size={16} color={isSelected ? colors.primary : colors.onSurfaceVariant} />
+                                  <Text variant="bodyMedium" style={{ flex: 1 }} color={isSelected ? colors.primary : colors.onSurface}>
+                                    {stop.name}
+                                  </Text>
+                                  <Text variant="labelLarge" color={isSelected ? colors.primary : colors.onSurface}>
+                                    {formatCurrency(stopFare)}
+                                  </Text>
+                                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                                    {' '}vs {formatCurrency(fullFare)}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </MotiView>
+                        )}
+                      </>
+                    );
+                  })()}
                 </MotiView>
               ))}
             </View>
@@ -469,7 +622,7 @@ function TierCard({
           },
         ]}
       >
-        <Text style={{ fontSize: 28 }}>{info.icon}</Text>
+        <Ionicons name={info.icon} size={26} color={info.color} />
         <Text variant="titleSmall" style={{ marginTop: spacing.sm }}>
           {info.label}
         </Text>
@@ -485,11 +638,6 @@ function TierCard({
     </Animated.View>
   );
 }
-
-const MOCK_TRIPS = [
-  { id: '1', origin: { address: 'Accra Mall, Spintex' }, destination: { address: 'University of Ghana, Legon' }, fare: 8.5, availableSeats: 3, departureTime: new Date(Date.now() + 10 * 60000).toISOString() },
-  { id: '2', origin: { address: 'Accra Mall, Spintex' }, destination: { address: 'University of Ghana, Legon' }, fare: 7.0, availableSeats: 5, departureTime: new Date(Date.now() + 25 * 60000).toISOString() },
-];
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.backgroundDeep },
@@ -653,6 +801,46 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.secondary + '30',
+  },
+  enRouteChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: colors.primary + '18',
+    borderRadius: radii.full,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: colors.primary + '40',
+  },
+  enRouteChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  enRouteChipText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 9,
+    color: colors.primary,
+    letterSpacing: 0.2,
+  },
+  stopPickerCard: {
+    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: radii.xl,
+    padding: spacing.base,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    marginTop: -spacing.sm,
+  },
+  stopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginBottom: spacing.xs,
   },
   resultsList: { gap: spacing.md },
   tripResultCard: {

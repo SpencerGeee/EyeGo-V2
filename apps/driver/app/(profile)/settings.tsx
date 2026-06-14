@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Switch, Pressable, TouchableOpacity, Alert, Modal, FlatList } from 'react-native';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, Switch, Pressable, Alert, Modal, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -88,6 +88,17 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem(LANG_KEY, code);
     setShowLangModal(false);
   };
+
+  const renderLanguageItem = useCallback(({ item }: { item: typeof LANGUAGES[number] }) => (
+    <Pressable
+      onPress={() => selectLanguage(item.code)}
+      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.base, padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
+    >
+      <Text style={{ fontSize: 24 }}>{item.flag}</Text>
+      <Text variant="bodyMedium" style={{ flex: 1 }}>{item.label}</Text>
+      {language === item.code && <Ionicons name="checkmark" size={20} color={colors.primary} />}
+    </Pressable>
+  ), [language, colors, selectLanguage]);
 
   const handleDeleteAccount = () => {
     Alert.alert(
@@ -203,11 +214,10 @@ export default function SettingsScreen() {
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Navigation App</Text>
           <View style={styles.card}>
             {NAV_OPTIONS.map((opt, i) => (
-              <TouchableOpacity
+              <Pressable
                 key={opt.key}
                 style={[styles.settingsRow, i < NAV_OPTIONS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
                 onPress={() => handleSelectNav(opt.key)}
-                activeOpacity={0.7}
               >
                 <View style={styles.iconBg}>
                   <Ionicons name={opt.icon} size={18} color={navApp === opt.key ? colors.primary : colors.onSurfaceVariant} />
@@ -216,7 +226,7 @@ export default function SettingsScreen() {
                 {navApp === opt.key && (
                   <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
                 )}
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </MotiView>
@@ -287,16 +297,7 @@ export default function SettingsScreen() {
           <FlatList
             data={LANGUAGES}
             keyExtractor={(item) => item.code}
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => selectLanguage(item.code)}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.base, padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-              >
-                <Text style={{ fontSize: 24 }}>{item.flag}</Text>
-                <Text variant="bodyMedium" style={{ flex: 1 }}>{item.label}</Text>
-                {language === item.code && <Ionicons name="checkmark" size={20} color={colors.primary} />}
-              </Pressable>
-            )}
+            renderItem={renderLanguageItem}
           />
         </SafeAreaView>
       </Modal>

@@ -5,7 +5,6 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -129,9 +128,9 @@ export default function SavedPlacesScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Saved Places</Text>
         <View style={{ width: 40 }} />
       </View>
@@ -153,7 +152,7 @@ export default function SavedPlacesScreen() {
                   <View style={styles.placeIconContainer}>
                     <Ionicons name={place.icon} size={20} color={colors.primary} />
                   </View>
-                  <TouchableOpacity
+                  <Pressable
                     onPress={() => {
                       setIsAdding(true);
                       setEditingId(place.id);
@@ -161,11 +160,10 @@ export default function SavedPlacesScreen() {
                       setNewAddress(place.address.startsWith('Add ') ? '' : place.address);
                     }}
                     style={styles.placeInfo}
-                    activeOpacity={0.7}
                   >
                     <Text variant="bodyMedium" color={colors.onSurface}>{place.name}</Text>
                     <Text variant="caption" color={colors.onSurfaceVariant}>{place.address}</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                   <Pressable onPress={() => handleRemovePlace(place.id)} hitSlop={10}>
                     <Ionicons name="trash-outline" size={18} color={colors.error} />
                   </Pressable>

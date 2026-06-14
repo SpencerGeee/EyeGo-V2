@@ -145,6 +145,7 @@ export const driverColors = {
   glowPrimary: 'rgba(59, 130, 246, 0.4)',
   glowAccent: 'rgba(96, 165, 250, 0.25)',
   glowError: 'rgba(248, 113, 113, 0.4)',
+  warning: '#FBBF24',
 } as const;
 
 export const animation = {

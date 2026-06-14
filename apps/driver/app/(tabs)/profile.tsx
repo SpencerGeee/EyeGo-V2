@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -26,10 +26,14 @@ export default function ProfileScreen() {
   const { driver, logout } = useDriverStore();
 
   // Fetch fresh profile data from the API on mount
-  const { data: meData, isLoading: profileLoading } = useQuery({
+  const { data: meData, isLoading: profileLoading, isError: profileError, refetch: refetchProfile } = useQuery({
     queryKey: ['driver', 'me'],
     queryFn: () => driverApi.getMe(),
-    select: (r) => r.data.data?.driver ?? r.data.data,
+    select: (r) => {
+      const data = (r.data as any).data;
+      // Backend wraps driver data in { driver: ... } — unwrap it
+      return data?.driver ?? data;
+    },
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -129,8 +133,105 @@ export default function ProfileScreen() {
   if (profileLoading && !driver) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={colors.primary} />
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          {/* Skeleton header */}
+          <View style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.md }}>
+            <MotiView
+              from={{ opacity: 0.4 }}
+              animate={{ opacity: 1 }}
+              transition={{ type: 'timing', duration: 800, loop: true }}
+              style={{ width: 120, height: 24, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }}
+            />
+          </View>
+          {/* Skeleton profile card */}
+          <MotiView
+            from={{ opacity: 0.4 }}
+            animate={{ opacity: 1 }}
+            transition={{ type: 'timing', duration: 800, loop: true, delay: 100 }}
+            style={{
+              marginHorizontal: spacing['2xl'],
+              backgroundColor: colors.surfaceContainerHigh,
+              borderRadius: radii['2xl'],
+              borderWidth: 1,
+              borderColor: colors.outline,
+              padding: spacing['2xl'],
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.lg,
+              marginBottom: spacing.lg,
+            }}
+          >
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.surfaceContainerHigh }} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <View style={{ width: '60%', height: 18, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+              <View style={{ width: '40%', height: 14, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+              <View style={{ width: '50%', height: 12, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+            </View>
+          </MotiView>
+          {/* Skeleton stats row */}
+          <MotiView
+            from={{ opacity: 0.4 }}
+            animate={{ opacity: 1 }}
+            transition={{ type: 'timing', duration: 800, loop: true, delay: 200 }}
+            style={{
+              marginHorizontal: spacing['2xl'],
+              flexDirection: 'row',
+              backgroundColor: colors.surfaceContainerHigh,
+              borderRadius: radii.xl,
+              borderWidth: 1,
+              borderColor: colors.outline,
+              padding: spacing.base,
+              marginBottom: spacing.lg,
+            }}
+          >
+            {[1, 2, 3].map(i => (
+              <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 50, height: 16, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+                <View style={{ width: 70, height: 12, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+              </View>
+            ))}
+          </MotiView>
+          {/* Skeleton settings list */}
+          <View style={{ marginHorizontal: spacing['2xl'], gap: spacing.xs }}>
+            {[1, 2, 3, 4, 5].map(i => (
+              <MotiView
+                key={i}
+                from={{ opacity: 0.4 }}
+                animate={{ opacity: 1 }}
+                transition={{ type: 'timing', duration: 800, loop: true, delay: 300 + i * 80 }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  padding: spacing.base,
+                  gap: spacing.md,
+                  backgroundColor: colors.surfaceContainerHigh,
+                  borderRadius: radii.xl,
+                  borderWidth: 1,
+                  borderColor: colors.outlineVariant,
+                }}
+              >
+                <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: colors.surfaceContainerHigh }} />
+                <View style={{ flex: 1, height: 14, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+              </MotiView>
+            ))}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // D10: show error state with retry if profile fetch failed and no cached driver
+  if (profileError && !driver && !meData) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 }}>
+          <Text variant="bodyMedium" color={colors.error}>Failed to load profile.</Text>
+          <Pressable
+            onPress={() => refetchProfile()}
+            style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 8 }}
+          >
+            <Text style={{ color: colors.onPrimary, fontFamily: fonts.semiBold }}>Retry</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
@@ -245,11 +346,10 @@ export default function ProfileScreen() {
           style={styles.settingsCard}
         >
           {settingsItems.map((item, i) => (
-            <TouchableOpacity
+            <Pressable
               key={item.label}
               style={[styles.settingsRow, i < settingsItems.length - 1 && styles.settingsBorder]}
               onPress={item.action}
-              activeOpacity={0.7}
             >
               <View style={[
                 styles.settingsIcon,
@@ -272,7 +372,7 @@ export default function ProfileScreen() {
               {item.rightElement ?? (
                 <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
               )}
-            </TouchableOpacity>
+            </Pressable>
           ))}
         </MotiView>
 

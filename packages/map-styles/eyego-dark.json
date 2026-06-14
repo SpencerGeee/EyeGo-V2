@@ -1,0 +1,287 @@
+{
+  "version": 8,
+  "name": "EyeGo Dark",
+  "metadata": {
+    "description": "Premium dark map theme for EyeGo — green-accented, no API key required, works with OpenFreeMap free tiles.",
+    "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a> · <a href=\"https://openmaptiles.org\" target=\"_blank\">OpenMapTiles</a> · <a href=\"https://openstreetmap.org\" target=\"_blank\">OpenStreetMap</a>"
+  },
+  "sources": {
+    "openfreemap": {
+      "type": "vector",
+      "tiles": ["https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.pbf"],
+      "maxzoom": 14,
+      "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a>"
+    }
+  },
+  "glyphs": "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#0a0a0f" }
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "openfreemap",
+      "source-layer": "landuse",
+      "filter": ["==", "$type", "Polygon"],
+      "paint": {
+        "fill-color": [
+          "match",
+          ["get", "class"],
+          "park", "#0f1a12",
+          "forest", "#0d1810",
+          "cemetery", "#141418",
+          "hospital", "#1a1015",
+          "school", "#14161c",
+          "industrial", "#111116",
+          "commercial", "#111114",
+          "#111114"
+        ],
+        "fill-opacity": 0.8
+      }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "openfreemap",
+      "source-layer": "water",
+      "filter": ["==", "$type", "Polygon"],
+      "paint": {
+        "fill-color": "#0d1b1f"
+      }
+    },
+    {
+      "id": "waterway",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "waterway",
+      "paint": {
+        "line-color": "#0d1b1f",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 14, 2]
+      }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "openfreemap",
+      "source-layer": "building",
+      "paint": {
+        "fill-color": "#1a1a22",
+        "fill-opacity": 0.7,
+        "fill-outline-color": "#252530"
+      }
+    },
+    {
+      "id": "aeroway-polygon",
+      "type": "fill",
+      "source": "openfreemap",
+      "source-layer": "aeroway",
+      "filter": ["==", "$type", "Polygon"],
+      "paint": {
+        "fill-color": "#14141c",
+        "fill-opacity": 0.6
+      }
+    },
+    {
+      "id": "road-path",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "path", "track"],
+      "paint": {
+        "line-color": "#1a1a24",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 18, 2]
+      }
+    },
+    {
+      "id": "road-minor",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "minor", "service"],
+      "paint": {
+        "line-color": "#222230",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 2],
+        "line-opacity": 0.6
+      }
+    },
+    {
+      "id": "road-major",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "primary", "secondary", "tertiary"],
+      "paint": {
+        "line-color": "#2a2a38",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 16, 4],
+        "line-opacity": 0.7
+      }
+    },
+    {
+      "id": "road-highway",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "motorway", "trunk"],
+      "paint": {
+        "line-color": ["interpolate", ["linear"], ["zoom"], 8, "#1a1a28", 12, "#2e3a2a"],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 6],
+        "line-opacity": 0.8
+      }
+    },
+    {
+      "id": "road-major-bright",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "primary", "secondary", "tertiary"],
+      "paint": {
+        "line-color": "#3a3a48",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 16, 2],
+        "line-opacity": 0.3
+      }
+    },
+    {
+      "id": "road-highway-bright",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "motorway", "trunk"],
+      "paint": {
+        "line-color": "#4BE277",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 16, 3],
+        "line-opacity": 0.15
+      }
+    },
+    {
+      "id": "boundary",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "boundary",
+      "filter": ["in", "admin_level", 2, 4],
+      "paint": {
+        "line-color": "rgba(75, 226, 119, 0.12)",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 12, 1.5],
+        "line-dasharray": [3, 3]
+      }
+    },
+    {
+      "id": "place-label-city",
+      "type": "symbol",
+      "source": "openfreemap",
+      "source-layer": "place",
+      "filter": ["in", "class", "city", "town"],
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 8, 11, 14, 16],
+        "text-transform": "uppercase",
+        "text-letter-spacing": 0.08,
+        "symbol-sort-key": ["get", "rank"]
+      },
+      "paint": {
+        "text-color": "rgba(240, 240, 245, 0.6)",
+        "text-halo-color": "#0a0a0f",
+        "text-halo-width": 1.5,
+        "text-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0, 10, 1]
+      }
+    },
+    {
+      "id": "place-label-village",
+      "type": "symbol",
+      "source": "openfreemap",
+      "source-layer": "place",
+      "filter": ["in", "class", "village", "hamlet"],
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 14],
+        "symbol-sort-key": ["get", "rank"]
+      },
+      "paint": {
+        "text-color": "rgba(240, 240, 245, 0.4)",
+        "text-halo-color": "#0a0a0f",
+        "text-halo-width": 1.5
+      }
+    },
+    {
+      "id": "place-label-country",
+      "type": "symbol",
+      "source": "openfreemap",
+      "source-layer": "place",
+      "filter": ["==", "class", "country"],
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 10, 16],
+        "text-transform": "uppercase",
+        "text-letter-spacing": 0.12,
+        "symbol-sort-key": ["get", "rank"]
+      },
+      "paint": {
+        "text-color": "rgba(240, 240, 245, 0.35)",
+        "text-halo-color": "#0a0a0f",
+        "text-halo-width": 2
+      }
+    },
+    {
+      "id": "road-label",
+      "type": "symbol",
+      "source": "openfreemap",
+      "source-layer": "transportation_name",
+      "filter": ["in", "class", "motorway", "trunk", "primary"],
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 14],
+        "symbol-placement": "line",
+        "symbol-spacing": 400,
+        "text-rotation-alignment": "map"
+      },
+      "paint": {
+        "text-color": "rgba(240, 240, 245, 0.25)",
+        "text-halo-color": "#0a0a0f",
+        "text-halo-width": 1.5
+      }
+    },
+    {
+      "id": "water-label",
+      "type": "symbol",
+      "source": "openfreemap",
+      "source-layer": "water_name",
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Italic"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 8, 10, 16, 18],
+        "symbol-placement": "line",
+        "symbol-spacing": 500
+      },
+      "paint": {
+        "text-color": "rgba(75, 226, 119, 0.2)",
+        "text-halo-color": "#0a0a0f",
+        "text-halo-width": 1.5
+      }
+    },
+    {
+      "id": "poi-label",
+      "type": "symbol",
+      "source": "openfreemap",
+      "source-layer": "poi",
+      "layout": {
+        "text-field": "{name}",
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11,
+        "text-max-width": 8,
+        "icon-allow-overlap": false
+      },
+      "paint": {
+        "text-color": "rgba(240, 240, 245, 0.3)",
+        "text-halo-color": "#0a0a0f",
+        "text-halo-width": 1
+      }
+    }
+  ],
+  "id": "eyego-dark"
+}

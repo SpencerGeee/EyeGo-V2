@@ -28,7 +28,7 @@ export function Toggle({ value, onValueChange, tint = 'eco', disabled = false }:
 
   useEffect(() => {
     progress.value = withSpring(value ? 1 : 0, { stiffness: 300, damping: 20 });
-  }, [value]);
+  }, [value, progress]);
 
   const knobStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: KNOB_OFF + progress.value * (KNOB_ON - KNOB_OFF) }],

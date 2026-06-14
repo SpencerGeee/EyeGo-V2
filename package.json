@@ -13,10 +13,12 @@
     "driver": "yarn workspace @eyego/driver start",
     "driver:android": "yarn workspace @eyego/driver android",
     "driver:ios": "yarn workspace @eyego/driver ios",
-    "build:packages": "yarn workspaces run build"
+    "postinstall": "patch-package",
+    "build:packages": "yarn workspaces run build",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
-    "@rnmapbox/maps": "10.1.27",
+    "@maplibre/maplibre-react-native": "^9.0.0",
     "expo-contacts": "^55.0.14",
     "expo-localization": "^55.0.15",
     "expo-notifications": "^55.0.23",
@@ -30,6 +32,7 @@
   "devDependencies": {
     "@types/react": "~19.1.10",
     "patch-package": "^8.0.1",
+    "react-doctor": "^0.2.16",
     "typescript": "^5.3.3"
   },
   "overrides": {

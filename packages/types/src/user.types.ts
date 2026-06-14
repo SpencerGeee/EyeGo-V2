@@ -9,6 +9,20 @@ export interface User {
   referralCode?: string;
   createdAt: string;
   updatedAt: string;
+  dob?: string;
+  emergencyContact?: { name: string; phone: string; relationship?: string };
+  rating?: number;
+  walletBalance?: number;
+  notificationPreferences?: {
+    driverArriving?: boolean;
+    tripStarted?: boolean;
+    tripCompleted?: boolean;
+    chatMessages?: boolean;
+    paymentConfirmations?: boolean;
+    promotions?: boolean;
+    newFeatures?: boolean;
+    safetyAlerts?: boolean;
+  };
 }
 
 export interface AuthTokens {

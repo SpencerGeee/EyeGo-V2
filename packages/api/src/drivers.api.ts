@@ -2,15 +2,6 @@ import { apiClient } from './client';
 import type { ApiResponse, PaginatedResponse } from '@eyego/types';
 import type { TripDriver } from '@eyego/types';
 
-// ── Passenger-facing (used by rider app) ─────────────────────────────────────
-export const driversApi = {
-  getById: (id: string) =>
-    apiClient.get<ApiResponse<TripDriver>>(`/drivers/${id}`),
-
-  getByTrip: (tripId: string) =>
-    apiClient.get<ApiResponse<TripDriver>>(`/trips/${tripId}/driver`),
-};
-
 // ── Driver-facing (used by driver app) ───────────────────────────────────────
 export interface DriverProfile {
   id: string;
@@ -21,6 +12,7 @@ export interface DriverProfile {
   dateOfBirth?: string;
   status: string;
   rating: number;
+  ratingCount: number;
   totalTrips: number;
   totalEarned: number;
   walletBalance: number;
@@ -66,7 +58,7 @@ export interface DriverRatings {
 
 export interface DriverDocument {
   id: string;
-  type: 'DRIVERS_LICENSE' | 'VEHICLE_INSURANCE' | 'VEHICLE_REGISTRATION' | 'PROFILE_PHOTO';
+  type: 'DRIVERS_LICENSE' | 'VEHICLE_INSURANCE' | 'VEHICLE_REGISTRATION' | 'PROFILE_PHOTO' | 'GHANA_CARD';
   status: 'PENDING' | 'VERIFIED' | 'REJECTED' | 'EXPIRED' | 'MISSING';
   expiresAt?: string;
   url?: string;
@@ -104,7 +96,7 @@ export interface DriverTrip {
   // UI convenience alias — equals baseFare from backend
   farePerSeat: number;
   baseFare: number;
-  status: 'SCHEDULED' | 'FILLING' | 'DRIVER_EN_ROUTE' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: 'SCHEDULED' | 'FILLING' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   totalEarnings?: number;
   bookings?: Array<{
     id: string;
@@ -136,14 +128,18 @@ export const driverApi = {
   getAllTrips: () =>
     apiClient.get<ApiResponse<{ trips: DriverTrip[] }>>('/driver/trips/all'),
 
+  // Single trip detail by ID
+  getTripById: (tripId: string) =>
+    apiClient.get<ApiResponse<{ trip: DriverTrip }>>(`/driver/trips/${tripId}`),
+
   // Availability
-  goOnline: (data: { lat: number; lng: number }) =>
+  goOnline: (data: { lat?: number; lng?: number }) =>
     apiClient.post<ApiResponse<{ isOnline: boolean }>>('/driver/go-online', data),
 
   goOffline: () =>
     apiClient.post<ApiResponse<{ isOnline: boolean }>>('/driver/go-offline'),
 
-  getFareEstimate: (params: { distanceKm: number; tier?: string }) =>
+  getFareEstimate: (params: { distanceKm: number; tier?: string; availableSeats?: number }) =>
     apiClient.get<ApiResponse<{ fareEstimate: { farePerPerson: number; totalTripCost: number; driverEarningsPerSeat: number }; surgeMultiplier: number }>>('/driver/fare-estimate', { params }),
 
   // Trip management
@@ -158,6 +154,10 @@ export const driverApi = {
 
   startTrip: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/start`),
+
+  // DH2: transition DRIVER_EN_ROUTE → ARRIVED_AT_PICKUP
+  arriveAtPickup: (tripId: string) =>
+    apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/arrive-at-pickup`),
 
   departTrip: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/depart`),
@@ -189,9 +189,11 @@ export const driverApi = {
   declineDispatch: (tripId: string, reason?: string) =>
     apiClient.post<ApiResponse<{ declined: boolean }>>(`/driver/trips/${tripId}/decline`, { reason }),
 
-  // Push notifications — register/update FCM/Expo token
+  // Push notifications — register/update FCM device token.
+  // Backend validates body('fcmToken') (drivers.routes.js) — sending { token }
+  // returned 400 and the driver's token never registered.
   updateFcmToken: (token: string) =>
-    apiClient.patch<ApiResponse<void>>('/driver/fcm-token', { token }),
+    apiClient.post<ApiResponse<void>>('/driver/fcm-token', { fcmToken: token }),
 
   // Performance stats — acceptance/completion rates, online hours, level
   getPerformance: () =>
@@ -218,4 +220,24 @@ export const driverApi = {
   // App preferences — navigation app choice
   updatePreferences: (data: { navigationApp?: 'google_maps' | 'waze' | 'apple_maps' }) =>
     apiClient.patch<ApiResponse<void>>('/driver/preferences', data),
+
+  // Rate a passenger after trip completion (driver rates rider)
+  ratePassenger: (bookingId: string, data: { stars: number; comment?: string }) =>
+    apiClient.post<ApiResponse<{ ratingId: string }>>(`/driver/rate-passenger/${bookingId}`, data),
+
+  // ── Driver wallet (DISTINCT from the rider /wallet/* routes) ──────────────
+  // The driver earnings ledger lives at /driver/wallet/*. Using the shared
+  // walletApi (which targets /wallet/*) made withdraw 404 and earnings read the
+  // wrong (rider) ledger.
+  getWalletBalance: () =>
+    apiClient.get<ApiResponse<{ balance: number }>>('/driver/wallet/balance'),
+
+  getWalletTransactions: (params?: { page?: number; limit?: number }) =>
+    apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amount: number; description: string; createdAt: string }> }>>(
+      '/driver/wallet/transactions',
+      { params },
+    ),
+
+  withdraw: (data: { amount: number }) =>
+    apiClient.post<ApiResponse<{ reference: string; message: string }>>('/driver/wallet/withdraw', data),
 };

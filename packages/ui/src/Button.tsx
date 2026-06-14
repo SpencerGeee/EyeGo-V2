@@ -15,9 +15,11 @@ interface ButtonProps {
   size?: ButtonSize;
   loading?: boolean;
   disabled?: boolean;
-  style?: ViewStyle;
+  style?: ViewStyle | ViewStyle[];
   fullWidth?: boolean;
   icon?: React.ReactNode;
+  accessibilityLabel?: string;
+  accessibilityRole?: string;
 }
 
 const variantStyles: Record<ButtonVariant, { container: ViewStyle; textColor: string }> = {
@@ -75,19 +77,20 @@ export function Button({
   const sStyle = sizeStyles[size];
   const isDisabled = disabled || loading;
 
+  const resolvedStyle: ViewStyle[] = [styles.base, vStyle.container, sStyle.container];
+  if (fullWidth) resolvedStyle.push(styles.fullWidth);
+  if (isDisabled) resolvedStyle.push(styles.disabled);
+  if (style) {
+    if (Array.isArray(style)) resolvedStyle.push(...style);
+    else resolvedStyle.push(style);
+  }
+
   return (
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
       haptic="medium"
-      style={[
-        styles.base,
-        vStyle.container,
-        sStyle.container,
-        fullWidth && styles.fullWidth,
-        isDisabled && styles.disabled,
-        style,
-      ]}
+      style={resolvedStyle}
     >
       {loading ? (
         <ActivityIndicator

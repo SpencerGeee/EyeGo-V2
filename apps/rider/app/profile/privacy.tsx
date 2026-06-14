@@ -5,7 +5,7 @@ import {
   ScrollView,
   Switch,
   Alert,
-  TouchableOpacity,
+  Pressable,
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -102,9 +102,9 @@ export default function PrivacyScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Privacy & Settings</Text>
         <View style={{ width: 40 }} />
       </View>
@@ -181,15 +181,14 @@ export default function PrivacyScreen() {
           animate={{ opacity: 1 }}
           transition={{ type: 'timing', duration: 400, delay: 200 }}
         >
-          <TouchableOpacity
+          <Pressable
             onPress={() => Linking.openURL('https://eyego.app/terms')}
             style={styles.tosLink}
-            activeOpacity={0.7}
           >
             <Text variant="bodySmall" color={colors.primary}>
               View Terms of Service →
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </MotiView>
 
         {/* Delete Account */}

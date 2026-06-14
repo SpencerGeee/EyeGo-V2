@@ -1,11 +1,10 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   Pressable,
   Linking,
-  TouchableOpacity,
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,9 +12,8 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, queryKeys } from '@eyego/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
 import type { Booking } from '@eyego/types';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -110,40 +108,42 @@ export default function HelpScreen() {
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [lostItemDesc, setLostItemDesc] = useState('');
   const [disputeReason, setDisputeReason] = useState('Fare discrepancy');
-  const [tickets, setTickets] = useState<Array<{id: string; subject: string; category: string; status: string; date: string; message: string; tripId?: string | null; lostItemDesc?: string; disputeReason?: string}>>([]);
-
   const { data: bookingsData } = useQuery({
     queryKey: queryKeys.bookings.myHistory(),
     queryFn: () => bookingsApi.getHistory({ limit: 50 }),
   });
   
   const myTrips = useMemo(() => {
-    return (bookingsData?.data?.data?.bookings ?? []) as Booking[];
+    return ((bookingsData?.data?.data as any)?.bookings ?? []) as Booking[];
   }, [bookingsData]);
 
-  useEffect(() => {
-    loadTickets();
-  }, []);
+  const queryClient = useQueryClient();
 
-  const loadTickets = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('@eyego_support_tickets');
-      if (stored) {
-        setTickets(JSON.parse(stored));
-      }
-    } catch (e) {
-      console.error('Failed to load tickets', e);
-    }
-  };
+  const { data: ticketsData, isLoading: ticketsLoading } = useQuery({
+    queryKey: ['support', 'tickets'],
+    queryFn: () => supportTicketsApi.getAll(),
+  });
 
-  const saveTickets = async (newTickets: typeof tickets) => {
-    try {
-      await AsyncStorage.setItem('@eyego_support_tickets', JSON.stringify(newTickets));
-      setTickets(newTickets);
-    } catch (e) {
-      console.error('Failed to save tickets', e);
-    }
-  };
+  const tickets = useMemo(() => {
+    const raw = ticketsData?.data?.tickets ?? [];
+    return raw.map((t: any) => ({
+      id: t.id,
+      subject: t.subject,
+      category: t.category,
+      status: t.status,
+      date: t.createdAt?.split('T')[0] ?? '',
+      message: t.message,
+      tripId: t.relatedBookingId,
+    }));
+  }, [ticketsData]);
+
+  const createTicketMutation = useMutation({
+    mutationFn: (data: { subject: string; message: string; category: string; relatedBookingId?: string }) =>
+      supportTicketsApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
+    },
+  });
 
   const toggle = (id: string) => {
     setOpenItems(prev => {
@@ -168,21 +168,13 @@ export default function HelpScreen() {
       subjectLine = `Dispute (${disputeReason}): ${ticketSubject.trim()}`;
     }
 
-    const newTicket = {
-      id: Date.now().toString(),
+    createTicketMutation.mutate({
       subject: subjectLine,
-      category: ticketCategory,
-      tripId: selectedTripId,
-      lostItemDesc: ticketCategory === 'Lost Item' ? lostItemDesc : undefined,
-      disputeReason: ticketCategory === 'Dispute' ? disputeReason : undefined,
-      status: 'Open',
-      date: new Date().toISOString().split('T')[0],
       message: ticketMessage.trim(),
-    };
+      category: ticketCategory,
+      relatedBookingId: selectedTripId ?? undefined,
+    });
 
-    const updated = [newTicket, ...tickets];
-    saveTickets(updated as any);
-    
     setTicketSubject('');
     setTicketMessage('');
     setLostItemDesc('');
@@ -194,13 +186,13 @@ export default function HelpScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Help & Support</Text>
-        <TouchableOpacity onPress={handleOpenTickets} style={styles.ticketsBtn}>
+        <Pressable onPress={handleOpenTickets} style={styles.ticketsBtn} accessibilityRole="button" accessibilityLabel="Open support tickets">
           <Ionicons name="ticket-outline" size={22} color={colors.primary} />
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -223,6 +215,8 @@ export default function HelpScreen() {
                 <Pressable
                   onPress={() => toggle(item.id)}
                   style={styles.faqRow}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${openItems.has(item.id) ? 'Collapse' : 'Expand'} FAQ: ${item.question}`}
                 >
                   <Text variant="bodyMedium" color={colors.onSurface} style={styles.faqQuestion}>
                     {item.question}
@@ -323,14 +317,13 @@ export default function HelpScreen() {
             {/* Category Segment Control */}
             <View style={styles.categoryRow}>
               {(['General Support', 'Dispute', 'Lost Item'] as const).map((cat) => (
-                <TouchableOpacity
+                <Pressable
                   key={cat}
                   onPress={() => setTicketCategory(cat)}
                   style={[
                     styles.categoryChip,
                     ticketCategory === cat && { backgroundColor: colors.primary },
                   ]}
-                  activeOpacity={0.8}
                 >
                   <Text
                     style={{
@@ -341,7 +334,7 @@ export default function HelpScreen() {
                   >
                     {cat}
                   </Text>
-                </TouchableOpacity>
+                </Pressable>
               ))}
             </View>
 
@@ -358,7 +351,7 @@ export default function HelpScreen() {
                 ) : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 4 }}>
                     {myTrips.map((b) => (
-                      <TouchableOpacity
+                      <Pressable
                         key={b.id}
                         onPress={() => setSelectedTripId(b.tripId)}
                         style={[
@@ -372,7 +365,7 @@ export default function HelpScreen() {
                         <Text style={{ fontSize: 9, fontFamily: fonts.regular, color: colors.onSurfaceVariant }}>
                           {b.trip?.departureTime ? new Date(b.trip.departureTime).toLocaleDateString() : ''}
                         </Text>
-                      </TouchableOpacity>
+                      </Pressable>
                     ))}
                   </ScrollView>
                 )}
@@ -387,7 +380,7 @@ export default function HelpScreen() {
                 </Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.xs, paddingVertical: 4 }}>
                   {['Fare discrepancy', 'Driver behavior', 'Route issue', 'Cleanliness', 'Other'].map((reason) => (
-                    <TouchableOpacity
+                    <Pressable
                       key={reason}
                       onPress={() => setDisputeReason(reason)}
                       style={[
@@ -398,7 +391,7 @@ export default function HelpScreen() {
                       <Text style={{ fontSize: 11, fontFamily: fonts.medium, color: colors.onSurface }}>
                         {reason}
                       </Text>
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </ScrollView>
               </View>

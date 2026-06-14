@@ -5,6 +5,8 @@ import {
   StyleSheet,
   Pressable,
   Platform,
+  Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -30,7 +32,9 @@ const RESEND_SECONDS = 60;
 export default function OtpScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { phone, devOtp } = useLocalSearchParams<{ phone: string; devOtp?: string }>();
+  const { phone: rawPhone, devOtp } = useLocalSearchParams<{ phone: string; devOtp?: string }>();
+  // Normalize phone: ensure '+' prefix (URL encoding can eat the '+' sign)
+  const phone = rawPhone ? `+${rawPhone.replace(/^\+/, '')}` : '';
   const router = useRouter();
   const { login } = useAuthStore();
 
@@ -86,6 +90,9 @@ export default function OtpScreen() {
       setActiveIndex(0);
       setCountdown(RESEND_SECONDS);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    },
+    onError: () => {
+      Alert.alert('Failed to Resend', 'Could not resend the code. Please try again.');
     },
   });
 
@@ -146,11 +153,15 @@ export default function OtpScreen() {
         transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         style={styles.backButton}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
 
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={{ flex: 1 }}
+      >
       <View style={styles.container}>
         {/* Headline */}
         <MotiView
@@ -164,7 +175,7 @@ export default function OtpScreen() {
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
             Sent to {maskPhone(phone ?? '')}
           </Text>
-          <Pressable onPress={() => router.back()}>
+          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Change phone number">
             <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>
               Change number
             </Text>
@@ -241,7 +252,7 @@ export default function OtpScreen() {
               </Text>
             </Text>
           ) : (
-            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending}>
+            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending} accessibilityRole="button" accessibilityLabel="Resend verification code">
               <Text variant="label" color={colors.primary}>
                 {resendOtp.isPending ? 'Sending...' : 'Resend code'}
               </Text>
@@ -249,6 +260,7 @@ export default function OtpScreen() {
           )}
         </MotiView>
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -277,7 +289,7 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
         withSpring(1, { stiffness: 400, damping: 20 })
       );
     }
-  }, [value]);
+  }, [value, scale]);
 
   const cellStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],

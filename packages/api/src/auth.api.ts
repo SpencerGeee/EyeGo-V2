@@ -12,7 +12,7 @@ export const authApi = {
     apiClient.post<ApiResponse<{ message: string; _dev_otp?: string }>>('/auth/request-otp', data),
 
   verifyOtp: (data: OtpVerify) =>
-    apiClient.post<ApiResponse<{ user: User; tokens: AuthTokens; isNewUser: boolean }>>(
+    apiClient.post<ApiResponse<{ accessToken: string; refreshToken: string; isNewUser: boolean; user: User }>>(
       '/auth/verify-otp',
       data
     ),
@@ -22,10 +22,15 @@ export const authApi = {
 
   logout: () => apiClient.post<ApiResponse<null>>('/auth/logout'),
 
+  // Backend exposes provider-specific endpoints (/auth/google, /auth/apple) that
+  // each expect { idToken } and return a flat { accessToken, refreshToken,
+  // isNewUser, user } — matching verifyOtp. (Previously this POSTed to a
+  // nonexistent /auth/social and expected a { tokens } wrapper, so social login
+  // was broken.)
   socialLogin: (data: SocialLoginRequest) =>
-    apiClient.post<ApiResponse<{ user: User; tokens: AuthTokens; isNewUser: boolean }>>(
-      '/auth/social',
-      data
+    apiClient.post<ApiResponse<{ accessToken: string; refreshToken: string; isNewUser: boolean; user: User }>>(
+      `/auth/${data.provider}`,
+      { idToken: data.idToken }
     ),
 };
 
@@ -35,7 +40,7 @@ export const driverAuthApi = {
     apiClient.post<ApiResponse<{ message: string; _dev_otp?: string }>>('/auth/driver/request-otp', data),
 
   verifyOtp: (data: OtpVerify) =>
-    apiClient.post<ApiResponse<{ tokens: AuthTokens; isNewDriver: boolean }>>(
+    apiClient.post<ApiResponse<{ accessToken: string; refreshToken: string; isNewDriver: boolean }>>(
       '/auth/driver/verify-otp',
       data
     ),

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -80,6 +80,7 @@ export default function NotificationPreferencesScreen() {
   const router = useRouter();
 
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
+  const [syncError, setSyncError] = useState(false);
 
   const loadPrefs = useCallback(async () => {
     try {
@@ -99,25 +100,35 @@ export default function NotificationPreferencesScreen() {
   const handleToggle = async (key: keyof NotifPrefs, value: boolean) => {
     const updated = { ...prefs, [key]: value };
     setPrefs(updated);
+    setSyncError(false);
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      // fire-and-forget
-      apiClient.patch('/user/me/notifications', updated).catch(() => {});
+      apiClient.patch('/user/me/notifications', updated).catch(() => {
+        setSyncError(true);
+      });
     } catch {
-      // ignore local errors
+      // ignore local storage errors
     }
   };
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Notification Preferences</Text>
         <View style={{ width: 40 }} />
       </View>
 
+      {syncError && (
+        <View style={styles.syncErrorBanner}>
+          <Ionicons name="warning-outline" size={14} color="#92400e" style={{ marginRight: spacing.sm }} />
+          <Text variant="caption" style={{ color: '#92400e', flex: 1 }}>
+            Preferences saved locally — sync failed. Will retry next time.
+          </Text>
+        </View>
+      )}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
@@ -215,4 +226,13 @@ const makeStyles = (colors: Colors) =>
     },
     rowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
     divider: { height: 1, backgroundColor: colors.outlineVariant, marginHorizontal: spacing.base },
+    syncErrorBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: '#fef3c7',
+      paddingHorizontal: spacing['2xl'],
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: '#fde68a',
+    },
   });

@@ -1,29 +1,35 @@
-// app.config.js replaces app.json so the Mapbox SDK download token
-// is never committed to source control. In CI it comes from an EAS secret;
-// locally it falls back to the value stored in .env.local (gitignored).
+// app.config.js enables Firebase / FCM for push notifications conditionally.
+//
+// IMPORTANT: Set EXPO_PUBLIC_PAYSTACK_PUBLIC_KEY in EAS secrets for production builds.
+// See .env.example for all required EXPO_PUBLIC_ variables.
 const baseConfig = require('./app.json');
+const fs = require('fs');
+const path = require('path');
 
 module.exports = ({ config }) => {
-  const mapboxDownloadsToken =
-    process.env.MAPBOX_DOWNLOADS_TOKEN ??
-    // Local dev fallback — copy your token to .env.local and it stays out of git
-    '';
+  // ── Firebase / FCM (push notifications) ──────────────────────────────────
+  // The backend pushes via Firebase Admin (FCM), so the native Android build
+  // needs google-services.json to mint an FCM device token. We reference it
+  // ONLY when the file actually exists on disk: that way `eas build` succeeds
+  // even before you've added the file (notifications simply no-op until then),
+  // and FCM activates automatically the moment you drop the file in.
+  // Get it from Firebase Console → Project settings → Android app, then place
+  // it at eyego/apps/rider/google-services.json (gitignored). See
+  // NOTIFICATIONS_SETUP.md.
+  const googleServicesPath = path.join(__dirname, 'google-services.json');
+  const hasGoogleServices = fs.existsSync(googleServicesPath);
+  const googleServicesInfoPath = path.join(__dirname, 'GoogleService-Info.plist');
+  const hasGoogleServicesInfo = fs.existsSync(googleServicesInfoPath);
 
   return {
     ...baseConfig.expo,
-    plugins: baseConfig.expo.plugins.map((plugin) => {
-      if (Array.isArray(plugin) && plugin[0] === '@rnmapbox/maps') {
-        return [
-          '@rnmapbox/maps',
-          {
-            ...plugin[1],
-            // Override the hardcoded token with the env var when available
-            RNMapboxMapsDownloadToken:
-              mapboxDownloadsToken || plugin[1].RNMapboxMapsDownloadToken,
-          },
-        ];
-      }
-      return plugin;
-    }),
+    android: {
+      ...baseConfig.expo.android,
+      ...(hasGoogleServices ? { googleServicesFile: './google-services.json' } : {}),
+    },
+    ios: {
+      ...baseConfig.expo.ios,
+      ...(hasGoogleServicesInfo ? { googleServicesFile: './GoogleService-Info.plist' } : {}),
+    },
   };
 };

@@ -1,11 +1,13 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing } from '@eyego/config';
 import { Text } from './Text';
 import { Pressable } from './Pressable';
 
 interface EmptyStateProps {
   lottieSource?: object;
+  /** An Ionicons name (preferred, rendered as a crisp vector) or a legacy emoji string. */
   icon?: string;
   title: string;
   subtitle?: string;
@@ -14,6 +16,10 @@ interface EmptyStateProps {
     onPress: () => void;
   };
 }
+
+// Distinguish an Ionicons name from a legacy emoji so we can render vectors going
+// forward without breaking call sites that still pass an emoji.
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
 
 export function EmptyState({ lottieSource, icon, title, subtitle, action }: EmptyStateProps) {
   // Lazy-import LottieView to avoid crash in Expo Go where lottie may not be available
@@ -34,7 +40,16 @@ export function EmptyState({ lottieSource, icon, title, subtitle, action }: Empt
           style={styles.lottie}
         />
       ) : icon ? (
-        <Text style={styles.icon}>{icon}</Text>
+        EMOJI_RE.test(icon) ? (
+          <Text style={styles.icon}>{icon}</Text>
+        ) : (
+          <Ionicons
+            name={icon as React.ComponentProps<typeof Ionicons>['name']}
+            size={56}
+            color={colors.onSurfaceVariant}
+            style={styles.iconVector}
+          />
+        )
       ) : null}
 
       <Text variant="titleMedium" style={styles.title}>{title}</Text>
@@ -67,6 +82,9 @@ const styles = StyleSheet.create({
   },
   icon: {
     fontSize: 56,
+    marginBottom: spacing.base,
+  },
+  iconVector: {
     marginBottom: spacing.base,
   },
   title: {

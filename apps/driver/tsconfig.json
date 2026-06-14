@@ -8,7 +8,8 @@
       "@eyego/api": ["../../packages/api/src/index.ts"],
       "@eyego/types": ["../../packages/types/src/index.ts"],
       "@eyego/utils": ["../../packages/utils/src/index.ts"],
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "moti": ["./lib/moti-module.ts"]
     }
   },
   "include": [

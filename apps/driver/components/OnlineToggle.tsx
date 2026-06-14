@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text } from '@eyego/ui';
@@ -26,12 +26,11 @@ export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
   };
 
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onToggle}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={loading}
-      activeOpacity={1}
     >
       <Animated.View style={[
         styles.pill,
@@ -48,7 +47,7 @@ export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
           {isOnline ? 'ONLINE' : 'OFFLINE'}
         </Text>
       </Animated.View>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 

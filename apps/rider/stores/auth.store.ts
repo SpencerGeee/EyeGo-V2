@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { User, AuthTokens } from '@eyego/types';
 
 interface AuthState {
@@ -33,7 +32,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await Promise.all([
       SecureStore.setItemAsync(KEYS.accessToken, tokens.accessToken),
       SecureStore.setItemAsync(KEYS.refreshToken, tokens.refreshToken),
-      AsyncStorage.setItem(KEYS.user, JSON.stringify(user)),
+      SecureStore.setItemAsync(KEYS.user, JSON.stringify(user)),
     ]);
     set({
       user,
@@ -44,7 +43,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   updateUser: (user) => {
-    AsyncStorage.setItem(KEYS.user, JSON.stringify(user));
+    SecureStore.setItemAsync(KEYS.user, JSON.stringify(user)).catch(e =>
+      console.error('[AuthStore] Failed to persist user:', e)
+    );
     set({ user });
   },
 
@@ -52,7 +53,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await Promise.all([
       SecureStore.deleteItemAsync(KEYS.accessToken),
       SecureStore.deleteItemAsync(KEYS.refreshToken),
-      AsyncStorage.removeItem(KEYS.user),
+      SecureStore.deleteItemAsync(KEYS.user),
     ]);
     set({ user: null, accessToken: null, refreshToken: null, isLoggedIn: false });
   },
@@ -62,7 +63,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const [accessToken, refreshToken, userJson] = await Promise.all([
         SecureStore.getItemAsync(KEYS.accessToken),
         SecureStore.getItemAsync(KEYS.refreshToken),
-        AsyncStorage.getItem(KEYS.user),
+        SecureStore.getItemAsync(KEYS.user),
       ]);
       if (accessToken && refreshToken && userJson) {
         set({

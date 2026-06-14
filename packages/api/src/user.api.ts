@@ -1,6 +1,12 @@
 import { apiClient } from './client';
 import type { ApiResponse, User, UpdateProfileRequest } from '@eyego/types';
 
+export interface EmergencyContact {
+  id: string;
+  name: string;
+  phone: string;
+}
+
 export const userApi = {
   getProfile: () =>
     apiClient.get<ApiResponse<User>>('/user/me'),
@@ -23,6 +29,15 @@ export const userApi = {
     return response.data.data.avatarUrl;
   },
 
+  updateFcmToken: (data: { fcmToken: string }) =>
+    apiClient.post<ApiResponse<void>>('/user/fcm-token', data),
+
   deleteAccount: () =>
-    apiClient.delete<ApiResponse<null>>('/user/account'),
+    apiClient.delete<ApiResponse<null>>('/user/me'),
+
+  getEmergencyContacts: () =>
+    apiClient.get<ApiResponse<{ contacts: EmergencyContact[] }>>('/user/me/emergency-contacts'),
+
+  syncEmergencyContacts: (contacts: { name: string; phone: string }[]) =>
+    apiClient.put<ApiResponse<{ contacts: EmergencyContact[] }>>('/user/me/emergency-contacts', { contacts }),
 };

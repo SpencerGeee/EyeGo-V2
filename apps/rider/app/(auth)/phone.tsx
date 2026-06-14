@@ -6,7 +6,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  TouchableOpacity,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -29,10 +29,11 @@ export default function PhoneScreen() {
   const sendOtp = useMutation({
     mutationFn: () => authApi.sendOtp({ phone: `+233${phone.replace(/\s/g, '')}` }),
     onSuccess: (res) => {
-      const devOtp = (res as any)?.data?.data?._dev_otp;
+      const devOtp = __DEV__ ? (res as any)?.data?.data?._dev_otp : undefined;
       router.push({
         pathname: '/(auth)/otp',
-        params: { phone: `+233${phone.replace(/\s/g, '')}`, devOtp: devOtp ?? '' },
+        // Strip '+' prefix to avoid URL encoding issues in dev builds
+        params: { phone: `233${phone.replace(/\s/g, '')}`, ...(__DEV__ && devOtp ? { devOtp } : {}) },
       });
     },
   });
@@ -99,10 +100,10 @@ export default function PhoneScreen() {
             transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
             style={styles.inputWrapper}
           >
-            <TouchableOpacity
+            <Pressable
               style={styles.phoneContainer}
-              activeOpacity={1}
               onPress={() => inputRef.current?.focus()}
+              accessibilityRole="none"
             >
               <View style={styles.countryCode}>
                 <Text style={styles.flag}>🇬🇭</Text>
@@ -121,8 +122,9 @@ export default function PhoneScreen() {
                 autoFocus
                 selectionColor={colors.primary}
                 maxLength={9}
+                accessibilityLabel="Phone number input"
               />
-            </TouchableOpacity>
+            </Pressable>
           </MotiView>
 
           {/* Error */}
@@ -149,6 +151,7 @@ export default function PhoneScreen() {
               onPress={() => sendOtp.mutate()}
               disabled={!isValid}
               loading={sendOtp.isPending}
+              accessibilityLabel="Send verification code"
             />
           </MotiView>
 
@@ -177,6 +180,7 @@ export default function PhoneScreen() {
               label="Continue with Google"
               variant="secondary"
               onPress={() => router.push('/(auth)/social' as any)}
+              accessibilityLabel="Continue with Google"
             />
             {Platform.OS === 'ios' && (
               <Button
@@ -184,6 +188,7 @@ export default function PhoneScreen() {
                 variant="secondary"
                 onPress={() => router.push('/(auth)/social' as any)}
                 style={styles.appleBtn}
+                accessibilityLabel="Continue with Apple"
               />
             )}
           </MotiView>

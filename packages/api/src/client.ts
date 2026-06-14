@@ -39,6 +39,11 @@ function resolveBaseUrl(): string {
 
 const BASE_URL = resolveBaseUrl();
 
+// RS2: Block non-HTTPS URLs in production builds
+if (typeof __DEV__ !== 'undefined' && !__DEV__ && BASE_URL.startsWith('http://')) {
+  throw new Error('[EyeGo] API base URL must use HTTPS in production. Set EXPO_PUBLIC_API_URL to an https:// URL.');
+}
+
 // Token storage callbacks — set by the app on boot
 let getAccessToken: (() => string | null) = () => null;
 let getRefreshToken: (() => string | null) = () => null;
@@ -58,6 +63,7 @@ export function configureApiClient(opts: {
   onTokenRefreshed = opts.onTokenRefreshed;
   onLogout = opts.onLogout;
   if (opts.getRefreshUrl) getRefreshUrl = opts.getRefreshUrl;
+  logoutCalled = false;
 }
 
 export const apiClient: AxiosInstance = axios.create({
@@ -81,6 +87,7 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 // Token refresh on 401 — Promise-based lock prevents duplicate refresh calls
 // when multiple requests 401 simultaneously (avoids refresh token rotation race).
 let refreshPromise: Promise<string> | null = null;
+let logoutCalled = false;
 
 apiClient.interceptors.response.use(
   (response) => response,
@@ -99,6 +106,7 @@ apiClient.interceptors.response.use(
             refreshToken: storedRefresh,
           });
           const { accessToken, refreshToken: newRefresh } = data.data;
+          logoutCalled = false;
           onTokenRefreshed({ accessToken, refreshToken: newRefresh });
           return accessToken;
         })().finally(() => {
@@ -111,9 +119,24 @@ apiClient.interceptors.response.use(
         if (original.headers) original.headers.Authorization = `Bearer ${newToken}`;
         return apiClient(original);
       } catch {
-        onLogout();
+        if (!logoutCalled) {
+          logoutCalled = true;
+          onLogout();
+        }
         return Promise.reject(error);
       }
+    }
+
+    // Retry on network error or 5xx (up to 3 times with exponential backoff)
+    const retryCount = (original as any)._retryCount ?? 0;
+    const isNetworkError = !error.response;
+    const isServerError = error.response?.status >= 500;
+
+    if ((isNetworkError || isServerError) && retryCount < 3 && !original._retry) {
+      (original as any)._retryCount = retryCount + 1;
+      const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return apiClient(original);
     }
 
     return Promise.reject(error);

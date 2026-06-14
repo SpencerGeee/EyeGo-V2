@@ -33,14 +33,13 @@ export default function BusinessProfileScreen() {
       }
     }
 
-    setIsSaving(true);
-    // Mock saving preferences
-    setTimeout(() => {
-      setIsSaving(false);
-      Alert.alert('Success', 'Business profile preferences saved.', [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
-    }, 1000);
+    // No backend endpoint for business preferences exists yet. Be honest rather
+    // than showing a fake "saved" confirmation that persists nothing.
+    Alert.alert(
+      'Coming Soon',
+      'Business profiles aren\'t available yet. We\'ll let you know when expense profiles and ride reporting go live.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
@@ -27,7 +28,7 @@ export default function TripsScreen() {
   const router = useRouter();
   const [segment, setSegment] = useState<Segment>('active');
 
-  const { data: allTrips, isLoading } = useQuery({
+  const { data: allTrips, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ['driver', 'trips', 'all'],
     queryFn: () => driverApi.getAllTrips(),
     select: (r) => (r.data as any)?.data?.trips ?? [],
@@ -42,7 +43,13 @@ export default function TripsScreen() {
   const filteredTrips = useMemo(() => {
     const all: any[] = allTrips ?? [];
     if (segment === 'active') {
-      return activeTrip ? [activeTrip] : [];
+      // Prefer the dedicated activeTrip endpoint, but fall back to filtering the
+      // allTrips list for any trip with active/in-progress status.
+      if (activeTrip) return [activeTrip];
+      return all.filter((t: any) =>
+        ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'].includes(t.status) &&
+        new Date(t.departureTime) <= new Date(new Date().getTime() + 24 * 60 * 60 * 1000)
+      );
     }
     if (segment === 'upcoming') {
       return all.filter((t: any) =>
@@ -57,6 +64,42 @@ export default function TripsScreen() {
       ['COMPLETED', 'CANCELLED'].includes(t.status)
     );
   }, [allTrips, activeTrip, segment]);
+
+  const renderTripItem = useCallback(({ item, index }: { item: any; index: number }) => (
+    <MotiView
+      from={{ opacity: 0, translateY: 16 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30, delay: index * 60 }}
+    >
+      <TripCard
+        trip={item}
+        onPress={() =>
+          segment === 'dispatch'
+            ? router.push({
+                pathname: '/(trip)/dispatch/[id]',
+                params: {
+                  id: item.id,
+                  origin: item.route?.originName ?? '',
+                  destination: item.route?.destinationName ?? '',
+                  departureTime: item.departureTime ?? '',
+                },
+              } as any)
+            : segment === 'history'
+            ? router.push(`/(trip)/detail/${item.id}` as any)
+            : router.push(`/(trip)/active/${item.id}`)
+        }
+      />
+      {segment === 'history' && item.status === 'COMPLETED' && (
+        <Pressable
+          style={styles.reportBtn}
+          onPress={() => router.push(`/(trip)/report/${item.id}` as any)}
+        >
+          <Ionicons name="flag-outline" size={13} color={colors.onSurfaceVariant} />
+          <Text variant="caption" color={colors.onSurfaceVariant}>Report passenger</Text>
+        </Pressable>
+      )}
+    </MotiView>
+  ), [segment, router, styles, colors]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -79,27 +122,27 @@ export default function TripsScreen() {
       >
         <View style={styles.segmentContainer}>
           {SEGMENTS.map((s) => (
-            <TouchableOpacity
+            <AnimatedSegBtn
               key={s.key}
-              style={[styles.segmentBtn, segment === s.key && styles.segmentActive]}
+              label={s.label}
+              isActive={segment === s.key}
               onPress={() => setSegment(s.key)}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.segmentText,
-                  { color: segment === s.key ? colors.onPrimary : colors.onSurfaceVariant },
-                ]}
-              >
-                {s.label}
-              </Text>
-            </TouchableOpacity>
+              colors={colors}
+              styles={styles}
+            />
           ))}
         </View>
       </MotiView>
 
-      {/* List */}
-      {isLoading ? (
+      {/* D10: error state with retry */}
+      {isError ? (
+        <View style={styles.emptyWrapper}>
+          <Text variant="bodyMedium" color={colors.error} style={{ marginBottom: 12 }}>Failed to load trips.</Text>
+          <Pressable onPress={() => refetch()} style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 8 }}>
+            <Text style={{ color: colors.onPrimary, fontFamily: fonts.semiBold }}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : isLoading ? (
         <View style={styles.loadingContainer}>
           {[0, 1, 2].map((i) => (
             <MotiView
@@ -136,47 +179,52 @@ export default function TripsScreen() {
         <FlashList
           data={filteredTrips}
           keyExtractor={(item: any) => item.id}
-          estimatedItemSize={100}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item, index }: { item: any; index: number }) => (
-            <MotiView
-              from={{ opacity: 0, translateY: 16 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30, delay: index * 60 }}
-            >
-              <TripCard
-                trip={item}
-                onPress={() =>
-                  segment === 'dispatch'
-                    ? router.push({
-                        pathname: '/(trip)/dispatch/[id]',
-                        params: {
-                          id: item.id,
-                          origin: item.route?.originName ?? '',
-                          destination: item.route?.destinationName ?? '',
-                          departureTime: item.departureTime ?? '',
-                        },
-                      } as any)
-                    : segment === 'history'
-                    ? router.push(`/(trip)/detail/${item.id}` as any)
-                    : router.push(`/(trip)/active/${item.id}`)
-                }
-              />
-              {segment === 'history' && item.status === 'COMPLETED' && (
-                <TouchableOpacity
-                  style={styles.reportBtn}
-                  onPress={() => router.push(`/(trip)/report/${item.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="flag-outline" size={13} color={colors.onSurfaceVariant} />
-                  <Text variant="caption" color={colors.onSurfaceVariant}>Report passenger</Text>
-                </TouchableOpacity>
-              )}
-            </MotiView>
-          )}
+          refreshControl={
+            <RefreshControl refreshing={isRefetching} onRefresh={refetch} />
+          }
+          renderItem={renderTripItem}
         />
       )}
     </SafeAreaView>
+  );
+}
+
+function AnimatedSegBtn({
+  label,
+  isActive,
+  onPress,
+  colors,
+  styles,
+}: {
+  label: string;
+  isActive: boolean;
+  onPress: () => void;
+  colors: DriverColors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(0.92, { stiffness: 700, damping: 15 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 15 }); }}
+      style={styles.segmentBtn}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isActive }}
+    >
+      <Animated.View style={[isActive && styles.segmentActive, animStyle, { borderRadius: radii.lg, paddingVertical: spacing.sm, paddingHorizontal: 4, alignItems: 'center', width: '100%' }]}>
+        <Text
+          style={[
+            styles.segmentText,
+            { color: isActive ? colors.onPrimary : colors.onSurfaceVariant },
+          ]}
+        >
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 

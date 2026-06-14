@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { colors, fonts, spacing, radii } from '@eyego/config';
 import { Text } from './Text';
 
-type BookingStatus = 'PENDING' | 'CONFIRMED' | 'BOARDED' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
+type BookingStatus = 'PENDING' | 'CONFIRMED' | 'BOARDED' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED' | 'SEAT_HELD';
 
 interface StatusBadgeProps {
   status: BookingStatus;
@@ -11,6 +11,7 @@ interface StatusBadgeProps {
 
 const STATUS_CONFIG: Record<BookingStatus, { label: string; color: string }> = {
   PENDING:   { label: 'Pending',   color: '#FFB800' },
+  SEAT_HELD: { label: 'Seat Held', color: '#FFB800' },
   CONFIRMED: { label: 'Confirmed', color: colors.primary },
   BOARDED:   { label: 'Boarded',   color: '#30D158' },
   COMPLETED: { label: 'Completed', color: colors.onSurfaceVariant },

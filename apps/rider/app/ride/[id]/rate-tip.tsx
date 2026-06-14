@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import Animated, {
   useSharedValue,
@@ -60,20 +60,39 @@ export default function RateTipScreen() {
   const { data: fetchedBooking } = useQuery({
     queryKey: ['booking', 'active-for-rating'],
     queryFn: () => bookingsApi.getActive(),
-    select: (r) => (r.data as any)?.data?.booking ?? null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (r: any) => r.data?.data?.booking ?? null,
     enabled: !paramBookingId && !activeBooking?.id,
     staleTime: 0,
   });
 
-  // bookingId priority: URL param → store → API fallback
-  const resolvedBookingId = paramBookingId || activeBooking?.id || fetchedBooking?.id || '';
+  // R13: Stabilize resolvedBookingId — derive once on mount using a ref so it
+  // doesn't change mid-render. Prefer URL param, fall back to store, then API.
+  const resolvedBookingIdRef = useRef<string | null>(null);
+  if (resolvedBookingIdRef.current === null) {
+    resolvedBookingIdRef.current = paramBookingId || activeBooking?.id || fetchedBooking?.id || '';
+  }
+  // Update ref if we get a new value from API fetch and ref is still empty
+  if (!resolvedBookingIdRef.current && fetchedBooking?.id) {
+    resolvedBookingIdRef.current = fetchedBooking.id;
+  }
+  const resolvedBookingId = resolvedBookingIdRef.current;
 
   // Fetch the specific booking by ID to get its actual fareAmount (the real price paid)
-  // This prevents showing the estimate fare instead of the confirmed paid amount
+  // This prevents showing the estimate fare instead of the confirmed paid amount.
+  // R20: The double .data unwrap is needed because axios wraps the response body in
+  // { data: ... } and our API returns { data: { booking: ... } } — so it's axios.data.apiData.booking.
   const { data: resolvedBooking } = useQuery({
     queryKey: ['booking', 'by-id', resolvedBookingId],
-    queryFn: () => bookingsApi.getById(resolvedBookingId),
-    select: (r) => (r.data as any)?.data?.booking ?? (r.data as any)?.data ?? null,
+    queryFn: () => resolvedBookingId ? bookingsApi.getById(resolvedBookingId) : Promise.reject(new Error('No booking id')),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (r: any) => {
+      const booking = r.data?.data?.booking ?? r.data?.data ?? null;
+      if (!booking) {
+        console.warn('[RateTipScreen] resolvedBooking unexpectedly null for id:', resolvedBookingId);
+      }
+      return booking;
+    },
     enabled: !!resolvedBookingId && !activeBooking?.fareAmount,
     staleTime: 0,
   });
@@ -120,7 +139,7 @@ export default function RateTipScreen() {
       // Refresh trips (Past tab) and profile trip count
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
       queryClient.invalidateQueries({ queryKey: ['bookings', 'completed', 'count'] });
-      router.replace('/(tabs)/home' as any);
+      router.replace('/(tabs)/home' as Href);
     },
     onError: (err: any) => {
       Alert.alert(
@@ -136,17 +155,17 @@ export default function RateTipScreen() {
       submitFeedback.mutate();
     } else {
       clearRideState();
-      router.replace('/(tabs)/home' as any);
+      router.replace('/(tabs)/home' as Href);
     }
   }, [rating, finalTip, submitFeedback, clearRideState, router]);
 
   const handleSkip = useCallback(() => {
     clearRideState();
-    router.replace('/(tabs)/home' as any);
+    router.replace('/(tabs)/home' as Href);
   }, [clearRideState, router]);
 
   const driverName = selectedTrip?.driver?.name ?? activeBooking?.trip?.driver?.name ?? 'Your Driver';
-  const driverAvatar = (selectedTrip?.driver as any)?.profilePhoto ?? (selectedTrip?.driver as any)?.avatarUrl;
+  const driverAvatar = (selectedTrip?.driver as any)?.profilePhoto ?? selectedTrip?.driver?.avatarUrl ?? null;
   const tripFare = activeBooking?.fareAmount ?? resolvedBooking?.fareAmount ?? 0;
 
   return (
@@ -243,9 +262,10 @@ export default function RateTipScreen() {
                       <Pressable
                         onPress={() => toggleCompliment(c.label)}
                         style={[styles.chip, active && styles.chipActive]}
+                        accessibilityRole="button" accessibilityLabel={`${c.label}${active ? ' (selected)' : ''}`}
                       >
                         <Ionicons
-                          name={c.icon as any}
+                          name={c.icon as keyof typeof Ionicons.glyphMap}
                           size={13}
                           color={active ? colors.onPrimary : colors.onSurfaceVariant}
                         />
@@ -360,7 +380,7 @@ export default function RateTipScreen() {
             loading={submitFeedback.isPending}
             fullWidth
           />
-          <Pressable onPress={handleSkip} style={styles.skipLink} hitSlop={10}>
+          <Pressable onPress={handleSkip} style={styles.skipLink} hitSlop={10} accessibilityRole="button" accessibilityLabel="Skip rating">
             <Text style={styles.skipText}>Maybe later</Text>
           </Pressable>
         </MotiView>

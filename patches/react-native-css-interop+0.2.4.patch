@@ -1,0 +1,14 @@
+diff --git a/node_modules/react-native-css-interop/dist/runtime/third-party-libs/react-native-safe-area-context.native.js b/node_modules/react-native-css-interop/dist/runtime/third-party-libs/react-native-safe-area-context.native.js
+index ee4b7a7..426943c 100644
+--- a/node_modules/react-native-css-interop/dist/runtime/third-party-libs/react-native-safe-area-context.native.js
++++ b/node_modules/react-native-css-interop/dist/runtime/third-party-libs/react-native-safe-area-context.native.js
+@@ -6,6 +6,9 @@ const react_native_1 = require("react-native");
+ const styles_1 = require("../native/styles");
+ let safeAreaProviderShim;
+ function maybeHijackSafeAreaProvider(type) {
++    // Guard: type can be undefined when createElement receives a dynamically-resolved
++    // component (e.g. inside @gorhom/bottom-sheet or reanimated).
++    if (type == null) return type;
+     const name = type.displayName || type.name;
+     if (react_native_1.Platform.OS !== "web" && name === "SafeAreaProvider") {
+         safeAreaProviderShim ||= shimFactory(type);

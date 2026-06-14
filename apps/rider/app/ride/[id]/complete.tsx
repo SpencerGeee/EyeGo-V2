@@ -1,11 +1,13 @@
-import React, { useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
+  Pressable,
+  Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
@@ -13,6 +15,8 @@ import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
 import { formatCurrency, formatDistance, formatDuration } from '@eyego/utils';
+import { useQuery } from '@tanstack/react-query';
+import { bookingsApi } from '@eyego/api';
 
 let LottieView: any = null;
 try { LottieView = require('lottie-react-native').default; } catch {}
@@ -27,36 +31,87 @@ export default function TripCompleteScreen() {
   const { activeBooking, selectedTrip } = useRideStore();
   const lottieRef = useRef<any>(null);
   const navigated = useRef(false);
+  const [expandedReceipt, setExpandedReceipt] = useState(false);
+
+  // Fetch receipt from API — hooks must be called before any early return
+  const bookingId = paramBookingId || activeBooking?.id || '';
+  const { data: receiptData } = useQuery({
+    queryKey: ['receipt', bookingId],
+    queryFn: () => bookingsApi.getReceipt(bookingId),
+    // Backend returns { receipt } (receipts.routes.js) — unwrap it; the previous
+    // select stopped at .data so receiptNumber/fareBreakdown were always undefined.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (r: any) => r.data?.data?.receipt ?? r.data?.data ?? r?.data ?? r,
+    enabled: !!bookingId,
+    staleTime: 60_000,
+  });
+
+  const receiptNumber = receiptData?.receiptNumber;
+  // The backend Receipt row is flat (totalPaid/platformFee/discountApplied) — it has
+  // no nested fareBreakdown object, so synthesize one for the breakdown UI.
+  const fareBreakdown = receiptData?.fareBreakdown ?? (receiptData?.totalPaid != null ? {
+    total: receiptData.totalPaid,
+    platformFee: receiptData.platformFee ?? 0,
+    baseFare: (receiptData.totalPaid ?? 0) - (receiptData.platformFee ?? 0),
+    discount: receiptData.discountApplied ?? 0,
+    surcharges: 0,
+    tip: 0,
+  } : undefined);
 
   useEffect(() => {
+    if (!id) return;
     if (lottieRef.current) {
-      setTimeout(() => lottieRef.current?.play(), 300);
+      const timer = setTimeout(() => lottieRef.current?.play(), 300);
+      return () => clearTimeout(timer);
     }
-    // Auto-navigate to rating after celebration animation plays
+  }, [id]);
+
+  // BUGFIX: Separated auto-navigation timer from lottie timer to ensure both have
+  // proper cleanup. Previous code had a single useEffect with both setTimeout calls
+  // that could fire after unmount.
+  useEffect(() => {
+    if (!id) return;
     const timer = setTimeout(() => {
       if (!navigated.current) {
         navigated.current = true;
-        const bookingId = paramBookingId || activeBooking?.id || '';
-        router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as any);
+        router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
       }
     }, 4000);
     return () => clearTimeout(timer);
-  }, [id, paramBookingId, activeBooking?.id]);
+  }, [id, bookingId, router]);
 
   const handleRateAndTip = useCallback(() => {
     navigated.current = true;
-    const bookingId = paramBookingId || activeBooking?.id || '';
-    router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as any);
-  }, [router, id, paramBookingId, activeBooking?.id]);
+    router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
+  }, [router, id, bookingId]);
 
-  const totalFare = (activeBooking as any)?.fareAmount ?? (activeBooking as any)?.fare ?? (selectedTrip as any)?.farePerSeat ?? 0;
-  const platformFee = totalFare * 0.05;
-  const baseFare = totalFare - platformFee;
-  const surcharges = 0;
-  const tip = 0;
+  // Use receipt data if available, fallback to store
+  const totalFare = fareBreakdown?.total ?? activeBooking?.fareAmount ?? activeBooking?.fare ?? selectedTrip?.farePerSeat ?? 0;
+  const baseFare = fareBreakdown?.baseFare ?? totalFare * 0.95;
+  const platformFee = fareBreakdown?.platformFee ?? totalFare * 0.05;
+  const surcharges = fareBreakdown?.surcharges ?? 0;
+  const discount = fareBreakdown?.discount ?? 0;
+  const tip = fareBreakdown?.tip ?? 0;
+
+  const handleShareReceipt = useCallback(() => {
+    const shareText = [
+      `🐾 EyeGo Trip Receipt #${receiptNumber ?? 'N/A'}`,
+      `Route: ${selectedTrip?.origin?.address?.split(',')[0] ?? 'Origin'} → ${selectedTrip?.destination?.address?.split(',')[0] ?? 'Destination'}`,
+      `Total: ${formatCurrency(totalFare)}`,
+      'Thank you for riding with EyeGo!',
+    ].join('\n');
+    Share.share({ message: shareText, title: 'EyeGo Receipt' }).catch(() => {});
+  }, [receiptNumber, totalFare, selectedTrip]);
+
+  // R9: Guard against missing trip id — navigate back as a side-effect, not during render
+  useEffect(() => {
+    if (!id) router.back();
+  }, [id, router]);
+
+  if (!id) return null;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} accessibilityLabel="Trip complete screen">
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Celebration header with Lottie */}
         <MotiView
@@ -74,7 +129,7 @@ export default function TripCompleteScreen() {
               autoPlay={false}
             />
           ) : (
-            <View style={styles.checkCircle}>
+            <View style={styles.checkCircle} accessibilityLabel="Trip completed">
               <Ionicons name="checkmark" size={40} color={colors.onPrimary} />
             </View>
           )}
@@ -90,37 +145,89 @@ export default function TripCompleteScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
           style={styles.receiptCard}
+          accessibilityLabel={`Receipt. Total ${formatCurrency(totalFare)}`}
         >
           <Text variant="titleMedium" style={{ marginBottom: spacing.md }}>Receipt</Text>
-          
+
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Base Fare</Text>
             <Text variant="bodyMedium">{formatCurrency(baseFare)}</Text>
           </View>
-          
+
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Platform Fee</Text>
             <Text variant="bodyMedium">{formatCurrency(platformFee)}</Text>
           </View>
-          
+
           {surcharges > 0 && (
             <View style={styles.receiptRow}>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Surcharges</Text>
               <Text variant="bodyMedium">{formatCurrency(surcharges)}</Text>
             </View>
           )}
-          
+
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Tip</Text>
             <Text variant="bodyMedium">{formatCurrency(tip)}</Text>
           </View>
-          
+
+          {discount > 0 && (
+            <View style={styles.receiptRow}>
+              <Text variant="bodyMedium" color="#4BE277">Discount Applied</Text>
+              <Text variant="bodyMedium" color="#4BE277">−{formatCurrency(discount)}</Text>
+            </View>
+          )}
+
           <View style={styles.divider} />
-          
+
           <View style={styles.receiptRowTotal}>
             <Text variant="titleMedium">Final Paid Total</Text>
             <Text variant="titleMedium" color={colors.primary}>{formatCurrency(totalFare)}</Text>
           </View>
+
+          {/* Receipt number */}
+          {receiptNumber && !expandedReceipt && (
+            <Pressable
+              onPress={() => setExpandedReceipt(true)}
+              style={{ marginTop: spacing.sm }}
+              accessibilityRole="button"
+              accessibilityLabel={`Receipt number ${receiptNumber}. Tap for details`}
+            >
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                Receipt #{receiptNumber}  〉
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Expanded receipt details */}
+          {expandedReceipt && (
+            <MotiView
+              from={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+              style={{ marginTop: spacing.sm }}
+            >
+              <View style={[styles.divider, { marginVertical: spacing.sm }]} />
+              <Text variant="caption" color={colors.onSurfaceVariant}>Receipt #{receiptNumber}</Text>
+              {receiptData?.paymentMethod && (
+                <Text variant="caption" color={colors.onSurfaceVariant}>Payment: {receiptData.paymentMethod}</Text>
+              )}
+              {receiptData?.paidAt && (
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  Paid: {new Date(receiptData.paidAt).toLocaleString()}
+                </Text>
+              )}
+              <Pressable
+                onPress={handleShareReceipt}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm }}
+                accessibilityRole="button"
+                accessibilityLabel="Share receipt"
+              >
+                <Ionicons name="share-outline" size={14} color={colors.primary} />
+                <Text variant="caption" color={colors.primary}>Share Receipt</Text>
+              </Pressable>
+            </MotiView>
+          )}
 
           <View style={styles.tripRecap}>
             <RecapItem
@@ -146,6 +253,7 @@ export default function TripCompleteScreen() {
           <Button
             label="Rate & Tip Driver"
             onPress={handleRateAndTip}
+            accessibilityLabel="Rate your driver and add a tip"
           />
         </MotiView>
       </ScrollView>

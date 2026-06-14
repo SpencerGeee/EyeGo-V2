@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   TextInput,
   Alert,
 } from 'react-native';
@@ -15,6 +15,7 @@ import { spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { userApi } from '@eyego/api';
 
 const STORAGE_KEY = 'eyego_emergency_contacts';
 const MAX_CONTACTS = 3;
@@ -37,12 +38,19 @@ export default function EmergencyContactsScreen() {
 
   const loadContacts = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        setContacts(JSON.parse(raw));
-      }
+      // Prefer server-side contacts; fall back to local cache if offline
+      const res = await userApi.getEmergencyContacts();
+      const serverContacts: Contact[] = (res.data as any)?.data?.contacts ?? [];
+      setContacts(serverContacts);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(serverContacts));
     } catch {
-      // ignore
+      // Offline fallback — load from cache
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        if (raw) setContacts(JSON.parse(raw));
+      } catch {
+        // ignore
+      }
     }
   }, []);
 
@@ -51,8 +59,21 @@ export default function EmergencyContactsScreen() {
   }, [loadContacts]);
 
   const persistContacts = async (updated: Contact[]) => {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    // Optimistically update UI
     setContacts(updated);
+    // Sync to server; update cache regardless of outcome
+    try {
+      const res = await userApi.syncEmergencyContacts(
+        updated.map(({ name, phone }) => ({ name, phone }))
+      );
+      const saved: Contact[] = (res.data as any)?.data?.contacts ?? updated;
+      setContacts(saved);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    } catch {
+      // Server sync failed — keep local state, cache what we have
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
+      // Don't throw — offline edits are preserved locally and will re-sync on next load
+    }
   };
 
   const handleAdd = async () => {
@@ -103,9 +124,9 @@ export default function EmergencyContactsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Emergency Contacts</Text>
         <View style={{ width: 40 }} />
       </View>
@@ -150,13 +171,12 @@ export default function EmergencyContactsScreen() {
                           {contact.phone}
                         </Text>
                       </View>
-                      <TouchableOpacity
+                      <Pressable
                         onPress={() => handleDelete(contact.id)}
-                        activeOpacity={0.7}
                         style={styles.deleteBtn}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.error} />
-                      </TouchableOpacity>
+                      </Pressable>
                     </View>
                   </React.Fragment>
                 ))}

@@ -12,6 +12,7 @@ export type { ButtonVariant, ButtonSize } from './Button';
 
 // Layout & Display
 export { Card } from './Card';
+export { GlassCard } from './GlassCard';
 export { Skeleton } from './Skeleton';
 export { Avatar } from './Avatar';
 export { Toggle } from './Toggle';

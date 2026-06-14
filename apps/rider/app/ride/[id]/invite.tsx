@@ -1,45 +1,147 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, Share, ScrollView } from 'react-native';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { View, StyleSheet, Pressable, Share, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { bookingsApi } from '@eyego/api';
+import { bookingsApi, tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, AnimatedFareText } from '@eyego/ui';
-import type { GroupMember } from '@eyego/types';
+import type { GroupMember, Trip } from '@eyego/types';
 
 function formatCurrency(amount: number): string {
   return `GHS ${amount.toFixed(2)}`;
 }
+
+type LinkState = 'generating' | 'ready' | 'error';
 
 export default function InviteScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { activeBooking, selectedTrip, setSelectedTrip, computedFare } = useRideStore();
+  const { activeBooking, selectedTrip, setSelectedTrip, setActiveBooking, computedFare } = useRideStore();
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [payForEveryone, setPayForEveryone] = useState(false);
   const [heavyCargo, setHeavyCargo] = useState(false);
+  const [linkState, setLinkState] = useState<LinkState>('generating');
+  const [bookingReady, setBookingReady] = useState(false);
 
-  const generateInvite = useMutation({
-    mutationFn: () => bookingsApi.generateInvite(activeBooking?.id ?? id ?? ''),
+  // ── Step 1: Ensure a booking exists ───────────────────────────────────
+  // If the user has an active booking, use it. Otherwise, create one so we
+  // have a real booking ID — never fall back to the trip ID.
+  const createBooking = useMutation({
+    mutationFn: async () => {
+      // Reserve the first AVAILABLE seat instead of hard-coding seat #1. The
+      // backend keys on `seatNumber` (the `seatId` string is ignored) and rejects
+      // an already-taken seat with SeatTakenError — so the old hard-coded
+      // seatNumber:1 failed for the host whenever seat 1 was occupied. Fall back
+      // to 1 only if the seat map can't be read.
+      let seatNumber = 1;
+      try {
+        const seatsRes = await tripsApi.getSeats(id ?? '');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const seats: any[] = (seatsRes.data as any)?.data ?? [];
+        const firstFree = Array.isArray(seats)
+          ? seats.find((s) => s?.status === 'AVAILABLE')
+          : null;
+        if (firstFree?.seatNumber) seatNumber = firstFree.seatNumber;
+      } catch {
+        // keep the seatNumber=1 fallback
+      }
+      const { data } = await bookingsApi.create({
+        tripId: id ?? '',
+        seatId: `seat-${seatNumber}`,
+        seatNumber,
+        paymentMethod: 'CASH' as any,
+      });
+      return data.data;
+    },
+    onSuccess: (bookingData) => {
+      setActiveBooking(bookingData);
+      setBookingReady(true);
+    },
+    onError: () => {
+      setBookingReady(false);
+    },
   });
 
+  // If we already have an active booking, we're ready immediately.
+  // Otherwise, create one.
+  useEffect(() => {
+    if (activeBooking?.id) {
+      setBookingReady(true);
+    } else {
+      createBooking.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Step 2: Generate the invite link once we have a booking ───────────
+  // The bookingId is always a real booking ID — never the trip id.
+  const bookingId = activeBooking?.id ?? '';
+
+  const generateInvite = useMutation({
+    mutationFn: () => bookingsApi.generateInvite(bookingId),
+    onSuccess: () => {
+      setLinkState('ready');
+    },
+    onError: (err: any) => {
+      setLinkState('error');
+      console.warn('[Invite] Generate failed:', err?.message ?? err);
+    },
+  });
+
+  // Generate invite once booking is ready.
+  // BUGFIX (stuck on "Generating…" forever): the previous guard required
+  // `bookingReady && bookingId && linkState==='generating'` all true — so if the
+  // booking became "ready" but `bookingId` was empty (create returned no id, or
+  // the host arrived without one), the block never ran: no mutate, no safety
+  // timer, and the spinner showed forever. We now handle every branch so the
+  // "generating" state is always escapable, and the safety timer uses a
+  // functional updater (the old `generateInvite.isPending` read a stale closure).
+  useEffect(() => {
+    if (!bookingReady) return;
+    if (!bookingId) {
+      setLinkState((prev) => (prev === 'generating' ? 'error' : prev));
+      return;
+    }
+    if (linkState === 'generating') {
+      generateInvite.mutate();
+      const safetyTimer = setTimeout(() => {
+        setLinkState((prev) => (prev === 'generating' ? 'error' : prev));
+      }, 15000);
+      return () => clearTimeout(safetyTimer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingReady, bookingId]);
+
+  const inviteLink = generateInvite.data?.data?.data?.inviteLink ?? '';
+
   const { data: groupData } = useQuery({
-    queryKey: ['group', activeBooking?.id],
-    queryFn: () => bookingsApi.getGroup(activeBooking?.id ?? ''),
-    enabled: !!activeBooking?.id,
+    queryKey: ['group', bookingId],
+    queryFn: () => bookingsApi.getGroup(bookingId),
+    enabled: !!bookingId && !!inviteLink,
     refetchInterval: 5000,
   });
 
-  const inviteLink = generateInvite.data?.data.data.inviteLink ?? '';
-  const members = groupData?.data.data.members ?? [];
+  const members = groupData?.data?.data?.members ?? [];
+
+  // R4: enforce the group member limit on the client. The trip's totalSeats is
+  // the hard cap (server rejects over-booking at seat-claim time); here we stop
+  // advertising the invite link once host + joined members fill the trip, so we
+  // don't invite people who can't actually get a seat.
+  const seatLimit =
+    (selectedTrip as { totalSeats?: number; maxSeats?: number })?.totalSeats ??
+    (selectedTrip as { maxSeats?: number })?.maxSeats ??
+    0;
+  const groupSize = members.length + 1; // +1 for the host
+  const groupFull = seatLimit > 0 && groupSize >= seatLimit;
 
   const togglePayForEveryone = () => {
     const next = !payForEveryone;
@@ -48,7 +150,7 @@ export default function InviteScreen() {
       ...selectedTrip,
       payForEveryone: next,
       selectedSeatCount: members.length + 1,
-    } as any);
+    } as Trip & { payForEveryone?: boolean; selectedSeatCount?: number; heavyCargo?: boolean });
   };
 
   const toggleHeavyCargo = () => {
@@ -57,18 +159,20 @@ export default function InviteScreen() {
     setSelectedTrip({
       ...selectedTrip,
       heavyCargo: next,
-    } as any);
+    } as Trip & { payForEveryone?: boolean; selectedSeatCount?: number; heavyCargo?: boolean });
   };
 
-  useEffect(() => {
+  const handleRetry = useCallback(() => {
+    setLinkState('generating');
     generateInvite.mutate();
-  }, []);
+  }, [generateInvite]);
 
   const handleCopy = async () => {
     if (inviteLink) {
       await Clipboard.setStringAsync(inviteLink);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -81,6 +185,59 @@ export default function InviteScreen() {
     }
   };
 
+  // ── Actionable empty state: no booking ─────────────────────────────────
+  if (!bookingReady && createBooking.isPending) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+          </Pressable>
+          <Text variant="titleMedium">Group Hub</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.base }}>
+            Reserving your seat...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!bookingReady && createBooking.isError) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+          </Pressable>
+          <Text variant="titleMedium">Group Hub</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.emptyState}>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
+          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.base, textAlign: 'center' }}>
+            Could not reserve a seat. The trip may be full.
+          </Text>
+          <Button
+            label="Try Again"
+            onPress={() => createBooking.mutate()}
+            loading={createBooking.isPending}
+            style={{ marginTop: spacing.xl }}
+          />
+          <Button
+            label="Back to Seat Selection"
+            variant="ghost"
+            onPress={() => router.replace(`/ride/${id}/seat` as Href)}
+            style={{ marginTop: spacing.md }}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       {/* Header */}
@@ -89,7 +246,7 @@ export default function InviteScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Group Hub</Text>
-        <Pressable onPress={() => router.replace(`/ride/${id}/payment` as any)}>
+        <Pressable onPress={() => router.replace(`/ride/${id}/payment` as Href)}>
           <Text variant="label" color={colors.primary}>Pay</Text>
         </Pressable>
       </View>
@@ -110,29 +267,64 @@ export default function InviteScreen() {
             Share this link so your group can book seats on the same ride.
           </Text>
 
-          {/* Link preview */}
-          <Pressable style={styles.linkBox} onPress={handleCopy}>
-            <Text
-              variant="bodySmall"
-              color={colors.onSurfaceVariant}
-              numberOfLines={1}
-              style={{ flex: 1 }}
-            >
-              {inviteLink || 'Generating link...'}
-            </Text>
-            <Ionicons
-              name={copied ? 'checkmark' : 'copy-outline'}
-              size={16}
-              color={copied ? colors.primary : colors.onSurfaceVariant}
-            />
-          </Pressable>
+          {/* Link preview — three states: generating / ready / error */}
+          {linkState === 'generating' && (
+            <View style={styles.linkBox}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                Generating invite link...
+              </Text>
+            </View>
+          )}
 
-          {/* Share button */}
+          {linkState === 'ready' && (
+            <Pressable style={styles.linkBox} onPress={handleCopy}>
+              <Text
+                variant="bodySmall"
+                color={colors.onSurfaceVariant}
+                numberOfLines={1}
+                style={{ flex: 1 }}
+              >
+                {inviteLink}
+              </Text>
+              <Ionicons
+                name={copied ? 'checkmark' : 'copy-outline'}
+                size={16}
+                color={copied ? colors.primary : colors.onSurfaceVariant}
+              />
+            </Pressable>
+          )}
+
+          {linkState === 'error' && (
+            <Pressable style={[styles.linkBox, { borderColor: colors.error + '50' }]} onPress={handleRetry}>
+              <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+              <Text
+                variant="bodySmall"
+                color={colors.error}
+                numberOfLines={1}
+                style={{ flex: 1 }}
+              >
+                Couldn't create link — Tap to retry
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Group-full notice — the trip's seats are all taken */}
+          {groupFull && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+              <Ionicons name="information-circle-outline" size={14} color={colors.onSurfaceVariant} />
+              <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                Your group is full ({groupSize}/{seatLimit} seats). You can't invite more riders.
+              </Text>
+            </View>
+          )}
+
+          {/* Share button — disabled once the group fills the trip */}
           <Button
-            label="Share Invite Link"
+            label={groupFull ? 'Group Full' : 'Share Invite Link'}
             onPress={handleShare}
-            disabled={!inviteLink}
-            loading={generateInvite.isPending}
+            disabled={linkState !== 'ready' || groupFull}
+            loading={linkState === 'generating'}
           />
         </MotiView>
 
@@ -237,9 +429,7 @@ export default function InviteScreen() {
 
           <View style={{ height: 1, backgroundColor: colors.outlineVariant, marginVertical: 4, opacity: 0.5 }} />
 
-          {/* Split / Your Share. When "pay for all" is on, the host owes the whole
-              server-calculated trip cost — not perSeat × members. Falls back to the
-              old multiplier estimate only when the server didn't attach totalTripCost. */}
+          {/* Split / Your Share */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>
               {payForEveryone ? "Your Share (You pay for all)" : "Your Split Share"}
@@ -265,7 +455,7 @@ export default function InviteScreen() {
         >
           <Button
             label="Proceed to Payment"
-            onPress={() => router.push(`/ride/${id}/payment` as any)}
+            onPress={() => router.push(`/ride/${id}/payment` as Href)}
           />
         </MotiView>
       </ScrollView>
@@ -287,7 +477,7 @@ function MemberRow({
   return (
     <View style={styles.memberRow}>
       <View style={styles.memberAvatar}>
-        <Text style={{ fontSize: 18 }}>👤</Text>
+        <Ionicons name="person" size={18} color={colors.onSurfaceVariant} />
       </View>
       <View style={{ flex: 1 }}>
         <Text variant="bodyMedium">{name}</Text>
@@ -439,5 +629,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   checkboxSelected: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing['3xl'],
+    gap: spacing.md,
   },
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,7 +40,7 @@ export function TripCard({ trip, onPress }: Props) {
   const fare = trip.farePerSeat ?? trip.baseFare ?? 0;
 
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.wrapper}>
+    <Pressable onPress={onPress}style={styles.wrapper}>
       <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outline }]}>
         {/* Status strip */}
         <View style={[styles.statusStrip, { backgroundColor: statusColor }]} />
@@ -89,7 +89,7 @@ export function TripCard({ trip, onPress }: Props) {
 
         <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={styles.arrow} />
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 

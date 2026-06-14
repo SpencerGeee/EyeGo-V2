@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, StyleSheet, Pressable, DevSettings, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { captureException } from '../lib/sentry';
 
 interface Props {
   children: ReactNode;
@@ -22,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Enterprise Telemetry Integration: Log to Console/Sentry/Firebase here
+    captureException(error, { componentStack: errorInfo.componentStack, source: 'ErrorBoundary' });
     console.error('🚨 [Global ErrorBoundary] Caught fatal crash:', error, errorInfo);
   }
 

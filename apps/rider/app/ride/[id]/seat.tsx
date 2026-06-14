@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, FlatList, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import Animated, {
   useSharedValue,
@@ -11,27 +11,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { tripsApi, socketEvents, connectSocket } from '@eyego/api';
+import { tripsApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, EmptyState } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
-
-// Mock seat layout for a 14-seat van (2+1 arrangement, 5 rows + driver)
-const getMockSeats = (tripId: string): Seat[] => {
-  const hash = Array.from(tripId || '').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return Array.from({ length: 14 }, (_, i) => {
-    const isOccupied = ((hash + i) % 3 === 0) || ((hash * (i + 1)) % 7 === 0);
-    return {
-      id: `seat-${i + 1}`,
-      number: i + 1,
-      row: Math.floor(i / 3),
-      column: i % 3,
-      status: isOccupied ? 'OCCUPIED' : 'AVAILABLE',
-    };
-  });
-};
 
 export default function SeatPickerScreen() {
   const colors = useColors();
@@ -41,29 +26,36 @@ export default function SeatPickerScreen() {
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const mockSeats = useMemo(() => getMockSeats(id ?? ''), [id]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['seats', id],
     queryFn: () => tripsApi.getSeats(id ?? ''),
     enabled: !!id,
   });
 
+  const tripRef = useRef(selectedTrip);
+  useEffect(() => { tripRef.current = selectedTrip; }, [selectedTrip]);
+
   useEffect(() => {
     connectSocket();
-    if (id) {
-      socketEvents.joinTripRoom(id, selectedTrip?.driverId || selectedTrip?.driver?.id);
-    }
+    // BUGFIX: Removed joinTripRoom + disconnectSocket from seat.tsx — TripStatusListener
+    // already handles joining/leaving trip rooms globally. This was fighting with
+    // the ref-counted socket lifecycle, causing unnecessary connect/disconnect churn.
+    // The socket stays connected via TripStatusListener; seat updates arrive through
+    // the existing onSeatUpdate subscription.
     const unsub = socketEvents.onSeatUpdate(() => {
       queryClient.invalidateQueries({ queryKey: ['seats', id] });
     });
     return () => {
       unsub();
-      if (id) socketEvents.leaveTripRoom(id);
+      // BUGFIX: No longer call disconnectSocket() here — TripStatusListener manages
+      // the global socket lifecycle. This was decrementing the ref count prematurely.
     };
-  }, [id, selectedTrip]);
+    // Intentionally only run on mount/unmount — do NOT re-run on selectedTrip change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
-  const rawSeats = data?.data?.data?.seats || data?.data?.seats || mockSeats;
+  const rawSeats = (data?.data?.data as any)?.seats || (data?.data as any)?.seats || [];
 
   const seats: Seat[] = rawSeats.map((s: any) => ({
     id: `seat-${s.number}`,
@@ -86,8 +78,32 @@ export default function SeatPickerScreen() {
   const handleConfirm = () => {
     if (!selectedSeat) return;
     setSelectedSeat(selectedSeat);
-    router.push(`/ride/${id}/payment` as any);
+    router.push(`/ride/${id}/payment` as Href);
   };
+
+  // Fail loudly: if seats can't be loaded we show a real error with retry,
+  // never a fabricated seat layout.
+  if (isError) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+          </Pressable>
+          <Text variant="titleMedium">Choose Your Seat</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <EmptyState
+            icon="car-outline"
+            title="Couldn't load seats"
+            subtitle="Check your connection and try again."
+            action={{ label: 'Try again', onPress: () => refetch() }}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -124,7 +140,7 @@ export default function SeatPickerScreen() {
           {/* Driver area */}
           <View style={styles.driverArea}>
             <View style={styles.steeringWheel}>
-              <Text style={{ fontSize: 20 }}>🚐</Text>
+              <Ionicons name="car-sport" size={20} color={colors.onSurfaceVariant} />
             </View>
             <Text variant="caption" color={colors.onSurfaceVariant}>Driver</Text>
           </View>
@@ -200,7 +216,7 @@ function SeatButton({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scale = useSharedValue(1);
   const isOccupied = seat.status === 'OCCUPIED';
-  const isPending = seat.status === 'PENDING';
+  const isPending = seat.status === 'PENDING' as any;
   const isUnavailable = isOccupied || isPending;
 
   const animStyle = useAnimatedStyle(() => ({

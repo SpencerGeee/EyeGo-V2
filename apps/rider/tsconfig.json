@@ -20,7 +20,8 @@
       ],
       "@/*": [
         "./*"
-      ]
+      ],
+      "moti": ["./lib/moti-module.ts"]
     }
   },
   "include": [

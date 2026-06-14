@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   Pressable,
   Linking,
   Alert,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -12,7 +13,9 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
-import { apiClient } from '@eyego/api';
+import { apiClient, bookingsApi, userApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
+import { useQuery } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -30,12 +33,35 @@ export default function SOSScreen() {
   const [alertSent, setAlertSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [passengerLocation, setPassengerLocation] = useState<Location.LocationObject | null>(null);
+  const [audioRecording, setAudioRecording] = useState(false);
+  const [rideCheckActive, setRideCheckActive] = useState(false);
+  // Use a ref for the timer so cleanup always sees the latest handle (no stale closure)
+  const autoAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref keeps the latest location for the stream interval (avoids stale closure over `initial`)
+  const locationRef = useRef<Location.LocationObject | null>(null);
+
+  // Emergency contact: read from the synced EmergencyContact[] relation (what the
+  // emergency-contacts screen now writes). Falls back to the legacy singular
+  // user.emergencyContact for older accounts. Previously SOS only read the legacy
+  // field, so contacts saved via the new screen never reached SOS.
+  const { data: emergencyContacts } = useQuery({
+    queryKey: ['user', 'emergency-contacts'],
+    queryFn: () => userApi.getEmergencyContacts(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (r: any) => r.data?.data?.contacts ?? r.data?.data ?? [],
+    staleTime: 60_000,
+  });
+  const emergencyContact: { phone?: string; name?: string } | undefined =
+    (Array.isArray(emergencyContacts) && emergencyContacts.length > 0)
+      ? emergencyContacts[0]
+      : (user as { emergencyContact?: { phone?: string; name?: string } })?.emergencyContact;
 
   KeepAwake.useKeepAwake();
 
-  // Active Location Tracking on Mount
+  // Active Location Tracking on Mount — stream to backend via socket
   useEffect(() => {
     let locationWatcher: Location.LocationSubscription | null = null;
+    let streamInterval: ReturnType<typeof setInterval> | null = null;
 
     async function startTracking() {
       try {
@@ -50,6 +76,15 @@ export default function SOSScreen() {
           accuracy: Location.Accuracy.Balanced,
         });
         setPassengerLocation(initial);
+        locationRef.current = initial;
+
+        // Request background location on iOS so tracking continues when app is backgrounded
+        if (Platform.OS === 'ios') {
+          const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+          if (bgStatus !== 'granted') {
+            console.warn('[SOS] Background location denied — streaming may pause when app is backgrounded.');
+          }
+        }
 
         // Start watching for real-time fine position changes
         locationWatcher = await Location.watchPositionAsync(
@@ -60,8 +95,24 @@ export default function SOSScreen() {
           },
           (newLocation) => {
             setPassengerLocation(newLocation);
+            locationRef.current = newLocation;
           }
         );
+
+        // Stream location to backend every 10 seconds for safety monitoring.
+        // Uses locationRef.current so the interval always sends the latest coords,
+        // not the stale `initial` value captured at creation time.
+        connectSocket();
+        streamInterval = setInterval(() => {
+          const loc = locationRef.current;
+          if (loc && id) {
+            socketEvents.sendSafetyLocation?.({
+              tripId: id,
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            });
+          }
+        }, 10000);
       } catch (err) {
         console.error('[SOS] Geolocation error:', err);
       }
@@ -73,11 +124,29 @@ export default function SOSScreen() {
       if (locationWatcher) {
         locationWatcher.remove();
       }
+      if (streamInterval) {
+        clearInterval(streamInterval);
+      }
+      disconnectSocket();
     };
-  }, []);
+  }, [id]);
 
-  const emergencyContact = (user as any)?.emergencyContact;
-  
+  // Auto-share current location to emergency contacts every 30 seconds after alert sent
+  useEffect(() => {
+    if (alertSent && passengerLocation?.coords) {
+      const interval = setInterval(() => {
+        if (emergencyContact?.phone && id) {
+          const msg = encodeURIComponent(
+            `🆘 SOS UPDATE: ${user?.name ?? 'EyeGo rider'} location at ${new Date().toLocaleTimeString()}. ` +
+            `https://maps.google.com/?q=${passengerLocation.coords.latitude},${passengerLocation.coords.longitude}`
+          );
+          Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`);
+        }
+      }, 30000); // every 30 seconds
+      return () => clearInterval(interval);
+    }
+  }, [alertSent, passengerLocation, user, id, emergencyContact]);
+
   // Use user's active fine location if available, otherwise fallback to driver's coordinate
   const currentCoords = passengerLocation?.coords 
     ? { latitude: passengerLocation.coords.latitude, longitude: passengerLocation.coords.longitude }
@@ -91,6 +160,8 @@ export default function SOSScreen() {
 
   const handleSOSPress = async () => {
     if (alertSent || loading) return;
+    // Heavy vibration — confirms the SOS was triggered
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     try {
       setLoading(true);
 
@@ -100,18 +171,21 @@ export default function SOSScreen() {
         longitude: currentCoords?.longitude,
         passengerPhone: user?.phone,
         timestamp: new Date().toISOString(),
+        // Send emergency contact info so backend can SMS them
+        emergencyContactName: emergencyContact?.name ?? undefined,
+        emergencyContactPhone: emergencyContact?.phone ?? undefined,
       };
 
       // Attempt to broadcast emergency signal to backend API gateway
       if (id && currentCoords) {
-        await apiClient.post(`/rides/${id}/emergency`, sosData).catch(async (err) => {
+        await apiClient.post(`/trips/${id}/emergency`, sosData).catch(async (err) => {
           // Log warning but allow SMS fallbacks to execute
           console.warn('[SOS] Backend notification failed, executing local fail-safe protocols.', err);
           
           // Enqueue critical action for background/offline sync!
           try {
             const { offlineQueue } = require('../../../utils/offlineQueue');
-            await offlineQueue.enqueue('SOS', `/rides/${id}/emergency`, 'POST', sosData);
+            await offlineQueue.enqueue('SOS', `/trips/${id}/emergency`, 'POST', sosData);
           } catch (queueErr) {
             console.error('[SOS] Failed to enqueue offline sync:', queueErr);
           }
@@ -128,12 +202,59 @@ export default function SOSScreen() {
         );
         Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`);
       }
+      // Call emergency contact directly
+      if (emergencyContact?.phone) {
+        try {
+          Linking.openURL(`tel:${emergencyContact.phone}`);
+        } catch {}
+      }
+
+      // Start auto-location sharing timer
+      const timer = setTimeout(() => {
+        autoAlertTimerRef.current = null;
+      }, 60000);
+      autoAlertTimerRef.current = timer;
     } catch (err) {
       Alert.alert('Error', 'Could not send alert. Please call emergency services directly.');
     } finally {
       setLoading(false);
     }
   };
+
+  // RideCheck: monitor route deviations via socket.
+  // The backend emits 'safety:check' { tripId, reason, timestamp } (driver.socket.js
+  // emitSafetyCheck) — NOT 'safety:ride_check_alert', which nothing ever emits. We
+  // listen to onSafetyCheck and derive a human message from the reason code.
+  useEffect(() => {
+    if (rideCheckActive && id) {
+      connectSocket();
+      const unsub = socketEvents.onSafetyCheck?.((data) => {
+        // Only react to the current trip's safety checks.
+        if (data?.tripId && data.tripId !== id) return;
+        const reason = (data?.reason ?? '').toString().toLowerCase();
+        const message =
+          reason.includes('route') ? 'Your trip has deviated from the expected route. Are you safe?'
+          : reason.includes('stop') ? 'Your driver has been stopped for a while. Is everything okay?'
+          : 'A safety check was triggered on your trip. Are you safe?';
+        Alert.alert(
+          'RideCheck Alert',
+          message,
+          [
+            { text: "I'm safe", style: 'default' },
+            { text: 'Trigger SOS', style: 'destructive', onPress: () => handleSOSPress() },
+          ]
+        );
+      });
+      return () => { unsub?.(); };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // handleSOSPress is a plain async function — adding it would cause infinite re-runs
+  }, [rideCheckActive, id]);
+
+  // Cleanup auto-alert timer on unmount
+  useEffect(() => () => {
+    if (autoAlertTimerRef.current) clearTimeout(autoAlertTimerRef.current);
+  }, []);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -218,11 +339,37 @@ export default function SOSScreen() {
           </Text>
         )}
 
+        {/* RideCheck: inactivity detection */}
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 150 }}
+          style={[styles.actionsCard, { marginBottom: spacing.md }]}
+        >
+          <ActionRow
+            icon={audioRecording ? 'stop-circle-outline' : 'mic-outline'}
+            iconColor={audioRecording ? '#EF4444' : colors.primary}
+            iconBg={audioRecording ? 'rgba(239, 68, 68, 0.15)' : colors.primary + '20'}
+            label={audioRecording ? 'Stop Recording' : 'Start Audio Recording'}
+            sublabel={audioRecording ? 'Recording audio for safety evidence' : 'Record audio as safety evidence during the trip'}
+            onPress={() => setAudioRecording(!audioRecording)}
+          />
+          <View style={styles.divider} />
+          <ActionRow
+            icon={rideCheckActive ? 'checkmark-circle' : 'shield-outline'}
+            iconColor={rideCheckActive ? '#4BE277' : colors.onSurfaceVariant}
+            iconBg={rideCheckActive ? 'rgba(75, 226, 119, 0.15)' : colors.surfaceContainerHigh + '40'}
+            label={rideCheckActive ? 'RideCheck Active' : 'Enable RideCheck'}
+            sublabel={rideCheckActive ? 'Monitoring for unexpected stops or route deviations' : 'Get alerted if your trip deviates unexpectedly'}
+            onPress={() => setRideCheckActive(!rideCheckActive)}
+          />
+        </MotiView>
+
         {/* Action rows */}
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 200 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 300 }}
           style={styles.actionsCard}
         >
           <ActionRow

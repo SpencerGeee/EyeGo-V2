@@ -1,18 +1,19 @@
-import React from 'react';
+import React, { useState, useContext, useEffect, useImperativeHandle } from 'react';
 import Constants from 'expo-constants';
 
 // Detect Expo Go at runtime — avoids crashing on missing native Mapbox module
 // SDK 54: appOwnership === 'expo' is the reliable signal; executionEnvironment kept as fallback
 const isExpoGo =
   Constants.appOwnership === 'expo' ||
-  (Constants as any).executionEnvironment === 'storeClient';
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  (Constants as { executionEnvironment?: string }).executionEnvironment === 'storeClient';
 
 let MapboxGL: any;
 
 if (!isExpoGo) {
   // Custom dev/prod build — use the real Mapbox SDK
   try {
-    const Maps = require('@rnmapbox/maps');
+    const Maps = require('@maplibre/maplibre-react-native');
     MapboxGL = Maps.default || Maps;
   } catch (e) {
     // Shouldn't happen in a custom build, but guard just in case
@@ -59,7 +60,7 @@ function buildExpoGoAdapter() {
     compassEnabled,
     rotateEnabled,
   }: any) => {
-    const [region, setRegion] = React.useState<any>(null);
+    const [region, setRegion] = useState<any>(null);
 
     return React.createElement(
       MapRegionContext.Provider,
@@ -83,9 +84,9 @@ function buildExpoGoAdapter() {
   // Camera ──────────────────────────────────────────────────────────────────
   const ExpoCamera = React.forwardRef(
     ({ centerCoordinate, zoomLevel }: any, ref: any) => {
-      const ctx = React.useContext(MapRegionContext);
+      const ctx = useContext(MapRegionContext);
 
-      React.useEffect(() => {
+      useEffect(() => {
         if (!ctx || !centerCoordinate) return;
         const lat = centerCoordinate[1];
         const lng = centerCoordinate[0];
@@ -100,7 +101,7 @@ function buildExpoGoAdapter() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [centerCoordinate?.[0], centerCoordinate?.[1], zoomLevel]);
 
-      React.useImperativeHandle(ref, () => ({
+      useImperativeHandle(ref, () => ({
         setCamera: ({ centerCoordinate: coord, zoomLevel: zoom }: any) => {
           if (!ctx || !coord) return;
           const delta = zoomToDelta(zoom ?? 13);
@@ -151,12 +152,12 @@ function buildExpoGoAdapter() {
   const ExpoLineLayer = () => null;
 
   return {
-    setAccessToken: () => {},
     MapView: ExpoMapView,
     Camera: ExpoCamera,
     MarkerView: ExpoMarkerView,
     ShapeSource: ExpoShapeSource,
     LineLayer: ExpoLineLayer,
+    UserLocation: () => null,
   };
 }
 
@@ -179,18 +180,18 @@ function buildFallback() {
     );
 
   const NoopCamera = React.forwardRef((_props: any, ref: any) => {
-    React.useImperativeHandle(ref, () => ({ setCamera: () => {} }));
+    useImperativeHandle(ref, () => ({ setCamera: () => {} }));
     return null;
   });
   NoopCamera.displayName = 'NoopCamera';
 
   return {
-    setAccessToken: () => {},
     MapView: FallbackMap,
     Camera: NoopCamera,
     MarkerView: ({ children, style }: any) =>
       React.createElement(View, { style }, children),
     ShapeSource: () => null,
     LineLayer: () => null,
+    UserLocation: () => null,
   };
 }

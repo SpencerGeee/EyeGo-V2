@@ -5,10 +5,12 @@ import { I18nextProvider } from 'react-i18next';
 import i18n from '../i18n';
 import MapboxGL from '../utils/mapbox';
 
-MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? 'pk.eyJ1Ijoic3BlbmNlcmdlZWUiLCJhIjoiY21wYmIycDA3MDNjZTMyc2Jqb3Y4dHpkdyJ9.ddGHkuKhBnc2dooWiIVjWQ');
-import { Stack, useRouter, useSegments } from 'expo-router';
+// MapLibre GL Native + OpenFreeMap tiles — no API key or access token needed.
+// Tiles are served from tiles.openfreemap.org (maxzoom 14, free, no billing).
+// The map style is defined inline in the component using the eyego-dark style JSON.
+import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, View, Animated } from 'react-native';
+import { Platform, View, Animated, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Constants from 'expo-constants';
@@ -46,10 +48,13 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Linking from 'expo-linking';
 
 // Global JS Exception Handler for robust dev logging
-if (global.ErrorUtils && __DEV__) {
-  const previousHandler = global.ErrorUtils.getGlobalHandler();
-  global.ErrorUtils.setGlobalHandler((error: any, isFatal: any) => {
-    console.error('🚨 [FATAL GLOBAL EXCEPTION] React Native crashed:', error, 'isFatal:', isFatal);
+// BUGFIX: Captures to Sentry instead of just console.error in dev
+const GlobalErrorUtils = globalThis as unknown as { ErrorUtils?: { getGlobalHandler: () => any; setGlobalHandler: (h: any) => void } };
+if (GlobalErrorUtils.ErrorUtils && __DEV__) {
+  const previousHandler = GlobalErrorUtils.ErrorUtils.getGlobalHandler();
+  GlobalErrorUtils.ErrorUtils.setGlobalHandler((error: any, isFatal: any) => {
+    console.warn('[GlobalHandler] Caught:', isFatal ? 'Fatal' : 'Non-fatal', error?.message);
+    captureException(error, { isFatal: !!isFatal, source: 'globalHandler' });
     if (previousHandler) {
       previousHandler(error, isFatal);
     }
@@ -59,7 +64,9 @@ if (global.ErrorUtils && __DEV__) {
 // SDK 54: appOwnership === 'expo' is the reliable Expo Go signal
 const isExpoGo =
   Constants.appOwnership === 'expo' ||
-  (Constants as any).executionEnvironment === 'storeClient';
+  // Constants.executionEnvironment is available on SDK 50+ but typed loosely
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Constants as { executionEnvironment?: string }).executionEnvironment === 'storeClient';
 
 // ── Global connectivity observer ──
 let globalNetInfoUnsubscribe: (() => void) | null = null;
@@ -68,31 +75,35 @@ let globalIsOffline = false;
 export function isGloballyOffline(): boolean { return globalIsOffline; }
 export function getGlobalNetInfoUnsubscribe(): (() => void) | null { return globalNetInfoUnsubscribe; }
 
-// Handle foreground notifications
-if (!isExpoGo) {
-  try {
-    const Notifications = require('expo-notifications');
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-      }),
-    });
-  } catch (e) {
-    console.warn('[Notifications] Failed to load module:', e);
-  }
-}
+// BUGFIX: Removed duplicate Notifications.setNotificationHandler() call.
+// The module-level handler in notifications.ts previously registered first,
+// then this one registered second — overwriting it. The authoritative handler
+// is now only registered here to avoid the race.
+import * as Notifications from 'expo-notifications';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+} as Parameters<typeof Notifications.setNotificationHandler>[0]);
 
 async function registerForPushNotifications() {
   if (isExpoGo) return;
   try {
     const Notifications = require('expo-notifications');
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
+      // Channel id MUST match the backend FCM payload (android.notification.channelId
+      // = 'eyego_default' in push.service.js) or Android 8+ silently drops the push.
+      await Notifications.setNotificationChannelAsync('eyego_default', {
+        name: 'EyeGo',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#4be277',
+        sound: 'default',
       });
     }
 
@@ -106,11 +117,14 @@ async function registerForPushNotifications() {
 
     if (finalStatus !== 'granted') return;
 
-    const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
-    const tokenData = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined
-    );
-    await (userApi as any).updateFcmToken?.({ fcmToken: tokenData.data }).catch(() => {});
+    // The backend pushes via Firebase Admin (FCM), which requires the NATIVE
+    // device token — NOT an Expo push token. getDevicePushTokenAsync() returns
+    // the FCM registration token on Android / APNs token on iOS. (Requires a
+    // dev/EAS build with google-services.json — see NOTIFICATIONS_SETUP.md.)
+    const tokenData = await Notifications.getDevicePushTokenAsync();
+    if (tokenData?.data) {
+      await userApi.updateFcmToken?.({ fcmToken: tokenData.data }).catch(() => {});
+    }
   } catch (err) {
     // Non-fatal — push token registration can fail in Expo Go or simulators
   }
@@ -178,13 +192,13 @@ export default function RootLayout() {
   });
 
   // RC2: Catch unhandled fatal errors in production (dev is handled above at module level)
+  // BUGFIX: Captures to Sentry instead of console.error (which doesn't help prod users)
   useEffect(() => {
-    if (!__DEV__ && global.ErrorUtils) {
-      const previousHandler = global.ErrorUtils.getGlobalHandler();
-      global.ErrorUtils.setGlobalHandler((error: any, isFatal: any) => {
+    if (!__DEV__ && GlobalErrorUtils.ErrorUtils) {
+      const previousHandler = GlobalErrorUtils.ErrorUtils.getGlobalHandler();
+      GlobalErrorUtils.ErrorUtils.setGlobalHandler((error: any, isFatal: any) => {
         if (isFatal) {
           captureException(error, { isFatal: true, source: 'globalHandler' });
-          console.error('Fatal error:', error);
         }
         if (previousHandler) previousHandler(error, isFatal);
       });
@@ -219,7 +233,24 @@ export default function RootLayout() {
 
     // RM4: Flush after configureApiClient so queued requests have auth headers
     offlineQueue.flushQueue();
+    // R2: keep retrying queued actions on an interval — a single startup flush
+    // leaves actions stuck if the first attempt fails while still offline.
+    offlineQueue.startPeriodicFlush(60000);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // R1: Refresh server state when the app returns to the foreground. Without
+  // this, ride/trip data can be stale for minutes after the app was backgrounded
+  // (the rider could miss a status change that happened while away).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      offlineQueue.flushQueue();
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
+      queryClient.invalidateQueries({ queryKey: ['bookings', 'active-root-listener'] });
+      queryClient.invalidateQueries({ queryKey: ['trips'] });
+    });
+    return () => sub.remove();
   }, []);
 
   // Guard: once storage has loaded, if user is not authenticated and not already
@@ -256,24 +287,24 @@ export default function RootLayout() {
       });
 
       const responseSub = Notifications.addNotificationResponseReceivedListener((response: any) => {
-        const data = response.notification.request.content.data as any;
+        const data = response.notification.request.content.data as Record<string, string | undefined>;
         const { type, tripId, bookingId, screen, deepLink } = data ?? {};
         if (type === 'TRIP_CONFIRMED' && bookingId) {
-          router.push(`/ride/${bookingId}` as any);
+          router.push(`/ride/${bookingId}` as Href);
         } else if ((type === 'DRIVER_EN_ROUTE' || type === 'ARRIVED_AT_PICKUP') && bookingId) {
-          router.push(`/ride/${bookingId}/tracking` as any);
+          router.push(`/ride/${bookingId}/tracking` as Href);
         } else if ((type === 'CHAT_MESSAGE' || type === 'PRIVATE_CHAT') && tripId) {
-          router.push(`/ride/${tripId}/chat` as any);
+          router.push(`/ride/${tripId}/chat` as Href);
         } else if (type === 'TRIP_COMPLETED' && bookingId) {
-          router.push(`/ride/${bookingId}/complete` as any);
+          router.push(`/ride/${bookingId}/complete` as Href);
         } else if (type === 'SOS_RESOLVED' && tripId) {
-          router.push(`/ride/${tripId}/tracking` as any);
+          router.push(`/ride/${tripId}/tracking` as Href);
         } else if (tripId) {
-          router.push(`/ride/${tripId}/tracking` as any);
+          router.push(`/ride/${tripId}/tracking` as Href);
         } else if (screen) {
-          router.push(screen as any);
+          router.push(screen as Href);
         } else if (deepLink) {
-          router.push(deepLink as any);
+          router.push(deepLink as Href);
         }
       });
 
@@ -296,7 +327,7 @@ export default function RootLayout() {
         // Match both /invite/:token and /join/:token path formats
         const inviteMatch = path.match(/(?:invite|join)\/([a-zA-Z0-9]+)/);
         if (inviteMatch) {
-          router.push(`/join/${inviteMatch[1]}` as any);
+          router.push(`/join/${inviteMatch[1]}` as Href);
         }
       } catch (e) {
         console.warn('[Linking] Failed to parse URL:', e);

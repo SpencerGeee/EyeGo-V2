@@ -3,7 +3,7 @@ import { View, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
@@ -19,13 +19,15 @@ export default function DispatchScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const qc = useQueryClient();
   const { setActiveTripId } = useDriverStore();
 
-  const { id, origin, destination, departureTime, expiresAt } = useLocalSearchParams<{
+  const { id, origin, destination, departureTime, expiresAt, estimatedEarnings } = useLocalSearchParams<{
     id: string;
     origin: string;
     destination: string;
     departureTime: string;
+    estimatedEarnings?: string;
     expiresAt?: string;
   }>();
 
@@ -55,23 +57,48 @@ export default function DispatchScreen() {
     return () => clearInterval(timer);
   }, [timedOut]);
 
-  // Auto-dismiss on timeout
+  // D8: guard invalid id — navigate back after mount
   useEffect(() => {
-    if (timedOut) {
-      Alert.alert('Trip Expired', 'You did not respond in time. The trip was reassigned.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+    if (!id || typeof id !== 'string') {
+      router.back();
     }
-  }, [timedOut]);
+  }, [id, router]);
+
+  // Auto-navigate away on timeout (1.5s delay lets "Expired" state render first)
+  useEffect(() => {
+    if (secondsLeft <= 0) {
+      const t = setTimeout(() => router.replace('/(tabs)' as any), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [secondsLeft, router]);
+
+  interface AcceptDispatchResponse {
+    data?: { data?: { trip?: { id: string; status: string } | null; id?: string } };
+  }
 
   const accept = useMutation({
     mutationFn: () => driverApi.acceptDispatch(id),
-    onSuccess: (res) => {
-      const trip = res.data.data as any;
-      setActiveTripId(trip?.id ?? id);
-      router.replace(`/(trip)/active/${trip?.id ?? id}`);
+    onSuccess: (res: AcceptDispatchResponse) => {
+      // DM5: haptic feedback on successful trip accept
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const tripData = res?.data?.data?.trip ?? res?.data?.data;
+      const tripId = tripData?.id ?? id;
+      setActiveTripId(tripId);
+      // Invalidate trip lists so the accepted trip leaves the dispatch/assigned
+      // list and shows as the active trip instead of lingering as "ASSIGNED".
+      qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
+      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+      router.replace(`/(trip)/active/${tripId}`);
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message),
+    onError: (err: any) => {
+      const status = err?.response?.status;
+      if (status === 409 || status === 410) {
+        Alert.alert('Dispatch Unavailable', 'This dispatch has already expired or been claimed by another driver.');
+        router.replace('/(tabs)' as any);
+      } else {
+        Alert.alert('Error', 'Failed to accept trip. Please try again.');
+      }
+    },
   });
 
   const decline = useMutation({
@@ -89,7 +116,7 @@ export default function DispatchScreen() {
         onPress: () => decline.mutate(),
       },
     ]);
-  }, []);
+  }, [decline]);
 
   const departureFormatted = departureTime
     ? new Date(departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -170,6 +197,30 @@ export default function DispatchScreen() {
           </View>
         </MotiView>
 
+        {/* Estimated Earnings */}
+        {estimatedEarnings && (
+          <MotiView
+            from={{ opacity: 0, translateY: 12 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 170 }}
+            style={styles.earningsCard}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>Estimated earnings</Text>
+              <Text style={{ fontFamily: fonts.displayBold, fontSize: 18, color: colors.primary }}>
+                GHS {parseFloat(estimatedEarnings).toFixed(2)}
+              </Text>
+            </View>
+            <View style={{ height: 1, backgroundColor: colors.outline, marginVertical: spacing.sm }} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+              <Ionicons name="time-outline" size={13} color={colors.onSurfaceVariant} />
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                Trip departs at {departureFormatted}
+              </Text>
+            </View>
+          </MotiView>
+        )}
+
         {/* Actions */}
         <MotiView
           from={{ opacity: 0, translateY: 16 }}
@@ -177,21 +228,33 @@ export default function DispatchScreen() {
           transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
           style={styles.actions}
         >
-          <Button
-            label="Accept Trip"
-            onPress={() => accept.mutate()}
-            loading={accept.isPending}
-            disabled={accept.isPending || decline.isPending || timedOut}
-            style={styles.acceptBtn}
-          />
-          <Button
-            label="Decline"
-            onPress={handleDecline}
-            loading={decline.isPending}
-            disabled={accept.isPending || decline.isPending || timedOut}
-            variant="secondary"
-            style={styles.declineBtn}
-          />
+          {timedOut ? (
+            <Text
+              variant="bodyMedium"
+              color={colors.onSurfaceVariant}
+              style={{ textAlign: 'center' }}
+            >
+              This dispatch has expired. Returning home…
+            </Text>
+          ) : (
+            <>
+              <Button
+                label="Accept Trip"
+                onPress={() => accept.mutate()}
+                loading={accept.isPending}
+                disabled={accept.isPending || decline.isPending}
+                style={styles.acceptBtn}
+              />
+              <Button
+                label="Decline"
+                onPress={handleDecline}
+                loading={decline.isPending}
+                disabled={accept.isPending || decline.isPending}
+                variant="secondary"
+                style={styles.declineBtn}
+              />
+            </>
+          )}
         </MotiView>
       </MotiView>
     </SafeAreaView>
@@ -275,6 +338,14 @@ const makeStyles = (colors: DriverColors) =>
     routeDivider: { height: 1, backgroundColor: colors.outline, marginVertical: spacing.sm },
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     actions: { gap: spacing.md, marginTop: 'auto' },
+    earningsCard: {
+      backgroundColor: colors.surfaceContainer,
+      borderRadius: radii['2xl'],
+      borderWidth: 1,
+      borderColor: colors.primary + '30',
+      padding: spacing.xl,
+      gap: spacing.xs,
+    },
     acceptBtn: {},
     declineBtn: {},
   });

@@ -25,9 +25,7 @@ interface InputProps extends TextInputProps {
   leftIcon?: React.ReactNode;
 }
 
-const AnimatedText = Animated.createAnimatedComponent(
-  require('react-native').Text
-);
+const AnimatedText = Animated.Text;
 
 export function Input({
   label,
@@ -89,7 +87,6 @@ export function Input({
       [0, 1],
       [error ? colors.error : colors.outline, error ? colors.error : colors.primary]
     ),
-    borderWidth: interpolate(focusAnim.value, [0, 1], [1, 2]),
   }));
 
   return (

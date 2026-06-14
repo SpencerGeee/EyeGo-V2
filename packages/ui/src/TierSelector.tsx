@@ -47,10 +47,7 @@ export function TierSelector({ value, onChange }: TierSelectorProps) {
             onPress={() => onChange(tier.key)}
             style={[
               styles.card,
-              isActive && {
-                borderColor: tier.activeColor,
-                backgroundColor: tier.activeColor + '15',
-              },
+              ...(isActive ? [{ borderColor: tier.activeColor, backgroundColor: tier.activeColor + '15' }] : []),
             ]}
           >
             <Text style={styles.icon}>{tier.icon}</Text>

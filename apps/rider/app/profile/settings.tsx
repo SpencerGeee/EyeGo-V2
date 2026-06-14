@@ -4,7 +4,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  TouchableOpacity,
   Modal,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -50,9 +49,9 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Settings</Text>
         <View style={{ width: 40 }} />
       </View>

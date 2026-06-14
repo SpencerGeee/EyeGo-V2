@@ -42,3 +42,7 @@ google-service-account.json
 # generated native folders
 /ios
 /android
+
+# Firebase / FCM credentials — never commit (see NOTIFICATIONS_SETUP.md)
+google-services.json
+GoogleService-Info.plist

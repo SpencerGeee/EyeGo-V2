@@ -1,11 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Pressable,
-  TextInput,
   Alert,
   Modal,
   Platform,
@@ -17,9 +16,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
-import { apiClient } from '@eyego/api';
-import { useMutation } from '@tanstack/react-query';
+import { apiClient, routesApi } from '@eyego/api';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
+
+// Route shape returned by routesApi.getAll (subset we render here).
+interface ScheduleRoute {
+  id: string;
+  name?: string;
+  originName?: string;
+  destinationName?: string;
+  price?: number;
+}
 
 function getMinDate() {
   const d = new Date();
@@ -42,20 +50,36 @@ export default function ScheduleRideScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
-  const [origin, setOrigin] = useState('');
-  const [destination, setDestination] = useState('');
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [seatCount, setSeatCount] = useState(1);
   const [selectedDate, setSelectedDate] = useState<Date>(getMinDate());
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(getMinDate());
 
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Load available routes — the backend schedules against a routeId, not free
+  // text. (Previously this screen posted { origin, destination } and the backend
+  // rejected every request with 400 "routeId required".)
+  const { data: routes, isLoading: routesLoading } = useQuery({
+    queryKey: ['routes', 'all'],
+    queryFn: routesApi.getAll,
+    select: (r) => ((r.data as any)?.data ?? []) as ScheduleRoute[],
+  });
+
   const scheduleMutation = useMutation({
     mutationFn: () =>
       apiClient.post('/trips/schedule', {
-        origin,
-        destination,
+        routeId: selectedRouteId,
         scheduledAt: selectedDate.toISOString(),
+        seatCount,
       }),
     onSuccess: () => {
+      if (!mountedRef.current) return;
       router.replace('/(tabs)/trips');
     },
     onError: (err: any) => {
@@ -64,12 +88,8 @@ export default function ScheduleRideScreen() {
   });
 
   const handleSubmit = () => {
-    if (!origin.trim()) {
-      Alert.alert('Missing Pickup', 'Please enter a pickup location.');
-      return;
-    }
-    if (!destination.trim()) {
-      Alert.alert('Missing Destination', 'Please enter a destination.');
+    if (!selectedRouteId) {
+      Alert.alert('Select a Route', 'Please choose a route to schedule.');
       return;
     }
     const minDate = getMinDate();
@@ -116,42 +136,96 @@ export default function ScheduleRideScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         >
-          {/* Pickup */}
+          {/* Route picker */}
           <Text
             variant="labelSmall"
             style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
           >
-            PICKUP LOCATION
+            ROUTE
           </Text>
-          <View style={styles.inputWrap}>
-            <Ionicons name="location" size={18} color={colors.primary} style={styles.inputIcon} />
-            <TextInput
-              value={origin}
-              onChangeText={setOrigin}
-              placeholder="Enter pickup address"
-              placeholderTextColor={colors.onSurfaceVariant}
-              style={[styles.input, { color: colors.onSurface }]}
-              returnKeyType="next"
-            />
-          </View>
+          {routesLoading ? (
+            <View style={[styles.inputWrap, { justifyContent: 'center' }]}>
+              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Loading routes…</Text>
+            </View>
+          ) : !routes || routes.length === 0 ? (
+            <View style={[styles.infoRow, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
+              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, flex: 1 }}>
+                No routes are available to schedule right now. Please check back later.
+              </Text>
+            </View>
+          ) : (
+            <View style={{ gap: spacing.md }}>
+              {routes.map((route) => {
+                const selected = route.id === selectedRouteId;
+                return (
+                  <Pressable
+                    key={route.id}
+                    onPress={() => setSelectedRouteId(route.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    style={[
+                      styles.routeCard,
+                      {
+                        backgroundColor: colors.surfaceContainer,
+                        borderColor: selected ? colors.primary : colors.outlineVariant,
+                        borderWidth: selected ? 2 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                      color={selected ? colors.primary : colors.onSurfaceVariant}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
+                        {route.name ?? `${route.originName ?? 'Origin'} → ${route.destinationName ?? 'Destination'}`}
+                      </Text>
+                      {(route.originName || route.destinationName) && route.name ? (
+                        <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                          {route.originName} → {route.destinationName}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {typeof route.price === 'number' ? (
+                      <Text variant="bodySmall" style={{ color: colors.primary }}>
+                        ₵{route.price}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
 
-          {/* Destination */}
+          {/* Seats */}
           <Text
             variant="labelSmall"
             style={[styles.sectionLabel, { color: colors.onSurfaceVariant, marginTop: spacing['2xl'] }]}
           >
-            DESTINATION
+            SEATS
           </Text>
-          <View style={styles.inputWrap}>
-            <Ionicons name="navigate" size={18} color={colors.secondary ?? colors.primary} style={styles.inputIcon} />
-            <TextInput
-              value={destination}
-              onChangeText={setDestination}
-              placeholder="Enter destination"
-              placeholderTextColor={colors.onSurfaceVariant}
-              style={[styles.input, { color: colors.onSurface }]}
-              returnKeyType="done"
-            />
+          <View style={[styles.dateRow, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+            <Pressable
+              onPress={() => setSeatCount((s) => Math.max(1, s - 1))}
+              accessibilityRole="button"
+              accessibilityLabel="Decrease seats"
+              hitSlop={8}
+            >
+              <Ionicons name="remove-circle-outline" size={26} color={seatCount > 1 ? colors.primary : colors.onSurfaceVariant} />
+            </Pressable>
+            <Text variant="bodyMedium" style={{ color: colors.onSurface, flex: 1, textAlign: 'center' }}>
+              {seatCount} seat{seatCount > 1 ? 's' : ''}
+            </Text>
+            <Pressable
+              onPress={() => setSeatCount((s) => Math.min(4, s + 1))}
+              accessibilityRole="button"
+              accessibilityLabel="Increase seats"
+              hitSlop={8}
+            >
+              <Ionicons name="add-circle-outline" size={26} color={seatCount < 4 ? colors.primary : colors.onSurfaceVariant} />
+            </Pressable>
           </View>
 
           {/* Date & Time */}
@@ -287,6 +361,14 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       fontSize: 15,
       height: '100%',
+    },
+    routeCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      borderRadius: radii.xl,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.base,
     },
     dateRow: {
       flexDirection: 'row',

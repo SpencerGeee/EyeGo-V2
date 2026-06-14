@@ -1,5 +1,7 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useMemo, useEffect } from 'react';
+import type { Trip, Booking } from '@eyego/types';
+import type { DriverTrip } from '@eyego/api';
+import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -16,25 +18,49 @@ export default function TripCompleteScreen() {
   const { id, earnings: earningsParam } = useLocalSearchParams<{ id: string; earnings?: string }>();
   const router = useRouter();
 
+  // D8: guard invalid id — navigate back after all hooks have run
+  useEffect(() => {
+    if (!id || typeof id !== 'string') {
+      router.back();
+    }
+  }, [id, router]);
+
   const { data: trips } = useQuery({
     queryKey: ['driver', 'trips', 'all'],
     queryFn: () => driverApi.getAllTrips(),
-    select: (r) => (r.data as any)?.data?.trips ?? [],
+    select: (r: { data?: { data?: { trips?: DriverTrip[] } } }) => r.data?.data?.trips ?? [],
+    enabled: !!id && typeof id === 'string',
   });
 
-  const completedTrip = (trips as any[])?.find((t: any) => t.id === id);
-  const allActiveBookings = completedTrip?.bookings?.filter((b: any) => b.status !== 'CANCELLED') ?? [];
+  const completedTrip = trips?.find((t: DriverTrip) => t.id === id);
+  const allActiveBookings = (completedTrip?.bookings as Booking[] | undefined)?.filter((b: Booking) => b.status !== 'CANCELLED') ?? [];
   // Include all non-cancelled bookings regardless of payment status — cash bookings have PENDING payment
-  const grossEarnings = allActiveBookings.reduce((sum: number, b: any) => sum + (parseFloat(b.fareAmount) || 0), 0);
-  const platformFee = grossEarnings * 0.15;
+  // D24: guard the reduce with a safe bookings array
+  const bookings = allActiveBookings;
+  const grossEarnings = bookings.reduce((sum: number, b: any) => sum + (parseFloat(b.fareAmount) || 0), 0);
+  // commissionRate should come from backend — fallback to 15% if not provided
+  const commissionRate = (completedTrip as any)?.commissionRate ?? 0.15;
+  const platformFee = grossEarnings * commissionRate;
   const netEarnings = Math.max(0, grossEarnings - platformFee);
   const earnings = earningsParam ? parseFloat(earningsParam) : netEarnings;
   const boarded = allActiveBookings.length;
   const total = completedTrip?.maxSeats ?? 14;
+  const farePerSeat = completedTrip?.farePerSeat ?? 0;
+
+  // Receipt breakdown per passenger
+  const paidBookings = allActiveBookings.filter((b: any) => b.paymentStatus === 'PAID');
+  const cashBookings = allActiveBookings.filter((b: any) => b.paymentStatus !== 'PAID');
+  const totalPaid = paidBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmount) || 0), 0);
+  const totalCash = cashBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmount) || 0), 0);
+  const commissionTotal = allActiveBookings.reduce((s: number, b: any) => {
+    const c = parseFloat(b.commissionAmount);
+    return s + (isNaN(c) ? (parseFloat(b.fareAmount) || 0) * commissionRate : c);
+  }, 0);
+  const driverNetTotal = grossEarnings - commissionTotal;
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Animated checkmark */}
         <MotiView
           from={{ opacity: 0, scale: 0.4 }}
@@ -70,12 +96,18 @@ export default function TripCompleteScreen() {
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.earningsLabel}>
             You earned
           </Text>
-          <Text style={styles.earningsAmount}>GHS {earnings.toFixed(2)}</Text>
+          <Text style={styles.earningsAmount}>GHS {driverNetTotal.toFixed(2)}</Text>
           <View style={styles.earningsMeta}>
             <View style={styles.metaItem}>
               <Ionicons name="people" size={16} color={colors.onSurfaceVariant} />
               <Text variant="caption" color={colors.onSurfaceVariant}>
                 {boarded}/{total} seats
+              </Text>
+            </View>
+            <View style={styles.metaItem}>
+              <Ionicons name="cash" size={16} color={colors.onSurfaceVariant} />
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                GHS {farePerSeat.toFixed(2)}/seat
               </Text>
             </View>
           </View>
@@ -104,6 +136,72 @@ export default function TripCompleteScreen() {
           </View>
         </MotiView>
 
+        {/* Receipt breakdown */}
+        <MotiView
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 520 }}
+          style={styles.receiptCard}
+        >
+          <Text style={styles.receiptTitle}>Earnings Breakdown</Text>
+
+          <View style={styles.receiptRow}>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Gross fare × {boarded} seats</Text>
+            <Text variant="bodyMedium">GHS {grossEarnings.toFixed(2)}</Text>
+          </View>
+
+          <View style={styles.passengerList}>
+            {allActiveBookings.map((b: any, i: number) => (
+              <View key={b.id ?? i} style={styles.passengerRow}>
+                <View style={styles.passengerAvatar}>
+                  <Text style={styles.passengerInitial}>
+                    {(b.user?.name?.[0] ?? '?').toUpperCase()}
+                  </Text>
+                </View>
+                <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                  {b.user?.name ?? `Seat ${b.seatNumber}`}
+                </Text>
+                <View style={[styles.payBadge, { backgroundColor: b.paymentStatus === 'PAID' ? `${colors.online}22` : `${colors.warning}22` }]}>
+                  <Text style={[styles.payBadgeText, { color: b.paymentStatus === 'PAID' ? colors.online : colors.warning }]}>
+                    {b.paymentStatus === 'PAID' ? 'Paid' : b.paymentStatus === 'PENDING' ? 'Cash' : b.status}
+                  </Text>
+                </View>
+                <Text variant="bodySmall" style={{ fontFamily: fonts.semiBold, color: colors.onSurface, marginLeft: spacing.sm }}>
+                  GHS {(parseFloat(b.fareAmount) || farePerSeat).toFixed(2)}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.receiptRow}>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Collected (Paid)</Text>
+            <Text variant="bodyMedium" color={colors.online}>GHS {totalPaid.toFixed(2)}</Text>
+          </View>
+          <View style={styles.receiptRow}>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Pending (Cash)</Text>
+            <Text variant="bodyMedium" color={colors.warning}>GHS {totalCash.toFixed(2)}</Text>
+          </View>
+          <View style={styles.receiptRow}>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>EyeGo Commission ({Math.round(commissionRate * 100)}%)</Text>
+            <Text variant="bodyMedium" color={colors.error}>− GHS {commissionTotal.toFixed(2)}</Text>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.receiptRowTotal}>
+            <Text variant="titleMedium">Your Net Earnings</Text>
+            <Text variant="titleMedium" color={colors.primary}>GHS {driverNetTotal.toFixed(2)}</Text>
+          </View>
+
+          {completedTrip?.route?.distanceKm && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
+              ~GHS {(driverNetTotal / completedTrip.route.distanceKm).toFixed(2)}/km average
+            </Text>
+          )}
+        </MotiView>
+
         {/* CTA */}
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
@@ -111,6 +209,11 @@ export default function TripCompleteScreen() {
           transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 600 }}
           style={styles.ctaWrapper}
         >
+          <Button
+            label="Rate Passengers"
+            onPress={() => router.push(`/(trip)/rate-passengers/${id}`)}
+            variant="secondary"
+          />
           <Button
             label="Back to Home"
             onPress={() => router.replace('/(tabs)/home')}
@@ -121,7 +224,7 @@ export default function TripCompleteScreen() {
             onPress={() => router.replace('/(tabs)/earnings')}
           />
         </MotiView>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -129,13 +232,7 @@ export default function TripCompleteScreen() {
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.background },
-    container: {
-      flex: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: spacing['2xl'],
-      gap: spacing.xl,
-    },
+    scroll: { alignItems: 'center', paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'], gap: spacing.xl, paddingTop: spacing['3xl'] },
     checkCircle: {
       width: 100,
       height: 100,
@@ -207,4 +304,60 @@ const makeStyles = (colors: DriverColors) =>
       color: colors.onSurface,
     },
     ctaWrapper: { width: '100%', gap: spacing.md },
+    receiptCard: {
+      width: '100%',
+      backgroundColor: colors.surfaceContainer,
+      borderRadius: radii['2xl'],
+      borderWidth: 1,
+      borderColor: colors.outline,
+      padding: spacing.xl,
+      gap: spacing.sm,
+    },
+    receiptTitle: {
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.titleSmall,
+      color: colors.onSurface,
+      marginBottom: spacing.sm,
+    },
+    receiptRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    receiptRowTotal: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    divider: { height: 1, backgroundColor: colors.outlineVariant, marginVertical: spacing.sm },
+    passengerList: { gap: spacing.xs },
+    passengerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    passengerAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.surfaceContainerHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    passengerInitial: {
+      fontFamily: fonts.semiBold,
+      fontSize: 11,
+      color: colors.onSurface,
+    },
+    payBadge: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: radii.full,
+    },
+    payBadgeText: {
+      fontFamily: fonts.semiBold,
+      fontSize: 9,
+      letterSpacing: 0.3,
+    },
   });

@@ -49,3 +49,57 @@ export interface TripStatusEvent {
   status: import('./trip.types').TripStatus | 'DRIVER_EN_ROUTE' | 'NO_SHOW' | 'REFUNDED';
   message: string;
 }
+
+export interface SeatEvent {
+  tripId: string;
+  seatData: Record<string, any>;
+}
+
+export interface ChatMessagePayload {
+  senderId: string;
+  senderName?: string;
+  senderRole?: string;
+  seatNumber?: number | null;
+  text: string;
+  timestamp: string;
+  isPrivate?: boolean;
+  recipientId?: string;
+}
+
+export interface PrivateChatMessagePayload {
+  senderId: string;
+  senderName?: string;
+  text: string;
+  timestamp: string;
+  isPrivate: boolean;
+  recipientId?: string;
+}
+
+export interface TypingPayload {
+  senderId: string;
+  senderRole: string;
+  isTyping: boolean;
+}
+
+export interface ReadReceiptPayload {
+  tripId: string;
+  messageIds: string[];
+  readBy: string;
+}
+
+export type ChatHistoryPayload = Array<{
+  senderId: string;
+  senderName?: string;
+  senderRole?: string;
+  seatNumber?: number | null;
+  text: string;
+  timestamp: string;
+  isPrivate?: boolean;
+  recipientId?: string;
+}>;
+
+export interface SafetyCheckPayload {
+  tripId: string;
+  reason: string;
+  timestamp: number;
+}

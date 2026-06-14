@@ -6,9 +6,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  Image,
-  TouchableOpacity,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -78,7 +77,7 @@ export default function RegisterScreen() {
         avatarUrl,
         dob: dob.trim() 
       } as any);
-      return { ...data.data.user, dob: dob.trim(), avatarUrl };
+      return { ...data.data, dob: dob.trim(), avatarUrl };
     },
     onSuccess: (updatedUser) => {
       updateUser(updatedUser as any);
@@ -150,7 +149,7 @@ export default function RegisterScreen() {
             transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
             style={styles.avatarSection}
           >
-            <Pressable onPress={pickImage} style={styles.avatarContainer}>
+            <Pressable onPress={pickImage} style={styles.avatarContainer} accessibilityRole="button" accessibilityLabel="Add profile photo">
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatar} />
               ) : (
@@ -161,7 +160,7 @@ export default function RegisterScreen() {
                 </View>
               )}
               <View style={styles.avatarEditBadge}>
-                <Text style={styles.avatarEditIcon}>✎</Text>
+                <Ionicons name="pencil" size={12} color="#FFFFFF" />
               </View>
             </Pressable>
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
@@ -203,13 +202,13 @@ export default function RegisterScreen() {
               placeholder="DD / MM / YYYY"
               error={dobError}
               rightIcon={
-                <TouchableOpacity
-                  onPress={() => setShowDatePicker(true)}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
+                <Pressable
+              onPress={() => setShowDatePicker(true)}
+              hitSlop={10}
+              accessibilityLabel="Open date picker"
+            >
                   <Ionicons name="calendar-outline" size={22} color={colors.primary} />
-                </TouchableOpacity>
+                </Pressable>
               }
             />
 
@@ -254,6 +253,8 @@ export default function RegisterScreen() {
             <Pressable
               onPress={() => router.replace('/(onboarding)')}
               style={styles.skipButton}
+              accessibilityRole="button"
+              accessibilityLabel="Skip profile setup"
             >
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                 Skip for now

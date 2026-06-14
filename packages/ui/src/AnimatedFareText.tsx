@@ -18,6 +18,11 @@ export function AnimatedFareText({
   color,
 }: AnimatedFareTextProps) {
   const [displayValue, setDisplayValue] = useState(value);
+  // Keep a ref to the current display value so the animation effect can snapshot
+  // it as the start value without adding it to the dep array (which would restart
+  // the animation on every intermediate step and cause infinite re-triggering).
+  const displayValueRef = useRef(displayValue);
+  displayValueRef.current = displayValue;
   const animatedValue = useRef(new Animated.Value(value)).current;
   const isFirstRender = useRef(true);
 
@@ -27,7 +32,7 @@ export function AnimatedFareText({
       return;
     }
 
-    const startValue = displayValue;
+    const startValue = displayValueRef.current;
     const endValue = value;
     const steps = 20;
     const duration = 400;

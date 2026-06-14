@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   Alert,
   Platform,
 } from 'react-native';
@@ -45,8 +45,8 @@ export default function CreateTripScreen() {
   const [routeSearch, setRouteSearch] = useState('');
 
   const { data: fareEstimateData } = useQuery({
-    queryKey: ['driver', 'fare-estimate', selectedRoute?.distanceKm],
-    queryFn: () => driverApi.getFareEstimate({ distanceKm: selectedRoute!.distanceKm, tier: 'ECO' }),
+    queryKey: ['driver', 'fare-estimate', selectedRoute?.distanceKm, seats],
+    queryFn: () => driverApi.getFareEstimate({ distanceKm: selectedRoute!.distanceKm, tier: 'ECO', availableSeats: seats }),
     enabled: !!selectedRoute && step === 4,
     select: (r) => r.data?.data?.fareEstimate,
   });
@@ -55,11 +55,9 @@ export default function CreateTripScreen() {
     queryKey: ['routes'],
     queryFn: () => routesApi.getAll(),
     select: (r) => {
-      const d = r.data?.data;
-      if (Array.isArray(d)) return d as Route[];
-      if (d?.routes && Array.isArray(d.routes)) return d.routes as Route[];
-      if (d?.data && Array.isArray(d.data)) return d.data as Route[];
-      return [] as Route[];
+      const data = (r.data as any)?.data;
+      // Backend wraps routes in { routes: [...] }
+      return data?.routes ?? data ?? [];
     },
   });
 
@@ -124,9 +122,9 @@ export default function CreateTripScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => (step > 1 ? setStep((s) => s - 1) : router.back())} style={styles.backBtn}>
+        <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : router.back())} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text style={styles.headerTitle}>Create Trip</Text>
         <View style={{ width: 36 }} />
       </View>
@@ -153,22 +151,22 @@ export default function CreateTripScreen() {
             {/* Simple search field */}
             <View style={styles.searchBox}>
               <Ionicons name="search" size={16} color={colors.onSurfaceVariant} />
-              <TouchableOpacity style={{ flex: 1 }}>
+              <Pressable style={{ flex: 1 }}>
                 <Text color={colors.onSurfaceVariant} style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSizes.bodyMedium }}>
                   Search routes…
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
             <View style={styles.routeList}>
               {(filteredRoutes as Route[]).map((route) => (
-                <TouchableOpacity
+                <Pressable
                   key={route.id}
                   style={[
                     styles.routeCard,
                     selectedRoute?.id === route.id && styles.routeCardSelected,
                   ]}
                   onPress={() => setSelectedRoute(route)}
-                  activeOpacity={0.8}
+
                 >
                   <View style={styles.routeCardInner}>
                     <View style={styles.routeOriginDot} />
@@ -185,7 +183,7 @@ export default function CreateTripScreen() {
                   {selectedRoute?.id === route.id && (
                     <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
                   )}
-                </TouchableOpacity>
+                </Pressable>
               ))}
               {(filteredRoutes as Route[]).length === 0 && (
                 <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center', padding: spacing.xl }}>
@@ -208,12 +206,11 @@ export default function CreateTripScreen() {
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               When does this trip depart?
             </Text>
-            <TouchableOpacity
+            <Pressable
               style={styles.timeCard}
               onPress={() => {
                 if (Platform.OS === 'android') setShowTimePicker(true);
               }}
-              activeOpacity={0.8}
             >
               <Ionicons name="time-outline" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
@@ -223,7 +220,7 @@ export default function CreateTripScreen() {
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-            </TouchableOpacity>
+            </Pressable>
 
             {/* Android: time-only spinner (inline — no modal dismiss race condition) */}
             {Platform.OS === 'android' && showTimePicker && (
@@ -278,24 +275,24 @@ export default function CreateTripScreen() {
               How many passenger seats are available?
             </Text>
             <View style={styles.seatsCard}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.seatsBtn, seats <= 1 && styles.seatsBtnDisabled]}
                 onPress={() => setSeats((s) => Math.max(1, s - 1))}
                 disabled={seats <= 1}
               >
                 <Ionicons name="remove" size={24} color={seats <= 1 ? colors.onSurfaceVariant : colors.onSurface} />
-              </TouchableOpacity>
+              </Pressable>
               <View style={styles.seatsValue}>
                 <Text style={styles.seatsNumber}>{seats}</Text>
                 <Text variant="caption" color={colors.onSurfaceVariant}>seats</Text>
               </View>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.seatsBtn, seats >= 14 && styles.seatsBtnDisabled]}
                 onPress={() => setSeats((s) => Math.min(14, s + 1))}
                 disabled={seats >= 14}
               >
                 <Ionicons name="add" size={24} color={seats >= 14 ? colors.onSurfaceVariant : colors.onSurface} />
-              </TouchableOpacity>
+              </Pressable>
             </View>
             {/* Mini seat grid preview */}
             <View style={styles.seatPreview}>
@@ -346,7 +343,7 @@ export default function CreateTripScreen() {
                 <FareRow
                   label="Per passenger"
                   value={formatCurrency(fareEstimateData.farePerPerson)}
-                  sub="at ~6 passengers"
+                  sub={`at ~${seats} passengers`}
                   colors={colors}
                 />
                 <View style={styles.fareRowDivider} />

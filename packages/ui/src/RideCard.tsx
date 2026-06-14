@@ -12,7 +12,7 @@ import { formatTripDate } from '@eyego/utils';
 
 interface RideCardTrip {
   id: string;
-  tier?: 'ECONOMY' | 'COMFORT';
+  tier?: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
   scheduledAt?: string;
   farePerSeat?: number;
   confirmedSeats?: number;
@@ -33,7 +33,7 @@ export function RideCard({ ride, onPress, index = 0 }: RideCardProps) {
   const confirmed = ride.confirmedSeats ?? 0;
   const pending = ride.pendingSeats ?? 0;
   const total = ride.maxCapacity ?? 12;
-  const available = total - confirmed - pending;
+  const available = Math.max(0, total - confirmed - pending);
 
   return (
     <MotiView

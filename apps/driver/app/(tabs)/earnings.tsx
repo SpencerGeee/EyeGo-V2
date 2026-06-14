@@ -3,18 +3,19 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   TextInput,
   KeyboardAvoidingView,
   Platform,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { MotiView } from 'moti';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { walletApi } from '@eyego/api';
+import { walletApi, driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,18 +39,26 @@ export default function EarningsScreen() {
   const sheetRef = useRef<BottomSheet>(null);
   const qc = useQueryClient();
 
-  const { data: walletData, isLoading } = useQuery({
-    queryKey: ['driver', 'wallet', 'balance'],
-    queryFn: () => walletApi.getBalance(),
-    select: (r) => r.data.data,
+  // Use driver profile as the source of balance — totalEarned reflects actual trip earnings.
+  // walletApi.getBalance() returns 0 until the backend credits the wallet ledger separately.
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const { data: meData, isLoading, refetch: refetchWallet, isRefetching } = useQuery({
+    queryKey: ['driver', 'me'],
+    queryFn: () => driverApi.getMe(),
+    // Match profile.tsx: unwrap nested driver object before the top-level data key
+    select: (r) => (r.data as any).data?.driver ?? (r.data as any).data,
+    retry: 1,
+    staleTime: 30_000,
   });
 
   const { data: txData } = useQuery({
     queryKey: ['driver', 'wallet', 'transactions'],
-    queryFn: () => walletApi.getTransactions({ limit: 20 }),
+    queryFn: () => driverApi.getWalletTransactions({ limit: 20 }),
     select: (r) => {
       const d = (r.data as any)?.data;
       if (Array.isArray(d)) return d;
+      if (d?.items && Array.isArray(d.items)) return d.items;
       if (d?.transactions && Array.isArray(d.transactions)) return d.transactions;
       if (d?.data && Array.isArray(d.data)) return d.data;
       return [];
@@ -57,7 +66,7 @@ export default function EarningsScreen() {
   });
 
   const withdraw = useMutation({
-    mutationFn: () => walletApi.withdraw({ amount: parseFloat(withdrawAmount) }),
+    mutationFn: () => driverApi.withdraw({ amount: parseFloat(withdrawAmount) }),
     onSuccess: () => {
       sheetRef.current?.close();
       setWithdrawAmount('');
@@ -68,9 +77,23 @@ export default function EarningsScreen() {
   });
 
   const handleWithdraw = () => {
+    // D12: validate amount before submitting withdrawal
+    const amount = parseFloat(withdrawAmount);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert('Invalid Amount', 'Enter a valid amount.');
+      return;
+    }
+    if (amount < 1) {
+      Alert.alert('Minimum Withdrawal', 'The minimum withdrawal amount is GHS 1.00.');
+      return;
+    }
+    if (amount > balance) {
+      Alert.alert('Insufficient Balance', `You only have GHS ${balance.toFixed(2)} available.`);
+      return;
+    }
     Alert.alert(
       'Confirm Withdrawal',
-      `Send GHS ${parseFloat(withdrawAmount).toFixed(2)} to your mobile money account?`,
+      `Send GHS ${amount.toFixed(2)} to your mobile money account?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', onPress: () => withdraw.mutate() },
@@ -80,8 +103,14 @@ export default function EarningsScreen() {
 
   // Derive chart data from real transactions
   const chartData = useMemo((): ChartDataPoint[] => {
-    const txs: any[] = txData ?? [];
-    const credits = txs.filter((t) => t.type === 'CREDIT');
+    // D5: guard against non-array transactions before any derivation
+    if (!Array.isArray(txData)) return [];
+    const txs: any[] = txData;
+    // Driver earnings ledger uses several credit types — TRIP_EARNING (completeTrip),
+    // EARNINGS_CREDIT (arriveTrip), QUEST_BONUS, and legacy CREDIT (seed). Filtering
+    // only 'CREDIT' made the chart/Today/Trips render 0.
+    const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS'];
+    const credits = txs.filter((t) => CREDIT_TYPES.includes(t.type));
     const now = new Date();
 
     if (period === 'today') {
@@ -133,7 +162,9 @@ export default function EarningsScreen() {
     });
   }, [txData, period]);
 
-  const balance = walletData?.balance ?? 0;
+  // Withdrawable balance is the actual wallet balance, not lifetime totalEarned.
+  const balance = meData?.walletBalance != null ? meData.walletBalance : 0;
+  const currency = meData?.currency ?? 'GHS';
   const withdrawAmt = parseFloat(withdrawAmount);
   const canWithdraw = !isNaN(withdrawAmt) && withdrawAmt >= 20 && withdrawAmt <= balance;
 
@@ -142,6 +173,9 @@ export default function EarningsScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={refetchWallet} />
+        }
       >
         {/* Header */}
         <MotiView
@@ -167,23 +201,22 @@ export default function EarningsScreen() {
           </Text>
           <View style={styles.balanceMeta}>
             <View style={styles.currencyBadge}>
-              <Text style={styles.currencyText}>{walletData?.currency ?? 'GHS'}</Text>
+              <Text style={styles.currencyText}>{currency}</Text>
             </View>
           </View>
           <Button
             label="Withdraw"
             size="sm"
-            onPress={() => sheetRef.current?.snapToIndex(0)}
+            onPress={() => { sheetRef.current?.expand(); setSheetOpen(true); }}
             style={styles.withdrawBtn}
           />
-          <TouchableOpacity
+          <Pressable
             onPress={() => router.push('/(profile)/payout-account' as any)}
             style={styles.payoutLink}
-            activeOpacity={0.7}
           >
             <Ionicons name="card-outline" size={13} color={colors.onSurfaceVariant} />
             <Text variant="caption" color={colors.onSurfaceVariant}>Manage payout account</Text>
-          </TouchableOpacity>
+          </Pressable>
         </MotiView>
 
         {/* Period toggle */}
@@ -195,11 +228,10 @@ export default function EarningsScreen() {
         >
           <View style={styles.periodContainer}>
             {PERIODS.map((p) => (
-              <TouchableOpacity
+              <Pressable
                 key={p.key}
                 style={[styles.periodBtn, period === p.key && styles.periodActive]}
                 onPress={() => setPeriod(p.key)}
-                activeOpacity={0.8}
               >
                 <Text
                   style={[
@@ -209,7 +241,7 @@ export default function EarningsScreen() {
                 >
                   {p.label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </MotiView>
@@ -284,8 +316,10 @@ export default function EarningsScreen() {
         index={-1}
         snapPoints={['45%']}
         enablePanDownToClose
+        animateOnMount={false}
+        onChange={(idx) => setSheetOpen(idx >= 0)}
         backgroundStyle={styles.sheetBg}
-        handleIndicatorStyle={styles.sheetHandle}
+        handleIndicatorStyle={[styles.sheetHandle, !sheetOpen && { opacity: 0, height: 0 }]}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
           <BottomSheetView style={styles.sheetContent}>

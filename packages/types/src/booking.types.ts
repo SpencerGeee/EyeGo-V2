@@ -4,7 +4,8 @@ export type BookingStatus =
   | 'BOARDED'
   | 'COMPLETED'
   | 'CANCELLED'
-  | 'REFUNDED';
+  | 'REFUNDED'
+  | 'SEAT_HELD';
 
 export interface Booking {
   id: string;
@@ -14,14 +15,20 @@ export interface Booking {
   seatNumber: number;
   status: BookingStatus;
   fare: number;
+  fareAmount?: number;
   currency: string;
-  paymentMethod: 'MOMO' | 'CARD' | 'CASH';
+  paymentMethod: 'MOMO' | 'CARD' | 'CASH' | 'WALLET';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   boardingOtp?: string;
   inviteToken?: string;
   groupId?: string;
   rating?: number;
+  passengerRating?: number;
   ratingComment?: string;
+  pickupStopId?: string;
+  pickupStop?: { id: string; name: string };
+  enRouteRatio?: number;
+  commissionAmount?: number;
   createdAt: string;
   trip?: import('./trip.types').Trip;
 }
@@ -29,7 +36,11 @@ export interface Booking {
 export interface CreateBookingRequest {
   tripId: string;
   seatId: string;
-  paymentMethod: 'MOMO' | 'CARD';
+  seatNumber?: number;
+  paymentMethod: 'MOMO' | 'CARD' | 'WALLET';
+  pickupStopId?: string;
+  guestName?: string;
+  guestPhone?: string;
 }
 
 export interface RatingRequest {

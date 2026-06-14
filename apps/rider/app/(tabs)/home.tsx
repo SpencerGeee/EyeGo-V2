@@ -1,6 +1,7 @@
 import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import * as Location from 'expo-location';
 import {
+  AppState,
   View,
   StyleSheet,
   Pressable,
@@ -9,10 +10,11 @@ import {
   RefreshControl,
   Alert,
   Linking,
-  ActivityIndicator,
+  Platform,
 } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { MotiView } from 'moti';
@@ -33,9 +35,9 @@ export default function HomeScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuthStore();
+  const { user, isLoggedIn } = useAuthStore();
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['42%', '72%'], []);
+  const snapPoints = useMemo(() => ['28%', '52%', '82%'], []);
   const [activeTier, setActiveTier] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [isOnline, setIsOnline] = useState(true);
@@ -71,14 +73,12 @@ export default function HomeScreen() {
           return;
         }
 
-        // Get initial location
         const initialLocation = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
         });
         if (cancelled) return;
         setLocation([initialLocation.coords.longitude, initialLocation.coords.latitude]);
 
-        // Watch for updates
         const sub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.High,
@@ -86,6 +86,7 @@ export default function HomeScreen() {
             distanceInterval: 10,
           },
           (newLocation) => {
+            if (cancelled) return;
             setLocation([newLocation.coords.longitude, newLocation.coords.latitude]);
           }
         );
@@ -112,8 +113,9 @@ export default function HomeScreen() {
 
   const { data: ridesData, isLoading: ridesLoading, isError: ridesError, error: ridesErrorObj, refetch: refetchRides } = useQuery({
     queryKey: queryKeys.rides.list({ tier: activeTier }),
-    queryFn: () => tripsApi.search({ tier: activeTier === 'All' ? undefined : activeTier.toUpperCase() } as any),
+    queryFn: () => tripsApi.search({ tier: activeTier === 'All' ? undefined : activeTier.toUpperCase() as 'ECONOMY' | 'COMFORT' | 'PREMIUM' } as any),
     refetchInterval: 15_000,
+    staleTime: 10_000,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
@@ -132,9 +134,10 @@ export default function HomeScreen() {
     queryKey: queryKeys.notifications.unreadCount(),
     queryFn: () => notificationsApi.getUnreadCount(),
     refetchInterval: 30_000,
+    staleTime: 20_000,
+    enabled: isLoggedIn,
   });
 
-  // Fetch the user's active/confirmed bookings to detect already-booked trips
   const { data: upcomingBookingsData } = useQuery({
     queryKey: ['bookings', 'upcoming-trip-ids'],
     queryFn: () => bookingsApi.getHistory({ status: 'CONFIRMED,SEAT_HELD,BOARDED,PAID' }),
@@ -142,12 +145,12 @@ export default function HomeScreen() {
     refetchOnMount: true,
   });
   const bookedTripIds = useMemo(() => {
-    const bookings = (upcomingBookingsData?.data?.data?.bookings ?? []) as any[];
+    const bookings = (upcomingBookingsData?.data?.data as any)?.bookings ?? [];
     return new Set(bookings.map((b: any) => b.tripId).filter(Boolean));
   }, [upcomingBookingsData]);
 
-  const rides = (ridesData?.data?.data?.trips ?? []) as any[];
-  const unreadCount: number = (unreadData as any)?.data?.data?.count ?? 0;
+  const rides = ((ridesData?.data?.data as any)?.trips ?? []) as Array<Record<string, unknown>>;
+  const unreadCount: number = unreadData?.data?.data?.count ?? 0;
 
   const filteredRides = useMemo(() => {
     if (!searchQuery.trim()) return rides;
@@ -170,30 +173,17 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Offline banner */}
+      {/* Offline banner — slides down from top */}
       {!isOnline && (
         <MotiView
-          from={{ translateY: -40, opacity: 0 }}
+          from={{ translateY: -50, opacity: 0 }}
           animate={{ translateY: 0, opacity: 1 }}
-          exit={{ translateY: -40, opacity: 0 }}
-          transition={{ type: 'timing', duration: 300 } as any}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 999,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-            backgroundColor: '#F59E0B',
-            paddingVertical: 8,
-            paddingTop: 8 + (insets.top > 0 ? insets.top : 0),
-          }}
+          exit={{ translateY: -50, opacity: 0 }}
+          transition={{ type: 'timing' as const, duration: 300 }}
+          style={[styles.offlineBanner, { paddingTop: 8 + (insets.top > 0 ? insets.top : 0) }]}
         >
           <Ionicons name="cloud-offline-outline" size={14} color="#000" />
-          <Text style={{ fontFamily: 'DMSans_600SemiBold', fontSize: 12, color: '#000' }}>
+          <Text style={{ fontFamily: 'SpaceGrotesk_600SemiBold', fontSize: 12, color: '#000' }}>
             No internet connection
           </Text>
         </MotiView>
@@ -215,52 +205,44 @@ export default function HomeScreen() {
           animationMode="none"
           animationDuration={0}
         />
-        {/* User location with pulse */}
         <MapboxGL.MarkerView coordinate={location}>
           <PulseMarker />
         </MapboxGL.MarkerView>
       </MapboxGL.MapView>
 
-      {/* Gradient overlay at top */}
-      <View
-        style={[styles.topGradient, { height: 140 + insets.top }]}
-        pointerEvents="none"
-      />
-
-      {/* Top bar */}
-      <View style={[styles.topBar, { paddingTop: insets.top + spacing.md }]}>
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+      {/* Compact glass header — mirrored from driver app */}
+      <MotiView
+        from={{ opacity: 0, translateY: -10 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
+        style={[styles.glassHeader, { top: insets.top + spacing.md }]}
+      >
+        {Platform.OS === 'ios' && (
+          <BlurView intensity={70} tint="systemChromeMaterialDark" style={StyleSheet.absoluteFill} />
+        )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
+          <View style={styles.headerLogoContainer}>
+            <Text style={styles.headerLogo}>EyeGo</Text>
+            <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+              {greeting()}, {firstName}
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          style={styles.bellButton}
+          onPress={() => router.push('/(tabs)/notifications')}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityRole="button"
+          accessibilityLabel={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
         >
-          <Text style={styles.logoText}>EyeGo</Text>
-          <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-            {greeting()}, {firstName}
-          </Text>
-        </MotiView>
-
-        <MotiView
-          from={{ opacity: 0, scale: 0.94 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 65 }}
-        >
-          <Pressable
-            style={[styles.bellButton, { minWidth: 44, minHeight: 44 }]}
-            onPress={() => router.push('/(tabs)/notifications')}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityRole="button"
-            accessibilityLabel={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
-          >
-            <Ionicons name="notifications-outline" size={20} color={colors.onSurface} />
-            {unreadCount > 0 && (
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-              </View>
-            )}
-          </Pressable>
-        </MotiView>
-      </View>
+          <Ionicons name="notifications-outline" size={18} color={colors.onSurface} />
+          {unreadCount > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </Pressable>
+      </MotiView>
 
       {/* Bottom Sheet */}
       <BottomSheet
@@ -270,7 +252,7 @@ export default function HomeScreen() {
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandle}
         enablePanDownToClose={false}
-        enableContentPanningGesture={false}
+        enableContentPanningGesture={true}
       >
         <BottomSheetScrollView
           contentContainerStyle={styles.sheetContent}
@@ -284,13 +266,13 @@ export default function HomeScreen() {
             />
           }
         >
-          {/* Search bar */}
+          {/* Search bar — glassmorphism */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
           >
-            <View style={styles.searchBar}>
+            <BlurView intensity={50} tint="dark" style={styles.searchBar}>
               <View style={styles.searchLeft}>
                 <View style={styles.greenDot} />
                 <TextInput
@@ -304,19 +286,19 @@ export default function HomeScreen() {
               </View>
               {searchQuery.length > 0 ? (
                 <Pressable onPress={() => setSearchQuery('')} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear search">
-                  <Ionicons name="close-circle" size={24} color={colors.onSurfaceVariant} />
+                  <Ionicons name="close-circle" size={22} color={colors.onSurfaceVariant} />
                 </Pressable>
               ) : (
-                <Ionicons name="search" size={24} color={colors.primary} />
+                <Ionicons name="search" size={22} color={colors.primary} />
               )}
-            </View>
+            </BlurView>
           </MotiView>
 
           {/* Quick-action pills */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
             style={styles.quickActionsRow}
           >
             {([
@@ -326,12 +308,12 @@ export default function HomeScreen() {
             ] as const).map((action) => (
               <Pressable
                 key={action.label}
-                onPress={() => router.push(action.route as any)}
+                onPress={() => router.push(action.route as Href)}
                 style={styles.quickActionPill}
                 accessibilityRole="button"
               >
                 <BlurView intensity={40} tint="dark" style={styles.quickActionBlur}>
-                  <Ionicons name={action.icon} size={16} color={colors.primary} />
+                  <Ionicons name={action.icon} size={15} color={colors.primary} />
                   <Text style={[styles.quickActionLabel, { color: colors.onSurface }]}>
                     {action.label}
                   </Text>
@@ -344,33 +326,21 @@ export default function HomeScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 110 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 120 }}
           >
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.tierRow}
-              style={styles.tierScroll}
             >
               {TIERS.map((tier) => (
-                <Pressable
+                <AnimatedTierChip
                   key={tier}
-                  style={[
-                    styles.tierChip,
-                    activeTier === tier && styles.tierChipActive,
-                  ]}
+                  tier={tier}
+                  isActive={activeTier === tier}
                   onPress={() => setActiveTier(tier)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: activeTier === tier }}
-                  accessibilityLabel={`${tier} tier${activeTier === tier ? ', selected' : ''}`}
-                >
-                  <Text
-                    variant="label"
-                    color={activeTier === tier ? colors.onPrimary : colors.onSurfaceVariant}
-                  >
-                    {tier}
-                  </Text>
-                </Pressable>
+                  colors={colors}
+                />
               ))}
             </ScrollView>
           </MotiView>
@@ -424,7 +394,7 @@ export default function HomeScreen() {
               animate={{ opacity: 1 }}
               style={styles.emptyRides}
             >
-              <Text style={{ fontSize: 32 }}>🚌</Text>
+              <Ionicons name="bus-outline" size={32} color={colors.onSurfaceVariant} />
               <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
                 {searchQuery.trim() ? 'No rides found for this destination.' : 'No rides available right now. Check back soon.'}
               </Text>
@@ -464,9 +434,9 @@ export default function HomeScreen() {
                       ride={mappedRide as any}
                       onPress={() => {
                         if (isBooked) {
-                          router.push(`/ride/${ride.id}/tracking` as any);
+                          router.push(`/ride/${ride.id}/tracking` as Href);
                         } else {
-                          router.push(`/ride/${ride.id}?tier=${mappedRide.tier}` as any);
+                          router.push(`/ride/${ride.id}?tier=${mappedRide.tier}` as Href);
                         }
                       }}
                     />
@@ -486,6 +456,47 @@ export default function HomeScreen() {
         </BottomSheetScrollView>
       </BottomSheet>
     </View>
+  );
+}
+
+function AnimatedTierChip({
+  tier,
+  isActive,
+  onPress,
+  colors,
+}: {
+  tier: string;
+  isActive: boolean;
+  onPress: () => void;
+  colors: Colors;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(0.92, { stiffness: 700, damping: 15 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 15 }); }}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isActive }}
+      accessibilityLabel={`${tier} tier${isActive ? ', selected' : ''}`}
+    >
+      <Animated.View style={[
+        {
+          paddingHorizontal: spacing.base,
+          paddingVertical: spacing.xs + 2,
+          borderRadius: radii.full,
+          backgroundColor: isActive ? colors.primary : colors.surfaceContainer,
+          borderWidth: 1,
+          borderColor: isActive ? colors.primary : colors.outlineVariant,
+        },
+        animStyle,
+      ]}>
+        <Text variant="label" color={isActive ? colors.onPrimary : colors.onSurfaceVariant}>
+          {tier}
+        </Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -522,7 +533,6 @@ const pulseStyles = StyleSheet.create({
   },
 });
 
-
 const makeStyles = (colors: Colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.backgroundDeep },
   bookedOverlay: {
@@ -546,36 +556,49 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: '#050508',
     letterSpacing: 0.3,
   },
-  topGradient: {
+  offlineBanner: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    background: 'transparent',
-    backgroundImage: 'linear-gradient(to bottom, rgba(9,16,9,0.9), transparent)',
-    zIndex: 1,
-  },
-  topBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    zIndex: 999,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingHorizontal: spacing['2xl'],
-    zIndex: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F59E0B',
+    paddingVertical: 8,
   },
-  logoText: {
+  // ── Compact glass header (mirrors driver app) ──
+  glassHeader: {
+    position: 'absolute',
+    left: spacing['2xl'],
+    right: spacing['2xl'],
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(9, 16, 9, 0.90)',
+    borderRadius: radii['2xl'],
+    borderWidth: 1,
+    borderColor: colors.outline,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    overflow: 'hidden',
+    zIndex: 10,
+  },
+  headerLogoContainer: {
+    flexDirection: 'column',
+  },
+  headerLogo: {
     fontFamily: fonts.displayBold,
-    fontSize: 20,
+    fontSize: 18,
     color: colors.primary,
     letterSpacing: -0.5,
   },
   bellButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.surfaceContainer,
     alignItems: 'center',
     justifyContent: 'center',
@@ -584,8 +607,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   notifBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 4,
+    right: 4,
     width: 16,
     height: 16,
     borderRadius: 8,
@@ -598,6 +621,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.semiBold,
     color: colors.onPrimary,
   },
+  // ── Bottom sheet ──
   sheetBackground: {
     backgroundColor: 'rgba(9, 16, 9, 0.92)',
     borderTopLeftRadius: radii['3xl'],
@@ -610,19 +634,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sheetContent: {
     paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
+    paddingBottom: 100,
     gap: spacing.md,
   },
   searchBar: {
-    height: 56,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.lg,
+    height: 52,
+    borderRadius: radii.xl,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.base,
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.10)',
+    overflow: 'hidden',
   },
   searchLeft: {
     flexDirection: 'row',
@@ -646,7 +670,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   quickActionsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
-    marginTop: spacing.sm,
   },
   quickActionPill: {
     flex: 1,
@@ -666,28 +689,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.medium,
     fontSize: 12,
   },
-  tierScroll: { marginHorizontal: -spacing['2xl'] },
   tierRow: {
     paddingHorizontal: spacing['2xl'],
     gap: spacing.sm,
-  },
-  tierChip: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.xs + 2,
-    borderRadius: radii.full,
-    backgroundColor: colors.surfaceContainer,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-  },
-  tierChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: spacing.sm,
   },
   liveBadge: {
     flexDirection: 'row',

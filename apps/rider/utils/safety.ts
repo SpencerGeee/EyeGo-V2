@@ -1,10 +1,17 @@
 import { Share, Alert } from 'react-native';
 
-export const shareLiveTracking = async (tripId: string, driverName: string, vehicleInfo: string) => {
+/**
+ * Share a live-tracking link for an active trip.
+ * @param shortId  The trip's `shortId` field (cuid — used in /track/:shortId URL)
+ * @param driverName  Driver display name
+ * @param vehicleInfo  Plate number or vehicle description
+ */
+export const shareLiveTracking = async (shortId: string, driverName: string, vehicleInfo: string) => {
   try {
-    const trackingUrl = `https://eyego.app/track/${tripId}`;
+    const apiBase = process.env.EXPO_PUBLIC_API_URL?.replace('/v1', '').replace('/api', '') ?? 'https://eyego.app';
+    const trackingUrl = `${apiBase}/track/${shortId}`;
     const message = `I'm on an EyeGo trip with ${driverName} (${vehicleInfo}). Follow my ride live here: ${trackingUrl}`;
-    
+
     await Share.share({
       message,
       url: trackingUrl, // iOS only

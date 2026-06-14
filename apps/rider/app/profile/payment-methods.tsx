@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -41,9 +41,9 @@ export default function PaymentMethodsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Payment Methods</Text>
         <View style={{ width: 40 }} />
       </View>
@@ -89,13 +89,12 @@ export default function PaymentMethodsScreen() {
                         </Text>
                       </View>
                     </View>
-                    <TouchableOpacity
+                    <Pressable
                       onPress={() => handleDelete(method.id)}
-                      activeOpacity={0.7}
                       style={styles.deleteBtn}
                     >
                       <Ionicons name="trash-outline" size={18} color={colors.error} />
-                    </TouchableOpacity>
+                    </Pressable>
                   </View>
                 </React.Fragment>
               ))}

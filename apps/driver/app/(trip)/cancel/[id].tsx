@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -9,7 +9,7 @@ import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { driverApi } from '@eyego/api';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const CANCEL_REASONS = [
   'Schedule conflict',
@@ -29,9 +29,23 @@ export default function CancelTripScreen() {
   const [selectedReason, setSelectedReason] = useState('');
   const [note, setNote] = useState('');
 
+  // D8: guard invalid id — navigate back after all hooks have run
+  useEffect(() => {
+    if (!id || typeof id !== 'string') {
+      router.back();
+    }
+  }, [id, router]);
+
+  const queryClient = useQueryClient();
+  const { setActiveTripId } = useDriverStore();
+
   const { mutate: cancelTrip, isPending } = useMutation({
-    mutationFn: () => driverApi.cancelTrip(id, { reason: selectedReason, note } as any),
+    mutationFn: () => driverApi.cancelTrip(id as string),
     onSuccess: () => {
+      // D13: clear active trip in store before navigating away
+      setActiveTripId(null);
+      queryClient.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
       router.replace('/(tabs)/home' as any);
     },
     onError: (err: any) => {
@@ -78,7 +92,7 @@ export default function CancelTripScreen() {
           <View style={styles.warningBanner}>
             <Ionicons name="warning-outline" size={20} color={colors.error} style={{ marginRight: spacing.sm }} />
             <Text variant="bodySmall" style={{ flex: 1, color: colors.error }}>
-              Cancelling will affect your cancellation rate score in performance stats.
+              Cancelling will affect your cancellation rate in performance stats, and passengers who already paid will be refunded. Frequent cancellations may result in account restrictions.
             </Text>
           </View>
 

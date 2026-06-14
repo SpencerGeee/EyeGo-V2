@@ -102,13 +102,22 @@ export const useRideStore = create<RideState>()(
     {
       name: 'eyego_ride_storage',
       storage: createJSONStorage(() => AsyncStorage),
+      // BUGFIX: Added selectedSeat and driverLocation to persisted state.
+      // Previously, if the app was killed mid-booking, on restart the user saw an
+      // active booking but no idea which seat was chosen. driverLocation is useful
+      // for resuming tracking without waiting for the next socket location update.
+      // BUGFIX: Guest info (PII — name/phone) explicitly excluded from persisted storage.
+      // This data is session-scoped only and should not survive app restarts.
       partialize: (state) => ({
         activeBooking: state.activeBooking,
         selectedTrip: state.selectedTrip,
+        selectedSeat: state.selectedSeat,
+        driverLocation: state.driverLocation,
         tripEta: state.tripEta,
         selectedTier: state.selectedTier,
         computedFare: state.computedFare,
         pendingPromoCode: state.pendingPromoCode,
+        // guestInfo intentionally omitted — PII should not persist in AsyncStorage
       }),
     }
   )

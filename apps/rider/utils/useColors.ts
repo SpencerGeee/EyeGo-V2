@@ -118,5 +118,5 @@ export type Colors = typeof darkColors;
 
 export function useColors(): Colors {
   const isDark = useThemeStore((s) => s.isDark);
-  return isDark ? darkColors : lightColors;
+  return (isDark ? darkColors : lightColors) as Colors;
 }

@@ -90,7 +90,9 @@ export default function JoinScreen() {
           transition={{ type: 'spring', stiffness: 300, damping: 20 }}
           style={styles.inviteHeader}
         >
-          <Text style={{ fontSize: 40 }}>👋</Text>
+          <View style={styles.inviteIcon}>
+            <Ionicons name="people" size={32} color={colors.primary} />
+          </View>
           <Text variant="headlineMedium" style={{ marginTop: spacing.base, textAlign: 'center' }}>
             You're invited!
           </Text>
@@ -109,21 +111,24 @@ export default function JoinScreen() {
           <View style={styles.routeRow}>
             <View style={styles.originDot} />
             <Text variant="titleSmall" style={{ flex: 1 }}>
-              {trip.origin?.address?.split(',')[0] ?? 'Origin'}
+              {(trip as any).route?.originName ?? (trip as any).origin?.address?.split(',')[0] ?? 'Origin'}
             </Text>
           </View>
           <View style={styles.routeConnector} />
           <View style={styles.routeRow}>
             <View style={styles.destDot} />
             <Text variant="titleSmall" style={{ flex: 1 }}>
-              {trip.destination?.address?.split(',')[0] ?? 'Destination'}
+              {(trip as any).route?.destinationName ?? (trip as any).destination?.address?.split(',')[0] ?? 'Destination'}
             </Text>
           </View>
 
           <View style={styles.tripMeta}>
             <TripMetaItem icon="time-outline" label={formatTripDate(trip.departureTime)} />
-            <TripMetaItem icon="person-outline" label={`${trip.availableSeats} seats left`} />
-            <TripMetaItem icon="cash-outline" label={formatCurrency(trip.fare)} accent />
+            <TripMetaItem
+              icon="person-outline"
+              label={`${Math.max(0, ((trip as any).maxSeats ?? 0) - ((trip as any).confirmedSeats ?? 0))} seats left`}
+            />
+            <TripMetaItem icon="cash-outline" label={formatCurrency((trip as any).baseFare ?? (trip as any).fare ?? 0)} accent />
           </View>
         </MotiView>
 
@@ -167,6 +172,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing['3xl'] },
   content: { flex: 1, paddingHorizontal: spacing['2xl'], paddingTop: spacing['3xl'], gap: spacing.xl },
   inviteHeader: { alignItems: 'center' },
+  inviteIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.primary + '1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tripCard: {
     backgroundColor: colors.surfaceContainer,
     borderRadius: radii['2xl'],

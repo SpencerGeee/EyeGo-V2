@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#091009"
+      "backgroundColor": "#11181e"
     },
     "ios": {
       "supportsTablet": false,
@@ -27,7 +27,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#091009"
+        "backgroundColor": "#11181e"
       },
       "package": "com.eyego.rider",
       "edgeToEdgeEnabled": true,
@@ -44,13 +44,7 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      [
-        "@rnmapbox/maps",
-        {
-          "RNMapboxMapsImpl": "mapbox",
-          "RNMapboxMapsDownloadToken": ""
-        }
-      ],
+      "@maplibre/maplibre-react-native",
       [
         "expo-notifications",
         {

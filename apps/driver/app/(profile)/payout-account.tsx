@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -53,11 +53,16 @@ export default function PayoutAccountScreen() {
   const { data } = useQuery({
     queryKey: ['payout-account'],
     queryFn: () => apiClient.get('/driver/wallet/payout-account'),
+    // Backend getPayoutAccount → ok(res, account) nests the account under
+    // response.data.data. Without this select, `data` is the raw axios response
+    // and the account fields (one level deeper) never pre-filled the form, so a
+    // returning driver saw blanks and could silently overwrite a saved account.
+    select: (r) => (r.data as any)?.data ?? null,
   });
 
   useEffect(() => {
     if (data) {
-      const d = (data as any)?.data ?? data;
+      const d = data as any;
       if (d?.type === 'bank') {
         setTab('bank');
         setBankName(d.bankName ?? '');
@@ -81,6 +86,26 @@ export default function PayoutAccountScreen() {
       Alert.alert('Error', err?.message ?? 'Failed to save payout account.');
     },
   });
+
+  const renderBankItem = useCallback(({ item }: { item: string }) => (
+    <Pressable
+      style={styles.modalItem}
+      onPress={() => { setBankName(item); setBankModalVisible(false); }}
+    >
+      <Text variant="bodyMedium" color={colors.onSurface}>{item}</Text>
+      {bankName === item && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+    </Pressable>
+  ), [styles, colors, bankName]);
+
+  const renderNetworkItem = useCallback(({ item }: { item: string }) => (
+    <Pressable
+      style={styles.modalItem}
+      onPress={() => { setNetwork(item); setNetworkModalVisible(false); }}
+    >
+      <Text variant="bodyMedium" color={colors.onSurface}>{item}</Text>
+      {network === item && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+    </Pressable>
+  ), [styles, colors, network]);
 
   const handleSave = () => {
     if (tab === 'bank') {
@@ -209,15 +234,7 @@ export default function PayoutAccountScreen() {
             <FlatList
               data={BANKS}
               keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.modalItem}
-                  onPress={() => { setBankName(item); setBankModalVisible(false); }}
-                >
-                  <Text variant="bodyMedium" color={colors.onSurface}>{item}</Text>
-                  {bankName === item && <Ionicons name="checkmark" size={18} color={colors.primary} />}
-                </Pressable>
-              )}
+              renderItem={renderBankItem}
             />
           </View>
         </Pressable>
@@ -231,15 +248,7 @@ export default function PayoutAccountScreen() {
             <FlatList
               data={NETWORKS}
               keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.modalItem}
-                  onPress={() => { setNetwork(item); setNetworkModalVisible(false); }}
-                >
-                  <Text variant="bodyMedium" color={colors.onSurface}>{item}</Text>
-                  {network === item && <Ionicons name="checkmark" size={18} color={colors.primary} />}
-                </Pressable>
-              )}
+              renderItem={renderNetworkItem}
             />
           </View>
         </Pressable>

@@ -20,6 +20,7 @@ export const fonts = {
   // Mono (mapped to SpaceGrotesk bold for fare numbers)
   monoBold: 'SpaceGrotesk_700Bold',
   monoRegular: 'SpaceGrotesk_500Medium',
+  bold: 'Inter_600SemiBold',
 } as const;
 
 export const fontSizes = {
@@ -27,6 +28,7 @@ export const fontSizes = {
   display: 36,
   headlineLarge: 28,
   headlineMedium: 24,
+  headlineSmall: 20,
   titleLarge: 20,
   titleMedium: 18,
   titleSmall: 16,

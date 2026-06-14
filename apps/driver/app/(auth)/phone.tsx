@@ -6,7 +6,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  TouchableOpacity,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -32,7 +32,8 @@ export default function DriverPhoneScreen() {
       const devOtp = (res as any)?.data?.data?._dev_otp;
       router.push({
         pathname: '/(auth)/otp',
-        params: { phone: `+233${phone.replace(/\s/g, '')}`, devOtp: devOtp ?? '' },
+        // Strip '+' prefix to avoid URL encoding issues in dev builds
+        params: { phone: `233${phone.replace(/\s/g, '')}`, devOtp: devOtp ?? '' },
       });
     },
   });
@@ -97,9 +98,8 @@ export default function DriverPhoneScreen() {
             transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
             style={styles.inputWrapper}
           >
-            <TouchableOpacity
+            <Pressable
               style={styles.phoneContainer}
-              activeOpacity={1}
               onPress={() => inputRef.current?.focus()}
             >
               <View style={styles.countryCode}>
@@ -120,7 +120,7 @@ export default function DriverPhoneScreen() {
                 selectionColor={colors.primary}
                 maxLength={9}
               />
-            </TouchableOpacity>
+            </Pressable>
           </MotiView>
 
           {sendOtp.isError && (

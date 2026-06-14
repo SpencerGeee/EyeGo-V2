@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text } from './Text';
 
-type Tier = 'ECONOMY' | 'COMFORT';
+type Tier = 'ECONOMY' | 'COMFORT' | 'PREMIUM';
 type BadgeSize = 'sm' | 'md';
 
 interface TierBadgeProps {
@@ -14,6 +14,7 @@ interface TierBadgeProps {
 const TIER_CONFIG: Record<Tier, { label: string; icon: string; color: string }> = {
   ECONOMY: { label: 'Eco', icon: '🌿', color: colors.primary },
   COMFORT: { label: 'Comfort', icon: '✨', color: colors.secondary },
+  PREMIUM: { label: 'Premium', icon: '💎', color: '#7C3AED' },
 };
 
 export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {

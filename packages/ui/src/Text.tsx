@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Text as RNText, TextProps, TextStyle } from 'react-native';
 import { fonts, fontSizes, colors, letterSpacings } from '@eyego/config';
-import { useColors } from '../../../apps/rider/utils/useColors';
 
 export type TextVariant =
   | 'hero'
@@ -15,11 +14,15 @@ export type TextVariant =
   | 'bodyMedium'
   | 'bodySmall'
   | 'label'
+  | 'labelLarge'
+  | 'labelMedium'
+  | 'labelSmall'
   | 'caption'
   | 'fareLarge'
   | 'fareMedium'
   | 'fareSmall'
-  | 'fareInline';
+  | 'fareInline'
+  | 'headlineSmall';
 
 const variantStyles: Record<TextVariant, TextStyle> = {
   hero: {
@@ -43,6 +46,12 @@ const variantStyles: Record<TextVariant, TextStyle> = {
   headlineMedium: {
     fontFamily: fonts.displaySemiBold,
     fontSize: fontSizes.headlineMedium,
+    letterSpacing: letterSpacings.tight,
+    color: colors.onSurface,
+  },
+  headlineSmall: {
+    fontFamily: fonts.displaySemiBold,
+    fontSize: fontSizes.headlineSmall,
     letterSpacing: letterSpacings.tight,
     color: colors.onSurface,
   },
@@ -81,6 +90,21 @@ const variantStyles: Record<TextVariant, TextStyle> = {
     fontSize: fontSizes.label,
     color: colors.onSurface,
   },
+  labelLarge: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.label,
+    color: colors.onSurface,
+  },
+  labelMedium: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurface,
+  },
+  labelSmall: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.caption,
+    color: colors.onSurfaceVariant,
+  },
   caption: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
@@ -117,29 +141,10 @@ interface EyeGoTextProps extends TextProps {
 }
 
 export function Text({ variant = 'bodyMedium', color, style, ...props }: EyeGoTextProps) {
-  let dynamicColors: any;
-  try {
-    dynamicColors = useColors();
-  } catch (e) {
-    // fallback
-  }
-
-  const defaultColor = useMemo(() => {
-    if (!dynamicColors) return undefined;
-    if (variant === 'bodySmall' || variant === 'caption') {
-      return dynamicColors.onSurfaceVariant;
-    }
-    if (variant.startsWith('fare')) {
-      return dynamicColors.primary;
-    }
-    return dynamicColors.onSurface;
-  }, [variant, dynamicColors]);
-
   return (
     <RNText
       style={[
         variantStyles[variant],
-        defaultColor ? { color: defaultColor } : undefined,
         color ? { color } : undefined,
         style,
       ]}

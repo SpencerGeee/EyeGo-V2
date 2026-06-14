@@ -1,5 +1,68 @@
 import type { Socket } from 'socket.io-client';
-import type { DriverLocationEvent, TripEtaEvent, TripStatusEvent } from '@eyego/types';
+import type { DriverLocationEvent, TripEtaEvent, TripStatusEvent, SeatEvent } from '@eyego/types';
+
+// ── Shared socket event callback types ─────────────────────────────────────
+export type ChatMessagePayload = {
+  senderId: string;
+  senderName?: string;
+  senderRole?: string;
+  seatNumber?: number | null;
+  text: string;
+  timestamp: string;
+  isPrivate?: boolean;
+  recipientId?: string;
+};
+
+export type PrivateChatMessagePayload = {
+  senderId: string;
+  senderName?: string;
+  text: string;
+  timestamp: string;
+  isPrivate: boolean;
+  recipientId?: string;
+};
+
+export type TypingPayload = {
+  senderId: string;
+  senderRole: string;
+  isTyping: boolean;
+};
+
+export type ReadReceiptPayload = {
+  tripId: string;
+  messageIds: string[];
+  readBy: string;
+};
+
+export type ChatHistoryPayload = Array<{
+  senderId: string;
+  senderName?: string;
+  senderRole?: string;
+  seatNumber?: number | null;
+  text: string;
+  timestamp: string;
+  isPrivate?: boolean;
+  recipientId?: string;
+}>;
+
+export type SafetyCheckPayload = {
+  tripId: string;
+  reason: string;
+  timestamp: number;
+};
+
+export type DriverEtaPayload = {
+  tripId: string;
+  etaMinutes: number;
+  distanceKm?: number;
+  message?: string;
+  geometry?: any;
+};
+
+export type TripStatusPayload = {
+  tripId: string;
+  status: string;
+};
 
 /**
  * Mirror of the same logic in client.ts — auto-detect the dev machine's IP
@@ -40,64 +103,99 @@ export function configureSocket(opts: { getToken: () => string | null }) {
 
 export function getSocket(): Socket {
   if (!socket) {
-    // Lazy-load socket.io-client so it doesn't run at module evaluation time
-    // during React Native boot (avoids global property conflicts in Hermes)
     const { io } = require('socket.io-client') as typeof import('socket.io-client');
-    
-    // Connect explicitly to the /passenger namespace
     const socketUrl = BASE_URL.endsWith('/') ? BASE_URL + 'passenger' : BASE_URL + '/passenger';
-    
     socket = io(socketUrl, {
       autoConnect: false,
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       auth: (cb: (data: { token: string | null }) => void) => cb({ token: getToken() }),
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 30000,
+      randomizationFactor: 0.5,
     });
-
     socket!.on('connect_error', (err: Error) => {
       console.warn('[Socket] Connection error:', err.message);
     });
+    startPassengerLeakMonitoring();
   }
   return socket!;
 }
 
-/**
- * Ref-counted connect — safe to call from multiple components simultaneously.
- * The underlying socket is only connected on the first call.
- */
 export function connectSocket() {
   socketRefs++;
-  if (socketRefs === 1) {
-    getSocket().connect();
-  }
+  if (socketRefs === 1) getSocket().connect();
 }
 
-/**
- * Ref-counted disconnect — only disconnects when all callers have released.
- */
 export function disconnectSocket() {
   socketRefs = Math.max(0, socketRefs - 1);
   if (socketRefs === 0) {
     socket?.disconnect();
     socket = null;
+    stopPassengerLeakMonitoring();
   }
 }
 
-/**
- * RC1: Re-authenticate the passenger socket after a token refresh.
- * socket.io-client re-reads the auth callback on reconnect, so a
- * disconnect → connect cycle picks up the new token automatically.
- */
-export function refreshSocketAuth() {
-  if (socket && socket.connected) {
-    socket.disconnect();
-    socket.connect();
+export function refreshSocketAuth(tripId?: string, driverId?: string): void {
+  const _socket = socket;
+  if (!_socket) return;
+  // Update the auth token for the next connection (socket.io reads auth on reconnect)
+  _socket.auth = { token: getToken?.() };
+  // If socket is already connected, no need to disconnect — just update auth for next reconnect
+  // If disconnected, reconnect now
+  if (!_socket.connected) {
+    _socket.connect();
+  }
+  // Re-join trip room after reconnect if tripId provided
+  if (tripId) {
+    const rejoin = () => {
+      _socket.emit('passenger:join_trip_room', { tripId, driverId });
+      _socket.off('connect', rejoin);
+    };
+    if (_socket.connected) {
+      _socket.emit('passenger:join_trip_room', { tripId, driverId });
+    } else {
+      _socket.once('connect', rejoin);
+    }
   }
 }
 
-// Maps wrapped callbacks to original callbacks so off() can clean up correctly
-const driverCallbacks = new Map<any, (...args: any[]) => void>();
+const driverCallbacks = new Map<((data: DriverLocationEvent) => void), (...args: any[]) => void>();
 
-// Typed event subscriptions
+let _passengerLeakInterval: ReturnType<typeof setInterval> | null = null;
+let _driverLeakInterval: ReturnType<typeof setInterval> | null = null;
+
+function startPassengerLeakMonitoring() {
+  if (_passengerLeakInterval) return;
+  _passengerLeakInterval = setInterval(() => {
+    if (driverCallbacks.size > 50) {
+      console.warn(`[Socket] Possible subscription leak: ${driverCallbacks.size} active wrappers`);
+    }
+  }, 300_000);
+}
+
+function stopPassengerLeakMonitoring() {
+  if (_passengerLeakInterval) {
+    clearInterval(_passengerLeakInterval);
+    _passengerLeakInterval = null;
+  }
+}
+
+function startDriverLeakMonitoring() {
+  if (_driverLeakInterval) return;
+  _driverLeakInterval = setInterval(() => {
+    console.warn('[DriverSocket] Leak check: socket still active');
+  }, 300_000);
+}
+
+function stopDriverLeakMonitoring() {
+  if (_driverLeakInterval) {
+    clearInterval(_driverLeakInterval);
+    _driverLeakInterval = null;
+  }
+}
+
 export const socketEvents = {
   onConnect: (cb: () => void) => {
     getSocket().on('connect', cb);
@@ -141,13 +239,13 @@ export const socketEvents = {
     return () => getSocket().off('trip:status_change', cb);
   },
 
-  onSeatUpdate: (cb: (data: any) => void) => {
+  onSeatUpdate: (cb: (data: SeatEvent) => void) => {
     getSocket().on('trip:seat_update', cb);
     return () => getSocket().off('trip:seat_update', cb);
   },
 
-  joinTripRoom: (tripId: string, driverId?: string) => {
-    getSocket().emit('passenger:join_trip_room', { tripId, driverId });
+  joinTripRoom: (tripId: string, driverId?: string, lastMessageTimestamp?: string) => {
+    getSocket().emit('passenger:join_trip_room', { tripId, driverId, lastMessageTimestamp });
   },
 
   leaveTripRoom: (tripId: string) => {
@@ -162,22 +260,28 @@ export const socketEvents = {
     getSocket().emit('chat:send', { tripId, text, timestamp: new Date().toISOString() });
   },
 
-  onChatMessage: (cb: (msg: { senderId: string; text: string; timestamp: string; senderName?: string; senderRole?: string; seatNumber?: number | null; isPrivate?: boolean; recipientId?: string }) => void) => {
+  // Rider → driver private message (recipientId resolves to the trip's driver
+  // server-side; pass the driverId when known so optimistic dedup matches).
+  sendPrivateChatMessage: (tripId: string, text: string, recipientId?: string) => {
+    getSocket().emit('chat:private_send', { tripId, text, recipientId, timestamp: new Date().toISOString() });
+  },
+
+  onChatMessage: (cb: (msg: ChatMessagePayload) => void) => {
     getSocket().on('chat:message', cb);
     return () => getSocket().off('chat:message', cb);
   },
 
-  onPrivateChatMessage: (cb: (msg: { senderId: string; senderName?: string; text: string; timestamp: string; isPrivate: boolean; recipientId?: string }) => void) => {
+  onPrivateChatMessage: (cb: (msg: PrivateChatMessagePayload) => void) => {
     getSocket().on('chat:private_message', cb);
     return () => getSocket().off('chat:private_message', cb);
   },
 
-  onChatHistory: (cb: (messages: any[]) => void) => {
+  onChatHistory: (cb: (messages: ChatHistoryPayload) => void) => {
     getSocket().on('chat:history', cb);
     return () => getSocket().off('chat:history', cb);
   },
 
-  onSafetyCheck: (cb: (data: { tripId: string; reason: string; timestamp: number }) => void) => {
+  onSafetyCheck: (cb: (data: SafetyCheckPayload) => void) => {
     getSocket().on('safety:check', cb);
     return () => getSocket().off('safety:check', cb);
   },
@@ -186,12 +290,11 @@ export const socketEvents = {
     getSocket().emit('chat:read', { tripId, messageIds });
   },
 
-  onReadReceipt: (cb: (data: { tripId: string; messageIds: string[]; readBy: string }) => void) => {
+  onReadReceipt: (cb: (data: ReadReceiptPayload) => void) => {
     getSocket().on('chat:read_receipt', cb);
     return () => getSocket().off('chat:read_receipt', cb);
   },
 
-  // SOS: stream passenger location to backend for safety monitoring
   sendSafetyLocation: (data: { tripId: string; latitude: number; longitude: number }) => {
     getSocket().emit('safety:location', data);
   },
@@ -201,17 +304,17 @@ export const socketEvents = {
     return () => getSocket().off('safety:ride_check_alert', cb);
   },
 
+  onTyping: (cb: (data: TypingPayload) => void) => {
+    getSocket().on('chat:typing', cb);
+    return () => getSocket().off('chat:typing', cb);
+  },
+
   sendTypingStart: (tripId: string) => {
     getSocket().emit('chat:typing_start', { tripId });
   },
 
   sendTypingStop: (tripId: string) => {
     getSocket().emit('chat:typing_stop', { tripId });
-  },
-
-  onTyping: (cb: (data: { senderId: string; senderRole: string; isTyping: boolean }) => void) => {
-    getSocket().on('chat:typing', cb);
-    return () => getSocket().off('chat:typing', cb);
   },
 };
 
@@ -224,25 +327,27 @@ export function getDriverSocket(): Socket {
     const socketUrl = BASE_URL.endsWith('/') ? BASE_URL + 'driver' : BASE_URL + '/driver';
     driverSocket = io(socketUrl, {
       autoConnect: false,
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       auth: (cb: (data: { token: string | null }) => void) => cb({ token: getToken() }),
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 30000,
+      randomizationFactor: 0.5,
     });
     driverSocket!.on('connect_error', (err: Error) => {
       console.warn('[DriverSocket] Connection error:', err.message);
     });
+    startDriverLeakMonitoring();
   }
   return driverSocket!;
 }
 
-// Ref-count so multiple components can safely call connect/disconnect
-// without tearing down the socket while another component still needs it.
 let driverSocketRefs = 0;
 
 export function connectDriverSocket() {
   driverSocketRefs++;
-  if (driverSocketRefs === 1) {
-    getDriverSocket().connect();
-  }
+  if (driverSocketRefs === 1) getDriverSocket().connect();
 }
 
 export function disconnectDriverSocket() {
@@ -250,6 +355,7 @@ export function disconnectDriverSocket() {
   if (driverSocketRefs === 0) {
     driverSocket?.disconnect();
     driverSocket = null;
+    stopDriverLeakMonitoring();
   }
 }
 
@@ -278,7 +384,7 @@ export const driverSocketEvents = {
     getDriverSocket().emit('chat:private_send', { tripId, text, recipientId, timestamp: new Date().toISOString() });
   },
 
-  onPrivateChatMessage: (cb: (msg: { senderId: string; senderName?: string; text: string; timestamp: string; isPrivate: boolean; recipientId?: string }) => void) => {
+  onPrivateChatMessage: (cb: (msg: PrivateChatMessagePayload) => void) => {
     getDriverSocket().on('chat:private_message', cb);
     return () => getDriverSocket().off('chat:private_message', cb);
   },
@@ -288,12 +394,12 @@ export const driverSocketEvents = {
     return () => getDriverSocket().off('passenger:payment_confirmed', cb);
   },
 
-  onChatMessage: (cb: (msg: { senderId: string; senderName?: string; senderRole?: string; seatNumber?: number | null; text: string; timestamp: string; isPrivate?: boolean; recipientId?: string }) => void) => {
+  onChatMessage: (cb: (msg: ChatMessagePayload) => void) => {
     getDriverSocket().on('chat:message', cb);
     return () => getDriverSocket().off('chat:message', cb);
   },
 
-  onSeatUpdate: (cb: (data: any) => void) => {
+  onSeatUpdate: (cb: (data: SeatEvent) => void) => {
     getDriverSocket().on('trip:seat_update', cb);
     return () => getDriverSocket().off('trip:seat_update', cb);
   },
@@ -308,7 +414,7 @@ export const driverSocketEvents = {
     return () => getDriverSocket().off('disconnect', cb);
   },
 
-  onTripEta: (cb: (data: { tripId: string; etaMinutes: number; distanceKm?: number; message?: string; geometry?: any }) => void) => {
+  onTripEta: (cb: (data: DriverEtaPayload) => void) => {
     getDriverSocket().on('trip:eta', cb);
     return () => getDriverSocket().off('trip:eta', cb);
   },
@@ -322,24 +428,27 @@ export const driverSocketEvents = {
     return () => getDriverSocket().off('error', cb);
   },
 
-  onTripStatus: (cb: (data: { tripId: string; status: string }) => void) => {
+  onTripStatus: (cb: (data: TripStatusPayload) => void) => {
     getDriverSocket().on('trip:status_change', cb);
     return () => getDriverSocket().off('trip:status_change', cb);
   },
 
-  // Admin dispatch: backend emits this when a trip is assigned to the driver
   onTripAssigned: (cb: (data: {
     tripId: string;
+    tripShortId?: string;
     routeOrigin: string;
     routeDestination: string;
     departureTime: string;
-    expiresAt: string; // ISO timestamp — driver must respond before this
+    estimatedEarnings?: number;
+    seatCount?: number;
+    bookedCount?: number;
+    expiresAt: string;
   }) => void) => {
     getDriverSocket().on('trip:assigned', cb);
     return () => getDriverSocket().off('trip:assigned', cb);
   },
 
-  onChatHistory: (cb: (messages: { senderId: string; senderName?: string; senderRole?: string; seatNumber?: number | null; text: string; timestamp: string; isPrivate?: boolean; recipientId?: string }[]) => void) => {
+  onChatHistory: (cb: (messages: ChatHistoryPayload) => void) => {
     getDriverSocket().on('chat:history', cb);
     return () => getDriverSocket().off('chat:history', cb);
   },
@@ -348,7 +457,7 @@ export const driverSocketEvents = {
     getDriverSocket().emit('chat:read', { tripId, messageIds });
   },
 
-  onReadReceipt: (cb: (data: { tripId: string; messageIds: string[]; readBy: string }) => void) => {
+  onReadReceipt: (cb: (data: ReadReceiptPayload) => void) => {
     getDriverSocket().on('chat:read_receipt', cb);
     return () => getDriverSocket().off('chat:read_receipt', cb);
   },
@@ -361,7 +470,7 @@ export const driverSocketEvents = {
     getDriverSocket().emit('chat:typing_stop', { tripId });
   },
 
-  onTyping: (cb: (data: { senderId: string; senderRole: string; isTyping: boolean }) => void) => {
+  onTyping: (cb: (data: TypingPayload) => void) => {
     getDriverSocket().on('chat:typing', cb);
     return () => getDriverSocket().off('chat:typing', cb);
   },

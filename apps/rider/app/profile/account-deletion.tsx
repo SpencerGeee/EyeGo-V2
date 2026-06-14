@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   Alert,
   TextInput,
   ActivityIndicator,
@@ -58,9 +58,9 @@ export default function AccountDeletionScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <Text variant="titleSmall">Delete Account</Text>
         <View style={{ width: 40 }} />
       </View>

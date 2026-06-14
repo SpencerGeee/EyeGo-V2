@@ -22,7 +22,10 @@ export const bookingsApi = {
     apiClient.get<PaginatedResponse<Booking>>('/bookings', { params }),
 
   cancel: (id: string) =>
-    apiClient.delete<ApiResponse<Booking>>(`/bookings/${id}`),
+    apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/cancel`),
+
+  cancelWithReason: (id: string, data: { reason: string; note?: string }) =>
+    apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/cancel`, data),
 
   rate: (id: string, data: RatingRequest) =>
     apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/rating`, data),
@@ -45,4 +48,25 @@ export const bookingsApi = {
 
   tip: (bookingId: string, data: { amount: number; phone?: string }) =>
     apiClient.post<ApiResponse<{ reference: string }>>(`/bookings/${bookingId}/tip`, data),
+
+  // ── Cancellation Fee ────────────────────────────────────────────────
+  getCancellationFee: (id: string) =>
+    apiClient.get<ApiResponse<{ fee: number; reason: string; eligible: boolean }>>(`/cancellation/${id}/fee`),
+
+  cancelWithFee: (id: string, data: { reason: string; note?: string }) =>
+    apiClient.post<ApiResponse<Booking & { cancellationFee?: number }>>(`/cancellation/${id}/cancel`, data),
+
+  // ── Receipts ────────────────────────────────────────────────────────
+  getReceipt: (id: string) =>
+    apiClient.get<ApiResponse<{
+      bookingId: string;
+      tripId: string;
+      routeName: string;
+      fareBreakdown: { baseFare: number; platformFee: number; surcharges: number; discount: number; tip: number; total: number };
+      paymentMethod: string;
+      paidAt: string;
+      receiptNumber: string;
+      trip: any;
+    }>>(`/receipts/${id}`),
+
 };

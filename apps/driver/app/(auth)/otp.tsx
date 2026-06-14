@@ -28,7 +28,9 @@ const RESEND_SECONDS = 60;
 export default function DriverOtpScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { phone, devOtp } = useLocalSearchParams<{ phone: string; devOtp?: string }>();
+  const { phone: rawPhone, devOtp } = useLocalSearchParams<{ phone: string; devOtp?: string }>();
+  // Normalize phone: ensure '+' prefix (URL encoding can eat the '+' sign)
+  const phone = rawPhone ? `+${rawPhone.replace(/^\+/, '')}` : '';
   const router = useRouter();
   const { login, setDriver } = useDriverStore();
 
@@ -37,12 +39,20 @@ export default function DriverOtpScreen() {
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
   const [currentDevOtp, setCurrentDevOtp] = useState(devOtp ?? '');
   const inputRefs = useRef<TextInput[]>([]);
+  // D15: hold interval ID in a ref for reliable cleanup
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shakeX = useSharedValue(0);
 
   useEffect(() => {
     if (countdown <= 0) return;
-    const timer = setInterval(() => setCountdown((c) => c - 1), 1000);
-    return () => clearInterval(timer);
+    // D15: store interval in ref and always clear on cleanup
+    countdownIntervalRef.current = setInterval(() => setCountdown((c) => c - 1), 1000);
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+    };
   }, [countdown]);
 
   const verifyOtp = useMutation({
@@ -54,8 +64,10 @@ export default function DriverOtpScreen() {
       if (!isNewDriver) {
         try {
           const profileRes = await driverApi.getMe();
-          const pd = profileRes.data.data;
-          setDriver(pd?.driver ?? pd);
+          const body = (profileRes.data as any).data;
+          // Backend wraps driver data in { driver: ... } — unwrap it
+          const pd = body?.driver ?? body;
+          setDriver(pd);
         } catch {
           // profile fetch failed — will retry on next app load
         }
@@ -178,8 +190,8 @@ export default function DriverOtpScreen() {
             </Text>
           </Pressable>
 
-          {/* Dev OTP banner — only shown when SMS not configured */}
-          {!!currentDevOtp && (
+          {/* Dev OTP banner — only shown in development builds */}
+          {__DEV__ && !!currentDevOtp && (
             <View style={styles.devBanner}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Dev OTP: </Text>
               <Text variant="label" color={colors.primary}>{currentDevOtp}</Text>
@@ -280,7 +292,7 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
         withSpring(1, { stiffness: 400, damping: 20 })
       );
     }
-  }, [value]);
+  }, [value, scale]);
 
   const cellStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],

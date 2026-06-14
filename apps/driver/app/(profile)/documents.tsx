@@ -109,10 +109,9 @@ export default function DocumentsScreen() {
     onSuccess: (response, { type }) => {
       qc.invalidateQueries({ queryKey: ['driver', 'documents'] });
       if (type === 'PROFILE_PHOTO') {
-        const url: string | undefined =
-          response?.data?.data?.profilePhotoUrl ??
-          response?.data?.data?.documentUrl ??
-          response?.data?.data?.url;
+        const result = response?.data?.data as Record<string, unknown> | undefined;
+        const url: string | undefined = [result?.profilePhotoUrl, result?.documentUrl, result?.url]
+          .find((v): v is string => typeof v === 'string');
         if (url) {
           updateDriver({ profilePhoto: url, avatarUrl: url });
         }

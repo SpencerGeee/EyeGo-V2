@@ -2,15 +2,17 @@ import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react'
 import {
   View,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   Alert,
+  Platform,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { driverApi, walletApi, connectDriverSocket, disconnectDriverSocket, driverSocketEvents } from '@eyego/api';
+import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
@@ -20,37 +22,59 @@ import { useDriverStore } from '../../stores/driver.store';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { OnlineToggle } from '../../components/OnlineToggle';
+import DemandOverlay from '../../components/DemandOverlay';
+
+const MARKER_ANCHOR = { x: 0.5, y: 0.5 };
 
 export default function HomeScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const qc = useQueryClient();
-  const { driver, isOnline, setOnline, activeTripId, setActiveTripId, updateDriver } = useDriverStore();
+  const driver = useDriverStore(s => s.driver);
+  const isOnline = useDriverStore(s => s.isOnline);
+  const activeTripId = useDriverStore(s => s.activeTripId);
+  const setOnline = useDriverStore(s => s.setOnline);
+  const setActiveTripId = useDriverStore(s => s.setActiveTripId);
+  const updateDriver = useDriverStore(s => s.updateDriver);
   const sheetRef = useRef<BottomSheet>(null);
   const mapRef = useRef<MapView>(null);
   const [onlineError, setOnlineError] = useState<string | null>(null);
+  // D14: reconnect retry counter
+  const reconnectAttemptsRef = useRef(0);
+  // FIX2: single ref for reconnect timer — prevents leaked timers on rapid disconnect/reconnect
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { location, hasPermission } = useDriverLocation({ enabled: true });
+  const { location, hasPermission } = useDriverLocation({ enabled: true, isOnTrip: false });
   const { isOffline } = useNetworkStatus();
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
   const { data: walletData } = useQuery({
-    queryKey: ['driver', 'wallet', 'balance'],
-    queryFn: () => walletApi.getBalance(),
-    select: (r) => r.data.data,
+    queryKey: ['driver', 'me'],
+    queryFn: () => driverApi.getMe(),
+    select: (r) => {
+      const d = (r.data as any).data?.driver ?? (r.data as any).data;
+      // Show the spendable wallet balance (matches earnings screen), not lifetime totalEarned.
+      return { balance: d?.walletBalance ?? d?.totalEarned ?? 0 };
+    },
+    staleTime: 30_000,
   });
 
   const { data: txData } = useQuery({
     queryKey: ['driver', 'wallet', 'transactions'],
-    queryFn: () => walletApi.getTransactions({ limit: 50 }),
-    select: (r) => (r.data as any)?.data?.items ?? [],
+    // Driver ledger lives at /driver/wallet/transactions and returns { transactions }.
+    queryFn: () => driverApi.getWalletTransactions({ limit: 50 }),
+    select: (r) => (r.data as any)?.data?.transactions ?? (r.data as any)?.data?.items ?? [],
   });
+
+  // Driver earnings credit types (see earnings.tsx). Filtering only 'CREDIT' showed 0.
+  const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS'];
 
   const todayEarnings = useMemo(() => {
     if (!txData) return 0;
     const today = new Date().toDateString();
     return (txData as any[])
-      .filter((t: any) => t.type === 'CREDIT' && new Date(t.createdAt).toDateString() === today)
+      .filter((t: any) => CREDIT_TYPES.includes(t.type) && new Date(t.createdAt).toDateString() === today)
       .reduce((sum: number, t: any) => sum + (t.amount ?? 0), 0);
   }, [txData]);
 
@@ -59,11 +83,19 @@ export default function HomeScreen() {
     const today = new Date().toDateString();
     const tripIds = new Set(
       (txData as any[])
-        .filter((t: any) => t.type === 'CREDIT' && t.tripId && new Date(t.createdAt).toDateString() === today)
+        .filter((t: any) => CREDIT_TYPES.includes(t.type) && t.tripId && new Date(t.createdAt).toDateString() === today)
         .map((t: any) => t.tripId)
     );
     return tripIds.size;
   }, [txData]);
+
+  const { data: heatmapData } = useQuery({
+    queryKey: ['driver', 'heatmap'],
+    queryFn: () => heatmapApi.getDemand(location?.latitude ?? 5.6037, location?.longitude ?? -0.187, 5),
+    select: (r) => r.data.data?.cells ?? [],
+    refetchInterval: showHeatmap ? 60000 : false, // ~60s poll
+    enabled: showHeatmap && isOnline,
+  });
 
   const { data: activeTripData } = useQuery({
     queryKey: ['driver', 'activeTrip'],
@@ -76,12 +108,27 @@ export default function HomeScreen() {
     if (activeTripData?.id) {
       setActiveTripId(activeTripData.id);
     }
-  }, [activeTripData]);
+  }, [activeTripData, setActiveTripId]);
+
+  // D17: cleanup map ref on unmount
+  useEffect(() => {
+    return () => {
+      mapRef.current = null;
+    };
+  }, []);
+
+  // FIX2: final safety net — clear reconnect timer if component unmounts while one is pending
+  useEffect(() => {
+    return () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    };
+  }, []);
 
   // Manage driver socket lifecycle — connect when online, disconnect when offline.
   // Ref-counted so the active-trip screen can also hold a connection simultaneously.
   useEffect(() => {
     if (!isOnline) return;
+    reconnectAttemptsRef.current = 0;
     connectDriverSocket();
     const cleanDispatch = driverSocketEvents.onTripAssigned((data) => {
       router.push({
@@ -95,21 +142,54 @@ export default function HomeScreen() {
         },
       } as any);
     });
+    // D14: reconnect on disconnect if still online, capped at 5 attempts
+    const cleanDisconnect = driverSocketEvents.onDisconnect(() => {
+      if (useDriverStore.getState().isOnline && reconnectAttemptsRef.current < 5) {
+        reconnectAttemptsRef.current += 1;
+        // FIX2: clear any pending reconnect before scheduling a new one
+        if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+        const delay = Math.min(3000 * Math.pow(2, reconnectAttemptsRef.current - 1), 60000);
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          if (useDriverStore.getState().isOnline) {
+            connectDriverSocket();
+          }
+        }, delay);
+      }
+    });
     return () => {
       cleanDispatch();
+      cleanDisconnect();
+      // FIX2: cancel any pending reconnect timer on cleanup
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       disconnectDriverSocket();
     };
-  }, [isOnline]);
+  }, [isOnline, router]);
 
   const goOnline = useMutation({
-    mutationFn: () => {
-      if (!location) throw new Error('Location not available yet');
-      return driverApi.goOnline({ lat: location.latitude, lng: location.longitude });
+    mutationFn: async () => {
+      // D4/S21: refetch wallet/profile so the go-online gate checks a FRESH
+      // balance, not a stale cache (a driver could otherwise go online below
+      // the minimum). await the refetch before proceeding.
+      await qc.invalidateQueries({ queryKey: ['driver', 'me'] });
+      let coords = location;
+      if (!coords) {
+        try {
+          const last = await Location.getLastKnownPositionAsync();
+          if (last) coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
+        } catch { /* no last-known position — proceed without coords */ }
+      }
+      return driverApi.goOnline(coords ? { lat: coords.latitude, lng: coords.longitude } : {});
     },
     onSuccess: () => {
       setOnline(true);
       setOnlineError(null);
       qc.invalidateQueries({ queryKey: ['driver'] });
+      // DC3: re-fetch active trip state from server when going online
+      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
     onError: (err: any) => {
       const status = err?.response?.status;
@@ -126,7 +206,23 @@ export default function HomeScreen() {
 
   const goOffline = useMutation({
     mutationFn: () => driverApi.goOffline(),
-    onSuccess: () => setOnline(false),
+    onSuccess: () => {
+      setOnline(false);
+      // DC3: only clear stale active trip if no trip is currently in progress
+      const currentTripId = useDriverStore.getState().activeTripId;
+      if (!currentTripId) {
+        setActiveTripId(null); // no active trip, safe to clear
+      }
+      // If there IS an active trip, keep it — connectivity blips shouldn't lose the trip
+      qc.invalidateQueries({ queryKey: ['activeTrip'] });
+      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+    },
+    onError: (err: any) => {
+      // Don't flip local state — driver stays ONLINE so backend/store remain in sync.
+      // Surface the failure so the driver knows the toggle didn't take effect.
+      const msg: string = err?.response?.data?.message ?? (err as Error).message ?? 'Could not go offline. Please try again.';
+      setOnlineError(msg);
+    },
   });
 
   // Dev-only: activates a PENDING_REVIEW account then immediately retries go-online
@@ -167,11 +263,15 @@ export default function HomeScreen() {
       }
     }
     goOnline.mutate();
-  }, [isOnline, hasPermission, location]);
+  }, [isOnline, hasPermission, location, walletData, goOnline, goOffline]);
 
-  const initialRegion = location
-    ? { latitude: location.latitude, longitude: location.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }
-    : { latitude: 5.6037, longitude: -0.187, latitudeDelta: 0.05, longitudeDelta: 0.05 };
+  const initialRegion = useMemo(
+    () =>
+      location
+        ? { latitude: location.latitude, longitude: location.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }
+        : { latitude: 5.6037, longitude: -0.187, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+    [location?.latitude, location?.longitude]
+  );
 
   return (
     <View style={styles.container}>
@@ -186,21 +286,31 @@ export default function HomeScreen() {
         customMapStyle={darkMapStyle}
       >
         {location && (
-          <Marker coordinate={location} anchor={{ x: 0.5, y: 0.5 }}>
+          <Marker coordinate={location} anchor={MARKER_ANCHOR}>
             <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
               <Ionicons name="car" size={16} color="#fff" />
             </View>
           </Marker>
         )}
+
+        {/* Demand heatmap overlay — weighted circles for high-demand areas */}
+        <DemandOverlay
+          cells={heatmapData ?? []}
+          primaryColor={colors.primary}
+          visible={showHeatmap && isOnline}
+        />
       </MapView>
 
-      {/* Header overlay */}
+      {/* Header overlay — glass */}
       <MotiView
         from={{ opacity: 0, translateY: -10 }}
         animate={{ opacity: 1, translateY: 0 }}
         transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
         style={styles.header}
       >
+        {Platform.OS === 'ios' && (
+          <BlurView intensity={70} tint="systemChromeMaterialDark" style={StyleSheet.absoluteFill} />
+        )}
         <View>
           <Text style={styles.headerLogo}>EyeGo</Text>
           {!!driver?.name && (
@@ -209,11 +319,27 @@ export default function HomeScreen() {
             </Text>
           )}
         </View>
-        <OnlineToggle
-          isOnline={isOnline}
-          loading={goOnline.isPending || goOffline.isPending}
-          onToggle={handleToggleOnline}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          {isOnline && (
+            <Pressable
+              onPress={() => setShowHeatmap(!showHeatmap)}
+              style={{
+                width: 36, height: 36,
+                borderRadius: 18,
+                backgroundColor: showHeatmap ? `${colors.primary}22` : 'transparent',
+                alignItems: 'center', justifyContent: 'center',
+                borderWidth: 1, borderColor: showHeatmap ? colors.primary : colors.outline,
+              }}
+            >
+              <Ionicons name="flame-outline" size={16} color={showHeatmap ? colors.primary : colors.onSurfaceVariant} />
+            </Pressable>
+          )}
+          <OnlineToggle
+            isOnline={isOnline}
+            loading={goOnline.isPending || goOffline.isPending}
+            onToggle={handleToggleOnline}
+          />
+        </View>
       </MotiView>
 
       {/* Online error banner */}
@@ -238,7 +364,7 @@ export default function HomeScreen() {
                 : onlineError}
             </Text>
             {onlineError === 'pending_review' && (
-              <TouchableOpacity
+              <Pressable
                 onPress={() => devActivate.mutate()}
                 disabled={devActivate.isPending}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
@@ -247,12 +373,12 @@ export default function HomeScreen() {
                 <Text style={{ fontFamily: fonts.semiBold, fontSize: 11, color: colors.primary }}>
                   {devActivate.isPending ? 'Activating…' : 'Activate Account (Dev)'}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
-          <TouchableOpacity onPress={() => setOnlineError(null)}>
+          <Pressable onPress={() => setOnlineError(null)}>
             <Ionicons name="close" size={14} color={colors.onSurfaceVariant} />
-          </TouchableOpacity>
+          </Pressable>
         </MotiView>
       )}
 
@@ -285,6 +411,9 @@ export default function HomeScreen() {
             transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 150 }}
             style={styles.statsRow}
           >
+            {Platform.OS === 'ios' && (
+              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+            )}
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Today</Text>
               <Text style={styles.statValue}>
@@ -300,7 +429,7 @@ export default function HomeScreen() {
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Balance</Text>
               <Text style={styles.statValue}>
-                GHS {(walletData as any)?.balance?.toFixed(2) ?? '0.00'}
+                GHS {walletData?.balance != null ? walletData.balance.toFixed(2) : '0.00'}
               </Text>
             </View>
           </MotiView>
@@ -355,12 +484,13 @@ const makeStyles = (colors: DriverColors) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: 'rgba(6, 15, 26, 0.85)',
+      backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(6, 15, 26, 0.90)',
       borderRadius: radii['2xl'],
       borderWidth: 1,
       borderColor: colors.outline,
       paddingHorizontal: spacing.base,
       paddingVertical: spacing.sm,
+      overflow: 'hidden',
     },
     headerLogo: {
       fontFamily: fonts.displayBold,
@@ -391,11 +521,12 @@ const makeStyles = (colors: DriverColors) =>
     },
     statsRow: {
       flexDirection: 'row',
-      backgroundColor: colors.surfaceContainerHigh,
+      backgroundColor: 'rgba(255,255,255,0.05)',
       borderRadius: radii.xl,
       borderWidth: 1,
       borderColor: colors.outline,
       padding: spacing.base,
+      overflow: 'hidden',
     },
     statCard: { flex: 1, alignItems: 'center', gap: 4 },
     statDivider: { width: 1, backgroundColor: colors.outline, marginVertical: 4 },

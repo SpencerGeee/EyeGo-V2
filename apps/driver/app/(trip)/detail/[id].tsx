@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useMemo, useEffect } from 'react';
+import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -37,20 +37,33 @@ export default function TripDetailScreen() {
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'detail', id],
-    queryFn: () => driverApi.getAllTrips(),
-    select: (r) => {
-      const trips = (r.data as any)?.data?.trips ?? [];
-      return trips.find((t: any) => t.id === id);
-    },
-    enabled: !!id,
+    // D8: enabled:false when id is missing/invalid — no API call made
+    queryFn: () => driverApi.getTripById(id!),
+    select: (r) => r.data.data?.trip ?? null,
+    enabled: !!id && typeof id === 'string',
   });
 
-  const boardedCount = trip?.seats?.filter((s: any) => s.status === 'BOARDED').length ?? 0;
-  const earnedTotal = boardedCount * (trip?.farePerSeat ?? 0);
+  // D8: guard after all hooks — navigate back for invalid id
+  useEffect(() => {
+    if (!id || typeof id !== 'string') {
+      router.back();
+    }
+  }, [id, router]);
 
-  const durationMin = trip?.departureTime && trip?.arrivedAt
-    ? Math.round((new Date(trip.arrivedAt).getTime() - new Date(trip.departureTime).getTime()) / 60000)
-    : null;
+  const activeBookings = (trip?.bookings ?? []).filter((b: any) => b.status !== 'CANCELLED');
+  const boardedCount = activeBookings.filter((b: any) => b.status === 'BOARDED').length;
+  // D24: guard against trip being undefined before reduce
+  const earnedTotal = trip
+    ? activeBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmount) || trip.farePerSeat || 0), 0)
+    : 0;
+
+  // D22: safe date construction
+  const departureDate = trip?.departureTime ? new Date(trip.departureTime) : null;
+  const arrivedDate = trip?.arrivedAt ? new Date(trip.arrivedAt) : null;
+  const durationMin =
+    departureDate && !isNaN(departureDate.getTime()) && arrivedDate && !isNaN(arrivedDate.getTime())
+      ? Math.round((arrivedDate.getTime() - departureDate.getTime()) / 60000)
+      : null;
 
   const ratingReceived = (trip as any)?.ratingReceived ?? null;
 
@@ -62,10 +75,10 @@ export default function TripDetailScreen() {
         transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         style={styles.backRow}
       >
-        <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Pressable onPress={() => router.back()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Ionicons name="arrow-back" size={18} color={colors.onSurfaceVariant} />
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Back</Text>
-        </TouchableOpacity>
+        </Pressable>
       </MotiView>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -102,8 +115,8 @@ export default function TripDetailScreen() {
               <View style={styles.routeMeta}>
                 <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceVariant} />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {trip?.departureTime
-                    ? new Date(trip.departureTime).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  {departureDate && !isNaN(departureDate.getTime())
+                    ? departureDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                     : '—'}
                 </Text>
                 <View style={[styles.statusChip, { backgroundColor: '#22C55E20', borderColor: '#22C55E55' }]}>
@@ -186,7 +199,7 @@ export default function TripDetailScreen() {
         </MotiView>
 
         {/* Passenger breakdown */}
-        {(trip?.seats?.length ?? 0) > 0 && (
+        {activeBookings.length > 0 && (
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -194,30 +207,32 @@ export default function TripDetailScreen() {
             style={styles.card}
           >
             <Text style={styles.cardTitle}>Passengers</Text>
-            {(trip?.seats ?? [])
-              .filter((s: any) => s.status === 'BOARDED' || s.status === 'CONFIRMED')
-              .map((seat: any, i: number) => (
+            {activeBookings
+              .filter((b: any) => b.status === 'BOARDED' || b.status === 'CONFIRMED')
+              .map((booking: any) => (
                 <MotiView
-                  key={seat.id ?? i}
+                  // D21: use booking.id as key; warn if missing
+                  key={booking.id /* booking.id should always be present; log if missing */}
                   from={{ opacity: 0, translateX: -8 }}
                   animate={{ opacity: 1, translateX: 0 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 220 + i * 40 }}
-                  style={[styles.passengerRow, i > 0 && { borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}
+                  transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 220 }}
+                  style={[styles.passengerRow, { borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}
                 >
                   <View style={styles.passengerAvatar}>
                     <Text style={{ fontFamily: fonts.displayBold, fontSize: 14, color: colors.primary }}>
-                      {(seat.passenger?.name ?? seat.name ?? 'P')[0]?.toUpperCase()}
+                      {(booking.user?.name ?? 'P')[0]?.toUpperCase()}
                     </Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
-                      {seat.passenger?.name ?? seat.name ?? 'Passenger'}
+                      {booking.user?.name ?? `Seat ${booking.seatNumber ?? '—'}`}
                     </Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>Seat {seat.seatNumber}</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>Seat {booking.seatNumber ?? '—'} · {booking.paymentStatus === 'PAID' ? 'Paid' : booking.paymentStatus === 'PENDING' ? 'Cash' : booking.status}</Text>
                   </View>
-                  <View style={[styles.statusChip, seat.status === 'BOARDED' ? { backgroundColor: '#22C55E20', borderColor: '#22C55E55' } : { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}55` }]}>
-                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, color: seat.status === 'BOARDED' ? '#22C55E' : colors.primary }}>
-                      {seat.status === 'BOARDED' ? 'Boarded' : 'Confirmed'}
+                  {/* D16: fallback for unknown booking status values */}
+                  <View style={[styles.statusChip, booking.status === 'BOARDED' ? { backgroundColor: '#22C55E20', borderColor: '#22C55E55' } : booking.status === 'CONFIRMED' ? { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}55` } : { backgroundColor: `${colors.onSurfaceVariant}20`, borderColor: `${colors.onSurfaceVariant}55` }]}>
+                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, color: booking.status === 'BOARDED' ? '#22C55E' : booking.status === 'CONFIRMED' ? colors.primary : colors.onSurfaceVariant }}>
+                      {booking.status === 'BOARDED' ? 'Boarded' : booking.status === 'CONFIRMED' ? 'Confirmed' : 'Unknown'}
                     </Text>
                   </View>
                 </MotiView>

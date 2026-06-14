@@ -1,47 +1,59 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { driverColors } from '../utils/useColors';
+import * as Haptics from 'expo-haptics';
 
-interface Seat {
+export interface SeatData {
   seatNumber: number;
   status: 'EMPTY' | 'BOOKED' | 'BOARDED';
   passengerName?: string;
+  userId?: string;
+  userName?: string;
+  bookingId?: string;
 }
 
 interface Props {
-  seats: Seat[];
+  seats: SeatData[];
   totalSeats: number;
+  onSeatPress?: (seat: SeatData) => void;
 }
 
-export function SeatMap({ seats, totalSeats }: Props) {
+export function SeatMap({ seats, totalSeats, onSeatPress }: Props) {
   const seatMap = new Map(seats.map((s) => [s.seatNumber, s]));
 
   return (
     <View style={styles.grid}>
       {Array.from({ length: totalSeats }, (_, i) => {
         const num = i + 1;
-        const seat = seatMap.get(num);
-        const status = seat?.status ?? 'EMPTY';
+        const seat = seatMap.get(num) ?? { seatNumber: num, status: 'EMPTY' as const };
+        const status = seat.status;
+        const isOccupied = status !== 'EMPTY';
 
         return (
-          <View
+          <Pressable
             key={num}
-            style={[
+            onPress={() => {
+              if (!isOccupied || !onSeatPress) return;
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onSeatPress(seat);
+            }}
+            style={({ pressed }) => [
               styles.seat,
               status === 'BOARDED' && styles.seatBoarded,
               status === 'BOOKED' && styles.seatBooked,
               status === 'EMPTY' && styles.seatEmpty,
+              pressed && isOccupied && styles.seatPressed,
             ]}
           >
             <Text style={[
               styles.seatNum,
-              { color: status !== 'EMPTY' ? driverColors.onPrimary : driverColors.onSurfaceVariant },
+              { color: isOccupied ? driverColors.onPrimary : driverColors.onSurfaceVariant },
             ]}>
               {num}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
     </View>
@@ -74,6 +86,10 @@ const styles = StyleSheet.create({
   seatEmpty: {
     backgroundColor: driverColors.surfaceContainerHighest,
     borderColor: driverColors.outline,
+  },
+  seatPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.93 }],
   },
   seatNum: {
     fontFamily: fonts.semiBold,

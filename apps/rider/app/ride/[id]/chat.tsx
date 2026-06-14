@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -63,22 +63,28 @@ const saveOfflineOutbox = async (tripId: string, outbox: ChatMessage[]) => {
   }
 };
 
+const CACHE_TTL_MS = 48 * 60 * 60 * 1000; // 48 hours
+
 const getCachedHistory = async (tripId: string): Promise<ChatMessage[]> => {
   try {
-    const stored = await AsyncStorage.getItem(`@eyego_chat_history_${tripId}`);
-    return stored ? JSON.parse(stored) : [];
-  } catch (e) {
-    console.error('Failed to load cached history', e);
-    return [];
-  }
+    const raw = await AsyncStorage.getItem(`@eyego_chat_history_${tripId}`);
+    if (!raw) return [];
+    const { messages, savedAt } = JSON.parse(raw);
+    if (Date.now() - savedAt > CACHE_TTL_MS) {
+      await AsyncStorage.removeItem(`@eyego_chat_history_${tripId}`);
+      return [];
+    }
+    return messages ?? [];
+  } catch { return []; }
 };
 
-const saveCachedHistory = async (tripId: string, history: ChatMessage[]) => {
+const saveCachedHistory = async (tripId: string, msgs: ChatMessage[]) => {
   try {
-    await AsyncStorage.setItem(`@eyego_chat_history_${tripId}`, JSON.stringify(history));
-  } catch (e) {
-    console.error('Failed to save cached history', e);
-  }
+    await AsyncStorage.setItem(
+      `@eyego_chat_history_${tripId}`,
+      JSON.stringify({ messages: msgs.slice(0, 200), savedAt: Date.now() })
+    );
+  } catch {}
 };
 
 export default function ChatScreen() {
@@ -96,12 +102,16 @@ export default function ChatScreen() {
   });
 
   const syncedTrip = useMemo(() => {
-    return selectedTrip ?? tripData?.data?.data?.trip;
+    return selectedTrip ?? (tripData?.data?.data as any)?.trip;
   }, [selectedTrip, tripData]);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isDriverTyping, setIsDriverTyping] = useState(false);
+  // Group = broadcast to driver + all riders. Private = 1-on-1 thread with the
+  // driver (parity with the driver app's Group/Private chat tabs).
+  const [chatMode, setChatMode] = useState<'group' | 'private'>('group');
+  const isPrivateMode = chatMode === 'private';
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
   const flatListRef = useRef<FlatList>(null);
@@ -109,6 +119,8 @@ export default function ChatScreen() {
   // Track which unread message IDs we've already sent read receipts for
   // to avoid re-sending on every re-render (race condition fix)
   const sentReadReceiptsRef = useRef<Set<string>>(new Set());
+  // BUGFIX: Timer refs that get cleaned up on unmount to prevent memory leaks
+  const autoClearTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const driver = syncedTrip?.driver;
 
@@ -128,9 +140,13 @@ export default function ChatScreen() {
       })
     );
 
-    // Emit each message in order
+    // Emit each message in order, preserving private vs group routing
     for (const msg of outbox) {
-      socketEvents.sendChatMessage(id, msg.text);
+      if (msg.isPrivate) {
+        socketEvents.sendPrivateChatMessage(id, msg.text, driverIdRef.current);
+      } else {
+        socketEvents.sendChatMessage(id, msg.text);
+      }
     }
 
     // Clear the outbox in storage
@@ -211,6 +227,10 @@ export default function ChatScreen() {
     }
 
     const unsubConnect = socketEvents.onConnect(() => {
+      // Re-join the trip room on every (re)connect — Socket.IO drops room
+      // membership on disconnect, so without this the rider stops receiving
+      // `chat:message` after any network blip / app foregrounding.
+      socketEvents.joinTripRoom(idRef.current ?? id, driverIdRef.current);
       processOfflineOutbox();
     });
 
@@ -248,18 +268,38 @@ export default function ChatScreen() {
 
     const unsubPrivate = socketEvents.onPrivateChatMessage((msg) => {
       const currentUserId = userRef.current?.id;
+      const isMine = msg.senderId === currentUserId;
       const incoming: ChatMessage = {
         id: `${msg.timestamp}-${msg.senderId}-private`,
         senderId: msg.senderId,
         senderName: msg.senderName,
         text: msg.text,
         timestamp: msg.timestamp,
-        isMine: msg.senderId === currentUserId,
+        isMine,
         isPrivate: true,
-        senderRole: 'DRIVER',
+        senderRole: isMine ? 'PASSENGER' : 'DRIVER',
       };
+      // Notify when the driver sends a private message
+      if (!isMine) {
+        scheduleLocalNotification(
+          msg.senderName ?? 'Driver',
+          msg.text,
+          { tripId: id, type: 'chat' },
+        );
+      }
       setMessages((prev) => {
         if (prev.some((m) => m.id === incoming.id)) return prev;
+        // Replace this rider's optimistic private send (id ends with '-me')
+        if (isMine) {
+          const idx = prev.findIndex(
+            (m) => m.isMine && m.isPrivate && m.text === incoming.text && m.id.endsWith('-me'),
+          );
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = incoming;
+            return updated;
+          }
+        }
         return [incoming, ...prev];
       });
     });
@@ -275,8 +315,8 @@ export default function ChatScreen() {
         text: msg.text,
         timestamp: msg.timestamp,
         isMine,
-        isPrivate: (msg as any).isPrivate ?? false,
-        senderRole: (msg as any).senderRole,
+        isPrivate: 'isPrivate' in msg ? !!msg.isPrivate : false,
+        senderRole: 'senderRole' in msg ? msg.senderRole : undefined,
       };
       // Notify rider when driver (or another user) sends a message
       if (!isMine) {
@@ -327,10 +367,10 @@ export default function ChatScreen() {
     const unsubTyping = socketEvents.onTyping((data) => {
       if (data.senderRole === 'DRIVER') {
         setIsDriverTyping(data.isTyping);
-        // Auto-clear after 5s in case stop event is missed
         if (data.isTyping) {
-          setTimeout(() => setIsDriverTyping(false), 5000);
-        }
+            if (autoClearTypingTimerRef.current) clearTimeout(autoClearTypingTimerRef.current);
+            autoClearTypingTimerRef.current = setTimeout(() => setIsDriverTyping(false), 5000);
+          }
       }
     });
 
@@ -346,6 +386,9 @@ export default function ChatScreen() {
       if (id) socketEvents.leaveTripRoom(id);
       // Reset join guard on unmount so re-mount re-joins
       joinedRoomRef.current = false;
+      // BUGFIX: Clean up auto-clear typing timer on unmount
+      if (autoClearTypingTimerRef.current) clearTimeout(autoClearTypingTimerRef.current);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, [id, processOfflineOutbox]);
 
@@ -376,21 +419,39 @@ export default function ChatScreen() {
         text: trimmed,
         timestamp: new Date().toISOString(),
         isMine: true,
+        isPrivate: isPrivateMode,
         status: isConnected ? undefined : 'offline',
       };
 
       setMessages((prev) => [newMessage, ...prev]);
       setInput('');
 
-      if (isConnected) {
-        socketEvents.sendChatMessage(id, trimmed);
-      } else {
-        const outbox = await getOfflineOutbox(id);
-        const updatedOutbox = [...outbox, newMessage];
-        await saveOfflineOutbox(id, updatedOutbox);
+      try {
+        if (isConnected) {
+          if (isPrivateMode) {
+            socketEvents.sendPrivateChatMessage(id, trimmed, driverIdRef.current);
+          } else {
+            socketEvents.sendChatMessage(id, trimmed);
+          }
+        } else {
+          const outbox = await getOfflineOutbox(id);
+          const updatedOutbox = [...outbox, newMessage];
+          await saveOfflineOutbox(id, updatedOutbox);
+        }
+      } catch {
+        // Mark message as failed so the user knows it didn't send
+        setMessages((prev) =>
+          prev.map((m) => (m.id === newMessage.id ? { ...m, status: 'failed' as const } : m))
+        );
       }
     },
-    [id, user?.id]
+    [id, user?.id, isPrivateMode]
+  );
+
+  // Show only the messages for the active tab: group (broadcast) vs private.
+  const visibleMessages = useMemo(
+    () => messages.filter((m) => (isPrivateMode ? m.isPrivate : !m.isPrivate)),
+    [messages, isPrivateMode],
   );
 
   const formatTime = (iso: string) => {
@@ -510,12 +571,30 @@ export default function ChatScreen() {
         </View>
         <Pressable
           onPress={() => {
-            const phone = (driver as any)?.phone;
+            const phone = driver?.phone;
             if (phone) require('react-native').Linking.openURL(`tel:${phone}`);
           }}
           style={styles.callBtn}
         >
           <Ionicons name="call-outline" size={20} color={colors.primary} />
+        </Pressable>
+      </View>
+
+      {/* Group / Private tabs — mirrors the driver chat */}
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tab, chatMode === 'group' && styles.tabActive]}
+          onPress={() => setChatMode('group')}
+        >
+          <Ionicons name="people-outline" size={14} color={chatMode === 'group' ? colors.primary : colors.onSurfaceVariant} />
+          <Text style={[styles.tabText, { color: chatMode === 'group' ? colors.primary : colors.onSurfaceVariant }]}>Group</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, chatMode === 'private' && styles.tabActive]}
+          onPress={() => setChatMode('private')}
+        >
+          <Ionicons name="lock-closed-outline" size={14} color={chatMode === 'private' ? colors.primary : colors.onSurfaceVariant} />
+          <Text style={[styles.tabText, { color: chatMode === 'private' ? colors.primary : colors.onSurfaceVariant }]}>Private</Text>
         </Pressable>
       </View>
 
@@ -527,7 +606,7 @@ export default function ChatScreen() {
         {/* Messages */}
         <FlatList
           ref={flatListRef}
-          data={messages}
+          data={visibleMessages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
           inverted
@@ -617,7 +696,7 @@ export default function ChatScreen() {
                 socketEvents.sendTypingStop(id);
               }, 2000);
             }}
-            placeholder="Message your driver..."
+            placeholder={isPrivateMode ? 'Private message to driver…' : 'Message your driver...'}
             placeholderTextColor={colors.onSurfaceVariant}
             style={styles.textInput}
             multiline
@@ -760,6 +839,32 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 3,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing['2xl'],
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outlineVariant,
+  },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+  },
+  tabActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}18`,
+  },
+  tabText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.caption,
   },
   quickRepliesScroll: {
     borderTopWidth: 1,

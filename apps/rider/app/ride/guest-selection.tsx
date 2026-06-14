@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, TextInput, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,17 +18,36 @@ export default function GuestSelectionScreen() {
   const [selection, setSelection] = useState<'myself' | 'guest'>(guestInfo ? 'guest' : 'myself');
   const [name, setName] = useState(guestInfo?.name ?? '');
   const [phone, setPhone] = useState(guestInfo?.phone ?? '');
+  const [nameError, setNameError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
 
-  const handleContinue = () => {
+  // RH5: Validate Ghana phone numbers (MTN, Vodafone, AirtelTigo prefixes)
+  const PHONE_RE = /^(\+233|0)?[25679]\d{8}$/;
+
+  const handleContinue = useCallback(() => {
     if (selection === 'guest') {
-      setGuestInfo({ name, phone });
+      let valid = true;
+      if (!name.trim()) {
+        setNameError('Please enter the guest\'s name.');
+        valid = false;
+      } else {
+        setNameError('');
+      }
+      if (!PHONE_RE.test(phone.trim())) {
+        setPhoneError('Enter a valid Ghana phone number (e.g. 024 123 4567).');
+        valid = false;
+      } else {
+        setPhoneError('');
+      }
+      if (!valid) return;
+      setGuestInfo({ name: name.trim(), phone });
     } else {
       setGuestInfo(null);
     }
     router.back();
-  };
+  }, [selection, name, phone, setGuestInfo, router]);
 
-  const isContinueDisabled = selection === 'guest' && (!name.trim() || !phone.trim());
+  const isContinueDisabled = false; // Validation now happens inside handleContinue
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -127,33 +146,35 @@ export default function GuestSelectionScreen() {
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.label}>
                   Guest Name
                 </Text>
-                <View style={styles.inputContainer}>
+                <View style={[styles.inputContainer, !!nameError && { borderColor: '#EF4444' }]}>
                   <Ionicons name="person-outline" size={20} color={colors.onSurfaceVariant} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={name}
-                    onChangeText={setName}
+                    onChangeText={(t) => { setName(t); if (nameError) setNameError(''); }}
                     placeholder="Enter guest's full name"
                     placeholderTextColor={colors.onSurfaceVariant}
                   />
                 </View>
+                {!!nameError && <Text variant="caption" color="#EF4444" style={{ marginTop: 4, marginLeft: 4 }}>{nameError}</Text>}
               </View>
 
               <View style={styles.inputGroup}>
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.label}>
                   Phone Number
                 </Text>
-                <View style={styles.inputContainer}>
+                <View style={[styles.inputContainer, !!phoneError && { borderColor: '#EF4444' }]}>
                   <Ionicons name="call-outline" size={20} color={colors.onSurfaceVariant} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     value={phone}
-                    onChangeText={setPhone}
+                    onChangeText={(t) => { setPhone(t); if (phoneError) setPhoneError(''); }}
                     placeholder="Enter guest's phone number"
                     placeholderTextColor={colors.onSurfaceVariant}
                     keyboardType="phone-pad"
                   />
                 </View>
+                {!!phoneError && <Text variant="caption" color="#EF4444" style={{ marginTop: 4, marginLeft: 4 }}>{phoneError}</Text>}
               </View>
             </MotiView>
           )}

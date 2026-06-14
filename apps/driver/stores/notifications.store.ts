@@ -7,6 +7,7 @@ export type NotificationType =
   | 'PAYMENT_CONFIRMED'
   | 'DRIVER_EN_ROUTE'
   | 'IN_PROGRESS'
+  | 'ARRIVED_AT_PICKUP'
   | 'COMPLETED'
   | 'SEAT_UPDATE'
   | 'INFO';
@@ -29,6 +30,10 @@ interface NotificationsState {
   clear: () => void;
 }
 
+// Monotonic counter to guarantee unique ids even when two notifications
+// arrive within the same millisecond (Date.now() alone collides).
+let notificationSeq = 0;
+
 export const useNotificationsStore = create<NotificationsState>()(
   persist(
     (set, get) => ({
@@ -37,7 +42,7 @@ export const useNotificationsStore = create<NotificationsState>()(
       addNotification: (n) => {
         const entry: DriverNotification = {
           ...n,
-          id: Date.now().toString(),
+          id: `${Date.now()}-${notificationSeq++}`,
           timestamp: new Date().toISOString(),
           read: false,
         };

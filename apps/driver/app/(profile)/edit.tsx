@@ -5,7 +5,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  TouchableOpacity,
   TextInput,
   Pressable,
 } from 'react-native';
@@ -91,14 +90,14 @@ export default function EditProfileScreen() {
             transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 80 }}
             style={styles.avatarWrapper}
           >
-            <TouchableOpacity onPress={pickImage} activeOpacity={0.85} style={styles.avatarTouch}>
+            <Pressable onPress={pickImage} style={styles.avatarTouch}>
               <View style={styles.avatarCircle}>
                 <Text style={styles.avatarInitials}>{initials || '?'}</Text>
               </View>
               <View style={styles.cameraBadge}>
                 <Ionicons name="camera" size={14} color={colors.onPrimary} />
               </View>
-            </TouchableOpacity>
+            </Pressable>
           </MotiView>
 
           {/* Name field */}

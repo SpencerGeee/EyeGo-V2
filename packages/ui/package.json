@@ -6,6 +6,7 @@
   "private": true,
   "peerDependencies": {
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "expo-blur": "*"
   }
 }

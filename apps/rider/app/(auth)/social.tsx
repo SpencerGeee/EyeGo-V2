@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Alert, Platform, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Alert, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -36,8 +36,8 @@ export default function SocialAuthScreen() {
       if (!idToken) throw new Error('No ID token returned from Google');
 
       const res = await authApi.socialLogin({ provider: 'google', idToken });
-      const { user, tokens, isNewUser } = res.data.data;
-      await login(user, tokens);
+      const { user, accessToken, refreshToken, isNewUser } = res.data.data;
+      await login(user, { accessToken, refreshToken });
 
       if (isNewUser) {
         router.replace('/(auth)/register');
@@ -72,8 +72,8 @@ export default function SocialAuthScreen() {
         idToken: credential.identityToken,
         appleToken: credential.authorizationCode ?? undefined,
       });
-      const { user, tokens, isNewUser } = res.data.data;
-      await login(user, tokens);
+      const { user, accessToken, refreshToken, isNewUser } = res.data.data;
+      await login(user, { accessToken, refreshToken });
 
       if (isNewUser) {
         router.replace('/(auth)/register');
@@ -93,9 +93,9 @@ export default function SocialAuthScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       <MotiView
@@ -113,10 +113,9 @@ export default function SocialAuthScreen() {
         </Text>
 
         {/* Google */}
-        <TouchableOpacity
+        <Pressable
           onPress={handleGoogleSignIn}
           disabled={loadingGoogle || loadingApple}
-          activeOpacity={0.85}
           style={[styles.socialBtn, loadingGoogle && styles.socialBtnDisabled]}
         >
           {loadingGoogle ? (
@@ -133,14 +132,13 @@ export default function SocialAuthScreen() {
               <Text style={styles.socialBtnText}>Continue with Google</Text>
             </>
           )}
-        </TouchableOpacity>
+        </Pressable>
 
         {/* Apple — iOS only */}
         {Platform.OS === 'ios' && (
-          <TouchableOpacity
+          <Pressable
             onPress={handleAppleSignIn}
             disabled={loadingGoogle || loadingApple}
-            activeOpacity={0.85}
             style={[styles.socialBtn, styles.appleSocialBtn, loadingApple && styles.socialBtnDisabled]}
           >
             {loadingApple ? (
@@ -158,7 +156,7 @@ export default function SocialAuthScreen() {
                 </Text>
               </>
             )}
-          </TouchableOpacity>
+          </Pressable>
         )}
 
         <Text variant="caption" color={colors.onSurfaceVariant} style={styles.legal}>

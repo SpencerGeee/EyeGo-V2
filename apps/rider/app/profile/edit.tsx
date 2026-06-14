@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,18 +6,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  Image,
   Alert,
   Modal,
   FlatList,
-  TouchableOpacity,
 } from 'react-native';
+import { Image } from 'expo-image';
 import * as Contacts from 'expo-contacts';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import * as ImagePicker from 'expo-image-picker';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -32,6 +31,7 @@ export default function EditProfileScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { user, updateUser } = useAuthStore();
+  const qc = useQueryClient();
 
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState((user as any)?.email ?? '');
@@ -66,12 +66,12 @@ export default function EditProfileScreen() {
     setShowContactPicker(true);
   };
 
-  const selectContact = (contact: Contacts.Contact) => {
+  const selectContact = useCallback((contact: Contacts.Contact) => {
     const phone = contact.phoneNumbers?.[0]?.number?.replace(/\s/g, '') ?? '';
     setEmergencyName(contact.name ?? '');
     setEmergencyPhone(phone);
     setShowContactPicker(false);
-  };
+  }, []);
 
   const onDateChange = (_event: any, selectedDate?: Date) => {
     if (selectedDate) {
@@ -112,14 +112,15 @@ export default function EditProfileScreen() {
           ? { name: emergencyName.trim(), phone: emergencyPhone.trim() }
           : undefined,
       } as any);
-      return data.data.user;
+      return data.data;
     },
     onSuccess: (updatedUser) => {
       updateUser(updatedUser);
+      qc.invalidateQueries({ queryKey: ['user', 'profile'] });
       router.back();
     },
-    onError: (err: any) => {
-      console.error('[EditProfile] save failed:', err?.response?.status, JSON.stringify(err?.response?.data));
+    onError: () => {
+      Alert.alert('Save Failed', 'Could not save your profile. Please check your connection and try again.');
     },
   });
 
@@ -131,6 +132,16 @@ export default function EditProfileScreen() {
     setNameError('');
     saveProfile.mutate();
   };
+
+  const renderContactItem = useCallback(({ item }: { item: Contacts.Contact }) => (
+    <Pressable
+      onPress={() => selectContact(item)}
+      style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
+    >
+      <Text variant="bodyMedium">{item.name}</Text>
+      <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
+    </Pressable>
+  ), [selectContact, colors]);
 
   const avatarSource = avatarUri
     ? { uri: avatarUri }
@@ -311,16 +322,8 @@ export default function EditProfileScreen() {
           </View>
           <FlatList
             data={contactList}
-            keyExtractor={item => item.id ?? item.name ?? Math.random().toString()}
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => selectContact(item)}
-                style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-              >
-                <Text variant="bodyMedium">{item.name}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
-              </Pressable>
-            )}
+            keyExtractor={(item: any) => item.id ?? item.name ?? Math.random().toString()}
+            renderItem={renderContactItem}
           />
         </SafeAreaView>
       </Modal>

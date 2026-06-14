@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, RefreshControl } from 'react-native';
+import { View, StyleSheet, Pressable, RefreshControl, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { BlurView } from 'expo-blur';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -18,7 +20,7 @@ const SEGMENTS = ['Upcoming', 'Past'] as const;
 type Segment = typeof SEGMENTS[number];
 
 function displayStatusFor(booking: Booking): string {
-  return (booking as any).trip?.status === 'COMPLETED' ? 'COMPLETED' : booking.status;
+  return booking.trip?.status === 'COMPLETED' ? 'COMPLETED' : booking.status;
 }
 
 const emptyLottie = require('../../assets/lottie/empty-state.json');
@@ -33,7 +35,7 @@ export default function TripsScreen() {
 
   // Navigate to the cancel screen (with reason picker) instead of a bare Alert
   const handleCancel = useCallback((bookingId: string) => {
-    router.push({ pathname: '/ride/[id]/cancel', params: { id: bookingId } } as any);
+    router.push({ pathname: '/ride/[id]/cancel', params: { id: bookingId } } as Href);
   }, [router]);
 
   const { data: activeData } = useQuery({
@@ -43,12 +45,13 @@ export default function TripsScreen() {
     refetchOnMount: true,
   });
   // Backend returns { data: { booking: {...} } } — unwrap both shapes for safety
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawActive = activeData?.data?.data as any;
   const rawBooking = (rawActive?.booking ?? rawActive) as Booking | null ?? storeActiveBooking;
   // Only surface the banner when the booking is genuinely in-flight (not completed/cancelled)
-  const ACTIVE_STATUSES = ['CONFIRMED', 'SEAT_HELD', 'BOARDED'];
+  const ACTIVE_STATUSES = ['CONFIRMED', 'SEAT_HELD', 'BOARDED'] as const;
   const activeBooking: Booking | null =
-    rawBooking && ACTIVE_STATUSES.includes((rawBooking as any).status ?? '')
+    rawBooking && ACTIVE_STATUSES.includes(rawBooking.status as typeof ACTIVE_STATUSES[number])
       ? rawBooking
       : null;
 
@@ -70,16 +73,16 @@ export default function TripsScreen() {
           styles.tripCard,
           { borderLeftWidth: 3, borderLeftColor: segment === 'Upcoming' ? colors.primary : colors.outlineVariant },
         ]}
-        onPress={() => router.push(`/ride/${item.tripId}` as any)}
+        onPress={() => router.push(`/ride/${item.tripId}` as Href)}
         accessibilityRole="button"
-        accessibilityLabel={`Trip from ${(item as any).trip?.route?.originName ?? 'Origin'} to ${(item as any).trip?.route?.destinationName ?? 'Destination'}`}
+        accessibilityLabel={`Trip from ${item.trip?.route?.originName ?? 'Origin'} to ${item.trip?.route?.destinationName ?? 'Destination'}`}
       >
         <TripCard
           booking={item}
           showCancel={segment === 'Upcoming' && ['CONFIRMED', 'SEAT_HELD', 'BOARDED'].includes(item.status)}
           onCancel={() => handleCancel(item.id)}
-          showDispute={segment === 'Past' && ['COMPLETED', 'CANCELLED'].includes(displayStatusFor(item as Booking))}
-          onDispute={() => router.push({ pathname: '/ride/[id]/dispute', params: { id: item.id } } as any)}
+          showDispute={segment === 'Past' && ['COMPLETED', 'CANCELLED'].includes(displayStatusFor(item))}
+          onDispute={() => router.push({ pathname: '/ride/[id]/dispute', params: { id: item.id } } as Href)}
         />
       </Pressable>
     </View>
@@ -93,19 +96,19 @@ export default function TripsScreen() {
     setRefreshing(false);
   }, [queryClient, refetchBookings, segment]);
 
-  const rawBookings = (data?.data?.data?.bookings ?? []) as Booking[];
+  const rawBookings = ((data?.data?.data as any)?.bookings ?? []) as Booking[];
   const bookings = useMemo(() => {
     if (segment === 'Upcoming') {
       // Exclude bookings whose underlying trip is already completed — they belong in Past
       return rawBookings.filter(b =>
         ['CONFIRMED', 'SEAT_HELD', 'PENDING', 'BOARDED'].includes(b.status) &&
-        !['COMPLETED', 'CANCELLED'].includes((b as any).trip?.status ?? '')
+        !['COMPLETED', 'CANCELLED'].includes(b.trip?.status ?? '')
       );
     } else {
       // Include bookings with a completed status OR whose trip is marked COMPLETED
       return rawBookings.filter(b =>
         ['COMPLETED', 'CANCELLED', 'REFUNDED', 'NO_SHOW'].includes(b.status) ||
-        (b as any).trip?.status === 'COMPLETED'
+        b.trip?.status === 'COMPLETED'
       );
     }
   }, [rawBookings, segment]);
@@ -125,7 +128,7 @@ export default function TripsScreen() {
       {/* Active booking banner */}
       {activeBooking && (
         <Pressable
-          onPress={() => router.push(`/ride/${activeBooking.tripId}/tracking` as any)}
+          onPress={() => router.push(`/ride/${activeBooking.tripId}/tracking` as Href)}
           style={[styles.activeBanner, { borderLeftColor: colors.primary }]}
           accessibilityRole="button"
           accessibilityLabel="Active ride — tap to track"
@@ -138,18 +141,18 @@ export default function TripsScreen() {
               RIDE IN PROGRESS
             </Text>
             <Text variant="titleSmall" numberOfLines={1}>
-              {(activeBooking as any).trip?.route?.originName ??
-                (activeBooking as any).trip?.origin?.address?.split(',')[0] ?? 'Active Ride'}
+              {activeBooking.trip?.route?.originName ??
+                activeBooking.trip?.origin?.address?.split(',')[0] ?? 'Active Ride'}
               {' → '}
-              {(activeBooking as any).trip?.route?.destinationName ??
-                (activeBooking as any).trip?.destination?.address?.split(',')[0] ?? ''}
+              {activeBooking.trip?.route?.destinationName ??
+                activeBooking.trip?.destination?.address?.split(',')[0] ?? ''}
             </Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>
               Seat #{activeBooking.seatNumber ?? '—'} ·{' '}
               {formatCurrency(
-                (activeBooking as any).fareAmount ??
-                (activeBooking as any).fare ??
-                (activeBooking as any).trip?.farePerSeat ?? 0
+                activeBooking.fareAmount ??
+                activeBooking.fare ??
+                activeBooking.trip?.farePerSeat ?? 0
               )}
             </Text>
           </View>
@@ -159,7 +162,7 @@ export default function TripsScreen() {
         </Pressable>
       )}
 
-      {/* Segmented control */}
+      {/* Segmented control — animated glass pill */}
       <MotiView
         from={{ opacity: 0, translateY: 6 }}
         animate={{ opacity: 1, translateY: 0 }}
@@ -167,21 +170,14 @@ export default function TripsScreen() {
         style={styles.segmentRow}
       >
         {SEGMENTS.map((s) => (
-          <Pressable
+          <AnimatedSegment
             key={s}
-            style={[styles.segmentItem, segment === s && styles.segmentItemActive]}
+            label={s}
+            isActive={segment === s}
             onPress={() => setSegment(s)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: segment === s }}
-            accessibilityLabel={`${s} trips${segment === s ? ', selected' : ''}`}
-          >
-            <Text
-              variant="label"
-              color={segment === s ? colors.backgroundDeep : colors.onSurfaceVariant}
-            >
-              {s}
-            </Text>
-          </Pressable>
+            colors={colors}
+            styles={styles}
+          />
         ))}
       </MotiView>
 
@@ -195,7 +191,7 @@ export default function TripsScreen() {
       ) : bookings.length === 0 ? (
         <EmptyState
           lottieSource={emptyLottie}
-          icon="🚌"
+          icon="bus-outline"
           title={`No ${segment.toLowerCase()} trips`}
           subtitle={
             segment === 'Upcoming'
@@ -206,8 +202,9 @@ export default function TripsScreen() {
       ) : (
         <FlashList
           data={bookings}
-          keyExtractor={(item) => item.id}
-          estimatedItemSize={108}
+          keyExtractor={(item: Booking) => item.id}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          {...({ estimatedItemSize: 108 } as any)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -225,6 +222,47 @@ export default function TripsScreen() {
   );
 }
 
+function AnimatedSegment({
+  label,
+  isActive,
+  onPress,
+  colors,
+  styles,
+}: {
+  label: string;
+  isActive: boolean;
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(0.94, { stiffness: 700, damping: 18 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 18 }); }}
+      style={styles.segmentItem}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isActive }}
+      accessibilityLabel={`${label} trips${isActive ? ', selected' : ''}`}
+    >
+      <Animated.View style={[
+        { paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.md, borderRadius: radii.xl, overflow: 'hidden' },
+        isActive && styles.segmentItemActive,
+        animStyle,
+      ]}>
+        {isActive && Platform.OS === 'ios' && (
+          <BlurView intensity={20} tint="light" style={StyleSheet.absoluteFill} />
+        )}
+        <Text variant="label" color={isActive ? colors.backgroundDeep : colors.onSurfaceVariant}>
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
   booking: Booking;
   showCancel?: boolean;
@@ -238,23 +276,23 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
 
   // If the trip itself is COMPLETED, show COMPLETED regardless of booking status
   // (handles stuck SEAT_HELD/CONFIRMED bookings on completed trips)
-  const displayStatus = (trip as any)?.status === 'COMPLETED' ? 'COMPLETED' : booking.status;
+  const displayStatus = trip?.status === 'COMPLETED' ? 'COMPLETED' : booking.status;
 
   return (
     <View style={styles.cardInner}>
       <View style={styles.cardHeader}>
         <View style={styles.routeRow}>
           <Text variant="titleSmall" numberOfLines={1} style={{ flex: 1 }}>
-            {(trip as any)?.route?.originName ?? trip?.origin?.address?.split(',')[0] ?? 'Origin'}
+            {trip?.route?.originName ?? trip?.origin?.address?.split(',')[0] ?? 'Origin'}
           </Text>
           <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginHorizontal: spacing.sm }}>
             →
           </Text>
           <Text variant="titleSmall" numberOfLines={1} style={{ flex: 1, textAlign: 'right' }}>
-            {(trip as any)?.route?.destinationName ?? trip?.destination?.address?.split(',')[0] ?? 'Destination'}
+            {trip?.route?.destinationName ?? trip?.destination?.address?.split(',')[0] ?? 'Destination'}
           </Text>
         </View>
-        <StatusBadge status={displayStatus as any} />
+        <StatusBadge status={displayStatus} />
       </View>
 
       <View style={styles.cardMeta}>
@@ -262,7 +300,7 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
           {trip?.departureTime ? formatTripDate(trip.departureTime) : '—'}
         </Text>
         <Text variant="fareSmall">
-          {formatCurrency((booking as any).fareAmount ?? booking.fare ?? 0)}
+          {formatCurrency(booking.fareAmount ?? booking.fare ?? 0)}
         </Text>
       </View>
 
@@ -273,23 +311,29 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
             Your rating:
           </Text>
           {Array.from({ length: 5 }).map((_, i) => (
-            <Text key={i} style={{ fontSize: 12, color: i < booking.rating! ? '#F59E0B' : colors.outlineVariant }}>
-              {i < booking.rating! ? '★' : '☆'}
-            </Text>
+            <Ionicons
+              key={i}
+              name={i < booking.rating! ? 'star' : 'star-outline'}
+              size={12}
+              color={i < booking.rating! ? '#F59E0B' : colors.outlineVariant}
+            />
           ))}
         </View>
       )}
       {/* Driver's rating of you (passenger rating) */}
-      {(booking as any).passengerRating && (
+      {booking.passengerRating != null && (
         <View style={styles.ratingRow}>
           <Ionicons name="people-outline" size={12} color={colors.onSurfaceVariant} />
           <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginRight: spacing.xs }}>
             Driver rated you:
           </Text>
           {Array.from({ length: 5 }).map((_, i) => (
-            <Text key={i} style={{ fontSize: 11, color: i < (booking as any).passengerRating! ? '#A78BFA' : colors.outlineVariant }}>
-              {i < (booking as any).passengerRating! ? '★' : '☆'}
-            </Text>
+            <Ionicons
+              key={i}
+              name={i < booking.passengerRating! ? 'star' : 'star-outline'}
+              size={11}
+              color={i < booking.passengerRating! ? '#A78BFA' : colors.outlineVariant}
+            />
           ))}
         </View>
       )}
@@ -323,12 +367,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   segmentItem: {
     flex: 1,
-    paddingVertical: spacing.sm + 2,
     alignItems: 'center',
-    borderRadius: radii.xl,
   },
   segmentItemActive: {
     backgroundColor: colors.primary,
+    borderRadius: radii.xl,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+    overflow: 'hidden',
   },
   skeletonContainer: {
     paddingHorizontal: spacing['2xl'],
@@ -339,13 +385,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
+    paddingBottom: 100,
   },
   cardWrapper: {
     marginBottom: spacing.md,
   },
   tripCard: {
-    backgroundColor: colors.surfaceContainer,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: radii.xl,
     borderWidth: 1,
     borderColor: colors.outlineVariant,

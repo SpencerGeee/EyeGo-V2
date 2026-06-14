@@ -27,6 +27,7 @@ export interface DriverColors {
   onErrorContainer: string;
   online: string;
   offline: string;
+  warning: string;
   glowPrimary: string;
   glowAccent: string;
   glowError: string;
@@ -59,6 +60,7 @@ export const driverColors: DriverColors = {
   onErrorContainer: '#FEE2E2',
   online: '#3B82F6',
   offline: '#64748B',
+  warning: '#FBBF24',
   glowPrimary: 'rgba(59, 130, 246, 0.4)',
   glowAccent: 'rgba(96, 165, 250, 0.25)',
   glowError: 'rgba(248, 113, 113, 0.4)',
@@ -91,6 +93,7 @@ export const driverLightColors: DriverColors = {
   onErrorContainer: '#7F1D1D',
   online: '#2563EB',
   offline: '#94A3B8',
+  warning: '#D97706',
   glowPrimary: 'rgba(37, 99, 235, 0.25)',
   glowAccent: 'rgba(59, 130, 246, 0.15)',
   glowError: 'rgba(220, 38, 38, 0.25)',

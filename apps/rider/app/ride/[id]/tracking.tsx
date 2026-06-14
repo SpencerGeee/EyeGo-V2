@@ -1,20 +1,21 @@
 import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
-import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { formatDuration } from '@eyego/utils';
+import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
 
 function useLocationInterpolation(targetCoords: { latitude: number; longitude: number; heading?: number } | null) {
@@ -105,7 +106,22 @@ export default function TrackingScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { selectedTrip, activeBooking, driverLocation, tripEta, setDriverLocation, setTripEta } = useRideStore();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['trip', id] }),
+        queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] }),
+        queryClient.invalidateQueries({ queryKey: ['bookings', 'active-tracking'] }),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [id, queryClient]);
 
   const { data: tripData } = useQuery({
     queryKey: ['trip', id],
@@ -121,7 +137,8 @@ export default function TrackingScreen() {
     queryKey: ['bookings', 'active-tracking'],
     queryFn: () => bookingsApi.getActive(),
     select: (r) => {
-      const raw = (r.data as any)?.data as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = (r.data as any)?.data;
       return (raw?.booking ?? raw) ?? null;
     },
     staleTime: 30_000,
@@ -139,15 +156,17 @@ export default function TrackingScreen() {
   // By the time COMPLETED fires, getActive() returns null — the ref keeps the ID.
   const capturedBookingIdRef = useRef<string>('');
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const id = activeBooking?.id ?? (apiActiveBooking as any)?.id ?? '';
     if (id && !capturedBookingIdRef.current) {
       capturedBookingIdRef.current = id;
     }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }, [activeBooking?.id, (apiActiveBooking as any)?.id]);
 
   // Prefer fresh API data over potentially stale Zustand selectedTrip
   const syncedTrip = useMemo(() => {
-    return tripData?.data?.data?.trip ?? selectedTrip;
+    return (tripData?.data?.data as any)?.trip ?? selectedTrip;
   }, [selectedTrip, tripData]);
 
   const trip = useMemo(() => {
@@ -183,6 +202,14 @@ export default function TrackingScreen() {
 
   // Trip phase determines routing direction
   const tripInProgress = syncedTrip?.status === 'IN_PROGRESS';
+
+  // Driver location with interpolation — seed from DB coords so marker shows immediately.
+  const driverDbLat = syncedTrip?.driver?.currentLat ?? 5.61;
+  const driverDbLng = syncedTrip?.driver?.currentLng ?? -0.187;
+  const fallbackCoordRef = useRef({ latitude: driverDbLat, longitude: driverDbLng, heading: 0 });
+  useEffect(() => { fallbackCoordRef.current = { latitude: driverDbLat, longitude: driverDbLng, heading: 0 }; }, [driverDbLat, driverDbLng]);
+  const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
+  const animatedDriverCoord = useLocationInterpolation(currentDriverCoord);
 
   // Rider's own GPS — used for pre-trip routing (rider → pickup)
   const [riderLocation, setRiderLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -243,10 +270,10 @@ export default function TrackingScreen() {
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['44%', '65%'], []);
-  const cameraRef = useRef<MapboxGL.Camera>(null);
+  const cameraRef = useRef<any>(null);
   // Guarded setters — only update if the value actually changed to prevent
   // unnecessary re-renders that could cascade into a "Maximum update depth exceeded" loop.
-  const [tripStatus, setTripStatus] = useState('En route');
+  const [tripStatus, setTripStatus] = useState('Boarding');
   const tripStatusRef = useRef(tripStatus);
   const safeSetTripStatus = useCallback((next: string) => {
     if (next !== tripStatusRef.current) {
@@ -281,32 +308,45 @@ export default function TrackingScreen() {
   const activeBookingRef = useRef(activeBooking);
   useEffect(() => { activeBookingRef.current = activeBooking; }, [activeBooking]);
 
-  const handleSOS = () => router.push(`/ride/${id}/sos` as any);
-  const handleChat = () => router.push(`/ride/${id}/chat` as any);
+  const handleSOS = () => router.push(`/ride/${id}/sos` as Href);
+  const handleChat = () => router.push(`/ride/${id}/chat` as Href);
 
   KeepAwake.useKeepAwake();
 
-  // ── Stale booking detection: when the app comes to foreground, check if
-  // the trip is still active (could have been completed/cancelled while away) ──
+  // BUGFIX: Split into a single useEffect with both appstate handlers merged together
+  // and stale-closure-safe callbacks. The previous code had TWO separate
+  // AppState.addEventListener('change', ...) subscriptions — both running on every
+  // foreground event, doubling API calls and socket joins.
   useEffect(() => {
     const handleAppState = async (nextState: AppStateStatus) => {
-      if (nextState === 'active' && activeBookingRef.current?.id) {
+      if (nextState !== 'active') return;
+
+      // 1. Stale booking detection
+      if (activeBookingRef.current?.id) {
         try {
-          // Fetch the latest booking status from the API
           const { bookingsApi } = require('@eyego/api');
           const response = await bookingsApi.getActive();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const fresh = (response.data as any)?.data?.booking;
           if (!fresh) {
-            // Booking no longer active — trip was completed/cancelled while we were away
             showBanner('Trip status changed while you were away');
             setTimeout(() => {
               if (!mountedRef.current) return;
               disconnectSocket();
-              router.replace(`/ride/${id}/complete` as any);
+              router.replace(`/ride/${id}/complete` as Href);
             }, 2000);
           }
-        } catch (_) {
-          // API error — stay on screen, re-check on next foreground event
+        } catch (err) {
+          console.warn('[Tracking] AppState booking check failed:', err);
+        }
+      }
+
+      // 2. Re-join trip room
+      if (id) {
+        const trip = syncedTripRef.current;
+        const driverId = trip?.driverId ?? trip?.driver?.id;
+        if (driverId) {
+          socketEvents.joinTripRoom(id, driverId);
         }
       }
     };
@@ -322,14 +362,14 @@ export default function TrackingScreen() {
     // If socket is already connected (e.g. user navigated away and came back),
     // join the room immediately rather than waiting for the next 'connect' event.
     const trip = syncedTripRef.current;
-    const driverId = trip?.driverId ?? (trip?.driver as any)?.id;
+    const driverId = trip?.driverId ?? trip?.driver?.id;
     if (id && driverId) socketEvents.joinTripRoom(id, driverId);
 
     const unsubConnect = socketEvents.onConnect(() => {
       // Re-join trip room on every (re)connect so we never miss events
       // after a network blip. syncedTripRef always holds the latest value.
       const trip = syncedTripRef.current;
-      const driverId = trip?.driverId ?? (trip?.driver as any)?.id;
+      const driverId = trip?.driverId ?? trip?.driver?.id;
       if (id && driverId) socketEvents.joinTripRoom(id, driverId);
     });
 
@@ -359,8 +399,9 @@ export default function TrackingScreen() {
         const completedBookingId =
           capturedBookingIdRef.current || activeBookingRef.current?.id || '';
         setTimeout(() => {
+          if (!mountedRef.current) return;
           disconnectSocket();
-          router.replace(`/ride/${id}/complete${completedBookingId ? `?bookingId=${completedBookingId}` : ''}` as any);
+          router.replace(`/ride/${id}/complete${completedBookingId ? `?bookingId=${completedBookingId}` : ''}` as Href);
         }, 1200);
       } else if (data.status === 'DRIVER_EN_ROUTE') {
         safeSetTripStatus('Driver on the way');
@@ -368,6 +409,19 @@ export default function TrackingScreen() {
       } else if (data.status === 'IN_PROGRESS') {
         safeSetTripStatus('Trip in progress');
         showBanner('EyeGo has departed — enjoy the ride!');
+      } else if (data.status === 'CANCELLED') {
+        // Driver (or admin) cancelled the trip mid-flow. Stop tracking and tell
+        // the rider immediately instead of leaving them on a stale "en route" view.
+        safeSetTripStatus('Trip cancelled');
+        if (!mountedRef.current) return;
+        disconnectSocket();
+        useRideStore.getState().clearRideState();
+        Alert.alert(
+          'Trip cancelled',
+          'Your driver cancelled this trip. You have not been charged for the ride. Please book another.',
+          [{ text: 'OK', onPress: () => router.replace('/(tabs)/home' as Href) }],
+          { cancelable: false }
+        );
       }
     });
 
@@ -384,47 +438,31 @@ export default function TrackingScreen() {
   }, [id, showBanner, setDriverLocation, setTripEta, safeSetTripStatus, setStopsAway, setEtaDistanceKm, setRouteCoords, router]);
 
   // ── Additional foreground detection for re-joining trip room ──
-  useEffect(() => {
-    const handleAppStateJoin = (nextState: AppStateStatus) => {
-      if (nextState === 'active' && id) {
-        const trip = syncedTripRef.current;
-        const driverId = trip?.driverId ?? (trip?.driver as any)?.id;
-        if (driverId) {
-          socketEvents.joinTripRoom(id, driverId);
-        }
-      }
-    };
-    const subscription = AppState.addEventListener('change', handleAppStateJoin);
-    return () => subscription.remove();
-  }, [id]);
+  // BUGFIX: Removed — now merged into the single AppState handler above to avoid
+  // duplicate subscriptions.
 
   // Re-join trip room once driverId is resolved from async trip data
   // This is separate because syncedTrip loads after the socket connects
+  // BUGFIX: Guarded with a ref to prevent double-join on re-renders.
+  // Previous code joined unconditionally every time deps changed.
+  const joinedRoomRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     const driverId = syncedTrip?.driverId ?? syncedTrip?.driver?.id;
     if (!id || !driverId) return;
+    if (joinedRoomRef.current === driverId) return; // Already joined for this driver
+    joinedRoomRef.current = driverId;
     socketEvents.joinTripRoom(id, driverId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, syncedTrip?.driverId, syncedTrip?.driver?.id]);
 
-  // Driver location with interpolation — seed from DB coords so marker shows immediately.
-  // Use useRef for the fallback coord to avoid creating a new object on every render when
-  // driverLocation is null (which would cause the interpolation hook to re-trigger needlessly).
-  const driverDbLat = (syncedTrip?.driver?.currentLat as number | undefined) ?? 5.61;
-  const driverDbLng = (syncedTrip?.driver?.currentLng as number | undefined) ?? -0.187;
-  const fallbackCoordRef = useRef({ latitude: driverDbLat, longitude: driverDbLng, heading: 0 });
-  // Only update the fallback ref when the DB coordinates actually change
-  useEffect(() => {
-    fallbackCoordRef.current = { latitude: driverDbLat, longitude: driverDbLng, heading: 0 };
-  }, [driverDbLat, driverDbLng]);
-  const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
-  const animatedDriverCoord = useLocationInterpolation(currentDriverCoord);
+  // Driver location with interpolation (declared above in the block)
 
   return (
     <View style={styles.container}>
       {/* Map */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
-        styleURL="mapbox://styles/mapbox/dark-v11"
+        styleURL={eyegoDarkStyle}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
@@ -435,23 +473,15 @@ export default function TrackingScreen() {
           ref={cameraRef}
           centerCoordinate={
             tripInProgress
-              ? [animatedDriverCoord.longitude, animatedDriverCoord.latitude]
+              ? [animatedDriverCoord!.longitude, animatedDriverCoord!.latitude]
               : passengerPickupCoord
           }
           zoomLevel={13}
           animationMode="none"
           animationDuration={0}
         />
-        {/* Passenger's current location — person marker shown in pre-trip so rider knows where they are */}
-        {!tripInProgress && riderLocation ? (
-          <MapboxGL.MarkerView coordinate={[riderLocation.longitude, riderLocation.latitude]}>
-            <View style={styles.riderSelfMarker}>
-              <Ionicons name="person" size={14} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
-        ) : (
-          <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
-        )}
+        {/* Rider's current location — use UserLocation for native iOS/Android blue dot that updates automatically */}
+        <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
 
         {/* Pickup marker */}
         <MapboxGL.MarkerView coordinate={passengerPickupCoord}>
@@ -459,8 +489,8 @@ export default function TrackingScreen() {
         </MapboxGL.MarkerView>
 
         {/* Driver marker — styled circle with car icon */}
-        <MapboxGL.MarkerView coordinate={[animatedDriverCoord.longitude, animatedDriverCoord.latitude]}>
-          <View style={[styles.driverMarker, { transform: [{ rotate: `${animatedDriverCoord.heading ?? 0}deg` }] }]}>
+        <MapboxGL.MarkerView coordinate={[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude]}>
+          <View style={[styles.driverMarker, { transform: [{ rotate: `${animatedDriverCoord!.heading ?? 0}deg` }] }]}>
             <Ionicons name="car" size={18} color="#fff" />
           </View>
         </MapboxGL.MarkerView>
@@ -475,8 +505,8 @@ export default function TrackingScreen() {
               coordinates: routeCoords.length >= 2
                 ? routeCoords
                 : tripInProgress
-                  ? [[animatedDriverCoord.longitude, animatedDriverCoord.latitude], destCoord]
-                  : [[animatedDriverCoord.longitude, animatedDriverCoord.latitude], passengerPickupCoord],
+                  ? [[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude], destCoord]
+                  : [[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude], passengerPickupCoord],
             },
             properties: {},
           }}
@@ -513,7 +543,7 @@ export default function TrackingScreen() {
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
         style={styles.homeFloating}
       >
-        <Pressable onPress={() => router.replace('/(tabs)/home' as any)} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Close tracking">
+        <Pressable onPress={() => router.replace('/(tabs)/home' as Href)} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Close tracking">
           <Ionicons name="close" size={24} color={colors.onSurface} />
         </Pressable>
       </MotiView>
@@ -589,7 +619,10 @@ export default function TrackingScreen() {
         handleIndicatorStyle={styles.sheetHandle}
         enablePanDownToClose={false}
       >
-        <BottomSheetView style={styles.sheetContent}>
+        <BottomSheetScrollView
+          contentContainerStyle={styles.sheetContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+        >
           {/* ETA */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
@@ -661,7 +694,7 @@ export default function TrackingScreen() {
           </MotiView>
 
           {/* Chat action already in driver card above */}
-        </BottomSheetView>
+        </BottomSheetScrollView>
       </BottomSheet>
     </View>
   );

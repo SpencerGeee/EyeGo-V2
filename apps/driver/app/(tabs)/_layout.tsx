@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated, {
@@ -7,13 +7,26 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, spacing } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { driverColors } from '../../utils/useColors';
 
-type TabRoute = 'home' | 'trips' | 'earnings' | 'notifications' | 'profile';
+// Liquid Glass — only available on iOS 26+; fails silently if not installed
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassSupported = false;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const lg = require('@callstack/liquid-glass');
+  LiquidGlassView = lg.LiquidGlassView ?? null;
+  isLiquidGlassSupported = lg.isLiquidGlassSupported ?? false;
+} catch {
+  // package not yet installed or platform unsupported — use expo-blur fallback
+}
+
+type TabRoute = 'home' | 'trips' | 'earnings' | 'notifications' | 'profile' | 'quests';
 
 const TAB_ICONS: Record<TabRoute, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   home: { active: 'map', inactive: 'map-outline' },
@@ -21,6 +34,7 @@ const TAB_ICONS: Record<TabRoute, { active: keyof typeof Ionicons.glyphMap; inac
   earnings: { active: 'wallet', inactive: 'wallet-outline' },
   notifications: { active: 'notifications', inactive: 'notifications-outline' },
   profile: { active: 'person', inactive: 'person-outline' },
+  quests: { active: 'trophy', inactive: 'trophy-outline' },
 };
 
 const TAB_LABELS: Record<TabRoute, string> = {
@@ -29,7 +43,25 @@ const TAB_LABELS: Record<TabRoute, string> = {
   earnings: 'Earnings',
   notifications: 'Alerts',
   profile: 'Profile',
+  quests: 'Quests',
 };
+
+/** Renders the glassmorphism / Liquid Glass background layer */
+function GlassLayer() {
+  if (isLiquidGlassSupported && LiquidGlassView) {
+    return <LiquidGlassView style={StyleSheet.absoluteFill} />;
+  }
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView
+        intensity={80}
+        tint="systemChromeMaterialDark"
+        style={StyleSheet.absoluteFill}
+      />
+    );
+  }
+  return <View style={[StyleSheet.absoluteFill, styles.androidFallback]} />;
+}
 
 function TabItem({ routeName, isFocused, onPress }: {
   routeName: TabRoute;
@@ -49,22 +81,22 @@ function TabItem({ routeName, isFocused, onPress }: {
       onPressIn={() => { scale.value = withSpring(0.88, { stiffness: 600, damping: 15 }); }}
       onPressOut={() => { scale.value = withSpring(1, { stiffness: 600, damping: 15 }); }}
       style={styles.tabItem}
+      accessibilityRole="button"
+      accessibilityLabel={TAB_LABELS[routeName]}
+      accessibilityState={{ selected: isFocused }}
     >
       <Animated.View style={[
         styles.tabItemInner,
-        isFocused && {
-          backgroundColor: 'rgba(59, 130, 246, 0.14)',
-          borderRadius: 16,
-        },
+        isFocused && styles.tabItemActive,
         animStyle,
       ]}>
         <Ionicons
           name={isFocused ? icons.active : icons.inactive}
           size={20}
-          color={isFocused ? driverColors.primary : driverColors.onSurfaceVariant}
+          color={isFocused ? driverColors.primary : 'rgba(255,255,255,0.40)'}
         />
         {isFocused && (
-          <Text style={[styles.tabLabel, { color: driverColors.primary }]}>
+          <Text style={styles.tabLabel}>
             {TAB_LABELS[routeName]}
           </Text>
         )}
@@ -76,6 +108,8 @@ function TabItem({ routeName, isFocused, onPress }: {
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <View style={styles.tabBarWrapper}>
+      <GlassLayer />
+      <View style={styles.topBorder} />
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
           const isFocused = state.index === index;
@@ -111,6 +145,7 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="home" />
+      <Tabs.Screen name="quests" />
       <Tabs.Screen name="trips" />
       <Tabs.Screen name="earnings" />
       <Tabs.Screen name="notifications" />
@@ -125,40 +160,59 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: spacing['2xl'],
     right: spacing['2xl'],
-    backgroundColor: 'rgba(6, 15, 26, 0.88)',
-    borderRadius: 24,
-    borderWidth: 1.2,
-    borderColor: 'rgba(59, 130, 246, 0.18)',
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: `${driverColors.primary}22`,
     shadowColor: driverColors.primary,
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOpacity: 0.30,
+    shadowRadius: 24,
+    elevation: 20,
     overflow: 'hidden',
+  },
+  androidFallback: {
+    backgroundColor: 'rgba(6, 15, 26, 0.92)',
+  },
+  topBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: `${driverColors.primary}30`,
+    zIndex: 1,
   },
   tabBar: {
     flexDirection: 'row',
-    height: 64,
+    height: 56,
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 4,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     height: '100%',
+    minWidth: 0,
   },
   tabItemInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    gap: spacing.xs,
-    minHeight: 40,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    gap: 3,
+    minHeight: 36,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  tabItemActive: {
+    backgroundColor: `${driverColors.primary}20`,
   },
   tabLabel: {
     fontFamily: fonts.semiBold,
-    fontSize: 12,
+    fontSize: 10,
+    color: driverColors.primary,
+    flexShrink: 0,
   },
 });

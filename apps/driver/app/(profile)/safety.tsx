@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking, Modal, FlatList } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -73,6 +73,16 @@ export default function SafetyScreen() {
     },
     onError: (err) => Alert.alert('Error', (err as Error).message),
   });
+
+  const renderContactItem = useCallback(({ item }: { item: Contacts.Contact }) => (
+    <Pressable
+      onPress={() => selectContact(item)}
+      style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
+    >
+      <Text variant="bodyMedium">{item.name}</Text>
+      <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
+    </Pressable>
+  ), [selectContact, colors]);
 
   const canSave = name.trim().length > 1 && phone.trim().length >= 9 && relationship.trim().length > 0;
 
@@ -270,16 +280,8 @@ export default function SafetyScreen() {
           </View>
           <FlatList
             data={contactList}
-            keyExtractor={(item) => item.id ?? item.name ?? Math.random().toString()}
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => selectContact(item)}
-                style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-              >
-                <Text variant="bodyMedium">{item.name}</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
-              </Pressable>
-            )}
+            keyExtractor={(item, index) => item.name ?? String(index)}
+            renderItem={renderContactItem}
           />
         </SafeAreaView>
       </Modal>

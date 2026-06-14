@@ -1,10 +1,10 @@
 import React from 'react';
-import { ViewStyle } from 'react-native';
+import { ViewStyle, DimensionValue } from 'react-native';
 import { MotiView } from 'moti';
 import { colors, radii } from '@eyego/config';
 
 interface SkeletonProps {
-  width?: number | string;
+  width?: DimensionValue;
   height?: number;
   borderRadius?: number;
   style?: ViewStyle;
@@ -23,7 +23,7 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = radii.md,
       }}
       style={[
         {
-          width: width as any,
+          width,
           height,
           borderRadius,
           backgroundColor: colors.surfaceContainerHigh,
