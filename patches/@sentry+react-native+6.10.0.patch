@@ -9,6 +9,8 @@ index de7f82b..6de9682 100644
  #    import <Sentry/SentryProfilingConditionals.h>
  #else
  #    define SENTRY_PROFILING_ENABLED 0
+ #    define SENTRY_TARGET_PROFILING_SUPPORTED 0
+ #endif
 @@ -40,7 +40,7 @@
  #import "RNSentryDependencyContainer.h"
  #import "RNSentryEvents.h"
