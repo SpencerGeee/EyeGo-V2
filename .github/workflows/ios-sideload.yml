@@ -77,7 +77,20 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            | xcpretty && exit ${PIPESTATUS[0]}
+            > /tmp/xcodebuild_raw.log 2>&1; XCODE_EXIT=$?
+          if [ $XCODE_EXIT -ne 0 ]; then
+            echo "=== xcpretty summary ==="
+            cat /tmp/xcodebuild_raw.log | xcpretty 2>/dev/null
+            echo "=== RAW COMPILER ERRORS (first 200 lines) ==="
+            grep -n "error:" /tmp/xcodebuild_raw.log | head -20
+            echo "=== Context around first error ==="
+            FIRST_ERR_LINE=$(grep -n "error:" /tmp/xcodebuild_raw.log | head -1 | cut -d: -f1)
+            if [ -n "$FIRST_ERR_LINE" ]; then
+              sed -n "$((FIRST_ERR_LINE - 2)),$((FIRST_ERR_LINE + 10))p" /tmp/xcodebuild_raw.log
+            fi
+            exit $XCODE_EXIT
+          fi
+          cat /tmp/xcodebuild_raw.log | xcpretty
 
       - name: Package unsigned .ipa
         working-directory: apps/${{ inputs.app }}
