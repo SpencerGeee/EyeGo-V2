@@ -190,8 +190,10 @@ export default function DriverOtpScreen() {
             </Text>
           </Pressable>
 
-          {/* Dev OTP banner — only shown in development builds */}
-          {__DEV__ && !!currentDevOtp && (
+          {/* Dev OTP banner — shown whenever the backend returns a dev OTP
+              (NODE_ENV=development), including sideloaded preview/release builds
+              where __DEV__ is false. Production backends never return _dev_otp. */}
+          {!!currentDevOtp && (
             <View style={styles.devBanner}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Dev OTP: </Text>
               <Text variant="label" color={colors.primary}>{currentDevOtp}</Text>

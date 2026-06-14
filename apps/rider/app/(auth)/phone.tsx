@@ -29,11 +29,14 @@ export default function PhoneScreen() {
   const sendOtp = useMutation({
     mutationFn: () => authApi.sendOtp({ phone: `+233${phone.replace(/\s/g, '')}` }),
     onSuccess: (res) => {
-      const devOtp = __DEV__ ? (res as any)?.data?.data?._dev_otp : undefined;
+      // Surface the dev OTP whenever the backend returns it (NODE_ENV=development).
+      // Keyed off the response — NOT __DEV__ — so it still works in sideloaded
+      // preview/release builds. A production backend never returns _dev_otp.
+      const devOtp = (res as any)?.data?.data?._dev_otp;
       router.push({
         pathname: '/(auth)/otp',
         // Strip '+' prefix to avoid URL encoding issues in dev builds
-        params: { phone: `233${phone.replace(/\s/g, '')}`, ...(__DEV__ && devOtp ? { devOtp } : {}) },
+        params: { phone: `233${phone.replace(/\s/g, '')}`, ...(devOtp ? { devOtp } : {}) },
       });
     },
   });

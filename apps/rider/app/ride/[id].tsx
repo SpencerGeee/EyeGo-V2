@@ -14,6 +14,9 @@ import { fonts, fontSizes, spacing, radii, shadows } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton } from '@eyego/ui';
+
+// MapLibre RN expects a JSON string via styleJSON, not a style object.
+const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
 import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 import { captureException } from '../../lib/sentry';
@@ -146,7 +149,7 @@ export default function RideDetailScreen() {
       {/* Map background */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
-        styleURL={eyegoDarkStyle}
+        styleJSON={EYEGO_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}

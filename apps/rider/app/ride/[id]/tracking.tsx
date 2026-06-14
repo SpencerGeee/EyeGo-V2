@@ -18,6 +18,9 @@ import { formatDuration } from '@eyego/utils';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
 
+// MapLibre RN expects a JSON string via styleJSON, not a style object.
+const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+
 function useLocationInterpolation(targetCoords: { latitude: number; longitude: number; heading?: number } | null) {
   const [coords, setCoords] = useState(targetCoords);
   const animRef = useRef<any>(null);
@@ -462,7 +465,7 @@ export default function TrackingScreen() {
       {/* Map */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
-        styleURL={eyegoDarkStyle}
+        styleJSON={EYEGO_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}

@@ -27,6 +27,12 @@ import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, RideCard, Skeleton } from '@eyego/ui';
+import eyegoDarkStyle from '@eyego/map-styles';
+
+// Shared premium MapLibre style (OpenFreeMap tiles, no token). MapLibre RN
+// expects a JSON *string* via styleJSON — passing a `mapbox://` URL needs a
+// Mapbox token and crashes the native map. Stringify once at module scope.
+const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
 
 const TIERS = ['All', 'Economy', 'Comfort', 'Premium'];
 
@@ -192,7 +198,7 @@ export default function HomeScreen() {
       {/* Map layer */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
-        styleURL="mapbox://styles/mapbox/dark-v11"
+        styleJSON={EYEGO_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
