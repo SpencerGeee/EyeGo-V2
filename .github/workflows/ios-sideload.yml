@@ -27,10 +27,7 @@ on:
 jobs:
   build-unsigned-ipa:
     name: Build unsigned ${{ inputs.app }}.ipa
-    # Pin to macOS 14 (Sonoma) with Xcode 15.x.
-    # macos-latest (macOS 15+/16+) ships Xcode 16 which has breaking compiler
-    # changes for @sentry/react-native 6.x and other older pods.
-    runs-on: macos-14
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
@@ -46,6 +43,16 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-engines --no-audit --no-fund
 
+      # Xcode 16+ drops headers that @sentry/react-native 6.x expects for
+      # Session Replay. We don't use replay — only basic error capture.
+      # Delete the native source files and guard the import with __has_include
+      # so the compiler doesn't error on the missing header.
+      - name: Patch @sentry/react-native for Xcode 16
+        run: |
+          find node_modules/@sentry/react-native/ios -name "*Replay*" -delete
+          sed -i '' '/__has_include/!s/#if SENTRY_TARGET_REPLAY_SUPPORTED/#if SENTRY_TARGET_REPLAY_SUPPORTED \&\& __has_include("RNSentryReplay.h")/' \
+            node_modules/@sentry/react-native/ios/RNSentry.mm
+
       - name: Generate native iOS project (prebuild)
         working-directory: apps/${{ inputs.app }}
         run: npx expo prebuild --platform ios --clean
@@ -55,21 +62,24 @@ jobs:
       - name: Build unsigned .app with xcodebuild
         working-directory: apps/${{ inputs.app }}/ios
         run: |
-          TARGET=$(ls *.xcworkspace 2>/dev/null | head -1)
+          # Auto-detect workspace or project
+          TARGET=$(find . -maxdepth 1 -name "*.xcworkspace" -type d | head -1)
           FLAG="-workspace"
           if [ -z "$TARGET" ]; then
-            TARGET=$(ls *.xcodeproj 2>/dev/null | head -1)
+            TARGET=$(find . -maxdepth 1 -name "*.xcodeproj" -type d | head -1)
             FLAG="-project"
             echo "Using xcodeproj: $TARGET"
           else
             echo "Using xcworkspace: $TARGET"
           fi
           if [ -z "$TARGET" ]; then
-            echo "::error::No .xcodeproj or .xcworkspace in ios/"
-            ls -la; exit 1
+            echo "::error::No .xcworkspace or .xcodeproj directory in ios/"
+            ls -la
+            exit 1
           fi
           SCHEME=${TARGET%.xcworkspace}
           SCHEME=${SCHEME%.xcodeproj}
+          SCHEME=${SCHEME#./}
           echo "Scheme: $SCHEME"
           xcodebuild \
             "$FLAG" "$TARGET" \
