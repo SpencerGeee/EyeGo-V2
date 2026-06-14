@@ -43,6 +43,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-engines
 
+      - name: Patch @sentry/react-native for Xcode 16 compatibility
+        run: |
+          echo "Removing Sentry Replay .mm files that fail with Xcode 16+"
+          echo "(Session Replay is not used — only basic error capture)"
+          rm -rf node_modules/@sentry/react-native/ios/Replay
+
       - name: Generate native iOS project (prebuild)
         working-directory: apps/${{ inputs.app }}
         run: npx expo prebuild --platform ios --clean
