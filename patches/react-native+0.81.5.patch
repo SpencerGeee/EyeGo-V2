@@ -1,35 +1,54 @@
 diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-index 2a67797..469180b 100644
+index 2a67797..5584042 100644
 --- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
 +++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
-@@ -366,13 +366,12 @@ id ObjCTurboModule::performMethodInvocation(
-     @try {
+@@ -219,9 +219,10 @@ static jsi::JSError convertNSExceptionToJSError(
+   jsi::Object cause(runtime);
+   cause.setProperty(runtime, "name", [exception.name UTF8String]);
+   cause.setProperty(runtime, "message", reason);
+-  cause.setProperty(runtime, "stackSymbols", convertNSArrayToJSIArray(runtime, exception.callStackSymbols));
+-  cause.setProperty(
+-      runtime, "stackReturnAddresses", convertNSArrayToJSIArray(runtime, exception.callStackReturnAddresses));
++  // NOTE: iOS 26 regression — converting exception.callStackSymbols invokes
++  // backtrace_symbols()/dladdr() inside dyld, which crashes (EXC_BAD_ACCESS in
++  // dyld3::MachOLoaded::findClosestSymbol). The reason/name above are enough to
++  // diagnose the JS error, so we intentionally omit the native stack frames.
+ 
+   std::string message = moduleName + "." + methodName + " raised an exception: " + reason;
+   jsi::Value error = createJSRuntimeError(runtime, message);
+@@ -367,11 +368,15 @@ id ObjCTurboModule::performMethodInvocation(
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {
--      if (isSync) {
+       if (isSync) {
 -        // We can only convert NSException to JSError in sync method calls.
 -        // See https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
--        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
--      } else {
++        // Sync calls run ON the JS thread, so building the JSError on the
++        // runtime is safe here. convertNSExceptionToJSError no longer touches
++        // the native backtrace (which crashes on iOS 26), so this is safe.
+         throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
+       } else {
 -        @throw exception;
--      }
-+      // Re-throw NSException instead of converting to JSError.
-+      // convertNSExceptionToJSError accesses the jsi::Runtime to create
-+      // error objects, but after an ObjC exception the runtime may be in
-+      // an unstable state, causing KERN_INVALID_ADDRESS crashes at far=0x10.
-+      // Reference: https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
-+      @throw exception;
++        // Async (promise) calls run off the JS thread — re-throwing here would
++        // abort the process. Surface the exception to the console instead.
++        NSLog(@"[EyeGo][TurboModule] Uncaught NSException in async %s.%s: %@ — %@",
++              moduleName, methodNameStr.c_str(), exception.name, exception.reason);
+       }
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
-     }
-@@ -435,7 +434,9 @@ void ObjCTurboModule::performVoidMethodInvocation(
+@@ -435,7 +440,15 @@ void ObjCTurboModule::performVoidMethodInvocation(
      @try {
        [inv invokeWithTarget:strongModule];
      } @catch (NSException *exception) {
 -      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
-+      // Void methods are always async, re-throw instead of converting to
-+      // JSError, same as the async branch in performMethodInvocation.
-+      @throw exception;
++      // Void TurboModule methods run async on the module's method queue — NOT
++      // the JS thread. Converting the exception to a JSError here would touch
++      // the jsi::Runtime off-thread and corrupt the Hermes heap (random
++      // EXC_BAD_ACCESS on the JS thread); re-throwing aborts the whole process
++      // with an uncaught ObjC exception. Neither is recoverable at startup, so
++      // log the exception (thread-safe) and swallow it. The app keeps running
++      // and the device console shows exactly which native module threw.
++      NSLog(@"[EyeGo][TurboModule] Swallowed NSException in async void %s.%s: %@ — %@",
++            moduleName, methodNameStr.c_str(), exception.name, exception.reason);
      } @finally {
        [retainedObjectsForInvocation removeAllObjects];
      }
