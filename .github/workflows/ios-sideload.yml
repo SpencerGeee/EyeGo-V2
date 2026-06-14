@@ -48,6 +48,10 @@ jobs:
           echo "Removing Sentry Replay native sources that fail with Xcode 16+"
           echo "(Session Replay is not used — only basic error capture)"
           find node_modules/@sentry/react-native/ios -name "*Replay*" -delete
+          echo "Patching RNSentry.mm to skip Replay imports when header is absent"
+          # Idempotent: only replace lines not already containing __has_include
+          sed -i '' '/__has_include/!s/#if SENTRY_TARGET_REPLAY_SUPPORTED/#if SENTRY_TARGET_REPLAY_SUPPORTED \&\& __has_include("RNSentryReplay.h")/' \
+            node_modules/@sentry/react-native/ios/RNSentry.mm
 
       - name: Generate native iOS project (prebuild)
         working-directory: apps/${{ inputs.app }}
