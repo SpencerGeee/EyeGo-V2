@@ -70,6 +70,20 @@ jobs:
           EXPO_PUBLIC_APP_ENV: preview
           EXPO_PUBLIC_API_URL: ${{ inputs.api-url || 'http://localhost:5020/v1' }}
 
+      # prebuild generates the Podfile but does NOT run `pod install`, so there is
+      # no Podfile.lock / Pods sandbox. xcodebuild's "Check Pods Manifest.lock"
+      # phase then aborts with "sandbox is not in sync". Install pods explicitly.
+      # This also produces the .xcworkspace that the build step builds against.
+      - name: Install CocoaPods dependencies
+        working-directory: apps/${{ inputs.app }}/ios
+        run: |
+          pod install --repo-update
+        env:
+          # RN 0.81 generates a fresh Podfile each prebuild; New Architecture is
+          # already disabled via app.json (newArchEnabled:false) → propagates to
+          # RCT_NEW_ARCH_ENABLED here automatically.
+          LANG: en_US.UTF-8
+
       - name: Build unsigned .app with xcodebuild
         working-directory: apps/${{ inputs.app }}/ios
         # EXPO_PUBLIC_* must be present HERE too — the JS bundle is produced by the
