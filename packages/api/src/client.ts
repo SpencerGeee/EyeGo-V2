@@ -39,9 +39,12 @@ function resolveBaseUrl(): string {
 
 const BASE_URL = resolveBaseUrl();
 
-// RS2: Block non-HTTPS URLs in production builds
+// In production builds, warn about HTTP (but don't crash — sideloaded dev builds
+// on a LAN need HTTP since there's no HTTPS cert for a local IP).
 if (typeof __DEV__ !== 'undefined' && !__DEV__ && BASE_URL.startsWith('http://')) {
-  throw new Error('[EyeGo] API base URL must use HTTPS in production. Set EXPO_PUBLIC_API_URL to an https:// URL.');
+  console.warn(
+    '[EyeGo] API base URL is HTTP. For production App Store builds, set EXPO_PUBLIC_API_URL to an https:// URL.',
+  );
 }
 
 // Token storage callbacks — set by the app on boot
@@ -64,6 +67,15 @@ export function configureApiClient(opts: {
   onLogout = opts.onLogout;
   if (opts.getRefreshUrl) getRefreshUrl = opts.getRefreshUrl;
   logoutCalled = false;
+}
+
+/**
+ * Override the API base URL at runtime (e.g. from SecureStore).
+ * Used in sideloaded production builds where the PC LAN IP isn't known at
+ * build time. Call before any API requests are made.
+ */
+export function setApiBaseUrl(url: string): void {
+  apiClient.defaults.baseURL = url;
 }
 
 export const apiClient: AxiosInstance = axios.create({
@@ -102,7 +114,7 @@ apiClient.interceptors.response.use(
         refreshPromise = (async (): Promise<string> => {
           const storedRefresh = getRefreshToken();
           if (!storedRefresh) throw new Error('No refresh token available');
-          const { data } = await axios.post(`${BASE_URL}${getRefreshUrl()}`, {
+          const { data } = await axios.post(`${apiClient.defaults.baseURL}${getRefreshUrl()}`, {
             refreshToken: storedRefresh,
           });
           const { accessToken, refreshToken: newRefresh } = data.data;

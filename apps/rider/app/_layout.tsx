@@ -32,7 +32,8 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
-import { configureApiClient, configureSocket, refreshSocketAuth, userApi } from '@eyego/api';
+import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
+import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -210,6 +211,14 @@ export default function RootLayout() {
     // so queued requests have auth headers attached when replayed.
     // Intentionally runs once on mount — configures singleton API/socket clients
     // using store getters (not React state) so no deps are needed.
+    //
+    // RC6: In sideloaded production builds the compiled EXPO_PUBLIC_API_URL
+    // points at a PC LAN IP that was unknown at build time.  Resolve it from
+    // SecureStore so the user can set it once inside the app.
+    resolveApiUrl().then((url) => {
+      setApiBaseUrl(url);
+    });
+
     configureApiClient({
       getAccessToken: () => useAuthStore.getState().accessToken,
       getRefreshToken: () => useAuthStore.getState().refreshToken,

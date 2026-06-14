@@ -1,27 +1,53 @@
-node_modules/
+# Dependencies
+**/node_modules/
+
+# Expo / React Native build artifacts
 .expo/
 dist/
-build/
+**/*/build/
+**/*/dist/
+
+# Generated native projects (expo prebuild)
+**/ios/
+**/android/
+
+# Env files (contain secrets)
 .env
 .env.local
 .env*.local
 apps/*/.env
 apps/*/.env.local
 apps/*/.env*.local
+
+# Logs
 *.log
-ios/
-android/
-apps/*/ios/
-apps/*/android/
-.DS_Store
+
+# TypeScript
 *.tsbuildinfo
 
-# EAS submission credentials
-google-service-account.json
+# OS
+.DS_Store
+Thumbs.db
 
-# Native signing artifacts
+# Prisma
+**/prisma/dev.db
+**/prisma/dev.db-journal
+
+# EAS / Firebase / signing
+google-service-account.json
+GoogleService-Info.plist
+google-services.json
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
+
+# Sentry
+sentry.properties
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
