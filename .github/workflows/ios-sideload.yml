@@ -27,7 +27,10 @@ on:
 jobs:
   build-unsigned-ipa:
     name: Build unsigned ${{ inputs.app }}.ipa
-    runs-on: macos-latest
+    # Pin to macOS 14 (Sonoma) with Xcode 15.x.
+    # macos-latest (macOS 15+/16+) ships Xcode 16 which has breaking compiler
+    # changes for @sentry/react-native 6.x and other older pods.
+    runs-on: macos-14
 
     steps:
       - name: Checkout repository
@@ -41,21 +44,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci --ignore-engines
-
-      - name: Patch @sentry/react-native for Xcode 16 compatibility
-        run: |
-          echo "Removing Sentry Replay native sources that fail with Xcode 16+"
-          echo "(Session Replay is not used — only basic error capture)"
-          find node_modules/@sentry/react-native/ios -name "*Replay*" -delete
-          echo "Patching RNSentry.mm to skip Replay imports when header is absent"
-          # Idempotent: only replace lines not already containing __has_include
-          sed -i '' '/__has_include/!s/#if SENTRY_TARGET_REPLAY_SUPPORTED/#if SENTRY_TARGET_REPLAY_SUPPORTED \&\& __has_include("RNSentryReplay.h")/' \
-            node_modules/@sentry/react-native/ios/RNSentry.mm
-          echo "=== Verifying patch was applied ==="
-          grep -n "__has_include" node_modules/@sentry/react-native/ios/RNSentry.mm | head -5 || echo "WARNING: __has_include NOT found in RNSentry.mm!"
-          echo "=== Replay files still present? ==="
-          find node_modules/@sentry/react-native/ios -name "*Replay*" -type f 2>/dev/null | head -5 || echo "All Replay files removed"
+        run: npm ci --ignore-engines --no-audit --no-fund
 
       - name: Generate native iOS project (prebuild)
         working-directory: apps/${{ inputs.app }}
@@ -81,14 +70,10 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-             2>&1 | tee /tmp/xcodebuild_full.log; XCODE_EXIT=${PIPESTATUS[0]}
+              2>&1 | tee /tmp/xcodebuild.log; XCODE_EXIT=${PIPESTATUS[0]}
           if [ $XCODE_EXIT -ne 0 ]; then
-            echo "=== RAW ERROR LINES (case-insensitive, broad) ==="
-            grep -n -i "error:" /tmp/xcodebuild_full.log | head -50
-            echo "=== FATAL + FAILED lines ==="
-            grep -n -i "fatal\|FAILED\|exit code\|Command.*failed" /tmp/xcodebuild_full.log | head -20
-            echo "=== LAST 80 lines of build log ==="
-            tail -80 /tmp/xcodebuild_full.log
+            echo "=== RAW COMPILER ERRORS ==="
+            grep -n -i "error:" /tmp/xcodebuild.log | head -30
             echo "=== BUILD FAILED (exit $XCODE_EXIT) ==="
             exit $XCODE_EXIT
           fi
