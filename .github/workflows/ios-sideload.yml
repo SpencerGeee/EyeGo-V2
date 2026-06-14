@@ -55,14 +55,24 @@ jobs:
       - name: Build unsigned .app with xcodebuild
         working-directory: apps/${{ inputs.app }}/ios
         run: |
-          SCHEME=$(ls -d *.xcodeproj 2>/dev/null | head -1 | sed 's/\.xcodeproj//')
-          if [ -z "$SCHEME" ]; then
-            # Fallback: look for .xcworkspace
-            SCHEME=$(ls -d *.xcworkspace 2>/dev/null | head -1 | sed 's/\.xcworkspace//')
+          TARGET=$(ls *.xcworkspace 2>/dev/null | head -1)
+          FLAG="-workspace"
+          if [ -z "$TARGET" ]; then
+            TARGET=$(ls *.xcodeproj 2>/dev/null | head -1)
+            FLAG="-project"
+            echo "Using xcodeproj: $TARGET"
+          else
+            echo "Using xcworkspace: $TARGET"
           fi
-          echo "Building scheme: $SCHEME"
+          if [ -z "$TARGET" ]; then
+            echo "::error::No .xcodeproj or .xcworkspace in ios/"
+            ls -la; exit 1
+          fi
+          SCHEME=${TARGET%.xcworkspace}
+          SCHEME=${SCHEME%.xcodeproj}
+          echo "Scheme: $SCHEME"
           xcodebuild \
-            -workspace "${SCHEME}.xcworkspace" \
+            "$FLAG" "$TARGET" \
             -scheme "$SCHEME" \
             -configuration Release \
             -derivedDataPath ../build \
@@ -70,7 +80,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-              2>&1 | tee /tmp/xcodebuild.log; XCODE_EXIT=${PIPESTATUS[0]}
+            2>&1 | tee /tmp/xcodebuild.log; XCODE_EXIT=${PIPESTATUS[0]}
           if [ $XCODE_EXIT -ne 0 ]; then
             echo "=== RAW COMPILER ERRORS ==="
             grep -n -i "error:" /tmp/xcodebuild.log | head -30
