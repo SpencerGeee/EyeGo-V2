@@ -72,7 +72,6 @@ jobs:
             SCHEME=$(ls -d *.xcworkspace 2>/dev/null | head -1 | sed 's/\.xcworkspace//')
           fi
           echo "Building scheme: $SCHEME"
-          set -o pipefail
           xcodebuild \
             -workspace "${SCHEME}.xcworkspace" \
             -scheme "$SCHEME" \
@@ -82,10 +81,16 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            2>&1 | tee /tmp/xcodebuild_raw.log | xcpretty; XCODE_EXIT=${PIPESTATUS[0]}
+            2>&1 > /tmp/xcodebuild_full.log; XCODE_EXIT=$?
           if [ $XCODE_EXIT -ne 0 ]; then
-            echo "=== RAW XCODEBUILD COMPILER ERRORS ==="
-            grep -n "error:" /tmp/xcodebuild_raw.log | head -20
+            echo "=== RAW COMPILER ERRORS ==="
+            grep -n "error:" /tmp/xcodebuild_full.log | head -30
+            echo "=== FIRST ERROR CONTEXT (20 lines) ==="
+            FIRST_LINE=$(grep -n "error:" /tmp/xcodebuild_full.log | head -1 | cut -d: -f1)
+            if [ -n "$FIRST_LINE" ] && [ "$FIRST_LINE" -gt 2 ]; then
+              sed -n "$((FIRST_LINE - 2)),$((FIRST_LINE + 15))p" /tmp/xcodebuild_full.log
+            fi
+            echo "=== BUILD FAILED (exit $XCODE_EXIT) ==="
             exit $XCODE_EXIT
           fi
 
