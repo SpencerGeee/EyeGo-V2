@@ -72,6 +72,13 @@ jobs:
 
       - name: Build unsigned .app with xcodebuild
         working-directory: apps/${{ inputs.app }}/ios
+        # EXPO_PUBLIC_* must be present HERE too — the JS bundle is produced by the
+        # "Bundle React Native code and images" build phase during xcodebuild, not
+        # during prebuild. Without these the API URL bakes in as the localhost
+        # fallback and the sideloaded app can never reach your PC.
+        env:
+          EXPO_PUBLIC_APP_ENV: preview
+          EXPO_PUBLIC_API_URL: ${{ inputs.api-url || 'http://localhost:5020/v1' }}
         run: |
           # Auto-detect workspace or project
           TARGET=$(find . -maxdepth 1 -name "*.xcworkspace" -type d | head -1)

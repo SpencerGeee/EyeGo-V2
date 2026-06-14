@@ -7,7 +7,7 @@
     "scheme": "eyego",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -21,7 +21,11 @@
         "NSLocationAlwaysUsageDescription": "EyeGo uses your location to track your ride.",
         "NSCameraUsageDescription": "EyeGo needs camera access to update your profile photo.",
         "NSPhotoLibraryUsageDescription": "EyeGo needs photo library access to update your profile photo.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {
