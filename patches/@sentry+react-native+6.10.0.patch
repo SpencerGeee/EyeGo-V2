@@ -1,3 +1,34 @@
+diff --git a/node_modules/@sentry/react-native/ios/RNSentry.mm b/node_modules/@sentry/react-native/ios/RNSentry.mm
+index de7f82b..6de9682 100644
+--- a/node_modules/@sentry/react-native/ios/RNSentry.mm
++++ b/node_modules/@sentry/react-native/ios/RNSentry.mm
+@@ -40,7 +40,7 @@
+ #import "RNSentryDependencyContainer.h"
+ #import "RNSentryEvents.h"
+ 
+-#if SENTRY_TARGET_REPLAY_SUPPORTED
++#if SENTRY_TARGET_REPLAY_SUPPORTED && __has_include("RNSentryReplay.h")
+ #    import "RNSentryReplay.h"
+ #endif
+ 
+@@ -125,7 +125,7 @@ RCT_EXPORT_METHOD(initNativeSdk
+         sentHybridSdkDidBecomeActive = true;
+     }
+ 
+-#if SENTRY_TARGET_REPLAY_SUPPORTED
++#if SENTRY_TARGET_REPLAY_SUPPORTED && __has_include("RNSentryReplay.h")
+     [RNSentryReplay postInit];
+ #endif
+ 
+@@ -160,7 +160,7 @@ RCT_EXPORT_METHOD(initNativeSdk
+     [mutableOptions removeObjectForKey:@"tracesSampler"];
+     [mutableOptions removeObjectForKey:@"enableTracing"];
+ 
+-#if SENTRY_TARGET_REPLAY_SUPPORTED
++#if SENTRY_TARGET_REPLAY_SUPPORTED && __has_include("RNSentryReplay.h")
+     [RNSentryReplay updateOptions:mutableOptions];
+ #endif
+ 
 diff --git a/node_modules/@sentry/react-native/ios/RNSentryReplay.h b/node_modules/@sentry/react-native/ios/RNSentryReplay.h
 deleted file mode 100644
 index d8c3f4ad5a7013d8ced8de6e0aeddd1e7537dc58..0000000000000000000000000000000000000000
