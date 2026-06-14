@@ -52,6 +52,10 @@ jobs:
           # Idempotent: only replace lines not already containing __has_include
           sed -i '' '/__has_include/!s/#if SENTRY_TARGET_REPLAY_SUPPORTED/#if SENTRY_TARGET_REPLAY_SUPPORTED \&\& __has_include("RNSentryReplay.h")/' \
             node_modules/@sentry/react-native/ios/RNSentry.mm
+          echo "=== Verifying patch was applied ==="
+          grep -n "__has_include" node_modules/@sentry/react-native/ios/RNSentry.mm | head -5 || echo "WARNING: __has_include NOT found in RNSentry.mm!"
+          echo "=== Replay files still present? ==="
+          find node_modules/@sentry/react-native/ios -name "*Replay*" -type f 2>/dev/null | head -5 || echo "All Replay files removed"
 
       - name: Generate native iOS project (prebuild)
         working-directory: apps/${{ inputs.app }}
@@ -68,6 +72,7 @@ jobs:
             SCHEME=$(ls -d *.xcworkspace 2>/dev/null | head -1 | sed 's/\.xcworkspace//')
           fi
           echo "Building scheme: $SCHEME"
+          set -o pipefail
           xcodebuild \
             -workspace "${SCHEME}.xcworkspace" \
             -scheme "$SCHEME" \
@@ -77,20 +82,12 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            > /tmp/xcodebuild_raw.log 2>&1; XCODE_EXIT=$?
+            2>&1 | tee /tmp/xcodebuild_raw.log | xcpretty; XCODE_EXIT=${PIPESTATUS[0]}
           if [ $XCODE_EXIT -ne 0 ]; then
-            echo "=== xcpretty summary ==="
-            cat /tmp/xcodebuild_raw.log | xcpretty 2>/dev/null
-            echo "=== RAW COMPILER ERRORS (first 200 lines) ==="
+            echo "=== RAW XCODEBUILD COMPILER ERRORS ==="
             grep -n "error:" /tmp/xcodebuild_raw.log | head -20
-            echo "=== Context around first error ==="
-            FIRST_ERR_LINE=$(grep -n "error:" /tmp/xcodebuild_raw.log | head -1 | cut -d: -f1)
-            if [ -n "$FIRST_ERR_LINE" ]; then
-              sed -n "$((FIRST_ERR_LINE - 2)),$((FIRST_ERR_LINE + 10))p" /tmp/xcodebuild_raw.log
-            fi
             exit $XCODE_EXIT
           fi
-          cat /tmp/xcodebuild_raw.log | xcpretty
 
       - name: Package unsigned .ipa
         working-directory: apps/${{ inputs.app }}
