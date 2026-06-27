@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+firebase-service-account.json
+dist/
+coverage/
+logs/
+*.log
+*.db
+*.db-journal
+prisma/dev.db
+.DS_Store
+nul
+prisma/migrations/*/migration.sql

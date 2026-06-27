@@ -1,0 +1,168 @@
+name: EyeGo API CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'eyego-api/**'
+      - '.github/workflows/api-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'eyego-api/**'
+      - '.github/workflows/api-ci.yml'
+
+defaults:
+  run:
+    working-directory: eyego-api
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  validate:
+    name: Lint & Schema Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: eyego-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Prisma schema
+        run: npx prisma validate
+        env:
+          DATABASE_URL: file:./dev.db
+
+      - name: Run linter
+        run: npm run lint --if-present
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    needs: validate
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: eyego-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: file:./test.db
+
+      - name: Push schema to test DB
+        run: npx prisma db push --skip-generate
+        env:
+          DATABASE_URL: file:./test.db
+
+      - name: Run tests
+        run: npm test --if-present
+        env:
+          NODE_ENV: test
+          DATABASE_URL: file:./test.db
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-secret-not-for-production
+          JWT_REFRESH_SECRET: test-refresh-secret-not-for-production
+          PAYSTACK_SECRET_KEY: sk_test_placeholder
+          DRIVER_MIN_WITHDRAWAL: '10'
+
+  security:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+        continue-on-error: true  # non-blocking until audit is clean
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate, test]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: eyego-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Deploy (add your deployment command here)
+        run: |
+          echo "Deploy step — configure with your hosting provider."
+          echo "Examples:"
+          echo "  Railway:  railway up"
+          echo "  Render:   use Render's GitHub integration (auto-deploy on push)"
+          echo "  Docker:   docker build -t eyego-api . && docker push <registry>/eyego-api:staging"
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: eyego-api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Run Prisma migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy (add your deployment command here)
+        run: echo "Configure production deploy here"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
