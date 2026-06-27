@@ -472,6 +472,10 @@ export default function RootLayout() {
               options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
             />
             <Stack.Screen
+              name="ride/request"
+              options={{ animation: 'slide_from_bottom', presentation: 'modal', gestureEnabled: false }}
+            />
+            <Stack.Screen
               name="ride/[id]/cancel"
               options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
             />

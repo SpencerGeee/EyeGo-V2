@@ -8,6 +8,7 @@ import {
   Alert,
   Modal,
   Platform,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -16,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
-import { apiClient, routesApi } from '@eyego/api';
+import { apiClient, routesApi, tripsApi } from '@eyego/api';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -55,6 +56,8 @@ export default function ScheduleRideScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(getMinDate());
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(getMinDate());
+  const [requestMode, setRequestMode] = useState(false);
+  const [requestDest, setRequestDest] = useState('');
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -87,7 +90,39 @@ export default function ScheduleRideScreen() {
     },
   });
 
+  const requestMutation = useMutation({
+    mutationFn: () =>
+      tripsApi.requestTrip({
+        destination: requestDest.trim(),
+        scheduledAt: selectedDate.toISOString(),
+        seatCount,
+      }),
+    onSuccess: () => {
+      if (!mountedRef.current) return;
+      router.replace({
+        pathname: '/ride/request',
+        params: { destination: requestDest.trim(), scheduledAt: selectedDate.toISOString() },
+      } as any);
+    },
+    onError: (err: any) => {
+      Alert.alert('Request Failed', err?.message || 'Could not submit your trip request. Please try again.');
+    },
+  });
+
   const handleSubmit = () => {
+    if (requestMode) {
+      if (!requestDest.trim()) {
+        Alert.alert('Enter a Destination', 'Please type where you want to go.');
+        return;
+      }
+      const minDate = getMinDate();
+      if (selectedDate < minDate) {
+        Alert.alert('Invalid Time', 'Scheduled time must be at least 30 minutes from now.');
+        return;
+      }
+      requestMutation.mutate();
+      return;
+    }
     if (!selectedRouteId) {
       Alert.alert('Select a Route', 'Please choose a route to schedule.');
       return;
@@ -136,24 +171,47 @@ export default function ScheduleRideScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         >
-          {/* Route picker */}
-          <Text
-            variant="labelSmall"
-            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-          >
-            ROUTE
-          </Text>
-          {routesLoading ? (
-            <View style={[styles.inputWrap, { justifyContent: 'center' }]}>
+          {/* Route / Request picker */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.base }}>
+            <Text variant="labelSmall" style={{ color: colors.onSurfaceVariant, letterSpacing: 1 }}>
+              {requestMode ? 'DESTINATION' : 'ROUTE'}
+            </Text>
+            <Pressable onPress={() => setRequestMode((m) => !m)} hitSlop={8}>
+              <Text variant="labelSmall" style={{ color: colors.primary }}>
+                {requestMode ? '← Pick a route' : 'Request new destination'}
+              </Text>
+            </Pressable>
+          </View>
+
+          {requestMode ? (
+            /* Free-text destination request */
+            <View style={[styles.inputWrap, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainer }]}>
+              <Ionicons name="navigate-outline" size={18} color={colors.primary} style={{ marginRight: spacing.sm }} />
+              <TextInput
+                style={[styles.textInput, { color: colors.onSurface }]}
+                value={requestDest}
+                onChangeText={setRequestDest}
+                placeholder="e.g. Madina, Lapaz, Achimota…"
+                placeholderTextColor={colors.onSurfaceVariant}
+                returnKeyType="done"
+                autoCorrect={false}
+              />
+            </View>
+          ) : routesLoading ? (
+            <View style={[styles.inputWrap, { justifyContent: 'center', borderColor: colors.outlineVariant }]}>
               <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Loading routes…</Text>
             </View>
           ) : !routes || routes.length === 0 ? (
-            <View style={[styles.infoRow, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-              <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
-              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, flex: 1 }}>
-                No routes are available to schedule right now. Please check back later.
+            <Pressable
+              onPress={() => setRequestMode(true)}
+              style={[styles.infoRow, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}30` }]}
+            >
+              <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
+              <Text variant="bodySmall" style={{ color: colors.primary, flex: 1 }}>
+                No routes available yet. Tap to request a trip to your destination — we'll find a driver.
               </Text>
-            </View>
+              <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+            </Pressable>
           ) : (
             <View style={{ gap: spacing.md }}>
               {routes.map((route) => {
@@ -265,10 +323,14 @@ export default function ScheduleRideScreen() {
 
           <View style={{ marginTop: spacing['3xl'] }}>
             <Button
-              label={scheduleMutation.isPending ? 'Scheduling...' : 'Schedule Ride'}
+              label={
+                requestMode
+                  ? (requestMutation.isPending ? 'Requesting...' : 'Request Trip')
+                  : (scheduleMutation.isPending ? 'Scheduling...' : 'Schedule Ride')
+              }
               onPress={handleSubmit}
               variant="primary"
-              disabled={scheduleMutation.isPending}
+              disabled={scheduleMutation.isPending || requestMutation.isPending}
             />
           </View>
         </MotiView>
@@ -355,6 +417,11 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.outlineVariant,
       paddingHorizontal: spacing.base,
       height: 52,
+    },
+    textInput: {
+      flex: 1,
+      fontSize: 15,
+      height: '100%',
     },
     inputIcon: { marginRight: spacing.md },
     input: {

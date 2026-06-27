@@ -69,13 +69,6 @@ const SPECIAL_SERVICES: SpecialService[] = [
     route: '/ride/schedule',
   },
   {
-    id: 'airport',
-    name: 'Airport Transfer',
-    description: 'Fixed rates, no surprises',
-    icon: 'airplane-outline',
-    route: '/where-to?type=airport',
-  },
-  {
     id: 'group',
     name: 'Group Ride',
     description: 'Share costs with up to 4 people',

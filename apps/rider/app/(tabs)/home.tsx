@@ -314,7 +314,7 @@ export default function HomeScreen() {
                 ride={trip}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push('/ride/select' as any);
+                  router.push(`/ride/${trip.id}` as any);
                 }}
               />
             </MotiView>

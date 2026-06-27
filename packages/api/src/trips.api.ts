@@ -21,4 +21,7 @@ export const tripsApi = {
 
   getActiveTrip: () =>
     apiClient.get<ApiResponse<Trip | null>>('/trips/active'),
+
+  requestTrip: (params: { destination: string; scheduledAt: string; seatCount: number }) =>
+    apiClient.post<ApiResponse<{ requestId: string; message: string }>>('/trips/request', params),
 };
