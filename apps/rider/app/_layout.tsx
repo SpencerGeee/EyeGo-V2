@@ -40,6 +40,7 @@ import { offlineQueue } from '../utils/offlineQueue';
 // Initialize crash/error tracking as early as possible (no-op without DSN)
 initSentry();
 import { TripStatusListener } from '../components/TripStatusListener';
+import { GlobalToast } from '../components/GlobalToast';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 import * as Linking from 'expo-linking';
@@ -579,6 +580,8 @@ export default function RootLayout() {
           </Animated.View>
           {/* Global trip-status banner — rendered AFTER Stack so it layers above all screens */}
           <TripStatusListener />
+          {/* Global error / success toast — sits above all other overlays */}
+          <GlobalToast />
           {/* Global foreground push notification banner */}
           {inAppBanner && (
             <View

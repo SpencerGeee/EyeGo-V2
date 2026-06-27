@@ -6,6 +6,7 @@ import {
   TextInput,
   Pressable,
   FlatList,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -93,6 +94,7 @@ export default function RideSelectScreen() {
 
   const [enRoutePickerTripId, setEnRoutePickerTripId] = useState<string | null>(null);
   const [selectedStopByTrip, setSelectedStopByTrip] = useState<Record<string, { id: string; name: string; fare: number }>>({});
+  const [fareModalTrip, setFareModalTrip] = useState<TripWithRoute | null>(null);
 
   const addStop = () => {
     setStops([...stops, { id: Math.random().toString(), text: '' }]);
@@ -354,16 +356,57 @@ export default function RideSelectScreen() {
             animate={{ opacity: 1 }}
             transition={{ type: 'timing', duration: 300 }}
           >
-            <EmptyState
-              icon={searchTrips.isError ? '⚠️' : '🚐'}
-              title={searchTrips.isError ? 'Search failed' : 'No rides found'}
-              subtitle={
-                searchTrips.isError
-                  ? 'Something went wrong searching for rides. Please try again.'
-                  : 'No trips match this route right now. Try a different time or destination.'
-              }
-              action={{ label: 'Search again', onPress: () => searchTrips.mutate() }}
-            />
+            {searchTrips.isError ? (
+              <EmptyState
+                icon="⚠️"
+                title="Search failed"
+                subtitle="Something went wrong searching for rides. Please try again."
+                action={{ label: 'Try again', onPress: () => searchTrips.mutate() }}
+              />
+            ) : (
+              <View style={styles.noDriversCard}>
+                <Ionicons name="bus-outline" size={48} color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md }} />
+                <Text variant="titleSmall" style={{ textAlign: 'center' }}>No rides available right now</Text>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.xs }}>
+                  No {selectedTier.toLowerCase()} trips match this route. Try a different tier or destination.
+                </Text>
+                <View style={styles.noDriversCtas}>
+                  <Pressable
+                    style={[styles.noDriversCtaBtn, { backgroundColor: colors.primary }]}
+                    onPress={() => router.push('/ride/request' as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Request a trip from a driver"
+                  >
+                    <Ionicons name="flash" size={18} color={colors.onPrimary} />
+                    <View>
+                      <Text variant="labelLarge" color={colors.onPrimary}>Request a Trip</Text>
+                      <Text variant="caption" color={colors.onPrimary} style={{ opacity: 0.75 }}>A driver will accept when available</Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.noDriversCtaBtn, { backgroundColor: colors.surfaceContainer, borderWidth: 1, borderColor: colors.outlineVariant }]}
+                    onPress={() => router.push('/ride/schedule' as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Schedule a trip for later"
+                  >
+                    <Ionicons name="calendar-outline" size={18} color={colors.onSurface} />
+                    <View>
+                      <Text variant="labelLarge">Schedule for Later</Text>
+                      <Text variant="caption" color={colors.onSurfaceVariant}>Pick a date and time that works</Text>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={styles.noDriversRetry}
+                    onPress={() => searchTrips.mutate()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Search again"
+                  >
+                    <Ionicons name="refresh-outline" size={16} color={colors.onSurfaceVariant} />
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>Search again</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
           </MotiView>
         )}
 
@@ -437,9 +480,19 @@ export default function RideSelectScreen() {
                             </View>
                           </View>
                           <View style={styles.tripResultRight}>
-                            <Text variant="fareMedium" accessibilityLabel={`Fare ${formatCurrency(displayFare)}`}>
-                              {formatCurrency(displayFare)}
-                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Text variant="fareMedium" accessibilityLabel={`Fare ${formatCurrency(displayFare)}`}>
+                                {formatCurrency(displayFare)}
+                              </Text>
+                              <Pressable
+                                onPress={(e) => { e.stopPropagation?.(); setFareModalTrip(trip); }}
+                                hitSlop={8}
+                                accessibilityRole="button"
+                                accessibilityLabel="View fare breakdown"
+                              >
+                                <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
+                              </Pressable>
+                            </View>
                             {selectedStop && (
                               <Text variant="caption" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'line-through' }}>
                                 {formatCurrency(fullFare)}
@@ -519,6 +572,68 @@ export default function RideSelectScreen() {
           </MotiView>
         )}
       </ScrollView>
+
+      {/* Fare breakdown modal */}
+      <Modal
+        visible={!!fareModalTrip}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFareModalTrip(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setFareModalTrip(null)}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
+            <View style={styles.modalHandle} />
+            <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Fare Breakdown</Text>
+            {fareModalTrip && (() => {
+              const fare = fareModalTrip.farePerSeat ?? 0;
+              const platform = Math.round(fare * 0.05 * 100) / 100;
+              const base = Math.round((fare - platform) * 100) / 100;
+              const heavySurcharge = heavyLoad ? 10 : 0;
+              const total = fare + heavySurcharge;
+              const distKm = fareModalTrip.route?.distanceKm;
+              return (
+                <View style={{ gap: spacing.sm }}>
+                  {distKm ? (
+                    <View style={styles.breakdownRow}>
+                      <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Distance</Text>
+                      <Text variant="bodyMedium">{distKm.toFixed(1)} km</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.breakdownRow}>
+                    <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Base fare</Text>
+                    <Text variant="bodyMedium">{formatCurrency(base)}</Text>
+                  </View>
+                  <View style={styles.breakdownRow}>
+                    <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Platform fee (5%)</Text>
+                    <Text variant="bodyMedium">{formatCurrency(platform)}</Text>
+                  </View>
+                  {heavyLoad && (
+                    <View style={styles.breakdownRow}>
+                      <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Heavy load surcharge</Text>
+                      <Text variant="bodyMedium">{formatCurrency(heavySurcharge)}</Text>
+                    </View>
+                  )}
+                  <View style={[styles.breakdownRow, styles.breakdownTotal]}>
+                    <Text variant="titleSmall">Total per seat</Text>
+                    <Text variant="titleSmall" color={colors.primary}>{formatCurrency(total)}</Text>
+                  </View>
+                  <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs, textAlign: 'center' }}>
+                    Fares are per seat and may include a surge multiplier during peak hours.
+                  </Text>
+                </View>
+              );
+            })()}
+            <Pressable
+              style={[styles.modalClose, { backgroundColor: colors.primary }]}
+              onPress={() => setFareModalTrip(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Close fare breakdown"
+            >
+              <Text variant="labelLarge" color={colors.onPrimary}>Got it</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -807,5 +922,68 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'flex-end',
     gap: spacing.sm,
     paddingLeft: spacing.base,
+  },
+  // No drivers state
+  noDriversCard: {
+    alignItems: 'center',
+    paddingVertical: spacing['2xl'],
+    paddingHorizontal: spacing.xl,
+  },
+  noDriversCtas: {
+    width: '100%',
+    gap: spacing.md,
+    marginTop: spacing.xl,
+  },
+  noDriversCtaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radii.xl,
+    padding: spacing.base,
+  },
+  noDriversRetry: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+  },
+  // Fare breakdown modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: spacing['2xl'],
+    paddingBottom: spacing['3xl'],
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.outline,
+    alignSelf: 'center',
+    marginBottom: spacing.xl,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  breakdownTotal: {
+    borderTopWidth: 1,
+    borderTopColor: colors.outline,
+    marginTop: spacing.sm,
+    paddingTop: spacing.md,
+  },
+  modalClose: {
+    borderRadius: radii.full,
+    paddingVertical: spacing.base,
+    alignItems: 'center',
+    marginTop: spacing.xl,
   },
 });
