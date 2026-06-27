@@ -1,5 +1,5 @@
 import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image, Linking } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
@@ -17,6 +17,7 @@ import { Text } from '@eyego/ui';
 import { formatDuration } from '@eyego/utils';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
+import { haptic } from '../../../utils/haptics';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
@@ -396,9 +397,8 @@ export default function TrackingScreen() {
 
     const unsubStatus = socketEvents.onTripStatus((data) => {
       if (data.status === 'COMPLETED') {
+        haptic.success();
         showBanner('You have arrived! Rate your trip');
-        // capturedBookingIdRef was populated on mount (before trip ended).
-        // activeBookingRef is kept as a secondary fallback for backward compat.
         const completedBookingId =
           capturedBookingIdRef.current || activeBookingRef.current?.id || '';
         setTimeout(() => {
@@ -407,14 +407,15 @@ export default function TrackingScreen() {
           router.replace(`/ride/${id}/complete${completedBookingId ? `?bookingId=${completedBookingId}` : ''}` as Href);
         }, 1200);
       } else if (data.status === 'DRIVER_EN_ROUTE') {
+        haptic.heavy();
         safeSetTripStatus('Driver on the way');
         showBanner('Your driver has started the trip');
       } else if (data.status === 'IN_PROGRESS') {
+        haptic.medium();
         safeSetTripStatus('Trip in progress');
         showBanner('EyeGo has departed — enjoy the ride!');
       } else if (data.status === 'CANCELLED') {
-        // Driver (or admin) cancelled the trip mid-flow. Stop tracking and tell
-        // the rider immediately instead of leaving them on a stale "en route" view.
+        haptic.warning();
         safeSetTripStatus('Trip cancelled');
         if (!mountedRef.current) return;
         disconnectSocket();
@@ -665,19 +666,41 @@ export default function TrackingScreen() {
           >
             <View style={styles.driverCardTop}>
               <View style={styles.driverAvatar}>
-                <Ionicons name="person" size={22} color={colors.onSurfaceVariant} />
+                {syncedTrip?.driver?.profilePhoto ? (
+                  <Image
+                    source={{ uri: syncedTrip.driver.profilePhoto }}
+                    style={{ width: 44, height: 44, borderRadius: 22 }}
+                  />
+                ) : (
+                  <Ionicons name="person" size={22} color={colors.onSurfaceVariant} />
+                )}
               </View>
               <View style={styles.driverInfo}>
                 <Text variant="titleSmall">
                   {syncedTrip?.driver?.name ?? 'Your Driver'}
                 </Text>
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  ★ {syncedTrip?.driver?.rating?.toFixed(1) ?? '4.9'} · {syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate ?? '—'}
+                  ★ {syncedTrip?.driver?.rating?.toFixed(1) ?? '4.9'}
+                  {(syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate)
+                    ? ` · ${syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate}`
+                    : ''}
+                </Text>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  {syncedTrip?.vehicle?.make ?? ''} {syncedTrip?.vehicle?.model ?? ''}
                 </Text>
               </View>
             </View>
             <View style={styles.driverActions}>
-              <Pressable style={styles.actionButton} onPress={() => Alert.alert('Calling...', 'Connecting call to driver...')} accessibilityRole="button" accessibilityLabel="Call driver">
+              <Pressable style={styles.actionButton} onPress={() => {
+                const phone = syncedTrip?.driver?.phone;
+                if (phone) {
+                  Linking.openURL(`tel:${phone}`).catch(() =>
+                    Alert.alert('Cannot call', 'Unable to open the phone dialer.')
+                  );
+                } else {
+                  Alert.alert('No number', 'Driver phone number is not available.');
+                }
+              }} accessibilityRole="button" accessibilityLabel="Call driver">
                 <Ionicons name="call" size={20} color={colors.primary} />
                 <Text style={styles.actionLabel}>Call</Text>
               </Pressable>

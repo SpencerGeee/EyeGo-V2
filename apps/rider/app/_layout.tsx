@@ -8,7 +8,7 @@ import { SplashAnimation } from '../components/SplashAnimation';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, View, Animated, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import {
   useFonts,
@@ -130,9 +130,23 @@ async function registerForPushNotifications() {
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error: any) => {
+      const status = error?.response?.status ?? error?.status;
+      if (status === 401) {
+        // Token expired or invalid — clear auth state so the redirect
+        // useEffect in RootLayout sends the user back to the phone screen.
+        useAuthStore.getState().logout().catch(() => {});
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
-      retry: 2,
+      retry: (failureCount, error: any) => {
+        // Never retry 401 — auth errors are permanent until re-login
+        if ((error?.response?.status ?? error?.status) === 401) return false;
+        return failureCount < 2;
+      },
       staleTime: 1000 * 60 * 5, // 5 min
     },
   },
