@@ -25,20 +25,20 @@ try {
   // package not yet installed or platform unsupported — use expo-blur fallback
 }
 
-type TabRoute = 'home' | 'trips' | 'notifications' | 'profile';
+type TabRoute = 'home' | 'services' | 'activity' | 'account';
 
 const TAB_ICONS: Record<TabRoute, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
-  home: { active: 'map', inactive: 'map-outline' },
-  trips: { active: 'time', inactive: 'time-outline' },
-  notifications: { active: 'notifications', inactive: 'notifications-outline' },
-  profile: { active: 'person', inactive: 'person-outline' },
+  home: { active: 'home', inactive: 'home-outline' },
+  services: { active: 'grid', inactive: 'grid-outline' },
+  activity: { active: 'time', inactive: 'time-outline' },
+  account: { active: 'person-circle', inactive: 'person-circle-outline' },
 };
 
 const TAB_LABELS: Record<TabRoute, string> = {
-  home: 'Explore',
-  trips: 'Trips',
-  notifications: 'Alerts',
-  profile: 'Profile',
+  home: 'Home',
+  services: 'Services',
+  activity: 'Activity',
+  account: 'Account',
 };
 
 /** Renders the glassmorphism / Liquid Glass background layer */
@@ -149,9 +149,9 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="home" />
-      <Tabs.Screen name="trips" />
-      <Tabs.Screen name="notifications" />
-      <Tabs.Screen name="profile" />
+      <Tabs.Screen name="services" />
+      <Tabs.Screen name="activity" />
+      <Tabs.Screen name="account" />
     </Tabs>
   );
 }

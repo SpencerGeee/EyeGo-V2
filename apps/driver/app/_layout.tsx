@@ -1,5 +1,6 @@
 import '../global.css';
-import React, { useEffect, useRef, useCallback, Component } from 'react';
+import React, { useEffect, useRef, useCallback, Component, useState } from 'react';
+import { SplashAnimation } from '../components/SplashAnimation';
 import { Platform, View, Pressable, Text as RNText, StyleSheet, AppState, Animated } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Updates from 'expo-updates';
@@ -142,6 +143,7 @@ export default function RootLayout() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  const [splashDone, setSplashDone] = useState(false);
   const [inAppBanner, setInAppBanner] = React.useState<{ title: string; body: string } | null>(null);
   const bannerTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -279,11 +281,11 @@ export default function RootLayout() {
     }
   }, [isLoggedIn, isLoading, segments, router]);
 
-  useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
-  }, [fontsLoaded]);
-
   if (!fontsLoaded) return null;
+
+  if (!splashDone) {
+    return <SplashAnimation onComplete={() => setSplashDone(true)} />;
+  }
 
   return (
     <AppErrorBoundary>

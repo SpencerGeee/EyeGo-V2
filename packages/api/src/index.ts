@@ -1,4 +1,4 @@
-export { apiClient, configureApiClient } from './client';
+export { apiClient, configureApiClient, setApiBaseUrl } from './client';
 export { authApi } from './auth.api';
 export { userApi } from './user.api';
 export { tripsApi } from './trips.api';

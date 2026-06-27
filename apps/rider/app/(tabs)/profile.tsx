@@ -72,7 +72,7 @@ export default function ProfileScreen() {
         { label: 'Payment Methods', icon: 'card-outline', onPress: () => router.push('/profile/payment-methods' as RiderRoute) },
         { label: 'Promotions & Referrals', icon: 'gift-outline', onPress: () => router.push('/profile/promotions' as RiderRoute) },
         { label: 'Saved Places', icon: 'location-outline', onPress: () => router.push('/profile/saved-places' as RiderRoute) },
-        { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/trips') },
+        { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/activity' as any) },
       ],
     },
     {

@@ -3,12 +3,8 @@ import '../i18n';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '../i18n';
-import MapboxGL from '../utils/mapbox';
-
-// MapLibre GL Native + OpenFreeMap tiles — no API key or access token needed.
-// Tiles are served from tiles.openfreemap.org (maxzoom 14, free, no billing).
-// The map style is defined inline in the component using the eyego-dark style JSON.
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
+import { SplashAnimation } from '../components/SplashAnimation';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, View, Animated, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -152,6 +148,7 @@ export default function RootLayout() {
 
   const insets = useSafeAreaInsets();
 
+  const [splashDone, setSplashDone] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const offlineAnim = useRef(new Animated.Value(0)).current;
 
@@ -353,23 +350,12 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [router]);
 
-  useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [fontsLoaded]);
-
-  // Safety net: if fonts never load (edge case on some Android devices),
-  // force-hide the splash after 4 seconds so the app is never permanently stuck.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, []);
-
   if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: colors.backgroundDeep ?? '#0a0a0a' }} />;
+    return <View style={{ flex: 1, backgroundColor: '#091009' }} />;
+  }
+
+  if (!splashDone) {
+    return <SplashAnimation onComplete={() => setSplashDone(true)} />;
   }
 
   return (
@@ -389,6 +375,10 @@ export default function RootLayout() {
             <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
             <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
             <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+            <Stack.Screen
+              name="where-to"
+              options={{ animation: 'slide_from_bottom', presentation: 'modal', gestureEnabled: true }}
+            />
             <Stack.Screen
               name="ride/select"
               options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
