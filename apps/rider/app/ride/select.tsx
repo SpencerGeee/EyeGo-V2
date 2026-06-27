@@ -1,11 +1,10 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   TextInput,
   Pressable,
-  FlatList,
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,8 +23,8 @@ import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Toggle, Skeleton, EmptyState } from '@eyego/ui';
-import { formatCurrency, formatDuration } from '@eyego/utils';
+import { Text, Button, Toggle, EmptyState } from '@eyego/ui';
+import { formatCurrency } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../lib/sentry';
 
@@ -108,7 +107,7 @@ export default function RideSelectScreen() {
     setStops(stops.filter(s => s.id !== id));
   };
 
-  const { data: routesData, isLoading: routesLoading } = useQuery({
+  useQuery({
     queryKey: queryKeys.routes.all,
     queryFn: routesApi.getAll,
   });
