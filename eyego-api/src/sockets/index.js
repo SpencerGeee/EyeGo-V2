@@ -5,6 +5,7 @@ const socketAuth = require('./middleware/socketAuth');
 const registerDriverSocket = require('./driver.socket');
 const registerPassengerSocket = require('./passenger.socket');
 const logger = require('../utils/logger');
+const redis = require('../config/redis');
 
 function initSocketServer(httpServer) {
   const io = new Server(httpServer, {

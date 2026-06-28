@@ -9,6 +9,7 @@ const surgeService = require('./surge.service');
 const { dispatchToNearbyDrivers } = require('../../services/dispatch.service');
 const pushService = require('../../services/push.service');
 const pubSub = require('../../graphql/pubsub');
+const logger = require('../../utils/logger');
 
 async function createTrip(driverId, data) {
   const { routeId, vehicleId: requestedVehicleId, departureTime, doorstepPickup, pickupLat, pickupLng, pickupAddress, heavyLoad, availableSeats } = data;
