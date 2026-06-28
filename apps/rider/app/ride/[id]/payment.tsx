@@ -624,13 +624,25 @@ export default function PaymentScreen() {
                   : `Confirm Cash Booking · ${formatCurrency(fareAmount)}`
               }
               onPress={() => {
+                // Card payments need a real email for the payment provider receipt.
+                if (activeTab === 'card' && !user?.email) {
+                  Alert.alert(
+                    'Email required',
+                    'Card payments need an email for your receipt. Add one to your profile to continue.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Add email', onPress: () => router.push('/profile/edit') },
+                    ]
+                  );
+                  return;
+                }
                 // BUGFIX: Double-submit lock — prevent rapid taps from creating multiple bookings
                 if (isSubmittingRef.current) return;
                 isSubmittingRef.current = true;
                 initPayment.mutate();
               }}
               loading={initPayment.isPending || isPolling}
-              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && walletBalance < fareAmount}
+              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && walletBalance < fareAmount || (activeTab === 'card' && !user?.email)}
             />
           </View>
 

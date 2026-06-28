@@ -24,4 +24,7 @@ export const tripsApi = {
 
   requestTrip: (params: { destination: string; scheduledAt: string; seatCount: number }) =>
     apiClient.post<ApiResponse<{ requestId: string; message: string }>>('/trips/request', params),
+
+  schedule: (params: { routeId: string; scheduledAt: string; seatCount?: number }) =>
+    apiClient.post<ApiResponse<{ id: string; routeId: string; scheduledAt: string; seatCount: number }>>('/trips/schedule', params),
 };

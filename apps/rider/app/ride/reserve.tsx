@@ -1,13 +1,26 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, FlatList } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, StyleSheet, ScrollView, Pressable, FlatList, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
+import { useMutation } from '@tanstack/react-query';
+import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
+import { captureException } from '../../lib/sentry';
+
+// Parse a "6:30 PM" slot into 24h {hours, minutes}.
+const parseSlot = (slot: string) => {
+  const [time, modifier] = slot.split(' ');
+  const [h, m] = time.split(':');
+  let hours = parseInt(h, 10);
+  if (modifier === 'PM' && hours < 12) hours += 12;
+  if (modifier === 'AM' && hours === 12) hours = 0;
+  return { hours, minutes: parseInt(m, 10) };
+};
 
 // Generate next 14 days
 const generateDates = () => {
@@ -37,38 +50,72 @@ export default function ReserveScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { setScheduledTime } = useRideStore();
+  const { setScheduledTime, selectedTrip } = useRideStore();
 
   const dates = useMemo(() => generateDates(), []);
   const timeSlots = useMemo(() => generateTimeSlots(), []);
 
   const [selectedDate, setSelectedDate] = useState<Date>(dates[0]);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [isScheduling, setIsScheduling] = useState(false);
+
+  // A route is known only when the rider already picked a trip. The schedule
+  // endpoint creates a ScheduledRideIntent which requires a routeId; without
+  // one (entry from pre-search) we can only store the time as a search filter.
+  const routeId: string | undefined = (selectedTrip as any)?.route?.id ?? (selectedTrip as any)?.routeId;
+
+  // Build the concrete pickup Date from the selected day + slot.
+  const buildScheduledDate = (): Date | null => {
+    if (!selectedDate || !selectedTime) return null;
+    const { hours, minutes } = parseSlot(selectedTime);
+    const d = new Date(selectedDate);
+    d.setHours(hours, minutes, 0, 0);
+    return d;
+  };
+
+  const isToday = selectedDate?.toDateString() === new Date().toDateString();
+  // A slot is in the past only for today's date.
+  const isSlotPast = (slot: string): boolean => {
+    if (!isToday) return false;
+    const { hours, minutes } = parseSlot(slot);
+    const now = new Date();
+    return hours < now.getHours() || (hours === now.getHours() && minutes <= now.getMinutes());
+  };
+
+  const scheduleMutation = useMutation({
+    mutationFn: (scheduledAt: string) =>
+      tripsApi.schedule({ routeId: routeId as string, scheduledAt, seatCount: 1 }),
+    onSuccess: (_res, scheduledAt) => {
+      setScheduledTime(scheduledAt);
+      router.back();
+    },
+    onError: (err) => {
+      captureException(err, { screen: 'reserve', action: 'schedule', routeId });
+      const msg = (err as any)?.response?.data?.message ?? 'Could not schedule your ride. Please try again.';
+      Alert.alert('Scheduling failed', msg);
+    },
+  });
 
   const handleSchedule = () => {
-    if (!selectedDate || !selectedTime) return;
-    
-    setIsScheduling(true);
-    
-    // Mock API call
-    setTimeout(() => {
-      // Combine date and time
-      const [time, modifier] = selectedTime.split(' ');
-      let [hours, minutes] = time.split(':');
-      let hoursNum = parseInt(hours, 10);
-      
-      if (modifier === 'PM' && hoursNum < 12) hoursNum += 12;
-      if (modifier === 'AM' && hoursNum === 12) hoursNum = 0;
-      
-      const scheduledDate = new Date(selectedDate);
-      scheduledDate.setHours(hoursNum, parseInt(minutes, 10), 0, 0);
-      
-      setScheduledTime(scheduledDate.toISOString());
-      setIsScheduling(false);
+    const scheduledDate = buildScheduledDate();
+    if (!scheduledDate) return;
+    if (scheduledDate.getTime() <= Date.now()) {
+      Alert.alert('Pick a future time', 'The selected time has already passed. Choose a later slot.');
+      return;
+    }
+    const iso = scheduledDate.toISOString();
+
+    if (routeId) {
+      // Route known → create a real scheduled-ride intent on the backend.
+      scheduleMutation.mutate(iso);
+    } else {
+      // Pre-search flow → store the time as a client-side search preference.
+      // select.tsx reads scheduledTime as a display label and search filter.
+      setScheduledTime(iso);
       router.back();
-    }, 1000);
+    }
   };
+
+  const isScheduling = scheduleMutation.isPending;
 
   const renderDateItem = ({ item }: { item: Date }) => {
     const isSelected = item.toDateString() === selectedDate.toDateString();
@@ -80,6 +127,9 @@ export default function ReserveScreen() {
       <Pressable
         style={[styles.dateCard, isSelected && styles.dateCardSelected]}
         onPress={() => setSelectedDate(item)}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isSelected }}
+        accessibilityLabel={`${dayName} ${monthName} ${dayNumber}`}
       >
         <Text
           variant="caption"
@@ -152,15 +202,25 @@ export default function ReserveScreen() {
           <View style={styles.timeGrid}>
             {timeSlots.map((time) => {
               const isSelected = time === selectedTime;
+              const past = isSlotPast(time);
               return (
                 <Pressable
                   key={time}
-                  style={[styles.timeCard, isSelected && styles.timeCardSelected]}
-                  onPress={() => setSelectedTime(time)}
+                  style={[
+                    styles.timeCard,
+                    isSelected && styles.timeCardSelected,
+                    past && styles.timeCardPast,
+                  ]}
+                  onPress={() => !past && setSelectedTime(time)}
+                  disabled={past}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected, disabled: past }}
+                  accessibilityLabel={`${time}${past ? ' — unavailable' : ''}`}
                 >
                   <Text
                     variant="labelLarge"
-                    color={isSelected ? colors.primary : colors.onSurface}
+                    color={past ? colors.onSurfaceVariant : isSelected ? colors.primary : colors.onSurface}
+                    style={past && { textDecorationLine: 'line-through' }}
                   >
                     {time}
                   </Text>
@@ -261,6 +321,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   timeCardSelected: {
     borderColor: colors.primary,
     backgroundColor: colors.primary + '10',
+  },
+  timeCardPast: {
+    opacity: 0.4,
+    backgroundColor: colors.surfaceContainerHigh,
   },
   footer: {
     padding: spacing['2xl'],

@@ -90,65 +90,20 @@ export default function RideSelectScreen() {
   const [searched, setSearched] = useState(false);
   const [heavyLoad, setHeavyLoad] = useState(false);
   const [stops, setStops] = useState<{ id: string; text: string }[]>([]);
-  const [detourWarning, setDetourWarning] = useState<string | null>(null);
+
   const [enRoutePickerTripId, setEnRoutePickerTripId] = useState<string | null>(null);
   const [selectedStopByTrip, setSelectedStopByTrip] = useState<Record<string, { id: string; name: string; fare: number }>>({});
-
-  const validateStops = (currentStops: typeof stops) => {
-    const oLat = origin?.latitude ?? 5.6037;
-    const oLng = origin?.longitude ?? -0.187;
-    const dLat = destination?.latitude ?? 5.65;
-    const dLng = destination?.longitude ?? -0.19;
-
-    let hasWarning = false;
-    for (const stop of currentStops) {
-      if (!stop.text.trim()) continue;
-      
-      // Mock coordinates based on text
-      const coords = stop.text.toLowerCase().includes('far') 
-        ? { lat: oLat + 0.05, lng: oLng + 0.05 } 
-        : { lat: oLat + (dLat - oLat) * 0.5, lng: oLng + (dLng - oLng) * 0.5 + 0.001 };
-
-      // Calculate distance to segment
-      const l2 = (dLat - oLat) ** 2 + (dLng - oLng) ** 2;
-      let dist = 0;
-      if (l2 === 0) {
-        dist = Math.sqrt((coords.lat - oLat) ** 2 + (coords.lng - oLng) ** 2);
-      } else {
-        let t = ((coords.lat - oLat) * (dLat - oLat) + (coords.lng - oLng) * (dLng - oLng)) / l2;
-        t = Math.max(0, Math.min(1, t));
-        const proj = { lat: oLat + t * (dLat - oLat), lng: oLng + t * (dLng - oLng) };
-        dist = Math.sqrt((coords.lat - proj.lat) ** 2 + (coords.lng - proj.lng) ** 2);
-      }
-
-      // 1 degree is approx 111km. 1.5km is approx 0.0135 degrees.
-      if (dist > 0.0135) {
-        hasWarning = true;
-        break;
-      }
-    }
-    
-    if (hasWarning) {
-      setDetourWarning("One of your stops is too far from the main route (exceeds 1.5km detour). This may incur additional charges or be rejected by drivers.");
-    } else {
-      setDetourWarning(null);
-    }
-  };
 
   const addStop = () => {
     setStops([...stops, { id: Math.random().toString(), text: '' }]);
   };
 
   const updateStop = (id: string, text: string) => {
-    const newStops = stops.map(s => s.id === id ? { ...s, text } : s);
-    setStops(newStops);
-    validateStops(newStops);
+    setStops(stops.map(s => s.id === id ? { ...s, text } : s));
   };
 
   const removeStop = (id: string) => {
-    const newStops = stops.filter(s => s.id !== id);
-    setStops(newStops);
-    validateStops(newStops);
+    setStops(stops.filter(s => s.id !== id));
   };
 
   const { data: routesData, isLoading: routesLoading } = useQuery({
@@ -297,6 +252,11 @@ export default function RideSelectScreen() {
               <Text variant="labelLarge" color={colors.primary}>Add Stop</Text>
             </Pressable>
           )}
+          {stops.some((s) => s.text.trim()) && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs, marginLeft: spacing.lg }}>
+              Stops help your driver plan the route. Share them in the chat once matched.
+            </Text>
+          )}
         </MotiView>
 
         {/* Ride Options */}
@@ -320,24 +280,6 @@ export default function RideSelectScreen() {
             </Text>
           </Pressable>
         </MotiView>
-
-        {/* Detour warning */}
-        <AnimatePresence>
-          {detourWarning && (
-            <MotiView
-              from={{ opacity: 0, translateY: -6, scale: 0.98 }}
-              animate={{ opacity: 1, translateY: 0, scale: 1 }}
-              exit={{ opacity: 0, translateY: -6, scale: 0.98 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-              style={[styles.heavyLoadBanner, { backgroundColor: colors.error + '12', borderColor: colors.error + '30' }]}
-            >
-              <Ionicons name="warning-outline" size={16} color={colors.error} />
-              <Text variant="caption" color={colors.error} style={{ flex: 1 }}>
-                {detourWarning}
-              </Text>
-            </MotiView>
-          )}
-        </AnimatePresence>
 
         {/* Tier selector */}
         <MotiView

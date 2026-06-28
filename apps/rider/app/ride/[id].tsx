@@ -1,13 +1,12 @@
 import React, { useRef, useMemo, useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { tripsApi, bookingsApi, queryKeys } from '@eyego/api';
-import * as Haptics from 'expo-haptics';
+import { tripsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, shadows } from '@eyego/config';
@@ -19,7 +18,6 @@ import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
 import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
-import { captureException } from '../../lib/sentry';
 
 
 // Emoji tier marks replaced with Ionicons (vector) for consistent, crisp icons.
@@ -34,7 +32,7 @@ export default function RideDetailScreen() {
   const { id, tier: tierParam } = useLocalSearchParams<{ id: string; tier?: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { selectedTrip, setSelectedTrip, setActiveBooking, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare } = useRideStore();
+  const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare } = useRideStore();
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['58%', '85%'], []);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -106,31 +104,6 @@ export default function RideDetailScreen() {
     const serverFare = trip.farePerSeat ?? trip.fare ?? 0;
     setStoreTier(selectedTier, serverFare);
   }, [selectedTier, trip, tripTier, setStoreTier]);
-
-  const bookTrip = useMutation({
-    mutationFn: async () => {
-      // No mock fallback — a booking failure must surface a real error so the
-      // rider never proceeds to payment against a fabricated booking.
-      const { data } = await bookingsApi.create({
-        tripId: id ?? '',
-        seatId: 'seat-1', // default fallback seat
-        paymentMethod: 'CASH' as 'MOMO' | 'CARD' | 'WALLET',
-      });
-      return data.data;
-    },
-    onSuccess: (bookingData) => {
-      setActiveBooking(bookingData);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.push(`/ride/${id}/payment` as Href);
-    },
-    onError: (err) => {
-      captureException(err, { screen: 'ride-detail', action: 'quick-book', tripId: id });
-      Alert.alert(
-        'Could not reserve seat',
-        'We couldn\'t hold a seat for this trip. It may be full — please try another trip or try again.',
-      );
-    },
-  });
 
   const occupiedSeats = trip ? (trip.totalSeats ?? 10) - (trip.availableSeats ?? 0) : 0;
   const occupancyPercent = trip ? (occupiedSeats / (trip.totalSeats ?? 10)) * 100 : 0;
@@ -372,7 +345,6 @@ export default function RideDetailScreen() {
                 <Button
                   label={`Book This Seat · ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : '...'}`}
                   onPress={() => router.push(`/ride/${id}/seat` as Href)}
-                  loading={bookTrip.isPending}
                   accessibilityRole="button"
                   accessibilityLabel={`Book this seat for ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : 'loading'}`}
                 />
