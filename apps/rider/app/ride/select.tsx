@@ -90,7 +90,6 @@ export default function RideSelectScreen() {
   const [searched, setSearched] = useState(false);
   const [heavyLoad, setHeavyLoad] = useState(false);
   const [stops, setStops] = useState<{ id: string; text: string }[]>([]);
-
   const [enRoutePickerTripId, setEnRoutePickerTripId] = useState<string | null>(null);
   const [selectedStopByTrip, setSelectedStopByTrip] = useState<Record<string, { id: string; name: string; fare: number }>>({});
   const [fareModalTrip, setFareModalTrip] = useState<TripWithRoute | null>(null);

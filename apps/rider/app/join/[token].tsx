@@ -25,7 +25,7 @@ export default function JoinScreen() {
     enabled: !!token && isLoggedIn,
   });
 
-  const trip = data?.data.data.trip;
+  const trip = data?.data?.data?.trip;
 
   if (!isLoggedIn) {
     return (

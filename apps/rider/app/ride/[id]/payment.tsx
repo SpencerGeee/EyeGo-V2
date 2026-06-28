@@ -189,7 +189,10 @@ export default function PaymentScreen() {
             bookingId,
             method: ((activeTab as string) === 'momo' ? 'MOMO' : (activeTab as string) === 'cash' ? 'CASH' : (activeTab as string) === 'wallet' ? 'WALLET' : 'CARD') as 'MOMO' | 'CARD' | 'WALLET',
             momoPhone: activeTab === 'momo' ? `+233${momoPhone.replace(/\D/g, '')}` : undefined,
-            email: activeTab === 'card' ? 'passenger@eyego.app' : undefined,
+            // Paystack requires a real email for the card receipt. Use the
+            // signed-in user's email — the card path is guarded below so this is
+            // never undefined when activeTab === 'card'.
+            email: activeTab === 'card' ? (user?.email ?? undefined) : undefined,
           },
           idempotencyKeyRef.current,
         );

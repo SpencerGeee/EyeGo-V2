@@ -26,7 +26,7 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
-import { useAuthStore } from '../stores/auth.store';
+import { useAuthStore, registerLogoutCleanup } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
@@ -34,7 +34,7 @@ import { useColors } from '../utils/useColors';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
-import { initSentry, captureException } from '../lib/sentry';
+import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
 import { offlineQueue } from '../utils/offlineQueue';
 
 // Initialize crash/error tracking as early as possible (no-op without DSN)
@@ -247,6 +247,15 @@ export default function RootLayout() {
 
     configureSocket({
       getToken: () => useAuthStore.getState().accessToken,
+    });
+
+    // SECURITY: on logout, auth.store calls this to purge cross-user state that
+    // it cannot reach itself — the module-scoped React Query cache and Sentry's
+    // user context. Combined with ride-store clear + socket teardown in logout(),
+    // this guarantees the next user inherits nothing from the previous session.
+    registerLogoutCleanup(() => {
+      queryClient.clear();
+      setSentryUser(null);
     });
 
     loadFromStorage();

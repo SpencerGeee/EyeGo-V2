@@ -107,6 +107,8 @@ function TabItem({
 }) {
   const scale = useSharedValue(1);
   const icons = TAB_ICONS[routeName];
+  // Guard: route exists in the directory but is not a visible tab
+  if (!icons) return null;
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -152,6 +154,10 @@ export default function TabLayout() {
       <Tabs.Screen name="services" />
       <Tabs.Screen name="activity" />
       <Tabs.Screen name="account" />
+      {/* Legacy screens kept for deep-link routing — hidden from tab bar */}
+      <Tabs.Screen name="trips" options={{ href: null }} />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }

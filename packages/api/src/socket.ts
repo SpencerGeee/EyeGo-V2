@@ -137,6 +137,20 @@ export function disconnectSocket() {
   }
 }
 
+/**
+ * Hard teardown of the passenger socket regardless of outstanding refs.
+ * Used on logout: screens may still hold connectSocket() refs, but on logout
+ * we MUST drop the connection so the next user does not inherit a live socket
+ * still joined to the prior user's trip room. Resets the refcount to 0.
+ */
+export function forceDisconnectSocket() {
+  socketRefs = 0;
+  driverCallbacks.clear();
+  socket?.disconnect();
+  socket = null;
+  stopPassengerLeakMonitoring();
+}
+
 export function refreshSocketAuth(tripId?: string, driverId?: string): void {
   const _socket = socket;
   if (!_socket) return;
