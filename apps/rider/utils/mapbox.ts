@@ -1,40 +1,28 @@
 import React, { useState, useContext, useEffect, useImperativeHandle } from 'react';
-import Constants from 'expo-constants';
 
-// Detect Expo Go at runtime — avoids crashing on missing native Mapbox module
-// SDK 54: appOwnership === 'expo' is the reliable signal; executionEnvironment kept as fallback
-const isExpoGo =
-  Constants.appOwnership === 'expo' ||
-  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-  (Constants as { executionEnvironment?: string }).executionEnvironment === 'storeClient';
-
+// @maplibre/maplibre-react-native v9 predates Fabric support (MapLibre only
+// added a New Architecture compat layer in v10, with full support in v11 —
+// a breaking API rewrite). This app runs newArchEnabled:true (required by
+// react-native-reanimated 4.x), so mounting the v9 native MapView crashes
+// immediately under Fabric. react-native-maps already supports Fabric and
+// is used successfully by the driver app, so we standardize on it here for
+// both Expo Go and custom/production builds.
 let MapboxGL: any;
 
-if (!isExpoGo) {
-  // Custom dev/prod build — use the real Mapbox SDK
-  try {
-    const Maps = require('@maplibre/maplibre-react-native');
-    MapboxGL = Maps.default || Maps;
-  } catch (e) {
-    // Shouldn't happen in a custom build, but guard just in case
-    MapboxGL = buildFallback();
-  }
-} else {
-  // Expo Go — use react-native-maps as a drop-in adapter
-  try {
-    MapboxGL = buildExpoGoAdapter();
-  } catch (e) {
-    console.warn('🚨 [MapboxGL Adapter] react-native-maps failed to load, falling back to placeholder map:', e);
-    MapboxGL = buildFallback();
-  }
+try {
+  MapboxGL = buildMapsAdapter();
+} catch (e) {
+  console.warn('🚨 [MapboxGL Adapter] react-native-maps failed to load, falling back to placeholder map:', e);
+  MapboxGL = buildFallback();
 }
 
 export default MapboxGL;
 
 // ---------------------------------------------------------------------------
-// Expo Go adapter: wraps react-native-maps to match the Mapbox component API
+// react-native-maps adapter: matches the Mapbox/MapLibre component API used
+// throughout the app (MapView, Camera, MarkerView, PointAnnotation, etc.)
 // ---------------------------------------------------------------------------
-function buildExpoGoAdapter() {
+function buildMapsAdapter() {
   const RNMaps = require('react-native-maps');
   const RNMapView = RNMaps.default;
   const { Marker, Polyline } = RNMaps;
@@ -48,9 +36,10 @@ function buildExpoGoAdapter() {
   // Mapbox zoom → approximate latitudeDelta for react-native-maps
   const zoomToDelta = (zoom: number) => 360 / Math.pow(2, zoom);
 
-  // Context lets Camera (a child) push region updates up into MapView
+  // Context lets Camera/UserLocation (children) push state up into MapView
   const MapRegionContext = React.createContext<{
     setRegion: (r: any) => void;
+    setShowsUserLocation: (v: boolean) => void;
   } | null>(null);
 
   // MapView ─────────────────────────────────────────────────────────────────
@@ -61,10 +50,11 @@ function buildExpoGoAdapter() {
     rotateEnabled,
   }: any) => {
     const [region, setRegion] = useState<any>(null);
+    const [showsUserLocation, setShowsUserLocation] = useState(false);
 
     return React.createElement(
       MapRegionContext.Provider,
-      { value: { setRegion } },
+      { value: { setRegion, setShowsUserLocation } },
       React.createElement(
         RNMapView,
         {
@@ -73,6 +63,7 @@ function buildExpoGoAdapter() {
           showsCompass: compassEnabled ?? false,
           rotateEnabled: rotateEnabled ?? true,
           showsScale: false,
+          showsUserLocation,
           showsMyLocationButton: false,
           toolbarEnabled: false,
         },
@@ -151,13 +142,27 @@ function buildExpoGoAdapter() {
 
   const ExpoLineLayer = () => null;
 
+  // UserLocation ────────────────────────────────────────────────────────────
+  // react-native-maps shows the blue dot via a prop on MapView, not a child
+  // component, so this just toggles that prop through context.
+  const ExpoUserLocation = ({ visible }: any) => {
+    const ctx = useContext(MapRegionContext);
+    useEffect(() => {
+      ctx?.setShowsUserLocation(visible ?? true);
+      return () => ctx?.setShowsUserLocation(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visible]);
+    return null;
+  };
+
   return {
     MapView: ExpoMapView,
     Camera: ExpoCamera,
     MarkerView: ExpoMarkerView,
+    PointAnnotation: ExpoMarkerView,
     ShapeSource: ExpoShapeSource,
     LineLayer: ExpoLineLayer,
-    UserLocation: () => null,
+    UserLocation: ExpoUserLocation,
   };
 }
 
@@ -185,11 +190,14 @@ function buildFallback() {
   });
   NoopCamera.displayName = 'NoopCamera';
 
+  const NoopOverlay = ({ children, style }: any) =>
+    React.createElement(View, { style }, children);
+
   return {
     MapView: FallbackMap,
     Camera: NoopCamera,
-    MarkerView: ({ children, style }: any) =>
-      React.createElement(View, { style }, children),
+    MarkerView: NoopOverlay,
+    PointAnnotation: NoopOverlay,
     ShapeSource: () => null,
     LineLayer: () => null,
     UserLocation: () => null,
