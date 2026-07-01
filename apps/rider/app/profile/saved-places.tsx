@@ -11,7 +11,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
 
@@ -270,9 +270,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -290,10 +290,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginLeft: spacing.xs,
   },
   placesCard: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
     overflow: 'hidden',
   },
   placeRow: {
@@ -306,7 +306,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: colors.primary + '20',
+    backgroundColor: withOpacity(colors.primary, 0.12),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -316,7 +316,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.rimLightSubtle,
     marginHorizontal: spacing.base,
   },
   addBtn: {
@@ -324,19 +324,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     padding: spacing.base,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.lg,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     borderStyle: 'dashed',
     justifyContent: 'center',
   },
   addCard: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.lg,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
   },
   inputContainer: {
     marginBottom: spacing.md,
@@ -348,7 +348,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: spacing.xs,
   },
   input: {
-    backgroundColor: '#0D0D0E',
+    backgroundColor: colors.surfaceInput,
     borderRadius: radii.lg,
     paddingHorizontal: spacing.md,
     height: 48,
@@ -356,7 +356,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: fontSizes.bodyMedium,
     color: colors.onSurface,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: colors.rimLightSubtle,
   },
   actionRow: {
     flexDirection: 'row',

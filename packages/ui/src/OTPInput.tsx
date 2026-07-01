@@ -6,8 +6,9 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
+import { useThemedColors } from './ColorsContext';
 
 interface OTPInputProps {
   length?: number;
@@ -23,6 +24,8 @@ export interface OTPInputRef {
 
 export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
   ({ length = 6, onComplete, hasError = false, onErrorReset }, ref) => {
+    const colors = useThemedColors();
+    const styles = getStyles(colors);
     const [code, setCode] = useState('');
     const inputRef = useRef<TextInput>(null);
     const translateX = useSharedValue(0);
@@ -89,43 +92,45 @@ export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
 
 OTPInput.displayName = 'OTPInput';
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    justifyContent: 'center',
-  },
-  box: {
-    width: 52,
-    height: 60,
-    borderRadius: radii.lg,
-    backgroundColor: '#0D0D0E',
-    borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  boxActive: {
-    borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  boxError: {
-    borderColor: colors.statusError,
-  },
-  digit: {
-    fontFamily: fonts.monoBold,
-    fontSize: 24,
-    color: colors.onSurface,
-    textAlign: 'center',
-  },
-  hiddenInput: {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    opacity: 0,
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      justifyContent: 'center',
+    },
+    box: {
+      width: 52,
+      height: 60,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceInput,
+      borderWidth: 1.5,
+      borderColor: colors.outlineVariant,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    boxActive: {
+      borderColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    boxError: {
+      borderColor: colors.statusError,
+    },
+    digit: {
+      fontFamily: fonts.monoBold,
+      fontSize: 24,
+      color: colors.onSurface,
+      textAlign: 'center',
+    },
+    hiddenInput: {
+      position: 'absolute',
+      width: 1,
+      height: 1,
+      opacity: 0,
+    },
+  });
+}

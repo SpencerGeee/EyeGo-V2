@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, ViewStyle, StyleSheet } from 'react-native';
-import { colors, radii, spacing } from '@eyego/config';
+import { radii, spacing, withOpacity, type ColorTokens } from '@eyego/config';
+import { useThemedColors } from './ColorsContext';
 
 interface CardProps {
   children: React.ReactNode;
@@ -19,6 +20,8 @@ export function Card({
   selected = false,
   padding = spacing.base,
 }: CardProps) {
+  const colors = useThemedColors();
+  const styles = getStyles(colors);
   return (
     <View
       style={[
@@ -35,33 +38,35 @@ export function Card({
   );
 }
 
-const styles = StyleSheet.create({
-  base: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii['2xl'],
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  elevated: {
-    backgroundColor: colors.surfaceContainerHigh,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  glow: {
-    borderColor: colors.primary,
-    borderWidth: 1.5,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  selected: {
-    borderColor: colors.primary,
-    borderWidth: 1.5,
-    backgroundColor: 'rgba(75,226,119,0.05)',
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    base: {
+      backgroundColor: colors.surfaceCard,
+      borderRadius: radii['2xl'],
+      borderWidth: 1,
+      borderColor: colors.rimLight,
+    },
+    elevated: {
+      backgroundColor: colors.surfaceContainerHigh,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    glow: {
+      borderColor: colors.primary,
+      borderWidth: 1.5,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.3,
+      shadowRadius: 12,
+      elevation: 6,
+    },
+    selected: {
+      borderColor: colors.primary,
+      borderWidth: 1.5,
+      backgroundColor: withOpacity(colors.primary, 0.05),
+    },
+  });
+}

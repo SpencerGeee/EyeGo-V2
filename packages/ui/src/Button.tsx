@@ -2,7 +2,8 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
-import { colors, radii, spacing, fonts, fontSizes } from '@eyego/config';
+import { radii, spacing, fonts, fontSizes, type ColorTokens } from '@eyego/config';
+import { useThemedColors } from './ColorsContext';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -21,39 +22,41 @@ interface ButtonProps {
   accessibilityRole?: string;
 }
 
-const variantStyles: Record<ButtonVariant, { container: ViewStyle; textColor: string }> = {
-  primary: {
-    container: {
-      backgroundColor: colors.primary,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.4,
-      shadowRadius: 12,
-      elevation: 8,
+function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { container: ViewStyle; textColor: string }> {
+  return {
+    primary: {
+      container: {
+        backgroundColor: colors.primary,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 12,
+        elevation: 8,
+      },
+      textColor: colors.onPrimary,
     },
-    textColor: colors.onPrimary,
-  },
-  secondary: {
-    container: {
-      backgroundColor: 'transparent',
-      borderWidth: 1.5,
-      borderColor: colors.primary,
+    secondary: {
+      container: {
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderColor: colors.primary,
+      },
+      textColor: colors.primary,
     },
-    textColor: colors.primary,
-  },
-  ghost: {
-    container: {
-      backgroundColor: 'transparent',
+    ghost: {
+      container: {
+        backgroundColor: 'transparent',
+      },
+      textColor: colors.onSurface,
     },
-    textColor: colors.onSurface,
-  },
-  destructive: {
-    container: {
-      backgroundColor: colors.statusError,
+    destructive: {
+      container: {
+        backgroundColor: colors.statusError,
+      },
+      textColor: '#FFFFFF',
     },
-    textColor: '#FFFFFF',
-  },
-};
+  };
+}
 
 const sizeStyles: Record<ButtonSize, { container: ViewStyle; fontSize: number }> = {
   sm: {
@@ -81,7 +84,8 @@ export function Button({
   fullWidth = true,
   icon,
 }: ButtonProps) {
-  const vStyle = variantStyles[variant];
+  const colors = useThemedColors();
+  const vStyle = getVariantStyles(colors)[variant];
   const sStyle = sizeStyles[size];
   const isDisabled = disabled || loading;
 
@@ -103,7 +107,7 @@ export function Button({
       {loading ? (
         <ActivityIndicator
           size="small"
-          color={variant === 'primary' ? colors.onPrimary : colors.primary}
+          color={vStyle.textColor}
         />
       ) : (
         <>

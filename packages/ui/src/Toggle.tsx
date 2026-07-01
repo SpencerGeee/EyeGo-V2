@@ -7,7 +7,7 @@ import Animated, {
   interpolateColor,
   useDerivedValue,
 } from 'react-native-reanimated';
-import { colors } from '@eyego/config';
+import { useThemedColors } from './ColorsContext';
 
 interface ToggleProps {
   value: boolean;
@@ -23,6 +23,7 @@ const KNOB_OFF = 4;
 const KNOB_ON = TRACK_WIDTH - KNOB_SIZE - 4;
 
 export function Toggle({ value, onValueChange, tint = 'eco', disabled = false }: ToggleProps) {
+  const colors = useThemedColors();
   const activeColor = tint === 'driver' ? '#FF6B00' : colors.primary;
   const progress = useSharedValue(value ? 1 : 0);
 

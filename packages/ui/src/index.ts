@@ -3,6 +3,9 @@ export { Text } from './Text';
 export { Pressable } from './Pressable';
 export type { TextVariant } from './Text';
 
+// Theming
+export { ColorsProvider, useThemedColors } from './ColorsContext';
+
 // Inputs & Forms
 export { Button } from './Button';
 export { Input } from './Input';

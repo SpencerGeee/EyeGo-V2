@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   FlatList,
@@ -25,8 +25,9 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
 import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
-import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { fonts, fontSizes, spacing, withOpacity } from '@eyego/config';
+import { Text } from '@eyego/ui';
+import { useColors, Colors } from '../../utils/useColors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -164,14 +165,16 @@ function SlideIllustration({ slideId }: { slideId: string }) {
 }
 
 export default function OnboardingScreen() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollX = useSharedValue(0);
 
   const renderSlide = useCallback(({ item, index }: { item: Slide; index: number }) => (
-    <SlideItem slide={item} index={index} scrollX={scrollX} />
-  ), [scrollX]);
+    <SlideItem slide={item} index={index} scrollX={scrollX} colors={colors} styles={styles} />
+  ), [scrollX, colors, styles]);
 
   const handleDone = useCallback(async () => {
     await SecureStore.setItemAsync('eyego_onboarded', 'true');
@@ -245,13 +248,13 @@ export default function OnboardingScreen() {
         {/* Pagination Dots */}
         <View style={styles.dotsRow}>
           {SLIDES.map((_, i) => (
-            <AnimatedDot key={i} index={i} currentIndex={currentIndex} />
+            <AnimatedDot key={i} index={i} currentIndex={currentIndex} colors={colors} styles={styles} />
           ))}
         </View>
 
         {/* Primary Premium CTA */}
         <View style={styles.ctaWrapper}>
-          <Pressable style={[styles.premiumCta, { shadowColor: '#4BE277' }]} onPress={handleNext} accessibilityRole="button" accessibilityLabel={currentIndex === SLIDES.length - 1 ? 'Start your journey' : 'Continue' }>
+          <Pressable style={[styles.premiumCta, { shadowColor: colors.primary }]} onPress={handleNext} accessibilityRole="button" accessibilityLabel={currentIndex === SLIDES.length - 1 ? 'Start your journey' : 'Continue' }>
             <Text style={styles.premiumCtaText}>
               {currentIndex === SLIDES.length - 1 ? 'Start Your Journey' : 'Continue'}
             </Text>
@@ -266,10 +269,14 @@ function SlideItem({
   slide,
   index,
   scrollX,
+  colors,
+  styles,
 }: {
   slide: Slide;
   index: number;
   scrollX: SharedValue<number>;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
 }) {
   const animatedStyle = useAnimatedStyle(() => {
     const inputRange = [
@@ -330,7 +337,7 @@ function SlideItem({
           <Animated.View style={[styles.glowHalo, { borderColor: slide.accentColor + '40' }, glowStyle]} />
           
           <BlurView intensity={30} tint="dark" style={styles.illustrationGlass}>
-            <View style={[styles.illustrationCore, { backgroundColor: 'rgba(75, 226, 119, 0.05)' }]}>
+            <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
               <SlideIllustration slideId={slide.id} />
             </View>
           </BlurView>
@@ -353,7 +360,17 @@ function SlideItem({
   );
 }
 
-function AnimatedDot({ index, currentIndex }: { index: number; currentIndex: number }) {
+function AnimatedDot({
+  index,
+  currentIndex,
+  colors,
+  styles,
+}: {
+  index: number;
+  currentIndex: number;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
   const isActive = index === currentIndex;
   const scaleX = useSharedValue(isActive ? 1 : 0.25);
 
@@ -363,16 +380,16 @@ function AnimatedDot({ index, currentIndex }: { index: number; currentIndex: num
 
   const dotStyle = useAnimatedStyle(() => ({
     transform: [{ scaleX: scaleX.value }],
-    backgroundColor: isActive ? '#4BE277' : 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: isActive ? colors.primary : colors.rimLight,
   }));
 
   return <Animated.View style={[styles.dot, { width: 32 }, dotStyle]} />;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#050508', // Ultra deep dark mode background
+    backgroundColor: colors.backgroundDeep,
   },
   headerRow: {
     flexDirection: 'row',
@@ -386,7 +403,7 @@ const styles = StyleSheet.create({
   brandText: {
     fontSize: fontSizes.titleLarge,
     fontFamily: fonts.bold,
-    color: '#FFFFFF',
+    color: colors.onSurface,
     letterSpacing: -0.5,
   },
   brandLogo: {
@@ -396,7 +413,7 @@ const styles = StyleSheet.create({
   skipButton: {
     fontSize: fontSizes.bodySmall,
     fontFamily: fonts.medium,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: colors.onSurfaceVariant,
     letterSpacing: 0.2,
   },
   slide: {
@@ -444,7 +461,7 @@ const styles = StyleSheet.create({
     borderRadius: 85,
     overflow: 'hidden',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.15)', // Premium glossy border
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -462,7 +479,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   slideHeadline: {
-    color: '#FFFFFF',
+    color: colors.onSurface,
     fontFamily: fonts.bold,
     fontSize: 32,
     lineHeight: 40,
@@ -471,7 +488,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   slideSubtext: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: colors.onSurfaceVariant,
     fontFamily: fonts.regular,
     fontSize: 16,
     lineHeight: 24,
@@ -501,7 +518,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#4BE277', // Verified brand mint green for luxurious look
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 10 },
@@ -510,7 +527,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   premiumCtaText: {
-    color: '#050508',
+    color: colors.onPrimary,
     fontSize: 16,
     fontFamily: fonts.bold,
     letterSpacing: -0.2,

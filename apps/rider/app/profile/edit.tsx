@@ -235,7 +235,7 @@ export default function EditProfileScreen() {
             <Text style={styles.phoneLabel}>Phone Number</Text>
             <View style={styles.phoneField}>
               <Text style={styles.phoneValue}>{user?.phone ?? '—'}</Text>
-              <Ionicons name="checkmark-circle" size={20} color={colors.statusSuccess ?? colors.primary} />
+              <Ionicons name="checkmark-circle" size={20} color={colors.statusSuccess} />
             </View>
           </MotiView>
 
@@ -349,7 +349,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
     borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
+    borderBottomColor: colors.rimLightSubtle,
   },
   backBtn: {
     width: 40,
@@ -424,10 +424,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#0D0D0E',
+    backgroundColor: colors.surfaceInput,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: colors.rimLightSubtle,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.md + 2,
   },
@@ -441,7 +441,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: spacing.base,
     paddingBottom: spacing['2xl'],
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
+    borderTopColor: colors.rimLightSubtle,
     backgroundColor: colors.backgroundDeep,
   },
   dobLabel: {
@@ -452,7 +452,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: colors.surfaceContainerHigh,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   dobPicker: {
     width: '100%',
@@ -468,7 +468,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     marginBottom: spacing.xl,
   },
   ctaSection: { marginTop: spacing.sm },

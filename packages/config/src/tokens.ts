@@ -14,6 +14,11 @@ export const colors = {
   surfaceContainerHighest: '#2e3637',
   surfaceVariant: '#2e3637',
   surfaceBright: '#333b3b',
+  surfaceInput: '#0D0D0E',            // inputs/search boxes — darker than card
+
+  // Rim lighting — 1px inner borders instead of drop shadows (Onyx "machined" look)
+  rimLight: 'rgba(255, 255, 255, 0.10)',
+  rimLightSubtle: 'rgba(255, 255, 255, 0.06)',
 
   // Brand
   primary: '#4be277',                 // green CTA
@@ -75,6 +80,8 @@ export const colors = {
   glowSecondary: 'rgba(5, 102, 217, 0.4)',
   glowError: 'rgba(255, 180, 171, 0.4)',
 } as const;
+
+export type ColorTokens = typeof colors;
 
 export const spacing = {
   xs: 4,

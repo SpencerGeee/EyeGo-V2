@@ -21,7 +21,7 @@ import Animated, {
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { maskPhone } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
@@ -354,10 +354,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: spacing.base,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
-    backgroundColor: 'rgba(75, 226, 119, 0.08)',
+    backgroundColor: withOpacity(colors.primary, 0.08),
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: 'rgba(75, 226, 119, 0.2)',
+    borderColor: withOpacity(colors.primary, 0.2),
     alignSelf: 'flex-start',
   },
   otpRow: {
@@ -392,7 +392,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   cellSuccess: {
     borderColor: colors.primary,
-    backgroundColor: 'rgba(75, 226, 119, 0.15)',
+    backgroundColor: withOpacity(colors.primary, 0.15),
   },
   cellInput: {
     fontFamily: fonts.displayBold,

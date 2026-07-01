@@ -12,26 +12,23 @@ import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-qu
 import Constants from 'expo-constants';
 import {
   useFonts,
-  SpaceGrotesk_300Light,
-  SpaceGrotesk_400Regular,
-  SpaceGrotesk_500Medium,
-  SpaceGrotesk_600SemiBold,
-  SpaceGrotesk_700Bold,
-} from '@expo-google-fonts/space-grotesk';
+  Geist_300Light,
+  Geist_400Regular,
+  Geist_500Medium,
+  Geist_600SemiBold,
+  Geist_700Bold,
+} from '@expo-google-fonts/geist';
 import {
-  Inter_300Light,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
+  JetBrainsMono_500Medium,
+  JetBrainsMono_700Bold,
+} from '@expo-google-fonts/jetbrains-mono';
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore, registerLogoutCleanup } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, ColorsProvider } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -192,16 +189,13 @@ export default function RootLayout() {
   }, [offlineAnim]);
 
   const [fontsLoaded] = useFonts({
-    SpaceGrotesk_300Light,
-    SpaceGrotesk_400Regular,
-    SpaceGrotesk_500Medium,
-    SpaceGrotesk_600SemiBold,
-    SpaceGrotesk_700Bold,
-    Inter_300Light,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    Geist_300Light,
+    Geist_400Regular,
+    Geist_500Medium,
+    Geist_600SemiBold,
+    Geist_700Bold,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_700Bold,
   });
 
   // RC2: Catch unhandled fatal errors in production (dev is handled above at module level)
@@ -383,6 +377,7 @@ export default function RootLayout() {
   }
 
   return (
+    <ColorsProvider value={colors}>
     <I18nextProvider i18n={i18n}>
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -566,7 +561,7 @@ export default function RootLayout() {
               <View style={{ flex: 1 }}>
                 <Text
                   style={{
-                    fontFamily: 'SpaceGrotesk_600SemiBold',
+                    fontFamily: 'Geist_600SemiBold',
                     fontSize: 12,
                     color: '#fff',
                     letterSpacing: 0.5,
@@ -576,7 +571,7 @@ export default function RootLayout() {
                 </Text>
                 <Text
                   style={{
-                    fontFamily: 'Inter_400Regular',
+                    fontFamily: 'Geist_400Regular',
                     fontSize: 11,
                     color: 'rgba(255,255,255,0.8)',
                     marginTop: 2,
@@ -623,5 +618,6 @@ export default function RootLayout() {
       </GestureHandlerRootView>
     </ErrorBoundary>
     </I18nextProvider>
+    </ColorsProvider>
   );
 }

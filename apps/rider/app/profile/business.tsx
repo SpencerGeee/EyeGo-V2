@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Input } from '@eyego/ui';
 import { Toggle } from '@eyego/ui/src/Toggle';
@@ -67,7 +67,7 @@ export default function BusinessProfileScreen() {
             <View style={styles.toggleGlass}>
               <View style={styles.toggleInfo}>
                 <View style={styles.iconContainer}>
-                  <Ionicons name="briefcase" size={24} color={isBusinessMode ? '#4BE277' : colors.onSurface} />
+                  <Ionicons name="briefcase" size={24} color={isBusinessMode ? colors.primary : colors.onSurface} />
                 </View>
                 <View style={styles.toggleTextContainer}>
                   <Text style={styles.toggleTitle}>Business Expensing</Text>
@@ -158,9 +158,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -174,7 +174,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   toggleGlass: {
     flexDirection: 'row',
@@ -225,11 +225,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   infoBox: {
     flexDirection: 'row',
-    backgroundColor: colors.primary + '1A',
+    backgroundColor: withOpacity(colors.primary, 0.1),
     padding: spacing.md,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.primary + '33',
+    borderColor: withOpacity(colors.primary, 0.2),
     marginTop: spacing.sm,
     gap: spacing.sm,
   },
@@ -244,7 +244,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     padding: spacing['2xl'],
     paddingBottom: Platform.OS === 'ios' ? spacing['2xl'] : spacing.xl,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: colors.rimLight,
     backgroundColor: colors.backgroundDeep,
   },
 });

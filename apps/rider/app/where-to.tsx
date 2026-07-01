@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -13,8 +13,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes } from '@eyego/config';
+import { fonts, fontSizes, spacing, withOpacity } from '@eyego/config';
 import { Text } from '@eyego/ui';
+import { useColors, Colors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useRideStore } from '../stores/ride.store';
 import { haptic } from '../utils/haptics';
@@ -22,7 +23,6 @@ import MapboxGL from '../utils/mapbox';
 
 const STADIA_DARK  = 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
 const STADIA_LIGHT = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
-const PRIMARY = '#4be277';
 
 type NominatimResult = {
   place_id: number;
@@ -39,11 +39,13 @@ type SelectedPlace = {
   longitude: number;
 };
 
-const QUICK_CHIPS = [
-  { id: 'home',   label: 'Home',      icon: 'home-outline'       as const },
-  { id: 'work',   label: 'Work',      icon: 'briefcase-outline'  as const },
-  { id: 'mall',   label: 'Accra Mall',icon: 'storefront-outline' as const },
-];
+function getQuickChips(colors: Colors) {
+  return [
+    { id: 'home', label: 'Home', icon: 'home-outline' as const, tint: colors.tierComfort },
+    { id: 'work', label: 'Work', icon: 'briefcase-outline' as const, tint: colors.tierComfort },
+    { id: 'mall', label: 'Accra Mall', icon: 'storefront-outline' as const, tint: colors.tierPremium },
+  ];
+}
 
 const QUICK_DESTINATIONS = [
   { id: 'kotoka', name: 'Kotoka Airport',       address: 'Airport Bypass Rd, Accra',        dist: '4.2 km', icon: 'airplane-outline'   as const, lat: 5.6052, lon: -0.1668 },
@@ -53,6 +55,9 @@ const QUICK_DESTINATIONS = [
 ];
 
 export default function WhereToScreen() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const quickChips = useMemo(() => getQuickChips(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { tier } = useLocalSearchParams<{ tier?: string }>();
@@ -186,7 +191,7 @@ export default function WhereToScreen() {
           >
             <View style={styles.destPin}>
               <View style={styles.destPinBubble}>
-                <Ionicons name="location" size={22} color="#fff" />
+                <Ionicons name="location" size={22} color={colors.onPrimary} />
               </View>
               <View style={styles.destPinTail} />
             </View>
@@ -207,7 +212,7 @@ export default function WhereToScreen() {
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
-            <Ionicons name="arrow-back" size={22} color="#dce4e5" />
+            <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
           </Pressable>
 
           <Text style={styles.headerTitle}>Where To</Text>
@@ -250,14 +255,14 @@ export default function WhereToScreen() {
                       originRef.current?.focus();
                     }}
                   >
-                    <Ionicons name="locate-outline" size={16} color="#849495" style={styles.inputIcon} />
+                    <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
                     <TextInput
                       ref={originRef}
                       style={styles.inputText}
                       value={originText}
                       onChangeText={setOriginText}
                       placeholder="Pickup location"
-                      placeholderTextColor="rgba(185,202,203,0.45)"
+                      placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
                       onFocus={() => setActiveField('origin')}
                       returnKeyType="next"
                       onSubmitEditing={() => {
@@ -274,23 +279,23 @@ export default function WhereToScreen() {
                       activeField === 'dest' && styles.inputBoxActive,
                     ]}
                   >
-                    <Ionicons name="search-outline" size={16} color={PRIMARY} style={styles.inputIcon} />
+                    <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
                     <TextInput
                       ref={destRef}
                       style={styles.inputText}
                       value={destQuery}
                       onChangeText={handleSearch}
                       placeholder="Where are you going?"
-                      placeholderTextColor="rgba(185,202,203,0.45)"
+                      placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
                       onFocus={() => { setActiveField('dest'); }}
                       returnKeyType="search"
                       autoCorrect={false}
                       autoCapitalize="words"
                     />
-                    {isSearching && <ActivityIndicator size="small" color={PRIMARY} />}
+                    {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
                     {destQuery.length > 0 && !isSearching && (
                       <Pressable onPress={handleClearDest} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear">
-                        <Ionicons name="close-circle" size={16} color="#849495" />
+                        <Ionicons name="close-circle" size={16} color={colors.outline} />
                       </Pressable>
                     )}
                   </View>
@@ -303,7 +308,7 @@ export default function WhereToScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Swap origin and destination"
                 >
-                  <Ionicons name="swap-vertical-outline" size={18} color="#b9cacb" />
+                  <Ionicons name="swap-vertical-outline" size={18} color={colors.onSurfaceVariant} />
                 </Pressable>
               </View>
 
@@ -313,7 +318,7 @@ export default function WhereToScreen() {
                   <View style={styles.divider} />
                   {isSearching && suggestions.length === 0 ? (
                     <View style={styles.suggestLoadingRow}>
-                      <ActivityIndicator size="small" color={PRIMARY} />
+                      <ActivityIndicator size="small" color={colors.primary} />
                       <Text style={styles.suggestDim}>Searching…</Text>
                     </View>
                   ) : (
@@ -334,7 +339,7 @@ export default function WhereToScreen() {
                           accessibilityLabel={`Select ${primary}`}
                         >
                           <View style={styles.suggestIcon}>
-                            <Ionicons name="location-outline" size={16} color={PRIMARY} />
+                            <Ionicons name="location-outline" size={16} color={colors.primary} />
                           </View>
                           <View style={{ flex: 1 }}>
                             <Text style={styles.suggestPrimary} numberOfLines={1}>{primary}</Text>
@@ -357,14 +362,14 @@ export default function WhereToScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.chipsRow}
                   >
-                    {QUICK_CHIPS.map((chip) => (
+                    {quickChips.map((chip) => (
                       <Pressable
                         key={chip.id}
                         style={({ pressed }) => [styles.chip, pressed && { opacity: 0.75 }]}
                         accessibilityRole="button"
                         accessibilityLabel={chip.label}
                       >
-                        <Ionicons name={chip.icon} size={14} color="#b9cacb" />
+                        <Ionicons name={chip.icon} size={14} color={chip.tint} />
                         <Text style={styles.chipLabel}>{chip.label}</Text>
                       </Pressable>
                     ))}
@@ -385,7 +390,7 @@ export default function WhereToScreen() {
                       accessibilityLabel={`Navigate to ${dest.name}`}
                     >
                       <View style={styles.placeIconWrap}>
-                        <Ionicons name={dest.icon} size={20} color="#b9cacb" />
+                        <Ionicons name={dest.icon} size={20} color={colors.onSurfaceVariant} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.placeName} numberOfLines={1}>{dest.name}</Text>
@@ -408,7 +413,7 @@ export default function WhereToScreen() {
                       accessibilityRole="button"
                       accessibilityLabel="Find rides"
                     >
-                      <Ionicons name="car-outline" size={18} color="#091009" />
+                      <Ionicons name="car-outline" size={18} color={colors.onPrimary} />
                       <Text style={styles.ctaPrimaryText}>Find Rides</Text>
                     </Pressable>
                     <Pressable
@@ -417,7 +422,7 @@ export default function WhereToScreen() {
                       accessibilityRole="button"
                       accessibilityLabel="Schedule"
                     >
-                      <Ionicons name="calendar-outline" size={18} color={PRIMARY} />
+                      <Ionicons name="calendar-outline" size={18} color={colors.primary} />
                       <Text style={styles.ctaSecondaryText}>Schedule</Text>
                     </Pressable>
                   </View>
@@ -431,14 +436,14 @@ export default function WhereToScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0A0A0B' },
+const makeStyles = (colors: Colors) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.backgroundDeep },
 
   mapGradient: {
     position: 'absolute',
     top: 0, left: 0, right: 0,
     height: 220,
-    backgroundColor: 'rgba(10,10,11,0.55)',
+    backgroundColor: withOpacity(colors.backgroundDeep, 0.55),
   },
 
   overlay: {
@@ -461,17 +466,17 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(22,22,24,0.80)',
+    backgroundColor: withOpacity(colors.surfaceCard, 0.8),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 20,
-    color: PRIMARY,
-    letterSpacing: -0.5,
+    fontFamily: fonts.displaySemiBold,
+    fontSize: 28,
+    color: colors.primary,
+    letterSpacing: -0.56,
   },
   headerSpacer: { width: 44, height: 44 },
 
@@ -484,11 +489,11 @@ const styles = StyleSheet.create({
 
   // ─── Floating Card (glass panel) ─────────────────────
   floatingCard: {
-    backgroundColor: 'rgba(22,22,24,0.92)',
-    borderRadius: 28,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.92),
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    padding: 18,
+    borderColor: colors.rimLight,
+    padding: spacing.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.5,
@@ -511,19 +516,19 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   timelineDot: {
-    width: 11,
-    height: 11,
+    width: 12,
+    height: 12,
     borderRadius: 6,
     flexShrink: 0,
   },
   timelineDotOrigin: {
     borderWidth: 2,
-    borderColor: `${PRIMARY}99`,
-    backgroundColor: 'transparent',
+    borderColor: colors.primary,
+    backgroundColor: colors.surfaceVariant,
   },
   timelineDotDest: {
-    backgroundColor: PRIMARY,
-    shadowColor: PRIMARY,
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
     shadowOpacity: 0.5,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
@@ -531,7 +536,7 @@ const styles = StyleSheet.create({
   timelineLine: {
     width: 1.5,
     flex: 1,
-    backgroundColor: 'rgba(59,73,75,0.80)',
+    backgroundColor: colors.outlineVariant,
     marginVertical: 4,
   },
   inputsCol: {
@@ -541,33 +546,33 @@ const styles = StyleSheet.create({
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0D0D0E',
-    borderRadius: 14,
+    backgroundColor: colors.surfaceInput,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: colors.rimLightSubtle,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
     minHeight: 48,
   },
   inputBoxActive: {
-    borderColor: `${PRIMARY}4D`,
+    borderColor: withOpacity(colors.primary, 0.3),
   },
   inputIcon: { flexShrink: 0 },
   inputText: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
-    color: '#dce4e5',
+    color: colors.onSurface,
     padding: 0,
   },
   swapBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#2e3637',
+    backgroundColor: colors.surfaceVariant,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
@@ -577,17 +582,18 @@ const styles = StyleSheet.create({
   // ─── Divider ──────────────────────────────────────────
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: colors.rimLightSubtle,
     marginVertical: 14,
   },
 
   // ─── Quick Destination Chips ──────────────────────────
   sectionLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: 9,
-    color: '#849495',
+    fontFamily: fonts.labelCaps,
+    fontSize: 10,
+    color: colors.onSurfaceVariant,
     letterSpacing: 0.9,
     marginBottom: 10,
+    textTransform: 'uppercase',
   },
   chipsRow: {
     gap: 8,
@@ -600,14 +606,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: '#0D0D0E',
+    backgroundColor: colors.surfaceInput,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
   },
   chipLabel: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    color: '#dce4e5',
+    color: colors.onSurface,
   },
 
   // ─── Recent/Popular Places ────────────────────────────
@@ -620,13 +626,13 @@ const styles = StyleSheet.create({
   },
   placeRowBorder: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: colors.rimLightSubtle,
   },
   placeIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#2e3637',
+    backgroundColor: colors.surfaceVariant,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -634,18 +640,18 @@ const styles = StyleSheet.create({
   placeName: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
-    color: '#dce4e5',
+    color: colors.onSurface,
   },
   placeAddr: {
     fontFamily: fonts.regular,
     fontSize: 11,
-    color: '#849495',
+    color: colors.onSurfaceVariant,
     marginTop: 2,
   },
   placeDist: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 9,
-    color: '#849495',
+    color: colors.outline,
     letterSpacing: 0.5,
     flexShrink: 0,
   },
@@ -662,7 +668,7 @@ const styles = StyleSheet.create({
   suggestDim: {
     fontFamily: fonts.regular,
     fontSize: 13,
-    color: '#849495',
+    color: colors.onSurfaceVariant,
   },
   suggestRow: {
     flexDirection: 'row',
@@ -673,13 +679,13 @@ const styles = StyleSheet.create({
   },
   suggestRowBorder: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: colors.rimLightSubtle,
   },
   suggestIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: `${PRIMARY}18`,
+    backgroundColor: withOpacity(colors.primary, 0.1),
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -687,12 +693,12 @@ const styles = StyleSheet.create({
   suggestPrimary: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
-    color: '#dce4e5',
+    color: colors.onSurface,
   },
   suggestSecondary: {
     fontFamily: fonts.regular,
     fontSize: 11,
-    color: '#849495',
+    color: colors.onSurfaceVariant,
     marginTop: 2,
   },
 
@@ -700,14 +706,14 @@ const styles = StyleSheet.create({
   destPin: { alignItems: 'center' },
   destPinBubble: {
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: PRIMARY, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6,
     elevation: 6,
   },
   destPinTail: {
     width: 0, height: 0,
     borderLeftWidth: 6, borderRightWidth: 6, borderTopWidth: 8,
-    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: PRIMARY,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.primary,
     marginTop: -1,
   },
 
@@ -718,20 +724,20 @@ const styles = StyleSheet.create({
   },
   ctaPrimary: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, borderRadius: 28, paddingVertical: 14, backgroundColor: PRIMARY,
+    gap: 6, borderRadius: 28, paddingVertical: 14, backgroundColor: colors.primary,
   },
   ctaPrimaryText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
-    color: '#091009',
+    color: colors.onPrimary,
   },
   ctaSecondary: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, borderRadius: 28, paddingVertical: 14, borderWidth: 1.5, borderColor: PRIMARY,
+    gap: 6, borderRadius: 28, paddingVertical: 14, borderWidth: 1.5, borderColor: colors.primary,
   },
   ctaSecondaryText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
-    color: PRIMARY,
+    color: colors.primary,
   },
 });

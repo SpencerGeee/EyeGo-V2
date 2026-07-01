@@ -9,7 +9,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, shadows } from '@eyego/config';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { fonts, fontSizes, spacing, radii, shadows, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton } from '@eyego/ui';
@@ -29,6 +30,7 @@ type TierKey = typeof TIERS[number]['key'];
 
 export default function RideDetailScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { id, tier: tierParam } = useLocalSearchParams<{ id: string; tier?: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
@@ -209,7 +211,7 @@ export default function RideDetailScreen() {
 
       {/* Back button */}
       <Pressable
-        style={[styles.backButton, { top: 60 }]}
+        style={[styles.backButton, { top: insets.top + 12 }]}
         onPress={() => router.back()}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         accessibilityRole="button"
@@ -436,20 +438,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   backButton: {
     position: 'absolute',
     left: spacing['2xl'],
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.8),
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   sheetBackground: {
     backgroundColor: colors.background,
-    borderTopLeftRadius: radii['3xl'],
-    borderTopRightRadius: radii['3xl'],
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
   },
   sheetHandle: { backgroundColor: colors.outline, width: 40, height: 4 },
   sheetContent: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'], gap: spacing.base },
@@ -556,7 +558,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: colors.surfaceContainer,
     borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   tierChipIcon: {
     fontSize: 16,

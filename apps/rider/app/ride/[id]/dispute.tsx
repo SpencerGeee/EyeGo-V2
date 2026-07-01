@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
@@ -86,8 +86,8 @@ export default function DisputeScreen() {
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
           style={styles.successContainer}
         >
-          <View style={[styles.successIcon, { backgroundColor: (colors.statusSuccess ?? colors.primary) + '1F' }]}>
-            <Ionicons name="checkmark-circle" size={64} color={colors.statusSuccess ?? '#22C55E'} />
+          <View style={[styles.successIcon, { backgroundColor: withOpacity(colors.statusSuccess, 0.12) }]}>
+            <Ionicons name="checkmark-circle" size={64} color={colors.statusSuccess} />
           </View>
           <Text variant="titleMedium" style={{ color: colors.onSurface, marginTop: spacing['2xl'] }}>
             Report Submitted
@@ -251,10 +251,10 @@ const makeStyles = (colors: Colors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.base,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-      borderRadius: 24,
+      backgroundColor: colors.surfaceCard,
+      borderRadius: radii['2xl'],
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.05)',
+      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       marginBottom: spacing['2xl'],
     },
@@ -300,12 +300,12 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: spacing.sm + 2,
       borderRadius: radii.full,
       borderWidth: 1,
-      borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+      borderColor: colors.rimLight,
       backgroundColor: colors.surfaceContainer,
     },
     chipActive: {
       borderColor: colors.primary,
-      backgroundColor: `${colors.primary}1A`,
+      backgroundColor: withOpacity(colors.primary, 0.1),
     },
     chipText: {
       fontFamily: fonts.medium,
@@ -319,10 +319,10 @@ const makeStyles = (colors: Colors) =>
     },
     textAreaWrap: {
       position: 'relative',
-      backgroundColor: '#0D1515',
+      backgroundColor: colors.surfaceInput,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+      borderColor: colors.rimLight,
       overflow: 'hidden',
     },
     textArea: {
@@ -353,7 +353,7 @@ const makeStyles = (colors: Colors) =>
       paddingBottom: spacing['2xl'],
       backgroundColor: colors.backgroundDeep,
       borderTopWidth: 1,
-      borderTopColor: 'rgba(255,255,255,0.05)',
+      borderTopColor: colors.rimLightSubtle,
     },
     successContainer: {
       flex: 1,

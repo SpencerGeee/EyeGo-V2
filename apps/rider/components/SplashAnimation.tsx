@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import { MotiView } from 'moti';
 import * as SplashScreen from 'expo-splash-screen';
-import { fonts } from '@eyego/config';
+import { fonts, colors, withOpacity } from '@eyego/config';
 import { Text } from '@eyego/ui';
 
-const PRIMARY = '#4be277';
-const BG = '#091009';
+const PRIMARY = colors.primary;
+const BG = colors.backgroundDeep;
 
 interface Props { onComplete: () => void; }
 
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: `${PRIMARY}18`,
+    backgroundColor: withOpacity(PRIMARY, 0.1),
     shadowColor: PRIMARY,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
@@ -95,13 +95,13 @@ const styles = StyleSheet.create({
   wordmark: {
     fontFamily: fonts.displayBold,
     fontSize: 36,
-    color: '#fff',
+    color: colors.onSurface,
     letterSpacing: -1,
   },
   tagline: {
     fontFamily: fonts.medium,
     fontSize: 14,
-    color: `${PRIMARY}CC`,
+    color: withOpacity(PRIMARY, 0.8),
     letterSpacing: 0.5,
   },
 });

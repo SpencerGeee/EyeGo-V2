@@ -1,7 +1,8 @@
 import React from 'react';
 import { ViewStyle, DimensionValue } from 'react-native';
 import { MotiView } from 'moti';
-import { colors, radii } from '@eyego/config';
+import { radii } from '@eyego/config';
+import { useThemedColors } from './ColorsContext';
 
 interface SkeletonProps {
   width?: DimensionValue;
@@ -11,6 +12,7 @@ interface SkeletonProps {
 }
 
 export function Skeleton({ width = '100%', height = 16, borderRadius = radii.md, style }: SkeletonProps) {
+  const colors = useThemedColors();
   return (
     <MotiView
       from={{ opacity: 0.35 }}

@@ -160,7 +160,7 @@ export default function RegisterScreen() {
                 </View>
               )}
               <View style={styles.avatarEditBadge}>
-                <Ionicons name="pencil" size={12} color="#FFFFFF" />
+                <Ionicons name="pencil" size={12} color={colors.onPrimary} />
               </View>
             </Pressable>
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>

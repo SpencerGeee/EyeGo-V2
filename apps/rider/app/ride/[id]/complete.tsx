@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { formatCurrency, formatDistance, formatDuration } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -86,7 +86,7 @@ export default function TripCompleteScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       {/* Ambient top glow */}
-      <View style={[styles.topGlow, { backgroundColor: colors.primary + '10' }]} pointerEvents="none" />
+      <View style={[styles.topGlow, { backgroundColor: withOpacity(colors.primary, 0.06) }]} pointerEvents="none" />
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -213,7 +213,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   headlineSection: { alignItems: 'center' },
   headline: {
@@ -229,7 +229,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii['2xl'],
     padding: spacing.xl,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     gap: spacing.md,
   },
   fareLabel: {
@@ -266,7 +266,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routeLine: {
     width: 2,
     height: 16,
-    backgroundColor: colors.outlineVariant,
+    backgroundColor: colors.rimLight,
     marginLeft: 4,
   },
   routeText: {
@@ -277,7 +277,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   fareCardDivider: {
     height: 1,
-    backgroundColor: colors.outlineVariant,
+    backgroundColor: colors.rimLightSubtle,
     marginVertical: spacing.xs,
   },
   statsRow: {
@@ -304,7 +304,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: spacing.md,
     marginTop: spacing.xs,
     borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
+    borderTopColor: colors.rimLightSubtle,
   },
   receiptLinkText: {
     fontFamily: fonts.medium,
@@ -323,14 +323,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyLarge,
-    color: '#002109',
+    color: colors.onPrimary,
     letterSpacing: 0.2,
   },
   ghostBtn: {
     height: 56,
     borderRadius: radii.full,
     borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },

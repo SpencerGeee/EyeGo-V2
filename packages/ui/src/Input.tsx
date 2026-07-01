@@ -15,7 +15,8 @@ import Animated, {
   interpolate,
   interpolateColor,
 } from 'react-native-reanimated';
-import { colors, fonts, fontSizes, radii, spacing } from '@eyego/config';
+import { fonts, fontSizes, radii, spacing, type ColorTokens } from '@eyego/config';
+import { useThemedColors } from './ColorsContext';
 
 interface InputProps extends TextInputProps {
   label: string;
@@ -38,6 +39,8 @@ export function Input({
   onBlur,
   ...props
 }: InputProps) {
+  const colors = useThemedColors();
+  const styles = getStyles(colors);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const labelAnim = useSharedValue(value ? 1 : 0);
@@ -117,52 +120,54 @@ export function Input({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    width: '100%',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0D0D0E',
-    borderRadius: radii.lg,
-    paddingHorizontal: spacing.base,
-    minHeight: 56,
-    borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
-  },
-  innerContainer: {
-    flex: 1,
-    paddingTop: 16,
-    paddingBottom: 8,
-    justifyContent: 'flex-end',
-  },
-  label: {
-    position: 'absolute',
-    top: 18,
-    left: 0,
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodyMedium,
-    transformOrigin: 'left center',
-  },
-  input: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodyLarge,
-    color: colors.onSurface,
-    paddingVertical: 0,
-    margin: 0,
-  },
-  leftIcon: {
-    marginRight: spacing.sm,
-  },
-  rightIcon: {
-    marginLeft: spacing.sm,
-  },
-  errorText: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.caption,
-    color: colors.error,
-    marginTop: spacing.xs,
-    marginLeft: spacing.xs,
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    container: {
+      width: '100%',
+    },
+    inputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceInput,
+      borderRadius: radii.lg,
+      paddingHorizontal: spacing.base,
+      minHeight: 56,
+      borderWidth: 1.5,
+      borderColor: colors.outlineVariant,
+    },
+    innerContainer: {
+      flex: 1,
+      paddingTop: 16,
+      paddingBottom: 8,
+      justifyContent: 'flex-end',
+    },
+    label: {
+      position: 'absolute',
+      top: 18,
+      left: 0,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodyMedium,
+      transformOrigin: 'left center',
+    },
+    input: {
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodyLarge,
+      color: colors.onSurface,
+      paddingVertical: 0,
+      margin: 0,
+    },
+    leftIcon: {
+      marginRight: spacing.sm,
+    },
+    rightIcon: {
+      marginLeft: spacing.sm,
+    },
+    errorText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.caption,
+      color: colors.error,
+      marginTop: spacing.xs,
+      marginLeft: spacing.xs,
+    },
+  });
+}

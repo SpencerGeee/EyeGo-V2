@@ -18,11 +18,12 @@ import {
 } from 'react-native-reanimated';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, EmptyState } from '@eyego/ui';
+import { Text, Button, EmptyState, Avatar } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../lib/sentry';
@@ -71,15 +72,20 @@ function calcEnRouteFare(fullFare: number, stopLat: number, stopLng: number, des
 }
 
 // Tier marks use Ionicons (vector) names rather than emoji for crisp, themeable icons.
-const TIER_INFO: Record<TripTier, { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; description: string; color: string; minFare: number }> = {
-  ECONOMY: { icon: 'car-outline', label: 'Economy', description: 'Shared, budget-friendly ride', color: '#4BE277', minFare: 8 },
-  COMFORT: { icon: 'bus-outline', label: 'Comfort', description: 'More space, AC, fewer stops', color: '#7DD8F5', minFare: 15 },
-  PREMIUM: { icon: 'car-sport', label: 'Premium', description: 'Private-feel, premium vehicle', color: '#ffb5ab', minFare: 25 },
-};
+type TierInfoMap = Record<TripTier, { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; description: string; color: string; minFare: number }>;
+
+function getTierInfo(colors: Colors): TierInfoMap {
+  return {
+    ECONOMY: { icon: 'car-outline', label: 'Economy', description: 'Shared, budget-friendly ride', color: colors.tierEconomy, minFare: 8 },
+    COMFORT: { icon: 'bus-outline', label: 'Comfort', description: 'More space, AC, fewer stops', color: colors.tierComfort, minFare: 15 },
+    PREMIUM: { icon: 'car-sport', label: 'Premium', description: 'Private-feel, premium vehicle', color: colors.tierPremium, minFare: 25 },
+  };
+}
 
 export default function RideSelectScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const TIER_INFO = useMemo(() => getTierInfo(colors), [colors]);
   const router = useRouter();
   const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime } = useRideStore();
   const [originText, setOriginText] = useState(origin?.address ?? '');
@@ -153,7 +159,7 @@ export default function RideSelectScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <Pressable
@@ -163,17 +169,48 @@ export default function RideSelectScreen() {
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>Browse Trips</Text>
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.headerTitle} numberOfLines={1}>Available Rides</Text>
+          <View style={styles.headerSubtitleRow}>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              {originText ? originText.split(',')[0] : 'Pickup'}
+            </Text>
+            <Ionicons name="arrow-forward" size={12} color={colors.onSurfaceVariant} style={{ marginHorizontal: 5 }} />
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              {destText ? destText.split(',')[0] : 'Destination'}
+            </Text>
+          </View>
+        </View>
         <Pressable
           style={styles.headerBackBtn}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Filters"
         >
-          <Ionicons name="options-outline" size={22} color={colors.onSurface} />
+          <Ionicons name="options-outline" size={20} color={colors.onSurface} />
         </Pressable>
+      </View>
+
+      {/* Route preview hero */}
+      <View style={styles.heroWrap}>
+        <LinearGradient
+          colors={[withOpacity(colors.tierEconomy, 0.14), 'transparent']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.heroRouteLine}>
+          <View style={[styles.heroDot, { backgroundColor: colors.primary }]} />
+          <View style={styles.heroDashLine} />
+          <View style={[styles.heroDot, styles.heroDotDest, { backgroundColor: colors.secondary }]} />
+        </View>
+        <LinearGradient
+          colors={['transparent', colors.backgroundDeep]}
+          style={styles.heroFade}
+          pointerEvents="none"
+        />
       </View>
 
       <ScrollView
@@ -181,6 +218,7 @@ export default function RideSelectScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.dockedContent}>
         {/* Search bar */}
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
@@ -344,7 +382,11 @@ export default function RideSelectScreen() {
                     transition={{ type: 'spring', stiffness: 600, damping: 34, delay: i * 40 }}
                   >
                     <Pressable
-                      style={({ pressed }) => [styles.tripCard, pressed && { opacity: 0.88 }]}
+                      style={({ pressed }) => [
+                        styles.tripCard,
+                        tier === 'PREMIUM' && { borderLeftWidth: 2, borderLeftColor: info.color },
+                        pressed && { opacity: 0.88 },
+                      ]}
                       onPress={() => {
                         if (!trip.id) return;
                         const params = selectedStop ? `?pickupStopId=${selectedStop.id}` : '';
@@ -353,67 +395,78 @@ export default function RideSelectScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={`Book ${tier} ride`}
                     >
-                      {/* Route + tier badge */}
+                      <View style={[styles.tripCardGlow, { backgroundColor: withOpacity(info.color, 0.08) }]} pointerEvents="none" />
+
+                      {/* Driver + price */}
                       <View style={styles.tripCardTop}>
-                        <Text style={styles.tripCardRoute} numberOfLines={1}>
-                          {(trip.origin?.address ?? originText).split(',')[0]}
-                          {' → '}
-                          {(trip.destination?.address ?? destText).split(',')[0]}
-                        </Text>
-                        <View style={[styles.tierBadge, { backgroundColor: `${info.color}1A` }]}>
-                          <Ionicons name={info.icon} size={11} color={info.color} />
-                          <Text style={[styles.tierBadgeText, { color: info.color }]}>{tier}</Text>
+                        <Avatar uri={trip.driver?.avatarUrl} name={trip.driver?.name} size={48} borderColor={colors.rimLight} />
+                        <View style={styles.tripCardDriverInfo}>
+                          <Text style={styles.tripCardDriverName} numberOfLines={1}>{trip.driver?.name ?? 'Driver'}</Text>
+                          <View style={styles.tripCardRatingRow}>
+                            <Ionicons name="star" size={12} color={info.color} />
+                            <Text style={[styles.tripCardRating, { color: info.color }]}>
+                              {(trip.driver?.rating ?? 4.8).toFixed(2)}
+                            </Text>
+                            <Text style={styles.tripCardDot}>•</Text>
+                            <Text style={styles.tripCardVehicle} numberOfLines={1}>
+                              {[trip.vehicle?.make, trip.vehicle?.model].filter(Boolean).join(' ') || 'Vehicle'}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.tripCardPriceCol}>
+                          <Text style={styles.tripCardPrice}>{formatCurrency(displayFare)}</Text>
+                          {selectedStop && (
+                            <Text style={styles.tripCardPriceStrike}>{formatCurrency(fullFare)}</Text>
+                          )}
                         </View>
                       </View>
 
-                      {/* Time + seats */}
-                      <View style={styles.tripCardMid}>
-                        <View style={styles.tripCardMeta}>
-                          <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
-                          <Text style={styles.tripCardMetaText}>{timeStr} / 45 min est.</Text>
+                      {/* Route + time */}
+                      <View style={styles.tripCardRouteRow}>
+                        <Ionicons name="time-outline" size={13} color={colors.onSurfaceVariant} />
+                        <Text style={styles.tripCardMetaText} numberOfLines={1}>
+                          {(trip.origin?.address ?? originText).split(',')[0]}
+                          {' → '}
+                          {(trip.destination?.address ?? destText).split(',')[0]}
+                          {' · '}{timeStr}
+                        </Text>
+                      </View>
+
+                      {/* Tier + en-route + seats chips */}
+                      <View style={styles.tripCardBottom}>
+                        <View style={styles.tripCardChipGroup}>
+                          <View style={[styles.tierBadge, { backgroundColor: withOpacity(info.color, 0.1) }]}>
+                            <Ionicons name={info.icon} size={11} color={info.color} />
+                            <Text style={[styles.tierBadgeText, { color: info.color }]}>{info.label}</Text>
+                          </View>
+                          {hasEnRoute && (
+                            <Pressable
+                              onPress={(e) => { e.stopPropagation?.(); setEnRoutePickerTripId(trip.id ?? null); }}
+                              style={[styles.enRouteChip, selectedStop && styles.enRouteChipActive]}
+                            >
+                              <Ionicons name="location" size={10} color={selectedStop ? colors.onPrimary : colors.primary} />
+                              <Text style={[styles.enRouteChipText, selectedStop && { color: colors.onPrimary }]}>
+                                {selectedStop ? selectedStop.name : 'En-route'}
+                              </Text>
+                            </Pressable>
+                          )}
                         </View>
-                        <View style={[styles.seatsChip, { backgroundColor: seatsLow ? `${colors.statusError}1A` : colors.surfaceContainerHigh }]}>
+                        <View style={[styles.seatsChip, { backgroundColor: seatsLow ? withOpacity(colors.statusError, 0.1) : colors.surfaceContainerHigh }]}>
                           <Ionicons name="people-outline" size={12} color={seatsLow ? colors.statusError : colors.onSurfaceVariant} />
                           <Text style={[styles.seatsChipText, { color: seatsLow ? colors.statusError : colors.onSurfaceVariant }]}>
                             {seatsLeft} SEAT{seatsLeft !== 1 ? 'S' : ''} LEFT
                           </Text>
                         </View>
-                        {hasEnRoute && (
-                          <Pressable
-                            onPress={(e) => { e.stopPropagation?.(); setEnRoutePickerTripId(trip.id ?? null); }}
-                            style={[styles.enRouteChip, selectedStop && styles.enRouteChipActive]}
-                          >
-                            <Ionicons name="location" size={10} color={selectedStop ? colors.onPrimary : colors.primary} />
-                            <Text style={[styles.enRouteChipText, selectedStop && { color: colors.onPrimary }]}>
-                              {selectedStop ? selectedStop.name : 'En-route'}
-                            </Text>
-                          </Pressable>
-                        )}
                       </View>
 
-                      {/* Fare + book button */}
-                      <View style={styles.tripCardBottom}>
-                        <View>
-                          <Text style={styles.fareLabel}>Fare per seat</Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Text style={styles.fareAmount}>{formatCurrency(displayFare)}</Text>
-                            {selectedStop && (
-                              <Text style={[styles.fareAmount, { fontSize: 13, color: colors.onSurfaceVariant, textDecorationLine: 'line-through' }]}>
-                                {formatCurrency(fullFare)}
-                              </Text>
-                            )}
-                            <Pressable onPress={(e) => { e.stopPropagation?.(); setFareModalTrip(trip); }} hitSlop={8}>
-                              <Ionicons name="information-circle-outline" size={15} color={colors.onSurfaceVariant} />
-                            </Pressable>
-                          </View>
-                        </View>
-                        <Pressable
-                          style={[styles.bookBtn, { borderColor: info.color, backgroundColor: tier === 'PREMIUM' ? info.color : 'transparent' }]}
-                          onPress={() => { if (!trip.id) return; router.push(`/ride/${trip.id}` as any); }}
-                        >
-                          <Text style={[styles.bookBtnText, { color: tier === 'PREMIUM' ? '#111' : info.color }]}>Book Seat</Text>
-                        </Pressable>
-                      </View>
+                      <Pressable
+                        onPress={(e) => { e.stopPropagation?.(); setFareModalTrip(trip); }}
+                        hitSlop={8}
+                        style={styles.fareInfoBtn}
+                      >
+                        <Ionicons name="information-circle-outline" size={13} color={colors.onSurfaceVariant} />
+                        <Text style={styles.fareInfoText}>Fare breakdown</Text>
+                      </Pressable>
                     </Pressable>
 
                     {enRoutePickerTripId === trip.id && (
@@ -479,6 +532,7 @@ export default function RideSelectScreen() {
             </View>
           </MotiView>
         )}
+        </View>
       </ScrollView>
 
       {/* Fare breakdown modal */}
@@ -562,23 +616,84 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 20,
     backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerTitleGroup: {
+    flex: 1,
+    alignItems: 'center',
+  },
   headerTitle: {
     fontFamily: fonts.displayBold,
-    fontSize: 20,
+    fontSize: 17,
     color: colors.onSurface,
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
+  },
+  headerSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  headerSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    maxWidth: 100,
+  },
+  heroWrap: {
+    height: 140,
+    marginTop: -32,
+    zIndex: 0,
+    overflow: 'hidden',
+    justifyContent: 'center',
+  },
+  heroRouteLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    width: '55%',
+  },
+  heroDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  heroDotDest: {
+    borderRadius: 3,
+  },
+  heroDashLine: {
+    flex: 1,
+    height: 1,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    marginHorizontal: 6,
+  },
+  heroFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 90,
+  },
+  dockedContent: {
+    marginTop: -28,
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
+    backgroundColor: colors.backgroundDeep,
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing.xl,
+    gap: spacing.xl,
+    zIndex: 1,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceCard,
-    borderRadius: 20,
+    backgroundColor: colors.surfaceInput,
+    borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     paddingHorizontal: 16,
     paddingVertical: 14,
     gap: 10,
@@ -625,25 +740,76 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: spacing.md,
   },
   tripCard: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: 20,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.7),
+    borderRadius: radii['2xl'],
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     padding: 16,
     gap: 12,
+    overflow: 'hidden',
+  },
+  tripCardGlow: {
+    position: 'absolute',
+    top: -20,
+    right: -20,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
   },
   tripCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    gap: 12,
   },
-  tripCardRoute: {
+  tripCardDriverInfo: {
     flex: 1,
+    gap: 3,
+  },
+  tripCardDriverName: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
     color: colors.onSurface,
     letterSpacing: -0.2,
+  },
+  tripCardRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  tripCardRating: {
+    fontFamily: fonts.semiBold,
+    fontSize: 12,
+  },
+  tripCardDot: {
+    color: colors.onSurfaceVariant,
+    fontSize: 12,
+    marginHorizontal: 1,
+  },
+  tripCardVehicle: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+  },
+  tripCardPriceCol: {
+    alignItems: 'flex-end',
+  },
+  tripCardPrice: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.fareMedium,
+    color: colors.onSurface,
+    letterSpacing: -0.5,
+  },
+  tripCardPriceStrike: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    textDecorationLine: 'line-through',
+  },
+  tripCardRouteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   tierBadge: {
     flexDirection: 'row',
@@ -659,19 +825,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: 9,
     letterSpacing: 0.5,
   },
-  tripCardMid: {
+  tripCardChipGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     flexWrap: 'wrap',
-  },
-  tripCardMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
     flex: 1,
   },
   tripCardMetaText: {
+    flex: 1,
     fontFamily: fonts.regular,
     fontSize: 12,
     color: colors.onSurfaceVariant,
@@ -683,6 +845,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 3,
+    flexShrink: 0,
   },
   seatsChipText: {
     fontFamily: fonts.semiBold,
@@ -693,169 +856,27 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.07)',
+    borderTopColor: colors.rimLightSubtle,
   },
-  fareLabel: {
+  fareInfoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+  },
+  fareInfoText: {
     fontFamily: fonts.regular,
     fontSize: 11,
     color: colors.onSurfaceVariant,
-    marginBottom: 3,
-  },
-  fareAmount: {
-    fontFamily: fonts.displayBold,
-    fontSize: 20,
-    color: colors.onSurface,
-    letterSpacing: -0.5,
-  },
-  bookBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bookBtnText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
+    textDecorationLine: 'underline',
   },
   scroll: {
-    paddingHorizontal: spacing['2xl'],
     paddingBottom: spacing['3xl'],
-    gap: spacing.xl,
   },
-  routeCard: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  routeConnector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingLeft: 5,
-    height: 24,
-  },
-  routeConnectorLine: {
-    width: 1,
-    height: 24,
-    backgroundColor: colors.outline,
-    marginLeft: 1,
-  },
-  swapButton: {
-    position: 'absolute',
-    right: 0,
-  },
-  swapInner: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceContainerHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.outline,
-  },
-  dotOrigin: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.primary,
-    flexShrink: 0,
-  },
-  dotDestination: {
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-    backgroundColor: colors.secondary,
-    flexShrink: 0,
-  },
-  dotStop: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.tertiary || '#FF9800',
-    flexShrink: 0,
-    marginLeft: 1,
-  },
-  addStopButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    alignSelf: 'flex-start',
-    borderRadius: radii.md,
-    backgroundColor: colors.primary + '15',
-  },
-  rideOptionsRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  rideOptionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.primary + '15',
-    paddingVertical: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.primary + '30',
-  },
-  routeInput: {
-    flex: 1,
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodyLarge,
-    color: colors.onSurface,
-    paddingVertical: 0,
-  },
-  sectionLabel: {
-    marginBottom: spacing.md,
-  },
-  tierGrid: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-
   searchCta: {},
-  heavyLoadRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-  heavyLoadLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    flex: 1,
-  },
-  heavyLoadBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    backgroundColor: colors.secondary + '12',
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.secondary + '30',
-  },
   enRouteChip: {
     flexDirection: 'row',
     alignItems: 'center',

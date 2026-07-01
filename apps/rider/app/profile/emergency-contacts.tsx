@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -155,7 +155,7 @@ export default function EmergencyContactsScreen() {
                   <React.Fragment key={contact.id}>
                     {index > 0 && <View style={styles.divider} />}
                     <View style={styles.row}>
-                      <View style={[styles.iconWrap, { backgroundColor: colors.primary + '22' }]}>
+                      <View style={[styles.iconWrap, { backgroundColor: withOpacity(colors.primary, 0.13) }]}>
                         <Ionicons name="person" size={18} color={colors.primary} />
                       </View>
                       <View style={{ flex: 1 }}>
@@ -195,7 +195,7 @@ export default function EmergencyContactsScreen() {
                   placeholderTextColor={colors.onSurfaceVariant}
                   style={[
                     styles.input,
-                    { color: colors.onSurface, borderColor: colors.outlineVariant },
+                    { color: colors.onSurface, borderColor: colors.rimLight },
                   ]}
                 />
                 <TextInput
@@ -206,7 +206,7 @@ export default function EmergencyContactsScreen() {
                   keyboardType="phone-pad"
                   style={[
                     styles.input,
-                    { color: colors.onSurface, borderColor: colors.outlineVariant },
+                    { color: colors.onSurface, borderColor: colors.rimLight },
                   ]}
                 />
                 <Button label={saving ? 'Saving...' : 'Save Contact'} onPress={handleAdd} variant="primary" disabled={saving} />
@@ -242,9 +242,9 @@ const makeStyles = (colors: Colors) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
+      borderColor: colors.rimLight,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -262,10 +262,10 @@ const makeStyles = (colors: Colors) =>
       marginLeft: spacing.xs,
     },
     card: {
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       overflow: 'hidden',
     },
     row: {
@@ -274,7 +274,7 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.md,
       padding: spacing.base,
     },
-    divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: spacing.base },
+    divider: { height: 1, backgroundColor: colors.rimLightSubtle, marginHorizontal: spacing.base },
     iconWrap: {
       width: 44,
       height: 44,
@@ -295,10 +295,10 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: spacing['3xl'],
     },
     formCard: {
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       gap: spacing.base,
     },
@@ -308,8 +308,8 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.lg,
       paddingHorizontal: spacing.base,
       fontSize: 15,
-      backgroundColor: colors.surfaceDim ?? '#0D0D0E',
-      borderColor: 'rgba(255,255,255,0.05)',
+      backgroundColor: colors.surfaceInput,
+      borderColor: colors.rimLightSubtle,
       color: colors.onSurface,
       fontFamily: fonts.regular,
     },

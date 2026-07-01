@@ -14,7 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes } from '@eyego/config';
+import { LinearGradient } from 'expo-linear-gradient';
+import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { apiClient, routesApi, tripsApi } from '@eyego/api';
@@ -269,6 +270,13 @@ export default function ScheduleRideScreen() {
                         accessibilityState={{ selected }}
                         style={[styles.routeCard, selected && styles.routeCardSelected]}
                       >
+                        {selected && (
+                          <LinearGradient
+                            colors={[withOpacity(colors.primary, 0.05), withOpacity(colors.surfaceCard, 0.8)]}
+                            style={StyleSheet.absoluteFillObject}
+                            pointerEvents="none"
+                          />
+                        )}
                         <View style={styles.routeBody}>
                           {/* Origin → destination timeline */}
                           <View style={styles.routeRow}>
@@ -445,7 +453,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 22,
       backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
+      borderColor: colors.rimLightSubtle,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -487,7 +495,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       paddingHorizontal: spacing.base,
       height: 52,
     },
@@ -502,7 +510,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       padding: spacing.lg,
       alignItems: 'center',
     },
@@ -519,16 +527,17 @@ const makeStyles = (colors: Colors) =>
     routeCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       gap: spacing.base,
+      overflow: 'hidden',
     },
     routeCardSelected: {
       borderColor: colors.primary,
-      backgroundColor: `${colors.primary}0D`,
+      transform: [{ scale: 1.02 }],
     },
     routeBody: { flex: 1 },
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -575,7 +584,7 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.md,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       padding: spacing.base,
       height: 56,
@@ -600,11 +609,11 @@ const makeStyles = (colors: Colors) =>
       bottom: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.surfaceCard ?? colors.backgroundDeep,
+      backgroundColor: colors.surfaceCard,
       borderTopWidth: 1,
-      borderTopColor: 'rgba(255,255,255,0.1)',
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
+      borderTopColor: colors.rimLight,
+      borderTopLeftRadius: radii['4xl'],
+      borderTopRightRadius: radii['4xl'],
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.lg,
       paddingBottom: spacing['2xl'],

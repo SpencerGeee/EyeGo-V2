@@ -1,8 +1,9 @@
 import React from 'react';
 import { View, Image, StyleSheet } from 'react-native';
-import { colors, fonts, fontSizes } from '@eyego/config';
+import { fonts, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { getInitials } from '@eyego/utils';
+import { useThemedColors } from './ColorsContext';
 
 interface AvatarProps {
   uri?: string | null;
@@ -12,6 +13,8 @@ interface AvatarProps {
 }
 
 export function Avatar({ uri, name, size = 44, borderColor }: AvatarProps) {
+  const colors = useThemedColors();
+  const styles = getStyles(colors);
   const radius = size / 2;
 
   if (uri) {
@@ -58,13 +61,15 @@ export function Avatar({ uri, name, size = 44, borderColor }: AvatarProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  image: {
-    resizeMode: 'cover',
-  },
-  fallback: {
-    backgroundColor: colors.surfaceContainerHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    image: {
+      resizeMode: 'cover',
+    },
+    fallback: {
+      backgroundColor: colors.surfaceContainerHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+  });
+}

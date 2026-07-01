@@ -11,20 +11,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, spacing } from '@eyego/config';
+import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton } from '@eyego/ui';
+import { Text, Skeleton, Avatar } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 
-const TIER_COLORS: Record<string, string> = {
-  ECONOMY: '#4BE277',
-  COMFORT: '#00B2FF',
-  PREMIUM: '#FFD700',
-  ROYAL:   '#7000FF',
-};
+function getTierColors(colors: Colors): Record<string, string> {
+  return {
+    ECONOMY: colors.tierEconomy,
+    COMFORT: colors.tierComfort,
+    PREMIUM: colors.tierPremium,
+    ROYAL: colors.tierRoyal,
+  };
+}
 
 const QUICK_ACTIONS = [
   { id: 'saved',    label: 'Saved',    icon: 'bookmark-outline'   as const },
@@ -86,8 +89,9 @@ function SuggestedTripCard({
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const tierColors = getTierColors(colors);
   const tier = (trip.tier as string) ?? 'ECONOMY';
-  const tierColor = TIER_COLORS[tier] ?? TIER_COLORS.ECONOMY;
+  const tierColor = tierColors[tier] ?? tierColors.ECONOMY;
   const seatsLeft = Math.max(
     0,
     (trip.maxCapacity ?? 12) - (trip.confirmedSeats ?? 0) - (trip.pendingSeats ?? 0),
@@ -300,14 +304,23 @@ export default function HomeScreen() {
                 <View style={styles.activeBentoDot} />
                 <Text style={styles.activeBentoStatusText}>IN PROGRESS</Text>
               </View>
+              {/* Gradient fade blending the map into the docked card below */}
+              <LinearGradient
+                colors={['transparent', colors.surfaceCard]}
+                style={styles.activeBentoMapFade}
+                pointerEvents="none"
+              />
             </View>
-            {/* Driver + Route Info */}
+            {/* Driver + Route Info — docked over the map, pulled up to overlap it */}
             <View style={styles.activeBentoBody}>
               <View style={styles.activeBentoTopRow}>
                 <View style={styles.activeBentoDriverLeft}>
-                  <View style={styles.activeBentoAvatarWrap}>
-                    <Ionicons name="person" size={18} color={colors.onSurfaceVariant} />
-                  </View>
+                  <Avatar
+                    uri={activeBooking.driverAvatarUrl}
+                    name={activeBooking.driverName}
+                    size={44}
+                    borderColor={colors.rimLight}
+                  />
                   <View>
                     <Text style={styles.activeBentoDriverName} numberOfLines={1}>
                       {activeBooking.driverName ?? 'Your Driver'}
@@ -394,8 +407,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: `${colors.primary}22`,
-    borderWidth: 1.5,
-    borderColor: `${colors.primary}60`,
+    borderWidth: 2,
+    borderColor: `${colors.primary}33`,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -407,18 +420,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   greetingHeadline: {
     flex: 1,
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
+    fontFamily: fonts.displaySemiBold,
+    fontSize: 28,
     color: colors.primary,
-    letterSpacing: -1,
+    letterSpacing: -0.56,
   },
   notifBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(22,22,24,0.80)',
+    backgroundColor: withOpacity(colors.surfaceContainer, 0.5),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -450,12 +463,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   whereToCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(22,22,24,0.60)',
+    backgroundColor: withOpacity(colors.surfaceCard, 0.6),
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    padding: 12,
-    gap: 14,
+    borderColor: colors.rimLight,
+    padding: spacing.sm,
+    gap: spacing.base,
   },
   whereToIconWrap: {
     width: 44,
@@ -469,13 +482,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   whereToTextWrap: { flex: 1 },
   whereToTitle: {
     fontFamily: fonts.semiBold,
-    fontSize: 17,
+    fontSize: 20,
     color: colors.onSurface,
     letterSpacing: -0.3,
   },
   whereToSub: {
     fontFamily: fonts.regular,
-    fontSize: 12,
+    fontSize: 14,
     color: colors.onSurfaceVariant,
     marginTop: 1,
   },
@@ -494,9 +507,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(22,22,24,0.60)',
+    backgroundColor: withOpacity(colors.surfaceCard, 0.6),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -516,23 +529,31 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: 'hidden',
   },
   activeBentoMapArea: {
-    height: 120,
+    height: 128,
     backgroundColor: colors.backgroundDeep,
     position: 'relative',
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
     padding: 12,
   },
+  activeBentoMapFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 48,
+  },
   activeBentoRouteChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(10,10,11,0.85)',
+    backgroundColor: withOpacity(colors.backgroundDeep, 0.85),
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
+    zIndex: 1,
   },
   activeBentoDot: {
     width: 8,
@@ -553,7 +574,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   activeBentoBody: {
     padding: 16,
     gap: 10,
-    backgroundColor: 'rgba(22,22,24,0.60)',
+    backgroundColor: withOpacity(colors.surfaceCard, 0.6),
+    marginTop: -16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderTopColor: colors.rimLightSubtle,
   },
   activeBentoTopRow: {
     flexDirection: 'row',
@@ -565,17 +591,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
-  },
-  activeBentoAvatarWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
   },
   activeBentoDriverName: {
     fontFamily: fonts.semiBold,
@@ -590,7 +605,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   activeBentoEta: {
     fontFamily: fonts.displayBold,
-    fontSize: 22,
+    fontSize: 24,
     color: colors.tierComfort,
     letterSpacing: -0.5,
   },
@@ -611,7 +626,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: colors.rimLightSubtle,
   },
   activeBentoDestText: {
     fontFamily: fonts.regular,
@@ -624,7 +639,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   suggestedSection: { gap: 10 },
   sectionTitle: {
     fontFamily: fonts.semiBold,
-    fontSize: 18,
+    fontSize: 20,
     color: colors.onSurface,
     letterSpacing: -0.3,
     marginBottom: 2,
@@ -633,7 +648,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceCard,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: colors.rimLight,
     borderLeftWidth: 4,
     paddingHorizontal: 14,
     paddingVertical: 14,
@@ -684,7 +699,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   tripFare: {
     fontFamily: fonts.displayBold,
-    fontSize: 16,
+    fontSize: 18,
     letterSpacing: -0.3,
     paddingLeft: 8,
     flexShrink: 0,

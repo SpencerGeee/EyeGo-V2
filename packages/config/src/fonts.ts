@@ -1,26 +1,27 @@
 /**
- * EyeGo Font System
- * Display: Space Grotesk (geometric, premium)
- * Body: Inter (legible, clean)
+ * EyeGo Font System — Onyx
+ * UI: Geist (geometric, premium)
+ * Data/labels/mono-caps: JetBrains Mono
  */
 
 export const fonts = {
-  // Space Grotesk
-  displayExtraBold: 'SpaceGrotesk_700Bold',
-  displayBold: 'SpaceGrotesk_700Bold',
-  displaySemiBold: 'SpaceGrotesk_600SemiBold',
-  displayMedium: 'SpaceGrotesk_500Medium',
+  // Geist
+  displayExtraBold: 'Geist_700Bold',
+  displayBold: 'Geist_700Bold',
+  displaySemiBold: 'Geist_600SemiBold',
+  displayMedium: 'Geist_500Medium',
 
-  // Inter
-  semiBold: 'Inter_600SemiBold',
-  medium: 'Inter_500Medium',
-  regular: 'Inter_400Regular',
-  light: 'Inter_300Light',
+  semiBold: 'Geist_600SemiBold',
+  medium: 'Geist_500Medium',
+  regular: 'Geist_400Regular',
+  light: 'Geist_300Light',
+  bold: 'Geist_600SemiBold',
 
-  // Mono (mapped to SpaceGrotesk bold for fare numbers)
-  monoBold: 'SpaceGrotesk_700Bold',
-  monoRegular: 'SpaceGrotesk_500Medium',
-  bold: 'Inter_600SemiBold',
+  // JetBrains Mono — tabular-figure digits (OTP boxes, animated fare ticker)
+  // and uppercase "label-caps" chips/step-indicators/distance labels
+  monoBold: 'JetBrainsMono_700Bold',
+  monoRegular: 'JetBrainsMono_500Medium',
+  labelCaps: 'JetBrainsMono_500Medium',
 } as const;
 
 export const fontSizes = {

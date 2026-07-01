@@ -20,7 +20,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text } from '@eyego/ui';
 
@@ -434,7 +434,7 @@ function ProtectionRow({
   const styles = makeStyles(colors);
   return (
     <View style={styles.protRow}>
-      <View style={[styles.protIcon, value && { backgroundColor: `${colors.primary}1F` }]}>
+      <View style={[styles.protIcon, value && { backgroundColor: withOpacity(colors.primary, 0.12) }]}>
         <Ionicons name={icon} size={20} color={value ? colors.primary : colors.onSurfaceVariant} />
       </View>
       <View style={{ flex: 1 }}>
@@ -444,9 +444,9 @@ function ProtectionRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: colors.surfaceVariant ?? colors.outlineVariant, true: `${colors.primary}99` }}
-        thumbColor={value ? colors.primary : '#f4f4f5'}
-        ios_backgroundColor={colors.surfaceVariant ?? colors.outlineVariant}
+        trackColor={{ false: colors.outlineVariant, true: withOpacity(colors.primary, 0.6) }}
+        thumbColor={value ? colors.primary : colors.onSurfaceVariant}
+        ios_backgroundColor={colors.outlineVariant}
       />
     </View>
   );
@@ -465,9 +465,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -486,10 +486,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   reassureCard: {
     alignItems: 'center',
     textAlign: 'center',
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 24,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radii['2xl'],
     borderWidth: 1,
-    borderColor: `${colors.primary}1A`,
+    borderColor: withOpacity(colors.primary, 0.1),
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
   },
@@ -497,9 +497,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: `${colors.primary}1A`,
+    backgroundColor: withOpacity(colors.primary, 0.1),
     borderWidth: 1,
-    borderColor: `${colors.primary}33`,
+    borderColor: withOpacity(colors.primary, 0.2),
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.base,
@@ -527,15 +527,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginLeft: spacing.xs,
   },
   group: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 20,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
     overflow: 'hidden',
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.rimLightSubtle,
     marginHorizontal: spacing.base,
   },
   protRow: {
@@ -548,7 +548,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 14,
-    backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceDim,
+    backgroundColor: colors.surfaceContainerHigh,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -585,10 +585,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 20,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.base,
     position: 'relative',
@@ -603,9 +603,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: `${colors.primary}1F`,
+    backgroundColor: withOpacity(colors.primary, 0.12),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -630,10 +630,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    borderRadius: 20,
+    borderRadius: radii.xl,
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+    borderColor: colors.rimLight,
     paddingVertical: spacing.lg,
     minHeight: 132,
   },
@@ -655,11 +655,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: colors.surfaceCard ?? colors.backgroundDeep,
+    backgroundColor: colors.surfaceCard,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    borderTopColor: colors.rimLight,
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
     paddingHorizontal: spacing['2xl'],
     paddingTop: spacing.lg,
     paddingBottom: spacing['2xl'],
@@ -690,9 +690,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.sm,
     paddingVertical: spacing.base + 2,
     borderRadius: radii.lg,
-    backgroundColor: `${colors.statusError}33`,
+    backgroundColor: withOpacity(colors.statusError, 0.2),
     borderWidth: 1,
-    borderColor: `${colors.statusError}80`,
+    borderColor: withOpacity(colors.statusError, 0.5),
   },
   emergencyButtonText: {
     fontFamily: fonts.semiBold,

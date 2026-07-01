@@ -7,7 +7,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, bookingsApi, queryKeys } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Skeleton } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
@@ -170,11 +170,11 @@ export default function WalletScreen() {
                     key={tx.id}
                     style={[styles.txRow, i === transactions.length - 1 && { borderBottomWidth: 0 }]}
                   >
-                    <View style={[styles.txIcon, { backgroundColor: isCredit ? `${colors.statusSuccess ?? colors.primary}26` : colors.surfaceVariant ?? colors.surfaceContainerHigh }]}>
+                    <View style={[styles.txIcon, { backgroundColor: isCredit ? withOpacity(colors.statusSuccess, 0.15) : colors.surfaceContainerHigh }]}>
                       <Ionicons
                         name={isCredit ? 'arrow-down' : 'car-outline'}
                         size={16}
-                        color={isCredit ? (colors.statusSuccess ?? colors.primary) : colors.onSurface}
+                        color={isCredit ? colors.statusSuccess : colors.onSurface}
                       />
                     </View>
                     <View style={styles.txInfo}>
@@ -185,7 +185,7 @@ export default function WalletScreen() {
                         {new Date(tx.createdAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </Text>
                     </View>
-                    <Text style={[styles.txAmount, { color: isCredit ? (colors.statusSuccess ?? colors.primary) : colors.onSurface }]}>
+                    <Text style={[styles.txAmount, { color: isCredit ? colors.statusSuccess : colors.onSurface }]}>
                       {isCredit ? '+' : '-'}{formatCurrency(tx.amount)}
                     </Text>
                   </View>
@@ -273,9 +273,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -287,10 +287,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   balanceCard: {
     alignItems: 'center',
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 24,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radii['2xl'],
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: colors.rimLight,
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
     overflow: 'hidden',
@@ -301,7 +301,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 240,
     height: 240,
     borderRadius: 120,
-    backgroundColor: `${colors.primary}1F`,
+    backgroundColor: withOpacity(colors.primary, 0.12),
   },
   balanceLabel: {
     fontFamily: fonts.semiBold,
@@ -321,7 +321,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: 44,
     color: colors.primary,
     letterSpacing: -1,
-    textShadowColor: `${colors.primary}66`,
+    textShadowColor: withOpacity(colors.primary, 0.4),
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 18,
   },
@@ -354,19 +354,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
     paddingVertical: spacing.lg,
   },
   quickLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurface },
   section: { gap: spacing.md },
   transactionList: {
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
     paddingHorizontal: spacing.base,
   },
   txRow: {
@@ -374,7 +374,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    borderBottomColor: colors.rimLightSubtle,
   },
   txIcon: {
     width: 40,
@@ -388,13 +388,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   txAmount: { fontFamily: fonts.bold, fontSize: fontSizes.bodyLarge },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: colors.surfaceCard ?? '#0A0A0F',
-    borderTopLeftRadius: radii['3xl'],
-    borderTopRightRadius: radii['3xl'],
+    backgroundColor: colors.surfaceCard,
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
     padding: spacing.xl,
     paddingBottom: spacing['3xl'],
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.12)',
+    borderTopColor: colors.rimLight,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -408,16 +408,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   quickAmtText: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 13 },
   inputContainer: {
-    backgroundColor: '#0D0D0E',
+    backgroundColor: colors.surfaceInput,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: colors.rimLight,
     padding: spacing.md,
   },
   input: {

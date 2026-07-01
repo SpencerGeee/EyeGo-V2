@@ -4,8 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
 import { walletApi } from '@eyego/api';
@@ -73,9 +74,14 @@ export default function AddCardScreen() {
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
           style={styles.cardPreview}
         >
-          <View style={styles.cardFace}>
+          <LinearGradient
+            colors={[colors.surfaceCard, colors.backgroundDeep]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.cardFace}
+          >
             <View style={styles.cardChipRow}>
-              <Ionicons name="hardware-chip" size={36} color="rgba(255,255,255,0.85)" />
+              <Ionicons name="hardware-chip" size={36} color={withOpacity(colors.onSurface, 0.85)} />
               <View style={styles.cardBadge}>
                 <Ionicons name="lock-closed" size={11} color={colors.primary} />
                 <Text style={styles.cardBadgeText}>Secured</Text>
@@ -94,7 +100,7 @@ export default function AddCardScreen() {
                 <Text style={styles.cardMetaValue}>MM/YY</Text>
               </View>
             </View>
-          </View>
+          </LinearGradient>
         </MotiView>
 
         {/* Info */}
@@ -105,8 +111,8 @@ export default function AddCardScreen() {
           style={styles.infoCard}
         >
           <View style={styles.infoRow}>
-            <View style={[styles.infoIconWrap, { backgroundColor: `${colors.statusSuccess ?? colors.primary}1F` }]}>
-              <Ionicons name="shield-checkmark" size={18} color={colors.statusSuccess ?? colors.primary} />
+            <View style={[styles.infoIconWrap, { backgroundColor: withOpacity(colors.statusSuccess, 0.12) }]}>
+              <Ionicons name="shield-checkmark" size={18} color={colors.statusSuccess} />
             </View>
             <Text variant="bodyMedium" style={styles.infoText}>
               Card details are entered on Paystack's encrypted, PCI-compliant checkout — your card number never touches our servers.
@@ -155,9 +161,9 @@ const makeStyles = (colors: Colors) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
+      borderColor: colors.rimLight,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -171,15 +177,14 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii['2xl'],
       overflow: 'hidden',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: colors.rimLight,
       aspectRatio: 1.586,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
     },
     cardFace: {
       flex: 1,
       padding: spacing.xl,
       justifyContent: 'space-between',
-      backgroundColor: `linear-gradient(135deg, ${colors.surfaceCard ?? '#1a1a1a'}, ${colors.backgroundDeep})` as any,
     },
     cardChipRow: {
       flexDirection: 'row',
@@ -190,12 +195,12 @@ const makeStyles = (colors: Colors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      backgroundColor: `${colors.primary}1A`,
+      backgroundColor: withOpacity(colors.primary, 0.1),
       paddingHorizontal: spacing.sm,
       paddingVertical: 4,
       borderRadius: radii.full,
       borderWidth: 1,
-      borderColor: `${colors.primary}33`,
+      borderColor: withOpacity(colors.primary, 0.2),
     },
     cardBadgeText: {
       color: colors.primary,
@@ -233,10 +238,10 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: 1,
     },
     infoCard: {
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       gap: spacing.sm,
     },
@@ -260,7 +265,7 @@ const makeStyles = (colors: Colors) =>
     },
     infoDivider: {
       height: 1,
-      backgroundColor: 'rgba(255,255,255,0.05)',
+      backgroundColor: colors.rimLightSubtle,
       marginHorizontal: 0,
     },
     footer: {
@@ -268,9 +273,9 @@ const makeStyles = (colors: Colors) =>
       paddingTop: spacing.base,
       paddingBottom: spacing['2xl'],
       borderTopWidth: 1,
-      borderTopColor: 'rgba(255,255,255,0.08)',
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
+      borderTopColor: colors.rimLight,
+      borderTopLeftRadius: radii['4xl'],
+      borderTopRightRadius: radii['4xl'],
       backgroundColor: colors.backgroundDeep,
     },
     addBtn: {

@@ -2,9 +2,10 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable } from './Pressable';
-import { colors, spacing, radii } from '@eyego/config';
+import { spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Avatar } from './Avatar';
+import { useThemedColors } from './ColorsContext';
 
 interface TripDriver {
   id?: string;
@@ -30,6 +31,8 @@ interface DriverInfoCardProps {
 }
 
 export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, onChat }: DriverInfoCardProps) {
+  const colors = useThemedColors();
+  const styles = getStyles(colors);
   return (
     <View style={styles.card}>
       <Avatar uri={driver.avatarUrl} name={driver.name} size={48} borderColor={colors.primary} />
@@ -65,27 +68,29 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    gap: spacing.md,
-  },
-  info: { flex: 1 },
-  actions: { flexDirection: 'row', gap: spacing.sm },
-  actionBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceContainerHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    card: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceCard,
+      borderRadius: radii.xl,
+      padding: spacing.base,
+      borderWidth: 1,
+      borderColor: colors.rimLight,
+      gap: spacing.md,
+    },
+    info: { flex: 1 },
+    actions: { flexDirection: 'row', gap: spacing.sm },
+    actionBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceContainerHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.rimLight,
+    },
+  });
+}

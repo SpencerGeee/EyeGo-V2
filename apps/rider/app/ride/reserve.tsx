@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
@@ -294,9 +294,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -318,12 +318,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   dateCard: {
     width: 64,
     height: 80,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: radii.lg,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radii.xl,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
   },
   dateCardSelected: {
     backgroundColor: colors.primary,
@@ -358,17 +358,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   timeCard: {
     width: '30%',
     flexGrow: 1,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
   },
   timeCardSelected: {
     borderColor: colors.primary,
-    backgroundColor: `${colors.primary}1A`,
+    backgroundColor: withOpacity(colors.primary, 0.1),
   },
   timeCardPast: {
     opacity: 0.4,
@@ -385,10 +385,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.base,
     marginHorizontal: spacing['2xl'],
     marginTop: spacing.xl,
-    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-    borderRadius: 20,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radii['2xl'],
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: colors.rimLightSubtle,
     padding: spacing.lg,
   },
   routeTimeline: {
@@ -405,7 +405,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routeTimelineLine: {
     flex: 1,
     width: 1,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: colors.rimLight,
     marginVertical: 4,
   },
   routeDotHollow: {
@@ -426,7 +426,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   routeDivider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.rimLightSubtle,
     marginVertical: spacing.md,
   },
   footer: {
@@ -434,11 +434,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: colors.surfaceCard ?? colors.backgroundDeep,
+    backgroundColor: colors.surfaceCard,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    borderTopColor: colors.rimLight,
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
     paddingHorizontal: spacing['2xl'],
     paddingTop: spacing.lg,
     paddingBottom: spacing['2xl'],
@@ -465,10 +465,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceDim,
+    backgroundColor: colors.surfaceContainerHigh,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: colors.rimLight,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
   },
@@ -484,7 +484,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'center',
     gap: spacing.sm,
     backgroundColor: colors.primary,
-    borderRadius: radii.lg,
+    borderRadius: radii['2xl'],
     paddingVertical: spacing.base + 2,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 0 },

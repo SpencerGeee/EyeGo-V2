@@ -1,9 +1,10 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fonts, fontSizes, spacing, radii, letterSpacings } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, letterSpacings, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Pressable } from './Pressable';
+import { useThemedColors } from './ColorsContext';
 
 type Tier = 'ECONOMY' | 'COMFORT';
 
@@ -15,22 +16,24 @@ interface TierOption {
   activeColor: string;
 }
 
-const TIERS: TierOption[] = [
-  {
-    key: 'ECONOMY',
-    icon: 'leaf-outline',
-    label: 'Economy',
-    caption: 'Shared · Affordable',
-    activeColor: colors.tierEconomy,
-  },
-  {
-    key: 'COMFORT',
-    icon: 'star-outline',
-    label: 'Comfort',
-    caption: 'Premium · Spacious',
-    activeColor: colors.tierComfort,
-  },
-];
+function getTiers(colors: ColorTokens): TierOption[] {
+  return [
+    {
+      key: 'ECONOMY',
+      icon: 'leaf-outline',
+      label: 'Economy',
+      caption: 'Shared · Affordable',
+      activeColor: colors.tierEconomy,
+    },
+    {
+      key: 'COMFORT',
+      icon: 'star-outline',
+      label: 'Comfort',
+      caption: 'Premium · Spacious',
+      activeColor: colors.tierComfort,
+    },
+  ];
+}
 
 interface TierSelectorProps {
   value: Tier;
@@ -38,9 +41,12 @@ interface TierSelectorProps {
 }
 
 export function TierSelector({ value, onChange }: TierSelectorProps) {
+  const colors = useThemedColors();
+  const styles = getStyles(colors);
+  const tiers = getTiers(colors);
   return (
     <View style={styles.row}>
-      {TIERS.map((tier) => {
+      {tiers.map((tier) => {
         const isActive = value === tier.key;
         return (
           <Pressable
@@ -80,32 +86,34 @@ export function TierSelector({ value, onChange }: TierSelectorProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  card: {
-    flex: 1,
-    height: 88,
-    borderRadius: radii.xl,
-    backgroundColor: colors.surfaceCard,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-  },
-  label: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.label,
-    color: colors.onSurface,
-    letterSpacing: letterSpacings.label,
-  },
-  caption: {
-    fontFamily: fonts.regular,
-    fontSize: 10,
-    color: colors.onSurfaceVariant,
-    letterSpacing: letterSpacings.label,
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    row: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    card: {
+      flex: 1,
+      height: 88,
+      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceCard,
+      borderWidth: 1,
+      borderColor: colors.rimLight,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 3,
+    },
+    label: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.label,
+      color: colors.onSurface,
+      letterSpacing: letterSpacings.label,
+    },
+    caption: {
+      fontFamily: fonts.regular,
+      fontSize: 10,
+      color: colors.onSurfaceVariant,
+      letterSpacing: letterSpacings.label,
+    },
+  });
+}

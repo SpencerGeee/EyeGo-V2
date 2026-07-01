@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { apiClient } from '@eyego/api';
@@ -123,8 +123,8 @@ export default function NotificationPreferencesScreen() {
 
       {syncError && (
         <View style={styles.syncErrorBanner}>
-          <Ionicons name="warning-outline" size={14} color="#92400e" style={{ marginRight: spacing.sm }} />
-          <Text variant="caption" style={{ color: colors.statusWarning ? '#92400e' : '#92400e', flex: 1 }}>
+          <Ionicons name="warning-outline" size={14} color={colors.statusWarning} style={{ marginRight: spacing.sm }} />
+          <Text variant="caption" style={{ color: colors.statusWarning, flex: 1 }}>
             Preferences saved locally — sync failed. Will retry next time.
           </Text>
         </View>
@@ -162,10 +162,10 @@ export default function NotificationPreferencesScreen() {
                           item.locked ? undefined : (val) => handleToggle(item.key, val)
                         }
                         disabled={item.locked}
-                        thumbColor={prefs[item.key] ? colors.primary : colors.outline ?? '#ccc'}
+                        thumbColor={prefs[item.key] ? colors.primary : colors.outline}
                         trackColor={{
                           false: colors.outlineVariant,
-                          true: colors.primary + '40',
+                          true: withOpacity(colors.primary, 0.25),
                         }}
                       />
                     </View>
@@ -194,9 +194,9 @@ const makeStyles = (colors: Colors) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
+      borderColor: colors.rimLight,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -214,10 +214,10 @@ const makeStyles = (colors: Colors) =>
       marginLeft: spacing.xs,
     },
     card: {
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.06)',
+      borderColor: colors.rimLightSubtle,
       overflow: 'hidden',
     },
     row: {
@@ -227,14 +227,14 @@ const makeStyles = (colors: Colors) =>
       padding: spacing.base,
     },
     rowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: spacing.base },
+    divider: { height: 1, backgroundColor: colors.rimLightSubtle, marginHorizontal: spacing.base },
     syncErrorBanner: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: `${colors.statusWarning}26`,
+      backgroundColor: withOpacity(colors.statusWarning, 0.15),
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.sm,
       borderBottomWidth: 1,
-      borderBottomColor: '#fde68a',
+      borderBottomColor: withOpacity(colors.statusWarning, 0.4),
     },
   });

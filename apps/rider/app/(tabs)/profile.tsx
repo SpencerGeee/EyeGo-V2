@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { getInitials, formatCurrency } from '@eyego/utils';
@@ -158,6 +158,7 @@ export default function ProfileScreen() {
           style={styles.walletCard}
         >
           <View style={styles.walletGlow} pointerEvents="none" />
+          <View style={styles.walletGlowSecondary} pointerEvents="none" />
           <View style={styles.walletRow}>
             <View style={{ flex: 1 }}>
               <View style={styles.walletLabelRow}>
@@ -240,9 +241,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
   avatarRing: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     borderWidth: 2,
     borderColor: `${colors.primary}80`,
     overflow: 'hidden',
@@ -297,7 +298,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: colors.rimLight,
     padding: spacing.lg,
     marginBottom: spacing.xl,
     overflow: 'hidden',
@@ -310,6 +311,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 160,
     borderRadius: 80,
     backgroundColor: `${colors.primary}33`,
+  },
+  walletGlowSecondary: {
+    position: 'absolute',
+    left: -48,
+    bottom: -48,
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    backgroundColor: withOpacity(colors.tierRoyal, 0.1),
   },
   walletRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   walletLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
@@ -355,7 +365,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
     borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: colors.rimLightSubtle,
     overflow: 'hidden',
   },
   menuItem: {

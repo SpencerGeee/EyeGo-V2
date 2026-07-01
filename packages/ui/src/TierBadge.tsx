@@ -1,8 +1,9 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fonts, fontSizes, spacing, radii, letterSpacings } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, letterSpacings, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
+import { useThemedColors } from './ColorsContext';
 
 type Tier = 'ECONOMY' | 'COMFORT' | 'PREMIUM' | 'ROYAL';
 type BadgeSize = 'sm' | 'md';
@@ -12,15 +13,18 @@ interface TierBadgeProps {
   size?: BadgeSize;
 }
 
-const TIER_CONFIG: Record<Tier, { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; color: string }> = {
-  ECONOMY:  { label: 'Economy',  icon: 'leaf-outline',    color: colors.tierEconomy },
-  COMFORT:  { label: 'Comfort',  icon: 'star-outline',    color: colors.tierComfort },
-  PREMIUM:  { label: 'Premium',  icon: 'diamond-outline', color: colors.tierPremium },
-  ROYAL:    { label: 'Royal',    icon: 'ribbon-outline',  color: colors.tierRoyal  },
-};
+function getTierConfig(colors: ColorTokens): Record<Tier, { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; color: string }> {
+  return {
+    ECONOMY:  { label: 'Economy',  icon: 'leaf-outline',    color: colors.tierEconomy },
+    COMFORT:  { label: 'Comfort',  icon: 'star-outline',    color: colors.tierComfort },
+    PREMIUM:  { label: 'Premium',  icon: 'diamond-outline', color: colors.tierPremium },
+    ROYAL:    { label: 'Royal',    icon: 'ribbon-outline',  color: colors.tierRoyal  },
+  };
+}
 
 export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
-  const config = TIER_CONFIG[tier] ?? TIER_CONFIG.ECONOMY;
+  const colors = useThemedColors();
+  const config = getTierConfig(colors)[tier] ?? getTierConfig(colors).ECONOMY;
   const isSmall = size === 'sm';
   const iconSize = isSmall ? 10 : 12;
   const fontSize = isSmall ? 10 : fontSizes.bodySmall;

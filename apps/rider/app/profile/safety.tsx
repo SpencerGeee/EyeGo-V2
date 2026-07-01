@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 
@@ -132,7 +132,7 @@ export default function SafetyScreen() {
                   accessibilityState={{ checked: isEnabled(feature.id) }}
                   accessibilityLabel={`${feature.title}. ${feature.description}. ${isEnabled(feature.id) ? 'Enabled' : 'Disabled'}`}
                 >
-                  <View style={[styles.featureIcon, { backgroundColor: colors.primary + '18' }]}>
+                  <View style={[styles.featureIcon, { backgroundColor: withOpacity(colors.primary, 0.1) }]}>
                     <Ionicons name={feature.icon as any} size={20} color={colors.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
@@ -144,7 +144,7 @@ export default function SafetyScreen() {
                   <Switch
                     value={isEnabled(feature.id)}
                     onValueChange={() => toggleFeature(feature.id)}
-                    trackColor={{ false: colors.outlineVariant, true: colors.primary + '60' }}
+                    trackColor={{ false: colors.outlineVariant, true: withOpacity(colors.primary, 0.4) }}
                     thumbColor={isEnabled(feature.id) ? colors.primary : colors.onSurfaceVariant}
                   />
                 </Pressable>
@@ -189,7 +189,7 @@ export default function SafetyScreen() {
             accessibilityRole="button"
             accessibilityLabel="Manage emergency contacts"
           >
-            <View style={[styles.linkIcon, { backgroundColor: colors.error + '18' }]}>
+            <View style={[styles.linkIcon, { backgroundColor: withOpacity(colors.error, 0.1) }]}>
               <Ionicons name="people-outline" size={20} color={colors.error} />
             </View>
             <View style={{ flex: 1 }}>
@@ -214,7 +214,7 @@ export default function SafetyScreen() {
             accessibilityRole="button"
             accessibilityLabel="Safety help center"
           >
-            <View style={[styles.linkIcon, { backgroundColor: colors.secondary + '18' }]}>
+            <View style={[styles.linkIcon, { backgroundColor: withOpacity(colors.secondary, 0.1) }]}>
               <Ionicons name="help-buoy-outline" size={20} color={colors.secondary} />
             </View>
             <View style={{ flex: 1 }}>
@@ -249,7 +249,7 @@ const makeStyles = (colors: Colors) =>
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: colors.rimLight,
     },
     scroll: {
       paddingHorizontal: spacing['2xl'],
@@ -265,18 +265,18 @@ const makeStyles = (colors: Colors) =>
       width: 80,
       height: 80,
       borderRadius: 40,
-      backgroundColor: colors.primary + '14',
+      backgroundColor: withOpacity(colors.primary, 0.08),
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 2,
-      borderColor: colors.primary + '30',
+      borderColor: withOpacity(colors.primary, 0.2),
     },
     card: {
       backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
       padding: spacing.xl,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: colors.rimLight,
     },
     cardTitle: {
       marginBottom: spacing.md,
@@ -299,17 +299,17 @@ const makeStyles = (colors: Colors) =>
     },
     divider: {
       height: 1,
-      backgroundColor: colors.outlineVariant,
+      backgroundColor: colors.rimLightSubtle,
     },
     uploadButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
-      backgroundColor: colors.primary + '12',
+      backgroundColor: withOpacity(colors.primary, 0.08),
       borderRadius: radii.lg,
       borderWidth: 1.5,
-      borderColor: colors.primary + '30',
+      borderColor: withOpacity(colors.primary, 0.2),
       borderStyle: 'dashed',
       paddingVertical: spacing.base,
     },
@@ -321,7 +321,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.xl,
       padding: spacing.base,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: colors.rimLight,
     },
     linkIcon: {
       width: 40,

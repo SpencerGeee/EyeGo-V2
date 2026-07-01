@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { notificationsApi } from '@eyego/api';
 import type { AppNotification } from '@eyego/api';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { relativeTime } from '@eyego/utils';
@@ -24,13 +24,15 @@ const CATEGORY_TYPES: Record<Category, AppNotification['type'][] | null> = {
   Promos: ['promo', 'system'],
 };
 
-const TYPE_ICONS: Record<AppNotification['type'], { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
-  booking: { icon: 'ticket-outline', color: '#3B82F6' },
-  payment: { icon: 'card-outline', color: '#10B981' },
-  driver: { icon: 'bus-outline', color: '#8B5CF6' },
-  promo: { icon: 'gift-outline', color: '#F59E0B' },
-  system: { icon: 'notifications-outline', color: '#6B7280' },
-};
+function getTypeIcons(colors: Colors): Record<AppNotification['type'], { icon: keyof typeof Ionicons.glyphMap; color: string }> {
+  return {
+    booking: { icon: 'ticket-outline', color: colors.statusInfo },
+    payment: { icon: 'card-outline', color: colors.statusSuccess },
+    driver: { icon: 'bus-outline', color: colors.tierRoyal },
+    promo: { icon: 'gift-outline', color: colors.tierPremium },
+    system: { icon: 'notifications-outline', color: colors.onSurfaceVariant },
+  };
+}
 
 function SkeletonCard() {
   const colors = useColors();
@@ -64,7 +66,7 @@ function NotificationCard({
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
-  const typeInfo = TYPE_ICONS[item.type] ?? { icon: 'notifications-outline' as const, color: '#6B7280' };
+  const typeInfo = getTypeIcons(colors)[item.type] ?? { icon: 'notifications-outline' as const, color: colors.onSurfaceVariant };
 
   return (
     <MotiView
@@ -80,7 +82,7 @@ function NotificationCard({
           )}
           {!item.read && <View style={styles.unreadStripe} />}
 
-          <View style={[styles.iconCircle, { backgroundColor: `${typeInfo.color}18` }]}>
+          <View style={[styles.iconCircle, { backgroundColor: withOpacity(typeInfo.color, 0.1) }]}>
             <Ionicons name={typeInfo.icon} size={20} color={typeInfo.color} />
           </View>
 
@@ -282,7 +284,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.lg,
     paddingBottom: spacing.base,
     borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
+    borderBottomColor: colors.rimLight,
     marginBottom: spacing.sm,
   },
   categoryPill: {
@@ -316,15 +318,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     gap: spacing.md,
     position: 'relative',
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: colors.surfaceCard,
   },
   notifCardUnread: {
-    borderColor: `${colors.primary}35`,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderColor: withOpacity(colors.primary, 0.2),
+    backgroundColor: colors.surfaceContainer,
   },
   unreadStripe: {
     position: 'absolute',
@@ -379,7 +381,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     gap: spacing.md,
     marginBottom: spacing.sm,
   },

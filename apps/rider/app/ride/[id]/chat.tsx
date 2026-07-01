@@ -19,7 +19,7 @@ import { connectSocket, socketEvents, getSocket, tripsApi } from '@eyego/api';
 import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { scheduleLocalNotification } from '../../../utils/notifications';
 import { Text } from '@eyego/ui';
@@ -739,7 +739,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
     borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
+    borderBottomColor: colors.rimLightSubtle,
     gap: spacing.base,
   },
   backBtn: {
@@ -765,7 +765,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+    borderColor: colors.rimLight,
     overflow: 'hidden',
   },
   headerAvatarImg: { width: 44, height: 44, borderRadius: 22 },
@@ -789,7 +789,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   listContent: {
     paddingHorizontal: spacing['2xl'],
@@ -826,9 +826,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
   },
   bubbleMine: {
-    backgroundColor: `${colors.primary}1F`,
+    backgroundColor: withOpacity(colors.primary, 0.12),
     borderWidth: 1,
-    borderColor: `${colors.primary}4D`,
+    borderColor: withOpacity(colors.primary, 0.3),
     borderTopRightRadius: 4,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 0 },
@@ -838,13 +838,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   bubbleTheirs: {
     backgroundColor: colors.surfaceContainer,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: colors.rimLightSubtle,
     borderTopLeftRadius: 4,
   },
   bubblePrivate: {
-    backgroundColor: `${colors.primary}18`,
+    backgroundColor: withOpacity(colors.primary, 0.1),
     borderWidth: 1,
-    borderColor: `${colors.primary}40`,
+    borderColor: withOpacity(colors.primary, 0.25),
   },
   privateBadge: {
     fontFamily: fonts.medium,
@@ -876,7 +876,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.sm,
     gap: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
+    borderBottomColor: colors.rimLightSubtle,
   },
   tab: {
     flexDirection: 'row',
@@ -886,11 +886,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   tabActive: {
     borderColor: colors.primary,
-    backgroundColor: `${colors.primary}18`,
+    backgroundColor: withOpacity(colors.primary, 0.1),
   },
   tabText: {
     fontFamily: fonts.semiBold,
@@ -898,7 +898,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   quickRepliesScroll: {
     borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
+    borderTopColor: colors.rimLightSubtle,
     maxHeight: 52,
     flexGrow: 0,
   },
@@ -914,22 +914,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceContainerHigh,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   inputBar: {
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
-    backgroundColor: colors.surfaceDim ?? colors.backgroundDeep,
+    borderTopColor: colors.rimLightSubtle,
+    backgroundColor: colors.surfaceDim,
   },
   inputFieldWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0D0D0E',
+    backgroundColor: colors.surfaceInput,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+    borderColor: colors.rimLight,
     paddingLeft: spacing.base,
     paddingRight: spacing.xs,
   },

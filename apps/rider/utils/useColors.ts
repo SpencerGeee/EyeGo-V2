@@ -11,6 +11,11 @@ export const darkColors = {
   surfaceContainerHighest: '#2e3637',
   surfaceVariant: '#2e3637',
   surfaceBright: '#333b3b',
+  surfaceInput: '#0D0D0E',            // inputs/search boxes recede toward base bg
+
+  // Rim lighting — 1px inner borders instead of drop shadows
+  rimLight: 'rgba(255, 255, 255, 0.10)',
+  rimLightSubtle: 'rgba(255, 255, 255, 0.06)',
 
   // Brand
   primary: '#4be277',
@@ -84,6 +89,11 @@ export const lightColors = {
   surfaceContainerHighest: '#c9d8c8',
   surfaceVariant: '#c9d8c8',
   surfaceBright: '#e4efe4',
+  surfaceInput: '#e8f2e7',            // recedes toward base bg, same relative step as dark
+
+  // Rim lighting — black-based on light surfaces (dark uses white-based)
+  rimLight: 'rgba(0, 0, 0, 0.10)',
+  rimLightSubtle: 'rgba(0, 0, 0, 0.06)',
 
   // Brand (darker green for contrast on light surfaces)
   primary: '#1a7a3c',

@@ -9,9 +9,10 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { formatDuration, formatCurrency } from '@eyego/utils';
@@ -108,6 +109,7 @@ function useLocationInterpolation(targetCoords: { latitude: number; longitude: n
 export default function TrackingScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -318,10 +320,10 @@ export default function TrackingScreen() {
   // Tier display data
   const tier = ((syncedTrip as any)?.tier as string) ?? 'ECONOMY';
   const TIER_COLORS_MAP: Record<string, string> = {
-    ECONOMY: colors.primary,
-    COMFORT: '#00B2FF',
-    PREMIUM: '#FFD700',
-    ROYAL: '#7000FF',
+    ECONOMY: colors.tierEconomy,
+    COMFORT: colors.tierComfort,
+    PREMIUM: colors.tierPremium,
+    ROYAL: colors.tierRoyal,
   };
   const TIER_ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
     ECONOMY: 'car-outline',
@@ -484,7 +486,7 @@ export default function TrackingScreen() {
     <View style={styles.container}>
       {/* Map */}
       <MapboxGL.MapView
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
         styleJSON={EYEGO_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}
@@ -564,7 +566,7 @@ export default function TrackingScreen() {
         from={{ opacity: 0, scale: 0.94 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-        style={styles.homeFloating}
+        style={[styles.homeFloating, { top: insets.top + 12 }]}
       >
         <Pressable onPress={() => router.back()} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
@@ -575,7 +577,7 @@ export default function TrackingScreen() {
         from={{ opacity: 0, scale: 0.94 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 70 }}
-        style={styles.optionsFloating}
+        style={[styles.optionsFloating, { top: insets.top + 12 }]}
       >
         <Pressable style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Trip options">
           <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
@@ -583,7 +585,7 @@ export default function TrackingScreen() {
       </MotiView>
 
       {/* Top overlay — LIVE badge */}
-      <View style={[styles.topOverlay, { paddingTop: 60 }]}>
+      <View style={[styles.topOverlay, { paddingTop: insets.top + 12 }]}>
         <MotiView
           from={{ opacity: 0, translateY: -6 }}
           animate={{ opacity: 1, translateY: 0 }}
@@ -602,7 +604,7 @@ export default function TrackingScreen() {
 
       {/* In-app status banner — prominent toast-style notification */}
       {bannerMsg != null && (
-        <Animated.View style={[styles.statusBanner, { transform: [{ translateY: bannerAnim }] }]}>
+        <Animated.View style={[styles.statusBanner, { top: insets.top + 64, transform: [{ translateY: bannerAnim }] }]}>
           <BlurView intensity={80} tint="dark" style={styles.statusBannerBlur}>
             <MotiView
               from={{ scale: 0.7, opacity: 0 }}
@@ -664,7 +666,7 @@ export default function TrackingScreen() {
             transition={{ type: 'spring', stiffness: 600, damping: 34 }}
             style={styles.sheetHeader}
           >
-            <View style={[styles.tierBadge, { borderColor: tierColor + '40' }]}>
+            <View style={[styles.tierBadge, { borderColor: withOpacity(tierColor, 0.25) }]}>
               <Ionicons name={tierIcon} size={13} color={tierColor} />
               <Text style={[styles.tierLabel, { color: tierColor }]}>{tier}</Text>
             </View>
@@ -685,7 +687,7 @@ export default function TrackingScreen() {
             style={styles.routeCard}
           >
             <View style={styles.routeRow}>
-              <View style={[styles.routeIcon, { backgroundColor: tierColor + '20' }]}>
+              <View style={[styles.routeIcon, { backgroundColor: withOpacity(tierColor, 0.12) }]}>
                 <Ionicons name="ellipse" size={10} color={tierColor} />
               </View>
               <View style={{ flex: 1 }}>
@@ -725,7 +727,7 @@ export default function TrackingScreen() {
                 </View>
               )}
               <View style={styles.ratingBadge}>
-                <Ionicons name="star" size={9} color="#FFD700" />
+                <Ionicons name="star" size={9} color={colors.tierPremium} />
                 <Text style={styles.ratingText}>{syncedTrip?.driver?.rating?.toFixed(1) ?? '4.9'}</Text>
               </View>
             </View>
@@ -761,7 +763,7 @@ export default function TrackingScreen() {
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.onSurface} />
             </Pressable>
             <Pressable style={styles.sosIconBtn} onPress={handleSOS} accessibilityRole="button" accessibilityLabel="Emergency SOS">
-              <Ionicons name="warning-outline" size={22} color="#FF3B30" />
+              <Ionicons name="warning-outline" size={22} color={colors.statusError} />
             </Pressable>
             <Pressable
               style={styles.primaryCta}
@@ -814,24 +816,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   homeFloating: {
     position: 'absolute',
     left: spacing['2xl'],
-    top: 60,
     zIndex: 15,
   },
   optionsFloating: {
     position: 'absolute',
     right: spacing['2xl'],
-    top: 60,
     zIndex: 15,
   },
   homeFloatingBtn: {
     width: 44,
     height: 44,
-    borderRadius: 14,
-    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: 22,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.8),
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   topOverlay: {
     position: 'absolute',
@@ -845,12 +845,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    backgroundColor: 'rgba(9,16,9,0.85)',
+    backgroundColor: withOpacity(colors.backgroundDeep, 0.85),
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.primary + '40',
+    borderColor: withOpacity(colors.primary, 0.4),
   },
   liveDot: {
     width: 6,
@@ -866,10 +866,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sheetBackground: {
     backgroundColor: colors.surfaceCard,
-    borderTopLeftRadius: radii['3xl'],
-    borderTopRightRadius: radii['3xl'],
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
   },
-  sheetHandle: { backgroundColor: 'rgba(255,255,255,0.18)', width: 40, height: 4 },
+  sheetHandle: { backgroundColor: colors.outline, width: 40, height: 4 },
   sheetContent: {
     paddingHorizontal: spacing['2xl'],
     paddingBottom: spacing['3xl'],
@@ -888,7 +888,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.sm,
     borderRadius: radii.full,
     borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.rimLightSubtle,
   },
   tierLabel: {
     fontFamily: fonts.semiBold,
@@ -920,7 +920,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     gap: spacing.sm,
   },
   routeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
@@ -946,7 +946,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   routeDivider: {
     height: 1,
-    backgroundColor: colors.outlineVariant,
+    backgroundColor: colors.rimLightSubtle,
     marginLeft: 32 + spacing.md,
   },
   driverRow: {
@@ -957,7 +957,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   driverAvatarWrap: { position: 'relative', marginBottom: 8 },
   driverAvatar: {
@@ -965,7 +965,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 52,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: colors.primary + '60',
+    borderColor: withOpacity(colors.primary, 0.6),
   },
   ratingBadge: {
     position: 'absolute',
@@ -979,7 +979,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
   },
   ratingText: {
     fontFamily: fonts.semiBold,
@@ -1001,12 +1001,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: colors.primary + '15',
+    backgroundColor: withOpacity(colors.primary, 0.08),
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.primary + '30',
+    borderColor: withOpacity(colors.primary, 0.2),
   },
   seatsText: {
     fontFamily: fonts.semiBold,
@@ -1040,7 +1040,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
     backgroundColor: colors.surfaceContainerHigh,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1048,9 +1048,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: radii.xl,
-    backgroundColor: 'rgba(255,59,48,0.08)',
+    backgroundColor: withOpacity(colors.statusError, 0.08),
     borderWidth: 1,
-    borderColor: 'rgba(255,59,48,0.30)',
+    borderColor: withOpacity(colors.statusError, 0.3),
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1065,7 +1065,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   primaryCtaText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
-    color: '#002109',
+    color: colors.onPrimary,
     letterSpacing: 0.2,
   },
   statusBanner: {
@@ -1089,7 +1089,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.base,
     borderWidth: 1.5,
-    borderColor: colors.primary + '60',
+    borderColor: withOpacity(colors.primary, 0.6),
     borderRadius: radii['2xl'],
     overflow: 'hidden',
   },
@@ -1128,7 +1128,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.full,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: colors.primary + '30',
+    borderColor: withOpacity(colors.primary, 0.2),
   },
   etaPillText: {
     fontFamily: fonts.semiBold,

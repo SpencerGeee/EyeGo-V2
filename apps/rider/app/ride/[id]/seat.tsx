@@ -13,7 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, EmptyState } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
@@ -109,11 +109,11 @@ export default function SeatPickerScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.headerBackBtn} hitSlop={12}>
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Choose Your Seat</Text>
-        <View style={{ width: 24 }} />
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -126,7 +126,7 @@ export default function SeatPickerScreen() {
         >
           <LegendItem color={colors.surfaceContainerHigh} borderColor={colors.outline} label="Available" />
           <LegendItem color={colors.primary} borderColor={colors.primary} label="Selected" />
-          <LegendItem color="#F59E0B" borderColor="#F59E0B" label="Pending" disabled />
+          <LegendItem color={colors.statusWarning} borderColor={colors.statusWarning} label="Pending" disabled />
           <LegendItem color={colors.surfaceContainer} borderColor={colors.outlineVariant} label="Taken" disabled />
         </MotiView>
 
@@ -286,6 +286,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
   },
+  headerBackBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scroll: {
     paddingHorizontal: spacing['2xl'],
     paddingBottom: spacing['3xl'],
@@ -354,8 +364,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     opacity: 0.45,
   },
   seatPending: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderColor: '#F59E0B',
+    backgroundColor: withOpacity(colors.statusWarning, 0.15),
+    borderColor: colors.statusWarning,
     opacity: 0.8,
   },
   seatSelected: {
@@ -375,12 +385,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: 'rgba(75, 226, 119, 0.1)',
+    backgroundColor: withOpacity(colors.primary, 0.1),
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.primary + '40',
+    borderColor: withOpacity(colors.primary, 0.25),
   },
   footer: {
     paddingHorizontal: spacing['2xl'],

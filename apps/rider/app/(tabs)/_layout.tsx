@@ -10,8 +10,9 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, fonts } from '@eyego/config';
+import { fonts, type ColorTokens } from '@eyego/config';
 import { Text } from '@eyego/ui';
+import { useColors } from '../../utils/useColors';
 
 // Liquid Glass — only available on iOS 26+; fails silently if not installed
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -56,10 +57,12 @@ function GlassLayer() {
     );
   }
   // Android: elevated dark surface — BlurView has limited Android support
-  return <View style={[StyleSheet.absoluteFill, styles.androidFallback]} />;
+  return <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10, 12, 18, 0.92)' }]} />;
 }
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const colors = useColors();
+  const styles = getStyles(colors);
   return (
     <View style={styles.tabBarWrapper}>
       <GlassLayer />
@@ -105,6 +108,8 @@ function TabItem({
   isFocused: boolean;
   onPress: () => void;
 }) {
+  const colors = useColors();
+  const styles = getStyles(colors);
   const scale = useSharedValue(1);
   const icons = TAB_ICONS[routeName];
   // Guard: route exists in the directory but is not a visible tab
@@ -160,65 +165,64 @@ export default function TabLayout() {
   );
 }
 
-const styles = StyleSheet.create({
-  tabBarWrapper: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.10)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.40,
-    shadowRadius: 20,
-    elevation: 20,
-    overflow: 'hidden',
-  },
-  androidFallback: {
-    backgroundColor: 'rgba(10, 12, 18, 0.92)',
-  },
-  topBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    zIndex: 1,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    height: 72,
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    paddingTop: 8,
-    paddingBottom: 10,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-  },
-  tabItemInner: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 3,
-    minHeight: 52,
-    borderRadius: 16,
-  },
-  tabItemActive: {
-    backgroundColor: `${colors.primary}1A`,
-  },
-  tabLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: 9,
-    letterSpacing: 0.7,
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    tabBarWrapper: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      borderTopWidth: 1,
+      borderTopColor: colors.rimLight,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -8 },
+      shadowOpacity: 0.40,
+      shadowRadius: 20,
+      elevation: 20,
+      overflow: 'hidden',
+    },
+    topBorder: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 1,
+      backgroundColor: colors.rimLight,
+      zIndex: 1,
+    },
+    tabBar: {
+      flexDirection: 'row',
+      height: 72,
+      alignItems: 'center',
+      paddingHorizontal: 4,
+      paddingTop: 8,
+      paddingBottom: 10,
+    },
+    tabItem: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+    },
+    tabItemInner: {
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      gap: 3,
+      minHeight: 52,
+      borderRadius: 16,
+    },
+    tabItemActive: {
+      backgroundColor: `${colors.primary}1A`,
+    },
+    tabLabel: {
+      fontFamily: fonts.semiBold,
+      fontSize: 9,
+      letterSpacing: 0.7,
+    },
+  });
+}

@@ -12,21 +12,24 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, notificationsApi } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
-import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
 type FilterTab = 'all' | 'trips' | 'alerts';
 
-const STATUS_COLORS: Record<string, string> = {
-  COMPLETED: '#4be277',
-  CANCELLED: '#EF4444',
-  CONFIRMED: '#60A5FA',
-  SEAT_HELD: '#60A5FA',
-  BOARDED: '#F59E0B',
-  PENDING: 'rgba(255,255,255,0.4)',
-};
+function getStatusColors(colors: Colors): Record<string, string> {
+  return {
+    COMPLETED: colors.statusSuccess,
+    CANCELLED: colors.statusError,
+    CONFIRMED: colors.statusInfo,
+    SEAT_HELD: colors.statusInfo,
+    BOARDED: colors.statusWarning,
+    PENDING: colors.onSurfaceVariant,
+  };
+}
 
 const NOTIF_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   TRIP_CONFIRMED: 'checkmark-circle',
@@ -38,9 +41,10 @@ const NOTIF_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   SYSTEM: 'information-circle',
 };
 
-function TripItem({ booking }: { booking: any }) {
+function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
-  const statusColor = STATUS_COLORS[booking.status] ?? 'rgba(255,255,255,0.4)';
+  const statusColors = getStatusColors(colors);
+  const statusColor = statusColors[booking.status] ?? colors.onSurfaceVariant;
 
   return (
     <Pressable
@@ -50,7 +54,7 @@ function TripItem({ booking }: { booking: any }) {
         router.push(`/ride/${booking.id}` as any);
       }}
     >
-      <View style={[styles.itemIcon, { backgroundColor: `${statusColor}18` }]}>
+      <View style={[styles.itemIcon, { backgroundColor: withOpacity(statusColor, 0.1) }]}>
         <Ionicons name="car-outline" size={18} color={statusColor} />
       </View>
       <View style={styles.itemBody}>
@@ -74,12 +78,12 @@ function TripItem({ booking }: { booking: any }) {
   );
 }
 
-function NotificationItem({ notification }: { notification: any }) {
+function NotificationItem({ notification, colors, styles }: { notification: any; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const iconName = NOTIF_ICONS[notification.type] ?? 'notifications-outline';
 
   return (
     <View style={[styles.itemCard, styles.notifCard]}>
-      <View style={[styles.itemIcon, { backgroundColor: `${colors.primary}14` }]}>
+      <View style={[styles.itemIcon, { backgroundColor: withOpacity(colors.primary, 0.08) }]}>
         <Ionicons name={iconName} size={18} color={colors.primary} />
       </View>
       <View style={styles.itemBody}>
@@ -90,7 +94,7 @@ function NotificationItem({ notification }: { notification: any }) {
   );
 }
 
-function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function FilterChip({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof makeStyles> }) {
   return (
     <Pressable
       style={[styles.chip, active && styles.chipActive]}
@@ -102,6 +106,8 @@ function FilterChip({ label, active, onPress }: { label: string; active: boolean
 }
 
 export default function ActivityScreen() {
+  const colors = useColors();
+  const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const [filter, setFilter] = useState<FilterTab>('all');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -174,6 +180,7 @@ export default function ActivityScreen() {
             key={f}
             label={f === 'all' ? 'All' : f === 'trips' ? 'Trips' : 'Alerts'}
             active={filter === f}
+            styles={styles}
             onPress={() => {
               Haptics.selectionAsync();
               setFilter(f);
@@ -192,9 +199,9 @@ export default function ActivityScreen() {
           keyExtractor={(item, idx) => `${item.type}-${item.data.id ?? idx}`}
           renderItem={({ item }) =>
             item.type === 'trip' ? (
-              <TripItem booking={item.data} />
+              <TripItem booking={item.data} colors={colors} styles={styles} />
             ) : (
-              <NotificationItem notification={item.data} />
+              <NotificationItem notification={item.data} colors={colors} styles={styles} />
             )
           }
           contentContainerStyle={[
@@ -210,7 +217,7 @@ export default function ActivityScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
-              <Ionicons name="time-outline" size={48} color="rgba(255,255,255,0.15)" />
+              <Ionicons name="time-outline" size={48} color={colors.onSurfaceVariant} />
               <Text style={styles.emptyText}>No activity yet</Text>
               <Text style={styles.emptyHint}>Your rides and alerts will appear here</Text>
             </View>
@@ -222,7 +229,7 @@ export default function ActivityScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.backgroundDeep,
@@ -235,7 +242,7 @@ const styles = StyleSheet.create({
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineLarge,
-    color: '#fff',
+    color: colors.onSurface,
     letterSpacing: -0.5,
   },
   filterRow: {
@@ -248,18 +255,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: colors.rimLightSubtle,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.rimLight,
   },
   chipActive: {
-    backgroundColor: `${colors.primary}22`,
-    borderColor: `${colors.primary}50`,
+    backgroundColor: withOpacity(colors.primary, 0.14),
+    borderColor: withOpacity(colors.primary, 0.3),
   },
   chipText: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
-    color: 'rgba(255,255,255,0.5)',
+    color: colors.onSurfaceVariant,
   },
   chipTextActive: {
     color: colors.primary,
@@ -275,15 +282,15 @@ const styles = StyleSheet.create({
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.lg,
     padding: spacing.md,
     gap: spacing.md,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
+    borderColor: colors.rimLight,
   },
   notifCard: {
-    borderColor: `${colors.primary}18`,
+    borderColor: withOpacity(colors.primary, 0.1),
   },
   itemIcon: {
     width: 40,
@@ -296,12 +303,12 @@ const styles = StyleSheet.create({
   itemTitle: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
-    color: '#fff',
+    color: colors.onSurface,
   },
   itemMeta: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
-    color: 'rgba(255,255,255,0.4)',
+    color: colors.onSurfaceVariant,
     marginTop: 3,
   },
   itemStatus: {
@@ -327,12 +334,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
-    color: 'rgba(255,255,255,0.35)',
+    color: colors.onSurfaceVariant,
   },
   emptyHint: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
-    color: 'rgba(255,255,255,0.2)',
+    color: colors.onSurfaceVariant,
     textAlign: 'center',
   },
 });

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { MotiView } from 'moti';
-import { colors, spacing, radii } from '@eyego/config';
+import { spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Pressable } from './Pressable';
 import { Avatar } from './Avatar';
@@ -9,6 +9,7 @@ import { TierBadge } from './TierBadge';
 import { SeatBar } from './SeatBar';
 import { AnimatedFareText } from './AnimatedFareText';
 import { formatTripDate } from '@eyego/utils';
+import { useThemedColors } from './ColorsContext';
 
 interface RideCardTrip {
   id: string;
@@ -28,15 +29,19 @@ interface RideCardProps {
   index?: number;
 }
 
-const TIER_COLOR: Record<string, string> = {
-  ECONOMY: colors.tierEconomy,
-  COMFORT: colors.tierComfort,
-  PREMIUM: colors.tierPremium,
-};
+function getTierColor(colors: ColorTokens): Record<string, string> {
+  return {
+    ECONOMY: colors.tierEconomy,
+    COMFORT: colors.tierComfort,
+    PREMIUM: colors.tierPremium,
+  };
+}
 
 export function RideCard({ ride, onPress, index = 0 }: RideCardProps) {
+  const colors = useThemedColors();
+  const styles = getStyles(colors);
   const tier = ride.tier ?? 'ECONOMY';
-  const tierColor = TIER_COLOR[tier] ?? colors.tierEconomy;
+  const tierColor = getTierColor(colors)[tier] ?? colors.tierEconomy;
   const confirmed = ride.confirmedSeats ?? 0;
   const pending = ride.pendingSeats ?? 0;
   const total = ride.maxCapacity ?? 12;
@@ -100,26 +105,28 @@ export function RideCard({ ride, onPress, index = 0 }: RideCardProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii['2xl'],
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    width: '100%',
-    flexDirection: 'row',
-    overflow: 'hidden',
-  },
-  tierStripe: {
-    width: 3,
-    alignSelf: 'stretch',
-  },
-  content: {
-    flex: 1,
-    padding: spacing.base,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-});
+function getStyles(colors: ColorTokens) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: colors.surfaceCard,
+      borderRadius: radii['2xl'],
+      borderWidth: 1,
+      borderColor: colors.rimLight,
+      width: '100%',
+      flexDirection: 'row',
+      overflow: 'hidden',
+    },
+    tierStripe: {
+      width: 3,
+      alignSelf: 'stretch',
+    },
+    content: {
+      flex: 1,
+      padding: spacing.base,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+  });
+}

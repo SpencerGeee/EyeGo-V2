@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { colors } from '@eyego/config';
+import { type ColorTokens } from '@eyego/config';
+import { useThemedColors } from './ColorsContext';
 
 type SeatStatus = 'available' | 'confirmed' | 'pending';
 
@@ -9,15 +10,19 @@ interface SeatBadgeProps {
   compact?: boolean;
 }
 
-const STATUS_COLOR: Record<SeatStatus, string> = {
-  confirmed: colors.primary,
-  pending: '#FFB800',
-  available: 'transparent',
-};
+function getStatusColor(colors: ColorTokens): Record<SeatStatus, string> {
+  return {
+    confirmed: colors.primary,
+    pending: '#FFB800',
+    available: 'transparent',
+  };
+}
 
 export function SeatBadge({ status, compact = false }: SeatBadgeProps) {
+  const colors = useThemedColors();
+  const statusColor = getStatusColor(colors);
   const size = compact ? 12 : 20;
-  const borderColor = status === 'available' ? colors.outlineVariant : STATUS_COLOR[status];
+  const borderColor = status === 'available' ? colors.outlineVariant : statusColor[status];
 
   return (
     <View
@@ -27,7 +32,7 @@ export function SeatBadge({ status, compact = false }: SeatBadgeProps) {
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: STATUS_COLOR[status],
+          backgroundColor: statusColor[status],
           borderWidth: status === 'available' ? 1 : 0,
           borderColor,
           borderStyle: status === 'available' ? 'dashed' : 'solid',
@@ -38,7 +43,5 @@ export function SeatBadge({ status, compact = false }: SeatBadgeProps) {
 }
 
 const styles = StyleSheet.create({
-  circle: {
-    backgroundColor: colors.surfaceContainerHigh,
-  },
+  circle: {},
 });
