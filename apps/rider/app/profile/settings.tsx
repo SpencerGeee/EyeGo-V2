@@ -176,7 +176,7 @@ export default function SettingsScreen() {
               onPress={() => selectLanguage(lang.code)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.base, padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
             >
-              <Text style={{ fontSize: 24 }}>{lang.flag}</Text>
+              <Text style={{ fontSize: 24, lineHeight: 30 }}>{lang.flag}</Text>
               <Text variant="bodyMedium" style={{ flex: 1 }}>{lang.label}</Text>
               {currentLang === lang.code && <Ionicons name="checkmark" size={20} color={colors.primary} />}
             </Pressable>

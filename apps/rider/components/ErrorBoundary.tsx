@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <View style={styles.iconContainer}>
               <Ionicons name="warning-outline" size={48} color="#FF5252" />
             </View>
-            <Text style={[styles.title, { fontSize: 20, fontWeight: 'bold' }]}>Something went wrong</Text>
+            <Text style={[styles.title, { fontSize: 20, lineHeight: 26, fontWeight: 'bold' }]}>Something went wrong</Text>
             <Text style={styles.subtitle}>
               The application encountered an unexpected error. Our team has been notified.
             </Text>

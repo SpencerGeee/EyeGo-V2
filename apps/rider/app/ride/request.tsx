@@ -150,6 +150,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineMedium,
+    lineHeight: fontSizes.headlineMedium * 1.25,
     color: colors.onSurface,
     textAlign: 'center',
     letterSpacing: -0.5,

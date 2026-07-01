@@ -10,9 +10,11 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, type ColorTokens } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
+import { useThemeStore } from '../../stores/theme.store';
 
 // Liquid Glass — only available on iOS 26+; fails silently if not installed
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -27,6 +29,13 @@ try {
 }
 
 type TabRoute = 'home' | 'services' | 'activity' | 'account';
+
+/**
+ * Visual height of the floating tab bar content (excluding the device bottom
+ * inset). Screens under the tab bar should pad their scroll content by
+ * TAB_BAR_BASE_HEIGHT + insets.bottom + breathing room.
+ */
+export const TAB_BAR_BASE_HEIGHT = 72;
 
 const TAB_ICONS: Record<TabRoute, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   home: { active: 'home', inactive: 'home-outline' },
@@ -43,7 +52,7 @@ const TAB_LABELS: Record<TabRoute, string> = {
 };
 
 /** Renders the glassmorphism / Liquid Glass background layer */
-function GlassLayer() {
+function GlassLayer({ isDark }: { isDark: boolean }) {
   if (isLiquidGlassSupported && LiquidGlassView) {
     return <LiquidGlassView style={StyleSheet.absoluteFill} />;
   }
@@ -51,24 +60,33 @@ function GlassLayer() {
     return (
       <BlurView
         intensity={72}
-        tint="systemChromeMaterialDark"
+        tint={isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
         style={StyleSheet.absoluteFill}
       />
     );
   }
-  // Android: elevated dark surface — BlurView has limited Android support
-  return <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(10, 12, 18, 0.92)' }]} />;
+  // Android: elevated surface — BlurView has limited Android support
+  return (
+    <View
+      style={[
+        StyleSheet.absoluteFill,
+        { backgroundColor: isDark ? 'rgba(10, 12, 18, 0.92)' : 'rgba(255, 255, 255, 0.95)' },
+      ]}
+    />
+  );
 }
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const colors = useColors();
   const styles = getStyles(colors);
+  const insets = useSafeAreaInsets();
+  const isDark = useThemeStore((s) => s.isDark);
   return (
     <View style={styles.tabBarWrapper}>
-      <GlassLayer />
+      <GlassLayer isDark={isDark} />
       {/* top highlight line — native iOS glass feel */}
       <View style={styles.topBorder} />
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom - 6, 10) }]}>
         {state.routes.map((route, index) => {
           const isFocused = state.index === index;
           const routeName = route.name as TabRoute;
@@ -194,11 +212,10 @@ function getStyles(colors: ColorTokens) {
     },
     tabBar: {
       flexDirection: 'row',
-      height: 72,
+      minHeight: TAB_BAR_BASE_HEIGHT,
       alignItems: 'center',
       paddingHorizontal: 4,
       paddingTop: 8,
-      paddingBottom: 10,
     },
     tabItem: {
       flex: 1,
@@ -220,9 +237,10 @@ function getStyles(colors: ColorTokens) {
       backgroundColor: `${colors.primary}1A`,
     },
     tabLabel: {
-      fontFamily: fonts.semiBold,
-      fontSize: 9,
-      letterSpacing: 0.7,
+      fontFamily: fonts.labelCaps,
+      fontSize: 10,
+      lineHeight: 14,
+      letterSpacing: 0.6,
     },
   });
 }

@@ -18,6 +18,8 @@ export type TextVariant =
   | 'labelLarge'
   | 'labelMedium'
   | 'labelSmall'
+  | 'labelCaps'
+  | 'priceDisplay'
   | 'caption'
   | 'fareLarge'
   | 'fareMedium'
@@ -103,30 +105,50 @@ function getVariantStyles(colors: ColorTokens): Record<TextVariant, TextStyle> {
       fontSize: fontSizes.label,
       color: colors.onSurface,
       letterSpacing: letterSpacings.label,
+      lineHeight: fontSizes.label * 1.4,
     },
     labelLarge: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.label,
       color: colors.onSurface,
       letterSpacing: letterSpacings.label,
+      lineHeight: fontSizes.label * 1.4,
     },
     labelMedium: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodySmall,
       color: colors.onSurface,
       letterSpacing: letterSpacings.label,
+      lineHeight: fontSizes.bodySmall * 1.4,
     },
     labelSmall: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.caption,
       color: colors.onSurfaceVariant,
       letterSpacing: letterSpacings.label,
+      lineHeight: fontSizes.caption * 1.4,
+    },
+    labelCaps: {
+      fontFamily: fonts.labelCaps,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurfaceVariant,
+      letterSpacing: letterSpacings.label,
+      lineHeight: 16,
+      textTransform: 'uppercase',
+    },
+    priceDisplay: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.fareMedium,
+      letterSpacing: letterSpacings.headline,
+      color: colors.onSurface,
+      lineHeight: fontSizes.fareMedium * 1.35,
     },
     caption: {
       fontFamily: fonts.regular,
       fontSize: fontSizes.caption,
       color: colors.onSurfaceVariant,
       letterSpacing: letterSpacings.label,
+      lineHeight: fontSizes.caption * 1.4,
     },
     fareLarge: {
       fontFamily: fonts.displayBold,
@@ -146,11 +168,13 @@ function getVariantStyles(colors: ColorTokens): Record<TextVariant, TextStyle> {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.fareSmall,
       color: colors.primary,
+      lineHeight: fontSizes.fareSmall * 1.3,
     },
     fareInline: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.fareInline,
       color: colors.primary,
+      lineHeight: fontSizes.fareInline * 1.3,
     },
   };
 }

@@ -116,6 +116,7 @@ export function Button({
             style={{
               fontFamily: fonts.semiBold,
               fontSize: sStyle.fontSize,
+              lineHeight: Math.round(sStyle.fontSize * 1.3),
               color: vStyle.textColor,
             }}
           >

@@ -204,6 +204,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurface,
     fontFamily: fonts.bold,
     fontSize: 16,
+    lineHeight: 21,
     marginBottom: 4,
   },
   toggleDesc: {

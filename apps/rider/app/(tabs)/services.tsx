@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -147,6 +148,7 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
 export default function ServicesScreen() {
   const colors = useColors();
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -173,7 +175,7 @@ export default function ServicesScreen() {
           ))}
         </View>
 
-        <View style={styles.bottomPad} />
+        <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -192,6 +194,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineLarge,
+    lineHeight: fontSizes.headlineLarge * 1.25,
     color: colors.onSurface,
     letterSpacing: -0.5,
   },
@@ -204,8 +207,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: spacing.lg },
   sectionHeader: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.bodyMedium,
+    fontFamily: fonts.labelCaps,
+    fontSize: fontSizes.bodySmall,
+    lineHeight: 16,
     color: colors.onSurfaceVariant,
     letterSpacing: 0.8,
     textTransform: 'uppercase',
@@ -243,22 +247,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tierName: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onSurface,
   },
   tierDesc: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: fontSizes.bodySmall * 1.35,
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
-  tierRight: { alignItems: 'flex-end' },
+  tierRight: { alignItems: 'flex-end', maxWidth: 120 },
   tierPrice: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: fontSizes.bodyMedium * 1.3,
   },
   tierEta: {
-    fontFamily: fonts.regular,
+    fontFamily: fonts.monoRegular,
     fontSize: fontSizes.caption,
+    lineHeight: 15,
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
@@ -290,14 +298,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   specialName: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onSurface,
   },
   specialDesc: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: fontSizes.bodySmall * 1.35,
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
   pressed: { opacity: 0.75 },
-  bottomPad: { height: 120 },
 });

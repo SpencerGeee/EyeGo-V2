@@ -309,6 +309,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: spacing.xl,
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onSurfaceVariant,
   },
   dateList: {
@@ -344,6 +345,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   dateNumber: {
     fontFamily: fonts.bold,
     fontSize: 20,
+    lineHeight: 26,
     marginTop: 4,
   },
   timeSection: {
@@ -459,6 +461,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareValue: {
     fontFamily: fonts.displayBold,
     fontSize: 24,
+    lineHeight: 30,
     color: colors.onSurface,
   },
   sharedPill: {
@@ -494,6 +497,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   confirmText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onPrimary,
   },
 });

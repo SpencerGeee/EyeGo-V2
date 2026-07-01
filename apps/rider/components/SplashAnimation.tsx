@@ -95,6 +95,7 @@ const styles = StyleSheet.create({
   wordmark: {
     fontFamily: fonts.displayBold,
     fontSize: 36,
+    lineHeight: 44,
     color: colors.onSurface,
     letterSpacing: -1,
   },

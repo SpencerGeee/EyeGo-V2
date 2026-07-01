@@ -219,6 +219,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headline: {
     fontFamily: fonts.displayBold,
     fontSize: 28,
+    lineHeight: 36,
     color: colors.onSurface,
     letterSpacing: -0.5,
     textAlign: 'center',
@@ -242,6 +243,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareAmount: {
     fontFamily: fonts.displayBold,
     fontSize: 40,
+    lineHeight: 48,
     color: colors.onSurface,
     textAlign: 'center',
     letterSpacing: -1,
@@ -323,6 +325,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onPrimary,
     letterSpacing: 0.2,
   },
@@ -337,6 +340,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   ghostBtnText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onSurface,
     letterSpacing: 0.2,
   },

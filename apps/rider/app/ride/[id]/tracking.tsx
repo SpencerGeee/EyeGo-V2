@@ -899,6 +899,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareAmount: {
     fontFamily: fonts.displayBold,
     fontSize: 22,
+    lineHeight: 28,
     color: colors.primary,
     letterSpacing: -0.5,
   },
@@ -911,6 +912,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   vehicleName: {
     fontFamily: fonts.displayBold,
     fontSize: 28,
+    lineHeight: 36,
     color: colors.onSurface,
     letterSpacing: -0.5,
     marginTop: spacing.xs,

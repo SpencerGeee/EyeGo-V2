@@ -19,6 +19,7 @@ import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Skeleton, Avatar } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
+import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
 function getTierColors(colors: Colors): Record<string, string> {
   return {
@@ -385,7 +386,7 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        <View style={{ height: 120 }} />
+        <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
       </ScrollView>
     </View>
   );
@@ -416,14 +417,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   avatarInitials: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
+    lineHeight: 20,
     color: colors.primary,
   },
   greetingHeadline: {
     flex: 1,
     fontFamily: fonts.displaySemiBold,
-    fontSize: 28,
-    color: colors.primary,
-    letterSpacing: -0.56,
+    fontSize: 26,
+    lineHeight: 34,
+    color: colors.onSurface,
+    letterSpacing: -0.52,
   },
   notifBtn: {
     width: 40,
@@ -483,6 +486,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   whereToTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 20,
+    lineHeight: 26,
     color: colors.onSurface,
     letterSpacing: -0.3,
   },
@@ -566,8 +570,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   activeBentoStatusText: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 10,
+    lineHeight: 14,
     color: colors.onSurface,
     letterSpacing: 0.7,
   },
@@ -606,12 +611,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   activeBentoEta: {
     fontFamily: fonts.displayBold,
     fontSize: 24,
+    lineHeight: 30,
     color: colors.tierComfort,
     letterSpacing: -0.5,
   },
   activeBentoAway: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 9,
+    lineHeight: 13,
     color: colors.onSurfaceVariant,
     letterSpacing: 0.8,
     textAlign: 'right',
@@ -640,6 +647,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 20,
+    lineHeight: 26,
     color: colors.onSurface,
     letterSpacing: -0.3,
     marginBottom: 2,
@@ -687,19 +695,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 2,
   },
   tripTierBadgeText: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 9,
+    lineHeight: 13,
     letterSpacing: 0.6,
   },
   tripMeta: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
+    fontFamily: fonts.monoRegular,
+    fontSize: 11,
+    lineHeight: 16,
     color: colors.onSurfaceVariant,
     marginTop: 3,
   },
   tripFare: {
     fontFamily: fonts.displayBold,
     fontSize: 18,
+    lineHeight: 24,
     letterSpacing: -0.3,
     paddingLeft: 8,
     flexShrink: 0,

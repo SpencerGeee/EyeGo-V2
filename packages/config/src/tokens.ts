@@ -4,16 +4,16 @@
  */
 
 export const colors = {
-  // Backgrounds — neutral Onyx darks with subtle green environmental tint
-  backgroundDeep: '#0A0A0B',          // deepest bg — near-pure black
-  background: '#0d150d',              // main bg — faint green warmth
-  surfaceDim: '#0d150d',              // alias for main bg
+  // Backgrounds — rich neutral Onyx blacks (no green tint)
+  backgroundDeep: '#060607',          // deepest bg — near-pure black
+  background: '#0A0A0B',              // main bg
+  surfaceDim: '#0A0A0B',              // alias for main bg
   surfaceCard: '#161618',             // card surfaces — Onyx neutral
-  surfaceContainer: '#192122',        // elevated cards
-  surfaceContainerHigh: '#232b2c',    // further elevated
-  surfaceContainerHighest: '#2e3637',
-  surfaceVariant: '#2e3637',
-  surfaceBright: '#333b3b',
+  surfaceContainer: '#1A1A1D',        // elevated cards
+  surfaceContainerHigh: '#222225',    // further elevated
+  surfaceContainerHighest: '#2C2C30',
+  surfaceVariant: '#2C2C30',
+  surfaceBright: '#333338',
   surfaceInput: '#0D0D0E',            // inputs/search boxes — darker than card
 
   // Rim lighting — 1px inner borders instead of drop shadows (Onyx "machined" look)

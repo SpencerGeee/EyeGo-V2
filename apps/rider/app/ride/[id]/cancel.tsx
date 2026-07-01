@@ -549,6 +549,7 @@ const makeStyles = (colors: Colors) =>
     keepButtonText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.onPrimary,
     },
     cancelButton: {
@@ -564,6 +565,7 @@ const makeStyles = (colors: Colors) =>
     cancelButtonText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.statusError,
     },
   });

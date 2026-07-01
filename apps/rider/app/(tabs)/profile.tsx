@@ -11,6 +11,7 @@ import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { getInitials, formatCurrency } from '@eyego/utils';
+import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
 interface MenuItem {
   label: string;
@@ -133,7 +134,7 @@ export default function ProfileScreen() {
                   <Text style={styles.memberChipText}>Member</Text>
                 </View>
                 <View style={styles.ratingChip}>
-                  <Ionicons name="star" size={11} color={colors.primary} />
+                  <Ionicons name="star" size={11} color={colors.tierPremium} />
                   <Text style={styles.ratingChipText}>{rating}</Text>
                 </View>
               </View>
@@ -231,7 +232,7 @@ export default function ProfileScreen() {
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.backgroundDeep },
-  scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base, paddingBottom: spacing['3xl'] },
+  scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base, paddingBottom: TAB_BAR_BASE_HEIGHT + 64 },
 
   headerRow: {
     flexDirection: 'row',
@@ -260,7 +261,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.surfaceContainerHigh,
   },
-  avatarInitials: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium },
+  avatarInitials: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, lineHeight: fontSizes.titleMedium * 1.3 },
   chipsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
   memberChip: {
     backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceContainer,
@@ -269,8 +270,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 2,
   },
   memberChipText: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 9,
+    lineHeight: 13,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: colors.onSurfaceVariant,
@@ -279,12 +281,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    backgroundColor: `${colors.primary}1A`,
+    backgroundColor: `${colors.tierPremium}1F`,
     borderRadius: radii.full,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
-  ratingChipText: { fontFamily: fonts.bold, fontSize: 10, color: colors.primary },
+  ratingChipText: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 14, color: colors.tierPremium },
   editBtn: {
     width: 40,
     height: 40,
@@ -324,15 +326,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   walletRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   walletLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
   walletLabel: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 10,
+    lineHeight: 14,
     letterSpacing: 1,
+    textTransform: 'uppercase',
     color: colors.onSurfaceVariant,
   },
   walletBalance: {
     fontFamily: fonts.displayBold,
     fontSize: 28,
+    lineHeight: 36,
     color: colors.primary,
+    letterSpacing: -0.5,
   },
   topUpBtn: {
     backgroundColor: colors.primary,
@@ -347,14 +353,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   topUpText: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.bodySmall,
+    lineHeight: fontSizes.bodySmall * 1.35,
     letterSpacing: 0.4,
     color: colors.onPrimary,
   },
 
   sectionWrapper: { marginBottom: spacing.lg },
   sectionHeader: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 10,
+    lineHeight: 14,
     letterSpacing: 1.4,
     textTransform: 'uppercase',
     color: colors.outline,
@@ -393,6 +401,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   logoutText: {
     fontFamily: fonts.bold,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.statusError,
   },
   version: { textAlign: 'center', marginTop: spacing.lg },

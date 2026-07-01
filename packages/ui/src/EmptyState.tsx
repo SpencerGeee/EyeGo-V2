@@ -86,6 +86,7 @@ function getStyles(colors: ColorTokens) {
     },
     icon: {
       fontSize: 56,
+      lineHeight: 64,
       marginBottom: spacing.base,
     },
     iconVector: {

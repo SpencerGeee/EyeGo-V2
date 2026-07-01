@@ -317,6 +317,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   avatarInitials: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineMedium,
+    lineHeight: fontSizes.headlineMedium * 1.25,
     color: colors.onSurfaceVariant,
   },
   avatarEditBadge: {

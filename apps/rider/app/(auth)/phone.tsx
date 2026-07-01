@@ -232,6 +232,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   logo: {
     fontFamily: fonts.displayBold,
     fontSize: 22,
+    lineHeight: 28,
     color: colors.primary,
     marginTop: spacing.lg,
     letterSpacing: -0.5,
@@ -270,6 +271,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   flag: {
     fontSize: 20,
+    lineHeight: 26,
   },
   code: {
     fontFamily: fonts.medium,

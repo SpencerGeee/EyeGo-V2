@@ -278,6 +278,7 @@ const makeStyles = (colors: Colors) =>
     addBtnText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.onPrimary,
     },
   });

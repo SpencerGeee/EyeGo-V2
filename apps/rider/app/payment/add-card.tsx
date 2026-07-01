@@ -214,6 +214,7 @@ const makeStyles = (colors: Colors) =>
     },
     cardNumber: {
       fontSize: 22,
+      lineHeight: 28,
       fontFamily: fonts.displayBold,
       color: colors.onSurface,
       letterSpacing: 3,
@@ -294,6 +295,7 @@ const makeStyles = (colors: Colors) =>
     addBtnText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.onPrimary,
     },
   });

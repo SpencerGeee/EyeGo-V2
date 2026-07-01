@@ -44,11 +44,13 @@ export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
       <Ionicons name={config.icon} size={iconSize} color={config.color} />
       <Text
         style={{
-          fontFamily: fonts.semiBold,
+          fontFamily: fonts.labelCaps,
           fontSize,
+          lineHeight: Math.round(fontSize * 1.4),
           color: config.color,
           letterSpacing: letterSpacings.label,
           marginLeft: 3,
+          textTransform: 'uppercase',
         }}
       >
         {config.label}

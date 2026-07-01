@@ -189,6 +189,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   wordmark: {
     fontFamily: fonts.displayBold,
     fontSize: 20,
+    lineHeight: 26,
     color: colors.primary,
     marginBottom: spacing.xl,
   },
@@ -220,11 +221,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   socialBtnText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onSurface,
   },
   googleIcon: {
     fontFamily: fonts.displayBold,
     fontSize: 20,
+    lineHeight: 26,
     color: '#4285F4',
   },
   loadingDots: {

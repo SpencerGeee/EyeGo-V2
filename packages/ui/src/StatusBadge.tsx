@@ -39,10 +39,12 @@ export function StatusBadge({ status }: StatusBadgeProps) {
     >
       <Text
         style={{
-          fontFamily: fonts.semiBold,
+          fontFamily: fonts.labelCaps,
           fontSize: 10,
+          lineHeight: 14,
           color: config.color,
           letterSpacing: letterSpacings.label,
+          textTransform: 'uppercase',
         }}
       >
         {config.label}

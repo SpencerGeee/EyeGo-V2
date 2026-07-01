@@ -7,7 +7,8 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, notificationsApi } from '@eyego/api';
@@ -62,9 +63,11 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
           {booking.routeOrigin ?? 'Unknown'} → {booking.routeDestination ?? 'Unknown'}
         </Text>
         <Text style={styles.itemMeta}>
-          {relativeTime(booking.departureTime ?? booking.createdAt)} ·{' '}
-          <Text style={[styles.itemStatus, { color: statusColor }]}>{booking.status}</Text>
+          {relativeTime(booking.departureTime ?? booking.createdAt)}
         </Text>
+        <View style={[styles.statusChip, { backgroundColor: withOpacity(statusColor, 0.15) }]}>
+          <Text style={[styles.statusChipText, { color: statusColor }]}>{booking.status}</Text>
+        </View>
       </View>
       {booking.totalFare != null && (
         <Text style={styles.itemFare}>
@@ -108,6 +111,7 @@ function FilterChip({ label, active, onPress, styles }: { label: string; active:
 export default function ActivityScreen() {
   const colors = useColors();
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<FilterTab>('all');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -206,6 +210,7 @@ export default function ActivityScreen() {
           }
           contentContainerStyle={[
             styles.listContent,
+            { paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 },
             feedItems.length === 0 && styles.emptyContent,
           ]}
           refreshControl={
@@ -242,6 +247,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineLarge,
+    lineHeight: fontSizes.headlineLarge * 1.25,
     color: colors.onSurface,
     letterSpacing: -0.5,
   },
@@ -252,28 +258,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.sm,
   },
   chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: 20,
+    paddingHorizontal: spacing.base,
+    paddingVertical: 8,
+    borderRadius: radii.lg,
     backgroundColor: colors.rimLightSubtle,
     borderWidth: 1,
     borderColor: colors.rimLight,
   },
   chipActive: {
-    backgroundColor: withOpacity(colors.primary, 0.14),
-    borderColor: withOpacity(colors.primary, 0.3),
+    backgroundColor: colors.onSurface,
+    borderColor: colors.onSurface,
   },
   chipText: {
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodySmall,
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    lineHeight: fontSizes.bodyMedium * 1.3,
     color: colors.onSurfaceVariant,
   },
   chipTextActive: {
-    color: colors.primary,
+    color: colors.inverseOnSurface,
   },
   listContent: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: 120,
     gap: spacing.sm,
   },
   emptyContent: {
@@ -302,22 +308,37 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   itemBody: { flex: 1 },
   itemTitle: {
     fontFamily: fonts.semiBold,
-    fontSize: fontSizes.bodyMedium,
+    fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onSurface,
   },
   itemMeta: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
+    lineHeight: fontSizes.caption * 1.4,
     color: colors.onSurfaceVariant,
     marginTop: 3,
   },
-  itemStatus: {
-    fontFamily: fonts.medium,
+  statusChip: {
+    alignSelf: 'flex-start',
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    marginTop: spacing.xs,
+  },
+  statusChipText: {
+    fontFamily: fonts.labelCaps,
+    fontSize: 10,
+    lineHeight: 14,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   itemFare: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.bodyMedium,
-    color: colors.primary,
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
+    color: colors.onSurface,
+    letterSpacing: -0.3,
   },
   center: {
     flex: 1,
@@ -334,6 +355,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emptyText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onSurfaceVariant,
   },
   emptyHint: {

@@ -474,6 +474,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headerTitle: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.titleLarge,
+    lineHeight: fontSizes.titleLarge * 1.3,
     color: colors.primary,
     letterSpacing: -0.3,
   },
@@ -507,6 +508,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   reassureTitle: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onSurface,
     textAlign: 'center',
     marginBottom: spacing.xs,
@@ -555,6 +557,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   protTitle: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onSurface,
   },
   protSub: {
@@ -612,6 +615,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contactInitial: {
     fontFamily: fonts.displayBold,
     fontSize: 20,
+    lineHeight: 26,
     color: colors.primary,
   },
   contactName: {
@@ -673,6 +677,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emergencyHeadingText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.statusError,
   },
   emergencyHint: {
@@ -697,6 +702,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emergencyButtonText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.statusError,
   },
 });

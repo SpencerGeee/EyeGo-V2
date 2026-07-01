@@ -474,9 +474,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   headerTitle: {
     fontFamily: fonts.displaySemiBold,
-    fontSize: 28,
-    color: colors.primary,
-    letterSpacing: -0.56,
+    fontSize: 20,
+    lineHeight: 26,
+    color: colors.onSurface,
+    letterSpacing: -0.3,
   },
   headerSpacer: { width: 44, height: 44 },
 
@@ -556,7 +557,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     minHeight: 48,
   },
   inputBoxActive: {
-    borderColor: withOpacity(colors.primary, 0.3),
+    borderColor: withOpacity(colors.primary, 0.65),
   },
   inputIcon: { flexShrink: 0 },
   inputText: {
@@ -640,18 +641,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   placeName: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
+    lineHeight: 19,
     color: colors.onSurface,
   },
   placeAddr: {
     fontFamily: fonts.regular,
     fontSize: 11,
+    lineHeight: 15,
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
   placeDist: {
     fontFamily: fonts.labelCaps,
-    fontSize: 9,
-    color: colors.outline,
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.onSurfaceVariant,
     letterSpacing: 0.5,
     flexShrink: 0,
   },
@@ -693,11 +697,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   suggestPrimary: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
+    lineHeight: 19,
     color: colors.onSurface,
   },
   suggestSecondary: {
     fontFamily: fonts.regular,
     fontSize: 11,
+    lineHeight: 15,
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },

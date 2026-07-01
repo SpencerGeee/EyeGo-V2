@@ -458,8 +458,9 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
     },
     stepLabel: {
-      fontFamily: fonts.semiBold,
+      fontFamily: fonts.labelCaps,
       fontSize: 10,
+      lineHeight: 14,
       letterSpacing: 1,
       textTransform: 'uppercase',
       color: `${colors.primary}B3`,
@@ -477,8 +478,9 @@ const makeStyles = (colors: Colors) =>
       marginBottom: spacing.sm,
     },
     sectionLabel: {
-      fontFamily: fonts.semiBold,
+      fontFamily: fonts.labelCaps,
       fontSize: 11,
+      lineHeight: 15,
       letterSpacing: 1,
       textTransform: 'uppercase',
       color: colors.outline,
@@ -564,7 +566,9 @@ const makeStyles = (colors: Colors) =>
     routeMeta: { alignItems: 'flex-end', gap: spacing.sm },
     routePrice: {
       fontFamily: fonts.displayBold,
-      fontSize: fontSizes.titleSmall,
+      fontSize: fontSizes.titleMedium,
+      lineHeight: fontSizes.titleMedium * 1.3,
+      letterSpacing: -0.3,
     },
     etaPill: {
       backgroundColor: `${colors.surfaceVariant ?? colors.outlineVariant}80`,
@@ -573,8 +577,9 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: 3,
     },
     etaText: {
-      fontFamily: fonts.medium,
+      fontFamily: fonts.monoRegular,
       fontSize: 10,
+      lineHeight: 14,
       letterSpacing: 0.4,
       color: colors.onSurfaceVariant,
     },
@@ -593,16 +598,17 @@ const makeStyles = (colors: Colors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      backgroundColor: `${colors.primary}14`,
+      backgroundColor: `${colors.statusWarning}26`,
       borderRadius: radii.full,
       paddingHorizontal: spacing.sm,
       paddingVertical: 3,
     },
     noticeText: {
-      fontFamily: fonts.medium,
+      fontFamily: fonts.monoRegular,
       fontSize: 10,
+      lineHeight: 14,
       letterSpacing: 0.4,
-      color: colors.primary,
+      color: colors.statusWarning,
     },
     footer: {
       position: 'absolute',
@@ -634,6 +640,7 @@ const makeStyles = (colors: Colors) =>
     confirmText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.onPrimary,
     },
     modalOverlay: {

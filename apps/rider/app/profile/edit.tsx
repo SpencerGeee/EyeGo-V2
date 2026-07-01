@@ -390,6 +390,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   avatarInitials: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineLarge,
+    lineHeight: fontSizes.headlineLarge * 1.25,
     color: colors.onSurfaceVariant,
   },
   avatarEditBadge: {
@@ -434,6 +435,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   phoneValue: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onSurfaceVariant,
   },
   footer: {

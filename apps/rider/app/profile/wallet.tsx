@@ -306,6 +306,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   balanceLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 14,
     letterSpacing: 1.5,
     color: colors.onSurfaceVariant,
     marginBottom: spacing.sm,
@@ -314,11 +315,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   balanceCurrency: {
     fontFamily: fonts.displayBold,
     fontSize: 22,
+    lineHeight: 28,
     color: colors.primary,
   },
   balanceValue: {
     fontFamily: fonts.displayBold,
     fontSize: 44,
+    lineHeight: 54,
     color: colors.primary,
     letterSpacing: -1,
     textShadowColor: withOpacity(colors.primary, 0.4),
@@ -347,7 +350,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
   },
-  topUpText: { fontFamily: fonts.bold, fontSize: fontSizes.titleSmall, color: colors.onPrimary },
+  topUpText: { fontFamily: fonts.bold, fontSize: fontSizes.titleSmall, lineHeight: fontSizes.titleSmall * 1.3, color: colors.onPrimary },
   quickGrid: { flexDirection: 'row', gap: spacing.base },
   quickCard: {
     flex: 1,
@@ -385,7 +388,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginRight: spacing.md,
   },
   txInfo: { flex: 1 },
-  txAmount: { fontFamily: fonts.bold, fontSize: fontSizes.bodyLarge },
+  txAmount: { fontFamily: fonts.bold, fontSize: fontSizes.bodyLarge, lineHeight: fontSizes.bodyLarge * 1.3 },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
   modalContent: {
     backgroundColor: colors.surfaceCard,

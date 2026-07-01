@@ -1,16 +1,16 @@
 import { useThemeStore } from '../stores/theme.store';
 
 export const darkColors = {
-  // Backgrounds — Onyx neutral darks with subtle green environmental tint
-  backgroundDeep: '#0A0A0B',
-  background: '#0d150d',
-  surfaceDim: '#0d150d',
+  // Backgrounds — rich neutral Onyx blacks (no green tint)
+  backgroundDeep: '#060607',
+  background: '#0A0A0B',
+  surfaceDim: '#0A0A0B',
   surfaceCard: '#161618',
-  surfaceContainer: '#192122',
-  surfaceContainerHigh: '#232b2c',
-  surfaceContainerHighest: '#2e3637',
-  surfaceVariant: '#2e3637',
-  surfaceBright: '#333b3b',
+  surfaceContainer: '#1A1A1D',
+  surfaceContainerHigh: '#222225',
+  surfaceContainerHighest: '#2C2C30',
+  surfaceVariant: '#2C2C30',
+  surfaceBright: '#333338',
   surfaceInput: '#0D0D0E',            // inputs/search boxes recede toward base bg
 
   // Rim lighting — 1px inner borders instead of drop shadows
@@ -79,17 +79,17 @@ export const darkColors = {
 } as const;
 
 export const lightColors = {
-  // Backgrounds
-  backgroundDeep: '#f4fbf4',
-  background: '#edf5ec',
-  surfaceDim: '#edf5ec',
-  surfaceCard: '#f0f8f0',
-  surfaceContainer: '#e1ebe0',
-  surfaceContainerHigh: '#d5e3d4',
-  surfaceContainerHighest: '#c9d8c8',
-  surfaceVariant: '#c9d8c8',
-  surfaceBright: '#e4efe4',
-  surfaceInput: '#e8f2e7',            // recedes toward base bg, same relative step as dark
+  // Backgrounds — pure white with neutral gray elevation steps (no green tint)
+  backgroundDeep: '#FFFFFF',
+  background: '#FFFFFF',
+  surfaceDim: '#F7F7F8',
+  surfaceCard: '#F7F7F8',
+  surfaceContainer: '#EFEFF1',
+  surfaceContainerHigh: '#E7E7EA',
+  surfaceContainerHighest: '#DEDEE2',
+  surfaceVariant: '#DEDEE2',
+  surfaceBright: '#F2F2F4',
+  surfaceInput: '#F0F0F2',            // recedes toward base bg, same relative step as dark
 
   // Rim lighting — black-based on light surfaces (dark uses white-based)
   rimLight: 'rgba(0, 0, 0, 0.10)',
@@ -119,16 +119,16 @@ export const lightColors = {
   onTertiary: '#ffffff',
   onTertiaryContainer: '#410002',
 
-  // Text
-  onBackground: '#0d1f0d',
-  onSurface: '#0d1f0d',
-  onSurfaceVariant: '#3d4d3c',
-  inverseOnSurface: '#dce4e5',
-  inverseSurface: '#0d1f0d',
+  // Text — neutral ink (no green tint)
+  onBackground: '#111113',
+  onSurface: '#111113',
+  onSurfaceVariant: '#4A4A52',
+  inverseOnSurface: '#F4F4F5',
+  inverseSurface: '#111113',
 
   // UI
-  outline: '#607860',
-  outlineVariant: '#b5c8b4',
+  outline: '#71717A',
+  outlineVariant: '#D4D4D8',
   surfaceTint: '#1a7a3c',
   scrim: '#000000',
 

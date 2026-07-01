@@ -402,6 +402,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   brandText: {
     fontSize: fontSizes.titleLarge,
+    lineHeight: fontSizes.titleLarge * 1.3,
     fontFamily: fonts.bold,
     color: colors.onSurface,
     letterSpacing: -0.5,
@@ -529,6 +530,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   premiumCtaText: {
     color: colors.onPrimary,
     fontSize: 16,
+    lineHeight: 21,
     fontFamily: fonts.bold,
     letterSpacing: -0.2,
   },

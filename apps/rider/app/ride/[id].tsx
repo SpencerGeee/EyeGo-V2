@@ -562,5 +562,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   tierChipIcon: {
     fontSize: 16,
+    lineHeight: 21,
   },
 });

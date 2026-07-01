@@ -254,7 +254,7 @@ export default function RideSelectScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 60 }}
         >
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tierPillsRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tierPillsBleed} contentContainerStyle={styles.tierPillsRow}>
             <Pressable
               style={[styles.tierPill, !selectedTier && styles.tierPillAllActive]}
               onPress={() => { setSelectedTier('ECONOMY'); searchTrips.mutate(); }}
@@ -627,6 +627,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headerTitle: {
     fontFamily: fonts.displayBold,
     fontSize: 17,
+    lineHeight: 22,
     color: colors.onSurface,
     letterSpacing: -0.3,
   },
@@ -707,6 +708,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tierPillsRow: {
     gap: 8,
     paddingVertical: 2,
+    paddingHorizontal: spacing['2xl'],
+  },
+  tierPillsBleed: {
+    marginHorizontal: -spacing['2xl'],
   },
   tierPill: {
     flexDirection: 'row',
@@ -724,8 +729,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: `${colors.primary}18`,
   },
   tierPillText: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 11,
+    lineHeight: 15,
     color: colors.onSurfaceVariant,
     letterSpacing: 0.4,
   },
@@ -767,7 +773,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   tripCardDriverName: {
     fontFamily: fonts.semiBold,
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 21,
     color: colors.onSurface,
     letterSpacing: -0.2,
   },
@@ -797,6 +804,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tripCardPrice: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.fareMedium,
+    lineHeight: fontSizes.fareMedium * 1.25,
     color: colors.onSurface,
     letterSpacing: -0.5,
   },
@@ -821,8 +829,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexShrink: 0,
   },
   tierBadgeText: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 9,
+    lineHeight: 13,
     letterSpacing: 0.5,
   },
   tripCardChipGroup: {
@@ -848,8 +857,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexShrink: 0,
   },
   seatsChipText: {
-    fontFamily: fonts.semiBold,
+    fontFamily: fonts.labelCaps,
     fontSize: 9,
+    lineHeight: 13,
     letterSpacing: 0.4,
   },
   tripCardBottom: {

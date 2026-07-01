@@ -446,6 +446,7 @@ function StarButton({
         style={[
           {
             fontSize: 46,
+            lineHeight: 54,
             color: isActive ? colors.primary : colors.outlineVariant,
           },
           animStyle,
@@ -550,6 +551,7 @@ const makeStyles = (colors: Colors) =>
     heroName: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
+      lineHeight: fontSizes.titleLarge * 1.3,
       color: colors.onSurface,
       letterSpacing: -0.3,
     },
@@ -597,6 +599,7 @@ const makeStyles = (colors: Colors) =>
     cardTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.onSurface,
     },
     tipHeader: {
