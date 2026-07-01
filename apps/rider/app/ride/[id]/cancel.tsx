@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,20 +6,18 @@ import {
   Pressable,
   TextInput,
   Alert,
-  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView, AnimatePresence } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { spacing, radii, fonts, fontSizes } from '@eyego/config';
+import { Text } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
-import { bookingsApi, cancellationApi } from '@eyego/api';
+import { cancellationApi } from '@eyego/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRideStore } from '../../../stores/ride.store';
 import { formatCurrency } from '@eyego/utils';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const REASONS = [
   { key: 'changed_plans', label: 'Changed my plans', icon: 'calendar-outline' },
@@ -28,7 +26,7 @@ const REASONS = [
   { key: 'found_other', label: 'Found another ride', icon: 'car-outline' },
   { key: 'emergency', label: 'Emergency', icon: 'medkit-outline' },
   { key: 'other', label: 'Other reason', icon: 'ellipsis-horizontal-circle-outline' },
-];
+] as const;
 
 export default function CancelRideScreen() {
   const colors = useColors();
@@ -36,6 +34,7 @@ export default function CancelRideScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
+  const { selectedTrip } = useRideStore();
 
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [note, setNote] = useState('');
@@ -55,6 +54,7 @@ export default function CancelRideScreen() {
   // fee: 0 (no fee) while the API call is in-flight. If fee query fails silently,
   // we show a neutral message instead of hiding a real fee.
   const isFeeLoading = !cancelFeeData && id !== undefined;
+  const hasFee = isFeeEligible && cancellationFee > 0;
 
   const cancelMutation = useMutation({
     mutationFn: () =>
@@ -89,96 +89,128 @@ export default function CancelRideScreen() {
     cancelMutation.mutate();
   }, [selectedReason, cancelMutation]);
 
+  const trip = selectedTrip as any;
+  const pickup = trip?.pickupLocation?.name ?? trip?.route?.name ?? 'Your pickup point';
+  const dropoff = trip?.dropoffLocation?.name ?? trip?.route?.destinationName ?? 'Your destination';
+
   return (
     <View style={styles.container}>
-      {/* Premium dark gradient background */}
-      <View style={styles.bgGradient}>
-        <View style={styles.bgGlow1} />
-        <View style={styles.bgGlow2} />
+      {/* Ambient error glow backdrop */}
+      <View style={styles.bgGradient} pointerEvents="none">
+        <View style={styles.bgGlow} />
       </View>
 
       <SafeAreaView style={styles.safe}>
-        {/* Header with glass effect */}
-        <MotiView
-          from={{ opacity: 0, translateY: -12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-          style={styles.headerGlass}
-        >
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.headerTitle}>Cancel Ride</Text>
-          </View>
+          <Text variant="titleSmall" style={{ color: colors.onSurface }}>
+            Cancel Ride
+          </Text>
           <View style={{ width: 40 }} />
-        </MotiView>
+        </View>
 
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-          {/* Icon header */}
-          <MotiView
-            from={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 20, delay: 80 }}
-            style={styles.iconCircle}
-          >
-            <Ionicons name="close-circle-outline" size={36} color="#EF4444" />
-          </MotiView>
-
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 120 }}
-          >
-            <Text style={styles.heading}>Why are you cancelling?</Text>
-            <Text style={styles.subheading}>
-              Your refund will be processed according to our cancellation policy.
-            </Text>
-          </MotiView>
-
-          {/* Cancellation fee banner */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
-            style={[styles.warningBanner, isFeeEligible && cancellationFee > 0 && { borderColor: 'rgba(239, 68, 68, 0.25)', backgroundColor: 'rgba(239, 68, 68, 0.08)' }]}
-          >
-            <View style={[styles.warningIcon, isFeeEligible && cancellationFee > 0 && { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
-              <Ionicons name={isFeeEligible && cancellationFee > 0 ? 'alert-circle' : 'information'} size={16} color={isFeeEligible && cancellationFee > 0 ? '#EF4444' : '#F59E0B'} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.warningText, isFeeEligible && cancellationFee > 0 && { color: '#FCA5A5' }]}>
-                {isFeeLoading
-                  ? 'Checking cancellation policy...'
-                  : isFeeEligible && cancellationFee > 0
-                  ? `Cancelling this ride will incur a fee of ${formatCurrency(cancellationFee)}.`
-                  : 'Cancelling after the driver has been dispatched may incur a cancellation fee.'}
-              </Text>
-              {cancelFeeData?.reason && (
-                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                  {cancelFeeData.reason}
-                </Text>
-              )}
-            </View>
-          </MotiView>
-
-          {/* Reason cards */}
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 180 }}
-            style={styles.reasonsContainer}
+            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
           >
-            {REASONS.map((reason, index) => {
-              const isSelected = selectedReason === reason.key;
-              return (
-                <MotiView
-                  key={reason.key}
-                  from={{ opacity: 0, translateX: -10 }}
-                  animate={{ opacity: 1, translateX: 0 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 28, delay: 200 + index * 40 }}
-                >
+            {/* Warning hero */}
+            <View style={styles.hero}>
+              <View style={styles.warnCircle}>
+                <Ionicons name="warning-outline" size={34} color={colors.statusError} />
+              </View>
+              <Text variant="headlineMedium" style={styles.heroTitle}>
+                Cancel Ride?
+              </Text>
+              <Text variant="bodyLarge" style={styles.heroSubtitle}>
+                Are you sure you want to cancel this ride? This action cannot be undone.
+              </Text>
+            </View>
+
+            {/* Glass route card */}
+            <View style={styles.glassCard}>
+              <View style={styles.cardHeader}>
+                <View style={styles.cardHeaderLeft}>
+                  <Ionicons name="car-outline" size={18} color={colors.onSurfaceVariant} />
+                  <Text style={styles.cardHeaderLabel}>
+                    {selectedTrip?.vehicle?.model ?? 'Shared Van'}
+                  </Text>
+                </View>
+                <View style={styles.etaPill}>
+                  <Ionicons name="time-outline" size={13} color={colors.primary} />
+                  <Text style={styles.etaText}>
+                    {trip?.etaMinutes ? `${trip.etaMinutes} min` : 'En route'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Route timeline */}
+              <View style={styles.timeline}>
+                <View style={styles.timelineLine} />
+                <View style={styles.routeRow}>
+                  <View style={styles.dotPickup}>
+                    <View style={styles.dotPickupInner} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.routeLabel}>PICKUP</Text>
+                    <Text variant="bodyLarge" numberOfLines={1} style={styles.routeValue}>
+                      {pickup}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.routeRow, { marginTop: spacing.base }]}>
+                  <View style={styles.dotDrop}>
+                    <View style={styles.dotDropInner} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.routeLabel}>DROP-OFF</Text>
+                    <Text variant="bodyLarge" numberOfLines={1} style={styles.routeValue}>
+                      {dropoff}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Cancellation policy banner */}
+            <View style={[styles.policyBanner, hasFee && styles.policyBannerActive]}>
+              <Ionicons
+                name={hasFee ? 'alert-circle-outline' : 'information-circle-outline'}
+                size={20}
+                color={hasFee ? colors.statusError : colors.primary}
+                style={{ marginTop: 1 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.policyTitle, hasFee && { color: colors.statusError }]}>
+                  Cancellation Policy
+                </Text>
+                <Text style={styles.policyText}>
+                  {isFeeLoading
+                    ? 'Checking cancellation policy…'
+                    : hasFee
+                    ? `A cancellation fee of ${formatCurrency(cancellationFee)} applies to this ride.`
+                    : 'Cancelling after the driver has been dispatched may incur a cancellation fee.'}
+                </Text>
+                {cancelFeeData?.reason ? (
+                  <Text style={styles.policySub}>{cancelFeeData.reason}</Text>
+                ) : null}
+              </View>
+            </View>
+
+            {/* Reason selection */}
+            <Text variant="titleSmall" style={styles.sectionTitle}>
+              Why are you cancelling?
+            </Text>
+            <View style={styles.reasonsContainer}>
+              {REASONS.map((reason) => {
+                const isSelected = selectedReason === reason.key;
+                return (
                   <Pressable
+                    key={reason.key}
                     onPress={() => {
                       setSelectedReason(reason.key);
                       if (reason.key !== 'other') setNote('');
@@ -192,58 +224,58 @@ export default function CancelRideScreen() {
                     <View style={[styles.reasonIcon, isSelected && styles.reasonIconSelected]}>
                       <Ionicons
                         name={reason.icon as any}
-                        size={20}
-                        color={isSelected ? colors.onPrimary : colors.onSurfaceVariant}
+                        size={18}
+                        color={isSelected ? colors.statusError : colors.onSurfaceVariant}
                       />
                     </View>
                     <Text style={[styles.reasonLabel, isSelected && styles.reasonLabelSelected]}>
                       {reason.label}
                     </Text>
                     <View style={[styles.radio, isSelected && styles.radioSelected]}>
-                      {isSelected && (
-                        <View style={styles.radioInner} />
-                      )}
+                      {isSelected && <View style={styles.radioInner} />}
                     </View>
                   </Pressable>
-                </MotiView>
-              );
-            })}
-          </MotiView>
+                );
+              })}
+            </View>
 
-          {/* Note input for 'other' */}
-          <AnimatePresence>
-            {selectedReason === 'other' && (
-              <MotiView
-                key="note-input"
-                from={{ opacity: 0, height: 0, marginTop: 0 }}
-                animate={{ opacity: 1, height: 140, marginTop: spacing.md }}
-                exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-                style={styles.noteContainer}
-              >
-                <Text style={styles.noteLabel}>Tell us more (optional)</Text>
-                <TextInput
-                  value={note}
-                  onChangeText={setNote}
-                  placeholder="Describe your reason..."
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  multiline
-                  numberOfLines={3}
-                  style={styles.noteInput}
-                  textAlignVertical="top"
-                />
-              </MotiView>
-            )}
-          </AnimatePresence>
+            {/* Note input for 'other' */}
+            <AnimatePresence>
+              {selectedReason === 'other' && (
+                <MotiView
+                  key="note-input"
+                  from={{ opacity: 0, height: 0, marginTop: 0 }}
+                  animate={{ opacity: 1, height: 132, marginTop: spacing.base }}
+                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+                  style={styles.noteContainer}
+                >
+                  <TextInput
+                    value={note}
+                    onChangeText={setNote}
+                    placeholder="Tell us more (optional)…"
+                    placeholderTextColor={colors.outlineVariant}
+                    multiline
+                    numberOfLines={3}
+                    style={styles.noteInput}
+                    textAlignVertical="top"
+                  />
+                </MotiView>
+              )}
+            </AnimatePresence>
+          </MotiView>
         </ScrollView>
 
-        {/* Bottom CTA */}
-        <MotiView
-          from={{ opacity: 0, translateY: 20 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 300 }}
-          style={styles.footer}
-        >
+        {/* Bottom CTAs — keep ride primary, cancel destructive */}
+        <View style={styles.footer}>
+          <Pressable
+            style={({ pressed }) => [styles.keepButton, pressed && { transform: [{ scale: 0.98 }] }]}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
+            <Text style={styles.keepButtonText}>Keep My Ride</Text>
+          </Pressable>
+
           <Pressable
             style={[
               styles.cancelButton,
@@ -252,31 +284,19 @@ export default function CancelRideScreen() {
             onPress={handleSubmit}
             disabled={!selectedReason || cancelMutation.isPending}
           >
-            <View style={styles.cancelButtonInner}>
-              {cancelMutation.isPending ? (
-                <MotiView
-                  from={{ rotate: '0deg' }}
-                  animate={{ rotate: '360deg' }}
-                  transition={{ type: 'timing', duration: 1000, loop: true }}
-                >
-                  <Ionicons name="reload-outline" size={20} color="#fff" />
-                </MotiView>
-              ) : (
-                <>
-                  <Ionicons name="close-circle" size={20} color="#fff" />
-                  <Text style={styles.cancelButtonText}>Confirm Cancellation</Text>
-                </>
-              )}
-            </View>
+            {cancelMutation.isPending ? (
+              <MotiView
+                from={{ rotate: '0deg' }}
+                animate={{ rotate: '360deg' }}
+                transition={{ type: 'timing', duration: 1000, loop: true }}
+              >
+                <Ionicons name="reload-outline" size={18} color={colors.statusError} />
+              </MotiView>
+            ) : (
+              <Text style={styles.cancelButtonText}>Cancel Ride</Text>
+            )}
           </Pressable>
-
-          <Pressable
-            style={styles.keepButton}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.keepButtonText}>Keep my ride</Text>
-          </Pressable>
-        </MotiView>
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -284,117 +304,177 @@ export default function CancelRideScreen() {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#0A0A0F' },
+    container: { flex: 1, backgroundColor: colors.backgroundDeep },
     safe: { flex: 1 },
-    bgGradient: {
-      ...StyleSheet.absoluteFillObject,
-      overflow: 'hidden',
-    },
-    bgGlow1: {
+    bgGradient: { ...StyleSheet.absoluteFillObject, overflow: 'hidden', opacity: 0.3 },
+    bgGlow: {
       position: 'absolute',
-      top: -100,
-      right: -60,
-      width: 200,
-      height: 200,
-      borderRadius: 100,
-      backgroundColor: 'rgba(239, 68, 68, 0.12)',
+      top: '14%',
+      alignSelf: 'center',
+      width: 360,
+      height: 360,
+      borderRadius: 180,
+      backgroundColor: `${colors.statusError}20`,
     },
-    bgGlow2: {
-      position: 'absolute',
-      bottom: -80,
-      left: -40,
-      width: 180,
-      height: 180,
-      borderRadius: 90,
-      backgroundColor: 'rgba(239, 68, 68, 0.06)',
-    },
-    headerGlass: {
+    header: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.base,
-      backgroundColor: 'rgba(255,255,255,0.04)',
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(255,255,255,0.06)',
     },
     backBtn: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: 'rgba(255,255,255,0.08)',
+      backgroundColor: colors.surfaceContainer,
       alignItems: 'center',
       justifyContent: 'center',
-    },
-    headerTitle: {
-      fontSize: 17,
-      fontWeight: '600',
-      color: '#fff',
-      letterSpacing: -0.3,
     },
     scroll: {
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
+      paddingTop: spacing.lg,
       paddingBottom: spacing['3xl'],
     },
-    iconCircle: {
-      width: 72,
-      height: 72,
-      borderRadius: 36,
-      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    hero: { alignItems: 'center', marginBottom: spacing['2xl'] },
+    warnCircle: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: `${colors.statusError}1A`,
+      borderWidth: 1,
+      borderColor: `${colors.statusError}33`,
       alignItems: 'center',
       justifyContent: 'center',
-      alignSelf: 'center',
-      marginBottom: spacing.lg,
+      marginBottom: spacing.base,
+    },
+    heroTitle: { color: colors.onSurface, textAlign: 'center', marginBottom: spacing.sm },
+    heroSubtitle: {
+      color: colors.onSurfaceVariant,
+      textAlign: 'center',
+      maxWidth: 290,
+      lineHeight: 22,
+    },
+    glassCard: {
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: 'rgba(239, 68, 68, 0.2)',
+      borderColor: 'rgba(255,255,255,0.06)',
+      padding: spacing.lg,
+      marginBottom: spacing.base,
     },
-    heading: {
-      fontSize: 24,
-      fontWeight: '700',
-      color: '#fff',
-      textAlign: 'center',
-      letterSpacing: -0.5,
-      marginBottom: spacing.xs,
+    cardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255,255,255,0.08)',
+      paddingBottom: spacing.base,
     },
-    subheading: {
-      fontSize: 14,
-      color: 'rgba(255,255,255,0.5)',
-      textAlign: 'center',
-      lineHeight: 20,
-      marginBottom: spacing['2xl'],
+    cardHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    cardHeaderLabel: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+      letterSpacing: 0.6,
+      color: colors.onSurfaceVariant,
+      textTransform: 'uppercase',
     },
-    warningBanner: {
+    etaPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: colors.surfaceDim ?? colors.backgroundDeep,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.06)',
+      borderRadius: radii.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+    },
+    etaText: { fontFamily: fonts.medium, fontSize: 11, color: colors.primary },
+    timeline: { position: 'relative', paddingLeft: spacing['2xl'], paddingTop: spacing.base },
+    timelineLine: {
+      position: 'absolute',
+      left: 9,
+      top: spacing.base + 14,
+      bottom: 14,
+      width: 2,
+      backgroundColor: colors.surfaceVariant ?? colors.outlineVariant,
+      borderRadius: 1,
+    },
+    routeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+    dotPickup: {
+      position: 'absolute',
+      left: -spacing['2xl'],
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceDim ?? colors.backgroundDeep,
+      borderWidth: 2,
+      borderColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dotPickupInner: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary },
+    dotDrop: {
+      position: 'absolute',
+      left: -spacing['2xl'],
+      width: 20,
+      height: 20,
+      borderRadius: 6,
+      backgroundColor: colors.surfaceDim ?? colors.backgroundDeep,
+      borderWidth: 2,
+      borderColor: colors.onSurfaceVariant,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dotDropInner: { width: 6, height: 6, borderRadius: 2, backgroundColor: colors.onSurfaceVariant },
+    routeLabel: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      letterSpacing: 0.8,
+      color: colors.onSurfaceVariant,
+      marginBottom: 2,
+    },
+    routeValue: { color: colors.onSurface },
+    policyBanner: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: spacing.sm,
-      backgroundColor: 'rgba(245, 158, 11, 0.08)',
+      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.xl,
       borderWidth: 1,
-      borderColor: 'rgba(245, 158, 11, 0.15)',
+      borderColor: 'rgba(255,255,255,0.06)',
       padding: spacing.base,
       marginBottom: spacing['2xl'],
     },
-    warningIcon: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      backgroundColor: 'rgba(245, 158, 11, 0.15)',
-      alignItems: 'center',
-      justifyContent: 'center',
+    policyBannerActive: {
+      backgroundColor: `${colors.statusError}14`,
+      borderColor: `${colors.statusError}33`,
     },
-    warningText: {
-      flex: 1,
-      fontSize: 13,
-      color: 'rgba(255,255,255,0.7)',
+    policyTitle: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurface,
+      marginBottom: 2,
+    },
+    policyText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurfaceVariant,
       lineHeight: 18,
     },
-    reasonsContainer: {
-      gap: spacing.sm,
+    policySub: {
+      fontFamily: fonts.regular,
+      fontSize: 12,
+      color: colors.outline,
+      marginTop: 4,
     },
+    sectionTitle: { color: colors.onSurface, marginBottom: spacing.base },
+    reasonsContainer: { gap: spacing.sm },
     reasonCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(255,255,255,0.04)',
+      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.xl,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.06)',
@@ -402,102 +482,88 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.md,
     },
     reasonCardSelected: {
-      backgroundColor: 'rgba(239, 68, 68, 0.08)',
-      borderColor: 'rgba(239, 68, 68, 0.35)',
+      backgroundColor: `${colors.statusError}14`,
+      borderColor: `${colors.statusError}59`,
     },
     reasonIcon: {
       width: 40,
       height: 40,
       borderRadius: 12,
-      backgroundColor: 'rgba(255,255,255,0.06)',
+      backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceDim,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    reasonIconSelected: {
-      backgroundColor: '#EF4444',
-    },
+    reasonIconSelected: { backgroundColor: `${colors.statusError}26` },
     reasonLabel: {
       flex: 1,
-      fontSize: 15,
-      color: 'rgba(255,255,255,0.85)',
-      fontWeight: '500',
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodyMedium,
+      color: colors.onSurfaceVariant,
     },
-    reasonLabelSelected: {
-      color: '#fff',
-      fontWeight: '600',
-    },
+    reasonLabelSelected: { color: colors.onSurface, fontFamily: fonts.semiBold },
     radio: {
       width: 22,
       height: 22,
       borderRadius: 11,
       borderWidth: 2,
-      borderColor: 'rgba(255,255,255,0.15)',
+      borderColor: colors.outlineVariant,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    radioSelected: {
-      borderColor: '#EF4444',
-    },
-    radioInner: {
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-      backgroundColor: '#EF4444',
-    },
-    noteContainer: {
-      overflow: 'hidden',
-    },
-    noteLabel: {
-      fontSize: 13,
-      color: 'rgba(255,255,255,0.5)',
-      fontWeight: '500',
-      marginBottom: spacing.sm,
-      marginLeft: spacing.xs,
-    },
+    radioSelected: { borderColor: colors.statusError },
+    radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.statusError },
+    noteContainer: { overflow: 'hidden' },
     noteInput: {
-      backgroundColor: 'rgba(255,255,255,0.04)',
+      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.xl,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.08)',
       padding: spacing.base,
-      fontSize: 14,
-      color: '#fff',
-      minHeight: 100,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodyMedium,
+      color: colors.onSurface,
+      minHeight: 110,
     },
     footer: {
       paddingHorizontal: spacing['2xl'],
-      paddingBottom: spacing['3xl'],
-      paddingTop: spacing.md,
+      paddingTop: spacing.base,
+      paddingBottom: spacing['2xl'],
       gap: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(255,255,255,0.05)',
+      backgroundColor: colors.backgroundDeep,
     },
-    cancelButton: {
-      borderRadius: radii['2xl'],
-      overflow: 'hidden',
-    },
-    cancelButtonDisabled: {
-      opacity: 0.4,
-    },
-    cancelButtonInner: {
+    keepButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
       paddingVertical: spacing.base + 2,
-      backgroundColor: '#EF4444',
       borderRadius: radii['2xl'],
-    },
-    cancelButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#fff',
-    },
-    keepButton: {
-      alignItems: 'center',
-      paddingVertical: spacing.base,
+      backgroundColor: colors.primary,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
     },
     keepButtonText: {
-      fontSize: 15,
-      color: 'rgba(255,255,255,0.5)',
-      fontWeight: '500',
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.titleSmall,
+      color: colors.onPrimary,
+    },
+    cancelButton: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.base + 2,
+      borderRadius: radii['2xl'],
+      borderWidth: 1,
+      borderColor: `${colors.statusError}4D`,
+      backgroundColor: 'transparent',
+    },
+    cancelButtonDisabled: { opacity: 0.4 },
+    cancelButtonText: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.titleSmall,
+      color: colors.statusError,
     },
   });

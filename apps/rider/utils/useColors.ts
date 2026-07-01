@@ -1,12 +1,16 @@
 import { useThemeStore } from '../stores/theme.store';
 
 export const darkColors = {
-  // Backgrounds
-  backgroundDeep: '#091009',
-  background: '#0e150e',
-  surfaceContainer: '#1a221a',
-  surfaceContainerHigh: '#242c24',
-  surfaceContainerHighest: '#2f372e',
+  // Backgrounds — Onyx neutral darks with subtle green environmental tint
+  backgroundDeep: '#0A0A0B',
+  background: '#0d150d',
+  surfaceDim: '#0d150d',
+  surfaceCard: '#161618',
+  surfaceContainer: '#192122',
+  surfaceContainerHigh: '#232b2c',
+  surfaceContainerHighest: '#2e3637',
+  surfaceVariant: '#2e3637',
+  surfaceBright: '#333b3b',
 
   // Brand
   primary: '#4be277',
@@ -32,24 +36,36 @@ export const darkColors = {
   onTertiary: '#60130d',
   onTertiaryContainer: '#76231b',
 
-  // Text
-  onBackground: '#dce5d9',
-  onSurface: '#dce5d9',
-  onSurfaceVariant: '#bccbb9',
+  // Text — Onyx warm white
+  onBackground: '#dce4e5',
+  onSurface: '#dce4e5',
+  onSurfaceVariant: '#b9cacb',
   inverseOnSurface: '#2a322a',
-  inverseSurface: '#dce5d9',
+  inverseSurface: '#dce4e5',
 
   // UI
-  outline: '#869585',
-  outlineVariant: '#3d4b3c',
+  outline: '#849495',
+  outlineVariant: '#3b494b',
   surfaceTint: '#4ae176',
   scrim: '#000000',
 
-  // Semantic
+  // Semantic errors
   error: '#ffb4ab',
   onError: '#690005',
   errorContainer: '#93000a',
   onErrorContainer: '#ffdad6',
+
+  // Status
+  statusSuccess: '#4be277',
+  statusError: '#FF3B30',
+  statusWarning: '#FED639',
+  statusInfo: '#00B2FF',
+
+  // Service tier colors
+  tierEconomy: '#4BE277',
+  tierComfort: '#00B2FF',
+  tierPremium: '#FFD700',
+  tierRoyal: '#7000FF',
 
   // Glows
   glowPrimary: 'rgba(75, 226, 119, 0.4)',
@@ -61,9 +77,13 @@ export const lightColors = {
   // Backgrounds
   backgroundDeep: '#f4fbf4',
   background: '#edf5ec',
+  surfaceDim: '#edf5ec',
+  surfaceCard: '#f0f8f0',
   surfaceContainer: '#e1ebe0',
   surfaceContainerHigh: '#d5e3d4',
   surfaceContainerHighest: '#c9d8c8',
+  surfaceVariant: '#c9d8c8',
+  surfaceBright: '#e4efe4',
 
   // Brand (darker green for contrast on light surfaces)
   primary: '#1a7a3c',
@@ -93,7 +113,7 @@ export const lightColors = {
   onBackground: '#0d1f0d',
   onSurface: '#0d1f0d',
   onSurfaceVariant: '#3d4d3c',
-  inverseOnSurface: '#dce5d9',
+  inverseOnSurface: '#dce4e5',
   inverseSurface: '#0d1f0d',
 
   // UI
@@ -102,11 +122,23 @@ export const lightColors = {
   surfaceTint: '#1a7a3c',
   scrim: '#000000',
 
-  // Semantic
+  // Semantic errors
   error: '#b3261e',
   onError: '#ffffff',
   errorContainer: '#ffdad6',
   onErrorContainer: '#410002',
+
+  // Status
+  statusSuccess: '#1a7a3c',
+  statusError: '#D32F2F',
+  statusWarning: '#E65100',
+  statusInfo: '#1565C0',
+
+  // Service tier colors (absolute brand colors — same in both themes)
+  tierEconomy: '#1a7a3c',
+  tierComfort: '#1565C0',
+  tierPremium: '#B8860B',
+  tierRoyal: '#5B00CC',
 
   // Glows
   glowPrimary: 'rgba(26, 122, 60, 0.2)',

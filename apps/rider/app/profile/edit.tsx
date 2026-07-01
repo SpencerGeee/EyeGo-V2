@@ -187,9 +187,7 @@ export default function EditProfileScreen() {
                 <Ionicons name="camera-outline" size={14} color={colors.onPrimary} />
               </View>
             </Pressable>
-            <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
-              Tap to change photo
-            </Text>
+            <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
           </MotiView>
 
           {/* Name */}
@@ -225,6 +223,20 @@ export default function EditProfileScreen() {
               autoCapitalize="none"
               returnKeyType="next"
             />
+          </MotiView>
+
+          {/* Phone (read-only, verified) */}
+          <MotiView
+            from={{ opacity: 0, translateY: 8 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 70 }}
+            style={styles.inputSection}
+          >
+            <Text style={styles.phoneLabel}>Phone Number</Text>
+            <View style={styles.phoneField}>
+              <Text style={styles.phoneValue}>{user?.phone ?? '—'}</Text>
+              <Ionicons name="checkmark-circle" size={20} color={colors.statusSuccess ?? colors.primary} />
+            </View>
           </MotiView>
 
           {/* Date of Birth */}
@@ -291,26 +303,23 @@ export default function EditProfileScreen() {
             </View>
           </MotiView>
 
-          {/* Save */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 120 }}
-            style={styles.ctaSection}
-          >
-            <Button
-              label="Save Changes"
-              onPress={handleSave}
-              disabled={name.trim().length < 2}
-              loading={saveProfile.isPending}
-            />
-            {saveProfile.isError && (
-              <Text variant="caption" color={colors.error} style={styles.errorText}>
-                Something went wrong. Please try again.
-              </Text>
-            )}
-          </MotiView>
+          {saveProfile.isError && (
+            <Text variant="caption" color={colors.error} style={styles.errorText}>
+              Something went wrong. Please try again.
+            </Text>
+          )}
         </ScrollView>
+
+        {/* Fixed bottom Save */}
+        <View style={styles.footer}>
+          <Button
+            label="Save Changes"
+            onPress={handleSave}
+            disabled={name.trim().length < 2}
+            loading={saveProfile.isPending}
+            fullWidth
+          />
+        </View>
       </KeyboardAvoidingView>
       <Modal visible={showContactPicker} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
@@ -354,7 +363,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: spacing['2xl'],
     paddingTop: spacing['2xl'],
-    paddingBottom: spacing['3xl'],
+    paddingBottom: 120,
   },
   avatarSection: {
     alignItems: 'center',
@@ -393,8 +402,48 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.backgroundDeep,
+  },
+  changePhotoLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.primary,
+    marginTop: spacing.md,
   },
   inputSection: { marginBottom: spacing.xl },
+  phoneLabel: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
+    marginBottom: spacing.sm,
+  },
+  phoneField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0D0D0E',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.md + 2,
+  },
+  phoneValue: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodyLarge,
+    color: colors.onSurfaceVariant,
+  },
+  footer: {
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing.base,
+    paddingBottom: spacing['2xl'],
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.backgroundDeep,
+  },
   dobLabel: {
     marginBottom: spacing.xs,
   },

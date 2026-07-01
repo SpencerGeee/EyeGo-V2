@@ -1,5 +1,5 @@
 import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image, Linking } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
@@ -14,7 +14,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text } from '@eyego/ui';
-import { formatDuration } from '@eyego/utils';
+import { formatDuration, formatCurrency } from '@eyego/utils';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
 import { haptic } from '../../../utils/haptics';
@@ -315,6 +315,25 @@ export default function TrackingScreen() {
   const handleSOS = () => router.push(`/ride/${id}/sos` as Href);
   const handleChat = () => router.push(`/ride/${id}/chat` as Href);
 
+  // Tier display data
+  const tier = ((syncedTrip as any)?.tier as string) ?? 'ECONOMY';
+  const TIER_COLORS_MAP: Record<string, string> = {
+    ECONOMY: colors.primary,
+    COMFORT: '#00B2FF',
+    PREMIUM: '#FFD700',
+    ROYAL: '#7000FF',
+  };
+  const TIER_ICON_MAP: Record<string, keyof typeof Ionicons.glyphMap> = {
+    ECONOMY: 'car-outline',
+    COMFORT: 'shield-checkmark-outline',
+    PREMIUM: 'diamond-outline',
+    ROYAL: 'ribbon-outline',
+  };
+  const tierColor = TIER_COLORS_MAP[tier] ?? colors.primary;
+  const tierIcon = TIER_ICON_MAP[tier] ?? 'car-outline';
+  const fare = (syncedTrip as any)?.fare ?? (syncedTrip as any)?.baseFare ?? 0;
+  const vehicleDisplay = [syncedTrip?.vehicle?.make, syncedTrip?.vehicle?.model].filter(Boolean).join(' ') || 'Your Vehicle';
+
   KeepAwake.useKeepAwake();
 
   // BUGFIX: Split into a single useEffect with both appstate handlers merged together
@@ -540,15 +559,26 @@ export default function TrackingScreen() {
         </MapboxGL.ShapeSource>
       </MapboxGL.MapView>
 
-      {/* Floating Home button */}
+      {/* Back button */}
       <MotiView
         from={{ opacity: 0, scale: 0.94 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
         style={styles.homeFloating}
       >
-        <Pressable onPress={() => router.replace('/(tabs)/home' as Href)} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Close tracking">
-          <Ionicons name="close" size={24} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        </Pressable>
+      </MotiView>
+      {/* Options button */}
+      <MotiView
+        from={{ opacity: 0, scale: 0.94 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 70 }}
+        style={styles.optionsFloating}
+      >
+        <Pressable style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Trip options">
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
         </Pressable>
       </MotiView>
 
@@ -627,99 +657,121 @@ export default function TrackingScreen() {
           contentContainerStyle={styles.sheetContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         >
-          {/* ETA */}
+          {/* Tier badge + fare */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-            style={styles.etaSection}
+            style={styles.sheetHeader}
           >
-            <View style={styles.etaLeft}>
-              <Text variant="fareLarge">
-                {tripEta != null ? formatDuration(tripEta) : '...'}
-              </Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {tripEta != null ? 'away' : 'Calculating'}
-              </Text>
+            <View style={[styles.tierBadge, { borderColor: tierColor + '40' }]}>
+              <Ionicons name={tierIcon} size={13} color={tierColor} />
+              <Text style={[styles.tierLabel, { color: tierColor }]}>{tier}</Text>
             </View>
-            <View style={styles.etaDivider} />
-            <View style={styles.etaRight}>
-              <Text variant="titleSmall">{tripStatus}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {stopsAway != null
-                  ? `${stopsAway} stop${stopsAway !== 1 ? 's' : ''} away`
-                  : etaDistanceKm != null
-                  ? `${etaDistanceKm} km away`
-                  : tripEta != null
-                  ? 'On the way'
-                  : 'Calculating...'}
-              </Text>
+            <View style={styles.fareBlock}>
+              <Text style={styles.fareAmount}>{formatCurrency(fare)}</Text>
+              <Text style={styles.fareEstLabel}>Est. total</Text>
             </View>
           </MotiView>
 
-          {/* Driver info */}
+          {/* Vehicle name */}
+          <Text style={styles.vehicleName}>{vehicleDisplay}</Text>
+
+          {/* Route card */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-            style={styles.driverCard}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+            style={styles.routeCard}
           >
-            <View style={styles.driverCardTop}>
-              <View style={styles.driverAvatar}>
-                {syncedTrip?.driver?.profilePhoto ? (
-                  <Image
-                    source={{ uri: syncedTrip.driver.profilePhoto }}
-                    style={{ width: 44, height: 44, borderRadius: 22 }}
-                  />
-                ) : (
-                  <Ionicons name="person" size={22} color={colors.onSurfaceVariant} />
-                )}
+            <View style={styles.routeRow}>
+              <View style={[styles.routeIcon, { backgroundColor: tierColor + '20' }]}>
+                <Ionicons name="ellipse" size={10} color={tierColor} />
               </View>
-              <View style={styles.driverInfo}>
-                <Text variant="titleSmall">
-                  {syncedTrip?.driver?.name ?? 'Your Driver'}
-                </Text>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  ★ {syncedTrip?.driver?.rating?.toFixed(1) ?? '4.9'}
-                  {(syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate)
-                    ? ` · ${syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate}`
-                    : ''}
-                </Text>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  {syncedTrip?.vehicle?.make ?? ''} {syncedTrip?.vehicle?.model ?? ''}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.routeLabel}>Pick-up</Text>
+                <Text style={styles.routePlace} numberOfLines={1}>
+                  {trip?.origin?.address?.split(',')[0] ?? 'Origin'}
                 </Text>
               </View>
             </View>
-            <View style={styles.driverActions}>
-              <Pressable style={styles.actionButton} onPress={() => {
-                const phone = syncedTrip?.driver?.phone;
-                if (phone) {
-                  Linking.openURL(`tel:${phone}`).catch(() =>
-                    Alert.alert('Cannot call', 'Unable to open the phone dialer.')
-                  );
-                } else {
-                  Alert.alert('No number', 'Driver phone number is not available.');
-                }
-              }} accessibilityRole="button" accessibilityLabel="Call driver">
-                <Ionicons name="call" size={20} color={colors.primary} />
-                <Text style={styles.actionLabel}>Call</Text>
-              </Pressable>
-              <Pressable style={styles.actionButton} onPress={handleChat} accessibilityRole="button" accessibilityLabel="Chat with driver">
-                <Ionicons name="chatbubble-ellipses" size={20} color={colors.primary} />
-                <Text style={styles.actionLabel}>Chat</Text>
-              </Pressable>
-              <Pressable style={styles.actionButton} onPress={() => shareLiveTracking(syncedTrip?.shortId ?? id, syncedTrip?.driver?.name ?? 'Your Driver', syncedTrip?.vehicle?.plateNumber ?? syncedTrip?.vehicle?.plate ?? 'Unknown Vehicle')} accessibilityRole="button" accessibilityLabel="Share trip status">
-                <Ionicons name="share-social" size={20} color={colors.primary} />
-                <Text style={styles.actionLabel}>Share</Text>
-              </Pressable>
-              <Pressable style={[styles.actionButton, styles.sosButton]} onPress={handleSOS} accessibilityRole="button" accessibilityLabel="Emergency SOS">
-                <Ionicons name="warning" size={20} color="#FF3B30" />
-                <Text style={[styles.actionLabel, { color: '#FF3B30' }]}>SOS</Text>
-              </Pressable>
+            <View style={styles.routeDivider} />
+            <View style={styles.routeRow}>
+              <View style={styles.routeIcon}>
+                <Ionicons name="location" size={12} color={colors.onSurfaceVariant} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.routeLabel}>Drop-off</Text>
+                <Text style={styles.routePlace} numberOfLines={1}>
+                  {trip?.destination?.address?.split(',')[0] ?? 'Destination'}
+                </Text>
+              </View>
             </View>
           </MotiView>
 
-          {/* Chat action already in driver card above */}
+          {/* Driver row */}
+          <MotiView
+            from={{ opacity: 0, translateY: 6 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+            style={styles.driverRow}
+          >
+            <View style={styles.driverAvatarWrap}>
+              {syncedTrip?.driver?.profilePhoto ? (
+                <Image source={{ uri: syncedTrip.driver.profilePhoto }} style={styles.driverAvatar} />
+              ) : (
+                <View style={[styles.driverAvatar, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Ionicons name="person" size={22} color={colors.onSurfaceVariant} />
+                </View>
+              )}
+              <View style={styles.ratingBadge}>
+                <Ionicons name="star" size={9} color="#FFD700" />
+                <Text style={styles.ratingText}>{syncedTrip?.driver?.rating?.toFixed(1) ?? '4.9'}</Text>
+              </View>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.driverName}>{syncedTrip?.driver?.name ?? 'Your Driver'}</Text>
+              <Text style={styles.driverMeta}>
+                {(syncedTrip?.driver as any)?.totalTrips ?? 25} Trips
+                {(syncedTrip?.vehicle?.plateNumber ?? (syncedTrip?.vehicle as any)?.plate)
+                  ? ` · ${syncedTrip?.vehicle?.plateNumber ?? (syncedTrip?.vehicle as any)?.plate}`
+                  : ''}
+              </Text>
+            </View>
+            {(syncedTrip?.availableSeats != null) && (
+              <View style={styles.seatsChip}>
+                <Ionicons name="people-outline" size={13} color={colors.primary} />
+                <Text style={styles.seatsText}>{syncedTrip.availableSeats} Seats Left</Text>
+              </View>
+            )}
+          </MotiView>
+
+          {/* ETA status */}
+          {tripEta != null && (
+            <View style={styles.etaRow}>
+              <Ionicons name="time-outline" size={16} color={colors.primary} />
+              <Text style={styles.etaText}>{formatDuration(tripEta)} away</Text>
+              <Text style={styles.etaStatusText}>· {tripStatus}</Text>
+            </View>
+          )}
+
+          {/* Action bar */}
+          <View style={styles.actionBar}>
+            <Pressable style={styles.iconActionBtn} onPress={handleChat} accessibilityRole="button" accessibilityLabel="Chat with driver">
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.onSurface} />
+            </Pressable>
+            <Pressable style={styles.sosIconBtn} onPress={handleSOS} accessibilityRole="button" accessibilityLabel="Emergency SOS">
+              <Ionicons name="warning-outline" size={22} color="#FF3B30" />
+            </Pressable>
+            <Pressable
+              style={styles.primaryCta}
+              onPress={() => shareLiveTracking(syncedTrip?.shortId ?? id, syncedTrip?.driver?.name ?? 'Your Driver', syncedTrip?.vehicle?.plateNumber ?? (syncedTrip?.vehicle as any)?.plate ?? 'Unknown')}
+              accessibilityRole="button"
+              accessibilityLabel="Share trip"
+            >
+              <Text style={styles.primaryCtaText}>Share Trip</Text>
+            </Pressable>
+          </View>
         </BottomSheetScrollView>
       </BottomSheet>
     </View>
@@ -765,10 +817,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     top: 60,
     zIndex: 15,
   },
+  optionsFloating: {
+    position: 'absolute',
+    right: spacing['2xl'],
+    top: 60,
+    zIndex: 15,
+  },
   homeFloatingBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: colors.surfaceContainerHigh,
     alignItems: 'center',
     justifyContent: 'center',
@@ -807,79 +865,208 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: 1.5,
   },
   sheetBackground: {
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceCard,
     borderTopLeftRadius: radii['3xl'],
     borderTopRightRadius: radii['3xl'],
   },
-  sheetHandle: { backgroundColor: colors.outline, width: 40, height: 4 },
+  sheetHandle: { backgroundColor: 'rgba(255,255,255,0.18)', width: 40, height: 4 },
   sheetContent: {
     paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['2xl'],
+    paddingBottom: spacing['3xl'],
     gap: spacing.base,
   },
-  etaSection: {
+  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    justifyContent: 'space-between',
   },
-  etaLeft: { alignItems: 'center', flex: 1 },
-  etaDivider: { width: 1, height: 40, backgroundColor: colors.outlineVariant },
-  etaRight: { flex: 2, paddingLeft: spacing.base },
-  driverCard: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
-    padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    gap: spacing.md,
-  },
-  driverCardTop: {
+  tierBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
-  },
-  driverAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceContainerHigh,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.primary + '50',
-  },
-  driverInfo: { flex: 1 },
-  driverActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
-  },
-  actionButton: {
-    flex: 1,
+    gap: 5,
+    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radii.lg,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  tierLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
+  fareBlock: { alignItems: 'flex-end' },
+  fareAmount: {
+    fontFamily: fonts.displayBold,
+    fontSize: 22,
+    color: colors.primary,
+    letterSpacing: -0.5,
+  },
+  fareEstLabel: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.caption,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+  vehicleName: {
+    fontFamily: fonts.displayBold,
+    fontSize: 28,
+    color: colors.onSurface,
+    letterSpacing: -0.5,
+    marginTop: spacing.xs,
+  },
+  routeCard: {
+    backgroundColor: colors.surfaceContainer,
+    borderRadius: radii.xl,
+    padding: spacing.base,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    gap: spacing.sm,
+  },
+  routeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  routeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: colors.surfaceContainerHigh,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
   },
-  actionLabel: {
+  routeLabel: {
     fontFamily: fonts.medium,
     fontSize: 10,
-    color: colors.primary,
-    letterSpacing: 0.2,
+    color: colors.onSurfaceVariant,
+    letterSpacing: 0.3,
+    marginBottom: 2,
   },
-  sosButton: {
-    borderColor: 'rgba(255, 59, 48, 0.35)',
-    backgroundColor: 'rgba(255, 59, 48, 0.08)',
+  routePlace: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurface,
+  },
+  routeDivider: {
+    height: 1,
+    backgroundColor: colors.outlineVariant,
+    marginLeft: 32 + spacing.md,
+  },
+  driverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surfaceContainer,
+    borderRadius: radii.xl,
+    padding: spacing.base,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+  },
+  driverAvatarWrap: { position: 'relative', marginBottom: 8 },
+  driverAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.primary + '60',
+  },
+  ratingBadge: {
+    position: 'absolute',
+    bottom: -8,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: colors.surfaceContainerHigh,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+  },
+  ratingText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 9,
+    color: colors.onSurface,
+  },
+  driverName: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurface,
+  },
+  driverMeta: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.caption,
+    color: colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  seatsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary + '15',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.primary + '30',
+  },
+  seatsText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    color: colors.primary,
+  },
+  etaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  etaText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.primary,
+  },
+  etaStatusText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  iconActionBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.xl,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sosIconBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: radii.xl,
+    backgroundColor: 'rgba(255,59,48,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.30)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryCta: {
+    flex: 1,
+    height: 52,
+    borderRadius: radii.full,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryCtaText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    color: '#002109',
+    letterSpacing: 0.2,
   },
   statusBanner: {
     position: 'absolute',
@@ -947,21 +1134,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodySmall,
     color: colors.primary,
-  },
-  riderSelfMarker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#22C55E',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 6,
   },
   driverMarker: {
     width: 36,

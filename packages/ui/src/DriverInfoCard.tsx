@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { Pressable } from './Pressable';
+import { colors, spacing, radii } from '@eyego/config';
 import { Text } from './Text';
 import { Avatar } from './Avatar';
 
@@ -49,14 +50,14 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
       {showActions && (
         <View style={styles.actions}>
           {onCall && (
-            <TouchableOpacity style={styles.actionBtn} onPress={onCall} activeOpacity={0.7}>
+            <Pressable style={styles.actionBtn} onPress={onCall} haptic="light">
               <Ionicons name="call-outline" size={18} color={colors.primary} />
-            </TouchableOpacity>
+            </Pressable>
           )}
           {onChat && (
-            <TouchableOpacity style={styles.actionBtn} onPress={onChat} activeOpacity={0.7}>
+            <Pressable style={styles.actionBtn} onPress={onChat} haptic="light">
               <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
-            </TouchableOpacity>
+            </Pressable>
           )}
         </View>
       )}
@@ -68,23 +69,23 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceContainer,
+    backgroundColor: colors.surfaceCard,
     borderRadius: radii.xl,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.10)',
     gap: spacing.md,
   },
   info: { flex: 1 },
   actions: { flexDirection: 'row', gap: spacing.sm },
   actionBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.surfaceContainerHigh,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.10)',
   },
 });

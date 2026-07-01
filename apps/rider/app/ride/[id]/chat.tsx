@@ -504,7 +504,7 @@ export default function ChatScreen() {
           <Text
             style={[
               styles.bubbleText,
-              { color: item.isMine ? colors.onPrimary : colors.onSurface },
+              { color: item.isMine ? colors.primary : colors.onSurface },
             ]}
           >
             {item.text}
@@ -525,10 +525,10 @@ export default function ChatScreen() {
           {item.isMine && (
             <View style={styles.readStatus}>
               {item.readAt ? (
-                <Ionicons name="checkmark-done" size={12} color={colors.onPrimary} />
+                <Ionicons name="checkmark-done" size={12} color={colors.statusSuccess ?? colors.primary} />
               ) : (
                 !item.status && (
-                  <Ionicons name="checkmark" size={12} color="rgba(255,255,255,0.5)" />
+                  <Ionicons name="checkmark" size={12} color={colors.outline} />
                 )
               )}
             </View>
@@ -555,18 +555,24 @@ export default function ChatScreen() {
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerCenter}>
-          <View style={styles.headerAvatar}>
-            {driver?.avatarUrl ? (
-              <Image source={{ uri: driver.avatarUrl }} style={styles.headerAvatarImg} />
-            ) : (
-              <Ionicons name="person" size={18} color={colors.onSurfaceVariant} />
-            )}
+          <View style={styles.headerAvatarWrap}>
+            <View style={styles.headerAvatar}>
+              {driver?.avatarUrl ? (
+                <Image source={{ uri: driver.avatarUrl }} style={styles.headerAvatarImg} />
+              ) : (
+                <Ionicons name="person" size={18} color={colors.onSurfaceVariant} />
+              )}
+            </View>
+            <View style={styles.onlineDot} />
           </View>
           <View>
             <Text variant="titleSmall">{driver?.name ?? 'Your Driver'}</Text>
-            <Text variant="caption" color={colors.primary}>
-              Online
-            </Text>
+            <View style={styles.statusRow}>
+              <Ionicons name="car" size={12} color={colors.onSurfaceVariant} />
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                {syncedTrip?.vehicle?.model ?? 'En route'}
+              </Text>
+            </View>
           </View>
         </View>
         <Pressable
@@ -681,6 +687,8 @@ export default function ChatScreen() {
 
         {/* Input bar */}
         <View style={styles.inputBar}>
+          <View style={styles.inputFieldWrap}>
+            <Ionicons name="chatbubble-outline" size={16} color={colors.outline} style={styles.inputLeadIcon} />
           <TextInput
             value={input}
             onChangeText={(text) => {
@@ -705,17 +713,18 @@ export default function ChatScreen() {
             onSubmitEditing={() => sendMessage(input)}
             blurOnSubmit={false}
           />
-          <Pressable
-            onPress={() => sendMessage(input)}
-            style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
-            disabled={!input.trim()}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={input.trim() ? colors.onPrimary : colors.onSurfaceVariant}
-            />
-          </Pressable>
+            <Pressable
+              onPress={() => sendMessage(input)}
+              style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
+              disabled={!input.trim()}
+            >
+              <Ionicons
+                name="send"
+                size={16}
+                color={input.trim() ? colors.onPrimary : colors.onSurfaceVariant}
+              />
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -747,18 +756,31 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
+  headerAvatarWrap: { width: 44, height: 44, position: 'relative' },
   headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.surfaceContainerHigh,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.primary,
+    borderWidth: 1,
+    borderColor: colors.surfaceVariant ?? colors.outlineVariant,
     overflow: 'hidden',
   },
-  headerAvatarImg: { width: 40, height: 40, borderRadius: 20 },
+  headerAvatarImg: { width: 44, height: 44, borderRadius: 22 },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.statusSuccess ?? colors.primary,
+    borderWidth: 2,
+    borderColor: colors.backgroundDeep,
+  },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
   callBtn: {
     width: 40,
     height: 40,
@@ -804,12 +826,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.xl,
   },
   bubbleMine: {
-    backgroundColor: colors.primary,
-    borderBottomRightRadius: 4,
+    backgroundColor: `${colors.primary}1F`,
+    borderWidth: 1,
+    borderColor: `${colors.primary}4D`,
+    borderTopRightRadius: 4,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
   },
   bubbleTheirs: {
-    backgroundColor: colors.surfaceContainerHigh,
-    borderBottomLeftRadius: 4,
+    backgroundColor: colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    borderTopLeftRadius: 4,
   },
   bubblePrivate: {
     backgroundColor: `${colors.primary}18`,
@@ -887,35 +917,40 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.outlineVariant,
   },
   inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
-    gap: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.surfaceDim ?? colors.backgroundDeep,
   },
+  inputFieldWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0D0D0E',
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+    paddingLeft: spacing.base,
+    paddingRight: spacing.xs,
+  },
+  inputLeadIcon: { marginRight: spacing.sm },
   textInput: {
     flex: 1,
     minHeight: 44,
     maxHeight: 120,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderRadius: radii.xl,
-    paddingHorizontal: spacing.base,
     paddingVertical: spacing.sm,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
     color: colors.onSurface,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    marginVertical: 3,
   },
   sendBtnDisabled: {
     backgroundColor: colors.surfaceContainerHigh,

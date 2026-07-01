@@ -1,18 +1,22 @@
 /**
  * EyeGo Design Tokens
- * Sourced from design system v2 HTML mockups (Material You dark theme)
+ * EyeGo Onyx — Midnight Tech-Luxury
  */
 
 export const colors = {
-  // Backgrounds
-  backgroundDeep: '#091009',       // surface-container-lowest — darkest bg
-  background: '#0e150e',           // surface-dim — main bg
-  surfaceContainer: '#1a221a',     // surface-container — cards
-  surfaceContainerHigh: '#242c24', // elevated cards
-  surfaceContainerHighest: '#2f372e',
+  // Backgrounds — neutral Onyx darks with subtle green environmental tint
+  backgroundDeep: '#0A0A0B',          // deepest bg — near-pure black
+  background: '#0d150d',              // main bg — faint green warmth
+  surfaceDim: '#0d150d',              // alias for main bg
+  surfaceCard: '#161618',             // card surfaces — Onyx neutral
+  surfaceContainer: '#192122',        // elevated cards
+  surfaceContainerHigh: '#232b2c',    // further elevated
+  surfaceContainerHighest: '#2e3637',
+  surfaceVariant: '#2e3637',
+  surfaceBright: '#333b3b',
 
   // Brand
-  primary: '#4be277',              // green CTA
+  primary: '#4be277',                 // green CTA
   primaryDim: '#4ae176',
   onPrimary: '#002109',
   inversePrimary: '#006e2f',
@@ -21,7 +25,7 @@ export const colors = {
   onPrimaryFixed: '#002109',
   onPrimaryFixedVariant: '#005321',
 
-  // Secondary (blue — comfort tier)
+  // Secondary (blue)
   secondary: '#adc6ff',
   secondaryContainer: '#284777',
   onSecondary: '#001a42',
@@ -29,30 +33,42 @@ export const colors = {
   secondaryFixed: '#d8e2ff',
   secondaryFixedDim: '#adc6ff',
 
-  // Tertiary (red/coral)
+  // Tertiary (coral/red)
   tertiary: '#ffb5ab',
   tertiaryContainer: '#ff8b7c',
   onTertiary: '#60130d',
   onTertiaryContainer: '#76231b',
 
-  // Text
-  onBackground: '#dce5d9',         // primary text
-  onSurface: '#dce5d9',
-  onSurfaceVariant: '#bccbb9',     // secondary text
+  // Text — Onyx warm white
+  onBackground: '#dce4e5',
+  onSurface: '#dce4e5',
+  onSurfaceVariant: '#b9cacb',
   inverseOnSurface: '#2a322a',
-  inverseSurface: '#dce5d9',
+  inverseSurface: '#dce4e5',
 
   // UI
-  outline: '#869585',              // borders, dividers
-  outlineVariant: '#3d4b3c',
+  outline: '#849495',
+  outlineVariant: '#3b494b',
   surfaceTint: '#4ae176',
   scrim: '#000000',
 
-  // Semantic
+  // Semantic errors
   error: '#ffb4ab',
   onError: '#690005',
   errorContainer: '#93000a',
   onErrorContainer: '#ffdad6',
+
+  // Status — explicit action-state colors
+  statusSuccess: '#4be277',
+  statusError: '#FF3B30',
+  statusWarning: '#FED639',
+  statusInfo: '#00B2FF',
+
+  // Service tier colors
+  tierEconomy: '#4BE277',             // = primary — clean, accessible
+  tierComfort: '#00B2FF',             // electric blue
+  tierPremium: '#FFD700',             // metallic gold
+  tierRoyal: '#7000FF',               // deep purple
 
   // Glows
   glowPrimary: 'rgba(75, 226, 119, 0.4)',
@@ -80,6 +96,7 @@ export const radii = {
   xl: 20,
   '2xl': 24,
   '3xl': 28,
+  '4xl': 32,    // bottom sheets, large modals
   full: 9999,
 } as const;
 
@@ -93,10 +110,10 @@ export const shadows = {
   },
   card: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
   elevated: {
     shadowColor: '#000',

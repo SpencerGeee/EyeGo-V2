@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { apiClient } from '@eyego/api';
@@ -114,17 +114,17 @@ export default function NotificationPreferencesScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall">Notification Preferences</Text>
-        <View style={{ width: 40 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Notification Preferences</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       {syncError && (
         <View style={styles.syncErrorBanner}>
           <Ionicons name="warning-outline" size={14} color="#92400e" style={{ marginRight: spacing.sm }} />
-          <Text variant="caption" style={{ color: '#92400e', flex: 1 }}>
+          <Text variant="caption" style={{ color: colors.statusWarning ? '#92400e' : '#92400e', flex: 1 }}>
             Preferences saved locally — sync failed. Will retry next time.
           </Text>
         </View>
@@ -137,12 +137,7 @@ export default function NotificationPreferencesScreen() {
         >
           {SECTIONS.map((section) => (
             <View key={section.title} style={{ marginBottom: spacing['2xl'] }}>
-              <Text
-                variant="labelSmall"
-                style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-              >
-                {section.title}
-              </Text>
+              <Text style={styles.sectionLabel}>{section.title}</Text>
               <View style={styles.card}>
                 {section.items.map((item, index) => (
                   <React.Fragment key={item.key}>
@@ -194,28 +189,35 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.base,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.outlineVariant,
     },
     backBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surfaceContainer,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     scroll: {
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
+      paddingTop: spacing.lg,
       paddingBottom: spacing['3xl'],
     },
-    sectionLabel: { letterSpacing: 1, marginBottom: spacing.base },
+    sectionLabel: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      letterSpacing: 1.4,
+      color: colors.outline,
+      marginBottom: spacing.sm,
+      marginLeft: spacing.xs,
+    },
     card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: 'rgba(255,255,255,0.06)',
       overflow: 'hidden',
     },
     row: {
@@ -225,11 +227,11 @@ const makeStyles = (colors: Colors) =>
       padding: spacing.base,
     },
     rowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    divider: { height: 1, backgroundColor: colors.outlineVariant, marginHorizontal: spacing.base },
+    divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: spacing.base },
     syncErrorBanner: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: '#fef3c7',
+      backgroundColor: `${colors.statusWarning}26`,
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.sm,
       borderBottomWidth: 1,

@@ -127,13 +127,13 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     backdrop: {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: 'rgba(0,0,0,0.65)',
       justifyContent: 'flex-end',
     },
     sheet: {
-      backgroundColor: colors.surfaceContainer ?? colors.background,
-      borderTopLeftRadius: radii['2xl'],
-      borderTopRightRadius: radii['2xl'],
+      backgroundColor: colors.surfaceCard,
+      borderTopLeftRadius: radii['4xl'],
+      borderTopRightRadius: radii['4xl'],
       paddingHorizontal: spacing.xl,
       paddingTop: spacing.md,
       paddingBottom: spacing['3xl'],
@@ -144,7 +144,7 @@ const makeStyles = (colors: Colors) =>
       width: 40,
       height: 4,
       borderRadius: 2,
-      backgroundColor: colors.outline,
+      backgroundColor: 'rgba(255,255,255,0.18)',
       marginBottom: spacing.base,
     },
     headerRow: {

@@ -3,21 +3,20 @@ import { View, StyleSheet, Pressable, Image, ScrollView, Alert } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi } from '@eyego/api';
+import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
-import { getInitials } from '@eyego/utils';
+import { getInitials, formatCurrency } from '@eyego/utils';
 
 interface MenuItem {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
+  accent?: 'primary' | 'success' | 'error';
   destructive?: boolean;
 }
 
@@ -38,14 +37,15 @@ export default function ProfileScreen() {
     select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.total ?? 0,
   });
 
-  const tripsCount = (tripsTotal ?? 0).toString();
+  const { data: walletBalance } = useQuery({
+    queryKey: queryKeys.wallet.balance(),
+    queryFn: () => walletApi.getBalance(),
+    select: (r: any) => r.data?.data?.balance ?? r.data?.balance ?? 0,
+    staleTime: 30_000,
+  });
 
-  const memberSince = useMemo(() => {
-    if (user?.createdAt) {
-      return new Date(user.createdAt).getFullYear().toString();
-    }
-    return '2026';
-  }, [user]);
+  const tripsCount = (tripsTotal ?? 0).toString();
+  const rating = (user as any)?.rating ? `${(user as any).rating}` : '4.9';
 
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
@@ -68,112 +68,116 @@ export default function ProfileScreen() {
       title: 'Account',
       items: [
         { label: 'Edit Profile', icon: 'person-outline', onPress: () => router.push('/profile/edit' as RiderRoute) },
-        { label: 'EyeGo Wallet & Pay', icon: 'wallet-outline', onPress: () => router.push('/profile/wallet' as RiderRoute) },
         { label: 'Payment Methods', icon: 'card-outline', onPress: () => router.push('/profile/payment-methods' as RiderRoute) },
-        { label: 'Promotions & Referrals', icon: 'gift-outline', onPress: () => router.push('/profile/promotions' as RiderRoute) },
-        { label: 'Saved Places', icon: 'location-outline', onPress: () => router.push('/profile/saved-places' as RiderRoute) },
+        { label: 'Saved Places', icon: 'bookmark-outline', onPress: () => router.push('/profile/saved-places' as RiderRoute) },
         { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/activity' as any) },
       ],
     },
     {
       title: 'Safety',
       items: [
-        { label: 'Emergency Contacts', icon: 'shield-checkmark-outline', onPress: () => router.push('/profile/emergency-contacts' as RiderRoute) },
+        { label: 'Safety Center', icon: 'shield-checkmark-outline', accent: 'success', onPress: () => router.push('/profile/safety' as RiderRoute) },
+        { label: 'Emergency Contacts', icon: 'alert-circle-outline', accent: 'error', onPress: () => router.push('/profile/emergency-contacts' as RiderRoute) },
         { label: 'Notification Preferences', icon: 'notifications-outline', onPress: () => router.push('/profile/notification-preferences' as RiderRoute) },
       ],
     },
     {
-      title: 'App',
+      title: 'General',
       items: [
+        { label: 'Promotions & Referrals', icon: 'pricetag-outline', onPress: () => router.push('/profile/promotions' as RiderRoute) },
         { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => router.push('/profile/help' as RiderRoute) },
-        { label: 'General Settings', icon: 'settings-outline', onPress: () => router.push('/profile/settings' as RiderRoute) },
-        { label: 'Privacy Policy', icon: 'shield-outline', onPress: () => router.push('/profile/privacy' as RiderRoute) },
+        { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/profile/settings' as RiderRoute) },
+        { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => router.push('/profile/privacy' as RiderRoute) },
         { label: 'Terms of Service', icon: 'document-text-outline', onPress: () => router.push('/profile/terms' as RiderRoute) },
-      ],
-    },
-    {
-      title: 'Danger Zone',
-      items: [
-        { label: 'Delete Account', icon: 'trash-outline', onPress: () => router.push('/profile/account-deletion' as RiderRoute), destructive: true },
-        { label: 'Log Out', icon: 'log-out-outline', onPress: handleLogout, destructive: true },
+        { label: 'Delete Account', icon: 'trash-outline', accent: 'error', onPress: () => router.push('/profile/account-deletion' as RiderRoute) },
       ],
     },
   ];
 
-  // Row delay offset per section
+  const accentColor = (accent?: MenuItem['accent']) =>
+    accent === 'success' ? (colors.statusSuccess ?? colors.primary)
+    : accent === 'error' ? colors.statusError
+    : colors.outline;
+
   let rowDelayOffset = 0;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ── Hero card ── */}
+        {/* ── Header row ── */}
+        <MotiView
+          from={{ opacity: 0, translateY: -8 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+          style={styles.headerRow}
+        >
+          <View style={styles.headerLeft}>
+            <View style={styles.avatarRing}>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={[styles.avatarInitials, { color: colors.primary }]}>
+                    {user?.name ? getInitials(user.name) : '?'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
+                {user?.name ?? 'Set your name'}
+              </Text>
+              <View style={styles.chipsRow}>
+                <View style={styles.memberChip}>
+                  <Text style={styles.memberChipText}>Member</Text>
+                </View>
+                <View style={styles.ratingChip}>
+                  <Ionicons name="star" size={11} color={colors.primary} />
+                  <Text style={styles.ratingChipText}>{rating}</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => router.push('/profile/edit' as any)}
+            style={styles.editBtn}
+            accessibilityLabel="Edit profile"
+            accessibilityRole="button"
+            hitSlop={8}
+          >
+            <Ionicons name="pencil" size={18} color={colors.onSurfaceVariant} />
+          </Pressable>
+        </MotiView>
+
+        {/* ── Wallet card ── */}
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 34 }}
-          style={styles.heroWrapper}
+          transition={{ type: 'spring', stiffness: 500, damping: 34, delay: 60 }}
+          style={styles.walletCard}
         >
-          <LinearGradient
-            colors={[colors.primary + '28', colors.surfaceContainer]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={styles.heroGradient}
-          >
-            {/* Avatar with glow ring */}
-            <View style={styles.avatarWrapper}>
-              <View style={[styles.avatarGlow, { shadowColor: colors.primary, borderColor: colors.primary + '55' }]}>
-                {user?.avatarUrl ? (
-                  <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-                ) : (
-                  <View style={[styles.avatarFallback, { backgroundColor: colors.surfaceContainerHigh }]}>
-                    <Text style={[styles.avatarInitials, { color: colors.primary }]}>
-                      {user?.name ? getInitials(user.name) : '?'}
-                    </Text>
-                  </View>
-                )}
+          <View style={styles.walletGlow} pointerEvents="none" />
+          <View style={styles.walletRow}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.walletLabelRow}>
+                <Ionicons name="wallet-outline" size={16} color={colors.onSurfaceVariant} />
+                <Text style={styles.walletLabel}>EYEGO WALLET</Text>
               </View>
-              <Pressable
-                style={[styles.editBadge, { backgroundColor: colors.primary }]}
-                onPress={() => router.push('/profile/edit' as any)}
-                accessibilityLabel="Edit profile"
-                accessibilityRole="button"
-              >
-                <Ionicons name="pencil" size={12} color={colors.onPrimary} />
-              </Pressable>
+              <Text style={styles.walletBalance}>{formatCurrency(walletBalance ?? 0)}</Text>
             </View>
-
-            {/* Name + phone */}
-            <Text variant="titleLarge" style={{ marginTop: spacing.base, textAlign: 'center' }}>
-              {user?.name ?? 'Set your name'}
-            </Text>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.base }}>
-              {user?.phone ?? ''}
-            </Text>
-
-            {/* Stats pills */}
-            <View style={styles.statsRow}>
-              <BlurView intensity={50} tint="dark" style={styles.statPill}>
-                <Text style={[styles.statValue, { color: colors.primary }]}>{tripsCount}</Text>
-                <Text style={styles.statLabel}>Trips</Text>
-              </BlurView>
-              <BlurView intensity={50} tint="dark" style={styles.statPill}>
-                <Text style={[styles.statValue, { color: colors.primary }]}>
-                  {(user as any)?.rating ? `${(user as any).rating}★` : '4.9★'}
-                </Text>
-                <Text style={styles.statLabel}>Rating</Text>
-              </BlurView>
-              <BlurView intensity={50} tint="dark" style={styles.statPill}>
-                <Text style={[styles.statValue, { color: colors.primary }]}>{memberSince}</Text>
-                <Text style={styles.statLabel}>Since</Text>
-              </BlurView>
-            </View>
-          </LinearGradient>
+            <Pressable
+              onPress={() => router.push('/profile/wallet' as any)}
+              style={({ pressed }) => [styles.topUpBtn, pressed && { transform: [{ scale: 0.96 }] }]}
+            >
+              <Text style={styles.topUpText}>Top Up</Text>
+            </Pressable>
+          </View>
         </MotiView>
 
         {/* ── Menu sections ── */}
-        {menuSections.map((section, sectionIdx) => {
-          const sectionDelay = 80 + rowDelayOffset * 35;
+        {menuSections.map((section) => {
+          const sectionDelay = 100 + rowDelayOffset * 30;
           rowDelayOffset += section.items.length + 1;
           return (
             <MotiView
@@ -183,51 +187,38 @@ export default function ProfileScreen() {
               transition={{ type: 'spring', stiffness: 500, damping: 34, delay: sectionDelay }}
               style={styles.sectionWrapper}
             >
-              <Text style={[styles.sectionHeader, { color: colors.onSurfaceVariant }]}>
-                {section.title.toUpperCase()}
-              </Text>
-              <View style={[styles.sectionCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
+              <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
+              <View style={styles.sectionCard}>
                 {section.items.map((item, itemIdx) => (
                   <Pressable
                     key={item.label}
                     style={[
                       styles.menuItem,
-                      { borderBottomColor: colors.outlineVariant },
                       itemIdx === section.items.length - 1 && styles.menuItemLast,
                     ]}
                     onPress={item.onPress}
                     accessibilityRole="button"
                   >
-                    <View style={[
-                      styles.iconCircle,
-                      {
-                        backgroundColor: item.destructive
-                          ? 'rgba(255, 59, 48, 0.1)'
-                          : colors.primary + '1A',
-                      },
-                    ]}>
-                      <Ionicons
-                        name={item.icon}
-                        size={17}
-                        color={item.destructive ? colors.error : colors.primary}
-                      />
-                    </View>
+                    <Ionicons name={item.icon} size={20} color={accentColor(item.accent)} />
                     <Text
                       variant="bodyLarge"
-                      color={item.destructive ? colors.error : colors.onSurface}
-                      style={{ flex: 1 }}
+                      style={{ flex: 1, color: item.accent === 'error' ? colors.statusError : colors.onSurface }}
                     >
                       {item.label}
                     </Text>
-                    {!item.destructive && (
-                      <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-                    )}
+                    <Ionicons name="chevron-forward" size={16} color={colors.outline} />
                   </Pressable>
                 ))}
               </View>
             </MotiView>
           );
         })}
+
+        {/* ── Log out ── */}
+        <Pressable onPress={handleLogout} style={styles.logoutBtn} accessibilityRole="button">
+          <Ionicons name="log-out-outline" size={20} color={colors.statusError} />
+          <Text style={styles.logoutText}>Log Out</Text>
+        </Pressable>
 
         <Text variant="caption" color={colors.onSurfaceVariant} style={styles.version}>
           EyeGo v1.0.0
@@ -239,127 +230,160 @@ export default function ProfileScreen() {
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.backgroundDeep },
-  scroll: { paddingBottom: spacing['3xl'] },
+  scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base, paddingBottom: spacing['3xl'] },
 
-  heroWrapper: {
-    marginHorizontal: spacing['2xl'],
-    marginTop: spacing.xl,
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: spacing.xl,
-    borderRadius: radii['2xl'],
+  },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
+  avatarRing: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: `${colors.primary}80`,
     overflow: 'hidden',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+  },
+  avatar: { width: '100%', height: '100%' },
+  avatarFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceContainerHigh,
+  },
+  avatarInitials: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium },
+  chipsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs },
+  memberChip: {
+    backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceContainer,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  memberChipText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 9,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.onSurfaceVariant,
+  },
+  ratingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: `${colors.primary}1A`,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  ratingChipText: { fontFamily: fonts.bold, fontSize: 10, color: colors.primary },
+  editBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  walletCard: {
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: colors.primary + '30',
+    borderColor: 'rgba(255,255,255,0.1)',
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+    overflow: 'hidden',
+  },
+  walletGlow: {
+    position: 'absolute',
+    right: -48,
+    top: -48,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: `${colors.primary}33`,
+  },
+  walletRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  walletLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
+  walletLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 1,
+    color: colors.onSurfaceVariant,
+  },
+  walletBalance: {
+    fontFamily: fonts.displayBold,
+    fontSize: 28,
+    color: colors.primary,
+  },
+  topUpBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
     shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  heroGradient: {
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.xl,
-  },
-
-  avatarWrapper: { position: 'relative', width: 88, height: 88, marginBottom: spacing.xs },
-  avatarGlow: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 2.5,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.3,
     shadowRadius: 12,
-    elevation: 8,
-    overflow: 'hidden',
   },
-  avatar: { width: 84, height: 84, borderRadius: 42 },
-  avatarFallback: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarInitials: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSizes.headlineMedium,
-  },
-  editBadge: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.backgroundDeep,
+  topUpText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.bodySmall,
+    letterSpacing: 0.4,
+    color: colors.onPrimary,
   },
 
-  statsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  statPill: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-    borderRadius: radii.xl,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.primary + '22',
-  },
-  statValue: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSizes.titleMedium,
-  },
-  statLabel: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.caption,
-    color: colors.onSurfaceVariant,
-    marginTop: 1,
-  },
-
-  sectionWrapper: {
-    marginHorizontal: spacing['2xl'],
-    marginBottom: spacing.lg,
-  },
+  sectionWrapper: { marginBottom: spacing.lg },
   sectionHeader: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
     letterSpacing: 1.4,
-    marginBottom: spacing.xs,
-    marginLeft: spacing.xs,
+    textTransform: 'uppercase',
+    color: colors.outline,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.base,
   },
   sectionCard: {
-    borderRadius: radii['2xl'],
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.lg,
     borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
     overflow: 'hidden',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.base,
     gap: spacing.md,
     borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   menuItemLast: { borderBottomWidth: 0 },
-  iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: radii.lg,
+
+  logoutBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
+    gap: spacing.sm,
+    paddingVertical: spacing.base + 2,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: `${colors.statusError}4D`,
+    marginTop: spacing.xs,
   },
-  version: {
-    textAlign: 'center',
-    marginTop: spacing.lg,
+  logoutText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSizes.bodyLarge,
+    color: colors.statusError,
   },
+  version: { textAlign: 'center', marginTop: spacing.lg },
 });

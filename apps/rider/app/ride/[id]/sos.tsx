@@ -3,6 +3,8 @@ import {
   View,
   StyleSheet,
   Pressable,
+  ScrollView,
+  Switch,
   Linking,
   Alert,
   Platform,
@@ -13,7 +15,7 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
-import { apiClient, bookingsApi, userApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
+import { apiClient, userApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '../../../stores/auth.store';
@@ -29,10 +31,11 @@ export default function SOSScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { driverLocation } = useRideStore();
-  
+
   const [alertSent, setAlertSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [passengerLocation, setPassengerLocation] = useState<Location.LocationObject | null>(null);
+  const [shareTripStatus, setShareTripStatus] = useState(false);
   const [audioRecording, setAudioRecording] = useState(false);
   const [rideCheckActive, setRideCheckActive] = useState(false);
   // Use a ref for the timer so cleanup always sees the latest handle (no stale closure)
@@ -51,9 +54,12 @@ export default function SOSScreen() {
     select: (r: any) => r.data?.data?.contacts ?? r.data?.data ?? [],
     staleTime: 60_000,
   });
+  const contactsList: { phone?: string; name?: string }[] = Array.isArray(emergencyContacts)
+    ? emergencyContacts
+    : [];
   const emergencyContact: { phone?: string; name?: string } | undefined =
-    (Array.isArray(emergencyContacts) && emergencyContacts.length > 0)
-      ? emergencyContacts[0]
+    contactsList.length > 0
+      ? contactsList[0]
       : (user as { emergencyContact?: { phone?: string; name?: string } })?.emergencyContact;
 
   KeepAwake.useKeepAwake();
@@ -131,9 +137,10 @@ export default function SOSScreen() {
     };
   }, [id]);
 
-  // Auto-share current location to emergency contacts every 30 seconds after alert sent
+  // Auto-share current location to emergency contacts every 30 seconds after alert
+  // sent OR when the rider explicitly enables "Share Trip Status".
   useEffect(() => {
-    if (alertSent && passengerLocation?.coords) {
+    if ((alertSent || shareTripStatus) && passengerLocation?.coords) {
       const interval = setInterval(() => {
         if (emergencyContact?.phone && id) {
           const msg = encodeURIComponent(
@@ -145,12 +152,12 @@ export default function SOSScreen() {
       }, 30000); // every 30 seconds
       return () => clearInterval(interval);
     }
-  }, [alertSent, passengerLocation, user, id, emergencyContact]);
+  }, [alertSent, shareTripStatus, passengerLocation, user, id, emergencyContact]);
 
   // Use user's active fine location if available, otherwise fallback to driver's coordinate
-  const currentCoords = passengerLocation?.coords 
+  const currentCoords = passengerLocation?.coords
     ? { latitude: passengerLocation.coords.latitude, longitude: passengerLocation.coords.longitude }
-    : driverLocation 
+    : driverLocation
     ? { latitude: driverLocation.latitude, longitude: driverLocation.longitude }
     : null;
 
@@ -181,7 +188,7 @@ export default function SOSScreen() {
         await apiClient.post(`/trips/${id}/emergency`, sosData).catch(async (err) => {
           // Log warning but allow SMS fallbacks to execute
           console.warn('[SOS] Backend notification failed, executing local fail-safe protocols.', err);
-          
+
           // Enqueue critical action for background/offline sync!
           try {
             const { offlineQueue } = require('../../../utils/offlineQueue');
@@ -256,225 +263,198 @@ export default function SOSScreen() {
     if (autoAlertTimerRef.current) clearTimeout(autoAlertTimerRef.current);
   }, []);
 
+  const confirmEmergencyCall = () => {
+    Alert.alert(
+      'Emergency Call',
+      'This will dispatch an SOS alert with your live location and place an emergency call. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Call now',
+          style: 'destructive',
+          onPress: () => {
+            handleSOSPress();
+            Linking.openURL('tel:112').catch(() => {});
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <SafeAreaView style={styles.safe}>
-      {/* Top bar */}
-      <View style={styles.topBar}>
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: alertSent ? 0 : 1 }}
-          transition={{ type: 'timing', duration: 300 }}
-        >
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-          </Pressable>
-        </MotiView>
-
-        <View style={styles.emergencyBadge}>
-          <MotiView
-            from={{ opacity: 0.5 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 600, loop: true }}
-            style={styles.emergencyDot}
-          />
-          <Text style={styles.emergencyLabel}>EMERGENCY</Text>
-        </View>
-
-        <View style={{ width: 40 }} />
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+        </Pressable>
+        <Text style={styles.headerTitle}>Safety</Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      <View style={styles.body}>
-        {/* Big SOS button */}
-        <View style={styles.sosWrapper}>
-          {/* Outer pulse ring */}
-          {!alertSent && (
-            <MotiView
-              from={{ scale: 1, opacity: 0.4 }}
-              animate={{ scale: 1.5, opacity: 0 }}
-              transition={{ type: 'timing', duration: 1600, loop: true }}
-              style={[styles.sosRing, { backgroundColor: colors.error }]}
-            />
-          )}
-          {/* Inner pulse ring */}
-          {!alertSent && (
-            <MotiView
-              from={{ scale: 1, opacity: 0.3 }}
-              animate={{ scale: 1.25, opacity: 0 }}
-              transition={{ type: 'timing', duration: 1600, loop: true, delay: 400 }}
-              style={[styles.sosRing, { backgroundColor: colors.error }]}
-            />
-          )}
-
-          <Pressable
-            onPress={handleSOSPress}
-            disabled={loading}
-            style={[
-              styles.sosButton,
-              alertSent && { backgroundColor: colors.primary },
-            ]}
-          >
-            {alertSent ? (
-              <Ionicons name="checkmark" size={48} color={colors.onPrimary} />
-            ) : (
-              <Text style={styles.sosText}>SOS</Text>
-            )}
-          </Pressable>
-        </View>
-
-        {alertSent ? (
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-            style={styles.sentMsg}
-          >
-            <Text variant="titleSmall" color={colors.primary}>Alert Dispatched</Text>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.coordText}>
-              Coordinates sent: {coordsString}
-            </Text>
-          </MotiView>
-        ) : (
-          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.tapHint}>
-            Tap to send emergency alert
-          </Text>
-        )}
-
-        {/* RideCheck: inactivity detection */}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/* Reassurance card */}
         <MotiView
-          from={{ opacity: 0, translateY: 10 }}
+          from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 150 }}
-          style={[styles.actionsCard, { marginBottom: spacing.md }]}
+          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+          style={styles.reassureCard}
         >
-          <ActionRow
-            icon={audioRecording ? 'stop-circle-outline' : 'mic-outline'}
-            iconColor={audioRecording ? '#EF4444' : colors.primary}
-            iconBg={audioRecording ? 'rgba(239, 68, 68, 0.15)' : colors.primary + '20'}
-            label={audioRecording ? 'Stop Recording' : 'Start Audio Recording'}
-            sublabel={audioRecording ? 'Recording audio for safety evidence' : 'Record audio as safety evidence during the trip'}
-            onPress={() => setAudioRecording(!audioRecording)}
-          />
-          <View style={styles.divider} />
-          <ActionRow
-            icon={rideCheckActive ? 'checkmark-circle' : 'shield-outline'}
-            iconColor={rideCheckActive ? '#4BE277' : colors.onSurfaceVariant}
-            iconBg={rideCheckActive ? 'rgba(75, 226, 119, 0.15)' : colors.surfaceContainerHigh + '40'}
-            label={rideCheckActive ? 'RideCheck Active' : 'Enable RideCheck'}
-            sublabel={rideCheckActive ? 'Monitoring for unexpected stops or route deviations' : 'Get alerted if your trip deviates unexpectedly'}
-            onPress={() => setRideCheckActive(!rideCheckActive)}
-          />
+          <View style={styles.shieldCircle}>
+            <Ionicons name="shield-checkmark" size={34} color={colors.primary} />
+          </View>
+          <Text style={styles.reassureTitle}>
+            {alertSent ? 'Alert dispatched' : 'Your safety is our priority'}
+          </Text>
+          <Text style={styles.reassureSub}>
+            {alertSent
+              ? `Coordinates sent: ${coordsString}`
+              : 'Your live location is being monitored throughout this trip.'}
+          </Text>
         </MotiView>
 
-        {/* Action rows */}
-        <MotiView
-          from={{ opacity: 0, translateY: 20 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 300 }}
-          style={styles.actionsCard}
-        >
-          <ActionRow
-            icon="call"
-            iconColor="#fff"
-            iconBg={colors.error}
-            label="Call Emergency Services"
-            sublabel="112 — Police / Ambulance / Fire"
-            onPress={() => Linking.openURL('tel:112')}
-          />
-          <View style={styles.divider} />
-          <ActionRow
-            icon="headset-outline"
-            iconColor={colors.primary}
-            iconBg={colors.primary + '20'}
-            label="Call SNR Dispatcher"
-            sublabel="EyeGo safety team — 24/7"
-            onPress={() => Linking.openURL('tel:+233XXXXXXXXX')}
-          />
-          <View style={styles.divider} />
-          <ActionRow
-            icon="person-outline"
-            iconColor={colors.secondary ?? colors.onSurfaceVariant}
-            iconBg={(colors.secondary ?? colors.surfaceContainerHigh) + '20'}
-            label={emergencyContact?.name ? `Alert ${emergencyContact.name}` : 'Alert Emergency Contact'}
-            sublabel={emergencyContact?.phone ?? 'No emergency contact saved — add one in profile'}
-            onPress={() => {
-              if (!emergencyContact?.phone) {
-                Alert.alert('No contact saved', 'Go to Profile → Edit Profile to add an emergency contact.');
+        {/* Trip Protection */}
+        <Text style={styles.sectionLabel}>Trip Protection</Text>
+        <View style={styles.group}>
+          <ProtectionRow
+            colors={colors}
+            icon="share-outline"
+            title="Share Trip Status"
+            subtitle="Share your live location with family"
+            value={shareTripStatus}
+            onValueChange={(v) => {
+              if (v && !emergencyContact?.phone) {
+                Alert.alert('No contact saved', 'Add a trusted contact to share your trip status.');
                 return;
               }
-              Linking.openURL(`tel:${emergencyContact.phone}`);
+              setShareTripStatus(v);
             }}
           />
-        </MotiView>
-      </View>
+          <View style={styles.divider} />
+          <ProtectionRow
+            colors={colors}
+            icon="medkit-outline"
+            title="RideCheck"
+            subtitle="Unexpected stops & route detection"
+            value={rideCheckActive}
+            onValueChange={setRideCheckActive}
+          />
+          <View style={styles.divider} />
+          <ProtectionRow
+            colors={colors}
+            icon={audioRecording ? 'stop-circle-outline' : 'mic-outline'}
+            title="Audio Recording"
+            subtitle="Record trip audio for safety"
+            value={audioRecording}
+            onValueChange={setAudioRecording}
+          />
+        </View>
 
-      {/* Cancel */}
-      <MotiView
-        from={{ opacity: 0, translateY: 16 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 300 }}
-        style={styles.cancelWrapper}
-      >
-        <Pressable onPress={() => router.back()} style={styles.cancelButton}>
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
-            Cancel — I'm Safe
+        {/* Trusted Contacts */}
+        <View style={styles.contactsHeader}>
+          <Text style={styles.sectionLabel}>Trusted Contacts</Text>
+          <Pressable onPress={() => router.push('/profile/emergency-contacts')} hitSlop={8}>
+            <Text style={styles.manageLink}>Manage</Text>
+          </Pressable>
+        </View>
+        <View style={styles.contactsGrid}>
+          {contactsList.slice(0, 3).map((c, i) => (
+            <View key={`${c.name ?? 'contact'}-${i}`} style={styles.contactCard}>
+              <Pressable
+                onPress={() => router.push('/profile/emergency-contacts')}
+                style={styles.contactClose}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={14} color={colors.onSurfaceVariant} />
+              </Pressable>
+              <View style={styles.contactAvatar}>
+                <Text style={styles.contactInitial}>
+                  {(c.name ?? '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <Text style={styles.contactName} numberOfLines={1}>
+                {c.name ?? 'Contact'}
+              </Text>
+              <Text style={styles.contactPhone} numberOfLines={1}>
+                {c.phone ?? ''}
+              </Text>
+            </View>
+          ))}
+          <Pressable
+            onPress={() => router.push('/profile/emergency-contacts')}
+            style={styles.addCard}
+          >
+            <View style={styles.addIcon}>
+              <Ionicons name="person-add-outline" size={22} color={colors.primary} />
+            </View>
+            <Text style={styles.addLabel}>Add Contact</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      {/* Fixed bottom emergency bar */}
+      <View style={styles.emergencyBar}>
+        <View style={styles.emergencyHeading}>
+          <Ionicons name="warning" size={16} color={colors.statusError} />
+          <Text style={styles.emergencyHeadingText}>In an emergency</Text>
+        </View>
+        <Text style={styles.emergencyHint}>
+          Contact authorities directly. Your location will be shared with EyeGo safety.
+        </Text>
+        <Pressable
+          onPress={confirmEmergencyCall}
+          disabled={loading}
+          style={({ pressed }) => [styles.emergencyButton, pressed && { transform: [{ scale: 0.98 }] }]}
+        >
+          <Ionicons name="call" size={20} color={colors.statusError} />
+          <Text style={styles.emergencyButtonText}>
+            {alertSent ? 'Call 112' : 'Emergency Call'}
           </Text>
         </Pressable>
-      </MotiView>
+      </View>
     </SafeAreaView>
   );
 }
 
-function ActionRow({
+function ProtectionRow({
+  colors,
   icon,
-  iconColor,
-  iconBg,
-  label,
-  sublabel,
-  onPress,
+  title,
+  subtitle,
+  value,
+  onValueChange,
 }: {
-  icon: any;
-  iconColor: string;
-  iconBg: string;
-  label: string;
-  sublabel: string;
-  onPress: () => void;
+  colors: Colors;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  value: boolean;
+  onValueChange: (v: boolean) => void;
 }) {
-  const colors = useColors();
+  const styles = makeStyles(colors);
   return (
-    <Pressable onPress={onPress} style={rowStyles.row}>
-      <View style={[rowStyles.iconWrap, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={20} color={iconColor} />
+    <View style={styles.protRow}>
+      <View style={[styles.protIcon, value && { backgroundColor: `${colors.primary}1F` }]}>
+        <Ionicons name={icon} size={20} color={value ? colors.primary : colors.onSurfaceVariant} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text variant="bodyMedium" color={colors.onSurface}>{label}</Text>
-        <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: 2 }}>
-          {sublabel}
-        </Text>
+        <Text style={styles.protTitle}>{title}</Text>
+        <Text style={styles.protSub}>{subtitle}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-    </Pressable>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: colors.surfaceVariant ?? colors.outlineVariant, true: `${colors.primary}99` }}
+        thumbColor={value ? colors.primary : '#f4f4f5'}
+        ios_backgroundColor={colors.surfaceVariant ?? colors.outlineVariant}
+      />
+    </View>
   );
 }
 
-const rowStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.base,
-    gap: spacing.base,
-  },
-  iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
-
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.backgroundDeep },
-  topBar: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -482,106 +462,241 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.base,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
   },
-  emergencyBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    backgroundColor: colors.error + '20',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.full,
-    borderWidth: 1,
-    borderColor: colors.error + '40',
+  headerTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.titleLarge,
+    color: colors.primary,
+    letterSpacing: -0.3,
   },
-  emergencyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.error,
-  },
-  emergencyLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.caption,
-    color: colors.error,
-    letterSpacing: 1.5,
-  },
-  body: {
-    flex: 1,
-    alignItems: 'center',
+  scroll: {
     paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['2xl'],
+    paddingTop: spacing.sm,
+    paddingBottom: 200,
+    gap: spacing.lg,
   },
-  sosWrapper: {
-    width: 140,
-    height: 140,
+  reassureCard: {
+    alignItems: 'center',
+    textAlign: 'center',
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: `${colors.primary}1A`,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+  },
+  shieldCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: `${colors.primary}1A`,
+    borderWidth: 1,
+    borderColor: `${colors.primary}33`,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.base,
   },
-  sosRing: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-  },
-  sosButton: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: colors.error,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: colors.error + '60',
-  },
-  sosText: {
-    fontFamily: fonts.displayBold,
-    fontSize: 28,
-    color: '#fff',
-    letterSpacing: 2,
-  },
-  tapHint: {
-    marginBottom: spacing['2xl'],
+  reassureTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.titleSmall,
+    color: colors.onSurface,
     textAlign: 'center',
+    marginBottom: spacing.xs,
   },
-  sentMsg: {
-    alignItems: 'center',
-    marginBottom: spacing['2xl'],
-    gap: spacing.xs,
+  reassureSub: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
+    textAlign: 'center',
+    lineHeight: 18,
   },
-  coordText: { textAlign: 'center' },
-  actionsCard: {
-    width: '100%',
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
+  sectionLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: colors.outline,
+    marginLeft: spacing.xs,
+  },
+  group: {
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
   divider: {
     height: 1,
-    backgroundColor: colors.outlineVariant,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     marginHorizontal: spacing.base,
   },
-  cancelWrapper: {
-    paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['2xl'],
+  protRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.base,
+    padding: spacing.base,
   },
-  cancelButton: {
-    height: 52,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
+  protIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceDim,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  protTitle: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyLarge,
+    color: colors.onSurface,
+  },
+  protSub: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  contactsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: spacing.xs,
+  },
+  manageLink: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    color: colors.primary,
+  },
+  contactsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.base,
+  },
+  contactCard: {
+    width: '47%',
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.base,
+    position: 'relative',
+  },
+  contactClose: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    padding: 2,
+  },
+  contactAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: `${colors.primary}1F`,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactInitial: {
+    fontFamily: fonts.displayBold,
+    fontSize: 20,
+    color: colors.primary,
+  },
+  contactName: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurface,
+  },
+  contactPhone: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.onSurfaceVariant,
+  },
+  addCard: {
+    width: '47%',
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+    paddingVertical: spacing.lg,
+    minHeight: 132,
+  },
+  addIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.primary,
+  },
+  emergencyBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surfaceCard ?? colors.backgroundDeep,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing.lg,
+    paddingBottom: spacing['2xl'],
+  },
+  emergencyHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  emergencyHeadingText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.titleSmall,
+    color: colors.statusError,
+  },
+  emergencyHint: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.base,
+  },
+  emergencyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.base + 2,
+    borderRadius: radii.lg,
+    backgroundColor: `${colors.statusError}33`,
+    borderWidth: 1,
+    borderColor: `${colors.statusError}80`,
+  },
+  emergencyButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.titleSmall,
+    color: colors.statusError,
   },
 });

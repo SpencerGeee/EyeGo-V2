@@ -12,19 +12,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useRideStore } from '../../../stores/ride.store';
 import { apiClient } from '@eyego/api';
 import { useMutation } from '@tanstack/react-query';
 
-const ISSUE_TYPES = [
-  'Incorrect fare charged',
-  'Driver was rude or unprofessional',
-  'Unsafe or reckless driving',
-  'Lost item in vehicle',
-  'Driver cancelled without reason',
-  'Other',
+const ISSUE_TYPES: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { label: 'Incorrect fare', icon: 'card-outline' },
+  { label: 'Wrong route', icon: 'git-branch-outline' },
+  { label: 'Unsafe driving', icon: 'warning-outline' },
+  { label: 'Rude conduct', icon: 'sad-outline' },
+  { label: 'Vehicle issue', icon: 'car-sport-outline' },
+  { label: 'Other', icon: 'ellipsis-horizontal' },
 ];
 
 const MAX_CHARS = 500;
@@ -34,6 +35,7 @@ export default function DisputeScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { selectedTrip } = useRideStore();
 
   const [selectedType, setSelectedType] = useState('');
   const [description, setDescription] = useState('');
@@ -61,12 +63,18 @@ export default function DisputeScreen() {
     disputeMutation.mutate();
   };
 
+  const trip = selectedTrip as any;
+  const dropoff = trip?.dropoffLocation?.name ?? trip?.route?.name ?? 'Recent Trip';
+  const vehicle = trip?.vehicle
+    ? `${trip.vehicle.model ?? 'Vehicle'}${trip.vehicle.color ? ' • ' + trip.vehicle.color : ''}`
+    : 'Shared Van';
+
   if (submitted) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} activeOpacity={0.7}>
+            <Ionicons name="close" size={22} color={colors.onSurface} />
           </TouchableOpacity>
           <Text variant="titleSmall">Report Issue</Text>
           <View style={{ width: 40 }} />
@@ -78,8 +86,8 @@ export default function DisputeScreen() {
           transition={{ type: 'spring', stiffness: 500, damping: 30 }}
           style={styles.successContainer}
         >
-          <View style={[styles.successIcon, { backgroundColor: colors.primary + '22' }]}>
-            <Ionicons name="checkmark-circle" size={64} color="#22C55E" />
+          <View style={[styles.successIcon, { backgroundColor: (colors.statusSuccess ?? colors.primary) + '1F' }]}>
+            <Ionicons name="checkmark-circle" size={64} color={colors.statusSuccess ?? '#22C55E'} />
           </View>
           <Text variant="titleMedium" style={{ color: colors.onSurface, marginTop: spacing['2xl'] }}>
             Report Submitted
@@ -101,10 +109,9 @@ export default function DisputeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} activeOpacity={0.7}>
+          <Ionicons name="close" size={22} color={colors.onSurface} />
         </TouchableOpacity>
-        <Text variant="titleSmall">Report Issue</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -114,79 +121,103 @@ export default function DisputeScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         >
-          <Text
-            variant="labelSmall"
-            style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-          >
-            ISSUE TYPE
+          {/* Title block */}
+          <Text variant="headlineMedium" style={styles.title}>
+            Report an Issue
+          </Text>
+          <Text variant="bodyMedium" style={styles.subtitle}>
+            Tell us what went wrong with this trip and we'll make it right.
           </Text>
 
-          <View style={styles.card}>
-            {ISSUE_TYPES.map((type, index) => (
-              <React.Fragment key={type}>
-                {index > 0 && <View style={styles.divider} />}
-                <Pressable
-                  onPress={() => setSelectedType(type)}
-                  style={({ pressed }) => [
-                    styles.row,
-                    pressed && { backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceContainer },
-                  ]}
-                >
-                  <View style={styles.rowLeft}>
-                    <Text variant="bodyMedium" style={{ color: colors.onSurface }}>
-                      {type}
-                    </Text>
-                  </View>
-                  {selectedType === type ? (
-                    <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
-                  ) : (
-                    <Ionicons name="ellipse-outline" size={22} color={colors.outlineVariant} />
-                  )}
-                </Pressable>
-              </React.Fragment>
-            ))}
+          {/* Trip summary card */}
+          <View style={styles.tripCard}>
+            <View style={styles.tripThumb}>
+              <Ionicons name="location" size={26} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.tripMetaRow}>
+                <Text style={styles.tripStatus}>COMPLETED</Text>
+                <Text style={styles.tripDate}>Recent</Text>
+              </View>
+              <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
+                {dropoff}
+              </Text>
+              <View style={styles.tripVehicleRow}>
+                <Ionicons name="car" size={14} color={colors.outline} />
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  {vehicle}
+                </Text>
+              </View>
+            </View>
           </View>
 
-          <View style={{ marginTop: spacing['2xl'] }}>
-            <View style={styles.descriptionHeader}>
-              <Text
-                variant="labelSmall"
-                style={[styles.sectionLabel, { color: colors.onSurfaceVariant, marginBottom: 0 }]}
-              >
-                DESCRIPTION (OPTIONAL)
-              </Text>
-              <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                {description.length}/{MAX_CHARS}
-              </Text>
-            </View>
+          {/* Issue chips */}
+          <Text variant="titleSmall" style={styles.sectionTitle}>
+            What went wrong?
+          </Text>
+          <View style={styles.chipWrap}>
+            {ISSUE_TYPES.map((issue) => {
+              const active = selectedType === issue.label;
+              return (
+                <Pressable
+                  key={issue.label}
+                  onPress={() => setSelectedType(issue.label)}
+                  style={[styles.chip, active && styles.chipActive]}
+                >
+                  <Ionicons
+                    name={issue.icon}
+                    size={16}
+                    color={active ? colors.primary : colors.onSurfaceVariant}
+                  />
+                  <Text
+                    style={[
+                      styles.chipText,
+                      { color: active ? colors.primary : colors.onSurfaceVariant },
+                    ]}
+                  >
+                    {issue.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Details */}
+          <View style={styles.descriptionHeader}>
+            <Text variant="titleSmall" style={{ color: colors.onSurface }}>
+              Details
+            </Text>
+            <Text variant="bodySmall" color={colors.outline}>
+              Optional
+            </Text>
+          </View>
+          <View style={styles.textAreaWrap}>
             <TextInput
               value={description}
               onChangeText={(t) => setDescription(t.slice(0, MAX_CHARS))}
               placeholder="Describe what happened..."
-              placeholderTextColor={colors.onSurfaceVariant}
+              placeholderTextColor={colors.outlineVariant}
               multiline
               numberOfLines={5}
-              style={[
-                styles.textArea,
-                {
-                  color: colors.onSurface,
-                  borderColor: colors.outlineVariant,
-                  backgroundColor: colors.surfaceContainer,
-                },
-              ]}
+              style={styles.textArea}
             />
-          </View>
-
-          <View style={{ marginTop: spacing['2xl'] }}>
-            <Button
-              label={disputeMutation.isPending ? 'Submitting...' : 'Submit Report'}
-              onPress={handleSubmit}
-              variant="primary"
-              disabled={!selectedType || disputeMutation.isPending}
-            />
+            <Text style={styles.charCount}>
+              {description.length}/{MAX_CHARS}
+            </Text>
           </View>
         </MotiView>
       </ScrollView>
+
+      {/* Fixed bottom CTA */}
+      <View style={styles.footer}>
+        <Button
+          label={disputeMutation.isPending ? 'Submitting...' : 'Submit Report'}
+          onPress={handleSubmit}
+          variant="primary"
+          disabled={!selectedType || disputeMutation.isPending}
+          icon={<Ionicons name="send" size={18} color={colors.onPrimary} />}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -200,10 +231,8 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.base,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.outlineVariant,
     },
-    backBtn: {
+    iconBtn: {
       width: 40,
       height: 40,
       borderRadius: 20,
@@ -213,38 +242,118 @@ const makeStyles = (colors: Colors) =>
     },
     scroll: {
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
-      paddingBottom: spacing['3xl'],
+      paddingTop: spacing.sm,
+      paddingBottom: 140,
     },
-    sectionLabel: { letterSpacing: 1, marginBottom: spacing.base },
-    card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
+    title: { color: colors.onSurface, marginBottom: spacing.sm },
+    subtitle: { color: colors.onSurfaceVariant, marginBottom: spacing['2xl'], maxWidth: '90%' },
+    tripCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.base,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: 24,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
-      overflow: 'hidden',
+      borderColor: 'rgba(255,255,255,0.05)',
+      padding: spacing.base,
+      marginBottom: spacing['2xl'],
     },
-    row: {
+    tripThumb: {
+      width: 72,
+      height: 72,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceContainerHigh,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tripMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: spacing.base,
+      marginBottom: 2,
     },
-    rowLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
-    divider: { height: 1, backgroundColor: colors.outlineVariant, marginHorizontal: spacing.base },
-    descriptionHeader: {
+    tripStatus: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      letterSpacing: 0.6,
+      color: colors.primary,
+    },
+    tripDate: {
+      fontFamily: fonts.medium,
+      fontSize: 10,
+      letterSpacing: 0.6,
+      color: colors.outlineVariant,
+    },
+    tripVehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+    sectionTitle: { color: colors.onSurface, marginBottom: spacing.base },
+    chipWrap: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing['2xl'],
+    },
+    chip: {
       flexDirection: 'row',
       alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.sm + 2,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+      backgroundColor: colors.surfaceContainer,
+    },
+    chipActive: {
+      borderColor: colors.primary,
+      backgroundColor: `${colors.primary}1A`,
+    },
+    chipText: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+    },
+    descriptionHeader: {
+      flexDirection: 'row',
+      alignItems: 'flex-end',
       justifyContent: 'space-between',
       marginBottom: spacing.base,
     },
-    textArea: {
+    textAreaWrap: {
+      position: 'relative',
+      backgroundColor: '#0D1515',
+      borderRadius: radii.lg,
       borderWidth: 1,
-      borderRadius: radii.xl,
+      borderColor: colors.surfaceVariant ?? colors.outlineVariant,
+      overflow: 'hidden',
+    },
+    textArea: {
+      color: colors.onSurface,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodyMedium,
       padding: spacing.base,
-      fontSize: 15,
+      paddingBottom: spacing['2xl'],
       textAlignVertical: 'top',
-      minHeight: 120,
+      minHeight: 140,
+    },
+    charCount: {
+      position: 'absolute',
+      bottom: spacing.sm,
+      right: spacing.base,
+      fontFamily: fonts.medium,
+      fontSize: 10,
+      letterSpacing: 0.6,
+      color: colors.outline,
+    },
+    footer: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      paddingHorizontal: spacing['2xl'],
+      paddingTop: spacing.base,
+      paddingBottom: spacing['2xl'],
+      backgroundColor: colors.backgroundDeep,
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(255,255,255,0.05)',
     },
     successContainer: {
       flex: 1,

@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing } from '@eyego/config';
-import { Text } from '@eyego/ui';
-
-const PRIMARY = '#4be277';
+import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { Text, Button } from '@eyego/ui';
+import { useColors, Colors } from '../../utils/useColors';
 
 export default function TripRequestScreen() {
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { destination, scheduledAt } = useLocalSearchParams<{
     destination?: string;
@@ -30,8 +31,8 @@ export default function TripRequestScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Back */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={12}>
-          <Ionicons name="arrow-back" size={22} color="#fff" />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
       </View>
 
@@ -53,7 +54,7 @@ export default function TripRequestScreen() {
             />
           ))}
           <View style={styles.iconCircle}>
-            <Ionicons name="bus-outline" size={32} color={PRIMARY} />
+            <Ionicons name="bus-outline" size={32} color={colors.primary} />
           </View>
         </View>
 
@@ -69,44 +70,49 @@ export default function TripRequestScreen() {
 
         {/* Info card */}
         <View style={styles.infoCard}>
-          <Ionicons name="information-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
+          <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
           <Text style={styles.infoText}>
             Trip requests are grouped — other riders heading the same way will be added automatically.
           </Text>
         </View>
 
-        <Pressable
-          style={styles.doneBtn}
+        <Button
+          label="Back to home"
           onPress={() => router.replace('/(tabs)/home' as any)}
-        >
-          <Text style={styles.doneBtnText}>Back to home</Text>
-        </Pressable>
+          style={{ width: '100%', marginTop: spacing.xl }}
+        />
 
         <Pressable
           style={styles.activityBtn}
           onPress={() => router.replace('/(tabs)/activity' as any)}
+          accessibilityRole="button"
+          accessibilityLabel="View in Activity"
         >
-          <Text style={styles.activityBtnText}>View in Activity</Text>
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
+            View in Activity
+          </Text>
         </Pressable>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#091009',
+    backgroundColor: colors.backgroundDeep,
   },
   header: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.md,
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing.base,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -129,81 +135,61 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: 48,
     borderWidth: 2,
-    borderColor: `${PRIMARY}50`,
+    borderColor: `${colors.primary}50`,
   },
   iconCircle: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: `${PRIMARY}15`,
+    backgroundColor: `${colors.primary}15`,
     borderWidth: 2,
-    borderColor: `${PRIMARY}40`,
+    borderColor: `${colors.primary}40`,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineMedium,
-    color: '#fff',
+    color: colors.onSurface,
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
-    color: 'rgba(255,255,255,0.6)',
+    color: colors.onSurfaceVariant,
     textAlign: 'center',
     lineHeight: 22,
   },
   highlight: {
     fontFamily: fonts.semiBold,
-    color: PRIMARY,
+    color: colors.primary,
   },
   hint: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
-    color: 'rgba(255,255,255,0.35)',
+    color: colors.outline,
     textAlign: 'center',
   },
   infoCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.sm,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
+    backgroundColor: colors.surfaceContainer,
+    borderRadius: radii.lg,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
+    borderColor: colors.outlineVariant,
     marginTop: spacing.sm,
   },
   infoText: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
-    color: 'rgba(255,255,255,0.4)',
+    color: colors.onSurfaceVariant,
     lineHeight: 18,
-  },
-  doneBtn: {
-    width: '100%',
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: PRIMARY,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.xl,
-  },
-  doneBtnText: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.bodyMedium,
-    color: '#091009',
   },
   activityBtn: {
     paddingVertical: spacing.md,
-  },
-  activityBtnText: {
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodySmall,
-    color: 'rgba(255,255,255,0.4)',
-    textDecorationLine: 'underline',
   },
 });

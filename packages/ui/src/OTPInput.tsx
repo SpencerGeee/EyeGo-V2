@@ -96,10 +96,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   box: {
-    width: 48,
-    height: 56,
+    width: 52,
+    height: 60,
     borderRadius: radii.lg,
-    backgroundColor: colors.surfaceContainerHigh,
+    backgroundColor: '#0D0D0E',
     borderWidth: 1.5,
     borderColor: colors.outlineVariant,
     alignItems: 'center',
@@ -107,9 +107,14 @@ const styles = StyleSheet.create({
   },
   boxActive: {
     borderColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   boxError: {
-    borderColor: colors.error,
+    borderColor: colors.statusError,
   },
   digit: {
     fontFamily: fonts.monoBold,

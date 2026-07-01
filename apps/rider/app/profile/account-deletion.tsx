@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useAuthStore } from '../../stores/auth.store';
@@ -58,11 +58,11 @@ export default function AccountDeletionScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall">Delete Account</Text>
-        <View style={{ width: 40 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Delete Account</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -74,9 +74,9 @@ export default function AccountDeletionScreen() {
           {step === 1 ? (
             <>
               <View style={styles.warningBanner}>
-                <Ionicons name="warning" size={28} color={colors.error} />
-                <Text variant="titleSmall" style={{ color: colors.error, marginTop: spacing.md }}>
-                  Before you continue
+                <Ionicons name="warning" size={28} color={colors.statusError} />
+                <Text variant="titleSmall" style={{color: colors.statusError, marginTop: spacing.md }}>
+                Before you continue
                 </Text>
               </View>
 
@@ -91,7 +91,7 @@ export default function AccountDeletionScreen() {
                     <Ionicons
                       name="close-circle"
                       size={18}
-                      color={colors.error}
+                      color={colors.statusError}
                       style={{ marginTop: 2 }}
                     />
                     <Text
@@ -111,8 +111,8 @@ export default function AccountDeletionScreen() {
           ) : (
             <>
               <View style={styles.warningBanner}>
-                <Ionicons name="trash" size={28} color={colors.error} />
-                <Text variant="titleSmall" style={{ color: colors.error, marginTop: spacing.md }}>
+                <Ionicons name="trash" size={28} color={colors.statusError} />
+                <Text variant="titleSmall" style={{ color: colors.statusError, marginTop: spacing.md }}>
                   Confirm Deletion
                 </Text>
               </View>
@@ -122,7 +122,7 @@ export default function AccountDeletionScreen() {
                 style={[styles.bodyText, { color: colors.onSurfaceVariant }]}
               >
                 To permanently delete your account, type{' '}
-                <Text variant="bodyMedium" style={{ color: colors.error, fontWeight: '700' }}>
+                <Text variant="bodyMedium" style={{ color: colors.statusError, fontWeight: '700' }}>
                   DELETE
                 </Text>{' '}
                 in the field below.
@@ -142,7 +142,7 @@ export default function AccountDeletionScreen() {
 
               {isDeleting ? (
                 <View style={styles.loadingWrap}>
-                  <ActivityIndicator size="large" color={colors.error} />
+                  <ActivityIndicator size="large" color={colors.statusError} />
                   <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, marginTop: spacing.base }}>
                     Deleting your account...
                   </Text>
@@ -170,20 +170,20 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.base,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.outlineVariant,
     },
     backBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surfaceContainer,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     scroll: {
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
+      paddingTop: spacing.lg,
       paddingBottom: spacing['3xl'],
     },
     warningBanner: {
@@ -195,10 +195,10 @@ const makeStyles = (colors: Colors) =>
       lineHeight: 22,
     },
     card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: 'rgba(255,255,255,0.06)',
       padding: spacing.base,
       gap: spacing.md,
     },
@@ -213,10 +213,13 @@ const makeStyles = (colors: Colors) =>
     input: {
       height: 52,
       borderWidth: 1,
-      borderRadius: radii.xl,
+      borderRadius: radii.lg,
       paddingHorizontal: spacing.base,
       fontSize: 16,
-      backgroundColor: colors.surfaceContainer,
+      backgroundColor: '#0D0D0E',
+      borderColor: 'rgba(255,255,255,0.05)',
+      color: colors.onSurface,
+      fontFamily: fonts.regular,
     },
     loadingWrap: {
       alignItems: 'center',

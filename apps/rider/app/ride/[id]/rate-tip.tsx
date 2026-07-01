@@ -167,44 +167,66 @@ export default function RateTipScreen() {
   const driverName = selectedTrip?.driver?.name ?? activeBooking?.trip?.driver?.name ?? 'Your Driver';
   const driverAvatar = (selectedTrip?.driver as any)?.profilePhoto ?? selectedTrip?.driver?.avatarUrl ?? null;
   const tripFare = activeBooking?.fareAmount ?? resolvedBooking?.fareAmount ?? 0;
+  const vehicle = selectedTrip?.vehicle as any;
+  const vehicleLabel = vehicle
+    ? [vehicle.model ?? vehicle.make, vehicle.plateNumber].filter(Boolean).join(' • ')
+    : 'Shared Van';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable onPress={handleSkip} style={styles.headerBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
+          <Ionicons name="close" size={22} color={colors.onSurface} />
+        </Pressable>
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Rate Driver</Text>
+        <View style={{ width: 44 }} />
+      </View>
+
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Driver hero section */}
+          {/* Title block */}
           <MotiView
             from={{ opacity: 0, translateY: -10 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-            style={styles.heroSection}
+            style={styles.titleBlock}
           >
-            {/* Glow ring behind avatar */}
-            <View style={styles.avatarGlow} />
-            <View style={styles.avatarRing}>
-              <Avatar size={80} name={driverName} uri={driverAvatar} />
+            <Text variant="headlineMedium" style={styles.screenTitle}>How was your ride?</Text>
+            <Text variant="bodyLarge" style={styles.screenSubtitle}>Your feedback helps us improve.</Text>
+          </MotiView>
+
+          {/* Glass driver card */}
+          <MotiView
+            from={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 60 }}
+            style={styles.driverCard}
+          >
+            <View style={styles.avatarWrap}>
+              <View style={styles.avatarGlow} />
+              <View style={styles.avatarRing}>
+                <Avatar size={80} name={driverName} uri={driverAvatar} />
+              </View>
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark" size={14} color={colors.onPrimary} />
+              </View>
             </View>
-            <MotiView
-              from={{ opacity: 0, translateY: 4 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 80 }}
-              style={styles.heroText}
-            >
-              <Text style={styles.heroName}>{driverName}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                How was your trip?
-              </Text>
-              {tripFare > 0 && (
-                <View style={styles.farePill}>
-                  <Ionicons name="receipt-outline" size={12} color={colors.primary} />
-                  <Text style={styles.farePillText}>{formatCurrency(tripFare)} paid</Text>
-                </View>
-              )}
-            </MotiView>
+            <Text style={styles.heroName}>{driverName}</Text>
+            <View style={styles.vehiclePill}>
+              <Ionicons name="car-outline" size={13} color={colors.onSurfaceVariant} />
+              <Text style={styles.vehiclePillText}>{vehicleLabel}</Text>
+            </View>
+            {tripFare > 0 && (
+              <View style={styles.farePill}>
+                <Ionicons name="receipt-outline" size={12} color={colors.primary} />
+                <Text style={styles.farePillText}>{formatCurrency(tripFare)} paid</Text>
+              </View>
+            )}
           </MotiView>
 
           {/* Stars */}
@@ -438,25 +460,52 @@ function StarButton({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing['2xl'],
+      paddingVertical: spacing.base,
+    },
+    headerBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     scroll: {
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
+      paddingTop: spacing.sm,
       paddingBottom: spacing.xl,
       gap: spacing.xl,
     },
-    heroSection: {
+    titleBlock: { alignItems: 'center', gap: spacing.xs },
+    screenTitle: { color: colors.onSurface, textAlign: 'center' },
+    screenSubtitle: { color: colors.onSurfaceVariant, textAlign: 'center' },
+    driverCard: {
       alignItems: 'center',
-      paddingTop: spacing.lg,
-      gap: spacing.md,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: radii['2xl'],
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.06)',
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      gap: spacing.sm,
     },
+    avatarWrap: { position: 'relative', marginBottom: spacing.xs },
     avatarGlow: {
       position: 'absolute',
-      top: spacing.lg + 4,
-      width: 120,
-      height: 120,
+      top: -4,
+      left: -4,
+      right: -4,
+      bottom: -4,
       borderRadius: 60,
       backgroundColor: colors.primary,
-      opacity: 0.12,
+      opacity: 0.18,
     },
     avatarRing: {
       padding: 4,
@@ -464,12 +513,40 @@ const makeStyles = (colors: Colors) =>
       borderWidth: 2,
       borderColor: colors.primary + '80',
       shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.35,
-      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.4,
+      shadowRadius: 14,
       elevation: 8,
     },
-    heroText: { alignItems: 'center', gap: spacing.xs },
+    verifiedBadge: {
+      position: 'absolute',
+      bottom: -2,
+      right: -2,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.primary,
+      borderWidth: 2,
+      borderColor: colors.surfaceCard ?? colors.backgroundDeep,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    vehiclePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: colors.surfaceDim ?? colors.backgroundDeep,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.05)',
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 5,
+    },
+    vehiclePillText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurfaceVariant,
+    },
     heroName: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
@@ -637,7 +714,7 @@ const makeStyles = (colors: Colors) =>
       color: colors.onPrimary,
     },
     commentInput: {
-      backgroundColor: colors.surfaceContainerHigh,
+      backgroundColor: '#0D0D0E',
       borderRadius: radii.lg,
       borderWidth: 1,
       borderColor: colors.outlineVariant,
@@ -645,7 +722,7 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
       color: colors.onSurface,
-      minHeight: 80,
+      minHeight: 96,
     },
     footer: {
       paddingHorizontal: spacing['2xl'],

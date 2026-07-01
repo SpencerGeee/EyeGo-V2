@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet } from 'react-native';
-import { colors, fonts, fontSizes } from '@eyego/config';
+import { fonts } from '@eyego/config';
 import { Text } from './Text';
 import type { TextVariant } from './Text';
 
@@ -23,7 +22,6 @@ export function AnimatedFareText({
   // the animation on every intermediate step and cause infinite re-triggering).
   const displayValueRef = useRef(displayValue);
   displayValueRef.current = displayValue;
-  const animatedValue = useRef(new Animated.Value(value)).current;
   const isFirstRender = useRef(true);
 
   useEffect(() => {

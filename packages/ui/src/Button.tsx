@@ -1,6 +1,5 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, ViewStyle } from 'react-native';
-import { MotiView } from 'moti';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
 import { colors, radii, spacing, fonts, fontSizes } from '@eyego/config';
@@ -50,16 +49,25 @@ const variantStyles: Record<ButtonVariant, { container: ViewStyle; textColor: st
   },
   destructive: {
     container: {
-      backgroundColor: colors.errorContainer,
+      backgroundColor: colors.statusError,
     },
-    textColor: colors.error,
+    textColor: '#FFFFFF',
   },
 };
 
 const sizeStyles: Record<ButtonSize, { container: ViewStyle; fontSize: number }> = {
-  sm: { container: { paddingVertical: spacing.sm, paddingHorizontal: spacing.base }, fontSize: fontSizes.label },
-  md: { container: { paddingVertical: 14, paddingHorizontal: spacing.xl }, fontSize: fontSizes.titleSmall },
-  lg: { container: { paddingVertical: spacing.base, paddingHorizontal: spacing['2xl'] }, fontSize: fontSizes.titleMedium },
+  sm: {
+    container: { paddingVertical: spacing.sm, paddingHorizontal: spacing.base, minHeight: 44 },
+    fontSize: fontSizes.label,
+  },
+  md: {
+    container: { paddingVertical: 14, paddingHorizontal: spacing.xl, minHeight: 52 },
+    fontSize: fontSizes.titleSmall,
+  },
+  lg: {
+    container: { paddingVertical: spacing.base, paddingHorizontal: spacing['2xl'], minHeight: 52 },
+    fontSize: fontSizes.titleMedium,
+  },
 };
 
 export function Button({
@@ -120,13 +128,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radii['3xl'],
+    borderRadius: radii.full,
     gap: spacing.sm,
   },
   fullWidth: {
     width: '100%',
   },
   disabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
 });

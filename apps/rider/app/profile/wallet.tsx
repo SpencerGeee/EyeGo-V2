@@ -48,7 +48,7 @@ export default function WalletScreen() {
     if (count >= 11) return { label: 'Silver', color: '#94A3B8', icon: 'medal-outline' as const };
     return { label: 'Standard', color: primaryColor, icon: 'leaf' as const };
   }
-  const tier = getAccountTier(tripCount, '#4BE277');
+  const tier = getAccountTier(tripCount, colors.primary);
 
   const balance = (balanceData as any)?.data?.data?.balance ?? (balanceData as any)?.data?.balance ?? 0;
   const transactions = (txData as any)?.data?.data?.transactions ?? (txData as any)?.data?.transactions ?? [];
@@ -76,76 +76,80 @@ export default function WalletScreen() {
     topUp.mutate(amount);
   };
 
+  const comingSoon = (feature: string) =>
+    Alert.alert(feature, `${feature} is coming soon to EyeGo Wallet.`);
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={16} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleMedium" style={styles.headerTitle}>EyeGo Wallet</Text>
-        <View style={{ width: 24 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Wallet</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Wallet Balance Card */}
+        {/* Balance Card */}
         <MotiView
           from={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
-          style={styles.cardContainer}
+          style={styles.balanceCard}
         >
-          <BlurView intensity={30} tint="dark" style={styles.cardGlass}>
-            <View style={styles.cardTop}>
-              <View>
-                <Text variant="caption" color="rgba(255, 255, 255, 0.6)">TOTAL BALANCE</Text>
-                {balanceLoading ? (
-                  <Skeleton width={140} height={40} borderRadius={8} style={{ marginTop: spacing.xs }} />
-                ) : (
-                  <Text style={styles.balanceText}>{formatCurrency(balance)}</Text>
-                )}
-              </View>
-              <Ionicons name="wallet-outline" size={32} color="#4BE277" />
+          <View style={styles.balanceGlow} pointerEvents="none" />
+          <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
+          {balanceLoading ? (
+            <Skeleton width={180} height={44} borderRadius={8} style={{ marginTop: spacing.sm }} />
+          ) : (
+            <View style={styles.balanceRow}>
+              <Text style={styles.balanceCurrency}>GH₵</Text>
+              <Text style={styles.balanceValue}>{Number(balance).toFixed(2)}</Text>
             </View>
+          )}
 
-            <View style={styles.cardBottom}>
-              <View style={styles.cardMetaItem}>
-                <Text style={styles.metaLabel}>ACCOUNT TYPE</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                  <Ionicons name={tier.icon} size={14} color={tier.color} />
-                  <Text style={[styles.metaValue, { color: tier.color }]}>{tier.label} Rider</Text>
-                </View>
-              </View>
-              <View style={styles.cardMetaDivider} />
-              <View style={styles.cardMetaItem}>
-                <Text style={styles.metaLabel}>DEFAULT PAY</Text>
-                <Text style={styles.metaValue}>Cash / Wallet</Text>
-              </View>
-            </View>
-          </BlurView>
+          <View style={styles.tierRow}>
+            <Ionicons name={tier.icon} size={14} color={tier.color} />
+            <Text style={[styles.tierText, { color: tier.color }]}>{tier.label} Rider</Text>
+          </View>
+
+          <Pressable
+            style={({ pressed }) => [styles.topUpBtn, pressed && { transform: [{ scale: 0.97 }] }]}
+            onPress={() => setModalVisible(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Top up wallet"
+          >
+            <Ionicons name="add-circle" size={20} color={colors.onPrimary} />
+            <Text style={styles.topUpText}>Top Up Wallet</Text>
+          </Pressable>
         </MotiView>
 
-        {/* Quick Actions */}
+        {/* Quick Actions grid */}
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8, delay: 50 }}
-          style={styles.actionRow}
+          style={styles.quickGrid}
         >
-          <Pressable style={styles.actionButton} onPress={() => setModalVisible(true)} accessibilityRole="button" accessibilityLabel="Top up wallet">
-            <Ionicons name="add-circle" size={20} color="#050508" />
-            <Text style={styles.actionButtonText}>Top Up Wallet</Text>
+          <Pressable style={styles.quickCard} onPress={() => comingSoon('Send Money')}>
+            <Ionicons name="send-outline" size={28} color={colors.primary} />
+            <Text style={styles.quickLabel}>Send Money</Text>
+          </Pressable>
+          <Pressable style={styles.quickCard} onPress={() => comingSoon('Scan & Pay')}>
+            <Ionicons name="qr-code-outline" size={28} color={colors.primary} />
+            <Text style={styles.quickLabel}>Scan & Pay</Text>
           </Pressable>
         </MotiView>
 
-        {/* Transaction History */}
+        {/* Recent Activity */}
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8, delay: 80 }}
           style={styles.section}
         >
-          <Text variant="titleSmall" style={styles.sectionTitle}>Recent Transactions</Text>
+          <Text variant="titleSmall" style={{ color: colors.onSurface }}>Recent Activity</Text>
 
           <View style={styles.transactionList}>
             {txLoading ? (
@@ -155,30 +159,38 @@ export default function WalletScreen() {
                 ))}
               </>
             ) : transactions.length === 0 ? (
-              <Text variant="bodySmall" color="rgba(255,255,255,0.4)" style={{ textAlign: 'center', padding: spacing.base }}>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', padding: spacing.base }}>
                 No transactions yet.
               </Text>
             ) : (
-              transactions.map((tx: any) => (
-                <View key={tx.id} style={styles.txRow}>
-                  <View style={[styles.txIconContainer, { backgroundColor: tx.type === 'CREDIT' ? 'rgba(75, 226, 119, 0.15)' : 'rgba(255, 255, 255, 0.05)' }]}>
-                    <Ionicons
-                      name={tx.type === 'CREDIT' ? 'arrow-down-outline' : 'arrow-up-outline'}
-                      size={16}
-                      color={tx.type === 'CREDIT' ? '#4BE277' : '#FFFFFF'}
-                    />
-                  </View>
-                  <View style={styles.txInfo}>
-                    <Text variant="bodyMedium" style={styles.txTitle}>{tx.description}</Text>
-                    <Text variant="caption" color="rgba(255, 255, 255, 0.5)">
-                      {new Date(tx.createdAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              transactions.map((tx: any, i: number) => {
+                const isCredit = tx.type === 'CREDIT';
+                return (
+                  <View
+                    key={tx.id}
+                    style={[styles.txRow, i === transactions.length - 1 && { borderBottomWidth: 0 }]}
+                  >
+                    <View style={[styles.txIcon, { backgroundColor: isCredit ? `${colors.statusSuccess ?? colors.primary}26` : colors.surfaceVariant ?? colors.surfaceContainerHigh }]}>
+                      <Ionicons
+                        name={isCredit ? 'arrow-down' : 'car-outline'}
+                        size={16}
+                        color={isCredit ? (colors.statusSuccess ?? colors.primary) : colors.onSurface}
+                      />
+                    </View>
+                    <View style={styles.txInfo}>
+                      <Text variant="bodyMedium" style={{ color: colors.onSurface }} numberOfLines={1}>
+                        {tx.description}
+                      </Text>
+                      <Text variant="caption" color={colors.onSurfaceVariant}>
+                        {new Date(tx.createdAt).toLocaleDateString('en-GH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <Text style={[styles.txAmount, { color: isCredit ? (colors.statusSuccess ?? colors.primary) : colors.onSurface }]}>
+                      {isCredit ? '+' : '-'}{formatCurrency(tx.amount)}
                     </Text>
                   </View>
-                  <Text style={[styles.txAmount, { color: tx.type === 'CREDIT' ? '#4BE277' : '#FFFFFF' }]}>
-                    {tx.type === 'CREDIT' ? '+' : '-'}{formatCurrency(tx.amount)}
-                  </Text>
-                </View>
-              ))
+                );
+              })
             )}
           </View>
         </MotiView>
@@ -195,13 +207,13 @@ export default function WalletScreen() {
           <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text variant="titleMedium">Top Up Wallet</Text>
+              <Text variant="titleMedium" style={{ color: colors.onSurface }}>Top Up Wallet</Text>
               <Pressable onPress={() => setModalVisible(false)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close top up">
-                <Ionicons name="close" size={24} color="#FFFFFF" />
+                <Ionicons name="close" size={24} color={colors.onSurface} />
               </Pressable>
             </View>
 
-            <Text variant="bodySmall" color="rgba(255, 255, 255, 0.6)" style={{ marginBottom: spacing.md }}>
+            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md }}>
               Select a quick amount or enter a custom amount:
             </Text>
 
@@ -221,14 +233,14 @@ export default function WalletScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-              <Text variant="caption" color="rgba(255, 255, 255, 0.5)" style={{ marginBottom: 6 }}>CUSTOM AMOUNT (GHS)</Text>
+              <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginBottom: 6 }}>CUSTOM AMOUNT (GHS)</Text>
               <TextInput
                 style={styles.input}
                 value={topUpAmount}
                 onChangeText={setTopUpAmount}
                 keyboardType="numeric"
                 placeholder="0.00"
-                placeholderTextColor="rgba(255,255,255,0.3)"
+                placeholderTextColor={colors.outlineVariant}
               />
             </View>
 
@@ -248,116 +260,141 @@ export default function WalletScreen() {
   );
 }
 
-const makeStyles = (_colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#050508' },
+const makeStyles = (colors: Colors) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.base,
   },
-  headerTitle: { color: '#FFFFFF', fontFamily: fonts.bold },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scroll: {
     paddingHorizontal: spacing['2xl'],
     paddingTop: spacing.md,
     paddingBottom: spacing['3xl'],
     gap: spacing.xl,
   },
-  cardContainer: {
-    borderRadius: radii['2xl'],
+  balanceCard: {
+    alignItems: 'center',
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
     overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
-  cardGlass: { padding: spacing.xl },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing['2xl'],
+  balanceGlow: {
+    position: 'absolute',
+    top: -60,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: `${colors.primary}1F`,
   },
-  balanceText: {
-    fontSize: 36,
-    fontFamily: fonts.bold,
-    color: '#FFFFFF',
-    marginTop: spacing.xs,
-    letterSpacing: -1,
-  },
-  cardBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    paddingTop: spacing.md,
-  },
-  cardMetaItem: { flex: 1 },
-  cardMetaDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginHorizontal: spacing.md,
-  },
-  metaLabel: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: 'rgba(255, 255, 255, 0.4)',
-    letterSpacing: 1.5,
-  },
-  metaValue: {
-    fontSize: 13,
+  balanceLabel: {
     fontFamily: fonts.semiBold,
-    color: '#FFFFFF',
-    marginTop: 2,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: colors.onSurfaceVariant,
+    marginBottom: spacing.sm,
   },
-  actionRow: { width: '100%' },
-  actionButton: {
-    backgroundColor: '#4BE277',
+  balanceRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
+  balanceCurrency: {
+    fontFamily: fonts.displayBold,
+    fontSize: 22,
+    color: colors.primary,
+  },
+  balanceValue: {
+    fontFamily: fonts.displayBold,
+    fontSize: 44,
+    color: colors.primary,
+    letterSpacing: -1,
+    textShadowColor: `${colors.primary}66`,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 18,
+  },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: spacing.sm,
+  },
+  tierText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall },
+  topUpBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 48,
-    borderRadius: 24,
     gap: spacing.sm,
+    alignSelf: 'stretch',
+    marginTop: spacing.lg,
+    backgroundColor: colors.primary,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.base,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
   },
-  actionButtonText: { color: '#050508', fontFamily: fonts.bold, fontSize: 14 },
+  topUpText: { fontFamily: fonts.bold, fontSize: fontSizes.titleSmall, color: colors.onPrimary },
+  quickGrid: { flexDirection: 'row', gap: spacing.base },
+  quickCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: spacing.lg,
+  },
+  quickLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurface },
   section: { gap: spacing.md },
-  sectionTitle: { color: '#FFFFFF', fontFamily: fonts.bold },
   transactionList: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
     borderRadius: radii.xl,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    padding: spacing.md,
+    paddingHorizontal: spacing.base,
   },
   txRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  txIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  txIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
   txInfo: { flex: 1 },
-  txTitle: { color: '#FFFFFF', fontFamily: fonts.medium },
-  txAmount: { fontSize: 15, fontFamily: fonts.bold },
+  txAmount: { fontFamily: fonts.bold, fontSize: fontSizes.bodyLarge },
   modalOverlay: { flex: 1, justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: '#0A0A0F',
+    backgroundColor: colors.surfaceCard ?? '#0A0A0F',
     borderTopLeftRadius: radii['3xl'],
     borderTopRightRadius: radii['3xl'],
     padding: spacing.xl,
     paddingBottom: spacing['3xl'],
-    borderTopWidth: 1.5,
-    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.12)',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -365,23 +402,19 @@ const makeStyles = (_colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  quickAmountsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
+  quickAmountsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
   quickAmtBtn: {
     flex: 1,
     height: 44,
     borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickAmtText: { color: '#FFFFFF', fontFamily: fonts.bold, fontSize: 13 },
+  quickAmtText: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 13 },
   inputContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: '#0D0D0E',
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
@@ -390,7 +423,7 @@ const makeStyles = (_colors: Colors) => StyleSheet.create({
   input: {
     fontSize: 22,
     fontFamily: fonts.bold,
-    color: '#4BE277',
+    color: colors.primary,
     padding: 0,
   },
 });

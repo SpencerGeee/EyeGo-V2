@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -124,11 +124,11 @@ export default function EmergencyContactsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall">Emergency Contacts</Text>
-        <View style={{ width: 40 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Emergency Contacts</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -149,12 +149,7 @@ export default function EmergencyContactsScreen() {
             </View>
           ) : (
             <>
-              <Text
-                variant="labelSmall"
-                style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-              >
-                SAVED CONTACTS
-              </Text>
+              <Text style={styles.sectionLabel}>SAVED CONTACTS</Text>
               <View style={styles.card}>
                 {contacts.map((contact, index) => (
                   <React.Fragment key={contact.id}>
@@ -175,7 +170,7 @@ export default function EmergencyContactsScreen() {
                         onPress={() => handleDelete(contact.id)}
                         style={styles.deleteBtn}
                       >
-                        <Ionicons name="trash-outline" size={18} color={colors.error} />
+                        <Ionicons name="trash-outline" size={18} color={colors.statusError} />
                       </Pressable>
                     </View>
                   </React.Fragment>
@@ -191,12 +186,7 @@ export default function EmergencyContactsScreen() {
               transition={{ type: 'timing', duration: 300 }}
               style={{ marginTop: spacing['2xl'] }}
             >
-              <Text
-                variant="labelSmall"
-                style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}
-              >
-                ADD CONTACT
-              </Text>
+              <Text style={styles.sectionLabel}>ADD CONTACT</Text>
               <View style={styles.formCard}>
                 <TextInput
                   value={newName}
@@ -247,28 +237,35 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'space-between',
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.base,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.outlineVariant,
     },
     backBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: colors.surfaceContainer,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     scroll: {
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing['2xl'],
+      paddingTop: spacing.lg,
       paddingBottom: spacing['3xl'],
     },
-    sectionLabel: { letterSpacing: 1, marginBottom: spacing.base },
+    sectionLabel: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      letterSpacing: 1.4,
+      color: colors.outline,
+      marginBottom: spacing.sm,
+      marginLeft: spacing.xs,
+    },
     card: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: 'rgba(255,255,255,0.06)',
       overflow: 'hidden',
     },
     row: {
@@ -277,18 +274,18 @@ const makeStyles = (colors: Colors) =>
       gap: spacing.md,
       padding: spacing.base,
     },
-    divider: { height: 1, backgroundColor: colors.outlineVariant, marginHorizontal: spacing.base },
+    divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.05)', marginHorizontal: spacing.base },
     iconWrap: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 44,
+      height: 44,
+      borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
     },
     deleteBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -298,19 +295,23 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: spacing['3xl'],
     },
     formCard: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: radii.lg,
       borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      borderColor: 'rgba(255,255,255,0.06)',
       padding: spacing.base,
       gap: spacing.base,
     },
     input: {
       height: 50,
       borderWidth: 1,
-      borderRadius: radii.xl,
+      borderRadius: radii.lg,
       paddingHorizontal: spacing.base,
       fontSize: 15,
+      backgroundColor: colors.surfaceDim ?? '#0D0D0E',
+      borderColor: 'rgba(255,255,255,0.05)',
+      color: colors.onSurface,
+      fontFamily: fonts.regular,
     },
     limitNote: {
       flexDirection: 'row',

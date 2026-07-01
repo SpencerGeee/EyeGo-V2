@@ -128,11 +128,11 @@ export default function SavedPlacesScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleSmall">Saved Places</Text>
-        <View style={{ width: 40 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Saved Places</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -141,9 +141,7 @@ export default function SavedPlacesScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
-            FAVORITES
-          </Text>
+          <Text style={styles.sectionLabel}>FAVORITES</Text>
           
           <View style={styles.placesCard}>
             {places.map((place, index) => (
@@ -162,10 +160,10 @@ export default function SavedPlacesScreen() {
                     style={styles.placeInfo}
                   >
                     <Text variant="bodyMedium" color={colors.onSurface}>{place.name}</Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>{place.address}</Text>
+                    <Text variant="caption" style={{ color: colors.onSurfaceVariant }}>{place.address}</Text>
                   </Pressable>
                   <Pressable onPress={() => handleRemovePlace(place.id)} hitSlop={10}>
-                    <Ionicons name="trash-outline" size={18} color={colors.error} />
+                    <Ionicons name="trash-outline" size={18} color={colors.statusError} />
                   </Pressable>
                 </View>
                 {index < places.length - 1 && <View style={styles.divider} />}
@@ -267,31 +265,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.outlineVariant,
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceContainer,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   scroll: {
     paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing['2xl'],
+    paddingTop: spacing.lg,
     paddingBottom: spacing['3xl'],
   },
   sectionLabel: {
-    letterSpacing: 1,
-    marginBottom: spacing.base,
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 1.4,
+    color: colors.outline,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
   },
   placesCard: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
   placeRow: {
@@ -301,9 +303,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.md,
   },
   placeIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: colors.primary + '20',
     alignItems: 'center',
     justifyContent: 'center',
@@ -314,7 +316,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: colors.outlineVariant,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     marginHorizontal: spacing.base,
   },
   addBtn: {
@@ -322,35 +324,39 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     padding: spacing.base,
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.lg,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.08)',
     borderStyle: 'dashed',
     justifyContent: 'center',
   },
   addCard: {
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.lg,
     padding: spacing.base,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   inputContainer: {
     marginBottom: spacing.md,
   },
   inputLabel: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
     marginBottom: spacing.xs,
-    letterSpacing: 1,
   },
   input: {
-    backgroundColor: colors.surfaceContainerHigh,
+    backgroundColor: '#0D0D0E',
     borderRadius: radii.lg,
     paddingHorizontal: spacing.md,
     height: 48,
-    fontFamily: fonts.medium,
+    fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
     color: colors.onSurface,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   actionRow: {
     flexDirection: 'row',

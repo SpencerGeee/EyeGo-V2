@@ -10,7 +10,7 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { colors, spacing, fonts } from '@eyego/config';
+import { colors, fonts } from '@eyego/config';
 import { Text } from '@eyego/ui';
 
 // Liquid Glass — only available on iOS 26+; fails silently if not installed
@@ -35,10 +35,10 @@ const TAB_ICONS: Record<TabRoute, { active: keyof typeof Ionicons.glyphMap; inac
 };
 
 const TAB_LABELS: Record<TabRoute, string> = {
-  home: 'Home',
-  services: 'Services',
-  activity: 'Activity',
-  account: 'Account',
+  home: 'HOME',
+  services: 'SERVICES',
+  activity: 'ACTIVITY',
+  account: 'PROFILE',
 };
 
 /** Renders the glassmorphism / Liquid Glass background layer */
@@ -132,13 +132,11 @@ function TabItem({
         <Ionicons
           name={isFocused ? icons.active : icons.inactive}
           size={22}
-          color={isFocused ? colors.primary : 'rgba(255,255,255,0.45)'}
+          color={isFocused ? colors.primary : colors.onSurfaceVariant}
         />
-        {isFocused && (
-          <Text style={styles.tabLabel}>
-            {TAB_LABELS[routeName]}
-          </Text>
-        )}
+        <Text style={[styles.tabLabel, { color: isFocused ? colors.primary : colors.onSurfaceVariant }]}>
+          {TAB_LABELS[routeName]}
+        </Text>
       </Animated.View>
     </Pressable>
   );
@@ -165,22 +163,22 @@ export default function TabLayout() {
 const styles = StyleSheet.create({
   tabBarWrapper: {
     position: 'absolute',
-    bottom: 24,
-    left: spacing['2xl'],
-    right: spacing['2xl'],
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.10)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.40,
+    shadowRadius: 20,
     elevation: 20,
     overflow: 'hidden',
-    // No backgroundColor — GlassLayer fills it
   },
   androidFallback: {
-    backgroundColor: 'rgba(10, 12, 18, 0.90)',
+    backgroundColor: 'rgba(10, 12, 18, 0.92)',
   },
   topBorder: {
     position: 'absolute',
@@ -193,9 +191,11 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: 'row',
-    height: 64,
+    height: 72,
     alignItems: 'center',
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   tabItem: {
     flex: 1,
@@ -204,13 +204,13 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   tabItemInner: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    gap: 5,
-    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 3,
+    minHeight: 52,
     borderRadius: 16,
   },
   tabItemActive: {
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontFamily: fonts.semiBold,
-    fontSize: 12,
-    color: colors.primary,
+    fontSize: 9,
+    letterSpacing: 0.7,
   },
 });

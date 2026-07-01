@@ -13,12 +13,12 @@ interface SkeletonProps {
 export function Skeleton({ width = '100%', height = 16, borderRadius = radii.md, style }: SkeletonProps) {
   return (
     <MotiView
-      from={{ opacity: 0.4 }}
-      animate={{ opacity: 1 }}
+      from={{ opacity: 0.35 }}
+      animate={{ opacity: 0.75 }}
       transition={{
         loop: true,
         type: 'timing',
-        duration: 800,
+        duration: 900,
         repeatReverse: true,
       }}
       style={[
@@ -26,7 +26,7 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = radii.md,
           width,
           height,
           borderRadius,
-          backgroundColor: colors.surfaceContainerHigh,
+          backgroundColor: colors.surfaceCard,
         },
         style,
       ]}

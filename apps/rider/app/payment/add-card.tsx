@@ -3,10 +3,9 @@ import { View, StyleSheet, Pressable, ScrollView, Alert, Platform } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
 import { walletApi } from '@eyego/api';
@@ -56,14 +55,14 @@ export default function AddCardScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={16}>
-          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleMedium" style={styles.headerTitle}>Add Payment Method</Text>
-        <View style={{ width: 24 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Add Payment Method</Text>
+        <View style={{ width: 44 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -72,167 +71,224 @@ export default function AddCardScreen() {
           from={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
-          style={styles.cardContainer}
+          style={styles.cardPreview}
         >
-          <BlurView intensity={40} tint="dark" style={styles.cardGlass}>
-            <View style={styles.cardTop}>
-              <Ionicons name="hardware-chip" size={36} color="rgba(255,255,255,0.8)" />
-              <View style={styles.cardTypeBadge}>
-                <Ionicons name="lock-closed" size={12} color="#FFFFFF" />
-                <Text style={styles.cardTypeText}>Secured</Text>
+          <View style={styles.cardFace}>
+            <View style={styles.cardChipRow}>
+              <Ionicons name="hardware-chip" size={36} color="rgba(255,255,255,0.85)" />
+              <View style={styles.cardBadge}>
+                <Ionicons name="lock-closed" size={11} color={colors.primary} />
+                <Text style={styles.cardBadgeText}>Secured</Text>
               </View>
             </View>
-            <View style={styles.cardMiddle}>
-              <Text style={styles.cardNumberPreview}>{'•••• •••• •••• ••••'}</Text>
+            <View style={styles.cardNumberRow}>
+              <Text style={styles.cardNumber}>{'••••  ••••  ••••  ••••'}</Text>
             </View>
-            <View style={styles.cardBottom}>
-              <View style={styles.cardMetaItem}>
-                <Text style={styles.metaLabel}>CARDHOLDER</Text>
-                <Text style={styles.metaValue}>YOUR NAME</Text>
+            <View style={styles.cardMetaRow}>
+              <View>
+                <Text style={styles.cardMetaLabel}>CARDHOLDER</Text>
+                <Text style={styles.cardMetaValue}>YOUR NAME</Text>
               </View>
-              <View style={styles.cardMetaItemRight}>
-                <Text style={styles.metaLabel}>EXPIRES</Text>
-                <Text style={styles.metaValue}>MM/YY</Text>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.cardMetaLabel}>EXPIRES</Text>
+                <Text style={styles.cardMetaValue}>MM/YY</Text>
               </View>
             </View>
-          </BlurView>
+          </View>
         </MotiView>
 
         {/* Info */}
         <MotiView
-          from={{ opacity: 0, translateY: 20 }}
+          from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, delay: 100 }}
+          transition={{ type: 'spring', stiffness: 580, damping: 34, delay: 80 }}
           style={styles.infoCard}
         >
           <View style={styles.infoRow}>
-            <Ionicons name="shield-checkmark" size={22} color="#4CAF50" />
+            <View style={[styles.infoIconWrap, { backgroundColor: `${colors.statusSuccess ?? colors.primary}1F` }]}>
+              <Ionicons name="shield-checkmark" size={18} color={colors.statusSuccess ?? colors.primary} />
+            </View>
             <Text variant="bodyMedium" style={styles.infoText}>
               Card details are entered on Paystack's encrypted, PCI-compliant checkout — your card number never touches our servers.
             </Text>
           </View>
-          <View style={[styles.infoRow, { marginTop: spacing.md }]}>
-            <Ionicons name="information-circle-outline" size={22} color="rgba(255,255,255,0.4)" />
-            <Text variant="bodySmall" style={[styles.infoText, { color: 'rgba(255,255,255,0.45)' }]}>
+          <View style={styles.infoDivider} />
+          <View style={styles.infoRow}>
+            <View style={[styles.infoIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+              <Ionicons name="information-circle-outline" size={18} color={colors.onSurfaceVariant} />
+            </View>
+            <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, flex: 1, lineHeight: 18 }}>
               A ₵0.50 verification charge will be made and your card saved for future one-tap payments.
             </Text>
           </View>
         </MotiView>
       </ScrollView>
 
+      {/* Fixed footer */}
       <View style={styles.footer}>
-        <Button
-          label={isSaving ? 'Opening checkout...' : 'Add Card Securely'}
+        <Pressable
           onPress={handleAddCard}
-          loading={isSaving}
-        />
+          disabled={isSaving}
+          style={({ pressed }) => [styles.addBtn, isSaving && { opacity: 0.5 }, pressed && { transform: [{ scale: 0.97 }] }]}
+          accessibilityRole="button"
+          accessibilityLabel="Add card securely"
+        >
+          <Ionicons name="lock-closed" size={18} color={colors.onPrimary} />
+          <Text style={styles.addBtnText}>{isSaving ? 'Opening checkout…' : 'Add Card Securely'}</Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#050508' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.md,
-  },
-  headerTitle: { color: '#FFFFFF', fontFamily: fonts.bold },
-  scroll: {
-    paddingHorizontal: spacing['2xl'],
-    paddingTop: spacing.md,
-    paddingBottom: spacing['3xl'],
-    gap: spacing.xl,
-  },
-  cardContainer: {
-    borderRadius: radii['2xl'],
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    aspectRatio: 1.586,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  cardGlass: {
-    flex: 1,
-    padding: spacing.xl,
-    justifyContent: 'space-between',
-  },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardTypeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radii.full,
-    gap: 4,
-  },
-  cardTypeText: {
-    color: '#FFFFFF',
-    fontFamily: fonts.bold,
-    fontSize: 12,
-  },
-  cardMiddle: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardNumberPreview: {
-    fontSize: 24,
-    fontFamily: fonts.bold,
-    color: '#FFFFFF',
-    letterSpacing: 2,
-    textAlign: 'center',
-  },
-  cardBottom: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  cardMetaItem: { flex: 1, paddingRight: spacing.md },
-  cardMetaItemRight: { alignItems: 'flex-end' },
-  metaLabel: {
-    fontSize: 9,
-    fontFamily: fonts.bold,
-    color: 'rgba(255, 255, 255, 0.5)',
-    letterSpacing: 1.5,
-    marginBottom: 4,
-  },
-  metaValue: {
-    fontSize: 14,
-    fontFamily: fonts.semiBold,
-    color: '#FFFFFF',
-    letterSpacing: 1,
-  },
-  infoCard: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    padding: spacing.base,
-    gap: spacing.sm,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  infoText: {
-    flex: 1,
-    color: 'rgba(255,255,255,0.8)',
-    lineHeight: 20,
-  },
-  footer: {
-    padding: spacing['2xl'],
-    paddingBottom: Platform.OS === 'ios' ? spacing['2xl'] : spacing.xl,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
-    backgroundColor: '#050508',
-  },
-});
+const makeStyles = (colors: Colors) =>
+  StyleSheet.create({
+    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing['2xl'],
+      paddingVertical: spacing.base,
+    },
+    backBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    scroll: {
+      paddingHorizontal: spacing['2xl'],
+      paddingTop: spacing.md,
+      paddingBottom: spacing['3xl'],
+      gap: spacing.xl,
+    },
+    cardPreview: {
+      borderRadius: radii['2xl'],
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.12)',
+      aspectRatio: 1.586,
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    },
+    cardFace: {
+      flex: 1,
+      padding: spacing.xl,
+      justifyContent: 'space-between',
+      backgroundColor: `linear-gradient(135deg, ${colors.surfaceCard ?? '#1a1a1a'}, ${colors.backgroundDeep})` as any,
+    },
+    cardChipRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+    },
+    cardBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: `${colors.primary}1A`,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: `${colors.primary}33`,
+    },
+    cardBadgeText: {
+      color: colors.primary,
+      fontFamily: fonts.bold,
+      fontSize: 10,
+      letterSpacing: 0.5,
+    },
+    cardNumberRow: {
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cardNumber: {
+      fontSize: 22,
+      fontFamily: fonts.displayBold,
+      color: colors.onSurface,
+      letterSpacing: 3,
+      textAlign: 'center',
+    },
+    cardMetaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+    },
+    cardMetaLabel: {
+      fontSize: 9,
+      fontFamily: fonts.bold,
+      color: colors.onSurfaceVariant,
+      letterSpacing: 1.5,
+      marginBottom: 4,
+    },
+    cardMetaValue: {
+      fontSize: 14,
+      fontFamily: fonts.semiBold,
+      color: colors.onSurface,
+      letterSpacing: 1,
+    },
+    infoCard: {
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.06)',
+      padding: spacing.base,
+      gap: spacing.sm,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.md,
+    },
+    infoIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    infoText: {
+      flex: 1,
+      color: colors.onSurfaceVariant,
+      lineHeight: 20,
+    },
+    infoDivider: {
+      height: 1,
+      backgroundColor: 'rgba(255,255,255,0.05)',
+      marginHorizontal: 0,
+    },
+    footer: {
+      paddingHorizontal: spacing['2xl'],
+      paddingTop: spacing.base,
+      paddingBottom: spacing['2xl'],
+      borderTopWidth: 1,
+      borderTopColor: 'rgba(255,255,255,0.08)',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      backgroundColor: colors.backgroundDeep,
+    },
+    addBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.primary,
+      borderRadius: radii.full,
+      paddingVertical: spacing.base + 2,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+    },
+    addBtnText: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.titleSmall,
+      color: colors.onPrimary,
+    },
+  });

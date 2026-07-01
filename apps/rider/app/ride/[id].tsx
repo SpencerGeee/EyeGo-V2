@@ -111,8 +111,29 @@ export default function RideDetailScreen() {
   // Show loading spinner while trip data is not yet available
   if (isLoading && !trip) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#050508', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#4BE277" />
+      <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  // API failed or trip not found — show a proper error state instead of crashing
+  if (!isLoading && !trip) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+        <Ionicons name="car-outline" size={48} color={colors.onSurfaceVariant} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface, marginTop: 16, textAlign: 'center' }}>
+          Trip not found
+        </Text>
+        <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: 8, lineHeight: 20 }}>
+          This ride may have been cancelled or the link is invalid.
+        </Text>
+        <Button
+          label="Go back"
+          variant="secondary"
+          onPress={() => router.back()}
+          style={{ marginTop: 24 }}
+        />
       </View>
     );
   }
@@ -121,7 +142,7 @@ export default function RideDetailScreen() {
     <View style={styles.container}>
       {/* Map background */}
       <MapboxGL.MapView
-        style={[StyleSheet.absoluteFillObject, { backgroundColor: '#050508' }]}
+        style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
         styleJSON={EYEGO_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}

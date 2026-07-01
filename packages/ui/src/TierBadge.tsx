@@ -1,9 +1,10 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, fontSizes, spacing, radii, letterSpacings } from '@eyego/config';
 import { Text } from './Text';
 
-type Tier = 'ECONOMY' | 'COMFORT' | 'PREMIUM';
+type Tier = 'ECONOMY' | 'COMFORT' | 'PREMIUM' | 'ROYAL';
 type BadgeSize = 'sm' | 'md';
 
 interface TierBadgeProps {
@@ -11,35 +12,42 @@ interface TierBadgeProps {
   size?: BadgeSize;
 }
 
-const TIER_CONFIG: Record<Tier, { label: string; icon: string; color: string }> = {
-  ECONOMY: { label: 'Eco', icon: '🌿', color: colors.primary },
-  COMFORT: { label: 'Comfort', icon: '✨', color: colors.secondary },
-  PREMIUM: { label: 'Premium', icon: '💎', color: '#7C3AED' },
+const TIER_CONFIG: Record<Tier, { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; color: string }> = {
+  ECONOMY:  { label: 'Economy',  icon: 'leaf-outline',    color: colors.tierEconomy },
+  COMFORT:  { label: 'Comfort',  icon: 'star-outline',    color: colors.tierComfort },
+  PREMIUM:  { label: 'Premium',  icon: 'diamond-outline', color: colors.tierPremium },
+  ROYAL:    { label: 'Royal',    icon: 'ribbon-outline',  color: colors.tierRoyal  },
 };
 
 export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
   const config = TIER_CONFIG[tier] ?? TIER_CONFIG.ECONOMY;
   const isSmall = size === 'sm';
+  const iconSize = isSmall ? 10 : 12;
+  const fontSize = isSmall ? 10 : fontSizes.bodySmall;
 
   return (
     <View
       style={[
         styles.badge,
         {
-          backgroundColor: config.color + '20',
+          backgroundColor: config.color + '26',
+          borderColor: config.color + '4D',
           paddingHorizontal: isSmall ? spacing.xs : spacing.sm,
           paddingVertical: isSmall ? 2 : spacing.xs,
         },
       ]}
     >
+      <Ionicons name={config.icon} size={iconSize} color={config.color} />
       <Text
         style={{
           fontFamily: fonts.semiBold,
-          fontSize: isSmall ? 10 : fontSizes.bodySmall,
+          fontSize,
           color: config.color,
+          letterSpacing: letterSpacings.label,
+          marginLeft: 3,
         }}
       >
-        {config.icon} {config.label}
+        {config.label}
       </Text>
     </View>
   );
@@ -48,6 +56,9 @@ export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
 const styles = StyleSheet.create({
   badge: {
     borderRadius: radii.full,
+    borderWidth: 1,
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });

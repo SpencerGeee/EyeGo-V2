@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { colors, fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, fontSizes, spacing, radii, letterSpacings } from '@eyego/config';
 import { Text } from './Text';
 import { Pressable } from './Pressable';
 
@@ -8,7 +9,7 @@ type Tier = 'ECONOMY' | 'COMFORT';
 
 interface TierOption {
   key: Tier;
-  icon: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
   label: string;
   caption?: string;
   activeColor: string;
@@ -17,17 +18,17 @@ interface TierOption {
 const TIERS: TierOption[] = [
   {
     key: 'ECONOMY',
-    icon: '🌿',
-    label: 'Eco',
+    icon: 'leaf-outline',
+    label: 'Economy',
     caption: 'Shared · Affordable',
-    activeColor: colors.primary,
+    activeColor: colors.tierEconomy,
   },
   {
     key: 'COMFORT',
-    icon: '✨',
+    icon: 'star-outline',
     label: 'Comfort',
     caption: 'Premium · Spacious',
-    activeColor: colors.secondary,
+    activeColor: colors.tierComfort,
   },
 ];
 
@@ -47,10 +48,20 @@ export function TierSelector({ value, onChange }: TierSelectorProps) {
             onPress={() => onChange(tier.key)}
             style={[
               styles.card,
-              ...(isActive ? [{ borderColor: tier.activeColor, backgroundColor: tier.activeColor + '15' }] : []),
+              ...(isActive
+                ? [{
+                    borderColor: tier.activeColor,
+                    borderWidth: 1.5,
+                    backgroundColor: tier.activeColor + '15',
+                  }]
+                : []),
             ]}
           >
-            <Text style={styles.icon}>{tier.icon}</Text>
+            <Ionicons
+              name={tier.icon}
+              size={22}
+              color={isActive ? tier.activeColor : colors.onSurfaceVariant}
+            />
             <Text
               style={[
                 styles.label,
@@ -76,26 +87,25 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    height: 80,
+    height: 88,
     borderRadius: radii.xl,
-    backgroundColor: colors.surfaceContainer,
-    borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-  },
-  icon: {
-    fontSize: 20,
+    gap: 3,
   },
   label: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.label,
     color: colors.onSurface,
+    letterSpacing: letterSpacings.label,
   },
   caption: {
     fontFamily: fonts.regular,
     fontSize: 10,
     color: colors.onSurfaceVariant,
+    letterSpacing: letterSpacings.label,
   },
 });

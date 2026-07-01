@@ -7,9 +7,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text } from '@eyego/ui';
+import { formatCurrency } from '@eyego/utils';
 import { captureException } from '../../lib/sentry';
 
 // Parse a "6:30 PM" slot into 24h {hours, minutes}.
@@ -62,6 +63,13 @@ export default function ReserveScreen() {
   // endpoint creates a ScheduledRideIntent which requires a routeId; without
   // one (entry from pre-search) we can only store the time as a search filter.
   const routeId: string | undefined = (selectedTrip as any)?.route?.id ?? (selectedTrip as any)?.routeId;
+
+  const trip = selectedTrip as any;
+  const pickup =
+    trip?.pickupLocation?.name ?? trip?.route?.originName ?? 'Your pickup point';
+  const dropoff =
+    trip?.dropoffLocation?.name ?? trip?.route?.destinationName ?? 'Your destination';
+  const fare = trip?.fareAmount ?? trip?.price ?? 0;
 
   // Build the concrete pickup Date from the selected day + slot.
   const buildScheduledDate = (): Date | null => {
@@ -121,7 +129,6 @@ export default function ReserveScreen() {
     const isSelected = item.toDateString() === selectedDate.toDateString();
     const dayName = item.toLocaleDateString('en-US', { weekday: 'short' });
     const dayNumber = item.getDate();
-    const monthName = item.toLocaleDateString('en-US', { month: 'short' });
 
     return (
       <Pressable
@@ -129,55 +136,37 @@ export default function ReserveScreen() {
         onPress={() => setSelectedDate(item)}
         accessibilityRole="button"
         accessibilityState={{ selected: isSelected }}
-        accessibilityLabel={`${dayName} ${monthName} ${dayNumber}`}
+        accessibilityLabel={`${dayName} ${dayNumber}`}
       >
-        <Text
-          variant="caption"
-          color={isSelected ? colors.primary : colors.onSurfaceVariant}
-          style={styles.dateDayName}
-        >
-          {dayName}
+        <Text style={[styles.dateDayName, { color: isSelected ? colors.onPrimary : colors.onSurfaceVariant }]}>
+          {dayName.toUpperCase()}
         </Text>
-        <Text
-          variant="titleLarge"
-          color={isSelected ? colors.primary : colors.onSurface}
-          style={styles.dateNumber}
-        >
+        <Text style={[styles.dateNumber, { color: isSelected ? colors.onPrimary : colors.onSurface }]}>
           {dayNumber}
-        </Text>
-        <Text
-          variant="caption"
-          color={isSelected ? colors.primary : colors.onSurfaceVariant}
-        >
-          {monthName}
         </Text>
       </Pressable>
     );
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
-          <Ionicons name="close" size={24} color={colors.onSurface} />
+        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleMedium">Schedule Ride</Text>
-        <View style={{ width: 24 }} />
+        <Text variant="titleSmall" style={{ color: colors.onSurface }}>Reserve Seat</Text>
+        <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/* Select Date */}
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
         >
-          <Text variant="titleSmall" style={styles.sectionTitle}>
-            Select Date
-          </Text>
+          <Text style={styles.sectionTitle}>Select Date</Text>
           <FlatList
             data={dates}
             renderItem={renderDateItem}
@@ -185,20 +174,19 @@ export default function ReserveScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.dateList}
-            snapToInterval={72 + spacing.md}
+            snapToInterval={64 + spacing.sm}
             decelerationRate="fast"
           />
         </MotiView>
 
+        {/* Select Time */}
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
           style={styles.timeSection}
         >
-          <Text variant="titleSmall" style={styles.sectionTitle}>
-            Select Time
-          </Text>
+          <Text style={styles.sectionTitle}>Select Time</Text>
           <View style={styles.timeGrid}>
             {timeSlots.map((time) => {
               const isSelected = time === selectedTime;
@@ -218,9 +206,11 @@ export default function ReserveScreen() {
                   accessibilityLabel={`${time}${past ? ' — unavailable' : ''}`}
                 >
                   <Text
-                    variant="labelLarge"
-                    color={past ? colors.onSurfaceVariant : isSelected ? colors.primary : colors.onSurface}
-                    style={past && { textDecorationLine: 'line-through' }}
+                    style={[
+                      styles.timeText,
+                      { color: past ? colors.onSurfaceVariant : isSelected ? colors.primary : colors.onSurface },
+                      past && { textDecorationLine: 'line-through' },
+                    ]}
                   >
                     {time}
                   </Text>
@@ -229,27 +219,63 @@ export default function ReserveScreen() {
             })}
           </View>
         </MotiView>
+
+        {/* Route summary glass panel */}
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
+          style={styles.routePanel}
+        >
+          <View style={styles.routeTimeline}>
+            <View style={styles.routeDotFilled} />
+            <View style={styles.routeTimelineLine} />
+            <View style={styles.routeDotHollow} />
+          </View>
+          <View style={styles.routeContent}>
+            <View style={styles.routeItem}>
+              <Text style={styles.routeLabel}>PICKUP</Text>
+              <Text variant="bodyLarge" numberOfLines={1} style={{ color: colors.onSurface }}>
+                {pickup}
+              </Text>
+            </View>
+            <View style={styles.routeDivider} />
+            <View style={styles.routeItem}>
+              <Text style={styles.routeLabel}>DROPOFF</Text>
+              <Text variant="bodyLarge" numberOfLines={1} style={{ color: colors.onSurface }}>
+                {dropoff}
+              </Text>
+            </View>
+          </View>
+        </MotiView>
       </ScrollView>
 
+      {/* Fixed bottom bar */}
       <View style={styles.footer}>
-        <View style={styles.summaryContainer}>
-          <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-          <View style={styles.summaryTextContainer}>
-            <Text variant="labelMedium" color={colors.onSurfaceVariant}>
-              Pickup Time
-            </Text>
-            <Text variant="titleSmall" color={colors.onSurface}>
-              {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-              {selectedTime ? `, ${selectedTime}` : ' - Select time'}
-            </Text>
+        <View style={styles.fareRow}>
+          <View>
+            <Text style={styles.fareLabel}>ESTIMATED FARE</Text>
+            <Text style={styles.fareValue}>{fare > 0 ? formatCurrency(fare) : '—'}</Text>
+          </View>
+          <View style={styles.sharedPill}>
+            <Ionicons name="people-outline" size={15} color={colors.primary} />
+            <Text style={styles.sharedText}>Shared</Text>
           </View>
         </View>
-        <Button
-          label="Confirm Schedule"
+        <Pressable
           onPress={handleSchedule}
           disabled={!selectedTime || isScheduling}
-          loading={isScheduling}
-        />
+          style={({ pressed }) => [
+            styles.confirmBtn,
+            (!selectedTime || isScheduling) && { opacity: 0.5 },
+            pressed && { transform: [{ scale: 0.98 }] },
+          ]}
+        >
+          <Text style={styles.confirmText}>
+            {isScheduling ? 'Reserving…' : 'Confirm Reservation'}
+          </Text>
+          <Ionicons name="arrow-forward" size={20} color={colors.onPrimary} />
+        </Pressable>
       </View>
     </SafeAreaView>
   );
@@ -264,39 +290,61 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     paddingVertical: spacing.base,
   },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scroll: {
-    paddingBottom: spacing['3xl'],
+    paddingBottom: 220,
   },
   sectionTitle: {
     paddingHorizontal: spacing['2xl'],
     marginBottom: spacing.md,
     marginTop: spacing.xl,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyLarge,
+    color: colors.onSurfaceVariant,
   },
   dateList: {
     paddingHorizontal: spacing['2xl'],
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   dateCard: {
-    width: 72,
-    height: 96,
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
+    width: 64,
+    height: 80,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   dateCardSelected: {
+    backgroundColor: colors.primary,
     borderColor: colors.primary,
-    backgroundColor: colors.primary + '10',
+    transform: [{ scale: 1.05 }],
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 6,
   },
   dateDayName: {
-    textTransform: 'uppercase',
-    marginBottom: 2,
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    opacity: 0.9,
   },
   dateNumber: {
     fontFamily: fonts.bold,
-    marginBottom: 2,
+    fontSize: 20,
+    marginTop: 4,
   },
   timeSection: {
     marginTop: spacing.lg,
@@ -305,45 +353,147 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: spacing['2xl'],
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   timeCard: {
     width: '30%',
     flexGrow: 1,
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.lg,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: radii.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   timeCardSelected: {
     borderColor: colors.primary,
-    backgroundColor: colors.primary + '10',
+    backgroundColor: `${colors.primary}1A`,
   },
   timeCardPast: {
     opacity: 0.4,
     backgroundColor: colors.surfaceContainerHigh,
   },
-  footer: {
-    padding: spacing['2xl'],
-    paddingTop: spacing.md,
-    backgroundColor: colors.backgroundDeep,
-    borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
+  timeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodySmall,
+    letterSpacing: 0.4,
   },
-  summaryContainer: {
+  routePanel: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.base,
+    marginHorizontal: spacing['2xl'],
+    marginTop: spacing.xl,
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: spacing.lg,
+  },
+  routeTimeline: {
+    width: 12,
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  routeDotFilled: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  routeTimelineLine: {
+    flex: 1,
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginVertical: 4,
+  },
+  routeDotHollow: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: 'transparent',
+  },
+  routeContent: { flex: 1 },
+  routeItem: { gap: 2 },
+  routeLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    color: colors.onSurfaceVariant,
+  },
+  routeDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginVertical: spacing.md,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surfaceCard ?? colors.backgroundDeep,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing.lg,
+    paddingBottom: spacing['2xl'],
+  },
+  fareRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: spacing.base,
+  },
+  fareLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    color: colors.onSurfaceVariant,
+    marginBottom: 2,
+  },
+  fareValue: {
+    fontFamily: fonts.displayBold,
+    fontSize: 24,
+    color: colors.onSurface,
+  },
+  sharedPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceContainer,
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    marginBottom: spacing.lg,
+    gap: 5,
+    backgroundColor: colors.surfaceContainerHigh ?? colors.surfaceDim,
+    borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
   },
-  summaryTextContainer: {
-    marginLeft: spacing.md,
+  sharedText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    letterSpacing: 0.4,
+    color: colors.onSurface,
+  },
+  confirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: radii.lg,
+    paddingVertical: spacing.base + 2,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+  },
+  confirmText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.titleSmall,
+    color: colors.onPrimary,
   },
 });

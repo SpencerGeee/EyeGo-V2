@@ -14,19 +14,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, spacing, radii } from '@eyego/config';
-import { useColors } from '../../utils/useColors';
-import { Text, RideCard, Skeleton } from '@eyego/ui';
+import { fonts, spacing } from '@eyego/config';
+import { useColors, Colors } from '../../utils/useColors';
+import { Text, Skeleton } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 
-const PRIMARY = '#4be277';
-const TIERS = ['All', 'Economy', 'Comfort', 'Premium'];
+const TIER_COLORS: Record<string, string> = {
+  ECONOMY: '#4BE277',
+  COMFORT: '#00B2FF',
+  PREMIUM: '#FFD700',
+  ROYAL:   '#7000FF',
+};
 
 const QUICK_ACTIONS = [
-  { id: 'saved', label: 'Saved', icon: 'bookmark-outline' as const },
-  { id: 'schedule', label: 'Schedule', icon: 'calendar-outline' as const },
-  { id: 'promos', label: 'Promos', icon: 'gift-outline' as const },
-  { id: 'wallet', label: 'Wallet', icon: 'wallet-outline' as const },
+  { id: 'saved',    label: 'Saved',    icon: 'bookmark-outline'   as const },
+  { id: 'schedule', label: 'Schedule', icon: 'calendar-outline'   as const },
+  { id: 'promos',   label: 'Promos',   icon: 'pricetag-outline'   as const },
+  { id: 'wallet',   label: 'Wallet',   icon: 'wallet-outline'     as const },
 ];
 
 function getGreeting(): string {
@@ -36,93 +40,120 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-function WhereToPressable({ onPress }: { onPress: () => void }) {
+function WhereToPressable({
+  onPress,
+  colors,
+  styles,
+}: {
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
   const scale = useSharedValue(1);
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   return (
-    <Animated.View style={[animStyle, { marginHorizontal: spacing.lg, marginVertical: spacing.md }]}>
+    <Animated.View style={animStyle}>
       <Pressable
         onPress={onPress}
         onPressIn={() => { scale.value = withSpring(0.97, { stiffness: 400, damping: 15 }); }}
         onPressOut={() => { scale.value = withSpring(1, { stiffness: 400, damping: 15 }); }}
         style={styles.whereToCard}
         accessibilityRole="button"
-        accessibilityLabel="Where to? Open destination search"
+        accessibilityLabel="Open destination search"
       >
         <View style={styles.whereToIconWrap}>
-          <Ionicons name="search" size={18} color={PRIMARY} />
+          <Ionicons name="search" size={20} color={colors.primary} />
         </View>
-        <Text style={styles.whereToText}>Where to?</Text>
-        <View style={styles.whereToArrow}>
-          <Ionicons name="arrow-forward" size={16} color={PRIMARY} />
+        <View style={styles.whereToTextWrap}>
+          <Text style={styles.whereToTitle}>Where to?</Text>
+          <Text style={styles.whereToSub}>Search destination or route</Text>
         </View>
+        <Ionicons name="mic-outline" size={20} color={colors.onSurfaceVariant} />
       </Pressable>
     </Animated.View>
   );
 }
 
-function QuickActionChip({ item, onPress }: { item: typeof QUICK_ACTIONS[0]; onPress: () => void }) {
+function SuggestedTripCard({
+  trip,
+  onPress,
+  colors,
+  styles,
+}: {
+  trip: any;
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const tier = (trip.tier as string) ?? 'ECONOMY';
+  const tierColor = TIER_COLORS[tier] ?? TIER_COLORS.ECONOMY;
+  const seatsLeft = Math.max(
+    0,
+    (trip.maxCapacity ?? 12) - (trip.confirmedSeats ?? 0) - (trip.pendingSeats ?? 0),
+  );
+  const seatsLow = seatsLeft <= 2;
+  const tierIcon =
+    tier === 'ECONOMY' ? 'car-outline' as const :
+    tier === 'COMFORT' ? 'bus-outline' as const :
+    tier === 'PREMIUM' ? 'car-sport' as const :
+    'ribbon-outline' as const;
+  const tierBadgeLabel =
+    tier === 'ECONOMY' ? 'SHARED' :
+    tier === 'COMFORT' ? 'AC · WIFI' :
+    tier === 'PREMIUM' ? 'PREMIUM' : 'ROYAL';
+
   return (
     <Pressable
-      style={({ pressed }) => [styles.chip, pressed && { opacity: 0.7 }]}
+      style={({ pressed }) => [
+        styles.tripCard,
+        { borderLeftColor: tierColor },
+        pressed && { opacity: 0.82 },
+      ]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Book ${tier} ride`}
     >
-      <Ionicons name={item.icon} size={16} color={PRIMARY} />
-      <Text style={styles.chipLabel}>{item.label}</Text>
-    </Pressable>
-  );
-}
-
-function ActiveTripBanner({ booking }: { booking: any }) {
-  const router = useRouter();
-
-  return (
-    <MotiView
-      from={{ opacity: 0, translateY: -8 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'timing', duration: 300 }}
-      style={styles.activeBanner}
-    >
-      <View style={styles.activeDot} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.activeBannerTitle}>Active ride</Text>
-        <Text style={styles.activeBannerSub} numberOfLines={1}>
-          {booking.routeOrigin ?? '—'} → {booking.routeDestination ?? '—'}
-        </Text>
+      <View style={styles.tripCardLeft}>
+        <View style={[styles.tripTierIcon, { backgroundColor: `${tierColor}1A`, borderColor: `${tierColor}33` }]}>
+          <Ionicons name={tierIcon} size={22} color={tierColor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.tripTierRow}>
+            <Text style={styles.tripTierName}>
+              {tier.charAt(0) + tier.slice(1).toLowerCase()}
+            </Text>
+            <View style={[styles.tripTierBadge, { backgroundColor: `${tierColor}1A` }]}>
+              <Text style={[styles.tripTierBadgeText, { color: tierColor }]}>
+                {tierBadgeLabel}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.tripMeta}>
+            {trip.scheduledAt
+              ? new Date(trip.scheduledAt).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
+              : 'Departing soon'}
+            {'  ·  '}
+            <Text style={{ color: seatsLow ? colors.statusError : colors.onSurfaceVariant }}>
+              {seatsLeft} seat{seatsLeft !== 1 ? 's' : ''} left
+            </Text>
+          </Text>
+        </View>
       </View>
-      <Pressable
-        style={styles.activeBannerBtn}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          router.push(`/ride/${booking.id}/tracking` as any);
-        }}
-      >
-        <Text style={styles.activeBannerBtnText}>View</Text>
-      </Pressable>
-    </MotiView>
-  );
-}
-
-function TierChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      style={[styles.tierChip, active && styles.tierChipActive]}
-      onPress={onPress}
-    >
-      <Text style={[styles.tierChipText, active && styles.tierChipTextActive]}>{label}</Text>
+      <Text style={[styles.tripFare, { color: colors.onSurface }]}>
+        GH₵{' '}{(trip.farePerSeat ?? 0).toFixed(2)}
+      </Text>
     </Pressable>
   );
 }
 
 export default function HomeScreen() {
   const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
-
-  const [activeTier, setActiveTier] = useState('All');
   const [refreshing, setRefreshing] = useState(false);
 
   const { data: tripsData, isLoading: tripsLoading } = useQuery({
@@ -158,16 +189,10 @@ export default function HomeScreen() {
     ? tripsData
     : (tripsData as any)?.data ?? [];
 
-  const filteredTrips = useMemo(() => {
-    if (activeTier === 'All') return rawTrips;
-    return rawTrips.filter(
-      (t: any) => t.tier?.toLowerCase() === activeTier.toLowerCase()
-    );
-  }, [rawTrips, activeTier]);
-
   const activeBooking = Array.isArray(activeBookings) ? activeBookings[0] : null;
   const unreadCount: number = (notifsData as any)?.total ?? 0;
   const firstName = (user as any)?.firstName ?? (user as any)?.name?.split(' ')[0] ?? 'there';
+  const initials = (firstName[0] ?? 'U').toUpperCase();
 
   const handleWhereTo = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -177,145 +202,171 @@ export default function HomeScreen() {
   const handleQuickAction = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const routes: Record<string, string> = {
-      saved: '/profile/saved-places',
+      saved:    '/profile/saved-places',
       schedule: '/ride/schedule',
-      promos: '/profile/promotions',
-      wallet: '/profile/wallet',
+      promos:   '/profile/promotions',
+      wallet:   '/profile/wallet',
     };
     if (routes[id]) router.push(routes[id] as any);
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.backgroundDeep ?? '#091009' }]}>
-      {/* Header */}
+    <View style={[styles.root, { backgroundColor: colors.backgroundDeep }]}>
+      {/* ── Header ───────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Text style={styles.logoText}>EyeGo</Text>
-        <View style={styles.headerRight}>
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => router.push('/(tabs)/activity' as any)}
-            accessibilityLabel="Notifications"
-          >
-            <Ionicons name="notifications-outline" size={22} color="#fff" />
-            {unreadCount > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : String(unreadCount)}</Text>
-              </View>
-            )}
-          </Pressable>
-          <Pressable
-            style={styles.avatar}
-            onPress={() => router.push('/(tabs)/account' as any)}
-            accessibilityLabel="Account"
-          >
-            <Text style={styles.avatarText}>
-              {((user as any)?.firstName?.[0] ?? (user as any)?.name?.[0] ?? 'U').toUpperCase()}
-            </Text>
-          </Pressable>
-        </View>
+        <Pressable
+          style={styles.avatarBtn}
+          onPress={() => router.push('/(tabs)/account' as any)}
+          accessibilityLabel="Account"
+        >
+          <Text style={styles.avatarInitials}>{initials}</Text>
+        </Pressable>
+
+        <Text style={styles.greetingHeadline} numberOfLines={1}>
+          {getGreeting()}, {firstName}
+        </Text>
+
+        <Pressable
+          style={styles.notifBtn}
+          onPress={() => router.push('/(tabs)/activity' as any)}
+          accessibilityLabel="Notifications"
+        >
+          <Ionicons name="notifications-outline" size={22} color={colors.onSurface} />
+          {unreadCount > 0 && <View style={styles.notifDot} />}
+        </Pressable>
       </View>
 
+      {/* ── Content ──────────────────────────────────────── */}
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={PRIMARY}
+            tintColor={colors.primary}
           />
         }
       >
-        {/* Greeting */}
-        <View style={styles.greetingRow}>
-          <Text style={styles.greeting}>{getGreeting()},</Text>
-          <Text style={styles.greetingName}>{firstName} 👋</Text>
-        </View>
-
-        {/* Where to card */}
-        <WhereToPressable onPress={handleWhereTo} />
-
-        {/* Quick Actions */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.quickActionsContent}
-          style={styles.quickActions}
+        {/* Where To Search Bar */}
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 50 }}
         >
-          {QUICK_ACTIONS.map((action) => (
-            <QuickActionChip
-              key={action.id}
-              item={action}
-              onPress={() => handleQuickAction(action.id)}
-            />
-          ))}
-        </ScrollView>
+          <WhereToPressable onPress={handleWhereTo} colors={colors} styles={styles} />
+        </MotiView>
 
-        {/* Active Trip Banner */}
-        {activeBooking ? <ActiveTripBanner booking={activeBooking} /> : null}
-
-        {/* Available Rides */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Available Now</Text>
-            <View style={styles.liveBadge}>
-              <MotiView
-                from={{ opacity: 0.3 }}
-                animate={{ opacity: 1 }}
-                transition={{ loop: true, type: 'timing', duration: 800 }}
-                style={styles.liveDot}
-              />
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-          </View>
-
+        {/* Quick Action Circles */}
+        <MotiView
+          from={{ opacity: 0, translateY: 10 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 100 }}
+        >
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tierRow}
+            contentContainerStyle={styles.quickActionsRow}
           >
-            {TIERS.map((tier) => (
-              <TierChip
-                key={tier}
-                label={tier}
-                active={activeTier === tier}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveTier(tier);
-                }}
-              />
+            {QUICK_ACTIONS.map((action) => (
+              <Pressable
+                key={action.id}
+                style={({ pressed }) => [styles.quickActionItem, pressed && { opacity: 0.7 }]}
+                onPress={() => handleQuickAction(action.id)}
+                accessibilityRole="button"
+                accessibilityLabel={action.label}
+              >
+                <View style={styles.quickActionCircle}>
+                  <Ionicons name={action.icon} size={24} color={colors.onSurface} />
+                </View>
+                <Text style={styles.quickActionLabel}>{action.label}</Text>
+              </Pressable>
             ))}
           </ScrollView>
+        </MotiView>
+
+        {/* Active Ride Bento Card */}
+        {activeBooking && (
+          <MotiView
+            from={{ opacity: 0, translateY: -8, scale: 0.98 }}
+            animate={{ opacity: 1, translateY: 0, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 50 }}
+            style={styles.activeBentoCard}
+          >
+            {/* Dark map placeholder area */}
+            <View style={styles.activeBentoMapArea}>
+              <View style={styles.activeBentoRouteChip}>
+                <View style={styles.activeBentoDot} />
+                <Text style={styles.activeBentoStatusText}>IN PROGRESS</Text>
+              </View>
+            </View>
+            {/* Driver + Route Info */}
+            <View style={styles.activeBentoBody}>
+              <View style={styles.activeBentoTopRow}>
+                <View style={styles.activeBentoDriverLeft}>
+                  <View style={styles.activeBentoAvatarWrap}>
+                    <Ionicons name="person" size={18} color={colors.onSurfaceVariant} />
+                  </View>
+                  <View>
+                    <Text style={styles.activeBentoDriverName} numberOfLines={1}>
+                      {activeBooking.driverName ?? 'Your Driver'}
+                    </Text>
+                    <Text style={styles.activeBentoDriverMeta}>
+                      ★ {activeBooking.rating?.toFixed(1) ?? '—'} · {activeBooking.vehicle ?? '—'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.activeBentoEta}>{activeBooking.eta ?? '5 min'}</Text>
+                  <Text style={styles.activeBentoAway}>AWAY</Text>
+                </View>
+              </View>
+              <View style={styles.activeBentoDestRow}>
+                <Ionicons name="navigate-outline" size={15} color={colors.tierComfort} />
+                <Text style={styles.activeBentoDestText} numberOfLines={1}>
+                  {activeBooking.routeDestination ?? 'Your destination'}
+                </Text>
+              </View>
+            </View>
+          </MotiView>
+        )}
+
+        {/* Suggested Rides */}
+        <View style={styles.suggestedSection}>
+          <Text style={styles.sectionTitle}>Suggested for you</Text>
 
           {tripsLoading && (
-            <View style={styles.skeletonWrap}>
-              {[1, 2, 3].map((i) => (
+            <View style={{ gap: spacing.sm }}>
+              {[1, 2].map((i) => (
                 <Skeleton key={i} style={styles.skeletonCard} />
               ))}
             </View>
           )}
 
-          {!tripsLoading && filteredTrips.length === 0 && (
+          {!tripsLoading && rawTrips.length === 0 && (
             <View style={styles.emptyState}>
-              <Ionicons name="car-outline" size={40} color="rgba(255,255,255,0.15)" />
-              <Text style={styles.emptyText}>No rides available</Text>
+              <Ionicons name="car-outline" size={36} color={colors.outline} />
+              <Text style={styles.emptyText}>No rides available right now</Text>
               <Text style={styles.emptyHint}>Pull down to refresh</Text>
             </View>
           )}
 
-          {!tripsLoading && filteredTrips.map((trip: any, idx: number) => (
+          {!tripsLoading && rawTrips.slice(0, 6).map((trip: any, idx: number) => (
             <MotiView
               key={trip.id ?? idx}
               from={{ opacity: 0, translateY: 8 }}
               animate={{ opacity: 1, translateY: 0 }}
               transition={{ type: 'timing', duration: 250, delay: idx * 60 }}
             >
-              <RideCard
-                ride={trip}
+              <SuggestedTripCard
+                trip={trip}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   router.push(`/ride/${trip.id}` as any);
                 }}
+                colors={colors}
+                styles={styles}
               />
             </MotiView>
           ))}
@@ -327,257 +378,329 @@ export default function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: Colors) => StyleSheet.create({
   root: { flex: 1 },
+
+  // ─── Header ──────────────────────────────────────────────
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.md,
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 10,
   },
-  logoText: {
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
-    color: '#fff',
-    letterSpacing: -0.5,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  iconBtn: {
+  avatarBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: '#EF4444',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    fontFamily: fonts.bold,
-    fontSize: 9,
-    color: '#fff',
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: `${PRIMARY}22`,
+    backgroundColor: `${colors.primary}22`,
     borderWidth: 1.5,
-    borderColor: `${PRIMARY}60`,
+    borderColor: `${colors.primary}60`,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  avatarText: {
+  avatarInitials: {
     fontFamily: fonts.semiBold,
-    fontSize: 14,
-    color: PRIMARY,
+    fontSize: 15,
+    color: colors.primary,
   },
-  scroll: { flex: 1 },
-  greetingRow: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
-    paddingBottom: 4,
-  },
-  greeting: {
-    fontFamily: fonts.displayMedium,
-    fontSize: 20,
-    color: 'rgba(255,255,255,0.6)',
-  },
-  greetingName: {
-    fontFamily: fonts.displayBold,
-    fontSize: 26,
-    color: '#fff',
-    letterSpacing: -0.5,
-    marginTop: 2,
-  },
-  whereToCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(75,226,119,0.08)',
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: `${PRIMARY}30`,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 16,
-    gap: spacing.md,
-  },
-  whereToIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: `${PRIMARY}18`,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  whereToText: {
+  greetingHeadline: {
     flex: 1,
-    fontFamily: fonts.semiBold,
-    fontSize: 18,
-    color: 'rgba(255,255,255,0.7)',
+    fontFamily: fonts.displayBold,
+    fontSize: 22,
+    color: colors.primary,
+    letterSpacing: -1,
   },
-  whereToArrow: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: `${PRIMARY}18`,
+  notifBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(22,22,24,0.80)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  quickActions: { marginTop: spacing.sm },
-  quickActionsContent: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-    paddingBottom: 4,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 9,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  chipLabel: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.75)',
-  },
-  activeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    backgroundColor: `${PRIMARY}12`,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: `${PRIMARY}35`,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  activeDot: {
+  notifDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: PRIMARY,
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
   },
-  activeBannerTitle: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
-    color: PRIMARY,
+
+  // ─── Scroll ───────────────────────────────────────────────
+  scroll: { flex: 1 },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    gap: 16,
+    paddingBottom: 8,
   },
-  activeBannerSub: {
-    fontFamily: fonts.regular,
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-    marginTop: 2,
-  },
-  activeBannerBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 12,
-    backgroundColor: PRIMARY,
-  },
-  activeBannerBtnText: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
-    color: '#091009',
-  },
-  section: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
-  },
-  sectionHeaderRow: {
+
+  // ─── Where To (glass panel) ───────────────────────────────
+  whereToCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
+    backgroundColor: 'rgba(22,22,24,0.60)',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    padding: 12,
+    gap: 14,
   },
+  whereToIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceContainerHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  whereToTextWrap: { flex: 1 },
+  whereToTitle: {
+    fontFamily: fonts.semiBold,
+    fontSize: 17,
+    color: colors.onSurface,
+    letterSpacing: -0.3,
+  },
+  whereToSub: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+
+  // ─── Quick Action Circles ─────────────────────────────────
+  quickActionsRow: {
+    gap: 8,
+    paddingVertical: 4,
+  },
+  quickActionItem: {
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 72,
+  },
+  quickActionCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(22,22,24,0.60)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickActionLabel: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.onSurfaceVariant,
+    textAlign: 'center',
+  },
+
+  // ─── Active Ride Bento Card ───────────────────────────────
+  activeBentoCard: {
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: `${colors.tierComfort}30`,
+    overflow: 'hidden',
+  },
+  activeBentoMapArea: {
+    height: 120,
+    backgroundColor: colors.backgroundDeep,
+    position: 'relative',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    padding: 12,
+  },
+  activeBentoRouteChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(10,10,11,0.85)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  activeBentoDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.tierComfort,
+    shadowColor: colors.tierComfort,
+    shadowOpacity: 0.7,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  activeBentoStatusText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    color: colors.onSurface,
+    letterSpacing: 0.7,
+  },
+  activeBentoBody: {
+    padding: 16,
+    gap: 10,
+    backgroundColor: 'rgba(22,22,24,0.60)',
+  },
+  activeBentoTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  activeBentoDriverLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  activeBentoAvatarWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  activeBentoDriverName: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    color: colors.onSurface,
+  },
+  activeBentoDriverMeta: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+  activeBentoEta: {
+    fontFamily: fonts.displayBold,
+    fontSize: 22,
+    color: colors.tierComfort,
+    letterSpacing: -0.5,
+  },
+  activeBentoAway: {
+    fontFamily: fonts.semiBold,
+    fontSize: 9,
+    color: colors.onSurfaceVariant,
+    letterSpacing: 0.8,
+    textAlign: 'right',
+    marginTop: 1,
+  },
+  activeBentoDestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.backgroundDeep,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  activeBentoDestText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: colors.onSurface,
+    flex: 1,
+  },
+
+  // ─── Suggested Rides ──────────────────────────────────────
+  suggestedSection: { gap: 10 },
   sectionTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 18,
-    color: '#fff',
+    color: colors.onSurface,
+    letterSpacing: -0.3,
+    marginBottom: 2,
   },
-  liveBadge: {
+  tripCard: {
+    backgroundColor: colors.surfaceCard,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderLeftWidth: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: `${PRIMARY}15`,
-    borderRadius: 8,
+    justifyContent: 'space-between',
+  },
+  tripCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  tripTierIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  tripTierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tripTierName: {
+    fontFamily: fonts.semiBold,
+    fontSize: 15,
+    color: colors.onSurface,
+  },
+  tripTierBadge: {
+    borderRadius: 4,
     paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingVertical: 2,
   },
-  liveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: PRIMARY,
-  },
-  liveText: {
+  tripTierBadgeText: {
     fontFamily: fonts.semiBold,
     fontSize: 9,
-    color: PRIMARY,
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
-  tierRow: {
-    gap: spacing.sm,
-    paddingBottom: spacing.md,
+  tripMeta: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    marginTop: 3,
   },
-  tierChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+  tripFare: {
+    fontFamily: fonts.displayBold,
+    fontSize: 16,
+    letterSpacing: -0.3,
+    paddingLeft: 8,
+    flexShrink: 0,
   },
-  tierChipActive: {
-    backgroundColor: `${PRIMARY}20`,
-    borderColor: `${PRIMARY}50`,
-  },
-  tierChipText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-  },
-  tierChipTextActive: {
-    color: PRIMARY,
-  },
-  skeletonWrap: { gap: spacing.md },
-  skeletonCard: {
-    height: 100,
-    borderRadius: radii.xl,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 48,
-    gap: spacing.sm,
-  },
+
+  // ─── Empty / Skeleton ─────────────────────────────────────
+  skeletonCard: { height: 82, borderRadius: 16 },
+  emptyState: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   emptyText: {
     fontFamily: fonts.semiBold,
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.3)',
+    fontSize: 15,
+    color: colors.onSurfaceVariant,
   },
   emptyHint: {
     fontFamily: fonts.regular,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.18)',
+    fontSize: 12,
+    color: colors.outline,
   },
 });

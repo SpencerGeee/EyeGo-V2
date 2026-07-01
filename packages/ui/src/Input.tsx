@@ -67,12 +67,8 @@ export function Input({
 
   const labelStyle = useAnimatedStyle(() => ({
     transform: [
-      {
-        translateY: interpolate(labelAnim.value, [0, 1], [0, -22]),
-      },
-      {
-        scale: interpolate(labelAnim.value, [0, 1], [1, 0.82]),
-      },
+      { translateY: interpolate(labelAnim.value, [0, 1], [0, -22]) },
+      { scale: interpolate(labelAnim.value, [0, 1], [1, 0.82]) },
     ],
     color: interpolateColor(
       focusAnim.value,
@@ -85,7 +81,7 @@ export function Input({
     borderColor: interpolateColor(
       focusAnim.value,
       [0, 1],
-      [error ? colors.error : colors.outline, error ? colors.error : colors.primary]
+      [error ? colors.error : colors.outlineVariant, error ? colors.error : colors.primary]
     ),
   }));
 
@@ -128,12 +124,12 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceContainer,
+    backgroundColor: '#0D0D0E',
     borderRadius: radii.lg,
     paddingHorizontal: spacing.base,
     minHeight: 56,
-    borderWidth: 1,
-    borderColor: colors.outline,
+    borderWidth: 1.5,
+    borderColor: colors.outlineVariant,
   },
   innerContainer: {
     flex: 1,

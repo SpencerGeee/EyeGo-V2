@@ -45,14 +45,23 @@ export const fontSizes = {
 } as const;
 
 export const lineHeights = {
+  // Legacy scale (keep for backward compat)
   tight: 1.1,
   normal: 1.4,
   relaxed: 1.6,
+  // Onyx editorial scale
+  display: 1.15,   // hero/fare headings
+  body: 1.5,       // standard body text
 } as const;
 
 export const letterSpacings = {
+  // Legacy scale (keep for backward compat)
   tight: -0.5,
   normal: 0,
   wide: 0.5,
   wider: 1,
+  // Onyx editorial scale
+  display: -1.5,   // hero / fare / display headings (≈ -0.03em at 48px)
+  headline: -0.5,  // section headings (≈ -0.02em at 28px)
+  label: 0.6,      // chip / badge / data labels (≈ 0.05em at 12px)
 } as const;
