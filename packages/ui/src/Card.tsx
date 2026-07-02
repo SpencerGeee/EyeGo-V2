@@ -2,7 +2,7 @@ import React from 'react';
 import { View, ViewStyle, StyleSheet } from 'react-native';
 import { radii, spacing, withOpacity, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
-import { GradientGlowBorder } from './effects/GradientGlowBorder';
+import { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from './effects/GradientGlowBorder';
 
 interface CardProps {
   children: React.ReactNode;
@@ -32,10 +32,13 @@ export function Card({
   if (glow && animated) {
     return (
       <GradientGlowBorder
-        colors={[colors.primary, colors.secondary]}
+        colors={PREMIUM_RING_COLORS}
+        locations={PREMIUM_RING_LOCATIONS}
         fillColor={elevated ? colors.surfaceContainerHigh : colors.surfaceCard}
         borderRadius={radii['2xl']}
         glow
+        glowColor={colors.premiumBlue}
+        glowColorSecondary={colors.premiumOrange}
         style={[{ padding }, style]}
       >
         {children}

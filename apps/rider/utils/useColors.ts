@@ -76,6 +76,16 @@ export const darkColors = {
   glowPrimary: 'rgba(75, 226, 119, 0.4)',
   glowSecondary: 'rgba(5, 102, 217, 0.4)',
   glowError: 'rgba(255, 180, 171, 0.4)',
+
+  // Premium glow accent — reserved for GradientGlowBorder-driven surfaces
+  // (glow search bar, glow CTA, premium ride card ring).
+  premiumRingDark: '#0A0A0C',
+  premiumBlue: '#3D7EFF',
+  premiumBlueDim: '#0A56FF',
+  premiumBlueBright: '#9CC5FF',
+  premiumOrange: '#FF7A3D',
+  premiumOrangeDim: '#FF5500',
+  premiumOrangeBright: '#FFC59C',
 } as const;
 
 export const lightColors = {
@@ -154,6 +164,15 @@ export const lightColors = {
   glowPrimary: 'rgba(26, 122, 60, 0.2)',
   glowSecondary: 'rgba(40, 71, 119, 0.2)',
   glowError: 'rgba(179, 38, 30, 0.2)',
+
+  // Premium glow accent
+  premiumRingDark: '#F0F0F2',
+  premiumBlue: '#1B5FE0',
+  premiumBlueDim: '#0A45B8',
+  premiumBlueBright: '#5C90F0',
+  premiumOrange: '#E85F1C',
+  premiumOrangeDim: '#C24800',
+  premiumOrangeBright: '#FF9D5C',
 } as const;
 
 export type Colors = typeof darkColors;

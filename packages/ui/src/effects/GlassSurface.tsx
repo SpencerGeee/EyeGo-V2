@@ -6,7 +6,13 @@ import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
 
 // Liquid Glass — iOS 26+ only; fails silently everywhere else.
-let LiquidGlassView: React.ComponentType<{ style?: StyleProp<ViewStyle> }> | null = null;
+type LiquidGlassProps = {
+  style?: StyleProp<ViewStyle>;
+  colorScheme?: 'light' | 'dark' | 'system';
+  tintColor?: string;
+  effect?: 'clear' | 'regular' | 'none';
+};
+let LiquidGlassView: React.ComponentType<LiquidGlassProps> | null = null;
 let isLiquidGlassSupported = false;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -55,7 +61,16 @@ export function GlassSurface({
   return (
     <View style={[{ borderRadius, overflow: 'hidden' }, style]}>
       {isLiquidGlassSupported && LiquidGlassView ? (
-        <LiquidGlassView style={StyleSheet.absoluteFill} />
+        // colorScheme defaults to 'system' — without it, the glass follows
+        // the PHONE's OS-level light/dark setting, not this app's theme, so
+        // on a light-system-mode device it renders Apple's bright glass
+        // material regardless of `dark`. Force it explicitly.
+        <LiquidGlassView
+          style={StyleSheet.absoluteFill}
+          colorScheme={dark ? 'dark' : 'light'}
+          tintColor={withOpacity(dark ? colors.surfaceCard : '#FFFFFF', effectiveIntensity === 'high' ? 0.28 : 0.42)}
+          effect={effectiveIntensity === 'high' ? 'clear' : 'regular'}
+        />
       ) : Platform.OS === 'ios' ? (
         <BlurView
           intensity={blurIntensity}

@@ -2,7 +2,12 @@ import React, { useRef } from 'react';
 import { ActivityIndicator, StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
-import { GradientGlowBorder, type GradientGlowBorderHandle } from './effects/GradientGlowBorder';
+import {
+  GradientGlowBorder,
+  type GradientGlowBorderHandle,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from './effects/GradientGlowBorder';
 import { radii, spacing, fonts, fontSizes, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
 
@@ -65,7 +70,7 @@ function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { containe
       container: {
         backgroundColor: 'transparent',
       },
-      textColor: colors.onPrimary,
+      textColor: colors.onSurface,
     },
   };
 }
@@ -141,10 +146,13 @@ export function Button({
       >
         <GradientGlowBorder
           ref={glowRef}
-          colors={glowColors ?? [colors.primary, colors.secondary]}
-          fillColor={colors.primary}
+          colors={glowColors ?? PREMIUM_RING_COLORS}
+          locations={glowColors ? undefined : PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainerHigh}
           borderRadius={radii.full}
           glow
+          glowColor={glowColors ? glowColors[0] : colors.premiumBlue}
+          glowColorSecondary={glowColors ? undefined : colors.premiumOrange}
           style={resolvedStyle}
         >
           {content}

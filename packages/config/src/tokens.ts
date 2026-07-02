@@ -79,6 +79,18 @@ export const colors = {
   glowPrimary: 'rgba(75, 226, 119, 0.4)',
   glowSecondary: 'rgba(5, 102, 217, 0.4)',
   glowError: 'rgba(255, 180, 171, 0.4)',
+
+  // Premium glow accent — reserved for GradientGlowBorder-driven surfaces
+  // (glow search bar, glow CTA, premium ride card ring). A cool-blue /
+  // warm-orange duo reads as a crisp orbiting light against Onyx black in a
+  // way the green/blue brand pair washes into a flat wash at ring-thickness.
+  premiumRingDark: '#0A0A0C',
+  premiumBlue: '#3D7EFF',
+  premiumBlueDim: '#0A56FF',
+  premiumBlueBright: '#9CC5FF',
+  premiumOrange: '#FF7A3D',
+  premiumOrangeDim: '#FF5500',
+  premiumOrangeBright: '#FFC59C',
 } as const;
 
 export type ColorTokens = typeof colors;

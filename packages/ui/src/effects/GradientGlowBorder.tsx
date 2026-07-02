@@ -18,14 +18,22 @@ export interface GradientGlowBorderHandle {
 }
 
 interface GradientGlowBorderProps {
-  /** 2-3 gradient stops sweeping the ring, e.g. [colors.primary, colors.secondary]. */
+  /** Gradient stops sweeping the ring. Pass a mostly-dark array with 1-2
+   * bright accent stops (see PREMIUM_RING_COLORS) to get a thin orbiting
+   * light streak instead of a flat half-and-half color wash. */
   colors: readonly [string, string, ...string[]];
+  /** Stop positions (0-1) matching `colors`, e.g. PREMIUM_RING_LOCATIONS.
+   * Omit for an even spread. */
+  locations?: readonly [number, number, ...number[]];
   /** Solid color that fills the center, punching the "hole" so only a thin ring shows. */
   fillColor: string;
   borderRadius: number;
   thickness?: 'thin' | 'regular';
   glow?: boolean;
   glowColor?: string;
+  /** Second glow tint layered behind the first for a two-tone bloom
+   * (e.g. blue + orange). Omit for a single-color glow. */
+  glowColorSecondary?: string;
   /** Low-perf-tier escape hatch: renders a static ring, no rotation/burst. */
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -34,15 +42,27 @@ interface GradientGlowBorderProps {
 
 const THICKNESS = { thin: 1.5, regular: 2.5 };
 
+/** Default "premium" ring sweep — two narrow bright arcs (blue, orange)
+ * orbiting against a near-black ring, matching the reference conic-gradient
+ * technique (color arcs, not a flat-filled ring). Use with
+ * PREMIUM_RING_LOCATIONS. */
+export const PREMIUM_RING_COLORS = [
+  '#0A0A0C', '#0A0A0C', '#3D7EFF', '#0A0A0C', '#0A0A0C',
+  '#0A0A0C', '#FF7A3D', '#0A0A0C', '#0A0A0C',
+] as const;
+export const PREMIUM_RING_LOCATIONS = [0, 0.08, 0.22, 0.36, 0.5, 0.58, 0.72, 0.86, 1] as const;
+
 export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientGlowBorderProps>(
   function GradientGlowBorder(
     {
       colors,
+      locations,
       fillColor,
       borderRadius,
       thickness = 'regular',
       glow = false,
       glowColor,
+      glowColorSecondary,
       disabled,
       style,
       children,
@@ -109,24 +129,43 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
       // sized to match it via StyleSheet.absoluteFillObject.
       <View>
         {glow && diag > 0 && (
-          <View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFillObject,
-              {
-                borderRadius,
-                // Android elevation only casts a shadow off an opaque
-                // silhouette; fully covered by the masked view on top so
-                // this never shows through visually.
-                backgroundColor: fillColor,
-                shadowColor: glowColor ?? colors[0],
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.35,
-                shadowRadius: 16,
-                elevation: 10,
-              },
-            ]}
-          />
+          <>
+            <View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  borderRadius,
+                  // Android elevation only casts a shadow off an opaque
+                  // silhouette; fully covered by the masked view on top so
+                  // this never shows through visually.
+                  backgroundColor: fillColor,
+                  shadowColor: glowColor ?? colors[colors.length - 1],
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.32,
+                  shadowRadius: 14,
+                  elevation: 10,
+                },
+              ]}
+            />
+            {glowColorSecondary && (
+              <View
+                pointerEvents="none"
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  {
+                    borderRadius,
+                    backgroundColor: fillColor,
+                    shadowColor: glowColorSecondary,
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: 0.26,
+                    shadowRadius: 20,
+                    elevation: 10,
+                  },
+                ]}
+              />
+            )}
+          </>
         )}
 
         <View
@@ -141,6 +180,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
             >
               <LinearGradient
                 colors={colors}
+                locations={locations}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFillObject}

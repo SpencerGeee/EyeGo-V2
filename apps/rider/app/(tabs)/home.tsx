@@ -181,12 +181,21 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [queryClient]);
 
-  const rawTrips: any[] = Array.isArray(tripsData)
-    ? tripsData
-    : (tripsData as any)?.data ?? [];
+  // apiClient.get() resolves to the raw axios response — the response
+  // interceptor is a pass-through, it does NOT unwrap to response.data (see
+  // ride/select.tsx's onSuccess for the same two-level unwrap pattern:
+  // response.data is the JSON envelope {success,message,data:{...}}, and the
+  // real payload is one level deeper). Skipping this unwrap left `rawTrips`
+  // as that envelope object (not an array) whenever the backend actually
+  // responded, and `rawTrips.slice(...)` crashed with "undefined is not a
+  // function" — only reproducible with a live backend, since without one the
+  // query never resolves and rawTrips stayed the [] fallback.
+  const tripsBody = (tripsData as any)?.data;
+  const realTrips = (tripsBody?.data as any)?.trips ?? tripsBody?.data ?? [];
+  const rawTrips: any[] = Array.isArray(realTrips) ? realTrips : [];
 
-  const activeBooking = Array.isArray(activeBookings) ? activeBookings[0] : null;
-  const unreadCount: number = (notifsData as any)?.total ?? 0;
+  const activeBooking = (activeBookings as any)?.data?.data?.booking ?? null;
+  const unreadCount: number = (notifsData as any)?.data?.data?.total ?? 0;
   const firstName = (user as any)?.firstName ?? (user as any)?.name?.split(' ')[0] ?? 'there';
   const initials = (firstName[0] ?? 'U').toUpperCase();
 

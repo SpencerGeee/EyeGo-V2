@@ -37,7 +37,7 @@ export { AnimatedFareText } from './AnimatedFareText';
 export { RideCard } from './RideCard';
 
 // Premium Effects
-export { GradientGlowBorder } from './effects/GradientGlowBorder';
+export { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from './effects/GradientGlowBorder';
 export type { GradientGlowBorderHandle } from './effects/GradientGlowBorder';
 export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbientRotation';
 export { GlassSurface } from './effects/GlassSurface';

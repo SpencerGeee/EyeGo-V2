@@ -6,7 +6,7 @@ import { spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Avatar } from './Avatar';
 import { useThemedColors } from './ColorsContext';
-import { GradientGlowBorder } from './effects/GradientGlowBorder';
+import { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from './effects/GradientGlowBorder';
 import { LensSheen } from './effects/LensSheen';
 
 interface TripDriver {
@@ -77,10 +77,13 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
   if (premium) {
     return (
       <GradientGlowBorder
-        colors={[colors.primary, colors.secondary]}
+        colors={PREMIUM_RING_COLORS}
+        locations={PREMIUM_RING_LOCATIONS}
         fillColor={colors.surfaceCard}
         borderRadius={radii.xl}
         glow
+        glowColor={colors.premiumBlue}
+        glowColorSecondary={colors.premiumOrange}
         style={styles.cardLayout}
       >
         <LensSheen />

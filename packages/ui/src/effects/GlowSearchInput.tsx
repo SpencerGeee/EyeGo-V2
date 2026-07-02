@@ -7,10 +7,15 @@ import {
   type ViewStyle,
   type StyleProp,
 } from 'react-native';
-import { radii, spacing, withOpacity, fonts, fontSizes } from '@eyego/config';
+import { radii, spacing, fonts, fontSizes } from '@eyego/config';
 import { useThemedColors } from '../ColorsContext';
 import { Pressable } from '../Pressable';
-import { GradientGlowBorder, type GradientGlowBorderHandle } from './GradientGlowBorder';
+import {
+  GradientGlowBorder,
+  type GradientGlowBorderHandle,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from './GradientGlowBorder';
 
 interface GlowSearchInputProps extends TextInputProps {
   leftIcon?: ReactNode;
@@ -39,11 +44,14 @@ export function GlowSearchInput({
   return (
     <GradientGlowBorder
       ref={ringRef}
-      colors={[colors.primary, colors.secondary]}
+      colors={PREMIUM_RING_COLORS}
+      locations={PREMIUM_RING_LOCATIONS}
       fillColor={colors.surfaceInput}
       borderRadius={radii['2xl']}
       thickness="thin"
       glow
+      glowColor={colors.premiumBlue}
+      glowColorSecondary={colors.premiumOrange}
       style={[styles.container, containerStyle]}
     >
       {leftIcon && <View style={styles.iconSlot}>{leftIcon}</View>}
@@ -93,11 +101,14 @@ export function GlowSearchPressable({
     >
       <GradientGlowBorder
         ref={ringRef}
-        colors={[colors.primary, colors.secondary]}
-        fillColor={withOpacity(colors.surfaceCard, 0.6)}
+        colors={PREMIUM_RING_COLORS}
+        locations={PREMIUM_RING_LOCATIONS}
+        fillColor={colors.surfaceInput}
         borderRadius={radii['2xl']}
         thickness="thin"
         glow
+        glowColor={colors.premiumBlue}
+        glowColorSecondary={colors.premiumOrange}
         style={[styles.container, style]}
       >
         {children}

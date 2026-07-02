@@ -26,7 +26,13 @@ import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
 import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
 import { fonts, fontSizes, spacing, withOpacity } from '@eyego/config';
-import { Text, GradientGlowBorder, type GradientGlowBorderHandle } from '@eyego/ui';
+import {
+  Text,
+  GradientGlowBorder,
+  type GradientGlowBorderHandle,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -262,10 +268,13 @@ export default function OnboardingScreen() {
           >
             <GradientGlowBorder
               ref={ctaRingRef}
-              colors={[colors.primary, colors.secondary]}
-              fillColor={colors.primary}
+              colors={PREMIUM_RING_COLORS}
+              locations={PREMIUM_RING_LOCATIONS}
+              fillColor={colors.surfaceContainerHigh}
               borderRadius={28}
               glow
+              glowColor={colors.premiumBlue}
+              glowColorSecondary={colors.premiumOrange}
               style={styles.premiumCta}
             >
               <Text style={styles.premiumCtaText}>
@@ -538,7 +547,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'center',
   },
   premiumCtaText: {
-    color: colors.onPrimary,
+    color: colors.onSurface,
     fontSize: 16,
     lineHeight: 21,
     fontFamily: fonts.bold,

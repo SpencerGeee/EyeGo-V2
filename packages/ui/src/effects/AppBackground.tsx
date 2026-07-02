@@ -115,7 +115,7 @@ function Blob({ color, size, top, left, driftX, driftY, durationMs }: BlobConfig
       { translateX: progress.value * driftX },
       { translateY: progress.value * driftY },
     ],
-    opacity: 0.5 + progress.value * 0.15,
+    opacity: 0.7 + progress.value * 0.2,
   }));
 
   return (
@@ -126,7 +126,8 @@ function Blob({ color, size, top, left, driftX, driftY, durationMs }: BlobConfig
       <Svg width={size} height={size}>
         <Defs>
           <RadialGradient id="blobGradient" cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={color} stopOpacity={0.5} />
+            <Stop offset="0%" stopColor={color} stopOpacity={0.85} />
+            <Stop offset="60%" stopColor={color} stopOpacity={0.4} />
             <Stop offset="100%" stopColor={color} stopOpacity={0} />
           </RadialGradient>
         </Defs>
