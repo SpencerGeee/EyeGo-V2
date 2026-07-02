@@ -3,7 +3,7 @@ import { Image, StyleSheet, View } from 'react-native';
 import { MotiView } from 'moti';
 import * as SplashScreen from 'expo-splash-screen';
 import { fonts, colors, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, ShinyText } from '@eyego/ui';
 
 const PRIMARY = colors.primary;
 const BG = colors.backgroundDeep;
@@ -50,7 +50,7 @@ export function SplashAnimation({ onComplete }: Props) {
         transition={{ type: 'timing', duration: 300 }}
         style={styles.wordmarkRow}
       >
-        <Text style={styles.wordmark}>EyeGo</Text>
+        <ShinyText baseColor={colors.onSurface} textStyle={styles.wordmark}>EyeGo</ShinyText>
       </MotiView>
 
       <MotiView

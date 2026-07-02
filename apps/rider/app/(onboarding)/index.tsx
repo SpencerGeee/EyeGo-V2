@@ -26,7 +26,7 @@ import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
 import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
 import { fonts, fontSizes, spacing, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, GradientGlowBorder, type GradientGlowBorderHandle } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -169,6 +169,7 @@ export default function OnboardingScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
+  const ctaRingRef = useRef<GradientGlowBorderHandle>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollX = useSharedValue(0);
 
@@ -254,10 +255,23 @@ export default function OnboardingScreen() {
 
         {/* Primary Premium CTA */}
         <View style={styles.ctaWrapper}>
-          <Pressable style={[styles.premiumCta, { shadowColor: colors.primary }]} onPress={handleNext} accessibilityRole="button" accessibilityLabel={currentIndex === SLIDES.length - 1 ? 'Start your journey' : 'Continue' }>
-            <Text style={styles.premiumCtaText}>
-              {currentIndex === SLIDES.length - 1 ? 'Start Your Journey' : 'Continue'}
-            </Text>
+          <Pressable
+            onPress={() => { ctaRingRef.current?.burst(); handleNext(); }}
+            accessibilityRole="button"
+            accessibilityLabel={currentIndex === SLIDES.length - 1 ? 'Start your journey' : 'Continue'}
+          >
+            <GradientGlowBorder
+              ref={ctaRingRef}
+              colors={[colors.primary, colors.secondary]}
+              fillColor={colors.primary}
+              borderRadius={28}
+              glow
+              style={styles.premiumCta}
+            >
+              <Text style={styles.premiumCtaText}>
+                {currentIndex === SLIDES.length - 1 ? 'Start Your Journey' : 'Continue'}
+              </Text>
+            </GradientGlowBorder>
           </Pressable>
         </View>
       </MotiView>
@@ -516,16 +530,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: '100%',
   },
   premiumCta: {
+    // Background, ring, and glow are drawn by GradientGlowBorder — this
+    // only supplies layout.
     width: '100%',
     height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 6,
   },
   premiumCtaText: {
     color: colors.onPrimary,

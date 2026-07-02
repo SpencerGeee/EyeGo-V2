@@ -391,6 +391,7 @@ export default function RateTipScreen() {
           style={styles.footer}
         >
           <Button
+            variant="glow"
             label={
               submitFeedback.isPending
                 ? 'Submitting…'

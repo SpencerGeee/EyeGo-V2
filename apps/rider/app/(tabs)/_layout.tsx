@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Tabs } from 'expo-router';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated, {
@@ -7,26 +7,13 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from 'react-native-reanimated';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, type ColorTokens } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, GlassSurface } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
-
-// Liquid Glass — only available on iOS 26+; fails silently if not installed
-let LiquidGlassView: React.ComponentType<any> | null = null;
-let isLiquidGlassSupported = false;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const lg = require('@callstack/liquid-glass');
-  LiquidGlassView = lg.LiquidGlassView ?? null;
-  isLiquidGlassSupported = lg.isLiquidGlassSupported ?? false;
-} catch {
-  // package not yet installed or platform unsupported — use expo-blur fallback
-}
 
 type TabRoute = 'home' | 'services' | 'activity' | 'account';
 
@@ -51,31 +38,6 @@ const TAB_LABELS: Record<TabRoute, string> = {
   account: 'PROFILE',
 };
 
-/** Renders the glassmorphism / Liquid Glass background layer */
-function GlassLayer({ isDark }: { isDark: boolean }) {
-  if (isLiquidGlassSupported && LiquidGlassView) {
-    return <LiquidGlassView style={StyleSheet.absoluteFill} />;
-  }
-  if (Platform.OS === 'ios') {
-    return (
-      <BlurView
-        intensity={72}
-        tint={isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
-        style={StyleSheet.absoluteFill}
-      />
-    );
-  }
-  // Android: elevated surface — BlurView has limited Android support
-  return (
-    <View
-      style={[
-        StyleSheet.absoluteFill,
-        { backgroundColor: isDark ? 'rgba(10, 12, 18, 0.92)' : 'rgba(255, 255, 255, 0.95)' },
-      ]}
-    />
-  );
-}
-
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const colors = useColors();
   const styles = getStyles(colors);
@@ -83,7 +45,14 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const isDark = useThemeStore((s) => s.isDark);
   return (
     <View style={styles.tabBarWrapper}>
-      <GlassLayer isDark={isDark} />
+      {/* Maximum-transparency liquid glass — LiquidGlassView on iOS 26+,
+          BlurView fallback, tinted View as a last resort. */}
+      <GlassSurface
+        intensity="high"
+        dark={isDark}
+        chromaticHint
+        style={StyleSheet.absoluteFill}
+      />
       {/* top highlight line — native iOS glass feel */}
       <View style={styles.topBorder} />
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom - 6, 10) }]}>
@@ -234,7 +203,7 @@ function getStyles(colors: ColorTokens) {
       borderRadius: 16,
     },
     tabItemActive: {
-      backgroundColor: `${colors.primary}1A`,
+      backgroundColor: `${colors.primary}14`,
     },
     tabLabel: {
       fontFamily: fonts.labelCaps,

@@ -6,7 +6,6 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -17,7 +16,7 @@ import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, Avatar } from '@eyego/ui';
+import { Text, Skeleton, Avatar, GlowSearchPressable } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -53,29 +52,21 @@ function WhereToPressable({
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
   return (
-    <Animated.View style={animStyle}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={() => { scale.value = withSpring(0.97, { stiffness: 400, damping: 15 }); }}
-        onPressOut={() => { scale.value = withSpring(1, { stiffness: 400, damping: 15 }); }}
-        style={styles.whereToCard}
-        accessibilityRole="button"
-        accessibilityLabel="Open destination search"
-      >
-        <View style={styles.whereToIconWrap}>
-          <Ionicons name="search" size={20} color={colors.primary} />
-        </View>
-        <View style={styles.whereToTextWrap}>
-          <Text style={styles.whereToTitle}>Where to?</Text>
-          <Text style={styles.whereToSub}>Search destination or route</Text>
-        </View>
-        <Ionicons name="mic-outline" size={20} color={colors.onSurfaceVariant} />
-      </Pressable>
-    </Animated.View>
+    <GlowSearchPressable
+      onPress={onPress}
+      accessibilityLabel="Open destination search"
+      style={styles.whereToCard}
+    >
+      <View style={styles.whereToIconWrap}>
+        <Ionicons name="search" size={20} color={colors.primary} />
+      </View>
+      <View style={styles.whereToTextWrap}>
+        <Text style={styles.whereToTitle}>Where to?</Text>
+        <Text style={styles.whereToSub}>Search destination or route</Text>
+      </View>
+      <Ionicons name="mic-outline" size={20} color={colors.onSurfaceVariant} />
+    </GlowSearchPressable>
   );
 }
 
@@ -464,12 +455,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   // ─── Where To (glass panel) ───────────────────────────────
   whereToCard: {
+    // Background, ring, and glow are drawn by GlowSearchPressable's
+    // GradientGlowBorder — this only supplies layout.
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: withOpacity(colors.surfaceCard, 0.6),
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
     padding: spacing.sm,
     gap: spacing.base,
   },

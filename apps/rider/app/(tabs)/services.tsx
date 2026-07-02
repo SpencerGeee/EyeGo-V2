@@ -7,17 +7,19 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, Card, TierBadge, GlassSurface, ShinyText } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
+
+type TierKey = 'economy' | 'comfort' | 'premium';
 
 interface TierCard {
   id: string;
-  name: string;
+  name: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
   description: string;
   priceRange: string;
   eta: string;
   icon: keyof typeof Ionicons.glyphMap;
-  tier: string;
+  tier: TierKey;
 }
 
 interface SpecialService {
@@ -31,7 +33,7 @@ interface SpecialService {
 const TIERS: TierCard[] = [
   {
     id: 'economy',
-    name: 'Economy',
+    name: 'ECONOMY',
     description: 'Affordable everyday rides',
     priceRange: 'GH₵ 15 – 30',
     eta: '3–5 min',
@@ -40,7 +42,7 @@ const TIERS: TierCard[] = [
   },
   {
     id: 'comfort',
-    name: 'Comfort',
+    name: 'COMFORT',
     description: 'More space and a smoother ride',
     priceRange: 'GH₵ 30 – 55',
     eta: '5–8 min',
@@ -49,7 +51,7 @@ const TIERS: TierCard[] = [
   },
   {
     id: 'premium',
-    name: 'Premium',
+    name: 'PREMIUM',
     description: 'Top-rated drivers, luxury vehicles',
     priceRange: 'GH₵ 55 – 100',
     eta: '8–12 min',
@@ -58,7 +60,7 @@ const TIERS: TierCard[] = [
   },
 ];
 
-function getTierAccent(colors: Colors, tier: string): string {
+function getTierAccent(colors: Colors, tier: TierKey): string {
   if (tier === 'comfort') return colors.tierComfort;
   if (tier === 'premium') return colors.tierPremium;
   return colors.tierEconomy;
@@ -84,6 +86,7 @@ const SPECIAL_SERVICES: SpecialService[] = [
 function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
   const accent = getTierAccent(colors, tier.tier);
+  const isPremium = tier.tier === 'premium';
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -96,31 +99,35 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
       animate={{ opacity: 1, translateY: 0 }}
       transition={{ type: 'timing', duration: 300 }}
     >
-      <Pressable
-        style={({ pressed }) => [styles.tierCard, pressed && styles.pressed]}
-        onPress={handlePress}
-      >
-        <View style={[styles.tierAccent, { backgroundColor: accent }]} />
-        <View style={styles.tierContent}>
-          <View style={[styles.tierIconWrap, { backgroundColor: withOpacity(accent, 0.1) }]}>
-            <Ionicons name={tier.icon} size={22} color={accent} />
+      <Pressable onPress={handlePress}>
+        <Card
+          padding={0}
+          elevated={!isPremium}
+          glow={isPremium}
+          animated={isPremium}
+          style={styles.tierCard}
+        >
+          <View style={styles.tierContent}>
+            <View style={[styles.tierIconWrap, { backgroundColor: withOpacity(accent, 0.12) }]}>
+              <Ionicons name={tier.icon} size={22} color={accent} />
+            </View>
+            <View style={styles.tierInfo}>
+              <TierBadge tier={tier.name} size="md" />
+              <Text style={styles.tierDesc}>{tier.description}</Text>
+            </View>
+            <View style={styles.tierRight}>
+              <Text style={[styles.tierPrice, { color: accent }]}>{tier.priceRange}</Text>
+              <Text style={styles.tierEta}>{tier.eta} away</Text>
+            </View>
           </View>
-          <View style={styles.tierInfo}>
-            <Text style={styles.tierName}>{tier.name}</Text>
-            <Text style={styles.tierDesc}>{tier.description}</Text>
-          </View>
-          <View style={styles.tierRight}>
-            <Text style={[styles.tierPrice, { color: accent }]}>{tier.priceRange}</Text>
-            <Text style={styles.tierEta}>{tier.eta} away</Text>
-          </View>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={styles.chevron} />
+          <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={styles.chevron} />
+        </Card>
       </Pressable>
     </MotiView>
   );
 }
 
-function SpecialServiceCard({ service, colors, styles }: { service: SpecialService; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
+function SpecialServiceCard({ service, colors, styles, isLast }: { service: SpecialService; colors: Colors; styles: ReturnType<typeof makeStyles>; isLast: boolean }) {
   const router = useRouter();
 
   const handlePress = () => {
@@ -130,7 +137,7 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.specialCard, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.specialCard, !isLast && styles.specialCardDivider, pressed && styles.pressed]}
       onPress={handlePress}
     >
       <View style={styles.specialIconWrap}>
@@ -152,7 +159,7 @@ export default function ServicesScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Services</Text>
+        <ShinyText baseColor={colors.onSurface} textStyle={styles.title}>Services</ShinyText>
         <Text style={styles.subtitle}>Choose how you want to ride</Text>
       </View>
 
@@ -169,11 +176,17 @@ export default function ServicesScreen() {
         </View>
 
         <Text style={[styles.sectionHeader, { marginTop: spacing['2xl'] }]}>Special Services</Text>
-        <View style={styles.specialContainer}>
-          {SPECIAL_SERVICES.map((service) => (
-            <SpecialServiceCard key={service.id} service={service} colors={colors} styles={styles} />
+        <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.specialContainer}>
+          {SPECIAL_SERVICES.map((service, i) => (
+            <SpecialServiceCard
+              key={service.id}
+              service={service}
+              colors={colors}
+              styles={styles}
+              isLast={i === SPECIAL_SERVICES.length - 1}
+            />
           ))}
-        </View>
+        </GlassSurface>
 
         <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
       </ScrollView>
@@ -184,7 +197,9 @@ export default function ServicesScreen() {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.backgroundDeep,
+    // AppBackground (mounted in the root layout) shows through here instead
+    // of a flat fill.
+    backgroundColor: 'transparent',
   },
   header: {
     paddingHorizontal: spacing.xl,
@@ -195,7 +210,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.headlineLarge,
     lineHeight: fontSizes.headlineLarge * 1.25,
-    color: colors.onSurface,
     letterSpacing: -0.5,
   },
   subtitle: {
@@ -219,15 +233,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tierCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    overflow: 'hidden',
-  },
-  tierAccent: {
-    width: 4,
-    alignSelf: 'stretch',
   },
   tierContent: {
     flex: 1,
@@ -243,19 +248,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tierInfo: { flex: 1 },
-  tierName: {
-    fontFamily: fonts.semiBold,
-    fontSize: fontSizes.titleSmall,
-    lineHeight: fontSizes.titleSmall * 1.3,
-    color: colors.onSurface,
-  },
+  tierInfo: { flex: 1, gap: 4 },
   tierDesc: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
     lineHeight: fontSizes.bodySmall * 1.35,
     color: colors.onSurfaceVariant,
-    marginTop: 2,
   },
   tierRight: { alignItems: 'flex-end', maxWidth: 120 },
   tierPrice: {
@@ -272,11 +270,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   chevron: { marginRight: spacing.md },
   specialContainer: {
-    gap: 1,
-    backgroundColor: colors.rimLightSubtle,
-    borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
     overflow: 'hidden',
   },
   specialCard: {
@@ -284,7 +277,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     padding: spacing.lg,
     gap: spacing.md,
-    backgroundColor: colors.surfaceCard,
+  },
+  specialCardDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.rimLightSubtle,
   },
   specialIconWrap: {
     width: 40,

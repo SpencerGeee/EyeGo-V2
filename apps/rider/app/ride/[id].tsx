@@ -1,5 +1,5 @@
 import React, { useRef, useMemo, useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, fontSizes, spacing, radii, shadows, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader } from '@eyego/ui';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
@@ -114,7 +114,7 @@ export default function RideDetailScreen() {
   if (isLoading && !trip) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <Loader label="Loading your ride…" />
       </View>
     );
   }
@@ -312,6 +312,7 @@ export default function RideDetailScreen() {
                   driver={trip?.driver}
                   vehicle={trip?.vehicle}
                   showActions={false}
+                  premium
                 />
               </MotiView>
 
@@ -336,7 +337,7 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
                 style={styles.fareSection}
               >
-                <AnimatedFareText value={computedFare ?? trip?.farePerSeat ?? 0} variant="fareLarge" />
+                <AnimatedFareText value={computedFare ?? trip?.farePerSeat ?? 0} variant="fareLarge" shiny />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   per seat · drops as more join
                 </Text>

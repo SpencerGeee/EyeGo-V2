@@ -285,7 +285,7 @@ export default function RideSelectScreen() {
         {!searched && !searchTrips.isPending && (destText || destText) && (
           <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 200 }}>
             <Pressable style={styles.searchCta} onPress={() => searchTrips.mutate()}>
-              <Button label="Find Available Rides" onPress={() => searchTrips.mutate()} loading={searchTrips.isPending} />
+              <Button variant="glow" label="Find Available Rides" onPress={() => searchTrips.mutate()} loading={searchTrips.isPending} />
             </Pressable>
           </MotiView>
         )}

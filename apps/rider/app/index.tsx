@@ -1,6 +1,7 @@
 import React from 'react';
 import { Redirect } from 'expo-router';
-import { View, ActivityIndicator } from 'react-native';
+import { View } from 'react-native';
+import { Loader } from '@eyego/ui';
 import { useAuthStore } from '../stores/auth.store';
 import { darkColors as colors } from '../utils/useColors';
 
@@ -10,7 +11,7 @@ export default function Index() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <Loader label="Signing you in…" />
       </View>
     );
   }

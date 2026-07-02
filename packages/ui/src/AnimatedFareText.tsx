@@ -1,13 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { fonts } from '@eyego/config';
+import { fonts, fontSizes } from '@eyego/config';
 import { Text } from './Text';
+import { ShinyText } from './ShinyText';
+import { useThemedColors } from './ColorsContext';
 import type { TextVariant } from './Text';
+
+const FARE_SIZE: Partial<Record<TextVariant, number>> = {
+  fareLarge: fontSizes.fareLarge,
+  fareMedium: fontSizes.fareMedium,
+  fareSmall: fontSizes.fareSmall,
+  fareInline: fontSizes.fareInline,
+};
 
 interface AnimatedFareTextProps {
   value: number;
   prefix?: string;
   variant?: TextVariant;
   color?: string;
+  /** Adds a premium shine sweep — reserved for a single hero fare number
+   * (e.g. ride confirmation), not every fare row in a list. */
+  shiny?: boolean;
 }
 
 export function AnimatedFareText({
@@ -15,7 +27,9 @@ export function AnimatedFareText({
   prefix = 'GH₵ ',
   variant = 'fareLarge',
   color,
+  shiny = false,
 }: AnimatedFareTextProps) {
+  const colors = useThemedColors();
   const [displayValue, setDisplayValue] = useState(value);
   // Keep a ref to the current display value so the animation effect can snapshot
   // it as the start value without adding it to the dep array (which would restart
@@ -53,6 +67,18 @@ export function AnimatedFareText({
   }, [value]);
 
   const formatted = `${prefix}${displayValue.toFixed(2)}`;
+
+  if (shiny) {
+    const fontSize = FARE_SIZE[variant] ?? fontSizes.fareLarge;
+    return (
+      <ShinyText
+        baseColor={color ?? colors.primary}
+        textStyle={{ fontFamily: fonts.monoBold, fontSize }}
+      >
+        {formatted}
+      </ShinyText>
+    );
+  }
 
   return (
     <Text variant={variant} color={color} style={{ fontFamily: fonts.monoBold }}>

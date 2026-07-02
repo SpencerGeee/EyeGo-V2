@@ -10,7 +10,7 @@ import { bookingsApi, tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, AnimatedFareText } from '@eyego/ui';
+import { Text, Button, AnimatedFareText, Loader } from '@eyego/ui';
 import type { GroupMember, Trip } from '@eyego/types';
 
 function formatCurrency(amount: number): string {
@@ -197,10 +197,7 @@ export default function InviteScreen() {
           <View style={{ width: 24 }} />
         </View>
         <View style={styles.emptyState}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.base }}>
-            Reserving your seat...
-          </Text>
+          <Loader label="Reserving your seat…" />
         </View>
       </SafeAreaView>
     );
@@ -454,6 +451,7 @@ export default function InviteScreen() {
           transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 300 }}
         >
           <Button
+            variant="glow"
             label="Proceed to Payment"
             onPress={() => router.push(`/ride/${id}/payment` as Href)}
           />

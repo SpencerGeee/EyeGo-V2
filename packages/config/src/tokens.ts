@@ -192,4 +192,13 @@ export const animation = {
     type: 'timing' as const,
     duration,
   }),
+  // Premium "high-tech" motion contract — overdamped, no cartoon bounce.
+  // Micro-interactions should stay <=200ms, full-screen reveals <=350ms.
+  premiumSpring: {
+    type: 'spring' as const,
+    mass: 0.6,
+    damping: 16,
+    stiffness: 120,
+  },
+  premiumEase: [0.16, 1, 0.3, 1] as const,
 } as const;

@@ -7,6 +7,10 @@
   "peerDependencies": {
     "react": "*",
     "react-native": "*",
-    "expo-blur": "*"
+    "expo-blur": "*",
+    "expo-linear-gradient": "*",
+    "react-native-reanimated": "*",
+    "react-native-svg": "*",
+    "@react-native-masked-view/masked-view": "*"
   }
 }

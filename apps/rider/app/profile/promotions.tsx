@@ -4,7 +4,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  TextInput,
   Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,7 +12,7 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlowSearchInput, ShinyText } from '@eyego/ui';
 import { bookingsApi, apiClient } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -88,20 +87,17 @@ export default function PromotionsScreen() {
             ENTER PROMO CODE
           </Text>
           <View style={styles.promoCard}>
-            <View style={styles.inputRow}>
-              <Ionicons name="ticket-outline" size={20} color={colors.onSurfaceVariant} />
-              <TextInput
-                style={styles.input}
-                placeholder="Enter code here"
-                placeholderTextColor={colors.onSurfaceVariant}
-                value={promoCode}
-                onChangeText={(text) => {
-                  setPromoCode(text);
-                  setPromoStatus('idle');
-                }}
-                autoCapitalize="characters"
-              />
-            </View>
+            <GlowSearchInput
+              containerStyle={{ flex: 1 }}
+              leftIcon={<Ionicons name="ticket-outline" size={20} color={colors.onSurfaceVariant} />}
+              placeholder="Enter code here"
+              value={promoCode}
+              onChangeText={(text) => {
+                setPromoCode(text);
+                setPromoStatus('idle');
+              }}
+              autoCapitalize="characters"
+            />
             <Button
               label="Apply"
               onPress={handleApplyPromo}
@@ -146,7 +142,12 @@ export default function PromotionsScreen() {
             {referralCode ? (
               <View style={styles.codeContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant}>YOUR CODE</Text>
-                <Text variant="titleLarge" color={colors.primary} style={styles.codeText}>{referralCode}</Text>
+                <ShinyText
+                  baseColor={colors.primary}
+                  textStyle={[{ fontFamily: fonts.semiBold, fontSize: fontSizes.titleLarge }, styles.codeText]}
+                >
+                  {referralCode}
+                </ShinyText>
               </View>
             ) : null}
 

@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, letterSpacings, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
+import { ShinyText } from './ShinyText';
 import { useThemedColors } from './ColorsContext';
 
 type Tier = 'ECONOMY' | 'COMFORT' | 'PREMIUM' | 'ROYAL';
@@ -42,19 +43,35 @@ export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
       ]}
     >
       <Ionicons name={config.icon} size={iconSize} color={config.color} />
-      <Text
-        style={{
-          fontFamily: fonts.labelCaps,
-          fontSize,
-          lineHeight: Math.round(fontSize * 1.4),
-          color: config.color,
-          letterSpacing: letterSpacings.label,
-          marginLeft: 3,
-          textTransform: 'uppercase',
-        }}
-      >
-        {config.label}
-      </Text>
+      {tier === 'PREMIUM' || tier === 'ROYAL' ? (
+        <ShinyText
+          style={{ marginLeft: 3 }}
+          baseColor={config.color}
+          textStyle={{
+            fontFamily: fonts.labelCaps,
+            fontSize,
+            lineHeight: Math.round(fontSize * 1.4),
+            letterSpacing: letterSpacings.label,
+            textTransform: 'uppercase',
+          }}
+        >
+          {config.label}
+        </ShinyText>
+      ) : (
+        <Text
+          style={{
+            fontFamily: fonts.labelCaps,
+            fontSize,
+            lineHeight: Math.round(fontSize * 1.4),
+            color: config.color,
+            letterSpacing: letterSpacings.label,
+            marginLeft: 3,
+            textTransform: 'uppercase',
+          }}
+        >
+          {config.label}
+        </Text>
+      )}
     </View>
   );
 }

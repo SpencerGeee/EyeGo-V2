@@ -28,7 +28,7 @@ import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -381,12 +381,16 @@ export default function RootLayout() {
     <I18nextProvider i18n={i18n}>
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
+        <AmbientRotationProvider>
         <QueryClientProvider client={queryClient}>
           <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.backgroundDeep} />
+          {/* Ambient premium background — every "bare" screen (transparent
+              Stack contentStyle below) shows this instead of a flat fill. */}
+          <AppBackground />
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: colors.background },
+              contentStyle: { backgroundColor: 'transparent' },
               animation: 'fade_from_bottom',
             }}
           >
@@ -615,6 +619,7 @@ export default function RootLayout() {
             </View>
           )}
         </QueryClientProvider>
+        </AmbientRotationProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
     </I18nextProvider>

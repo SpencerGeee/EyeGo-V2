@@ -194,6 +194,7 @@ export default function SeatPickerScreen() {
         style={styles.footer}
       >
         <Button
+          variant="glow"
           label="Confirm Seat"
           onPress={handleConfirm}
           disabled={!selectedId}

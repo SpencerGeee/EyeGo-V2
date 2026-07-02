@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlowSearchInput } from '@eyego/ui';
 
 type Place = {
   id: string;
@@ -198,10 +198,8 @@ export default function SavedPlacesScreen() {
               
               <View style={styles.inputContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>ADDRESS</Text>
-                <TextInput
-                  style={styles.input}
+                <GlowSearchInput
                   placeholder="Enter address"
-                  placeholderTextColor={colors.onSurfaceVariant}
                   value={newAddress}
                   onChangeText={searchAddress}
                 />

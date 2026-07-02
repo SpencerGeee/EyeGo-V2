@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { ActivityIndicator, StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
+import { GradientGlowBorder, type GradientGlowBorderHandle } from './effects/GradientGlowBorder';
 import { radii, spacing, fonts, fontSizes, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'glow';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps {
@@ -20,6 +21,9 @@ interface ButtonProps {
   icon?: React.ReactNode;
   accessibilityLabel?: string;
   accessibilityRole?: string;
+  /** variant="glow" only — overrides the default green/blue ring sweep.
+   * e.g. [colors.tertiary, colors.statusError] for a SOS/urgent CTA. */
+  glowColors?: readonly [string, string, ...string[]];
 }
 
 function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { container: ViewStyle; textColor: string }> {
@@ -55,6 +59,14 @@ function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { containe
       },
       textColor: '#FFFFFF',
     },
+    glow: {
+      // Solid fill + glow shadow are rendered by GradientGlowBorder instead —
+      // this container stays transparent so the animated ring is visible.
+      container: {
+        backgroundColor: 'transparent',
+      },
+      textColor: colors.onPrimary,
+    },
   };
 }
 
@@ -83,11 +95,14 @@ export function Button({
   style,
   fullWidth = true,
   icon,
+  glowColors,
 }: ButtonProps) {
   const colors = useThemedColors();
   const vStyle = getVariantStyles(colors)[variant];
   const sStyle = sizeStyles[size];
   const isDisabled = disabled || loading;
+  const glowRef = useRef<GradientGlowBorderHandle>(null);
+  const isGlow = variant === 'glow';
 
   const resolvedStyle: ViewStyle[] = [styles.base, vStyle.container, sStyle.container];
   if (fullWidth) resolvedStyle.push(styles.fullWidth);
@@ -97,6 +112,47 @@ export function Button({
     else resolvedStyle.push(style);
   }
 
+  const content = loading ? (
+    <ActivityIndicator size="small" color={vStyle.textColor} />
+  ) : (
+    <>
+      {icon}
+      <Text
+        style={{
+          fontFamily: fonts.semiBold,
+          fontSize: sStyle.fontSize,
+          lineHeight: Math.round(sStyle.fontSize * 1.3),
+          color: vStyle.textColor,
+        }}
+      >
+        {label}
+      </Text>
+    </>
+  );
+
+  if (isGlow) {
+    return (
+      <Pressable
+        onPress={onPress}
+        onPressIn={() => glowRef.current?.burst()}
+        disabled={isDisabled}
+        haptic="medium"
+        style={fullWidth ? styles.fullWidth : undefined}
+      >
+        <GradientGlowBorder
+          ref={glowRef}
+          colors={glowColors ?? [colors.primary, colors.secondary]}
+          fillColor={colors.primary}
+          borderRadius={radii.full}
+          glow
+          style={resolvedStyle}
+        >
+          {content}
+        </GradientGlowBorder>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       onPress={onPress}
@@ -104,26 +160,7 @@ export function Button({
       haptic="medium"
       style={resolvedStyle}
     >
-      {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={vStyle.textColor}
-        />
-      ) : (
-        <>
-          {icon}
-          <Text
-            style={{
-              fontFamily: fonts.semiBold,
-              fontSize: sStyle.fontSize,
-              lineHeight: Math.round(sStyle.fontSize * 1.3),
-              color: vStyle.textColor,
-            }}
-          >
-            {label}
-          </Text>
-        </>
-      )}
+      {content}
     </Pressable>
   );
 }

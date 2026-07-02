@@ -13,8 +13,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { Text, GradientGlowBorder, type GradientGlowBorderHandle } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useRideStore } from '../stores/ride.store';
@@ -76,6 +76,8 @@ export default function WhereToScreen() {
 
   const destRef = useRef<TextInput>(null);
   const originRef = useRef<TextInput>(null);
+  const originRingRef = useRef<GradientGlowBorderHandle>(null);
+  const destRingRef = useRef<GradientGlowBorderHandle>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -245,60 +247,69 @@ export default function WhereToScreen() {
                 {/* Input columns */}
                 <View style={styles.inputsCol}>
                   {/* Origin */}
-                  <Pressable
-                    style={[
-                      styles.inputBox,
-                      activeField === 'origin' && styles.inputBoxActive,
-                    ]}
-                    onPress={() => {
-                      setActiveField('origin');
-                      originRef.current?.focus();
-                    }}
+                  <GradientGlowBorder
+                    ref={originRingRef}
+                    colors={[colors.primary, colors.secondary]}
+                    fillColor={colors.surfaceInput}
+                    borderRadius={radii.lg}
+                    thickness="thin"
                   >
-                    <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
-                    <TextInput
-                      ref={originRef}
-                      style={styles.inputText}
-                      value={originText}
-                      onChangeText={setOriginText}
-                      placeholder="Pickup location"
-                      placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
-                      onFocus={() => setActiveField('origin')}
-                      returnKeyType="next"
-                      onSubmitEditing={() => {
-                        setActiveField('dest');
-                        destRef.current?.focus();
+                    <Pressable
+                      style={styles.inputBoxInner}
+                      onPress={() => {
+                        setActiveField('origin');
+                        originRef.current?.focus();
                       }}
-                    />
-                  </Pressable>
+                    >
+                      <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
+                      <TextInput
+                        ref={originRef}
+                        style={styles.inputText}
+                        value={originText}
+                        onChangeText={setOriginText}
+                        placeholder="Pickup location"
+                        placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
+                        onFocus={() => { setActiveField('origin'); originRingRef.current?.burst(); }}
+                        returnKeyType="next"
+                        onSubmitEditing={() => {
+                          setActiveField('dest');
+                          destRef.current?.focus();
+                        }}
+                      />
+                    </Pressable>
+                  </GradientGlowBorder>
 
                   {/* Destination */}
-                  <View
-                    style={[
-                      styles.inputBox,
-                      activeField === 'dest' && styles.inputBoxActive,
-                    ]}
+                  <GradientGlowBorder
+                    ref={destRingRef}
+                    colors={[colors.primary, colors.secondary]}
+                    fillColor={colors.surfaceInput}
+                    borderRadius={radii.lg}
+                    thickness="thin"
+                    glow
                   >
-                    <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
-                    <TextInput
-                      ref={destRef}
-                      style={styles.inputText}
-                      value={destQuery}
-                      onChangeText={handleSearch}
-                      placeholder="Where are you going?"
-                      placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
-                      onFocus={() => { setActiveField('dest'); }}
-                      returnKeyType="search"
-                      autoCorrect={false}
-                      autoCapitalize="words"
-                    />
-                    {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
-                    {destQuery.length > 0 && !isSearching && (
-                      <Pressable onPress={handleClearDest} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear">
-                        <Ionicons name="close-circle" size={16} color={colors.outline} />
-                      </Pressable>
-                    )}
-                  </View>
+                    <View style={styles.inputBoxInner}>
+                      <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
+                      <TextInput
+                        ref={destRef}
+                        style={styles.inputText}
+                        value={destQuery}
+                        onChangeText={handleSearch}
+                        placeholder="Where are you going?"
+                        placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
+                        onFocus={() => { setActiveField('dest'); destRingRef.current?.burst(); }}
+                        returnKeyType="search"
+                        autoCorrect={false}
+                        autoCapitalize="words"
+                      />
+                      {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
+                      {destQuery.length > 0 && !isSearching && (
+                        <Pressable onPress={handleClearDest} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear">
+                          <Ionicons name="close-circle" size={16} color={colors.outline} />
+                        </Pressable>
+                      )}
+                    </View>
+                  </GradientGlowBorder>
                 </View>
 
                 {/* Swap button */}
@@ -544,20 +555,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     gap: 8,
   },
-  inputBox: {
+  // Background, ring, and glow are now drawn by GradientGlowBorder — this
+  // only supplies the row's internal layout.
+  inputBoxInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceInput,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.rimLightSubtle,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
     minHeight: 48,
-  },
-  inputBoxActive: {
-    borderColor: withOpacity(colors.primary, 0.65),
   },
   inputIcon: { flexShrink: 0 },
   inputText: {

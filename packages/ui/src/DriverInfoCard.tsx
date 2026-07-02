@@ -6,6 +6,8 @@ import { spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Avatar } from './Avatar';
 import { useThemedColors } from './ColorsContext';
+import { GradientGlowBorder } from './effects/GradientGlowBorder';
+import { LensSheen } from './effects/LensSheen';
 
 interface TripDriver {
   id?: string;
@@ -28,13 +30,18 @@ interface DriverInfoCardProps {
   showActions?: boolean;
   onCall?: () => void;
   onChat?: () => void;
+  /** Animated gradient ring + glow + a drifting glass-lens sheen — the
+   * "hero" treatment for the matched-driver moment. Keep off for repeated
+   * list rows (perf: see effects/GradientGlowBorder). */
+  premium?: boolean;
 }
 
-export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, onChat }: DriverInfoCardProps) {
+export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, onChat, premium = false }: DriverInfoCardProps) {
   const colors = useThemedColors();
   const styles = getStyles(colors);
-  return (
-    <View style={styles.card}>
+
+  const content = (
+    <>
       <Avatar uri={driver.avatarUrl} name={driver.name} size={48} borderColor={colors.primary} />
 
       <View style={styles.info}>
@@ -64,21 +71,40 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
           )}
         </View>
       )}
-    </View>
+    </>
   );
+
+  if (premium) {
+    return (
+      <GradientGlowBorder
+        colors={[colors.primary, colors.secondary]}
+        fillColor={colors.surfaceCard}
+        borderRadius={radii.xl}
+        glow
+        style={styles.cardLayout}
+      >
+        <LensSheen />
+        {content}
+      </GradientGlowBorder>
+    );
+  }
+
+  return <View style={[styles.cardLayout, styles.cardChrome]}>{content}</View>;
 }
 
 function getStyles(colors: ColorTokens) {
   return StyleSheet.create({
-    card: {
+    cardLayout: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surfaceCard,
       borderRadius: radii.xl,
       padding: spacing.base,
+      gap: spacing.md,
+    },
+    cardChrome: {
+      backgroundColor: colors.surfaceCard,
       borderWidth: 1,
       borderColor: colors.rimLight,
-      gap: spacing.md,
     },
     info: { flex: 1 },
     actions: { flexDirection: 'row', gap: spacing.sm },

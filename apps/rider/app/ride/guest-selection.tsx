@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Radio } from '@eyego/ui';
 
 export default function GuestSelectionScreen() {
   const colors = useColors();
@@ -97,9 +97,7 @@ export default function GuestSelectionScreen() {
                   The ride is for me
                 </Text>
               </View>
-              <View style={[styles.radio, selection === 'myself' && styles.radioSelected]}>
-                {selection === 'myself' && <View style={styles.radioInner} />}
-              </View>
+              <Radio selected={selection === 'myself'} onPress={() => setSelection('myself')} />
             </Pressable>
 
             <Pressable
@@ -124,9 +122,7 @@ export default function GuestSelectionScreen() {
                   Book a ride for a guest
                 </Text>
               </View>
-              <View style={[styles.radio, selection === 'guest' && styles.radioSelected]}>
-                {selection === 'guest' && <View style={styles.radioInner} />}
-              </View>
+              <Radio selected={selection === 'guest'} onPress={() => setSelection('guest')} />
             </Pressable>
           </View>
         </MotiView>
@@ -183,6 +179,7 @@ export default function GuestSelectionScreen() {
 
       <View style={styles.footer}>
         <Button
+          variant="glow"
           label="Continue"
           onPress={handleContinue}
           disabled={isContinueDisabled}
@@ -237,24 +234,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   optionTextContainer: {
     flex: 1,
-  },
-  radio: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.outline,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioSelected: {
-    borderColor: colors.primary,
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.primary,
   },
   formContainer: {
     marginTop: spacing.xl,

@@ -4,6 +4,7 @@ import {
   PressableProps,
   ViewStyle,
   Platform,
+  type GestureResponderEvent,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -14,14 +15,20 @@ import * as Haptics from 'expo-haptics';
 
 const AnimatedPressable = Animated.createAnimatedComponent(RNPressable);
 
-interface EyeGoPressableProps extends PressableProps {
+interface EyeGoPressableProps extends Omit<PressableProps, 'onPressIn' | 'onPressOut'> {
   style?: ViewStyle | ViewStyle[];
   haptic?: 'light' | 'medium' | 'heavy' | 'none';
   scaleOnPress?: number;
+  /** Called in addition to the built-in press-scale animation (does not replace it). */
+  onPressIn?: (e: GestureResponderEvent) => void;
+  /** Called in addition to the built-in press-scale animation (does not replace it). */
+  onPressOut?: (e: GestureResponderEvent) => void;
 }
 
 export function Pressable({
   onPress,
+  onPressIn,
+  onPressOut,
   haptic = 'light',
   scaleOnPress = 0.96,
   style,
@@ -34,13 +41,21 @@ export function Pressable({
     transform: [{ scale: scale.value }],
   }));
 
-  const handlePressIn = useCallback(() => {
-    scale.value = withSpring(scaleOnPress, { stiffness: 400, damping: 25 });
-  }, [scale, scaleOnPress]);
+  const handlePressIn = useCallback(
+    (e: GestureResponderEvent) => {
+      scale.value = withSpring(scaleOnPress, { stiffness: 400, damping: 25 });
+      onPressIn?.(e);
+    },
+    [scale, scaleOnPress, onPressIn]
+  );
 
-  const handlePressOut = useCallback(() => {
-    scale.value = withSpring(1, { stiffness: 400, damping: 25 });
-  }, [scale]);
+  const handlePressOut = useCallback(
+    (e: GestureResponderEvent) => {
+      scale.value = withSpring(1, { stiffness: 400, damping: 25 });
+      onPressOut?.(e);
+    },
+    [scale, onPressOut]
+  );
 
   const handlePress = useCallback(
     (e: Parameters<NonNullable<PressableProps['onPress']>>[0]) => {

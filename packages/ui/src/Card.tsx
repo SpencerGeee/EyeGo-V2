@@ -2,12 +2,17 @@ import React from 'react';
 import { View, ViewStyle, StyleSheet } from 'react-native';
 import { radii, spacing, withOpacity, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
+import { GradientGlowBorder } from './effects/GradientGlowBorder';
 
 interface CardProps {
   children: React.ReactNode;
   style?: ViewStyle;
   elevated?: boolean;
   glow?: boolean;
+  /** glow + animated = the premium rotating gradient ring instead of the
+   * static border+shadow. Reserve for the single selected/active card in a
+   * list — not every row (see effects/GradientGlowBorder perf notes). */
+  animated?: boolean;
   selected?: boolean;
   padding?: number;
 }
@@ -17,11 +22,27 @@ export function Card({
   style,
   elevated = false,
   glow = false,
+  animated = false,
   selected = false,
   padding = spacing.base,
 }: CardProps) {
   const colors = useThemedColors();
   const styles = getStyles(colors);
+
+  if (glow && animated) {
+    return (
+      <GradientGlowBorder
+        colors={[colors.primary, colors.secondary]}
+        fillColor={elevated ? colors.surfaceContainerHigh : colors.surfaceCard}
+        borderRadius={radii['2xl']}
+        glow
+        style={[{ padding }, style]}
+      >
+        {children}
+      </GradientGlowBorder>
+    );
+  }
+
   return (
     <View
       style={[

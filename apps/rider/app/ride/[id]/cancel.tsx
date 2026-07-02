@@ -12,7 +12,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView, AnimatePresence } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, Radio } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { cancellationApi } from '@eyego/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -231,9 +231,14 @@ export default function CancelRideScreen() {
                     <Text style={[styles.reasonLabel, isSelected && styles.reasonLabelSelected]}>
                       {reason.label}
                     </Text>
-                    <View style={[styles.radio, isSelected && styles.radioSelected]}>
-                      {isSelected && <View style={styles.radioInner} />}
-                    </View>
+                    <Radio
+                      selected={isSelected}
+                      accentColor={colors.statusError}
+                      onPress={() => {
+                        setSelectedReason(reason.key);
+                        if (reason.key !== 'other') setNote('');
+                      }}
+                    />
                   </Pressable>
                 );
               })}
@@ -501,17 +506,6 @@ const makeStyles = (colors: Colors) =>
       color: colors.onSurfaceVariant,
     },
     reasonLabelSelected: { color: colors.onSurface, fontFamily: fonts.semiBold },
-    radio: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      borderWidth: 2,
-      borderColor: colors.outlineVariant,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    radioSelected: { borderColor: colors.statusError },
-    radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.statusError },
     noteContainer: { overflow: 'hidden' },
     noteInput: {
       backgroundColor: colors.surfaceContainer,
