@@ -8,9 +8,9 @@
     "react": "*",
     "react-native": "*",
     "expo-blur": "*",
-    "expo-linear-gradient": "*",
-    "react-native-reanimated": "*",
-    "react-native-svg": "*",
-    "@react-native-masked-view/masked-view": "*"
+    "expo-linear-gradient": "~15.0.8",
+    "react-native-reanimated": "~4.1.1",
+    "react-native-svg": "15.12.1",
+    "@react-native-masked-view/masked-view": "0.3.2"
   }
 }
