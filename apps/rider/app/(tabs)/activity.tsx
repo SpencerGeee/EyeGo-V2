@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+﻿import React, { useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -47,6 +47,15 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
   const statusColors = getStatusColors(colors);
   const statusColor = statusColors[booking.status] ?? colors.onSurfaceVariant;
 
+  // Raw Prisma booking includes trip: { route, driver, vehicle } — origin/
+  // destination/departure live nested under trip.route, not flat on the
+  // booking (fareAmount is the real column name, not totalFare).
+  const route = booking.trip?.route;
+  const origin = route?.originName ?? booking.routeOrigin ?? 'Unknown';
+  const destination = route?.destinationName ?? booking.routeDestination ?? 'Unknown';
+  const departureTime = booking.trip?.departureTime ?? booking.departureTime ?? booking.createdAt;
+  const fare = booking.fareAmount ?? booking.totalFare;
+
   return (
     <Pressable
       style={({ pressed }) => [styles.itemCard, pressed && { opacity: 0.75 }]}
@@ -60,21 +69,19 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
       </View>
       <View style={styles.itemBody}>
         <Text style={styles.itemTitle} numberOfLines={1}>
-          {booking.routeOrigin ?? 'Unknown'} → {booking.routeDestination ?? 'Unknown'}
+          {origin} → {destination}
         </Text>
         <Text style={styles.itemMeta}>
-          {relativeTime(booking.departureTime ?? booking.createdAt)}
+          {relativeTime(departureTime)}
         </Text>
         <View style={[styles.statusChip, { backgroundColor: withOpacity(statusColor, 0.15) }]}>
           <Text style={[styles.statusChipText, { color: statusColor }]}>{booking.status}</Text>
         </View>
       </View>
-      {booking.totalFare != null && (
+      {fare != null && (
         <Text style={styles.itemFare}>
           GH₵{' '}
-          {typeof booking.totalFare === 'number'
-            ? booking.totalFare.toFixed(2)
-            : booking.totalFare}
+          {typeof fare === 'number' ? fare.toFixed(2) : fare}
         </Text>
       )}
     </Pressable>
@@ -146,14 +153,27 @@ export default function ActivityScreen() {
   const feedItems = React.useMemo(() => {
     const items: Array<{ type: 'trip' | 'notification'; data: any; date: string }> = [];
 
-    // Unwrap AxiosResponse / paginated / plain-array shapes
-    const rawBookings: any[] = Array.isArray(bookings)
-      ? bookings
-      : (bookings as any)?.data ?? [];
+    // apiClient.get() resolves to the raw axios response (pass-through
+    // interceptor) wrapping the backend's own {success,message,data:{...}}
+    // envelope — a two-level unwrap, same pattern as home.tsx. getHistory's
+    // real payload is data.data.bookings (see bookings.service.js
+    // getUserBookings return: {bookings,total,page,totalPages}); getAll's is
+    // data.data.notifications. Skipping a level left `rawBookings`/`rawNotifs`
+    // as the envelope object (no .forEach), crashing the moment the backend
+    // returned real data.
+    const bookingsBody = (bookings as any)?.data;
+    const rawBookings: any[] = Array.isArray(bookingsBody?.data?.bookings)
+      ? bookingsBody.data.bookings
+      : Array.isArray(bookingsBody?.data)
+      ? bookingsBody.data
+      : [];
 
-    const rawNotifs: any[] = Array.isArray(notifications)
-      ? notifications
-      : (notifications as any)?.data ?? [];
+    const notifsBody = (notifications as any)?.data;
+    const rawNotifs: any[] = Array.isArray(notifsBody?.data?.notifications)
+      ? notifsBody.data.notifications
+      : Array.isArray(notifsBody?.data)
+      ? notifsBody.data
+      : [];
 
     if (filter !== 'alerts') {
       rawBookings.forEach((b: any) => {
@@ -237,7 +257,7 @@ export default function ActivityScreen() {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.backgroundDeep,
+    backgroundColor: 'transparent',
   },
   header: {
     paddingHorizontal: spacing.xl,

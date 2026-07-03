@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+﻿import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   FlatList,
@@ -412,7 +412,7 @@ function AnimatedDot({
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.backgroundDeep,
+    backgroundColor: 'transparent',
   },
   headerRow: {
     flexDirection: 'row',

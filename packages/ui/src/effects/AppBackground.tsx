@@ -53,29 +53,32 @@ export function AppBackground({ style }: AppBackgroundProps) {
       : [
           {
             color: colors.glowPrimary,
-            size: width * 0.9,
-            top: -height * 0.05,
-            left: -width * 0.25,
-            driftX: 24,
-            driftY: 18,
+            size: width * 1.05,
+            top: -height * 0.08,
+            left: -width * 0.3,
+            driftX: 28,
+            driftY: 20,
             durationMs: 18000,
           },
           {
             color: colors.glowSecondary,
-            size: width * 0.8,
-            top: height * 0.35,
-            left: width * 0.4,
-            driftX: -20,
-            driftY: 26,
+            size: width * 0.95,
+            top: height * 0.32,
+            left: width * 0.35,
+            driftX: -24,
+            driftY: 30,
             durationMs: 22000,
           },
           {
-            color: `${colors.tierRoyal}26`,
-            size: width * 0.7,
-            top: height * 0.7,
-            left: -width * 0.2,
-            driftX: 18,
-            driftY: -22,
+            // Ties the ambient field to the premium blue/orange ring accent
+            // used across glow inputs/buttons/cards, instead of the flat
+            // purple wash — a warm counterweight to the two cool blobs above.
+            color: `${colors.premiumOrange}30`,
+            size: width * 0.8,
+            top: height * 0.68,
+            left: -width * 0.22,
+            driftX: 20,
+            driftY: -26,
             durationMs: 20000,
           },
         ];
@@ -115,7 +118,7 @@ function Blob({ color, size, top, left, driftX, driftY, durationMs }: BlobConfig
       { translateX: progress.value * driftX },
       { translateY: progress.value * driftY },
     ],
-    opacity: 0.7 + progress.value * 0.2,
+    opacity: 0.85 + progress.value * 0.15,
   }));
 
   return (

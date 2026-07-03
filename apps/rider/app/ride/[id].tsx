@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect, useState } from 'react';
+﻿import React, { useRef, useMemo, useEffect, useState } from 'react';
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -113,7 +113,7 @@ export default function RideDetailScreen() {
   // Show loading spinner while trip data is not yet available
   if (isLoading && !trip) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
         <Loader label="Loading your ride…" />
       </View>
     );
@@ -122,7 +122,7 @@ export default function RideDetailScreen() {
   // API failed or trip not found — show a proper error state instead of crashing
   if (!isLoading && !trip) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+      <View style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
         <Ionicons name="car-outline" size={48} color={colors.onSurfaceVariant} />
         <Text variant="titleSmall" style={{ color: colors.onSurface, marginTop: 16, textAlign: 'center' }}>
           Trip not found
@@ -435,7 +435,7 @@ function FareRow({ label, value, bold }: { label: string; value: string; bold?: 
 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.backgroundDeep },
+  container: { flex: 1, backgroundColor: 'transparent' },
   backButton: {
     position: 'absolute',
     left: spacing['2xl'],

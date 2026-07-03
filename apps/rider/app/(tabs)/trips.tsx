@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+﻿import React, { useState, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -355,7 +355,7 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   header: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.base },
   segmentRow: {
     flexDirection: 'row',

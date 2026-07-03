@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -439,7 +439,7 @@ export default function ScheduleRideScreen() {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

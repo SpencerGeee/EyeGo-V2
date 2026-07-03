@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -182,7 +182,7 @@ export default function NotificationPreferencesScreen() {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

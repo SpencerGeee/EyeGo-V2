@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -168,7 +168,7 @@ function TripMetaItem({ icon, label, accent }: { icon: any; label: string; accen
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing['3xl'] },
   content: { flex: 1, paddingHorizontal: spacing['2xl'], paddingTop: spacing['3xl'], gap: spacing.xl },
   inviteHeader: { alignItems: 'center' },

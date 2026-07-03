@@ -1,12 +1,11 @@
 import { Stack } from 'expo-router';
-import { colors } from '@eyego/config';
 
 export default function AuthLayout() {
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: colors.backgroundDeep },
+        contentStyle: { backgroundColor: 'transparent' },
         animation: 'slide_from_right',
       }}
     >

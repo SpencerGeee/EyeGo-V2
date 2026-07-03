@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+﻿import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -309,7 +309,7 @@ export default function CancelRideScreen() {
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.backgroundDeep },
+    container: { flex: 1, backgroundColor: 'transparent' },
     safe: { flex: 1 },
     bgGradient: { ...StyleSheet.absoluteFillObject, overflow: 'hidden', opacity: 0.3 },
     bgGlow: {

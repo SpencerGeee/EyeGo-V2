@@ -10,7 +10,7 @@ export default function Index() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.backgroundDeep, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
         <Loader label="Signing you in…" />
       </View>
     );

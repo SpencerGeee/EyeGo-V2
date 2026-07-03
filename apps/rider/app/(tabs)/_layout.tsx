@@ -138,7 +138,17 @@ export default function TabLayout() {
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      screenOptions={{
+        headerShown: false,
+        // React Navigation's bottom-tabs gives each scene an opaque white
+        // container by default. home.tsx/activity.tsx mask it with their own
+        // opaque colors.backgroundDeep fill, which is why only services.tsx
+        // (which relies on transparency to show the root AppBackground)
+        // showed a white page — the scene wrapper sat between it and
+        // AppBackground. Without this, no screen in this tab group can ever
+        // show the ambient background through a transparent container.
+        sceneContainerStyle: { backgroundColor: 'transparent' },
+      }}
     >
       <Tabs.Screen name="home" />
       <Tabs.Screen name="services" />

@@ -40,17 +40,19 @@ interface GradientGlowBorderProps {
   children?: React.ReactNode;
 }
 
-const THICKNESS = { thin: 1.5, regular: 2.5 };
+const THICKNESS = { thin: 2, regular: 3 };
 
-/** Default "premium" ring sweep — two narrow bright arcs (blue, orange)
- * orbiting against a near-black ring, matching the reference conic-gradient
- * technique (color arcs, not a flat-filled ring). Use with
- * PREMIUM_RING_LOCATIONS. */
+/** Default "premium" ring sweep — two narrow bright arcs (blue, orange),
+ * each with a white-hot highlight core, orbiting against a near-black ring —
+ * matching the reference conic-gradient technique (saturated color arcs with
+ * a hot center, not a flat-filled ring). Use with PREMIUM_RING_LOCATIONS. */
 export const PREMIUM_RING_COLORS = [
-  '#0A0A0C', '#0A0A0C', '#3D7EFF', '#0A0A0C', '#0A0A0C',
-  '#0A0A0C', '#FF7A3D', '#0A0A0C', '#0A0A0C',
+  '#0A0A0C', '#0A0A0C', '#3D7EFF', '#9CC5FF', '#3D7EFF', '#0A0A0C',
+  '#0A0A0C', '#FF7A3D', '#FFC59C', '#FF7A3D', '#0A0A0C', '#0A0A0C',
 ] as const;
-export const PREMIUM_RING_LOCATIONS = [0, 0.08, 0.22, 0.36, 0.5, 0.58, 0.72, 0.86, 1] as const;
+export const PREMIUM_RING_LOCATIONS = [
+  0, 0.06, 0.18, 0.22, 0.26, 0.38, 0.5, 0.62, 0.66, 0.7, 0.82, 1,
+] as const;
 
 export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientGlowBorderProps>(
   function GradientGlowBorder(
@@ -130,6 +132,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
       <View>
         {glow && diag > 0 && (
           <>
+            {/* Wide soft bloom — the ambient halo that reads from a distance. */}
             <View
               pointerEvents="none"
               style={[
@@ -142,28 +145,62 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                   backgroundColor: fillColor,
                   shadowColor: glowColor ?? colors[colors.length - 1],
                   shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.32,
-                  shadowRadius: 14,
-                  elevation: 10,
+                  shadowOpacity: 0.65,
+                  shadowRadius: 28,
+                  elevation: 14,
+                },
+              ]}
+            />
+            {/* Tight hot core — a saturated, close-in pass so the ring itself
+             * looks lit, not just hazy at the edges. */}
+            <View
+              pointerEvents="none"
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  borderRadius,
+                  backgroundColor: fillColor,
+                  shadowColor: glowColor ?? colors[colors.length - 1],
+                  shadowOffset: { width: 0, height: 0 },
+                  shadowOpacity: 0.9,
+                  shadowRadius: 8,
+                  elevation: 14,
                 },
               ]}
             />
             {glowColorSecondary && (
-              <View
-                pointerEvents="none"
-                style={[
-                  StyleSheet.absoluteFillObject,
-                  {
-                    borderRadius,
-                    backgroundColor: fillColor,
-                    shadowColor: glowColorSecondary,
-                    shadowOffset: { width: 0, height: 0 },
-                    shadowOpacity: 0.26,
-                    shadowRadius: 20,
-                    elevation: 10,
-                  },
-                ]}
-              />
+              <>
+                <View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    {
+                      borderRadius,
+                      backgroundColor: fillColor,
+                      shadowColor: glowColorSecondary,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.55,
+                      shadowRadius: 36,
+                      elevation: 14,
+                    },
+                  ]}
+                />
+                <View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    {
+                      borderRadius,
+                      backgroundColor: fillColor,
+                      shadowColor: glowColorSecondary,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 0.75,
+                      shadowRadius: 10,
+                      elevation: 14,
+                    },
+                  ]}
+                />
+              </>
             )}
           </>
         )}

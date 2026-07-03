@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -100,7 +100,7 @@ export default function TripRequestScreen() {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.backgroundDeep,
+    backgroundColor: 'transparent',
   },
   header: {
     paddingHorizontal: spacing['2xl'],

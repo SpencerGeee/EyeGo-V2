@@ -7,7 +7,16 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Card, TierBadge, GlassSurface, ShinyText } from '@eyego/ui';
+import {
+  Text,
+  Card,
+  TierBadge,
+  GlassSurface,
+  ShinyText,
+  GradientGlowBorder,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 
 type TierKey = 'economy' | 'comfort' | 'premium';
@@ -28,6 +37,10 @@ interface SpecialService {
   description: string;
   icon: keyof typeof Ionicons.glyphMap;
   route: string;
+  /** Flagship service — gets the animated premium glow ring, like the
+   * PREMIUM tier card. Reserve for one card per screen (see
+   * GradientGlowBorder perf notes on animated rings). */
+  glow?: boolean;
 }
 
 const TIERS: TierCard[] = [
@@ -73,6 +86,7 @@ const SPECIAL_SERVICES: SpecialService[] = [
     description: 'Book up to 7 days in advance',
     icon: 'calendar-outline',
     route: '/ride/schedule',
+    glow: true,
   },
   {
     id: 'group',
@@ -127,7 +141,7 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
   );
 }
 
-function SpecialServiceCard({ service, colors, styles, isLast }: { service: SpecialService; colors: Colors; styles: ReturnType<typeof makeStyles>; isLast: boolean }) {
+function SpecialServiceCard({ service, colors, styles }: { service: SpecialService; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
 
   const handlePress = () => {
@@ -135,20 +149,57 @@ function SpecialServiceCard({ service, colors, styles, isLast }: { service: Spec
     router.push(service.route as any);
   };
 
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.specialCard, !isLast && styles.specialCardDivider, pressed && styles.pressed]}
-      onPress={handlePress}
-    >
-      <View style={styles.specialIconWrap}>
-        <Ionicons name={service.icon} size={22} color={colors.primary} />
+  const iconColor = service.glow ? colors.premiumBlue : colors.primary;
+
+  const row = (
+    <View style={styles.specialContent}>
+      <View style={[styles.specialIconWrap, { backgroundColor: withOpacity(iconColor, 0.12) }]}>
+        <Ionicons name={service.icon} size={22} color={iconColor} />
       </View>
       <View style={styles.specialInfo}>
         <Text style={styles.specialName}>{service.name}</Text>
         <Text style={styles.specialDesc}>{service.description}</Text>
       </View>
       <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-    </Pressable>
+    </View>
+  );
+
+  return (
+    <MotiView
+      from={{ opacity: 0, translateY: 12 }}
+      animate={{ opacity: 1, translateY: 0 }}
+      transition={{ type: 'timing', duration: 300 }}
+    >
+      <Pressable style={({ pressed }) => pressed && styles.pressed} onPress={handlePress}>
+        {service.glow ? (
+          <GradientGlowBorder
+            colors={PREMIUM_RING_COLORS}
+            locations={PREMIUM_RING_LOCATIONS}
+            fillColor={colors.surfaceContainerHigh}
+            borderRadius={radii.xl}
+            glow
+            glowColor={colors.premiumBlue}
+            glowColorSecondary={colors.premiumOrange}
+            style={styles.specialCard}
+          >
+            {/* Inset by the ring's stroke thickness (3, GradientGlowBorder's
+                'regular' thickness) so the blur layer doesn't paint over the
+                glow ring itself. */}
+            <GlassSurface
+              borderRadius={radii.xl - 3}
+              intensity="high"
+              dark
+              style={styles.specialGlassInset}
+            />
+            {row}
+          </GradientGlowBorder>
+        ) : (
+          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.specialCard}>
+            {row}
+          </GlassSurface>
+        )}
+      </Pressable>
+    </MotiView>
   );
 }
 
@@ -176,17 +227,16 @@ export default function ServicesScreen() {
         </View>
 
         <Text style={[styles.sectionHeader, { marginTop: spacing['2xl'] }]}>Special Services</Text>
-        <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.specialContainer}>
-          {SPECIAL_SERVICES.map((service, i) => (
+        <View style={styles.specialContainer}>
+          {SPECIAL_SERVICES.map((service) => (
             <SpecialServiceCard
               key={service.id}
               service={service}
               colors={colors}
               styles={styles}
-              isLast={i === SPECIAL_SERVICES.length - 1}
             />
           ))}
-        </GlassSurface>
+        </View>
 
         <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
       </ScrollView>
@@ -269,24 +319,27 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 2,
   },
   chevron: { marginRight: spacing.md },
-  specialContainer: {
+  specialContainer: { gap: spacing.sm },
+  specialCard: {
     overflow: 'hidden',
   },
-  specialCard: {
+  specialGlassInset: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    right: 3,
+    bottom: 3,
+  },
+  specialContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: spacing.md,
     gap: spacing.md,
   },
-  specialCardDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.rimLightSubtle,
-  },
   specialIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: withOpacity(colors.primary, 0.1),
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },

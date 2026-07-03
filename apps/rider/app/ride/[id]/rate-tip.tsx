@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+﻿import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -461,7 +461,7 @@ function StarButton({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

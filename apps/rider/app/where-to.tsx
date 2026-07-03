@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
+﻿import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -448,7 +448,7 @@ export default function WhereToScreen() {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.backgroundDeep },
+  root: { flex: 1, backgroundColor: 'transparent' },
 
   mapGradient: {
     position: 'absolute',

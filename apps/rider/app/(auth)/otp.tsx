@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -331,7 +331,7 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.backgroundDeep,
+    backgroundColor: 'transparent',
   },
   backButton: {
     paddingHorizontal: spacing['2xl'],

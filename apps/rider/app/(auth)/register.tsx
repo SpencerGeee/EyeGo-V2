@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -270,7 +270,7 @@ export default function RegisterScreen() {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.backgroundDeep,
+    backgroundColor: 'transparent',
   },
   scroll: {
     flexGrow: 1,

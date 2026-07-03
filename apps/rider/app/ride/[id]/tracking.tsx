@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
+﻿import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
@@ -812,7 +812,7 @@ const pulseStyles = StyleSheet.create({
 });
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.backgroundDeep },
+  container: { flex: 1, backgroundColor: 'transparent' },
   homeFloating: {
     position: 'absolute',
     left: spacing['2xl'],

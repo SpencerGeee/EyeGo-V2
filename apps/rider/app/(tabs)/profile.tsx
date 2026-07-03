@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+﻿import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable, Image, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -231,7 +231,7 @@ export default function ProfileScreen() {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base, paddingBottom: TAB_BAR_BASE_HEIGHT + 64 },
 
   headerRow: {

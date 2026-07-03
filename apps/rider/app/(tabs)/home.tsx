@@ -216,7 +216,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={[styles.root, { backgroundColor: colors.backgroundDeep }]}>
+    <View style={[styles.root, { backgroundColor: 'transparent' }]}>
       {/* ── Header ───────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable
@@ -422,11 +422,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   greetingHeadline: {
     flex: 1,
-    fontFamily: fonts.displaySemiBold,
-    fontSize: 26,
-    lineHeight: 34,
+    fontFamily: fonts.displayMedium,
+    fontSize: 19,
+    lineHeight: 25,
     color: colors.onSurface,
-    letterSpacing: -0.52,
+    letterSpacing: -0.2,
   },
   notifBtn: {
     width: 40,
@@ -482,11 +482,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   whereToTextWrap: { flex: 1 },
   whereToTitle: {
-    fontFamily: fonts.semiBold,
-    fontSize: 20,
-    lineHeight: 26,
+    fontFamily: fonts.medium,
+    fontSize: 16,
+    lineHeight: 21,
     color: colors.onSurface,
-    letterSpacing: -0.3,
+    letterSpacing: -0.1,
   },
   whereToSub: {
     fontFamily: fonts.regular,
