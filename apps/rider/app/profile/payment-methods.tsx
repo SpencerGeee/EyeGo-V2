@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { walletApi } from '@eyego/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -55,7 +55,7 @@ export default function PaymentMethodsScreen() {
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
         >
           {isLoading ? (
-            <View style={styles.card}>
+            <View style={[styles.card, styles.cardSolid]}>
               {[1, 2].map((i) => (
                 <React.Fragment key={i}>
                   {i > 1 && <View style={styles.divider} />}
@@ -85,7 +85,7 @@ export default function PaymentMethodsScreen() {
               </Text>
             </View>
           ) : (
-            <View style={styles.card}>
+            <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.card}>
               {methods.map((method: any, index: number) => {
                 const isMomo = method.type === 'momo';
                 return (
@@ -122,7 +122,7 @@ export default function PaymentMethodsScreen() {
                   </React.Fragment>
                 );
               })}
-            </View>
+            </GlassSurface>
           )}
 
           {/* Secure note */}
@@ -175,11 +175,13 @@ const makeStyles = (colors: Colors) =>
       paddingBottom: 120,
     },
     card: {
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       borderRadius: radii.lg,
+      overflow: 'hidden',
+    },
+    cardSolid: {
+      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.06)',
-      overflow: 'hidden',
     },
     row: {
       flexDirection: 'row',

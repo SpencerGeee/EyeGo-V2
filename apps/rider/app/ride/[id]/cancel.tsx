@@ -12,7 +12,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView, AnimatePresence } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text, Radio } from '@eyego/ui';
+import { Text, Radio, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { cancellationApi } from '@eyego/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -132,7 +132,7 @@ export default function CancelRideScreen() {
             </View>
 
             {/* Glass route card */}
-            <View style={styles.glassCard}>
+            <GlassSurface borderRadius={radii['2xl']} intensity="low" dark style={styles.glassCard}>
               <View style={styles.cardHeader}>
                 <View style={styles.cardHeaderLeft}>
                   <Ionicons name="car-outline" size={18} color={colors.onSurfaceVariant} />
@@ -174,7 +174,7 @@ export default function CancelRideScreen() {
                   </View>
                 </View>
               </View>
-            </View>
+            </GlassSurface>
 
             {/* Cancellation policy banner */}
             <View style={[styles.policyBanner, hasFee && styles.policyBannerActive]}>
@@ -361,10 +361,6 @@ const makeStyles = (colors: Colors) =>
       lineHeight: 22,
     },
     glassCard: {
-      backgroundColor: colors.surfaceCard,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       padding: spacing.lg,
       marginBottom: spacing.base,
     },

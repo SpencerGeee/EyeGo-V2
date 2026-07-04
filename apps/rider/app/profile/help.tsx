@@ -17,7 +17,7 @@ import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
 import type { Booking } from '@eyego/types';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlassSurface } from '@eyego/ui';
 
 const FAQ_ITEMS = [
   {
@@ -205,11 +205,11 @@ export default function HelpScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
+          <Text variant="labelCaps" style={styles.sectionLabel}>
             FREQUENTLY ASKED
           </Text>
 
-          <View style={styles.faqCard}>
+          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.faqCard}>
             {FAQ_ITEMS.map((item, index) => (
               <View key={item.id}>
                 <Pressable
@@ -245,7 +245,7 @@ export default function HelpScreen() {
                 {index < FAQ_ITEMS.length - 1 && <View style={styles.divider} />}
               </View>
             ))}
-          </View>
+          </GlassSurface>
         </MotiView>
 
         {/* Contact Section */}
@@ -255,11 +255,11 @@ export default function HelpScreen() {
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
           style={{ marginTop: spacing['2xl'] }}
         >
-          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
+          <Text variant="labelCaps" style={styles.sectionLabel}>
             CONTACT US
           </Text>
 
-          <View style={styles.contactCard}>
+          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.contactCard}>
             {CONTACT_OPTIONS.map((option, index) => (
               <View key={option.id}>
                 <Pressable onPress={option.onPress} style={styles.contactRow}>
@@ -274,7 +274,7 @@ export default function HelpScreen() {
                 {index < CONTACT_OPTIONS.length - 1 && <View style={styles.divider} />}
               </View>
             ))}
-          </View>
+          </GlassSurface>
         </MotiView>
 
         {/* Response time note */}
@@ -505,10 +505,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: spacing.base,
   },
   faqCard: {
-    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
     overflow: 'hidden',
   },
   faqRow: {
@@ -530,10 +527,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginHorizontal: spacing.base,
   },
   contactCard: {
-    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
     overflow: 'hidden',
   },
   contactRow: {
@@ -616,6 +610,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 48,
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
   },
   ticketItem: {

@@ -22,7 +22,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { scheduleLocalNotification } from '../../../utils/notifications';
-import { Text } from '@eyego/ui';
+import { Text, GlassSurface } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 
 interface ChatMessage {
@@ -687,7 +687,7 @@ export default function ChatScreen() {
 
         {/* Input bar */}
         <View style={styles.inputBar}>
-          <View style={styles.inputFieldWrap}>
+          <GlassSurface borderRadius={radii.full} intensity="low" dark style={styles.inputFieldWrap}>
             <Ionicons name="chatbubble-outline" size={16} color={colors.outline} style={styles.inputLeadIcon} />
           <TextInput
             value={input}
@@ -724,7 +724,7 @@ export default function ChatScreen() {
                 color={input.trim() ? colors.onPrimary : colors.onSurfaceVariant}
               />
             </Pressable>
-          </View>
+          </GlassSurface>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -849,6 +849,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   privateBadge: {
     fontFamily: fonts.medium,
     fontSize: 10,
+    lineHeight: 14,
     color: colors.primary,
     marginBottom: 4,
     opacity: 0.8,
@@ -895,6 +896,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tabText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.caption,
+    lineHeight: Math.round(fontSizes.caption * 1.4),
   },
   quickRepliesScroll: {
     borderTopWidth: 1,
@@ -926,10 +928,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   inputFieldWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceInput,
-    borderRadius: radii.full,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
     paddingLeft: spacing.base,
     paddingRight: spacing.xs,
   },
@@ -941,6 +939,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.sm,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
   },
   sendBtn: {

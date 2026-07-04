@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, fontSizes, spacing, radii, shadows, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget } from '@eyego/ui';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
@@ -113,9 +113,11 @@ export default function RideDetailScreen() {
   // Show loading spinner while trip data is not yet available
   if (isLoading && !trip) {
     return (
-      <View style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-        <Loader label="Loading your ride…" />
-      </View>
+      <MorphTarget id={`ride-card-${id}`} borderRadius={0} style={{ flex: 1 }}>
+        <View style={{ flex: 1, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+          <Loader label="Loading your ride…" />
+        </View>
+      </MorphTarget>
     );
   }
 
@@ -141,6 +143,7 @@ export default function RideDetailScreen() {
   }
 
   return (
+    <MorphTarget id={`ride-card-${id}`} borderRadius={0} style={{ flex: 1 }}>
     <View style={styles.container}>
       {/* Map background */}
       <MapboxGL.MapView
@@ -404,6 +407,7 @@ export default function RideDetailScreen() {
         surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
       />
     </View>
+    </MorphTarget>
   );
 }
 

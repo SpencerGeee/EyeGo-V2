@@ -23,7 +23,7 @@ import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, EmptyState, Avatar } from '@eyego/ui';
+import { Text, Button, EmptyState, Avatar, AppBackground } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../lib/sentry';
@@ -160,6 +160,7 @@ export default function RideSelectScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable

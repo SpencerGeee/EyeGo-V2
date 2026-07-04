@@ -16,7 +16,7 @@ import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, Avatar, GlowSearchPressable } from '@eyego/ui';
+import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -199,9 +199,13 @@ export default function HomeScreen() {
   const firstName = (user as any)?.firstName ?? (user as any)?.name?.split(' ')[0] ?? 'there';
   const initials = (firstName[0] ?? 'U').toUpperCase();
 
+  const { morphTo } = useMorph();
+
   const handleWhereTo = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/where-to' as any);
+    // Container-transform: the pill flies into the where-to glass card
+    // (route uses animation 'none' + transparentModal, see root _layout).
+    morphTo('where-to-pill', () => router.push('/where-to' as any));
   };
 
   const handleQuickAction = (id: string) => {
@@ -260,7 +264,13 @@ export default function HomeScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 50 }}
         >
-          <WhereToPressable onPress={handleWhereTo} colors={colors} styles={styles} />
+          <MorphSource
+            id="where-to-pill"
+            borderRadius={24}
+            backgroundColor={colors.surfaceCard}
+          >
+            <WhereToPressable onPress={handleWhereTo} colors={colors} styles={styles} />
+          </MorphSource>
         </MotiView>
 
         {/* Quick Action Circles */}

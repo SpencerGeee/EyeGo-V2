@@ -15,7 +15,7 @@ import { bookingsApi, notificationsApi } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, MorphSource, useMorph, GlassSurface } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -44,6 +44,7 @@ const NOTIF_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
+  const { morphTo } = useMorph();
   const statusColors = getStatusColors(colors);
   const statusColor = statusColors[booking.status] ?? colors.onSurfaceVariant;
 
@@ -57,11 +58,21 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
   const fare = booking.fareAmount ?? booking.totalFare;
 
   return (
+    <MorphSource
+      id={`ride-card-${booking.id}`}
+      borderRadius={radii.lg}
+      backgroundColor={colors.surfaceCard}
+    >
+    {/* Primary trip cards get a frosted glass surface; the denser
+        notification rows below stay flat to avoid one blur layer per row. */}
+    <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.tripGlass}>
     <Pressable
-      style={({ pressed }) => [styles.itemCard, pressed && { opacity: 0.75 }]}
+      style={({ pressed }) => [styles.tripCardInner, pressed && { opacity: 0.75 }]}
       onPress={() => {
         Haptics.selectionAsync();
-        router.push(`/ride/${booking.id}` as any);
+        // Card expands into the ride detail screen (route animates 'fade' —
+        // the morph overlay carries the motion).
+        morphTo(`ride-card-${booking.id}`, () => router.push(`/ride/${booking.id}` as any));
       }}
     >
       <View style={[styles.itemIcon, { backgroundColor: withOpacity(statusColor, 0.1) }]}>
@@ -85,6 +96,8 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         </Text>
       )}
     </Pressable>
+    </GlassSurface>
+    </MorphSource>
   );
 }
 
@@ -314,6 +327,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.rimLight,
+  },
+  tripGlass: {
+    borderRadius: radii.lg,
+  },
+  tripCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    gap: spacing.md,
   },
   notifCard: {
     borderColor: withOpacity(colors.primary, 0.1),

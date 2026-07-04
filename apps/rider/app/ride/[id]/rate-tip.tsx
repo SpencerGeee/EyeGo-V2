@@ -25,7 +25,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, Avatar } from '@eyego/ui';
+import { Text, Button, Avatar, AppBackground } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 
 const COMPLIMENTS = [
@@ -174,6 +174,7 @@ export default function RateTipScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={handleSkip} style={styles.headerBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">

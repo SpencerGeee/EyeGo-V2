@@ -13,7 +13,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { apiClient } from '@eyego/api';
@@ -130,13 +130,13 @@ export default function DisputeScreen() {
           </Text>
 
           {/* Trip summary card */}
-          <View style={styles.tripCard}>
+          <GlassSurface borderRadius={radii['2xl']} intensity="low" dark style={styles.tripCard}>
             <View style={styles.tripThumb}>
               <Ionicons name="location" size={26} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
               <View style={styles.tripMetaRow}>
-                <Text style={styles.tripStatus}>COMPLETED</Text>
+                <Text variant="labelCaps" color={colors.primary}>COMPLETED</Text>
                 <Text style={styles.tripDate}>Recent</Text>
               </View>
               <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
@@ -149,7 +149,7 @@ export default function DisputeScreen() {
                 </Text>
               </View>
             </View>
-          </View>
+          </GlassSurface>
 
           {/* Issue chips */}
           <Text variant="titleSmall" style={styles.sectionTitle}>
@@ -251,10 +251,6 @@ const makeStyles = (colors: Colors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.base,
-      backgroundColor: colors.surfaceCard,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       marginBottom: spacing['2xl'],
     },
@@ -275,12 +271,14 @@ const makeStyles = (colors: Colors) =>
     tripStatus: {
       fontFamily: fonts.semiBold,
       fontSize: 10,
+      lineHeight: 14,
       letterSpacing: 0.6,
       color: colors.primary,
     },
     tripDate: {
       fontFamily: fonts.medium,
       fontSize: 10,
+      lineHeight: 14,
       letterSpacing: 0.6,
       color: colors.outlineVariant,
     },
@@ -310,6 +308,7 @@ const makeStyles = (colors: Colors) =>
     chipText: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     },
     descriptionHeader: {
       flexDirection: 'row',
@@ -329,6 +328,7 @@ const makeStyles = (colors: Colors) =>
       color: colors.onSurface,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       padding: spacing.base,
       paddingBottom: spacing['2xl'],
       textAlignVertical: 'top',
@@ -340,6 +340,7 @@ const makeStyles = (colors: Colors) =>
       right: spacing.base,
       fontFamily: fonts.medium,
       fontSize: 10,
+      lineHeight: 14,
       letterSpacing: 0.6,
       color: colors.outline,
     },

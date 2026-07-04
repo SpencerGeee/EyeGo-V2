@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userApi } from '@eyego/api';
@@ -149,8 +149,8 @@ export default function EmergencyContactsScreen() {
             </View>
           ) : (
             <>
-              <Text style={styles.sectionLabel}>SAVED CONTACTS</Text>
-              <View style={styles.card}>
+              <Text variant="labelCaps" style={styles.sectionLabel}>SAVED CONTACTS</Text>
+              <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.card}>
                 {contacts.map((contact, index) => (
                   <React.Fragment key={contact.id}>
                     {index > 0 && <View style={styles.divider} />}
@@ -175,7 +175,7 @@ export default function EmergencyContactsScreen() {
                     </View>
                   </React.Fragment>
                 ))}
-              </View>
+              </GlassSurface>
             </>
           )}
 
@@ -186,8 +186,8 @@ export default function EmergencyContactsScreen() {
               transition={{ type: 'timing', duration: 300 }}
               style={{ marginTop: spacing['2xl'] }}
             >
-              <Text style={styles.sectionLabel}>ADD CONTACT</Text>
-              <View style={styles.formCard}>
+              <Text variant="labelCaps" style={styles.sectionLabel}>ADD CONTACT</Text>
+              <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.formCard}>
                 <TextInput
                   value={newName}
                   onChangeText={setNewName}
@@ -210,7 +210,7 @@ export default function EmergencyContactsScreen() {
                   ]}
                 />
                 <Button label={saving ? 'Saving...' : 'Save Contact'} onPress={handleAdd} variant="primary" disabled={saving} />
-              </View>
+              </GlassSurface>
             </MotiView>
           )}
 
@@ -262,10 +262,7 @@ const makeStyles = (colors: Colors) =>
       marginLeft: spacing.xs,
     },
     card: {
-      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       overflow: 'hidden',
     },
     row: {
@@ -295,10 +292,7 @@ const makeStyles = (colors: Colors) =>
       paddingVertical: spacing['3xl'],
     },
     formCard: {
-      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       gap: spacing.base,
     },
@@ -308,6 +302,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.lg,
       paddingHorizontal: spacing.base,
       fontSize: 15,
+      lineHeight: Math.round(15 * 1.4),
       backgroundColor: colors.surfaceInput,
       borderColor: colors.rimLightSubtle,
       color: colors.onSurface,

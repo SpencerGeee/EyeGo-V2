@@ -12,7 +12,7 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, GlowSearchInput, ShinyText } from '@eyego/ui';
+import { Text, Button, GlowSearchInput, ShinyText, AppBackground } from '@eyego/ui';
 import { bookingsApi, apiClient } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
@@ -69,6 +69,7 @@ export default function PromotionsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
@@ -217,6 +218,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
   },
   applyBtn: {

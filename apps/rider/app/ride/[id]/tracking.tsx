@@ -14,7 +14,7 @@ import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi } 
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { formatDuration, formatCurrency } from '@eyego/utils';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
@@ -711,13 +711,23 @@ export default function TrackingScreen() {
             </View>
           </MotiView>
 
-          {/* Driver row */}
+          {/* Driver row — hero card with premium green glow ring */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
-            style={styles.driverRow}
           >
+            <GradientGlowBorder
+              colors={PREMIUM_RING_COLORS}
+              locations={PREMIUM_RING_LOCATIONS}
+              fillColor={colors.surfaceContainer}
+              borderRadius={radii.xl}
+              glow
+              glowColor={colors.primary}
+              style={styles.driverCard}
+            >
+              <GlassSurface borderRadius={radii.xl - 3} intensity="high" dark style={styles.glassInset} />
+              <View style={styles.driverRowInner}>
             <View style={styles.driverAvatarWrap}>
               {syncedTrip?.driver?.profilePhoto ? (
                 <Image source={{ uri: syncedTrip.driver.profilePhoto }} style={styles.driverAvatar} />
@@ -746,6 +756,8 @@ export default function TrackingScreen() {
                 <Text style={styles.seatsText}>{syncedTrip.availableSeats} Seats Left</Text>
               </View>
             )}
+              </View>
+            </GradientGlowBorder>
           </MotiView>
 
           {/* ETA status */}
@@ -951,15 +963,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.rimLightSubtle,
     marginLeft: 32 + spacing.md,
   },
-  driverRow: {
+  driverCard: {
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+  },
+  glassInset: { position: 'absolute', top: 3, left: 3, right: 3, bottom: 3 },
+  driverRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.xl,
     padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
   },
   driverAvatarWrap: { position: 'relative', marginBottom: 8 },
   driverAvatar: {

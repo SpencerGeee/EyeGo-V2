@@ -137,7 +137,7 @@ export default function NotificationPreferencesScreen() {
         >
           {SECTIONS.map((section) => (
             <View key={section.title} style={{ marginBottom: spacing['2xl'] }}>
-              <Text style={styles.sectionLabel}>{section.title}</Text>
+              <Text variant="labelCaps" style={styles.sectionLabel}>{section.title}</Text>
               <View style={styles.card}>
                 {section.items.map((item, index) => (
                   <React.Fragment key={item.key}>

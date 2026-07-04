@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Radio } from '@eyego/ui';
+import { Text, Button, Radio, AppBackground } from '@eyego/ui';
 
 export default function GuestSelectionScreen() {
   const colors = useColors();
@@ -51,6 +51,7 @@ export default function GuestSelectionScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -266,6 +267,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
     color: colors.onSurface,
   },
   footer: {

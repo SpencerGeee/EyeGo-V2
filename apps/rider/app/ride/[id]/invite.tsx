@@ -10,7 +10,7 @@ import { bookingsApi, tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, AnimatedFareText, Loader } from '@eyego/ui';
+import { Text, Button, AnimatedFareText, Loader, AppBackground } from '@eyego/ui';
 import type { GroupMember, Trip } from '@eyego/types';
 
 function formatCurrency(amount: number): string {
@@ -189,6 +189,7 @@ export default function InviteScreen() {
   if (!bookingReady && createBooking.isPending) {
     return (
       <SafeAreaView style={styles.safe}>
+        <AppBackground variant="static" />
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
@@ -206,6 +207,7 @@ export default function InviteScreen() {
   if (!bookingReady && createBooking.isError) {
     return (
       <SafeAreaView style={styles.safe}>
+        <AppBackground variant="static" />
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
@@ -237,6 +239,7 @@ export default function InviteScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -570,6 +573,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   hostBadgeText: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 14,
     color: colors.primary,
   },
   optionsCard: {

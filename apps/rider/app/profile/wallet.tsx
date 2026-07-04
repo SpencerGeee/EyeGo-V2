@@ -9,8 +9,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, bookingsApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Skeleton } from '@eyego/ui';
+import { Text, Button, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
+
+// Green-accent variant of the premium ring sweep — two narrow emerald arcs
+// (brand green core) orbiting a near-black ring, matching the house
+// PREMIUM_RING technique but tuned to the wallet's green identity.
+const GREEN_RING_COLORS = [
+  '#0A0A0C', '#0A0A0C', '#4be277', '#b1f2c5', '#4be277', '#0A0A0C',
+  '#0A0A0C', '#4be277', '#b1f2c5', '#4be277', '#0A0A0C', '#0A0A0C',
+] as const;
 
 export default function WalletScreen() {
   const colors = useColors();
@@ -96,33 +104,52 @@ export default function WalletScreen() {
           from={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
-          style={styles.balanceCard}
         >
-          <View style={styles.balanceGlow} pointerEvents="none" />
-          <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
-          {balanceLoading ? (
-            <Skeleton width={180} height={44} borderRadius={8} style={{ marginTop: spacing.sm }} />
-          ) : (
-            <View style={styles.balanceRow}>
-              <Text style={styles.balanceCurrency}>GH₵</Text>
-              <Text style={styles.balanceValue}>{Number(balance).toFixed(2)}</Text>
-            </View>
-          )}
-
-          <View style={styles.tierRow}>
-            <Ionicons name={tier.icon} size={14} color={tier.color} />
-            <Text style={[styles.tierText, { color: tier.color }]}>{tier.label} Rider</Text>
-          </View>
-
-          <Pressable
-            style={({ pressed }) => [styles.topUpBtn, pressed && { transform: [{ scale: 0.97 }] }]}
-            onPress={() => setModalVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Top up wallet"
+          {/* Balance HERO — green glow ring with a frosted-glass fill inset by
+              the ring thickness (3) so the blur doesn't paint over the ring. */}
+          <GradientGlowBorder
+            colors={GREEN_RING_COLORS}
+            locations={PREMIUM_RING_LOCATIONS}
+            fillColor={colors.surfaceCard}
+            borderRadius={radii['2xl']}
+            glow
+            glowColor={colors.primary}
+            style={styles.balanceCard}
           >
-            <Ionicons name="add-circle" size={20} color={colors.onPrimary} />
-            <Text style={styles.topUpText}>Top Up Wallet</Text>
-          </Pressable>
+            <GlassSurface
+              borderRadius={radii['2xl'] - 3}
+              intensity="high"
+              dark
+              style={styles.balanceGlassInset}
+            />
+            <View style={styles.balanceGlow} pointerEvents="none" />
+            <View style={styles.balanceContent}>
+              <Text style={styles.balanceLabel}>AVAILABLE BALANCE</Text>
+              {balanceLoading ? (
+                <Skeleton width={180} height={44} borderRadius={8} style={{ marginTop: spacing.sm }} />
+              ) : (
+                <View style={styles.balanceRow}>
+                  <Text style={styles.balanceCurrency}>GH₵</Text>
+                  <Text style={styles.balanceValue}>{Number(balance).toFixed(2)}</Text>
+                </View>
+              )}
+
+              <View style={styles.tierRow}>
+                <Ionicons name={tier.icon} size={14} color={tier.color} />
+                <Text style={[styles.tierText, { color: tier.color }]}>{tier.label} Rider</Text>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [styles.topUpBtn, pressed && { transform: [{ scale: 0.97 }] }]}
+                onPress={() => setModalVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Top up wallet"
+              >
+                <Ionicons name="add-circle" size={20} color={colors.onPrimary} />
+                <Text style={styles.topUpText}>Top Up Wallet</Text>
+              </Pressable>
+            </View>
+          </GradientGlowBorder>
         </MotiView>
 
         {/* Quick Actions grid */}
@@ -151,7 +178,7 @@ export default function WalletScreen() {
         >
           <Text variant="titleSmall" style={{ color: colors.onSurface }}>Recent Activity</Text>
 
-          <View style={styles.transactionList}>
+          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.transactionList}>
             {txLoading ? (
               <>
                 {[1, 2, 3].map((i) => (
@@ -192,7 +219,7 @@ export default function WalletScreen() {
                 );
               })
             )}
-          </View>
+          </GlassSurface>
         </MotiView>
       </ScrollView>
 
@@ -286,14 +313,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.xl,
   },
   balanceCard: {
-    alignItems: 'center',
-    backgroundColor: colors.surfaceCard,
     borderRadius: radii['2xl'],
-    borderWidth: 1,
-    borderColor: colors.rimLight,
+    overflow: 'hidden',
+  },
+  balanceGlassInset: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    right: 3,
+    bottom: 3,
+  },
+  balanceContent: {
+    alignItems: 'center',
     paddingVertical: spacing.xl,
     paddingHorizontal: spacing.lg,
-    overflow: 'hidden',
   },
   balanceGlow: {
     position: 'absolute',
@@ -366,10 +399,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   quickLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurface },
   section: { gap: spacing.md },
   transactionList: {
-    backgroundColor: colors.surfaceCard,
     borderRadius: radii.xl,
-    borderWidth: 1,
-    borderColor: colors.rimLightSubtle,
     paddingHorizontal: spacing.base,
   },
   txRow: {

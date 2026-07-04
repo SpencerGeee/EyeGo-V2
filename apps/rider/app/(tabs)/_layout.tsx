@@ -6,11 +6,13 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withTiming,
+  Easing,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fonts, type ColorTokens } from '@eyego/config';
+import { fonts, springs, type ColorTokens } from '@eyego/config';
 import { Text, GlassSurface } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -109,8 +111,10 @@ function TabItem({
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => { scale.value = withSpring(0.88, { stiffness: 600, damping: 15 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { stiffness: 600, damping: 15 }); }}
+      onPressIn={() => {
+        scale.value = withTiming(0.92, { duration: 100, easing: Easing.out(Easing.quad) });
+      }}
+      onPressOut={() => { scale.value = withSpring(1, springs.press); }}
       style={styles.tabItem}
       accessibilityRole="button"
       accessibilityLabel={TAB_LABELS[routeName]}
@@ -140,14 +144,14 @@ export default function TabLayout() {
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        // React Navigation's bottom-tabs gives each scene an opaque white
-        // container by default. home.tsx/activity.tsx mask it with their own
-        // opaque colors.backgroundDeep fill, which is why only services.tsx
-        // (which relies on transparency to show the root AppBackground)
-        // showed a white page — the scene wrapper sat between it and
-        // AppBackground. Without this, no screen in this tab group can ever
-        // show the ambient background through a transparent container.
-        sceneContainerStyle: { backgroundColor: 'transparent' },
+        // Bottom-tabs v7 renamed sceneContainerStyle → sceneStyle; the old
+        // prop is silently ignored, which left the default (white, from the
+        // navigation theme) scene container between every tab screen and the
+        // root AppBackground. Transparent scenes are what let the ambient
+        // orb background show through on home/services/activity/account.
+        sceneStyle: { backgroundColor: 'transparent' },
+        // Cross-fade between tabs instead of a hard cut.
+        animation: 'fade',
       }}
     >
       <Tabs.Screen name="home" />

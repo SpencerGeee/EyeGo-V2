@@ -1,9 +1,10 @@
 import '../global.css';
 import '../i18n';
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import i18n from '../i18n';
 import { Stack, useRouter, useSegments, type Href } from 'expo-router';
+import { ThemeProvider, DarkTheme, type Theme } from '@react-navigation/native';
 import { SplashAnimation } from '../components/SplashAnimation';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, View, Animated, AppState } from 'react-native';
@@ -28,7 +29,7 @@ import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -126,6 +127,18 @@ async function registerForPushNotifications() {
 }
 
 SplashScreen.preventAutoHideAsync();
+
+/** Screens that show the shared root <AppBackground /> through their content
+ *  view. ONLY safe on fade-animated screens — slide transitions over a
+ *  transparent content view expose the native window (white) mid-flight. */
+const TRANSPARENT_CONTENT = { backgroundColor: 'transparent' } as const;
+
+/** Native push for detail screens: real iOS parallax slide + interactive
+ *  swipe-back; explicit slide on Android. Requires opaque contentStyle. */
+const detailPush = {
+  animation: Platform.OS === 'ios' ? ('default' as const) : ('slide_from_right' as const),
+  gestureEnabled: true,
+};
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -368,8 +381,28 @@ export default function RootLayout() {
     return () => sub.remove();
   }, [router]);
 
+  // React Navigation theme — the LAST line of defense behind every screen.
+  // Without this, expo-router falls back to the default light theme and any
+  // transparent scene (tabs) or in-flight transition exposes a WHITE fill.
+  const navTheme = useMemo<Theme>(
+    () => ({
+      ...DarkTheme,
+      dark: isDark,
+      colors: {
+        ...DarkTheme.colors,
+        primary: colors.primary,
+        background: colors.backgroundDeep,
+        card: colors.backgroundDeep,
+        text: colors.onSurface,
+        border: colors.rimLightSubtle,
+        notification: colors.primary,
+      },
+    }),
+    [isDark, colors]
+  );
+
   if (!fontsLoaded) {
-    return <View style={{ flex: 1, backgroundColor: '#091009' }} />;
+    return <View style={{ flex: 1, backgroundColor: '#0A0A0B' }} />;
   }
 
   if (!splashDone) {
@@ -378,29 +411,48 @@ export default function RootLayout() {
 
   return (
     <ColorsProvider value={colors}>
+    <ThemeProvider value={navTheme}>
     <I18nextProvider i18n={i18n}>
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
         <AmbientRotationProvider>
         <QueryClientProvider client={queryClient}>
           <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.backgroundDeep} />
-          {/* Ambient premium background — every "bare" screen (transparent
-              Stack contentStyle below) shows this instead of a flat fill. */}
+          {/* Ambient premium background — fade-group screens (transparent
+              contentStyle below) show this instead of a flat fill. */}
           <AppBackground />
+          {/* MorphProvider hosts the container-transform overlay: it must
+              wrap the Stack (sources/targets live inside screens) and its
+              overlay renders above every screen but below toasts/banners. */}
+          <MorphProvider>
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: 'transparent' },
-              animation: 'fade_from_bottom',
+              // Opaque by default: pushed screens MUST NOT be transparent or
+              // iOS native-stack slide transitions expose the window behind
+              // them mid-flight (the "white flash / covering lag" bug).
+              contentStyle: { backgroundColor: colors.backgroundDeep },
+              animation: 'fade',
             }}
           >
-            <Stack.Screen name="index" />
-            <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-            <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
-            <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+            {/* Fade-group screens share the root AppBackground through a
+                transparent content view — safe because fades never slide. */}
+            <Stack.Screen name="index" options={{ contentStyle: TRANSPARENT_CONTENT }} />
+            <Stack.Screen name="(auth)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
+            <Stack.Screen name="(onboarding)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
+            <Stack.Screen name="(tabs)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
             <Stack.Screen
               name="where-to"
-              options={{ animation: 'slide_from_bottom', presentation: 'modal', gestureEnabled: true }}
+              options={{
+                // Morph target: the where-to pill flies into this screen via
+                // the MorphProvider overlay, so the route itself must not
+                // animate. transparentModal keeps home mounted beneath while
+                // the screen's own entrance fade runs.
+                animation: 'none',
+                presentation: 'transparentModal',
+                contentStyle: TRANSPARENT_CONTENT,
+                gestureEnabled: false,
+              }}
             />
             <Stack.Screen
               name="ride/select"
@@ -408,7 +460,7 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="ride/[id]"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/[id]/payment"
@@ -424,15 +476,15 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="ride/[id]/seat"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/[id]/invite"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/[id]/chat"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/[id]/sos"
@@ -440,55 +492,55 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="profile/edit"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/help"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/privacy"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/wallet"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/settings"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/promotions"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/saved-places"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/business"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/payment-methods"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/emergency-contacts"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/notification-preferences"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/terms"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="profile/account-deletion"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/schedule"
@@ -504,15 +556,15 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="ride/[id]/dispute"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/reserve"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/guest-selection"
-              options={{ animation: 'slide_from_right' }}
+              options={detailPush}
             />
             <Stack.Screen
               name="ride/[id]/rate-tip"
@@ -524,9 +576,10 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="join/[token]"
-              options={{ animation: 'fade' }}
+              options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }}
             />
           </Stack>
+          </MorphProvider>
           {/* Connectivity banner — slides down from top when offline */}
           <Animated.View
             style={{
@@ -623,6 +676,7 @@ export default function RootLayout() {
       </GestureHandlerRootView>
     </ErrorBoundary>
     </I18nextProvider>
+    </ThemeProvider>
     </ColorsProvider>
   );
 }

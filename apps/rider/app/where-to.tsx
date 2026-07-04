@@ -9,12 +9,14 @@ import {
   ActivityIndicator,
   ScrollView,
   Keyboard,
+  BackHandler,
 } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, GradientGlowBorder, type GradientGlowBorderHandle } from '@eyego/ui';
+import { Text, GradientGlowBorder, MorphTarget, useMorph, type GradientGlowBorderHandle } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useRideStore } from '../stores/ride.store';
@@ -164,8 +166,24 @@ export default function WhereToScreen() {
   const showSuggestions = suggestions.length > 0 || (isSearching && destQuery.length >= 2);
   const hasDestination = !!selectedPlace || destQuery.length > 0;
 
+  // Reverse the container-transform back into the home pill. The route uses
+  // animation 'none', so morphBack owns the entire exit choreography.
+  const { morphBack } = useMorph();
+  const handleClose = useCallback(() => {
+    Keyboard.dismiss();
+    morphBack(() => router.back());
+  }, [morphBack, router]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleClose]);
+
   return (
-    <View style={styles.root}>
+    <Animated.View style={styles.root} entering={FadeIn.duration(250)}>
       {/* ── Fullscreen map ─────────────────────────────── */}
       <MapboxGL.MapView
         style={StyleSheet.absoluteFill}
@@ -210,7 +228,7 @@ export default function WhereToScreen() {
         <View style={styles.headerRow}>
           <Pressable
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={handleClose}
             accessibilityRole="button"
             accessibilityLabel="Go back"
           >
@@ -233,6 +251,7 @@ export default function WhereToScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
+            <MorphTarget id="where-to-pill" borderRadius={24}>
             <View style={styles.floatingCard}>
 
               {/* ── Dual input + timeline ─────────────── */}
@@ -440,10 +459,11 @@ export default function WhereToScreen() {
                 </>
               )}
             </View>
+            </MorphTarget>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </View>
+    </Animated.View>
   );
 }
 

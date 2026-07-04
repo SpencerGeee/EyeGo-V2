@@ -397,6 +397,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   cellInput: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.titleLarge,
+    lineHeight: Math.round(fontSizes.titleLarge * 1.3),
     color: colors.onSurface,
     width: '100%',
     height: '100%',

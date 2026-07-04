@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, LensSheen } from '@eyego/ui';
 import { walletApi } from '@eyego/api';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -72,14 +72,26 @@ export default function AddCardScreen() {
           from={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
-          style={styles.cardPreview}
         >
+          {/* Card PREVIEW — premium glow ring with a slow LensSheen light
+              sweep across the face; content inset by ring thickness (3). */}
+          <GradientGlowBorder
+            colors={PREMIUM_RING_COLORS}
+            locations={PREMIUM_RING_LOCATIONS}
+            fillColor={colors.surfaceCard}
+            borderRadius={radii['2xl']}
+            glow
+            glowColor={colors.premiumBlue}
+            glowColorSecondary={colors.premiumOrange}
+            style={styles.cardPreview}
+          >
           <LinearGradient
             colors={[colors.surfaceCard, colors.backgroundDeep]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.cardFace}
           >
+            <LensSheen />
             <View style={styles.cardChipRow}>
               <Ionicons name="hardware-chip" size={36} color={withOpacity(colors.onSurface, 0.85)} />
               <View style={styles.cardBadge}>
@@ -101,6 +113,7 @@ export default function AddCardScreen() {
               </View>
             </View>
           </LinearGradient>
+          </GradientGlowBorder>
         </MotiView>
 
         {/* Info */}
@@ -108,8 +121,8 @@ export default function AddCardScreen() {
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 580, damping: 34, delay: 80 }}
-          style={styles.infoCard}
         >
+          <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.infoCard}>
           <View style={styles.infoRow}>
             <View style={[styles.infoIconWrap, { backgroundColor: withOpacity(colors.statusSuccess, 0.12) }]}>
               <Ionicons name="shield-checkmark" size={18} color={colors.statusSuccess} />
@@ -127,6 +140,7 @@ export default function AddCardScreen() {
               A ₵0.50 verification charge will be made and your card saved for future one-tap payments.
             </Text>
           </View>
+          </GlassSurface>
         </MotiView>
       </ScrollView>
 
@@ -176,12 +190,14 @@ const makeStyles = (colors: Colors) =>
     cardPreview: {
       borderRadius: radii['2xl'],
       overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: colors.rimLight,
       aspectRatio: 1.586,
-      backgroundColor: colors.surfaceCard,
     },
     cardFace: {
+      // Inset by the ring's stroke thickness (3) so the opaque card face
+      // doesn't paint over the glow ring, and clipped to the inner radius.
+      margin: 3,
+      borderRadius: radii['2xl'] - 3,
+      overflow: 'hidden',
       flex: 1,
       padding: spacing.xl,
       justifyContent: 'space-between',
@@ -239,10 +255,7 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: 1,
     },
     infoCard: {
-      backgroundColor: colors.surfaceCard,
       borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       gap: spacing.sm,
     },

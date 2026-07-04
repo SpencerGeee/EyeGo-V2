@@ -23,6 +23,14 @@ interface BlobConfig {
 
 interface AppBackgroundProps {
   style?: ViewStyle;
+  /**
+   * 'animated' (default) drifts the blobs — reserve it for the single
+   * root-mounted instance. 'static' renders the same ambient field with no
+   * reanimated loops: cheap enough to mount per pushed screen, which lets
+   * opaque detail screens keep the ambient depth without transparency
+   * (transparent pushed screens white-flash on iOS native-stack slides).
+   */
+  variant?: 'animated' | 'static';
 }
 
 /**
@@ -32,10 +40,12 @@ interface AppBackgroundProps {
  * gradient blobs drift/pulse slowly via worklet-driven Reanimated. Mounted
  * once in the root layout so every "bare background" screen inherits it.
  */
-export function AppBackground({ style }: AppBackgroundProps) {
+export function AppBackground({ style, variant = 'animated' }: AppBackgroundProps) {
   const colors = useThemedColors();
   const tier = usePerformanceTier();
   const { width, height } = Dimensions.get('window');
+
+  const animated = variant === 'animated' && tier !== 'low';
 
   const blobs: BlobConfig[] =
     tier === 'low'
@@ -94,7 +104,7 @@ export function AppBackground({ style }: AppBackgroundProps) {
       ]}
     >
       {blobs.map((blob, i) => (
-        <Blob key={i} {...blob} />
+        <Blob key={i} {...blob} durationMs={animated ? blob.durationMs : 0} />
       ))}
     </View>
   );

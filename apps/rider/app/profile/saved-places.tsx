@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, GlowSearchInput } from '@eyego/ui';
+import { Text, Button, GlowSearchInput, AppBackground } from '@eyego/ui';
 
 type Place = {
   id: string;
@@ -127,6 +127,7 @@ export default function SavedPlacesScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
@@ -141,7 +142,7 @@ export default function SavedPlacesScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         >
-          <Text style={styles.sectionLabel}>FAVORITES</Text>
+          <Text variant="labelCaps" style={styles.sectionLabel}>FAVORITES</Text>
           
           <View style={styles.placesCard}>
             {places.map((place, index) => (
@@ -352,6 +353,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 48,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
     borderWidth: 1,
     borderColor: colors.rimLightSubtle,

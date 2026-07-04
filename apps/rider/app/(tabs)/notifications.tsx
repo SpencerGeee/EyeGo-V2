@@ -1,8 +1,7 @@
 ﻿import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Pressable, RefreshControl, Platform } from 'react-native';
+import { View, StyleSheet, FlatList, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,7 +9,7 @@ import { notificationsApi } from '@eyego/api';
 import type { AppNotification } from '@eyego/api';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, GlassSurface } from '@eyego/ui';
 import { relativeTime } from '@eyego/utils';
 
 type Category = 'All' | 'Trips' | 'Payments' | 'Promos';
@@ -75,11 +74,15 @@ function NotificationCard({
       transition={{ type: 'spring', stiffness: 600, damping: 34, delay: index * 35 }}
     >
       <Pressable onPress={onPress} style={styles.cardWrapper}>
-        {/* Glass card */}
+        {/* Glass card — canonical GlassSurface behind each primary card
+            (replaces the ad-hoc per-row BlurView; gates on perf tier internally). */}
         <View style={[styles.notifCard, !item.read && styles.notifCardUnread]}>
-          {Platform.OS === 'ios' && (
-            <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-          )}
+          <GlassSurface
+            borderRadius={radii.xl}
+            intensity={item.read ? 'low' : 'high'}
+            dark
+            style={StyleSheet.absoluteFill}
+          />
           {!item.read && <View style={styles.unreadStripe} />}
 
           <View style={[styles.iconCircle, { backgroundColor: withOpacity(typeInfo.color, 0.1) }]}>
@@ -296,6 +299,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   categoryLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 13,
+    lineHeight: Math.round(13 * 1.4),
   },
   categoryUnderline: {
     position: 'absolute',

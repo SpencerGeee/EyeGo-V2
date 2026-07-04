@@ -16,7 +16,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { formatCurrency, formatDistance, formatDuration } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi } from '@eyego/api';
-import { Text } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 
 export default function TripCompleteScreen() {
   const colors = useColors();
@@ -114,13 +114,24 @@ export default function TripCompleteScreen() {
           <Text style={styles.headline}>Arrived Safely</Text>
         </MotiView>
 
-        {/* Fare card */}
+        {/* Fare card — celebratory hero with premium green glow ring */}
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 300 }}
-          style={styles.fareCard}
+          style={styles.fareCardWrap}
         >
+          <GradientGlowBorder
+            colors={PREMIUM_RING_COLORS}
+            locations={PREMIUM_RING_LOCATIONS}
+            fillColor={colors.surfaceCard}
+            borderRadius={radii['2xl']}
+            glow
+            glowColor={colors.primary}
+            style={styles.fareCard}
+          >
+            <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={styles.glassInset} />
+            <View style={styles.fareCardInner}>
           <Text style={styles.fareLabel}>Total Fare</Text>
           <Text style={styles.fareAmount}>{formatCurrency(totalFare)}</Text>
 
@@ -164,6 +175,8 @@ export default function TripCompleteScreen() {
               <Ionicons name="share-outline" size={13} color={colors.primary} />
             </Pressable>
           )}
+            </View>
+          </GradientGlowBorder>
         </MotiView>
 
         {/* CTAs */}
@@ -224,13 +237,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: -0.5,
     textAlign: 'center',
   },
+  fareCardWrap: { width: '100%' },
   fareCard: {
     width: '100%',
-    backgroundColor: colors.surfaceCard,
     borderRadius: radii['2xl'],
+    overflow: 'hidden',
+  },
+  glassInset: { position: 'absolute', top: 3, left: 3, right: 3, bottom: 3 },
+  fareCardInner: {
     padding: spacing.xl,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
     gap: spacing.md,
   },
   fareLabel: {

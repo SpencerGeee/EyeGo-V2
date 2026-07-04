@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#11181e"
+      "backgroundColor": "#0A0A0B"
     },
     "ios": {
       "supportsTablet": false,
@@ -31,7 +31,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#11181e"
+        "backgroundColor": "#0A0A0B"
       },
       "package": "com.eyego.rider",
       "edgeToEdgeEnabled": true,

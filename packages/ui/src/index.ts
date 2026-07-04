@@ -46,3 +46,5 @@ export { GlowSearchInput, GlowSearchPressable } from './effects/GlowSearchInput'
 export { usePerformanceTier } from './effects/usePerformanceTier';
 export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
+export { MorphProvider, MorphSource, MorphTarget, useMorph, useMorphOptional } from './morph';
+export type { MorphRect } from './morph';

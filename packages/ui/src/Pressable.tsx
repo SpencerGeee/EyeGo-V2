@@ -10,8 +10,11 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  withTiming,
+  Easing,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { springs, pressScale as pressScaleToken } from '@eyego/config';
 
 const AnimatedPressable = Animated.createAnimatedComponent(RNPressable);
 
@@ -30,7 +33,7 @@ export function Pressable({
   onPressIn,
   onPressOut,
   haptic = 'light',
-  scaleOnPress = 0.96,
+  scaleOnPress = pressScaleToken,
   style,
   children,
   ...props
@@ -43,7 +46,10 @@ export function Pressable({
 
   const handlePressIn = useCallback(
     (e: GestureResponderEvent) => {
-      scale.value = withSpring(scaleOnPress, { stiffness: 400, damping: 25 });
+      scale.value = withTiming(scaleOnPress, {
+        duration: 100,
+        easing: Easing.out(Easing.quad),
+      });
       onPressIn?.(e);
     },
     [scale, scaleOnPress, onPressIn]
@@ -51,7 +57,7 @@ export function Pressable({
 
   const handlePressOut = useCallback(
     (e: GestureResponderEvent) => {
-      scale.value = withSpring(1, { stiffness: 400, damping: 25 });
+      scale.value = withSpring(1, springs.press);
       onPressOut?.(e);
     },
     [scale, onPressOut]

@@ -22,7 +22,7 @@ import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input } from '@eyego/ui';
+import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { getInitials } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -174,15 +174,25 @@ export default function EditProfileScreen() {
             style={styles.avatarSection}
           >
             <Pressable onPress={pickImage} style={styles.avatarContainer}>
-              {avatarSource ? (
-                <Image source={avatarSource} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarInitials}>
-                    {name ? getInitials(name) : '?'}
-                  </Text>
-                </View>
-              )}
+              <GradientGlowBorder
+                colors={PREMIUM_RING_COLORS}
+                locations={PREMIUM_RING_LOCATIONS}
+                fillColor={colors.surfaceContainerHigh}
+                borderRadius={54}
+                glow
+                glowColor={colors.primary}
+                style={styles.avatarRing}
+              >
+                {avatarSource ? (
+                  <Image source={avatarSource} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarInitials}>
+                      {name ? getInitials(name) : '?'}
+                    </Text>
+                  </View>
+                )}
+              </GradientGlowBorder>
               <View style={styles.avatarEditBadge}>
                 <Ionicons name="camera-outline" size={14} color={colors.onPrimary} />
               </View>
@@ -277,7 +287,7 @@ export default function EditProfileScreen() {
             <Text variant="caption" color={colors.onSurfaceVariant} style={styles.sectionCaption}>
               Notified when you trigger SOS
             </Text>
-            <View style={styles.emergencyCard}>
+            <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.emergencyCard}>
               <View style={styles.inputSection}>
                 <Input
                   label="Contact name"
@@ -300,7 +310,7 @@ export default function EditProfileScreen() {
                   returnKeyType="done"
                 />
               </View>
-            </View>
+            </GlassSurface>
           </MotiView>
 
           {saveProfile.isError && (
@@ -369,21 +379,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing['2xl'],
   },
-  avatarContainer: { position: 'relative', width: 100, height: 100 },
+  avatarContainer: { position: 'relative', width: 108, height: 108 },
+  avatarRing: { width: 108, height: 108, alignItems: 'center', justifyContent: 'center' },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 2.5,
-    borderColor: colors.primary,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
   },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: colors.surfaceContainerHigh,
-    borderWidth: 2,
-    borderColor: colors.outline,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -466,11 +473,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sectionCaption: { marginBottom: spacing.base },
   emergencyCard: {
-    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.xl,
     padding: spacing.base,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
     marginBottom: spacing.xl,
   },
   ctaSection: { marginTop: spacing.sm },

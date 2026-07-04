@@ -765,6 +765,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.base,
     fontFamily: fonts.medium,
     fontSize: fontSizes.titleSmall,
+    lineHeight: Math.round(fontSizes.titleSmall * 1.3),
     color: colors.onSurface,
     letterSpacing: 1,
   },

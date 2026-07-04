@@ -15,7 +15,7 @@ import { tripsApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, EmptyState } from '@eyego/ui';
+import { Text, Button, EmptyState, AppBackground } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
 
 export default function SeatPickerScreen() {
@@ -86,6 +86,7 @@ export default function SeatPickerScreen() {
   if (isError) {
     return (
       <SafeAreaView style={styles.safe}>
+        <AppBackground variant="static" />
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
@@ -107,6 +108,7 @@ export default function SeatPickerScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerBackBtn} hitSlop={12}>
@@ -381,6 +383,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   seatNumber: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
   },
   selectedInfo: {
     flexDirection: 'row',
