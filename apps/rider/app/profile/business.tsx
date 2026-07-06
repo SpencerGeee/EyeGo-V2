@@ -1,9 +1,7 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Input } from '@eyego/ui';
@@ -58,10 +56,7 @@ export default function BusinessProfileScreen() {
 
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* Toggle Section */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
+          <View
             style={styles.toggleContainer}
           >
             <View style={styles.toggleGlass}>
@@ -82,14 +77,11 @@ export default function BusinessProfileScreen() {
                 tint="eco" 
               />
             </View>
-          </MotiView>
+          </View>
 
           {/* Form Section */}
           {isBusinessMode && (
-            <MotiView
-              from={{ opacity: 0, height: 0, translateY: -20 }}
-              animate={{ opacity: 1, height: 'auto', translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+            <View
               style={styles.formContainer}
             >
               <Text variant="titleSmall" style={styles.sectionTitle}>Corporate Details</Text>
@@ -128,7 +120,7 @@ export default function BusinessProfileScreen() {
                   When business mode is active, all ride receipts will be automatically forwarded to your expense email.
                 </Text>
               </View>
-            </MotiView>
+            </View>
           )}
         </ScrollView>
 

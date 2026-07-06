@@ -7,9 +7,7 @@ import {
   Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, GlowSearchInput, ShinyText, AppBackground } from '@eyego/ui';
@@ -79,11 +77,8 @@ export default function PromotionsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
+        <View
+          >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
             ENTER PROMO CODE
           </Text>
@@ -120,12 +115,9 @@ export default function PromotionsScreen() {
               Invalid or expired promo code.
             </Text>
           )}
-        </MotiView>
+        </View>
 
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+        <View
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
@@ -160,7 +152,7 @@ export default function PromotionsScreen() {
               style={styles.shareBtn}
             />
           </View>
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

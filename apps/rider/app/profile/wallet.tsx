@@ -1,9 +1,7 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, Pressable, ScrollView, Alert, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { BlurView } from 'expo-blur';
+import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, bookingsApi, queryKeys } from '@eyego/api';
@@ -100,11 +98,8 @@ export default function WalletScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Balance Card */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.94 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
-        >
+        <View
+          >
           {/* Balance HERO — green glow ring with a frosted-glass fill inset by
               the ring thickness (3) so the blur doesn't paint over the ring. */}
           <GradientGlowBorder
@@ -150,13 +145,10 @@ export default function WalletScreen() {
               </Pressable>
             </View>
           </GradientGlowBorder>
-        </MotiView>
+        </View>
 
         {/* Quick Actions grid */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8, delay: 50 }}
+        <View
           style={styles.quickGrid}
         >
           <Pressable style={styles.quickCard} onPress={() => comingSoon('Send Money')}>
@@ -167,13 +159,10 @@ export default function WalletScreen() {
             <Ionicons name="qr-code-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Scan & Pay</Text>
           </Pressable>
-        </MotiView>
+        </View>
 
         {/* Recent Activity */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8, delay: 80 }}
+        <View
           style={styles.section}
         >
           <Text variant="titleSmall" style={{ color: colors.onSurface }}>Recent Activity</Text>
@@ -220,7 +209,7 @@ export default function WalletScreen() {
               })
             )}
           </GlassSurface>
-        </MotiView>
+        </View>
       </ScrollView>
 
       {/* Top Up Modal */}

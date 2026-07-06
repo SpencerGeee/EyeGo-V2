@@ -13,9 +13,7 @@ import {
 import { Image } from 'expo-image';
 import * as Contacts from 'expo-contacts';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';import * as ImagePicker from 'expo-image-picker';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { userApi } from '@eyego/api';
@@ -167,10 +165,7 @@ export default function EditProfileScreen() {
           showsVerticalScrollIndicator={false}
         >
           {/* Avatar */}
-          <MotiView
-            from={{ opacity: 0, scale: 0.94 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+          <View
             style={styles.avatarSection}
           >
             <Pressable onPress={pickImage} style={styles.avatarContainer}>
@@ -198,13 +193,10 @@ export default function EditProfileScreen() {
               </View>
             </Pressable>
             <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
-          </MotiView>
+          </View>
 
           {/* Name */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          <View
             style={styles.inputSection}
           >
             <Input
@@ -216,13 +208,10 @@ export default function EditProfileScreen() {
               returnKeyType="next"
               error={nameError}
             />
-          </MotiView>
+          </View>
 
           {/* Email */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 60 }}
+          <View
             style={styles.inputSection}
           >
             <Input
@@ -233,13 +222,10 @@ export default function EditProfileScreen() {
               autoCapitalize="none"
               returnKeyType="next"
             />
-          </MotiView>
+          </View>
 
           {/* Phone (read-only, verified) */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 70 }}
+          <View
             style={styles.inputSection}
           >
             <Text style={styles.phoneLabel}>Phone Number</Text>
@@ -247,13 +233,10 @@ export default function EditProfileScreen() {
               <Text style={styles.phoneValue}>{user?.phone ?? '—'}</Text>
               <Ionicons name="checkmark-circle" size={20} color={colors.statusSuccess} />
             </View>
-          </MotiView>
+          </View>
 
           {/* Date of Birth */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+          <View
             style={styles.inputSection}
           >
             <Text variant="caption" color={colors.onSurfaceVariant} style={styles.dobLabel}>
@@ -270,14 +253,11 @@ export default function EditProfileScreen() {
                 style={styles.dobPicker}
               />
             </View>
-          </MotiView>
+          </View>
 
           {/* Emergency Contact */}
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
-          >
+          <View
+            >
             <View style={styles.sectionHeader}>
               <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
               <Text variant="label" color={colors.onSurface} style={{ marginLeft: spacing.xs }}>
@@ -311,7 +291,7 @@ export default function EditProfileScreen() {
                 />
               </View>
             </GlassSurface>
-          </MotiView>
+          </View>
 
           {saveProfile.isError && (
             <Text variant="caption" color={colors.error} style={styles.errorText}>

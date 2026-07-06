@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,37 +8,46 @@ import {
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { userApi, queryKeys, type SafetySettings } from '@eyego/api';
 import { spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 
-const SAFETY_FEATURES = [
+const CACHE_KEY = 'eyego_safety_settings';
+
+const SAFETY_FEATURES: {
+  id: keyof SafetySettings;
+  icon: string;
+  title: string;
+  description: string;
+  defaultEnabled: boolean;
+}[] = [
   {
-    id: 'share_trip',
+    id: 'shareTrip',
     icon: 'share-social-outline',
     title: 'Share Trip Status',
     description: 'Auto-share your trip status with emergency contacts',
     defaultEnabled: true,
   },
   {
-    id: 'ridecheck',
+    id: 'rideCheck',
     icon: 'shield-checkmark-outline',
     title: 'RideCheck',
     description: 'Get alerted if your trip deviates unexpectedly or stops for too long',
     defaultEnabled: true,
   },
   {
-    id: 'speed_alerts',
+    id: 'speedAlerts',
     icon: 'speedometer-outline',
     title: 'Speed Alerts',
     description: 'Notify you if your driver exceeds the speed limit',
     defaultEnabled: false,
   },
   {
-    id: 'night_safety',
+    id: 'nightSafety',
     icon: 'moon-outline',
     title: 'Night Safety Check',
     description: 'Extra verification for trips between 10pm - 5am',
@@ -46,21 +55,50 @@ const SAFETY_FEATURES = [
   },
 ];
 
+const DEFAULTS = Object.fromEntries(
+  SAFETY_FEATURES.map((f) => [f.id, f.defaultEnabled])
+) as SafetySettings;
+
 export default function SafetyScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const [features, setFeatures] = useState(
-    SAFETY_FEATURES.map((f) => ({ id: f.id, enabled: f.defaultEnabled }))
-  );
+  const queryClient = useQueryClient();
+  const [settings, setSettings] = useState<SafetySettings>(DEFAULTS);
 
-  const toggleFeature = (id: string) => {
-    setFeatures((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, enabled: !f.enabled } : f))
-    );
+  // Offline-first hydrate: cached copy renders instantly, server copy wins.
+  useEffect(() => {
+    AsyncStorage.getItem(CACHE_KEY)
+      .then((raw) => { if (raw) setSettings((s) => ({ ...s, ...JSON.parse(raw) })); })
+      .catch(() => {});
+  }, []);
+
+  const { data: serverSettings } = useQuery({
+    queryKey: queryKeys.user.safetySettings,
+    queryFn: async () => (await userApi.getSafetySettings()).data?.data?.settings ?? {},
+  });
+
+  useEffect(() => {
+    if (serverSettings && Object.keys(serverSettings).length > 0) {
+      setSettings((s) => ({ ...s, ...serverSettings }));
+    }
+  }, [serverSettings]);
+
+  const saveMutation = useMutation({
+    mutationFn: (next: SafetySettings) => userApi.updateSafetySettings(next),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.user.safetySettings }),
+  });
+
+  const toggleFeature = (id: keyof SafetySettings) => {
+    setSettings((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)).catch(() => {});
+      saveMutation.mutate(next);
+      return next;
+    });
   };
 
-  const isEnabled = (id: string) => features.find((f) => f.id === id)?.enabled ?? false;
+  const isEnabled = (id: keyof SafetySettings) => settings[id] ?? false;
 
   const handleUploadInsurance = () => {
     Alert.alert(
@@ -76,10 +114,7 @@ export default function SafetyScreen() {
   return (
     <SafeAreaView style={styles.safe} accessibilityLabel="Safety settings">
       {/* Header */}
-      <MotiView
-        from={{ opacity: 0, translateY: -6 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+      <View
         style={styles.header}
       >
         <Pressable
@@ -91,14 +126,11 @@ export default function SafetyScreen() {
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="headlineMedium" style={{ flex: 1 }}>Safety</Text>
-      </MotiView>
+      </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Shield icon header */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 50 }}
+        <View
           style={styles.shieldSection}
         >
           <View style={styles.shieldCircle}>
@@ -107,24 +139,18 @@ export default function SafetyScreen() {
           <Text variant="titleSmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
             Your safety is our priority. Customize your safety preferences below.
           </Text>
-        </MotiView>
+        </View>
 
         {/* Safety features */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 80 }}
+        <View
           style={styles.card}
         >
           <Text variant="titleSmall" style={styles.cardTitle}>Safety Features</Text>
           <View style={styles.featuresList}>
             {SAFETY_FEATURES.map((feature, i) => (
-              <MotiView
+              <View
                 key={feature.id}
-                from={{ opacity: 0, translateX: -10 }}
-                animate={{ opacity: 1, translateX: 0 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 100 + i * 50 }}
-              >
+                >
                 <Pressable
                   style={styles.featureRow}
                   onPress={() => toggleFeature(feature.id)}
@@ -149,16 +175,13 @@ export default function SafetyScreen() {
                   />
                 </Pressable>
                 {i < SAFETY_FEATURES.length - 1 && <View style={styles.divider} />}
-              </MotiView>
+              </View>
             ))}
           </View>
-        </MotiView>
+        </View>
 
         {/* Insurance card */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 350 }}
+        <View
           style={styles.card}
         >
           <Text variant="titleSmall" style={styles.cardTitle}>Emergency Insurance</Text>
@@ -175,14 +198,11 @@ export default function SafetyScreen() {
             <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
             <Text variant="label" color={colors.primary}>Upload Insurance Card</Text>
           </Pressable>
-        </MotiView>
+        </View>
 
         {/* Emergency contacts shortcut */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 420 }}
-        >
+        <View
+          >
           <Pressable
             style={styles.linkRow}
             onPress={() => router.push('/profile/emergency-contacts' as any)}
@@ -200,14 +220,11 @@ export default function SafetyScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
           </Pressable>
-        </MotiView>
+        </View>
 
         {/* Trust & support */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 460 }}
-        >
+        <View
+          >
           <Pressable
             style={styles.linkRow}
             onPress={() => router.push('/profile/help' as any)}
@@ -225,7 +242,7 @@ export default function SafetyScreen() {
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
           </Pressable>
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

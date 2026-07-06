@@ -9,9 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -66,11 +64,8 @@ export default function AccountDeletionScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
+        <View
+          >
           {step === 1 ? (
             <>
               <View style={styles.warningBanner}>
@@ -155,7 +150,7 @@ export default function AccountDeletionScreen() {
               )}
             </>
           )}
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

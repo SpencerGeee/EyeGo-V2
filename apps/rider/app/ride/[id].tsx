@@ -1,4 +1,4 @@
-﻿import React, { useRef, useMemo, useEffect, useState } from 'react';
+﻿import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, fontSizes, spacing, radii, shadows, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, useMorph } from '@eyego/ui';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
@@ -31,8 +31,15 @@ type TierKey = typeof TIERS[number]['key'];
 export default function RideDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { id, tier: tierParam } = useLocalSearchParams<{ id: string; tier?: string }>();
+  const { id, tier: tierParam, group } = useLocalSearchParams<{ id: string; tier?: string; group?: string }>();
+  const isGroupFlow = group === '1';
   const router = useRouter();
+  const { morphBack } = useMorph();
+  // Reverse the container-transform back into the originating card. Falls back
+  // to a plain pop when no morph is in flight (deep link / no source measured).
+  const handleBack = useCallback(() => {
+    morphBack(() => router.back());
+  }, [morphBack, router]);
   const { user } = useAuthStore();
   const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare } = useRideStore();
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -215,7 +222,7 @@ export default function RideDetailScreen() {
       {/* Back button */}
       <Pressable
         style={[styles.backButton, { top: insets.top + 12 }]}
-        onPress={() => router.back()}
+        onPress={handleBack}
         hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         accessibilityRole="button"
         accessibilityLabel="Go back"
@@ -375,8 +382,16 @@ export default function RideDetailScreen() {
                   accessibilityRole="button"
                   accessibilityLabel={`Book this seat for ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : 'loading'}`}
                 />
+                {isGroupFlow && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                    <Ionicons name="people" size={14} color={colors.secondary} />
+                    <Text variant="caption" color={colors.secondary}>
+                      Group ride — book and share the invite link with your group
+                    </Text>
+                  </View>
+                )}
                 <Pressable
-                  style={styles.inviteButton}
+                  style={[styles.inviteButton, isGroupFlow && { backgroundColor: colors.secondary + '14', borderWidth: 1.5 }]}
                   onPress={() => router.push(`/ride/${id}/invite` as Href)}
                   accessibilityRole="button"
                   accessibilityLabel="Book and invite my group"

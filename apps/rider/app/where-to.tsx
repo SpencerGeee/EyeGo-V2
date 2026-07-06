@@ -12,7 +12,7 @@ import {
   BackHandler,
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
@@ -61,8 +61,11 @@ export default function WhereToScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const quickChips = useMemo(() => getQuickChips(colors), [colors]);
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { tier } = useLocalSearchParams<{ tier?: string }>();
+  const { tier, type, morphId } = useLocalSearchParams<{ tier?: string; type?: string; morphId?: string }>();
+  // The container-transform source that opened this screen. Home's search pill
+  // uses 'where-to-pill'; services cards pass their own id so each morphs from
+  // its own card. Falls back to the pill id for deep links / direct opens.
+  const activeMorphId = morphId ?? 'where-to-pill';
   const { isDark } = useThemeStore();
   const { setDestination } = useRideStore();
 
@@ -160,10 +163,16 @@ export default function WhereToScreen() {
 
   const handleFindRides = useCallback(() => {
     haptic.medium();
-    router.push({ pathname: '/ride/select', params: { tier: tier ?? 'economy' } } as any);
-  }, [router, tier]);
+    router.push({
+      pathname: '/ride/select',
+      params: { tier: tier ?? 'economy', ...(type ? { type } : {}) },
+    } as any);
+  }, [router, tier, type]);
 
-  const showSuggestions = suggestions.length > 0 || (isSearching && destQuery.length >= 2);
+  // Quick destinations show only while the search is idle (empty query);
+  // any typed query switches the panel to search results so the two lists
+  // never mix.
+  const searchActive = destQuery.length > 0;
   const hasDestination = !!selectedPlace || destQuery.length > 0;
 
   // Reverse the container-transform back into the home pill. The route uses
@@ -241,9 +250,10 @@ export default function WhereToScreen() {
         </View>
 
         {/* ── Floating glass card ─────────────────────── */}
+        {/* KAV spans to the bottom of the screen, so no extra offset — any
+            offset here just eats visible list height while typing. */}
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={insets.top + 60}
           style={{ flex: 1 }}
         >
           <ScrollView
@@ -251,7 +261,7 @@ export default function WhereToScreen() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <MorphTarget id="where-to-pill" borderRadius={24}>
+            <MorphTarget id={activeMorphId} borderRadius={24}>
             <View style={styles.floatingCard}>
 
               {/* ── Dual input + timeline ─────────────── */}
@@ -343,7 +353,7 @@ export default function WhereToScreen() {
               </View>
 
               {/* Autocomplete results (replaces sections below while typing) */}
-              {showSuggestions ? (
+              {searchActive ? (
                 <View style={styles.suggestList}>
                   <View style={styles.divider} />
                   {isSearching && suggestions.length === 0 ? (
@@ -351,6 +361,13 @@ export default function WhereToScreen() {
                       <ActivityIndicator size="small" color={colors.primary} />
                       <Text style={styles.suggestDim}>Searching…</Text>
                     </View>
+                  ) : suggestions.length === 0 ? (
+                    !selectedPlace && destQuery.length >= 2 ? (
+                      <View style={styles.suggestLoadingRow}>
+                        <Ionicons name="search-outline" size={16} color={colors.onSurfaceVariant} />
+                        <Text style={styles.suggestDim}>No places found — keep typing</Text>
+                      </View>
+                    ) : null
                   ) : (
                     suggestions.map((s, i) => {
                       const addr = s.address;

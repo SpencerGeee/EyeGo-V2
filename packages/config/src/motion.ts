@@ -12,12 +12,22 @@
  */
 
 export const springs = {
-  /** Layout morphs, container transforms, position/size changes. */
+  /** Layout morphs, position/size changes that aren't a full screen transform. */
   snappy: { duration: 350, dampingRatio: 1, overshootClamping: true },
+  /**
+   * Container-transform ("morph") — a card expanding into a full screen and
+   * back, Yango/Material style. Slightly longer + a hair of damping headroom
+   * (0.92) than `snappy` so the growth reads as one continuous surface with a
+   * touch of life, but overshootClamping keeps it from bouncing (premium, not
+   * playful). Used by MorphProvider for both forward and reverse flights.
+   */
+  morph: { duration: 380, dampingRatio: 0.92, overshootClamping: true },
   /** Screen/element entrances — a whisper of life, still clamped. */
   entrance: { duration: 450, dampingRatio: 0.9, overshootClamping: true },
   /** Press release back to rest. */
   press: { stiffness: 420, damping: 34, mass: 1 },
+  /** Tab-bar active-indicator / icon crossfade — quick, snappy, interruptible. */
+  tab: { duration: 260, dampingRatio: 1, overshootClamping: true },
 } as const;
 
 export const durations = {

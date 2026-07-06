@@ -7,7 +7,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import {
   useSharedValue,
@@ -23,7 +23,7 @@ import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, EmptyState, Avatar, AppBackground } from '@eyego/ui';
+import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../lib/sentry';
@@ -87,6 +87,9 @@ export default function RideSelectScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const TIER_INFO = useMemo(() => getTierInfo(colors), [colors]);
   const router = useRouter();
+  const { type: rideType } = useLocalSearchParams<{ type?: string }>();
+  const isGroupFlow = rideType === 'group';
+  const { morphTo } = useMorph();
   const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime } = useRideStore();
   const [originText, setOriginText] = useState(origin?.address ?? '');
   const [destText, setDestText] = useState(destination?.address ?? '');
@@ -98,6 +101,26 @@ export default function RideSelectScreen() {
   const [enRoutePickerTripId, setEnRoutePickerTripId] = useState<string | null>(null);
   const [selectedStopByTrip, setSelectedStopByTrip] = useState<Record<string, { id: string; name: string; fare: number }>>({});
   const [fareModalTrip, setFareModalTrip] = useState<TripWithRoute | null>(null);
+  const [filtersVisible, setFiltersVisible] = useState(false);
+  const [sortBy, setSortBy] = useState<'time' | 'priceAsc' | 'priceDesc' | 'seats'>('time');
+  const [minSeats, setMinSeats] = useState(1);
+
+  const filtersActive = sortBy !== 'time' || minSeats > 1;
+
+  const displayTrips = useMemo(() => {
+    const list = (trips as TripWithRoute[]).filter(
+      (t) => (t.availableSeats ?? 0) >= minSeats
+    );
+    const fareOf = (t: TripWithRoute) => t.farePerSeat ?? t.fare ?? 0;
+    const timeOf = (t: TripWithRoute) =>
+      t.departureTime ? new Date(t.departureTime).getTime() : Number.MAX_SAFE_INTEGER;
+    switch (sortBy) {
+      case 'priceAsc': return [...list].sort((a, b) => fareOf(a) - fareOf(b));
+      case 'priceDesc': return [...list].sort((a, b) => fareOf(b) - fareOf(a));
+      case 'seats': return [...list].sort((a, b) => (b.availableSeats ?? 0) - (a.availableSeats ?? 0));
+      default: return [...list].sort((a, b) => timeOf(a) - timeOf(b));
+    }
+  }, [trips, sortBy, minSeats]);
 
   const addStop = () => {
     setStops([...stops, { id: Math.random().toString(), text: '' }]);
@@ -187,10 +210,12 @@ export default function RideSelectScreen() {
         <Pressable
           style={styles.headerBackBtn}
           hitSlop={12}
+          onPress={() => setFiltersVisible(true)}
           accessibilityRole="button"
           accessibilityLabel="Filters"
         >
-          <Ionicons name="options-outline" size={20} color={colors.onSurface} />
+          <Ionicons name="options-outline" size={20} color={filtersActive ? colors.primary : colors.onSurface} />
+          {filtersActive && <View style={styles.filterDot} />}
         </Pressable>
       </View>
 
@@ -359,10 +384,11 @@ export default function RideSelectScreen() {
             transition={{ type: 'timing', duration: 300 }}
           >
             <Text style={styles.resultsCount}>
-              {trips.length} ride{trips.length !== 1 ? 's' : ''} available
+              {displayTrips.length} ride{displayTrips.length !== 1 ? 's' : ''} available
+              {filtersActive ? ' (filtered)' : ''}
             </Text>
             <View style={styles.resultsList}>
-              {(trips as TripWithRoute[]).map((trip, i) => {
+              {displayTrips.map((trip, i) => {
                 const tier = (trip.tier as TripTier) ?? 'ECONOMY';
                 const info = TIER_INFO[tier];
                 const fullFare = trip.farePerSeat ?? 0;
@@ -382,6 +408,11 @@ export default function RideSelectScreen() {
                     animate={{ opacity: 1, translateY: 0 }}
                     transition={{ type: 'spring', stiffness: 600, damping: 34, delay: i * 40 }}
                   >
+                    <MorphSource
+                      id={`ride-card-${trip.id}`}
+                      borderRadius={20}
+                      backgroundColor={colors.surfaceCard}
+                    >
                     <Pressable
                       style={({ pressed }) => [
                         styles.tripCard,
@@ -390,8 +421,14 @@ export default function RideSelectScreen() {
                       ]}
                       onPress={() => {
                         if (!trip.id) return;
-                        const params = selectedStop ? `?pickupStopId=${selectedStop.id}` : '';
-                        router.push(`/ride/${trip.id}${params}` as any);
+                        const query = [
+                          selectedStop ? `pickupStopId=${selectedStop.id}` : '',
+                          isGroupFlow ? 'group=1' : '',
+                        ].filter(Boolean).join('&');
+                        const path = `/ride/${trip.id}${query ? `?${query}` : ''}`;
+                        // Container-transform: card grows into the ride detail
+                        // screen (route uses animation 'fade', see root _layout).
+                        morphTo(`ride-card-${trip.id}`, () => router.push(path as any));
                       }}
                       accessibilityRole="button"
                       accessibilityLabel={`Book ${tier} ride`}
@@ -469,6 +506,7 @@ export default function RideSelectScreen() {
                         <Text style={styles.fareInfoText}>Fare breakdown</Text>
                       </Pressable>
                     </Pressable>
+                    </MorphSource>
 
                     {enRoutePickerTripId === trip.id && (
                       <MotiView
@@ -535,6 +573,85 @@ export default function RideSelectScreen() {
         )}
         </View>
       </ScrollView>
+
+      {/* Filters sheet */}
+      <Modal
+        visible={filtersVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFiltersVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setFiltersVisible(false)}>
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
+            <View style={styles.modalHandle} />
+            <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Sort & Filter</Text>
+
+            <Text variant="label" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.sm }}>SORT BY</Text>
+            {([
+              { key: 'time', label: 'Soonest departure', icon: 'time-outline' },
+              { key: 'priceAsc', label: 'Lowest price', icon: 'arrow-down-outline' },
+              { key: 'priceDesc', label: 'Highest price', icon: 'arrow-up-outline' },
+              { key: 'seats', label: 'Most seats left', icon: 'people-outline' },
+            ] as const).map((opt) => {
+              const active = sortBy === opt.key;
+              return (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.sortRow, active && { borderColor: colors.primary, backgroundColor: colors.primary + '12' }]}
+                  onPress={() => setSortBy(opt.key)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Ionicons name={opt.icon} size={16} color={active ? colors.primary : colors.onSurfaceVariant} />
+                  <Text variant="bodyMedium" style={{ flex: 1 }} color={active ? colors.primary : colors.onSurface}>
+                    {opt.label}
+                  </Text>
+                  {active && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
+                </Pressable>
+              );
+            })}
+
+            <Text variant="label" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, marginBottom: spacing.sm }}>
+              MINIMUM SEATS AVAILABLE
+            </Text>
+            <View style={styles.seatsFilterRow}>
+              {[1, 2, 3, 4].map((n) => {
+                const active = minSeats === n;
+                return (
+                  <Pressable
+                    key={n}
+                    style={[styles.seatsFilterChip, active && { borderColor: colors.primary, backgroundColor: colors.primary + '18' }]}
+                    onPress={() => setMinSeats(n)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text variant="labelLarge" color={active ? colors.primary : colors.onSurfaceVariant}>{n}+</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.xl }}>
+              <Pressable
+                style={[styles.modalClose, { flex: 1, backgroundColor: colors.surfaceContainerHigh, marginTop: 0 }]}
+                onPress={() => { setSortBy('time'); setMinSeats(1); }}
+                accessibilityRole="button"
+                accessibilityLabel="Reset filters"
+              >
+                <Text variant="labelLarge">Reset</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalClose, { flex: 1, backgroundColor: colors.primary, marginTop: 0 }]}
+                onPress={() => setFiltersVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Apply filters"
+              >
+                <Text variant="labelLarge" color={colors.onPrimary}>Done</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Fare breakdown modal */}
       <Modal
@@ -1014,5 +1131,38 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.base,
     alignItems: 'center',
     marginTop: spacing.xl,
+  },
+  filterDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginBottom: spacing.xs,
+  },
+  seatsFilterRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  seatsFilterChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainerHigh,
   },
 });

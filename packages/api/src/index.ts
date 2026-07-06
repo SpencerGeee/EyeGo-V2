@@ -1,6 +1,7 @@
 export { apiClient, configureApiClient, setApiBaseUrl } from './client';
 export { authApi } from './auth.api';
 export { userApi } from './user.api';
+export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace } from './user.api';
 export { tripsApi } from './trips.api';
 export { bookingsApi } from './bookings.api';
 export { paymentsApi } from './payments.api';

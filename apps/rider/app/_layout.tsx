@@ -460,7 +460,14 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="ride/[id]"
-              options={detailPush}
+              options={{
+                // Morph target: a trip card flies into this screen via the
+                // MorphProvider overlay, so the route itself must not slide —
+                // fade lets the clone own the forward motion and gives a clean
+                // fade-pop on swipe-back. gestureEnabled keeps swipe-back.
+                animation: 'fade',
+                gestureEnabled: true,
+              }}
             />
             <Stack.Screen
               name="ride/[id]/payment"

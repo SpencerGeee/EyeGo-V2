@@ -7,10 +7,14 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
+  interpolate,
+  interpolateColor,
   Easing,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+
+const AnimatedIonicons = Animated.createAnimatedComponent(Ionicons);
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, springs, type ColorTokens } from '@eyego/config';
 import { Text, GlassSurface } from '@eyego/ui';
@@ -100,12 +104,46 @@ function TabItem({
   const colors = useColors();
   const styles = getStyles(colors);
   const scale = useSharedValue(1);
+  // Animated focus progress (0 = inactive, 1 = active). Driven by springs.tab
+  // so the active pill and icon ease in/out instead of snapping — the
+  // Telegram/WhatsApp tab-bar feel.
+  const focus = useSharedValue(isFocused ? 1 : 0);
   const icons = TAB_ICONS[routeName];
+
+  React.useEffect(() => {
+    focus.value = withSpring(isFocused ? 1 : 0, springs.tab);
+  }, [isFocused, focus]);
+
   // Guard: route exists in the directory but is not a visible tab
   if (!icons) return null;
 
-  const animStyle = useAnimatedStyle(() => ({
+  // Press feedback multiplies onto the focus-driven idle scale.
+  const innerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+  }));
+
+  // Pill background fades + subtly scales up as the tab gains focus.
+  const pillStyle = useAnimatedStyle(() => ({
+    opacity: focus.value,
+    transform: [{ scale: interpolate(focus.value, [0, 1], [0.8, 1]) }],
+  }));
+
+  // Crossfade the filled (active) icon over the outline (inactive) one and
+  // give the active glyph a gentle pop so the swap reads as a morph.
+  const activeIconStyle = useAnimatedStyle(() => ({
+    opacity: focus.value,
+    transform: [{ scale: interpolate(focus.value, [0, 1], [0.85, 1]) }],
+  }));
+  const inactiveIconStyle = useAnimatedStyle(() => ({
+    opacity: 1 - focus.value,
+  }));
+
+  const labelStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(
+      focus.value,
+      [0, 1],
+      [colors.onSurfaceVariant, colors.primary]
+    ),
   }));
 
   return (
@@ -120,19 +158,25 @@ function TabItem({
       accessibilityLabel={TAB_LABELS[routeName]}
       accessibilityState={{ selected: isFocused }}
     >
-      <Animated.View style={[
-        styles.tabItemInner,
-        isFocused && styles.tabItemActive,
-        animStyle,
-      ]}>
-        <Ionicons
-          name={isFocused ? icons.active : icons.inactive}
-          size={22}
-          color={isFocused ? colors.primary : colors.onSurfaceVariant}
-        />
-        <Text style={[styles.tabLabel, { color: isFocused ? colors.primary : colors.onSurfaceVariant }]}>
+      <Animated.View style={[styles.tabItemInner, innerStyle]}>
+        <Animated.View style={[styles.tabItemActive, StyleSheet.absoluteFill, pillStyle]} />
+        <View style={styles.iconWrap}>
+          <AnimatedIonicons
+            style={[StyleSheet.absoluteFill, styles.iconLayer, inactiveIconStyle]}
+            name={icons.inactive}
+            size={22}
+            color={colors.onSurfaceVariant}
+          />
+          <AnimatedIonicons
+            style={[StyleSheet.absoluteFill, styles.iconLayer, activeIconStyle]}
+            name={icons.active}
+            size={22}
+            color={colors.primary}
+          />
+        </View>
+        <Animated.Text style={[styles.tabLabel, labelStyle]}>
           {TAB_LABELS[routeName]}
-        </Text>
+        </Animated.Text>
       </Animated.View>
     </Pressable>
   );
@@ -215,9 +259,20 @@ function getStyles(colors: ColorTokens) {
       gap: 3,
       minHeight: 52,
       borderRadius: 16,
+      overflow: 'hidden',
     },
     tabItemActive: {
       backgroundColor: `${colors.primary}14`,
+      borderRadius: 16,
+    },
+    iconWrap: {
+      width: 22,
+      height: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    iconLayer: {
+      textAlign: 'center',
     },
     tabLabel: {
       fontFamily: fonts.labelCaps,

@@ -188,11 +188,11 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       }
       f.targetRect = rect;
       f.targetRadius = borderRadius;
-      x.value = withSpring(rect.x, springs.snappy);
-      y.value = withSpring(rect.y, springs.snappy);
-      h.value = withSpring(rect.height, springs.snappy);
-      r.value = withSpring(borderRadius, springs.snappy);
-      w.value = withSpring(rect.width, springs.snappy, (finished) => {
+      x.value = withSpring(rect.x, springs.morph);
+      y.value = withSpring(rect.y, springs.morph);
+      h.value = withSpring(rect.height, springs.morph);
+      r.value = withSpring(borderRadius, springs.morph);
+      w.value = withSpring(rect.width, springs.morph, (finished) => {
         if (finished) runOnJS(settle)();
       });
     },
@@ -223,11 +223,11 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       setCloneNode(entry.getClone());
       setPhase('reverse');
       navigateBack();
-      x.value = withSpring(f.sourceRect.x, springs.snappy);
-      y.value = withSpring(f.sourceRect.y, springs.snappy);
-      h.value = withSpring(f.sourceRect.height, springs.snappy);
-      r.value = withSpring(f.sourceRadius, springs.snappy);
-      w.value = withSpring(f.sourceRect.width, springs.snappy, (finished) => {
+      x.value = withSpring(f.sourceRect.x, springs.morph);
+      y.value = withSpring(f.sourceRect.y, springs.morph);
+      h.value = withSpring(f.sourceRect.height, springs.morph);
+      r.value = withSpring(f.sourceRadius, springs.morph);
+      w.value = withSpring(f.sourceRect.width, springs.morph, (finished) => {
         if (finished) runOnJS(finishReverse)();
       });
     },

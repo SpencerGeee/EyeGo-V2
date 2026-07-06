@@ -1,9 +1,7 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -49,11 +47,8 @@ export default function PaymentMethodsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
-        >
+        <View
+          >
           {isLoading ? (
             <View style={[styles.card, styles.cardSolid]}>
               {[1, 2].map((i) => (
@@ -130,7 +125,7 @@ export default function PaymentMethodsScreen() {
             <Ionicons name="lock-closed" size={13} color={colors.outline} />
             <Text style={styles.secureNoteText}>PCI DSS COMPLIANT · 256-BIT SSL</Text>
           </View>
-        </MotiView>
+        </View>
       </ScrollView>
 
       {/* Fixed add button */}

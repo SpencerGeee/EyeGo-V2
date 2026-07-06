@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -76,7 +77,7 @@ const CONTACT_OPTIONS = [
     icon: 'logo-whatsapp' as const,
     label: 'Chat on WhatsApp',
     color: '#25D366',
-    onPress: () => Linking.openURL('https://wa.me/233XXXXXXXXX?text=Hi%20EyeGo%20Support'),
+    onPress: () => Linking.openURL('https://wa.me/233261490759?text=Hi%20EyeGo%20Support'),
   },
   {
     id: 'email',
@@ -90,7 +91,7 @@ const CONTACT_OPTIONS = [
     icon: 'call-outline' as const,
     label: 'Call Support',
     color: '#4BE277',
-    onPress: () => Linking.openURL('tel:+233XXXXXXXXX'),
+    onPress: () => Linking.openURL('tel:+233261490759'),
   },
 ];
 
@@ -201,10 +202,7 @@ export default function HelpScreen() {
       >
         {/* FAQ Section */}
         <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
+          >
           <Text variant="labelCaps" style={styles.sectionLabel}>
             FREQUENTLY ASKED
           </Text>
@@ -230,16 +228,11 @@ export default function HelpScreen() {
                 </Pressable>
 
                 {openItems.has(item.id) && (
-                  <MotiView
-                    from={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: undefined }}
-                    transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-                    style={styles.faqAnswer}
-                  >
+                  <Animated.View entering={FadeIn.duration(150)} style={styles.faqAnswer}>
                     <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ lineHeight: 20 }}>
                       {item.answer}
                     </Text>
-                  </MotiView>
+                  </Animated.View>
                 )}
 
                 {index < FAQ_ITEMS.length - 1 && <View style={styles.divider} />}
@@ -250,9 +243,6 @@ export default function HelpScreen() {
 
         {/* Contact Section */}
         <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="labelCaps" style={styles.sectionLabel}>
@@ -279,9 +269,6 @@ export default function HelpScreen() {
 
         {/* Response time note */}
         <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 110 }}
           style={styles.noteRow}
         >
           <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />

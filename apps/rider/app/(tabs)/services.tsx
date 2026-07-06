@@ -16,6 +16,8 @@ import {
   GradientGlowBorder,
   PREMIUM_RING_COLORS,
   PREMIUM_RING_LOCATIONS,
+  MorphSource,
+  useMorph,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 
@@ -86,7 +88,6 @@ const SPECIAL_SERVICES: SpecialService[] = [
     description: 'Book up to 7 days in advance',
     icon: 'calendar-outline',
     route: '/ride/schedule',
-    glow: true,
   },
   {
     id: 'group',
@@ -99,12 +100,18 @@ const SPECIAL_SERVICES: SpecialService[] = [
 
 function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
+  const { morphTo } = useMorph();
   const accent = getTierAccent(colors, tier.tier);
   const isPremium = tier.tier === 'premium';
+  const morphId = `service-tier-${tier.tier}`;
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(`/where-to?tier=${tier.tier}` as any);
+    // Container-transform: the tier card grows into the where-to screen.
+    // where-to reads morphId to mount its MorphTarget under the same id.
+    morphTo(morphId, () =>
+      router.push(`/where-to?tier=${tier.tier}&morphId=${morphId}` as any)
+    );
   };
 
   return (
@@ -113,12 +120,14 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
       animate={{ opacity: 1, translateY: 0 }}
       transition={{ type: 'timing', duration: 300 }}
     >
+      <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceCard}>
       <Pressable onPress={handlePress}>
         <Card
           padding={0}
           elevated={!isPremium}
           glow={isPremium}
           animated={isPremium}
+          glowPalette="gold"
           style={styles.tierCard}
         >
           <View style={styles.tierContent}>
@@ -137,16 +146,29 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
           <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={styles.chevron} />
         </Card>
       </Pressable>
+      </MorphSource>
     </MotiView>
   );
 }
 
 function SpecialServiceCard({ service, colors, styles }: { service: SpecialService; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
+  const { morphTo } = useMorph();
+  // Cards that open the where-to screen morph into it; modal routes
+  // (e.g. /ride/schedule) keep their native rise-from-bottom presentation.
+  const canMorph = service.route.startsWith('/where-to');
+  const morphId = `service-${service.id}`;
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push(service.route as any);
+    if (canMorph) {
+      const sep = service.route.includes('?') ? '&' : '?';
+      morphTo(morphId, () =>
+        router.push(`${service.route}${sep}morphId=${morphId}` as any)
+      );
+    } else {
+      router.push(service.route as any);
+    }
   };
 
   const iconColor = service.glow ? colors.premiumBlue : colors.primary;
@@ -164,41 +186,51 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
     </View>
   );
 
+  const inner = (
+    <Pressable style={({ pressed }) => pressed && styles.pressed} onPress={handlePress}>
+      {service.glow ? (
+        <GradientGlowBorder
+          colors={PREMIUM_RING_COLORS}
+          locations={PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii.xl}
+          glow
+          glowColor={colors.premiumBlue}
+          glowColorSecondary={colors.premiumOrange}
+          style={styles.specialCard}
+        >
+          {/* Inset by the ring's stroke thickness (3, GradientGlowBorder's
+              'regular' thickness) so the blur layer doesn't paint over the
+              glow ring itself. */}
+          <GlassSurface
+            borderRadius={radii.xl - 3}
+            intensity="high"
+            dark
+            style={styles.specialGlassInset}
+          />
+          {row}
+        </GradientGlowBorder>
+      ) : (
+        <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.specialCard}>
+          {row}
+        </GlassSurface>
+      )}
+    </Pressable>
+  );
+
   return (
     <MotiView
       from={{ opacity: 0, translateY: 12 }}
       animate={{ opacity: 1, translateY: 0 }}
       transition={{ type: 'timing', duration: 300 }}
     >
-      <Pressable style={({ pressed }) => pressed && styles.pressed} onPress={handlePress}>
-        {service.glow ? (
-          <GradientGlowBorder
-            colors={PREMIUM_RING_COLORS}
-            locations={PREMIUM_RING_LOCATIONS}
-            fillColor={colors.surfaceContainerHigh}
-            borderRadius={radii.xl}
-            glow
-            glowColor={colors.premiumBlue}
-            glowColorSecondary={colors.premiumOrange}
-            style={styles.specialCard}
-          >
-            {/* Inset by the ring's stroke thickness (3, GradientGlowBorder's
-                'regular' thickness) so the blur layer doesn't paint over the
-                glow ring itself. */}
-            <GlassSurface
-              borderRadius={radii.xl - 3}
-              intensity="high"
-              dark
-              style={styles.specialGlassInset}
-            />
-            {row}
-          </GradientGlowBorder>
-        ) : (
-          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.specialCard}>
-            {row}
-          </GlassSurface>
-        )}
-      </Pressable>
+      {canMorph ? (
+        <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceContainerHigh}>
+          {inner}
+        </MorphSource>
+      ) : (
+        inner
+      )}
     </MotiView>
   );
 }

@@ -1,9 +1,7 @@
 ﻿import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -83,6 +81,7 @@ export default function NotificationPreferencesScreen() {
   const [syncError, setSyncError] = useState(false);
 
   const loadPrefs = useCallback(async () => {
+    // Local cache first for instant paint…
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -90,6 +89,22 @@ export default function NotificationPreferencesScreen() {
       }
     } catch {
       // ignore
+    }
+    // …then the server copy wins so prefs follow the account across devices.
+    try {
+      const res = await apiClient.get<{ success: boolean; data?: { prefs?: Partial<NotifPrefs> } }>(
+        '/user/me/notifications'
+      );
+      const serverPrefs = res.data?.data?.prefs;
+      if (serverPrefs && Object.keys(serverPrefs).length > 0) {
+        setPrefs((p) => {
+          const merged = { ...p, ...serverPrefs };
+          AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(merged)).catch(() => {});
+          return merged;
+        });
+      }
+    } catch {
+      setSyncError(true);
     }
   }, []);
 
@@ -130,11 +145,8 @@ export default function NotificationPreferencesScreen() {
         </View>
       )}
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
+        <View
+          >
           {SECTIONS.map((section) => (
             <View key={section.title} style={{ marginBottom: spacing['2xl'] }}>
               <Text variant="labelCaps" style={styles.sectionLabel}>{section.title}</Text>
@@ -174,7 +186,7 @@ export default function NotificationPreferencesScreen() {
               </View>
             </View>
           ))}
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

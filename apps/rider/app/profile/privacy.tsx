@@ -6,15 +6,12 @@ import {
   Switch,
   Alert,
   Pressable,
-  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useMutation } from '@tanstack/react-query';
-import { userApi } from '@eyego/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { userApi, queryKeys, type PrivacySettings } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -26,27 +23,56 @@ const PRIVACY_KEYS = {
   analytics: 'eyego_privacy_analytics',
 };
 
-const PRIVACY_TEXT = `Last updated: May 2026
-
-EyeGo ("we", "us", or "our") operates the EyeGo mobile application. This page informs you of our policies regarding the collection, use, and disclosure of personal data when you use our Service.
-
-Information We Collect
-We collect information you provide directly: name, phone number, email address, and profile photo. We also collect trip data (routes, bookings, payment history) and device information necessary to operate the service.
-
-Location Data
-When you use EyeGo, we collect your precise location to show nearby drivers, provide real-time tracking, and improve route recommendations. Location is only shared with your assigned driver during an active trip.
-
-Payment Information
-Payment processing is handled by Paystack. EyeGo does not store card numbers or MoMo PIN codes. We only receive confirmation of successful transactions.
-
-Data Sharing
-We do not sell your personal data. We share data only with: your assigned driver (name, pickup location), Paystack (for payment processing), and emergency services if you trigger an SOS alert.
-
-Data Retention
-Trip history is retained for 24 months. Account data is retained until you delete your account. You may request deletion at any time.
-
-Your Rights
-You have the right to access, correct, or delete your personal data. Contact support@eyego.app to exercise these rights.`;
+const PRIVACY_SECTIONS: { heading: string; body: string }[] = [
+  {
+    heading: 'Who We Are',
+    body: 'EyeGo ("we", "us", or "our") operates the EyeGo ride-hailing platform in Ghana, connecting riders with shared vans and drivers across Accra. This policy explains what personal data we collect, why we collect it, how we protect it, and the rights you have over it. It applies to the EyeGo rider app, driver app, and related services. By using EyeGo you agree to the practices described here.',
+  },
+  {
+    heading: 'Legal Basis',
+    body: 'We process your personal data in accordance with the Data Protection Act, 2012 (Act 843) of Ghana and, where applicable, other data protection laws. Processing is based on: performance of our contract with you (providing rides), your consent (marketing, analytics), our legitimate interests (fraud prevention, service improvement), and legal obligations (tax, safety and law-enforcement requirements).',
+  },
+  {
+    heading: 'Information We Collect',
+    body: 'Account data: name, phone number, email address, date of birth, and profile photo you provide during signup. Trip data: pickup and drop-off locations, routes, timestamps, seat bookings, fare amounts, and payment history. Device data: device model, operating system, app version, push notification token, and crash logs. Communications: support tickets, in-ride chat messages, and ratings you submit.',
+  },
+  {
+    heading: 'Location Data',
+    body: 'We collect your precise GPS location while the app is in use to show nearby trips, match you with drivers, provide live trip tracking, and power safety features such as RideCheck and trip sharing. Your live location is shared with your assigned driver only during an active trip, and with your emergency contacts only if you enable Share Trip Status or trigger SOS. You can disable location access in your device settings, but core ride features will not work without it.',
+  },
+  {
+    heading: 'Payment Information',
+    body: 'Payments are processed by Paystack, a PCI-DSS Level 1 certified payment processor. EyeGo never stores your full card number, CVV, or mobile money PIN. We retain only transaction references, amounts, and confirmation status needed for receipts, refunds, and dispute resolution.',
+  },
+  {
+    heading: 'How We Use Your Data',
+    body: 'We use your data to: operate and improve the ride service; calculate fares and process payments; provide live tracking and safety features; send trip notifications; prevent fraud and enforce our terms; respond to support requests and disputes; and, with your consent, send promotions and service updates.',
+  },
+  {
+    heading: 'Data Sharing',
+    body: 'We do not sell your personal data. We share limited data only with: your assigned driver (first name, pickup point, seat count); other members of a group booking you join (name and seat status); Paystack (payment processing); emergency services and your emergency contacts (if you trigger SOS or enable trip sharing); analytics and crash-reporting providers (aggregated or pseudonymised data, if you allow analytics); and authorities where required by law.',
+  },
+  {
+    heading: 'Data Security',
+    body: 'All traffic between the app and our servers is encrypted with TLS. Access to production data is restricted to authorised personnel and logged. Payment credentials never touch our servers. While no system is perfectly secure, we review our safeguards regularly and will notify you and the Data Protection Commission of any breach as required by Act 843.',
+  },
+  {
+    heading: 'Data Retention',
+    body: 'Trip history is retained for 24 months for receipts, disputes, and safety investigations, then anonymised. Support tickets are retained for 12 months after closure. Account data is retained while your account is active and deleted within 30 days of a verified account deletion request, except where a longer period is required by law (e.g. financial records).',
+  },
+  {
+    heading: 'Your Rights',
+    body: 'Under Act 843 you have the right to: access a copy of the personal data we hold about you; correct inaccurate data; delete your account and associated data; object to or restrict certain processing; and withdraw consent for marketing or analytics at any time using the controls above. To exercise any of these rights, contact privacy@eyego.app or use the Delete My Account button below. We respond to verified requests within 30 days.',
+  },
+  {
+    heading: 'Children',
+    body: 'EyeGo is not directed at children under 16. We do not knowingly collect data from children. Riders aged 16–17 may use the service only under a parent or guardian’s supervision and account consent.',
+  },
+  {
+    heading: 'Changes & Contact',
+    body: 'We may update this policy as the service evolves; material changes will be announced in the app before they take effect. Questions or complaints: privacy@eyego.app, or write to the Data Protection Commission of Ghana if you believe your rights have been infringed.\n\nLast updated: July 2026',
+  },
+];
 
 export default function PrivacyScreen() {
   const colors = useColors();
@@ -54,10 +80,12 @@ export default function PrivacyScreen() {
   const router = useRouter();
   const { logout } = useAuthStore();
 
+  const queryClient = useQueryClient();
   const [locationSharing, setLocationSharing] = useState(true);
   const [marketingNotifs, setMarketingNotifs] = useState(false);
   const [analytics, setAnalytics] = useState(true);
 
+  // Local cache renders instantly; server copy (source of truth) overrides.
   useEffect(() => {
     const load = async () => {
       const [loc, mkt, ana] = await Promise.all([
@@ -72,8 +100,26 @@ export default function PrivacyScreen() {
     load();
   }, []);
 
-  const setToggle = async (key: string, value: boolean) => {
-    await AsyncStorage.setItem(key, String(value));
+  const { data: serverSettings } = useQuery({
+    queryKey: queryKeys.user.privacySettings,
+    queryFn: async () => (await userApi.getPrivacySettings()).data?.data?.settings ?? {},
+  });
+
+  useEffect(() => {
+    if (!serverSettings) return;
+    if (serverSettings.locationSharing !== undefined) setLocationSharing(serverSettings.locationSharing);
+    if (serverSettings.marketingNotifs !== undefined) setMarketingNotifs(serverSettings.marketingNotifs);
+    if (serverSettings.analytics !== undefined) setAnalytics(serverSettings.analytics);
+  }, [serverSettings]);
+
+  const saveMutation = useMutation({
+    mutationFn: (patch: PrivacySettings) => userApi.updatePrivacySettings(patch),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.user.privacySettings }),
+  });
+
+  const setToggle = async (key: string, field: keyof PrivacySettings, value: boolean) => {
+    AsyncStorage.setItem(key, String(value)).catch(() => {});
+    saveMutation.mutate({ [field]: value });
   };
 
   const deleteAccountMutation = useMutation({
@@ -114,11 +160,8 @@ export default function PrivacyScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Privacy Controls */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-        >
+        <View
+          >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
             PRIVACY CONTROLS
           </Text>
@@ -130,7 +173,7 @@ export default function PrivacyScreen() {
               value={locationSharing}
               onChange={(v) => {
                 setLocationSharing(v);
-                setToggle(PRIVACY_KEYS.locationSharing, v);
+                setToggle(PRIVACY_KEYS.locationSharing, 'locationSharing', v);
               }}
             />
             <View style={styles.divider} />
@@ -141,7 +184,7 @@ export default function PrivacyScreen() {
               value={marketingNotifs}
               onChange={(v) => {
                 setMarketingNotifs(v);
-                setToggle(PRIVACY_KEYS.marketingNotifs, v);
+                setToggle(PRIVACY_KEYS.marketingNotifs, 'marketingNotifs', v);
               }}
             />
             <View style={styles.divider} />
@@ -152,50 +195,48 @@ export default function PrivacyScreen() {
               value={analytics}
               onChange={(v) => {
                 setAnalytics(v);
-                setToggle(PRIVACY_KEYS.analytics, v);
+                setToggle(PRIVACY_KEYS.analytics, 'analytics', v);
               }}
             />
           </View>
-        </MotiView>
+        </View>
 
         {/* Privacy Policy Text */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 100 }}
+        <View
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
             PRIVACY POLICY
           </Text>
           <View style={styles.policyCard}>
-            <Text variant="caption" color={colors.onSurfaceVariant} style={styles.policyText}>
-              {PRIVACY_TEXT}
-            </Text>
+            {PRIVACY_SECTIONS.map((section, i) => (
+              <View key={section.heading} style={i > 0 ? { marginTop: spacing.base } : undefined}>
+                <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold, marginBottom: 4 }}>
+                  {section.heading}
+                </Text>
+                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.policyText}>
+                  {section.body}
+                </Text>
+              </View>
+            ))}
           </View>
-        </MotiView>
+        </View>
 
         {/* Terms of Service link */}
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 200 }}
-        >
+        <View
+          >
           <Pressable
-            onPress={() => Linking.openURL('https://eyego.app/terms')}
+            onPress={() => router.push('/profile/terms' as any)}
             style={styles.tosLink}
           >
             <Text variant="bodySmall" color={colors.primary}>
               View Terms of Service →
             </Text>
           </Pressable>
-        </MotiView>
+        </View>
 
         {/* Delete Account */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 250 }}
+        <View
           style={{ marginTop: spacing['2xl'] }}
         >
           <View style={styles.dangerCard}>
@@ -215,7 +256,7 @@ export default function PrivacyScreen() {
               loading={deleteAccountMutation.isPending}
             />
           </View>
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -321,8 +362,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     padding: spacing.base,
     borderWidth: 1,
     borderColor: colors.outlineVariant,
-    maxHeight: 240,
-    overflow: 'hidden',
   },
   policyText: {
     lineHeight: 18,

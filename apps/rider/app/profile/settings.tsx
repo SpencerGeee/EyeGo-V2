@@ -10,9 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Toggle, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -58,11 +56,8 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* General */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
+        <View
+          >
           <Text variant="labelCaps" style={styles.sectionLabel}>
             GENERAL
           </Text>
@@ -88,13 +83,10 @@ export default function SettingsScreen() {
               <Toggle value={isDark} onValueChange={setDark} />
             </View>
           </GlassSurface>
-        </MotiView>
+        </View>
 
         {/* Notifications */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+        <View
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="labelCaps" style={styles.sectionLabel}>
@@ -134,13 +126,10 @@ export default function SettingsScreen() {
               <Toggle value={smsUpdates} onValueChange={setSmsUpdates} />
             </View>
           </GlassSurface>
-        </MotiView>
+        </View>
 
         {/* Accessibility */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+        <View
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="labelCaps" style={styles.sectionLabel}>
@@ -158,7 +147,7 @@ export default function SettingsScreen() {
               <Toggle value={accessibilityPings} onValueChange={setAccessibilityPings} />
             </View>
           </GlassSurface>
-        </MotiView>
+        </View>
       </ScrollView>
 
       {/* Language Picker Modal */}

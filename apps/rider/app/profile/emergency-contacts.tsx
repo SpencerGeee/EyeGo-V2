@@ -8,9 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -132,11 +130,8 @@ export default function EmergencyContactsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
+        <View
+          >
           {contacts.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="people-outline" size={52} color={colors.onSurfaceVariant} />
@@ -180,10 +175,7 @@ export default function EmergencyContactsScreen() {
           )}
 
           {contacts.length < MAX_CONTACTS && (
-            <MotiView
-              from={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ type: 'timing', duration: 300 }}
+            <View
               style={{ marginTop: spacing['2xl'] }}
             >
               <Text variant="labelCaps" style={styles.sectionLabel}>ADD CONTACT</Text>
@@ -211,7 +203,7 @@ export default function EmergencyContactsScreen() {
                 />
                 <Button label={saving ? 'Saving...' : 'Save Contact'} onPress={handleAdd} variant="primary" disabled={saving} />
               </GlassSurface>
-            </MotiView>
+            </View>
           )}
 
           {contacts.length >= MAX_CONTACTS && (
@@ -222,7 +214,7 @@ export default function EmergencyContactsScreen() {
               </Text>
             </View>
           )}
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

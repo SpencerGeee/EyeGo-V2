@@ -1,129 +1,160 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   Pressable,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, GlowSearchInput, AppBackground } from '@eyego/ui';
+import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
+import { consumePickedPlace } from '../../utils/placePickerResult';
+import { useToastStore } from '../../stores/toast.store';
 
-type Place = {
-  id: string;
-  name: string;
-  address: string;
-  icon: keyof typeof Ionicons.glyphMap;
+const LEGACY_KEY = '@eyego_saved_places';
+
+const ICON_FOR_LABEL = (label: string): string => {
+  const l = label.toLowerCase();
+  if (l === 'home') return 'home-outline';
+  if (l === 'work') return 'briefcase-outline';
+  return 'location-outline';
 };
-
-const DEFAULT_PLACES: Place[] = [
-  { id: 'home', name: 'Home', address: 'Add home address', icon: 'home-outline' },
-  { id: 'work', name: 'Work', address: 'Add work address', icon: 'briefcase-outline' },
-];
 
 export default function SavedPlacesScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const [places, setPlaces] = useState<Place[]>(DEFAULT_PLACES);
+  const queryClient = useQueryClient();
+  const showToast = useToastStore((s) => s.show);
+
   const [isAdding, setIsAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const [newAddress, setNewAddress] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [addressSuggestions, setAddressSuggestions] = useState<Array<{display_name: string; lat: string; lon: string}>>([]);
+  const [newCoords, setNewCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    loadPlaces();
-  }, []);
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.user.savedPlaces,
+    queryFn: async () => {
+      await migrateLegacyPlaces();
+      const res = await userApi.getSavedPlaces();
+      return res.data?.data?.places ?? [];
+    },
+  });
+  const places = data ?? [];
 
-  const loadPlaces = async () => {
+  // One-time migration of pre-backend AsyncStorage places. Old entries have
+  // no coordinates, so each is forward-geocoded once; unresolvable ones are
+  // dropped (they were free-text anyway).
+  const migrateLegacyPlaces = async () => {
     try {
-      const stored = await AsyncStorage.getItem('@eyego_saved_places');
-      if (stored) {
-        setPlaces(JSON.parse(stored));
+      const stored = await AsyncStorage.getItem(LEGACY_KEY);
+      if (!stored) return;
+      const legacy: { name: string; address: string }[] = JSON.parse(stored);
+      for (const p of legacy) {
+        if (!p.address || p.address.startsWith('Add ')) continue;
+        try {
+          const results = await searchPlaces(p.address, 1);
+          if (results[0]) {
+            await userApi.createSavedPlace({
+              label: p.name,
+              address: results[0].fullAddress,
+              lat: results[0].latitude,
+              lng: results[0].longitude,
+              icon: ICON_FOR_LABEL(p.name),
+            });
+          }
+        } catch { /* skip unresolvable entry */ }
       }
-    } catch (e) {
-      console.error('Failed to load places', e);
-    }
+      await AsyncStorage.removeItem(LEGACY_KEY);
+    } catch { /* non-fatal */ }
   };
 
-  const savePlaces = async (newPlaces: Place[]) => {
-    try {
-      await AsyncStorage.setItem('@eyego_saved_places', JSON.stringify(newPlaces));
-      setPlaces(newPlaces);
-    } catch (e) {
-      console.error('Failed to save places', e);
-    }
+  const createMutation = useMutation({
+    mutationFn: (place: Omit<SavedPlace, 'id'>) => userApi.createSavedPlace(place),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.savedPlaces });
+      resetForm();
+      showToast('Place saved', 'success');
+    },
+    onError: () => showToast('Could not save place', 'error'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (placeId: string) => userApi.deleteSavedPlace(placeId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.user.savedPlaces }),
+    onError: () => showToast('Could not remove place', 'error'),
+  });
+
+  // Consume a location confirmed on the map picker screen
+  useFocusEffect(
+    useCallback(() => {
+      const picked = consumePickedPlace();
+      if (picked) {
+        setIsAdding(true);
+        setNewAddress(picked.fullAddress);
+        setNewCoords({ lat: picked.latitude, lng: picked.longitude });
+        setSuggestions([]);
+        if (!newName.trim() && picked.name !== 'Dropped pin') setNewName(picked.name);
+      }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
+
+  const resetForm = () => {
+    setIsAdding(false);
+    setNewName('');
+    setNewAddress('');
+    setNewCoords(null);
+    setSuggestions([]);
   };
 
-  const searchAddress = async (query: string) => {
+  const searchAddress = (query: string) => {
     setNewAddress(query);
+    setNewCoords(null);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (query.length < 3) { setAddressSuggestions([]); return; }
+    if (query.length < 3) { setSuggestions([]); return; }
     searchTimeout.current = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&countrycodes=gh&limit=5&addressdetails=1`,
-          { headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' } }
-        );
-        const results = await res.json();
-        setAddressSuggestions(results ?? []);
+        setSuggestions(await searchPlaces(query, 5));
       } catch {
-        setAddressSuggestions([]);
+        setSuggestions([]);
       } finally {
         setIsSearching(false);
       }
     }, 300);
   };
 
-  const selectSuggestion = (s: {display_name: string; lat: string; lon: string}) => {
-    setNewAddress(s.display_name);
-    setAddressSuggestions([]);
+  const selectSuggestion = (s: GeocodeResult) => {
+    setNewAddress(s.fullAddress);
+    setNewCoords({ lat: s.latitude, lng: s.longitude });
+    setSuggestions([]);
   };
 
-  const handleAddPlace = () => {
-    if (!newName.trim() || !newAddress.trim()) return;
-    
-    if (editingId) {
-      const updated = places.map(p =>
-        p.id === editingId ? { ...p, name: newName, address: newAddress } : p
-      );
-      savePlaces(updated);
-      setEditingId(null);
-    } else {
-      const newPlace: Place = {
-        id: Date.now().toString(),
-        name: newName,
-        address: newAddress,
-        icon: 'location-outline',
-      };
-      savePlaces([...places, newPlace]);
-    }
-    
-    setNewName('');
-    setNewAddress('');
-    setIsAdding(false);
+  const handleSave = () => {
+    if (!newName.trim() || !newAddress.trim() || !newCoords) return;
+    createMutation.mutate({
+      label: newName.trim(),
+      address: newAddress.trim(),
+      lat: newCoords.lat,
+      lng: newCoords.lng,
+      icon: ICON_FOR_LABEL(newName),
+    });
   };
 
-  const handleRemovePlace = (id: string) => {
-    if (id === 'home' || id === 'work') {
-      // Just reset the address for default places
-      const updated = places.map(p => p.id === id ? { ...p, address: `Add ${p.name.toLowerCase()} address` } : p);
-      savePlaces(updated);
-    } else {
-      const updated = places.filter(p => p.id !== id);
-      savePlaces(updated);
-    }
-  };
+  const hasLabel = (label: string) => places.some((p) => p.label.toLowerCase() === label);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -136,80 +167,104 @@ export default function SavedPlacesScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
-          <Text variant="labelCaps" style={styles.sectionLabel}>FAVORITES</Text>
-          
-          <View style={styles.placesCard}>
-            {places.map((place, index) => (
-              <View key={place.id}>
-                <View style={styles.placeRow}>
-                  <View style={styles.placeIconContainer}>
-                    <Ionicons name={place.icon} size={20} color={colors.primary} />
-                  </View>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Text variant="labelCaps" style={styles.sectionLabel}>FAVORITES</Text>
+
+        <View style={styles.placesCard}>
+          {isLoading ? (
+            <View style={{ padding: spacing.xl, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : (
+            <>
+              {/* Home/Work placeholders when not yet saved */}
+              {(['Home', 'Work'] as const).filter((l) => !hasLabel(l.toLowerCase())).map((label) => (
+                <View key={label}>
                   <Pressable
+                    style={styles.placeRow}
                     onPress={() => {
                       setIsAdding(true);
-                      setEditingId(place.id);
-                      setNewName(place.name);
-                      setNewAddress(place.address.startsWith('Add ') ? '' : place.address);
+                      setNewName(label);
+                      setNewAddress('');
+                      setNewCoords(null);
                     }}
-                    style={styles.placeInfo}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add ${label} address`}
                   >
-                    <Text variant="bodyMedium" color={colors.onSurface}>{place.name}</Text>
-                    <Text variant="caption" style={{ color: colors.onSurfaceVariant }}>{place.address}</Text>
+                    <View style={styles.placeIconContainer}>
+                      <Ionicons name={ICON_FOR_LABEL(label) as any} size={20} color={colors.primary} />
+                    </View>
+                    <View style={styles.placeInfo}>
+                      <Text variant="bodyMedium" color={colors.onSurface}>{label}</Text>
+                      <Text variant="caption" style={{ color: colors.onSurfaceVariant }}>Add {label.toLowerCase()} address</Text>
+                    </View>
+                    <Ionicons name="add" size={18} color={colors.onSurfaceVariant} />
                   </Pressable>
-                  <Pressable onPress={() => handleRemovePlace(place.id)} hitSlop={10}>
-                    <Ionicons name="trash-outline" size={18} color={colors.statusError} />
-                  </Pressable>
+                  <View style={styles.divider} />
                 </View>
-                {index < places.length - 1 && <View style={styles.divider} />}
-              </View>
-            ))}
-          </View>
-        </MotiView>
+              ))}
 
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-          style={{ marginTop: spacing['2xl'] }}
-        >
+              {places.map((place, index) => (
+                <View key={place.id}>
+                  <View style={styles.placeRow}>
+                    <View style={styles.placeIconContainer}>
+                      <Ionicons name={(place.icon ?? 'location-outline') as any} size={20} color={colors.primary} />
+                    </View>
+                    <View style={styles.placeInfo}>
+                      <Text variant="bodyMedium" color={colors.onSurface}>{place.label}</Text>
+                      <Text variant="caption" style={{ color: colors.onSurfaceVariant }} numberOfLines={1}>{place.address}</Text>
+                    </View>
+                    <Pressable
+                      onPress={() => deleteMutation.mutate(place.id)}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${place.label}`}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={colors.statusError} />
+                    </Pressable>
+                  </View>
+                  {index < places.length - 1 && <View style={styles.divider} />}
+                </View>
+              ))}
+
+              {places.length === 0 && hasLabel('home') && null}
+            </>
+          )}
+        </View>
+
+        <View style={{ marginTop: spacing['2xl'] }}>
           {isAdding ? (
             <View style={styles.addCard}>
-              <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>
-                {editingId ? 'Edit Place' : 'Add New Place'}
-              </Text>
-              
+              <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Add New Place</Text>
+
               <View style={styles.inputContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>NAME</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. Gym, Mom's House"
+                  placeholder="e.g. Home, Gym, Mom's House"
                   placeholderTextColor={colors.onSurfaceVariant}
                   value={newName}
                   onChangeText={setNewName}
-                  editable={editingId !== 'home' && editingId !== 'work'}
                 />
               </View>
-              
+
               <View style={styles.inputContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>ADDRESS</Text>
                 <GlowSearchInput
-                  placeholder="Enter address"
+                  placeholder="Search address"
                   value={newAddress}
                   onChangeText={searchAddress}
                 />
-                {addressSuggestions.length > 0 && (
-                  <View style={{ backgroundColor: colors.surfaceContainer, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.outlineVariant, marginTop: 4, maxHeight: 200, overflow: 'hidden' }}>
-                    {addressSuggestions.map((s, i) => (
-                      <Pressable key={i} onPress={() => selectSuggestion(s)} style={{ padding: spacing.base, borderBottomWidth: i < addressSuggestions.length - 1 ? 1 : 0, borderBottomColor: colors.outlineVariant, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                {suggestions.length > 0 && (
+                  <View style={styles.suggestBox}>
+                    {suggestions.map((s, i) => (
+                      <Pressable
+                        key={s.placeId || i}
+                        onPress={() => selectSuggestion(s)}
+                        style={[styles.suggestRow, i < suggestions.length - 1 && styles.suggestRowBorder]}
+                      >
                         <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
-                        <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1 }} numberOfLines={2}>{s.display_name}</Text>
+                        <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1 }} numberOfLines={2}>{s.fullAddress}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -217,40 +272,45 @@ export default function SavedPlacesScreen() {
                 {isSearching && (
                   <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: 4 }}>Searching...</Text>
                 )}
+
+                {/* Confirm the exact spot on the map */}
+                <Pressable
+                  style={styles.mapPickBtn}
+                  onPress={() => router.push('/profile/place-picker' as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Pick location on map"
+                >
+                  <Ionicons name="map-outline" size={18} color={colors.primary} />
+                  <Text variant="bodyMedium" color={colors.primary}>
+                    {newCoords ? 'Adjust on map' : 'Pick on map'}
+                  </Text>
+                  {newCoords && <Ionicons name="checkmark-circle" size={16} color={colors.primary} />}
+                </Pressable>
+                {!newCoords && newAddress.length > 0 && suggestions.length === 0 && !isSearching && (
+                  <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: 4 }}>
+                    Select a suggestion or confirm the spot on the map.
+                  </Text>
+                )}
               </View>
-              
+
               <View style={styles.actionRow}>
-                <Button
-                  label="Cancel"
-                  variant="secondary"
-                  onPress={() => {
-                    setIsAdding(false);
-                    setEditingId(null);
-                    setNewName('');
-                    setNewAddress('');
-                  }}
-                  style={{ flex: 1 }}
-                />
+                <Button label="Cancel" variant="secondary" onPress={resetForm} style={{ flex: 1 }} />
                 <Button
                   label="Save"
-                  onPress={handleAddPlace}
-                  disabled={!newName.trim() || !newAddress.trim()}
+                  onPress={handleSave}
+                  loading={createMutation.isPending}
+                  disabled={!newName.trim() || !newAddress.trim() || !newCoords}
                   style={{ flex: 1 }}
                 />
               </View>
             </View>
           ) : (
-            <Pressable style={styles.addBtn} onPress={() => {
-              setIsAdding(true);
-              setEditingId(null);
-              setNewName('');
-              setNewAddress('');
-            }}>
+            <Pressable style={styles.addBtn} onPress={() => { setIsAdding(true); setNewName(''); setNewAddress(''); setNewCoords(null); }}>
               <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
               <Text variant="bodyMedium" color={colors.primary}>Add a new place</Text>
             </Pressable>
           )}
-        </MotiView>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -357,6 +417,37 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurface,
     borderWidth: 1,
     borderColor: colors.rimLightSubtle,
+  },
+  suggestBox: {
+    backgroundColor: colors.surfaceContainer,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    marginTop: 4,
+    maxHeight: 220,
+    overflow: 'hidden',
+  },
+  suggestRow: {
+    padding: spacing.base,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  suggestRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outlineVariant,
+  },
+  mapPickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radii.lg,
+    borderWidth: 1.5,
+    borderColor: withOpacity(colors.primary, 0.4),
+    backgroundColor: withOpacity(colors.primary, 0.08),
   },
   actionRow: {
     flexDirection: 'row',
