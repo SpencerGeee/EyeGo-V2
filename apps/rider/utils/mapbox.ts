@@ -48,6 +48,7 @@ function buildMapsAdapter() {
     style,
     compassEnabled,
     rotateEnabled,
+    onRegionDidChange,
   }: any) => {
     const [region, setRegion] = useState<any>(null);
     const [showsUserLocation, setShowsUserLocation] = useState(false);
@@ -66,6 +67,15 @@ function buildMapsAdapter() {
           showsUserLocation,
           showsMyLocationButton: false,
           toolbarEnabled: false,
+          // Mapbox-style region callback; also syncs the controlled `region`
+          // so a re-render doesn't snap the map back after a user pan.
+          onRegionChangeComplete: (r: any, details?: { isGesture?: boolean }) => {
+            if (details?.isGesture !== false) setRegion(r);
+            onRegionDidChange?.({
+              geometry: { coordinates: [r.longitude, r.latitude] },
+              properties: { zoomLevel: Math.log2(360 / r.latitudeDelta) },
+            });
+          },
         },
         children
       )

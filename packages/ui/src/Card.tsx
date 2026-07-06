@@ -15,6 +15,9 @@ interface CardProps {
   animated?: boolean;
   selected?: boolean;
   padding?: number;
+  /** Ring palette for the glow variant — match it to the card's accent
+   * (e.g. 'gold' for the PREMIUM tier card). */
+  glowPalette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort';
 }
 
 export function Card({
@@ -25,6 +28,7 @@ export function Card({
   animated = false,
   selected = false,
   padding = spacing.base,
+  glowPalette,
 }: CardProps) {
   const colors = useThemedColors();
   const styles = getStyles(colors);
@@ -32,13 +36,17 @@ export function Card({
   if (glow && animated) {
     return (
       <GradientGlowBorder
-        colors={PREMIUM_RING_COLORS}
-        locations={PREMIUM_RING_LOCATIONS}
+        {...(glowPalette
+          ? { palette: glowPalette }
+          : {
+              colors: PREMIUM_RING_COLORS,
+              locations: PREMIUM_RING_LOCATIONS,
+              glowColor: colors.premiumBlue,
+              glowColorSecondary: colors.premiumOrange,
+            })}
         fillColor={elevated ? colors.surfaceContainerHigh : colors.surfaceCard}
         borderRadius={radii['2xl']}
         glow
-        glowColor={colors.premiumBlue}
-        glowColorSecondary={colors.premiumOrange}
         style={[{ padding }, style]}
       >
         {children}

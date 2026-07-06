@@ -77,4 +77,39 @@ const syncEmergencyContacts = async (req, res) => {
   ok(res, { contacts }, 'Emergency contacts saved');
 };
 
-module.exports = { getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts };
+const getSafetySettings = async (req, res) => {
+  const settings = await usersService.getSafetySettings(req.user.userId);
+  ok(res, { settings });
+};
+
+const updateSafetySettings = async (req, res) => {
+  const settings = await usersService.updateSafetySettings(req.user.userId, req.body ?? {});
+  ok(res, { settings }, 'Safety settings saved');
+};
+
+const getPrivacySettings = async (req, res) => {
+  const settings = await usersService.getPrivacySettings(req.user.userId);
+  ok(res, { settings });
+};
+
+const updatePrivacySettings = async (req, res) => {
+  const settings = await usersService.updatePrivacySettings(req.user.userId, req.body ?? {});
+  ok(res, { settings }, 'Privacy settings saved');
+};
+
+const getSavedPlaces = async (req, res) => {
+  const places = await usersService.getSavedPlaces(req.user.userId);
+  ok(res, { places });
+};
+
+const createSavedPlace = async (req, res) => {
+  const place = await usersService.createSavedPlace(req.user.userId, req.body);
+  ok(res, { place }, 'Place saved');
+};
+
+const deleteSavedPlace = async (req, res) => {
+  await usersService.deleteSavedPlace(req.user.userId, req.params.placeId);
+  ok(res, {}, 'Place removed');
+};
+
+module.exports = { getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

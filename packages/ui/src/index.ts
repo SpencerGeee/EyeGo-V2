@@ -37,8 +37,10 @@ export { AnimatedFareText } from './AnimatedFareText';
 export { RideCard } from './RideCard';
 
 // Premium Effects
-export { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from './effects/GradientGlowBorder';
-export type { GradientGlowBorderHandle } from './effects/GradientGlowBorder';
+export { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, RING_PALETTES } from './effects/GradientGlowBorder';
+export type { GradientGlowBorderHandle, RingPalette } from './effects/GradientGlowBorder';
+export { LightfallBackground } from './effects/LightfallBackground';
+export type { LightfallBackgroundProps } from './effects/LightfallBackground';
 export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbientRotation';
 export { GlassSurface } from './effects/GlassSurface';
 export { LensSheen } from './effects/LensSheen';

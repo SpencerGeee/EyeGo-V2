@@ -7,6 +7,39 @@ export interface EmergencyContact {
   phone: string;
 }
 
+export interface SafetySettings {
+  shareTrip?: boolean;
+  rideCheck?: boolean;
+  speedAlerts?: boolean;
+  nightSafety?: boolean;
+}
+
+export interface PrivacySettings {
+  locationSharing?: boolean;
+  marketingNotifs?: boolean;
+  analytics?: boolean;
+}
+
+export interface NotificationPrefs {
+  driverArriving?: boolean;
+  tripStarted?: boolean;
+  tripCompleted?: boolean;
+  chatMessages?: boolean;
+  paymentConfirmations?: boolean;
+  promotions?: boolean;
+  newFeatures?: boolean;
+  safetyAlerts?: boolean;
+}
+
+export interface SavedPlace {
+  id: string;
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
+  icon?: string | null;
+}
+
 export const userApi = {
   getProfile: () =>
     apiClient.get<ApiResponse<User>>('/user/me'),
@@ -40,4 +73,31 @@ export const userApi = {
 
   syncEmergencyContacts: (contacts: { name: string; phone: string }[]) =>
     apiClient.put<ApiResponse<{ contacts: EmergencyContact[] }>>('/user/me/emergency-contacts', { contacts }),
+
+  getNotificationPrefs: () =>
+    apiClient.get<ApiResponse<{ prefs: NotificationPrefs }>>('/user/me/notifications'),
+
+  updateNotificationPrefs: (prefs: NotificationPrefs) =>
+    apiClient.patch<ApiResponse<{ prefs: NotificationPrefs }>>('/user/me/notifications', prefs),
+
+  getSafetySettings: () =>
+    apiClient.get<ApiResponse<{ settings: SafetySettings }>>('/user/me/safety-settings'),
+
+  updateSafetySettings: (settings: SafetySettings) =>
+    apiClient.put<ApiResponse<{ settings: SafetySettings }>>('/user/me/safety-settings', settings),
+
+  getPrivacySettings: () =>
+    apiClient.get<ApiResponse<{ settings: PrivacySettings }>>('/user/me/privacy-settings'),
+
+  updatePrivacySettings: (settings: PrivacySettings) =>
+    apiClient.put<ApiResponse<{ settings: PrivacySettings }>>('/user/me/privacy-settings', settings),
+
+  getSavedPlaces: () =>
+    apiClient.get<ApiResponse<{ places: SavedPlace[] }>>('/user/me/saved-places'),
+
+  createSavedPlace: (place: Omit<SavedPlace, 'id'>) =>
+    apiClient.post<ApiResponse<{ place: SavedPlace }>>('/user/me/saved-places', place),
+
+  deleteSavedPlace: (placeId: string) =>
+    apiClient.delete<ApiResponse<Record<string, never>>>(`/user/me/saved-places/${placeId}`),
 };

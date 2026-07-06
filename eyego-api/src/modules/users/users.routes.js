@@ -83,4 +83,45 @@ router.patch(
   controller.updateNotificationPreferences
 );
 
+// ── Safety settings ──────────────────────────────────────────────────
+router.get('/me/safety-settings', controller.getSafetySettings);
+
+router.put(
+  '/me/safety-settings',
+  body('shareTrip').optional().isBoolean(),
+  body('rideCheck').optional().isBoolean(),
+  body('speedAlerts').optional().isBoolean(),
+  body('nightSafety').optional().isBoolean(),
+  validate,
+  controller.updateSafetySettings
+);
+
+// ── Privacy settings ─────────────────────────────────────────────────
+router.get('/me/privacy-settings', controller.getPrivacySettings);
+
+router.put(
+  '/me/privacy-settings',
+  body('locationSharing').optional().isBoolean(),
+  body('marketingNotifs').optional().isBoolean(),
+  body('analytics').optional().isBoolean(),
+  validate,
+  controller.updatePrivacySettings
+);
+
+// ── Saved places ─────────────────────────────────────────────────────
+router.get('/me/saved-places', controller.getSavedPlaces);
+
+router.post(
+  '/me/saved-places',
+  body('label').notEmpty().trim(),
+  body('address').notEmpty().trim(),
+  body('lat').isFloat({ min: -90, max: 90 }),
+  body('lng').isFloat({ min: -180, max: 180 }),
+  body('icon').optional().isString().trim(),
+  validate,
+  controller.createSavedPlace
+);
+
+router.delete('/me/saved-places/:placeId', controller.deleteSavedPlace);
+
 module.exports = router;

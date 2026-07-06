@@ -18,10 +18,13 @@ export interface GradientGlowBorderHandle {
 }
 
 interface GradientGlowBorderProps {
+  /** Named preset that supplies colors/locations/glow tints in one go —
+   * explicit `colors`/`locations`/`glowColor*` props override it. */
+  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort';
   /** Gradient stops sweeping the ring. Pass a mostly-dark array with 1-2
    * bright accent stops (see PREMIUM_RING_COLORS) to get a thin orbiting
    * light streak instead of a flat half-and-half color wash. */
-  colors: readonly [string, string, ...string[]];
+  colors?: readonly [string, string, ...string[]];
   /** Stop positions (0-1) matching `colors`, e.g. PREMIUM_RING_LOCATIONS.
    * Omit for an even spread. */
   locations?: readonly [number, number, ...number[]];
@@ -54,23 +57,84 @@ export const PREMIUM_RING_LOCATIONS = [
   0, 0.06, 0.18, 0.22, 0.26, 0.38, 0.5, 0.62, 0.66, 0.7, 0.82, 1,
 ] as const;
 
+export interface RingPalette {
+  colors: readonly [string, string, ...string[]];
+  locations: readonly [number, number, ...number[]];
+  glowColor: string;
+  glowColorSecondary?: string;
+}
+
+/** Context-matched ring palettes so a glow can follow the surface it wraps —
+ * e.g. the gold PREMIUM tier card gets a gold ring, not the default
+ * blue/orange. Same two-arc + hot-core construction as PREMIUM_RING_COLORS. */
+export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort', RingPalette> = {
+  default: {
+    colors: PREMIUM_RING_COLORS,
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#3D7EFF',
+    glowColorSecondary: '#FF7A3D',
+  },
+  gold: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#FFD700', '#FFF3B0', '#FFD700', '#0A0A0C',
+      '#0A0A0C', '#FFB300', '#FFE082', '#FFB300', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#FFD700',
+    glowColorSecondary: '#FF8F00',
+  },
+  royal: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#7000FF', '#C9A6FF', '#7000FF', '#0A0A0C',
+      '#0A0A0C', '#B14BFF', '#E3C9FF', '#B14BFF', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#7000FF',
+    glowColorSecondary: '#B14BFF',
+  },
+  economy: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#00F0FF', '#B8FBFF', '#00F0FF', '#0A0A0C',
+      '#0A0A0C', '#00C2CC', '#9CF2F7', '#00C2CC', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#00F0FF',
+    glowColorSecondary: '#00C2CC',
+  },
+  comfort: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#3D7EFF', '#9CC5FF', '#3D7EFF', '#0A0A0C',
+      '#0A0A0C', '#2A5FD6', '#8FB4F2', '#2A5FD6', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#3D7EFF',
+    glowColorSecondary: '#2A5FD6',
+  },
+};
+
 export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientGlowBorderProps>(
   function GradientGlowBorder(
     {
-      colors,
-      locations,
+      palette,
+      colors: colorsProp,
+      locations: locationsProp,
       fillColor,
       borderRadius,
       thickness = 'regular',
       glow = false,
-      glowColor,
-      glowColorSecondary,
+      glowColor: glowColorProp,
+      glowColorSecondary: glowColorSecondaryProp,
       disabled,
       style,
       children,
     },
     ref
   ) {
+    const preset = RING_PALETTES[palette ?? 'default'];
+    const colors = colorsProp ?? preset.colors;
+    const locations = locationsProp ?? (colorsProp ? undefined : preset.locations);
+    const glowColor = glowColorProp ?? (palette ? preset.glowColor : undefined);
+    const glowColorSecondary = glowColorSecondaryProp ?? (palette ? preset.glowColorSecondary : undefined);
     const tier = usePerformanceTier();
     // Low-tier devices default to a static ring (no continuous rotation)
     // unless the caller explicitly opts in/out via `disabled`.
@@ -124,12 +188,55 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
     };
     const innerRadius = Math.max(borderRadius - ringThickness, 0);
 
+    // Layout props (flex, width, margins…) must live on the outer wrapper —
+    // it's the node that participates in the parent's layout. Everything else
+    // (padding, row direction, minHeight…) styles the clipped content box.
+    const {
+      flex,
+      flexGrow,
+      flexShrink,
+      flexBasis,
+      alignSelf,
+      width,
+      minWidth,
+      maxWidth,
+      margin,
+      marginTop,
+      marginBottom,
+      marginLeft,
+      marginRight,
+      marginHorizontal,
+      marginVertical,
+      marginStart,
+      marginEnd,
+      ...contentStyle
+    } = (StyleSheet.flatten(style) ?? {}) as ViewStyle;
+    const layoutStyle: ViewStyle = {
+      flex,
+      flexGrow,
+      flexShrink,
+      flexBasis,
+      alignSelf,
+      width,
+      minWidth,
+      maxWidth,
+      margin,
+      marginTop,
+      marginBottom,
+      marginLeft,
+      marginRight,
+      marginHorizontal,
+      marginVertical,
+      marginStart,
+      marginEnd,
+    };
+
     return (
       // Outer wrapper is intentionally un-clipped: an iOS shadow placed
       // inside an overflow:'hidden' parent gets clipped to invisible, so the
       // glow lives here as a sibling of the masked ring container below,
       // sized to match it via StyleSheet.absoluteFillObject.
-      <View>
+      <View style={layoutStyle}>
         {glow && diag > 0 && (
           <>
             {/* Wide soft bloom — the ambient halo that reads from a distance. */}
@@ -206,7 +313,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
         )}
 
         <View
-          style={[{ borderRadius, overflow: 'hidden' }, style]}
+          style={[{ borderRadius, overflow: 'hidden' }, contentStyle]}
           onLayout={handleLayout}
         >
         {diag > 0 && (

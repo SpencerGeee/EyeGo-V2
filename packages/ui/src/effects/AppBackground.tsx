@@ -10,6 +10,7 @@ import Animated, {
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
+import { LightfallBackground } from './LightfallBackground';
 
 interface BlobConfig {
   color: string;
@@ -46,6 +47,35 @@ export function AppBackground({ style, variant = 'animated' }: AppBackgroundProp
   const { width, height } = Dimensions.get('window');
 
   const animated = variant === 'animated' && tier !== 'low';
+
+  // Mid/high tiers get the real GPU shader (Skia "Lightfall" port) — the SVG
+  // blob field below survives as the low-tier / fallback path.
+  if (tier !== 'low') {
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          styles.container,
+          { backgroundColor: colors.backgroundDeep },
+          style,
+        ]}
+      >
+        <LightfallBackground
+          colors={[colors.premiumBlue, colors.primary, colors.premiumOrange]}
+          backgroundColor={colors.premiumBlue}
+          animated={animated}
+          speed={0.35}
+          zoom={3.2}
+          glow={0.85}
+          density={0.55}
+          backgroundGlow={0.45}
+          streakCount={tier === 'high' ? 5 : 3}
+          opacity={0.9}
+        />
+      </View>
+    );
+  }
 
   const blobs: BlobConfig[] =
     tier === 'low'

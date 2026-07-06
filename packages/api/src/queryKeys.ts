@@ -22,6 +22,10 @@ export const queryKeys = {
   },
   user: {
     profile: ['user', 'profile'] as const,
+    notificationPrefs: ['user', 'notification-prefs'] as const,
+    safetySettings: ['user', 'safety-settings'] as const,
+    privacySettings: ['user', 'privacy-settings'] as const,
+    savedPlaces: ['user', 'saved-places'] as const,
   },
   wallet: {
     all: ['wallet'] as const,

@@ -176,4 +176,53 @@ async function syncEmergencyContacts(userId, contacts) {
   });
 }
 
-module.exports = { getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts };
+// Generic JSON-blob settings accessors — same storage pattern as
+// notificationPrefs: a nullable String column holding a merged JSON object.
+async function getSettingsBlob(userId, column) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { [column]: true },
+  });
+  if (!user) throw new NotFoundError('User');
+  return user[column] ? JSON.parse(user[column]) : {};
+}
+
+async function updateSettingsBlob(userId, column, patch) {
+  const current = await getSettingsBlob(userId, column);
+  const merged = { ...current, ...patch };
+  await prisma.user.update({
+    where: { id: userId },
+    data: { [column]: JSON.stringify(merged) },
+  });
+  return merged;
+}
+
+const getSafetySettings = (userId) => getSettingsBlob(userId, 'safetySettings');
+const updateSafetySettings = (userId, patch) => updateSettingsBlob(userId, 'safetySettings', patch);
+const getPrivacySettings = (userId) => getSettingsBlob(userId, 'privacySettings');
+const updatePrivacySettings = (userId, patch) => updateSettingsBlob(userId, 'privacySettings', patch);
+
+async function getSavedPlaces(userId) {
+  return prisma.savedPlace.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, label: true, address: true, lat: true, lng: true, icon: true },
+  });
+}
+
+async function createSavedPlace(userId, { label, address, lat, lng, icon }) {
+  const count = await prisma.savedPlace.count({ where: { userId } });
+  if (count >= 20) throw new AppError('Maximum 20 saved places allowed', 400);
+  return prisma.savedPlace.create({
+    data: { userId, label: label.trim(), address: address.trim(), lat, lng, icon: icon ?? null },
+    select: { id: true, label: true, address: true, lat: true, lng: true, icon: true },
+  });
+}
+
+async function deleteSavedPlace(userId, placeId) {
+  const place = await prisma.savedPlace.findUnique({ where: { id: placeId } });
+  if (!place || place.userId !== userId) throw new NotFoundError('Saved place');
+  await prisma.savedPlace.delete({ where: { id: placeId } });
+}
+
+module.exports = { getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

@@ -22,6 +22,8 @@ model User {
   preferredTier String     @default("ECO")
   fcmToken              String?
   notificationPrefs     String?  // JSON blob: { driverArriving, tripStarted, ... }
+  safetySettings        String?  // JSON blob: { shareTrip, rideCheck, speedAlerts, nightSafety }
+  privacySettings       String?  // JSON blob: { shareData, personalizedAds, locationHistory }
   isActive      Boolean      @default(true)
   isBanned      Boolean      @default(false)
   walletBalance Float        @default(0)
@@ -41,6 +43,22 @@ model User {
   savedCards            SavedCard[]
   scheduledRideIntents  ScheduledRideIntent[]
   tripRequests          TripRequest[]
+  savedPlaces           SavedPlace[]
+}
+
+model SavedPlace {
+  id        String   @id @default(cuid())
+  userId    String
+  label     String
+  address   String
+  lat       Float
+  lng       Float
+  icon      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model EmergencyContact {
