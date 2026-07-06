@@ -10,7 +10,7 @@ import Animated, {
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
-import { LightfallBackground } from './LightfallBackground';
+import { LightPillarBackground } from './LightPillarBackground';
 
 interface BlobConfig {
   color: string;
@@ -48,8 +48,9 @@ export function AppBackground({ style, variant = 'animated' }: AppBackgroundProp
 
   const animated = variant === 'animated' && tier !== 'low';
 
-  // Mid/high tiers get the real GPU shader (Skia "Lightfall" port) — the SVG
-  // blob field below survives as the low-tier / fallback path.
+  // Mid/high tiers get the real GPU shader (Skia "LightPillar" port) —
+  // a vertical rotating light beam in brand green, continuously alive.
+  // The SVG blob field below survives as the low-tier / fallback path.
   if (tier !== 'low') {
     return (
       <View
@@ -61,17 +62,17 @@ export function AppBackground({ style, variant = 'animated' }: AppBackgroundProp
           style,
         ]}
       >
-        <LightfallBackground
-          colors={[colors.premiumBlue, colors.primary, colors.premiumOrange]}
-          backgroundColor={colors.premiumBlue}
+        <LightPillarBackground
+          topColor={colors.primary}
+          bottomColor={colors.onPrimaryFixedVariant}
           animated={animated}
-          speed={0.35}
-          zoom={3.2}
-          glow={0.85}
-          density={0.55}
-          backgroundGlow={0.45}
-          streakCount={tier === 'high' ? 5 : 3}
-          opacity={0.9}
+          intensity={1.0}
+          rotationSpeed={tier === 'high' ? 0.4 : 0.25}
+          glowAmount={tier === 'high' ? 0.006 : 0.004}
+          pillarWidth={3.0}
+          pillarHeight={0.4}
+          noiseIntensity={tier === 'high' ? 0.5 : 0.3}
+          opacity={0.85}
         />
       </View>
     );

@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
@@ -249,7 +249,7 @@ export default function RideSelectScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          transition={{ type: 'spring', ...springs.snappy, delay: 40 }}
         >
           <Pressable
             style={styles.searchBar}
@@ -278,7 +278,7 @@ export default function RideSelectScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 60 }}
+          transition={{ type: 'spring', ...springs.snappy, delay: 60 }}
         >
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tierPillsBleed} contentContainerStyle={styles.tierPillsRow}>
             <Pressable
@@ -406,7 +406,7 @@ export default function RideSelectScreen() {
                     key={trip.id ?? i}
                     from={{ opacity: 0, translateY: 10 }}
                     animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ type: 'spring', stiffness: 600, damping: 34, delay: i * 40 }}
+                    transition={{ type: 'spring', ...springs.snappy, delay: i * 40 }}
                   >
                     <MorphSource
                       id={`ride-card-${trip.id}`}
@@ -512,7 +512,7 @@ export default function RideSelectScreen() {
                       <MotiView
                         from={{ opacity: 0, translateY: -8 }}
                         animate={{ opacity: 1, translateY: 0 }}
-                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                        transition={{ type: 'spring', ...springs.snappy }}
                         style={styles.stopPickerCard}
                       >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>

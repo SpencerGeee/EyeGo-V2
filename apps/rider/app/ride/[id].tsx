@@ -10,10 +10,10 @@ import { tripsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fonts, fontSizes, spacing, radii, shadows, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, useMorph } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph } from '@eyego/ui';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
@@ -219,6 +219,12 @@ export default function RideDetailScreen() {
         )}
       </MapboxGL.MapView>
 
+      {/* Swipe-back area (map layer only — matches Yango's pull-on-top pattern) */}
+      {/* Swipe-back zone (top 80px only — map area preserved for interaction) */}
+      <MorphBackSwipeDetector style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 80, zIndex: 10 }}>
+        <View style={{ flex: 1 }} />
+      </MorphBackSwipeDetector>
+
       {/* Back button */}
       <Pressable
         style={[styles.backButton, { top: insets.top + 12 }]}
@@ -244,7 +250,7 @@ export default function RideDetailScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+            transition={{ type: 'spring', ...springs.snappy }}
             style={styles.tierRow}
           >
             {TIERS.map((t) => {
@@ -292,7 +298,7 @@ export default function RideDetailScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 10 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                transition={{ type: 'spring', ...springs.snappy }}
               >
                 <View style={styles.routeHeader}>
                   <View style={styles.routeHeaderLeft}>
@@ -316,7 +322,7 @@ export default function RideDetailScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 10 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+                transition={{ type: 'spring', ...springs.snappy, delay: 40 }}
               >
                 <DriverInfoCard
                   driver={trip?.driver}
@@ -331,7 +337,7 @@ export default function RideDetailScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 10 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 65 }}
+                transition={{ type: 'spring', ...springs.snappy, delay: 65 }}
               >
                 <SeatBar
                   total={trip?.totalSeats ?? 10}
@@ -344,7 +350,7 @@ export default function RideDetailScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 10 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+                transition={{ type: 'spring', ...springs.snappy, delay: 80 }}
                 style={styles.fareSection}
               >
                 <AnimatedFareText value={computedFare ?? trip?.farePerSeat ?? 0} variant="fareLarge" shiny />
@@ -373,7 +379,7 @@ export default function RideDetailScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 20 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
+                transition={{ type: 'spring', ...springs.snappy, delay: 100 }}
                 style={styles.ctaSection}
               >
                 <Button

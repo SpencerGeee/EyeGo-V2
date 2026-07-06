@@ -1,9 +1,8 @@
-﻿import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Pressable,
   Alert,
   Modal,
@@ -12,11 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, GlassCard, Button, GlowSearchInput, AnimatedFareText } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { apiClient, routesApi, tripsApi } from '@eyego/api';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -68,16 +66,14 @@ export default function ScheduleRideScreen() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Load available routes — the backend schedules against a routeId, not free
-  // text. (Previously this screen posted { origin, destination } and the backend
-  // rejected every request with 400 "routeId required".)
+  // Load available routes
   const { data: routes, isLoading: routesLoading } = useQuery({
     queryKey: ['routes', 'all'],
     queryFn: routesApi.getAll,
     select: (r) => ((r.data as any)?.data ?? []) as ScheduleRoute[],
   });
 
-  // Client-side filter for the search field — matches name / origin / destination.
+  // Client-side filter for the search field
   const filteredRoutes = useMemo(() => {
     if (!routes) return [];
     const q = search.trim().toLowerCase();
@@ -172,113 +168,110 @@ export default function ScheduleRideScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      {/* ── Header ── */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </TouchableOpacity>
-        <View style={{ alignItems: 'center' }}>
+        <GlassCard style={styles.backBtnGlass}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+            <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+          </Pressable>
+        </GlassCard>
+        <View style={styles.headerCenter}>
           <Text variant="titleSmall" style={{ color: colors.onSurface }}>Schedule Ride</Text>
           <Text style={styles.stepLabel}>Step 1 of 2</Text>
         </View>
-        <View style={{ width: 44 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        >
-          {/* Mode toggle */}
-          <View style={styles.modeRow}>
-            <Text style={styles.sectionLabel}>{requestMode ? 'NEW DESTINATION' : 'CHOOSE A ROUTE'}</Text>
-            <Pressable onPress={() => setRequestMode((m) => !m)} hitSlop={8}>
-              <Text style={styles.modeToggle}>
-                {requestMode ? '← Pick a route' : 'Request new destination'}
-              </Text>
-            </Pressable>
+        {/* ── Mode toggle ── */}
+        <View style={styles.modeRow}>
+          <Text style={styles.sectionLabel}>{requestMode ? 'NEW DESTINATION' : 'CHOOSE A ROUTE'}</Text>
+          <Pressable onPress={() => setRequestMode((m) => !m)} hitSlop={8}>
+            <Text style={styles.modeToggle}>
+              {requestMode ? '← Pick a route' : 'Request new destination'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {requestMode ? (
+          /* ── Free-text destination request ── */
+          <View style={styles.searchBar}>
+            <Ionicons name="navigate-outline" size={18} color={colors.primary} />
+            <TextInput
+              style={styles.searchInput}
+              value={requestDest}
+              onChangeText={setRequestDest}
+              placeholder="e.g. Madina, Lapaz, Achimota…"
+              placeholderTextColor={colors.outlineVariant}
+              returnKeyType="done"
+              autoCorrect={false}
+            />
           </View>
-
-          {requestMode ? (
-            /* Free-text destination request */
-            <View style={styles.searchBar}>
-              <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-              <TextInput
-                style={styles.searchInput}
-                value={requestDest}
-                onChangeText={setRequestDest}
-                placeholder="e.g. Madina, Lapaz, Achimota…"
-                placeholderTextColor={colors.outlineVariant}
-                returnKeyType="done"
-                autoCorrect={false}
-              />
-            </View>
-          ) : (
-            <>
-              {/* Search */}
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={18} color={colors.outline} />
-                <TextInput
-                  style={styles.searchInput}
-                  value={search}
-                  onChangeText={setSearch}
-                  placeholder="Search routes…"
-                  placeholderTextColor={colors.outlineVariant}
-                  returnKeyType="search"
-                  autoCorrect={false}
-                />
-                {search.length > 0 && (
-                  <Pressable onPress={() => setSearch('')} hitSlop={8}>
-                    <Ionicons name="close-circle" size={18} color={colors.outline} />
-                  </Pressable>
-                )}
-              </View>
-
-              <Text style={[styles.sectionLabel, { marginTop: spacing.lg, marginBottom: spacing.sm }]}>
-                Popular Routes
-              </Text>
-
-              {routesLoading ? (
-                <View style={styles.placeholderCard}>
-                  <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Loading routes…</Text>
-                </View>
-              ) : !routes || routes.length === 0 ? (
-                <Pressable onPress={() => setRequestMode(true)} style={styles.requestPromptCard}>
-                  <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
-                  <Text variant="bodySmall" style={{ color: colors.primary, flex: 1 }}>
-                    No routes available yet. Tap to request a trip to your destination — we'll find a driver.
-                  </Text>
-                  <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        ) : (
+          <>
+            {/* ── GlowSearchInput ── */}
+            <GlowSearchInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search routes (e.g. Accra Mall to Madina)"
+              leftIcon={<Ionicons name="search" size={18} color={colors.outline} />}
+              rightIcon={search.length > 0 ? (
+                <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear search">
+                  <Ionicons name="close-circle" size={18} color={colors.outline} />
                 </Pressable>
-              ) : filteredRoutes.length === 0 ? (
-                <View style={styles.placeholderCard}>
-                  <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                    No routes match “{search}”.
-                  </Text>
-                </View>
-              ) : (
-                <View style={{ gap: spacing.sm }}>
-                  {filteredRoutes.map((route) => {
-                    const selected = route.id === selectedRouteId;
-                    const origin = route.originName ?? route.name ?? 'Origin';
-                    const dest = route.destinationName ?? 'Destination';
-                    return (
-                      <Pressable
-                        key={route.id}
-                        onPress={() => setSelectedRouteId(route.id)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        style={[styles.routeCard, selected && styles.routeCardSelected]}
+              ) : undefined}
+              containerStyle={{ marginBottom: spacing.lg }}
+            />
+
+            {/* ── Popular Routes ── */}
+            <Text style={[styles.sectionLabel, { marginBottom: spacing.sm }]}>POPULAR ROUTES</Text>
+
+            {routesLoading ? (
+              <GlassCard style={styles.placeholderCard}>
+                <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Loading routes…</Text>
+              </GlassCard>
+            ) : !routes || routes.length === 0 ? (
+              <Pressable onPress={() => setRequestMode(true)} style={styles.requestPromptCard}>
+                <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
+                <Text variant="bodySmall" style={{ color: colors.primary, flex: 1 }}>
+                  No routes available yet. Tap to request a trip to your destination — we'll find a driver.
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+              </Pressable>
+            ) : filteredRoutes.length === 0 ? (
+              <GlassCard style={styles.placeholderCard}>
+                <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
+                  No routes match "{search}".
+                </Text>
+              </GlassCard>
+            ) : (
+              <View style={{ gap: spacing.sm }}>
+                {filteredRoutes.map((route) => {
+                  const selected = route.id === selectedRouteId;
+                  const origin = route.originName ?? route.name ?? 'Origin';
+                  const dest = route.destinationName ?? 'Destination';
+                  return (
+                    <Pressable
+                      key={route.id}
+                      onPress={() => setSelectedRouteId(route.id)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                    >
+                      <GlassCard
+                        style={selected
+                          ? { ...styles.routeCard, ...styles.routeCardSelected }
+                          : styles.routeCard}
                       >
+                        {/* Selected top gradient */}
                         {selected && (
                           <LinearGradient
-                            colors={[withOpacity(colors.primary, 0.05), withOpacity(colors.surfaceCard, 0.8)]}
+                            colors={[withOpacity(colors.primary, 0.06), 'transparent']}
                             style={StyleSheet.absoluteFillObject}
                             pointerEvents="none"
                           />
                         )}
                         <View style={styles.routeBody}>
-                          {/* Origin → destination timeline */}
+                          {/* Origin */}
                           <View style={styles.routeRow}>
                             <View style={[styles.originDot, selected && styles.originDotActive]} />
                             <Text
@@ -290,8 +283,14 @@ export default function ScheduleRideScreen() {
                             </Text>
                           </View>
                           <View style={styles.routeConnector} />
+                          {/* Destination */}
                           <View style={styles.routeRow}>
-                            <Ionicons name="location" size={14} color={selected ? colors.primary : colors.outline} />
+                            <Ionicons
+                              name="location"
+                              size={14}
+                              color={selected ? colors.tierComfort : colors.outline}
+                              style={selected ? { color: colors.tierComfort } : undefined}
+                            />
                             <Text
                               variant="bodyLarge"
                               numberOfLines={1}
@@ -303,95 +302,110 @@ export default function ScheduleRideScreen() {
                         </View>
                         <View style={styles.routeMeta}>
                           {typeof route.price === 'number' ? (
-                            <Text style={[styles.routePrice, { color: selected ? colors.primary : colors.onSurfaceVariant }]}>
-                              ₵{route.price}
-                            </Text>
+                            <AnimatedFareText
+                              value={route.price}
+                              prefix="₵"
+                              variant={selected ? 'fareMedium' : 'fareInline'}
+                              color={selected ? colors.primary : colors.onSurfaceVariant}
+                              shiny={selected}
+                            />
                           ) : null}
-                          <View style={styles.etaPill}>
-                            <Text style={styles.etaText}>
+                          <View style={[styles.etaPill, selected && styles.etaPillSelected]}>
+                            <Text style={[styles.etaText, selected && styles.etaTextSelected]}>
                               {route.estimatedMinutes ? `Est. ${route.estimatedMinutes} min` : 'Est. ride'}
                             </Text>
                           </View>
                         </View>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              )}
-            </>
-          )}
+                      </GlassCard>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
 
-          {/* Seats */}
-          <Text style={[styles.sectionLabel, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>
-            SEATS
-          </Text>
-          <View style={styles.fieldRow}>
-            <Pressable
-              onPress={() => setSeatCount((s) => Math.max(1, s - 1))}
-              accessibilityRole="button"
-              accessibilityLabel="Decrease seats"
-              hitSlop={8}
-            >
-              <Ionicons name="remove-circle-outline" size={26} color={seatCount > 1 ? colors.primary : colors.outline} />
-            </Pressable>
-            <Text variant="bodyLarge" style={{ color: colors.onSurface, flex: 1, textAlign: 'center' }}>
-              {seatCount} seat{seatCount > 1 ? 's' : ''}
-            </Text>
-            <Pressable
-              onPress={() => setSeatCount((s) => Math.min(4, s + 1))}
-              accessibilityRole="button"
-              accessibilityLabel="Increase seats"
-              hitSlop={8}
-            >
-              <Ionicons name="add-circle-outline" size={26} color={seatCount < 4 ? colors.primary : colors.outline} />
-            </Pressable>
-          </View>
-
-          {/* Pickup Time */}
-          <View style={[styles.modeRow, { marginTop: spacing.xl }]}>
-            <Text style={styles.sectionLabel}>PICKUP TIME</Text>
-            <View style={styles.noticePill}>
-              <Ionicons name="information-circle-outline" size={13} color={colors.primary} />
-              <Text style={styles.noticeText}>Min. 30m notice</Text>
-            </View>
-          </View>
+        {/* ── Seats ── */}
+        <Text style={[styles.sectionLabel, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>SEATS</Text>
+        <GlassCard style={styles.fieldRow}>
           <Pressable
-            onPress={() => {
-              setTempDate(selectedDate);
-              setShowPicker(true);
-            }}
-            style={({ pressed }) => [styles.fieldRow, { opacity: pressed ? 0.7 : 1 }]}
+            onPress={() => setSeatCount((s) => Math.max(1, s - 1))}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease seats"
+            hitSlop={8}
           >
+            <Ionicons name="remove-circle-outline" size={26} color={seatCount > 1 ? colors.primary : colors.outline} />
+          </Pressable>
+          <Text variant="bodyLarge" style={{ color: colors.onSurface, flex: 1, textAlign: 'center' }}>
+            {seatCount} seat{seatCount > 1 ? 's' : ''}
+          </Text>
+          <Pressable
+            onPress={() => setSeatCount((s) => Math.min(4, s + 1))}
+            accessibilityRole="button"
+            accessibilityLabel="Increase seats"
+            hitSlop={8}
+          >
+            <Ionicons name="add-circle-outline" size={26} color={seatCount < 4 ? colors.primary : colors.outline} />
+          </Pressable>
+        </GlassCard>
+
+        {/* ── Pickup Time ── */}
+        <View style={[styles.modeRow, { marginTop: spacing.xl }]}>
+          <Text style={styles.sectionLabel}>PICKUP TIME</Text>
+          <View style={styles.noticePill}>
+            <Ionicons name="information-circle-outline" size={13} color={colors.statusWarning} />
+            <Text style={styles.noticeText}>Min. 30m notice</Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={() => {
+            setTempDate(selectedDate);
+            setShowPicker(true);
+          }}
+          style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+        >
+          <GlassCard style={styles.fieldRow}>
             <Ionicons name="calendar-outline" size={20} color={colors.primary} />
             <Text variant="bodyLarge" style={{ color: colors.onSurface, flex: 1 }}>
               {formatDate(selectedDate)}
             </Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </MotiView>
+          </GlassCard>
+        </Pressable>
+
+        {/* ── Helper text ── */}
+        <Text variant="caption" style={{ color: colors.outlineVariant, marginTop: spacing.sm }}>
+          Select a time at least 30 minutes from now to ensure driver availability.
+        </Text>
       </ScrollView>
 
-      {/* Fixed bottom confirm */}
+      {/* ── Fixed bottom bar - GlassCard sheet ── */}
       <View style={styles.footer}>
-        <Pressable
-          onPress={handleSubmit}
-          disabled={isPending}
-          style={({ pressed }) => [
-            styles.confirmBtn,
-            isPending && { opacity: 0.5 },
-            pressed && { transform: [{ scale: 0.98 }] },
-          ]}
-        >
-          <Ionicons name="calendar" size={20} color={colors.onPrimary} />
-          <Text style={styles.confirmText}>
-            {requestMode
-              ? (requestMutation.isPending ? 'Requesting…' : 'Request Trip')
-              : (scheduleMutation.isPending ? 'Scheduling…' : 'Confirm Schedule')}
-          </Text>
-        </Pressable>
+        <GlassCard sheet style={styles.footerSheet}>
+          <View style={styles.footerSheetInner}>
+            <Button
+              label={
+                requestMode
+                  ? (requestMutation.isPending ? 'Requesting…' : 'Request Trip')
+                  : (scheduleMutation.isPending ? 'Scheduling…' : 'Confirm Schedule')
+              }
+              onPress={handleSubmit}
+              disabled={isPending}
+              loading={isPending}
+              variant="glow"
+              icon={
+                <Ionicons
+                  name={requestMode ? 'navigate' : 'calendar'}
+                  size={20}
+                  color={colors.onSurface}
+                />
+              }
+            />
+          </View>
+        </GlassCard>
       </View>
 
-      {/* iOS Modal Picker */}
+      {/* ── iOS Modal Picker ── */}
       {Platform.OS === 'ios' && showPicker && (
         <Modal
           transparent
@@ -402,13 +416,13 @@ export default function ScheduleRideScreen() {
           <View style={styles.modalOverlay}>
             <View style={[styles.modalSheet, { backgroundColor: colors.surfaceCard ?? colors.surfaceContainer }]}>
               <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setShowPicker(false)}>
+                <Pressable onPress={() => setShowPicker(false)}>
                   <Text variant="bodyMedium" style={{ color: colors.statusError }}>Cancel</Text>
-                </TouchableOpacity>
-                <Text variant="titleSmall">Select Date & Time</Text>
-                <TouchableOpacity onPress={handleConfirmDate}>
+                </Pressable>
+                <Text variant="titleSmall" style={{ color: colors.onSurface }}>Select Date & Time</Text>
+                <Pressable onPress={handleConfirmDate}>
                   <Text variant="bodyMedium" style={{ color: colors.primary }}>Done</Text>
-                </TouchableOpacity>
+                </Pressable>
               </View>
               <DateTimePicker
                 value={tempDate}
@@ -423,7 +437,7 @@ export default function ScheduleRideScreen() {
         </Modal>
       )}
 
-      {/* Android inline picker */}
+      {/* ── Android inline picker ── */}
       {Platform.OS === 'android' && showPicker && (
         <DateTimePicker
           value={tempDate}
@@ -447,15 +461,19 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: spacing['2xl'],
       paddingVertical: spacing.base,
     },
-    backBtn: {
+    backBtnGlass: {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
+    },
+    backBtn: {
+      width: 44,
+      height: 44,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    headerCenter: {
+      alignItems: 'center',
     },
     stepLabel: {
       fontFamily: fonts.labelCaps,
@@ -466,10 +484,13 @@ const makeStyles = (colors: Colors) =>
       color: `${colors.primary}B3`,
       marginTop: 2,
     },
+    headerSpacer: {
+      width: 44,
+    },
     scroll: {
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.sm,
-      paddingBottom: 140,
+      paddingBottom: 180,
     },
     modeRow: {
       flexDirection: 'row',
@@ -509,10 +530,6 @@ const makeStyles = (colors: Colors) =>
       height: '100%',
     },
     placeholderCard: {
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       padding: spacing.lg,
       alignItems: 'center',
     },
@@ -527,12 +544,6 @@ const makeStyles = (colors: Colors) =>
       padding: spacing.base,
     },
     routeCard: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.surfaceCard,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
       padding: spacing.base,
       gap: spacing.base,
       overflow: 'hidden',
@@ -541,6 +552,7 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.primary,
       transform: [{ scale: 1.02 }],
     },
+
     routeBody: { flex: 1 },
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     originDot: {
@@ -564,17 +576,14 @@ const makeStyles = (colors: Colors) =>
       marginVertical: 2,
     },
     routeMeta: { alignItems: 'flex-end', gap: spacing.sm },
-    routePrice: {
-      fontFamily: fonts.displayBold,
-      fontSize: fontSizes.titleMedium,
-      lineHeight: fontSizes.titleMedium * 1.3,
-      letterSpacing: -0.3,
-    },
     etaPill: {
       backgroundColor: `${colors.surfaceVariant ?? colors.outlineVariant}80`,
       borderRadius: radii.full,
       paddingHorizontal: spacing.sm,
       paddingVertical: 3,
+    },
+    etaPillSelected: {
+      backgroundColor: `${colors.primary}20`,
     },
     etaText: {
       fontFamily: fonts.monoRegular,
@@ -583,22 +592,21 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: 0.4,
       color: colors.onSurfaceVariant,
     },
+    etaTextSelected: {
+      color: colors.primary,
+    },
     fieldRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.md,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.rimLightSubtle,
-      backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
       padding: spacing.base,
-      height: 56,
+      minHeight: 56,
     },
     noticePill: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      backgroundColor: `${colors.statusWarning}26`,
+      backgroundColor: withOpacity(colors.statusWarning, 0.15),
       borderRadius: radii.full,
       paddingHorizontal: spacing.sm,
       paddingVertical: 3,
@@ -615,33 +623,17 @@ const makeStyles = (colors: Colors) =>
       bottom: 0,
       left: 0,
       right: 0,
-      backgroundColor: colors.surfaceCard,
-      borderTopWidth: 1,
-      borderTopColor: colors.rimLight,
-      borderTopLeftRadius: radii['4xl'],
-      borderTopRightRadius: radii['4xl'],
       paddingHorizontal: spacing['2xl'],
-      paddingTop: spacing.lg,
       paddingBottom: spacing['2xl'],
     },
-    confirmBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.sm,
-      backgroundColor: colors.primary,
-      borderRadius: radii.full,
-      paddingVertical: spacing.base + 2,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.3,
-      shadowRadius: 18,
+    footerSheet: {
+      borderTopLeftRadius: radii['4xl'],
+      borderTopRightRadius: radii['4xl'],
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
     },
-    confirmText: {
-      fontFamily: fonts.semiBold,
-      fontSize: fontSizes.titleSmall,
-      lineHeight: fontSizes.titleSmall * 1.3,
-      color: colors.onPrimary,
+    footerSheetInner: {
+      padding: spacing.lg,
     },
     modalOverlay: {
       flex: 1,

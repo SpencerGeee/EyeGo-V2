@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { getInitials, formatCurrency } from '@eyego/utils';
@@ -110,7 +110,7 @@ export default function ProfileScreen() {
         <MotiView
           from={{ opacity: 0, translateY: -8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 34 }}
+          transition={{ type: 'spring', ...springs.snappy }}
           style={styles.headerRow}
         >
           <View style={styles.headerLeft}>
@@ -155,7 +155,7 @@ export default function ProfileScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 34, delay: 60 }}
+          transition={{ type: 'spring', ...springs.snappy, delay: 40 }}
           style={styles.walletCard}
         >
           <View style={styles.walletGlow} pointerEvents="none" />
@@ -179,14 +179,14 @@ export default function ProfileScreen() {
 
         {/* ── Menu sections ── */}
         {menuSections.map((section) => {
-          const sectionDelay = 100 + rowDelayOffset * 30;
+          const sectionDelay = 40;
           rowDelayOffset += section.items.length + 1;
           return (
             <MotiView
               key={section.title}
               from={{ opacity: 0, translateY: 8 }}
               animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 34, delay: sectionDelay }}
+              transition={{ type: 'spring', ...springs.snappy, delay: sectionDelay }}
               style={styles.sectionWrapper}
             >
               <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>

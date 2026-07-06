@@ -41,6 +41,8 @@ export { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, RING_P
 export type { GradientGlowBorderHandle, RingPalette } from './effects/GradientGlowBorder';
 export { LightfallBackground } from './effects/LightfallBackground';
 export type { LightfallBackgroundProps } from './effects/LightfallBackground';
+export { LightPillarBackground } from './effects/LightPillarBackground';
+export type { LightPillarBackgroundProps } from './effects/LightPillarBackground';
 export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbientRotation';
 export { GlassSurface } from './effects/GlassSurface';
 export { LensSheen } from './effects/LensSheen';
@@ -48,5 +50,5 @@ export { GlowSearchInput, GlowSearchPressable } from './effects/GlowSearchInput'
 export { usePerformanceTier } from './effects/usePerformanceTier';
 export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
-export { MorphProvider, MorphSource, MorphTarget, useMorph, useMorphOptional } from './morph';
+export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
 export type { MorphRect } from './morph';

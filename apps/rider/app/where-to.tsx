@@ -12,11 +12,11 @@ import {
   BackHandler,
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, GradientGlowBorder, MorphTarget, useMorph, type GradientGlowBorderHandle } from '@eyego/ui';
+import { Text, GradientGlowBorder, MorphTarget, useMorph, MorphBackSwipeDetector, type GradientGlowBorderHandle } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useRideStore } from '../stores/ride.store';
@@ -66,6 +66,7 @@ export default function WhereToScreen() {
   // uses 'where-to-pill'; services cards pass their own id so each morphs from
   // its own card. Falls back to the pill id for deep links / direct opens.
   const activeMorphId = morphId ?? 'where-to-pill';
+  const insets = useSafeAreaInsets();
   const { isDark } = useThemeStore();
   const { setDestination } = useRideStore();
 
@@ -232,9 +233,9 @@ export default function WhereToScreen() {
       <View style={styles.mapGradient} pointerEvents="none" />
 
       {/* ── Overlay layout ───────────────────────────── */}
-      <SafeAreaView style={styles.overlay} edges={['top']} pointerEvents="box-none">
+      <View style={styles.overlay} pointerEvents="box-none">
         {/* Header */}
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
           <Pressable
             style={styles.backBtn}
             onPress={handleClose}
@@ -262,6 +263,7 @@ export default function WhereToScreen() {
             showsVerticalScrollIndicator={false}
           >
             <MorphTarget id={activeMorphId} borderRadius={24}>
+            <MorphBackSwipeDetector>
             <View style={styles.floatingCard}>
 
               {/* ── Dual input + timeline ─────────────── */}
@@ -476,10 +478,11 @@ export default function WhereToScreen() {
                 </>
               )}
             </View>
+            </MorphBackSwipeDetector>
             </MorphTarget>
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </Animated.View>
   );
 }

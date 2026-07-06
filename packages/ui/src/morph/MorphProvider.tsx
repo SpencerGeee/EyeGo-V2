@@ -12,6 +12,8 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
+  interpolate,
+  cancelAnimation,
   runOnJS,
   useReducedMotion,
 } from 'react-native-reanimated';
@@ -36,16 +38,32 @@ export interface MorphSourceEntry {
   show: () => void;
 }
 
-type MorphPhase = 'idle' | 'forward' | 'settled' | 'reverse';
+type MorphPhase = 'idle' | 'forward' | 'settled' | 'reverse' | 'gesture';
 
 interface MorphContextValue {
   registerSource: (id: string, entry: MorphSourceEntry) => () => void;
   morphTo: (id: string, navigate: () => void) => void;
   morphBack: (navigateBack: () => void) => void;
   targetReady: (id: string, rect: MorphRect, borderRadius: number) => void;
-  /** Morph currently in flight / settled for this id (MorphTarget coordination). */
+  /**
+   * Yango-style gesture-interruptible reverse. Call from a PanGestureHandler's
+   * onStart/onActive/onEnd to drive the morph progress. Exposed so target
+   * screens can mount a MorphBackSwipeDetector or custom gesture handler.
+   *
+   * - onStart: cancel any running spring so the gesture takes over
+   * - onActive(dy): set morphProgress based on drag Y (0 = fully reversed)
+   * - onEnd(velocityY, commit): if past threshold, spring to 0 && call commit;
+   *   else spring back to 1
+   */
+  startMorphBackGesture: (onCommit: () => void) => MorphBackGestureHandle;
   activeId: string | null;
   phase: MorphPhase;
+}
+
+export interface MorphBackGestureHandle {
+  onStart: () => void;
+  onActive: (translationY: number) => void;
+  onEnd: (velocityY: number) => void;
 }
 
 const MorphContext = createContext<MorphContextValue | null>(null);
@@ -64,15 +82,30 @@ export function useMorphOptional() {
 /** If the destination never mounts a MorphTarget, dissolve the clone. */
 const TARGET_TIMEOUT_MS = 700;
 /** Cross-fade window between the clone and the real target content. */
-const CROSSFADE_MS = 150;
+const CROSSFADE_MS = 120;
+/** Pixels of drag needed to fully reverse the morph (Yango: ~250–300). */
+const GESTURE_FULL_REVERSE_DIST = 280;
+/** Progress below this threshold commits the back-navigation on release. */
+const GESTURE_COMMIT_THRESHOLD = 0.4;
+/** Release velocity (px/s) that forces commit regardless of progress. */
+const GESTURE_VELOCITY_THRESHOLD = 500;
 
 /**
- * Container-transform ("morph") primitive. Reanimated shared-element
- * transitions are unavailable on new-arch + Reanimated 4.1, so this flies a
- * measured clone in a root overlay instead: measure source → mount clone at
- * the source frame → navigate (route must use animation 'none' or 'fade') →
- * spring the clone to the target frame → cross-fade into the real content.
- * Falls back to plain navigation on low-tier devices or reduced motion.
+ * Container-transform ("morph") primitive — Yango-style.
+ *
+ * Architecture (progress-driven, gesture-interruptible):
+ * ------------------------------------------------------------------------
+ * The overlay position is derived from `morphProgress` (0→1 shared value),
+ * interpolating between the source and target rects. This lets both spring
+ * animations AND gesture input drive the same progress value, giving
+ * interruptible, velocity-aware morphs with zero positional snap.
+ *
+ * Forward:  measure source → mount clone at source frame → navigate →
+ *           target mounts → springs morphProgress 0→1 → crossfade
+ * Reverse:  re-mount clone → springs morphProgress 1→0 → unmount
+ * Gesture:  gesture handler cancels the spring → drives progress directly →
+ *           on end, snaps to 0 (reverse) or 1 (forward) based on
+ *           velocity + position threshold
  */
 export function MorphProvider({ children }: { children: React.ReactNode }) {
   const colors = useThemedColors();
@@ -80,7 +113,36 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const reducedMotion = useReducedMotion();
 
   const sources = useRef(new Map<string, MorphSourceEntry>());
-  const flight = useRef<{
+
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [phase, setPhase] = useState<MorphPhase>('idle');
+  const [cloneNode, setCloneNode] = useState<React.ReactNode>(null);
+  const [cloneBg, setCloneBg] = useState<string | undefined>(undefined);
+
+  // Source rect — set once when morphTo fires
+  const sourceX = useSharedValue(0);
+  const sourceY = useSharedValue(0);
+  const sourceW = useSharedValue(0);
+  const sourceH = useSharedValue(0);
+  const sourceR = useSharedValue(0);
+
+  // Target rect — set when target screen mounts and reports its frame
+  const targetX = useSharedValue(0);
+  const targetY = useSharedValue(0);
+  const targetW = useSharedValue(0);
+  const targetH = useSharedValue(0);
+  const targetR = useSharedValue(0);
+
+  // Progress: 0 = source position, 1 = target position
+  const morphProgress = useSharedValue(0);
+  // Clone crossfade opacity (1 while clone is visible, 0 after settling)
+  const cloneOpacity = useSharedValue(1);
+
+  // Ref for the gesture commit callback (set by startMorphBackGesture)
+  const gestureCommitRef = useRef<(() => void) | null>(null);
+
+  // Track flight data for cleanup
+  const flightRef = useRef<{
     id: string;
     sourceRect: MorphRect;
     sourceRadius: number;
@@ -89,45 +151,38 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     timeout: ReturnType<typeof setTimeout> | null;
   } | null>(null);
 
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [phase, setPhase] = useState<MorphPhase>('idle');
-  const [cloneNode, setCloneNode] = useState<React.ReactNode>(null);
-  const [cloneBg, setCloneBg] = useState<string | undefined>(undefined);
-
-  const x = useSharedValue(0);
-  const y = useSharedValue(0);
-  const w = useSharedValue(0);
-  const h = useSharedValue(0);
-  const r = useSharedValue(0);
-  const cloneOpacity = useSharedValue(1);
-  // Fixed content box so the clone's children never relayout mid-flight.
-  const contentW = useSharedValue(0);
-  const contentH = useSharedValue(0);
-
   const skipMorph = tier === 'low' || reducedMotion;
 
+  // ─── Cleanup ───────────────────────────────────────────────────────────
+
   const cleanup = useCallback((restoreSource: boolean) => {
-    const f = flight.current;
+    const f = flightRef.current;
     if (f?.timeout) clearTimeout(f.timeout);
     if (restoreSource && f) sources.current.get(f.id)?.show();
-    flight.current = null;
+    flightRef.current = null;
     setCloneNode(null);
     setActiveId(null);
     setPhase('idle');
   }, []);
 
-  const registerSource = useCallback((id: string, entry: MorphSourceEntry) => {
-    sources.current.set(id, entry);
-    return () => {
-      // Another instance may have re-registered under the same id already.
-      if (sources.current.get(id) === entry) sources.current.delete(id);
-    };
-  }, []);
+  // ─── Settle (crossfade clone → real content) ───────────────────────────
+
+  const settle = useCallback(() => {
+    setPhase('settled');
+    cloneOpacity.value = withTiming(0, { duration: CROSSFADE_MS });
+    setTimeout(() => {
+      const f = flightRef.current;
+      if (f?.timeout) clearTimeout(f.timeout);
+      setCloneNode(null);
+    }, CROSSFADE_MS + 20);
+  }, [cloneOpacity]);
+
+  // ─── Forward morph ─────────────────────────────────────────────────────
 
   const morphTo = useCallback(
     (id: string, navigate: () => void) => {
       const entry = sources.current.get(id);
-      if (!entry || skipMorph || flight.current) {
+      if (!entry || skipMorph || flightRef.current) {
         navigate();
         return;
       }
@@ -136,26 +191,38 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           navigate();
           return;
         }
-        flight.current = {
+
+        // Set source rects
+        sourceX.value = rect.x;
+        sourceY.value = rect.y;
+        sourceW.value = rect.width;
+        sourceH.value = rect.height;
+        sourceR.value = entry.borderRadius;
+
+        // Reset target rects to source (will update when target mounts)
+        targetX.value = rect.x;
+        targetY.value = rect.y;
+        targetW.value = rect.width;
+        targetH.value = rect.height;
+        targetR.value = entry.borderRadius;
+
+        // Reset progress to 0 (clone sits at source position)
+        morphProgress.value = 0;
+        cloneOpacity.value = 1;
+
+        // Set up flight tracking
+        flightRef.current = {
           id,
           sourceRect: rect,
           sourceRadius: entry.borderRadius,
           targetRect: null,
           targetRadius: entry.borderRadius,
           timeout: setTimeout(() => {
-            // Destination never reported a MorphTarget — dissolve gracefully.
             cloneOpacity.value = withTiming(0, { duration: durations.fast });
             setTimeout(() => cleanup(true), durations.fast);
           }, TARGET_TIMEOUT_MS),
         };
-        x.value = rect.x;
-        y.value = rect.y;
-        w.value = rect.width;
-        h.value = rect.height;
-        r.value = entry.borderRadius;
-        contentW.value = rect.width;
-        contentH.value = rect.height;
-        cloneOpacity.value = 1;
+
         setCloneBg(entry.backgroundColor);
         setCloneNode(entry.getClone());
         setActiveId(id);
@@ -164,74 +231,124 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         navigate();
       });
     },
-    [skipMorph, cleanup, x, y, w, h, r, contentW, contentH, cloneOpacity]
+    [skipMorph, cleanup, sourceX, sourceY, sourceW, sourceH, sourceR,
+     targetX, targetY, targetW, targetH, targetR, morphProgress, cloneOpacity]
   );
 
-  const settle = useCallback(() => {
-    setPhase('settled');
-    cloneOpacity.value = withTiming(0, { duration: CROSSFADE_MS });
-    setTimeout(() => {
-      const f = flight.current;
-      // Keep flight data for morphBack — only drop the clone node.
-      if (f?.timeout) clearTimeout(f.timeout);
-      setCloneNode(null);
-    }, CROSSFADE_MS + 20);
-  }, [cloneOpacity]);
+  // ─── Target ready ──────────────────────────────────────────────────────
 
   const targetReady = useCallback(
     (id: string, rect: MorphRect, borderRadius: number) => {
-      const f = flight.current;
-      if (!f || f.id !== id || phaseRef.current !== 'forward') return;
+      const f = flightRef.current;
+      if (!f || f.id !== id) return;
       if (f.timeout) {
         clearTimeout(f.timeout);
         f.timeout = null;
       }
+
+      // Set target rects
+      targetX.value = rect.x;
+      targetY.value = rect.y;
+      targetW.value = rect.width;
+      targetH.value = rect.height;
+      targetR.value = borderRadius;
       f.targetRect = rect;
       f.targetRadius = borderRadius;
-      x.value = withSpring(rect.x, springs.morph);
-      y.value = withSpring(rect.y, springs.morph);
-      h.value = withSpring(rect.height, springs.morph);
-      r.value = withSpring(borderRadius, springs.morph);
-      w.value = withSpring(rect.width, springs.morph, (finished) => {
+
+      // Spring progress from 0 → 1 — the overlay flies from source to target
+      morphProgress.value = withSpring(1, springs.morph, (finished) => {
         if (finished) runOnJS(settle)();
       });
     },
-    [x, y, w, h, r, settle]
+    [targetX, targetY, targetW, targetH, targetR, morphProgress, settle]
   );
 
-  // phase is read inside stable callbacks — mirror it in a ref.
-  const phaseRef = useRef<MorphPhase>('idle');
-  phaseRef.current = phase;
+  // ─── Gesture-interruptible reverse ─────────────────────────────────────
+
+  const startMorphBackGesture = useCallback(
+    (onCommit: () => void): MorphBackGestureHandle => {
+      gestureCommitRef.current = onCommit;
+
+      const handle: MorphBackGestureHandle = {
+        onStart: () => {
+          // Interrupt any running spring — gesture takes over
+          cancelAnimation(morphProgress);
+          setPhase('gesture');
+        },
+
+        onActive: (translationY: number) => {
+          // Map drag Y to progress decrease (Yango: ~280px = full reverse)
+          const drag = translationY / GESTURE_FULL_REVERSE_DIST;
+          morphProgress.value = Math.max(0, Math.min(1, 1 - drag));
+        },
+
+        onEnd: (velocityY: number) => {
+          const p = morphProgress.value;
+          const commit = p <= GESTURE_COMMIT_THRESHOLD || velocityY > GESTURE_VELOCITY_THRESHOLD;
+
+          if (commit) {
+            // Snap to 0 (fully reversed) then call the commit callback
+            morphProgress.value = withSpring(0, springs.morph, (finished) => {
+              if (finished) {
+                runOnJS(() => {
+                  const cb = gestureCommitRef.current;
+                  gestureCommitRef.current = null;
+                  cb?.();
+                })();
+              }
+            });
+          } else {
+            // Snap back to 1 (cancel gesture, stay on target screen)
+            morphProgress.value = withSpring(1, springs.morph);
+            setPhase('settled');
+          }
+        },
+      };
+
+      return handle;
+    },
+    [morphProgress]
+  );
+
+  // ─── Reverse morph (programmatic back) ─────────────────────────────────
 
   const morphBack = useCallback(
     (navigateBack: () => void) => {
-      const f = flight.current;
+      const f = flightRef.current;
       const entry = f ? sources.current.get(f.id) : null;
       if (!f || !f.targetRect || !entry || skipMorph) {
         cleanup(true);
         navigateBack();
         return;
       }
-      // Re-mount the clone at the target frame, pop the screen beneath it,
-      // then spring home to the source frame.
-      x.value = f.targetRect.x;
-      y.value = f.targetRect.y;
-      w.value = f.targetRect.width;
-      h.value = f.targetRect.height;
-      r.value = f.targetRadius;
+
+      // Re-mount the clone at the target frame
+      sourceX.value = f.sourceRect.x;
+      sourceY.value = f.sourceRect.y;
+      sourceW.value = f.sourceRect.width;
+      sourceH.value = f.sourceRect.height;
+      sourceR.value = f.sourceRadius;
+
+      targetX.value = f.targetRect.x;
+      targetY.value = f.targetRect.y;
+      targetW.value = f.targetRect.width;
+      targetH.value = f.targetRect.height;
+      targetR.value = f.targetRadius;
+
+      morphProgress.value = 1;
       cloneOpacity.value = 1;
       setCloneNode(entry.getClone());
       setPhase('reverse');
+
+      // Pop the screen, then spring progress back to 0
       navigateBack();
-      x.value = withSpring(f.sourceRect.x, springs.morph);
-      y.value = withSpring(f.sourceRect.y, springs.morph);
-      h.value = withSpring(f.sourceRect.height, springs.morph);
-      r.value = withSpring(f.sourceRadius, springs.morph);
-      w.value = withSpring(f.sourceRect.width, springs.morph, (finished) => {
+
+      morphProgress.value = withSpring(0, springs.morph, (finished) => {
         if (finished) runOnJS(finishReverse)();
       });
     },
-    [skipMorph, cleanup, x, y, w, h, r, cloneOpacity]
+    [skipMorph, cleanup, sourceX, sourceY, sourceW, sourceH, sourceR,
+     targetX, targetY, targetW, targetH, targetR, morphProgress, cloneOpacity]
   );
 
   const finishReverse = useCallback(() => {
@@ -240,25 +357,46 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     });
   }, [cloneOpacity, cleanup]);
 
+  // ─── Overlay style — progress-driven interpolation ─────────────────────
+
   const overlayStyle = useAnimatedStyle(() => ({
     position: 'absolute' as const,
-    left: x.value,
-    top: y.value,
-    width: w.value,
-    height: h.value,
-    borderRadius: r.value,
+    left: interpolate(morphProgress.value, [0, 1], [sourceX.value, targetX.value]),
+    top: interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]),
+    width: interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]),
+    height: interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]),
+    borderRadius: interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]),
     opacity: cloneOpacity.value,
     overflow: 'hidden' as const,
   }));
 
   const contentStyle = useAnimatedStyle(() => ({
-    width: contentW.value,
-    height: contentH.value,
+    width: interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]),
+    height: interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]),
   }));
 
+  // phaseRef for reading phase inside callbacks
+  const phaseRef = useRef<MorphPhase>('idle');
+  phaseRef.current = phase;
+
+  // ─── Context value ─────────────────────────────────────────────────────
+
   const value = useMemo<MorphContextValue>(
-    () => ({ registerSource, morphTo, morphBack, targetReady, activeId, phase }),
-    [registerSource, morphTo, morphBack, targetReady, activeId, phase]
+    () => ({
+      registerSource: (id, entry) => {
+        sources.current.set(id, entry);
+        return () => {
+          if (sources.current.get(id) === entry) sources.current.delete(id);
+        };
+      },
+      morphTo,
+      morphBack,
+      targetReady,
+      startMorphBackGesture,
+      activeId,
+      phase,
+    }),
+    [morphTo, morphBack, targetReady, startMorphBackGesture, activeId, phase]
   );
 
   return (
