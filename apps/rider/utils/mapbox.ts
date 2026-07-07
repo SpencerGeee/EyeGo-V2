@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect, useImperativeHandle } from 'react';
+import React, { useState, useContext, useEffect, useImperativeHandle, useRef } from 'react';
 
 // @maplibre/maplibre-react-native v9 predates Fabric support (MapLibre only
 // added a New Architecture compat layer in v10, with full support in v11 —
@@ -21,6 +21,13 @@ export default MapboxGL;
 // ---------------------------------------------------------------------------
 // react-native-maps adapter: matches the Mapbox/MapLibre component API used
 // throughout the app (MapView, Camera, MarkerView, PointAnnotation, etc.)
+//
+// Camera motion model: the map is UNCONTROLLED (initialRegion + imperative
+// `animateToRegion`) so camera moves glide instead of teleporting through
+// controlled-region re-renders, and a user pan never fights a render.
+// `setCamera` accepts Mapbox-style `padding` — emulated by shifting the
+// region center so the target sits centered in the UNOBSCURED part of the
+// map (e.g. the area above a bottom sheet).
 // ---------------------------------------------------------------------------
 function buildMapsAdapter() {
   const RNMaps = require('react-native-maps');
@@ -36,9 +43,12 @@ function buildMapsAdapter() {
   // Mapbox zoom → approximate latitudeDelta for react-native-maps
   const zoomToDelta = (zoom: number) => 360 / Math.pow(2, zoom);
 
-  // Context lets Camera/UserLocation (children) push state up into MapView
+  // Context lets Camera/UserLocation (children) drive the host MapView
   const MapRegionContext = React.createContext<{
-    setRegion: (r: any) => void;
+    setInitialRegion: (r: any) => void;
+    animateRegion: (r: any, durationMs: number) => void;
+    fitCoordinates: (coords: { latitude: number; longitude: number }[], edgePadding: any, animated: boolean) => void;
+    getMapHeight: () => number;
     setShowsUserLocation: (v: boolean) => void;
   } | null>(null);
 
@@ -49,31 +59,52 @@ function buildMapsAdapter() {
     compassEnabled,
     rotateEnabled,
     onRegionDidChange,
+    onUserPan,
   }: any) => {
-    const [region, setRegion] = useState<any>(null);
+    const mapRef = useRef<any>(null);
+    const mapHeightRef = useRef(0);
+    const [initialRegion, setInitialRegion] = useState<any>(null);
     const [showsUserLocation, setShowsUserLocation] = useState(false);
+
+    const ctxRef = useRef<any>(null);
+    if (!ctxRef.current) {
+      ctxRef.current = {
+        setInitialRegion: (r: any) => setInitialRegion((prev: any) => prev ?? r),
+        animateRegion: (r: any, durationMs: number) => {
+          if (mapRef.current?.animateToRegion) mapRef.current.animateToRegion(r, Math.max(durationMs, 1));
+          else setInitialRegion(r);
+        },
+        fitCoordinates: (coords: any[], edgePadding: any, animated: boolean) => {
+          mapRef.current?.fitToCoordinates?.(coords, { edgePadding, animated });
+        },
+        getMapHeight: () => mapHeightRef.current,
+        setShowsUserLocation: (v: boolean) => setShowsUserLocation(v),
+      };
+    }
 
     return React.createElement(
       MapRegionContext.Provider,
-      { value: { setRegion, setShowsUserLocation } },
+      { value: ctxRef.current },
       React.createElement(
         RNMapView,
         {
+          ref: mapRef,
           style,
-          region: region ?? undefined,
+          initialRegion: initialRegion ?? undefined,
           showsCompass: compassEnabled ?? false,
           rotateEnabled: rotateEnabled ?? true,
           showsScale: false,
           showsUserLocation,
           showsMyLocationButton: false,
           toolbarEnabled: false,
-          // Mapbox-style region callback; also syncs the controlled `region`
-          // so a re-render doesn't snap the map back after a user pan.
+          onLayout: (e: any) => {
+            mapHeightRef.current = e.nativeEvent.layout.height;
+          },
           onRegionChangeComplete: (r: any, details?: { isGesture?: boolean }) => {
-            if (details?.isGesture !== false) setRegion(r);
+            if (details?.isGesture) onUserPan?.();
             onRegionDidChange?.({
               geometry: { coordinates: [r.longitude, r.latitude] },
-              properties: { zoomLevel: Math.log2(360 / r.latitudeDelta) },
+              properties: { zoomLevel: Math.log2(360 / r.latitudeDelta), isUserInteraction: !!details?.isGesture },
             });
           },
         },
@@ -84,34 +115,51 @@ function buildMapsAdapter() {
 
   // Camera ──────────────────────────────────────────────────────────────────
   const ExpoCamera = React.forwardRef(
-    ({ centerCoordinate, zoomLevel }: any, ref: any) => {
+    ({ centerCoordinate, zoomLevel, animationDuration }: any, ref: any) => {
       const ctx = useContext(MapRegionContext);
+      const seededRef = useRef(false);
 
+      // Mapbox-style padding → shift region center so the target coordinate
+      // lands centered in the unobscured window (e.g. above a bottom sheet).
+      const regionFor = (coord: [number, number], zoom: number, padding?: any) => {
+        const latDelta = zoomToDelta(zoom);
+        let lat = coord[1];
+        const mapH = ctx?.getMapHeight() ?? 0;
+        if (padding && mapH > 0) {
+          const pb = padding.paddingBottom ?? 0;
+          const pt = padding.paddingTop ?? 0;
+          // Target must appear (pb - pt)/2 px ABOVE screen center, so the
+          // camera center sits that many px of latitude south of the target.
+          lat = coord[1] - ((pb - pt) / 2 / mapH) * latDelta;
+        }
+        return { latitude: lat, longitude: coord[0], latitudeDelta: latDelta, longitudeDelta: latDelta };
+      };
+
+      // Declarative center: first value seeds the map, changes animate with
+      // the declared duration (0 keeps legacy snap behavior).
       useEffect(() => {
         if (!ctx || !centerCoordinate) return;
         const lat = centerCoordinate[1];
         const lng = centerCoordinate[0];
         if (isNaN(lat) || isNaN(lng)) return;
-        const delta = zoomToDelta(zoomLevel ?? 12);
-        ctx.setRegion({
-          latitude: lat,
-          longitude: lng,
-          latitudeDelta: delta,
-          longitudeDelta: delta,
-        });
+        const region = regionFor([lng, lat], zoomLevel ?? 12);
+        if (!seededRef.current) {
+          seededRef.current = true;
+          ctx.setInitialRegion(region);
+          return;
+        }
+        ctx.animateRegion(region, animationDuration ?? 0);
       // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [centerCoordinate?.[0], centerCoordinate?.[1], zoomLevel]);
 
       useImperativeHandle(ref, () => ({
-        setCamera: ({ centerCoordinate: coord, zoomLevel: zoom }: any) => {
+        setCamera: ({ centerCoordinate: coord, zoomLevel: zoom, animationDuration: dur, padding }: any) => {
           if (!ctx || !coord) return;
-          const delta = zoomToDelta(zoom ?? 13);
-          ctx.setRegion({
-            latitude: coord[1],
-            longitude: coord[0],
-            latitudeDelta: delta,
-            longitudeDelta: delta,
-          });
+          ctx.animateRegion(regionFor(coord, zoom ?? 13, padding), dur ?? 350);
+        },
+        fitBounds: (coords: [number, number][], edgePadding?: any, animated = true) => {
+          if (!ctx || !coords?.length) return;
+          ctx.fitCoordinates(coords.map(toLatLng), edgePadding ?? { top: 80, bottom: 80, left: 60, right: 60 }, animated);
         },
       }));
 
@@ -121,10 +169,19 @@ function buildMapsAdapter() {
   ExpoCamera.displayName = 'ExpoCamera';
 
   // MarkerView ──────────────────────────────────────────────────────────────
-  const ExpoMarkerView = ({ coordinate, children }: any) =>
+  // `rotation`/`flat` map to native Marker props so car headings rotate
+  // without bitmap recapture; `tracksViewChanges` opt-in for animated
+  // marker content (pulse rings) — keep it false for static pins.
+  const ExpoMarkerView = ({ coordinate, children, rotation, flat, anchor, tracksViewChanges }: any) =>
     React.createElement(
       Marker,
-      { coordinate: toLatLng(coordinate), tracksViewChanges: false },
+      {
+        coordinate: toLatLng(coordinate),
+        tracksViewChanges: tracksViewChanges ?? false,
+        rotation: rotation ?? 0,
+        flat: flat ?? false,
+        anchor: anchor ?? { x: 0.5, y: 0.5 },
+      },
       children
     );
 
@@ -195,7 +252,7 @@ function buildFallback() {
     );
 
   const NoopCamera = React.forwardRef((_props: any, ref: any) => {
-    useImperativeHandle(ref, () => ({ setCamera: () => {} }));
+    useImperativeHandle(ref, () => ({ setCamera: () => {}, fitBounds: () => {} }));
     return null;
   });
   NoopCamera.displayName = 'NoopCamera';

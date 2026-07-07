@@ -16,7 +16,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { formatCurrency, formatDistance, formatDuration } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi } from '@eyego/api';
-import { Text, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 
 export default function TripCompleteScreen() {
   const colors = useColors();
@@ -100,7 +100,7 @@ export default function TripCompleteScreen() {
           style={styles.iconWrap}
         >
           <View style={styles.checkSquare}>
-            <Ionicons name="checkmark-circle" size={52} color={colors.primary} />
+            <AnimatedCheckmark size={52} color={colors.primary} strokeWidth={3.5} />
           </View>
         </MotiView>
 

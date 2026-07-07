@@ -1,5 +1,5 @@
 ﻿import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image, useWindowDimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
@@ -14,7 +14,7 @@ import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi } 
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, PulseRing, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { formatDuration, formatCurrency } from '@eyego/utils';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
@@ -22,6 +22,17 @@ import { haptic } from '../../../utils/haptics';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+
+/** Initial bearing (deg) from point 1 → point 2, for devices that send no compass heading. */
+function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = Math.PI / 180;
+  const dLng = (lng2 - lng1) * toRad;
+  const y = Math.sin(dLng) * Math.cos(lat2 * toRad);
+  const x =
+    Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
+    Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
 
 function useLocationInterpolation(targetCoords: { latitude: number; longitude: number; heading?: number } | null) {
   const [coords, setCoords] = useState(targetCoords);
@@ -35,7 +46,14 @@ function useLocationInterpolation(targetCoords: { latitude: number; longitude: n
     if (!targetCoords) return;
     const targetLat = targetCoords.latitude;
     const targetLng = targetCoords.longitude;
-    const targetHeading = targetCoords.heading ?? 0;
+    let targetHeading = targetCoords.heading ?? 0;
+    // No compass heading from the driver device → derive bearing from movement
+    // (only when the hop is > ~2m, otherwise GPS jitter spins the car).
+    const cur = coordsRef.current;
+    if (!targetCoords.heading && cur) {
+      const moved = Math.abs(targetLat - cur.latitude) + Math.abs(targetLng - cur.longitude);
+      targetHeading = moved > 0.00002 ? bearingBetween(cur.latitude, cur.longitude, targetLat, targetLng) : cur.heading ?? 0;
+    }
 
     // Prevent re-triggering animation if target coordinates are effectively the same
     // (within 5 decimal places ≈ ~1m at the equator). This avoids restarting the
@@ -276,6 +294,26 @@ export default function TrackingScreen() {
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['44%', '65%'], []);
+  const SNAP_PCTS = [0.44, 0.65];
+  const { height: screenH } = useWindowDimensions();
+  // Sheet-aware camera: bottom padding tracks the sheet snap so the focus
+  // target stays centered in the visible window above it, and the camera
+  // only follows while the user hasn't panned away (recenter chip resumes).
+  const sheetPadRef = useRef(screenH * SNAP_PCTS[0]);
+  const followingRef = useRef(true);
+  const [following, setFollowing] = useState(true);
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const frameOnTarget = useCallback(
+    (coord: [number, number], duration = 450) => {
+      cameraRef.current?.setCamera({
+        centerCoordinate: coord,
+        zoomLevel: 14,
+        animationDuration: duration,
+        padding: { paddingTop: insets.top + 90, paddingBottom: sheetPadRef.current },
+      });
+    },
+    [insets.top]
+  );
   const cameraRef = useRef<any>(null);
   // Guarded setters — only update if the value actually changed to prevent
   // unnecessary re-renders that could cascade into a "Maximum update depth exceeded" loop.
@@ -400,10 +438,9 @@ export default function TrackingScreen() {
 
     const unsubLocation = socketEvents.onDriverLocation((data) => {
       setDriverLocation({ latitude: data.latitude, longitude: data.longitude, heading: data.heading });
-      cameraRef.current?.setCamera({
-        centerCoordinate: [data.longitude, data.latitude],
-        animationDuration: 1000,
-      });
+      // Glide until the next ping (~3.5s) with sheet-aware framing; never
+      // fight the user — a manual pan pauses following until re-centered.
+      if (followingRef.current) frameOnTarget([data.longitude, data.latitude], 3400);
     });
 
     const unsubEta = socketEvents.onTripEta((data) => {
@@ -493,14 +530,18 @@ export default function TrackingScreen() {
         compassEnabled={false}
         rotateEnabled={false}
         scaleBarEnabled={false}
+        onUserPan={() => {
+          if (followingRef.current) {
+            followingRef.current = false;
+            setFollowing(false);
+          }
+        }}
       >
+        {/* Camera only SEEDS the initial frame — live following is imperative
+            (frameOnTarget) so the map glides instead of re-render snapping. */}
         <MapboxGL.Camera
           ref={cameraRef}
-          centerCoordinate={
-            tripInProgress
-              ? [animatedDriverCoord!.longitude, animatedDriverCoord!.latitude]
-              : passengerPickupCoord
-          }
+          centerCoordinate={passengerPickupCoord}
           zoomLevel={13}
           animationMode="none"
           animationDuration={0}
@@ -508,14 +549,25 @@ export default function TrackingScreen() {
         {/* Rider's current location — use UserLocation for native iOS/Android blue dot that updates automatically */}
         <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
 
-        {/* Pickup marker */}
-        <MapboxGL.MarkerView coordinate={passengerPickupCoord}>
-          <PulseMarker color={colors.secondary} />
+        {/* Pickup marker — radar pulse while waiting, calm dot once riding.
+            tracksViewChanges must be on for the rings to actually animate. */}
+        <MapboxGL.MarkerView coordinate={passengerPickupCoord} tracksViewChanges={!tripInProgress}>
+          {tripInProgress ? (
+            <PulseMarker color={colors.secondary} />
+          ) : (
+            <PulseRing size={72} color={colors.secondary} duration={2200}>
+              <PulseMarker color={colors.secondary} />
+            </PulseRing>
+          )}
         </MapboxGL.MarkerView>
 
-        {/* Driver marker — styled circle with car icon */}
-        <MapboxGL.MarkerView coordinate={[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude]}>
-          <View style={[styles.driverMarker, { transform: [{ rotate: `${animatedDriverCoord!.heading ?? 0}deg` }] }]}>
+        {/* Driver marker — native rotation prop, no bitmap recapture */}
+        <MapboxGL.MarkerView
+          coordinate={[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude]}
+          rotation={animatedDriverCoord!.heading ?? 0}
+          flat
+        >
+          <View style={styles.driverMarker}>
             <Ionicons name="car" size={18} color="#fff" />
           </View>
         </MapboxGL.MarkerView>
@@ -646,6 +698,40 @@ export default function TrackingScreen() {
         </MotiView>
       )}
 
+      {/* Re-center chip — appears when the user pans away; rides the sheet edge */}
+      {!following && (
+        <MotiView
+          from={{ opacity: 0, scale: 0.92, translateY: 10 }}
+          animate={{
+            opacity: 1,
+            scale: 1,
+            translateY: -(screenH * (SNAP_PCTS[sheetIndex] - SNAP_PCTS[0])),
+          }}
+          transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+          style={[styles.recenterChip, { bottom: screenH * SNAP_PCTS[0] + spacing.lg }]}
+        >
+          <Pressable
+            onPress={() => {
+              haptic.select();
+              followingRef.current = true;
+              setFollowing(true);
+              frameOnTarget(
+                tripInProgress
+                  ? [currentDriverCoord.longitude, currentDriverCoord.latitude]
+                  : (passengerPickupCoord as [number, number]),
+                600
+              );
+            }}
+            style={styles.recenterInner}
+            accessibilityRole="button"
+            accessibilityLabel="Re-center map"
+          >
+            <Ionicons name="locate" size={16} color={colors.primary} />
+            <Text variant="labelMedium" color={colors.onSurface}>Re-center</Text>
+          </Pressable>
+        </MotiView>
+      )}
+
       {/* Bottom sheet */}
       <BottomSheet
         ref={bottomSheetRef}
@@ -654,6 +740,20 @@ export default function TrackingScreen() {
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandle}
         enablePanDownToClose={false}
+        onChange={(index) => {
+          const i = Math.max(index, 0);
+          setSheetIndex(i);
+          sheetPadRef.current = screenH * SNAP_PCTS[i];
+          // Re-frame on snap settle so the target re-centers in the new window
+          if (followingRef.current) {
+            frameOnTarget(
+              tripInProgress
+                ? [currentDriverCoord.longitude, currentDriverCoord.latitude]
+                : (passengerPickupCoord as [number, number]),
+              400
+            );
+          }
+        }}
       >
         <BottomSheetScrollView
           contentContainerStyle={styles.sheetContent}
@@ -825,6 +925,27 @@ const pulseStyles = StyleSheet.create({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: 'transparent' },
+  recenterChip: {
+    position: 'absolute',
+    right: spacing['2xl'],
+    zIndex: 5,
+  },
+  recenterInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.3),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
   homeFloating: {
     position: 'absolute',
     left: spacing['2xl'],
