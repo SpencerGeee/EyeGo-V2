@@ -34,6 +34,8 @@ export interface PanelSheetProps {
   children: React.ReactNode;
   /** Expanded height cap as a fraction of screen height. */
   maxHeightPct?: number;
+  /** Mid stop height as a fraction of screen height. */
+  collapsedHeightPct?: number;
   /** Peak backdrop opacity at full expansion. */
   backdropOpacity?: number;
   /** Wrap children in an arbitrated scroll view (default true). */
@@ -49,6 +51,7 @@ export function PanelSheet({
   onDismiss,
   children,
   maxHeightPct = 0.85,
+  collapsedHeightPct,
   backdropOpacity = 0.65,
   scrollable = true,
   sheetStyle: sheetBodyStyle,
@@ -63,6 +66,7 @@ export function PanelSheet({
   // accurate BEFORE usePanelMotion initialises the spring engine.
   const [contentH, setContentH] = useState(0);
   const expanded = contentH > 0 ? screenH - Math.min(contentH, maxH) : screenH;
+  const collapsed = collapsedHeightPct ? screenH - Math.min(screenH * collapsedHeightPct, maxH) : undefined;
 
   // Ref indirection: usePanelMotion needs onDismissed at construction time,
   // but handleDismissed comes from usePanelLifecycle which depends on
@@ -77,8 +81,8 @@ export function PanelSheet({
     sheetStyle,
     snapToState,
   } = usePanelMotion({
-    snapPoints: { hidden: screenH, expanded },
-    initialState: 'hidden',
+    snapPoints: { hidden: screenH, collapsed, expanded },
+    initialState: collapsed !== undefined ? 'collapsed' : 'hidden',
     dismissible: true,
     onDismissed: () => { handleDismissedRef.current(); },
     onStateChange,
