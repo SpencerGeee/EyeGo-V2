@@ -2,25 +2,24 @@
 import {
   View,
   StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   Alert,
   Modal,
   FlatList,
 } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import * as Contacts from 'expo-contacts';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';import * as ImagePicker from 'expo-image-picker';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorph } from '@eyego/ui';
 import { getInitials } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -28,6 +27,13 @@ export default function EditProfileScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const { morphId } = useLocalSearchParams<{ morphId?: string }>();
+  const { morphBack } = useMorph();
+  // Reverse the hero-avatar morph back into the profile screen. Falls back to
+  // a plain pop when no morph is in flight (deep link / no source measured).
+  const handleBack = useCallback(() => {
+    morphBack(() => router.back());
+  }, [morphBack, router]);
   const { user, updateUser } = useAuthStore();
   const qc = useQueryClient();
 
@@ -115,7 +121,7 @@ export default function EditProfileScreen() {
     onSuccess: (updatedUser) => {
       updateUser(updatedUser);
       qc.invalidateQueries({ queryKey: ['user', 'profile'] });
-      router.back();
+      handleBack();
     },
     onError: () => {
       Alert.alert('Save Failed', 'Could not save your profile. Please check your connection and try again.');
@@ -149,25 +155,27 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <View style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Pressable onPress={handleBack} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall">Edit Profile</Text>
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView
+        <KeyboardAwareScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          bottomOffset={24}
         >
           {/* Avatar */}
           <View
             style={styles.avatarSection}
           >
+            <MorphTarget id={morphId ?? 'profile-hero-avatar'} borderRadius={48}>
             <Pressable onPress={pickImage} style={styles.avatarContainer}>
               <GradientGlowBorder
                 colors={PREMIUM_RING_COLORS}
@@ -192,6 +200,7 @@ export default function EditProfileScreen() {
                 <Ionicons name="camera-outline" size={14} color={colors.onPrimary} />
               </View>
             </Pressable>
+            </MorphTarget>
             <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
           </View>
 
@@ -298,19 +307,21 @@ export default function EditProfileScreen() {
               Something went wrong. Please try again.
             </Text>
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
-        {/* Fixed bottom Save */}
-        <View style={styles.footer}>
-          <Button
-            label="Save Changes"
-            onPress={handleSave}
-            disabled={name.trim().length < 2}
-            loading={saveProfile.isPending}
-            fullWidth
-          />
-        </View>
-      </KeyboardAvoidingView>
+        {/* Fixed bottom Save — rides the keyboard so it stays reachable */}
+        <KeyboardStickyView>
+          <View style={styles.footer}>
+            <Button
+              label="Save Changes"
+              onPress={handleSave}
+              disabled={name.trim().length < 2}
+              loading={saveProfile.isPending}
+              fullWidth
+            />
+          </View>
+        </KeyboardStickyView>
+      </View>
       <Modal visible={showContactPicker} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>

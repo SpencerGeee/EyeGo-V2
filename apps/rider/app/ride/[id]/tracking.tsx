@@ -14,8 +14,8 @@ import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi } 
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, GlassSurface, GradientGlowBorder, PulseRing, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
-import { formatDuration, formatCurrency } from '@eyego/utils';
+import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { formatDuration } from '@eyego/utils';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { shareLiveTracking } from '../../../utils/safety';
 import { haptic } from '../../../utils/haptics';
@@ -122,6 +122,67 @@ function useLocationInterpolation(targetCoords: { latitude: number; longitude: n
   ]);
 
   return coords;
+}
+
+// ── Polyline draw-in animation ───────────────────────────────────────────
+function usePolylineReveal(coords: [number, number][], skipAnimation?: boolean) {
+  const [revealed, setRevealed] = useState<[number, number][]>([]);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (coords.length < 2 || skipAnimation) {
+      setRevealed(coords);
+      return;
+    }
+
+    setRevealed([]);
+    const total = coords.length;
+    const duration = 1200;
+    const stepMs = 16;
+    const steps = Math.ceil(duration / stepMs);
+    let frame = 0;
+
+    const tick = () => {
+      frame++;
+      // ease-out: 1 - (1-t)^2
+      const t = Math.min(frame / steps, 1);
+      const easedIdx = Math.round((1 - (1 - t) * (1 - t)) * (total - 1));
+      setRevealed(coords.slice(0, easedIdx + 1));
+      if (frame < steps) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setRevealed(coords);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [coords, skipAnimation]);
+
+  return revealed;
+}
+
+// ── ETA rolling digits ───────────────────────────────────────────────────
+// Per-digit odometer roll (RollingDigits); the "away" suffix stays static so
+// only the numbers move on each socket tick.
+function RollingETA({ minutes, color }: { minutes: number; color: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <RollingDigits
+        text={formatDuration(minutes)}
+        value={minutes}
+        fontSize={fontSizes.bodySmall}
+        color={color}
+        fontFamily={fonts.semiBold}
+      />
+      <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, color }}>
+        {' '}away
+      </Text>
+    </View>
+  );
 }
 
 export default function TrackingScreen() {
@@ -329,6 +390,7 @@ export default function TrackingScreen() {
   const [etaDistanceKm, setEtaDistanceKm] = useState<number | null>(null);
   // Real route polyline from Mapbox Directions — [lng, lat][] pairs
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
+  const revealedCoords = usePolylineReveal(routeCoords, routeCoords.length < 3);
 
   // In-app status banner
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
@@ -453,28 +515,52 @@ export default function TrackingScreen() {
       }
     });
 
+    const stageConfig: Record<string, {
+      haptic?: () => void;
+      statusLabel: string;
+      banner: string;
+      navigate?: { getTo: () => Href; delay: number };
+      isCancellation?: true;
+    }> = {
+      COMPLETED: {
+        haptic: () => haptic.success(),
+        statusLabel: 'Arrived',
+        banner: 'You have arrived! Rate your trip',
+        navigate: {
+          getTo: () => {
+            const bid = capturedBookingIdRef.current || activeBookingRef.current?.id || '';
+            return `/ride/${id}/complete${bid ? `?bookingId=${bid}` : ''}` as Href;
+          },
+          delay: 1200,
+        },
+      },
+      DRIVER_EN_ROUTE: {
+        haptic: () => haptic.heavy(),
+        statusLabel: 'Driver on the way',
+        banner: 'Your driver has started the trip',
+      },
+      IN_PROGRESS: {
+        haptic: () => haptic.medium(),
+        statusLabel: 'Trip in progress',
+        banner: 'EyeGo has departed — enjoy the ride!',
+      },
+      CANCELLED: {
+        haptic: () => haptic.warning(),
+        statusLabel: 'Trip cancelled',
+        banner: 'Trip cancelled',
+        isCancellation: true,
+      },
+    };
+
     const unsubStatus = socketEvents.onTripStatus((data) => {
-      if (data.status === 'COMPLETED') {
-        haptic.success();
-        showBanner('You have arrived! Rate your trip');
-        const completedBookingId =
-          capturedBookingIdRef.current || activeBookingRef.current?.id || '';
-        setTimeout(() => {
-          if (!mountedRef.current) return;
-          disconnectSocket();
-          router.replace(`/ride/${id}/complete${completedBookingId ? `?bookingId=${completedBookingId}` : ''}` as Href);
-        }, 1200);
-      } else if (data.status === 'DRIVER_EN_ROUTE') {
-        haptic.heavy();
-        safeSetTripStatus('Driver on the way');
-        showBanner('Your driver has started the trip');
-      } else if (data.status === 'IN_PROGRESS') {
-        haptic.medium();
-        safeSetTripStatus('Trip in progress');
-        showBanner('EyeGo has departed — enjoy the ride!');
-      } else if (data.status === 'CANCELLED') {
-        haptic.warning();
-        safeSetTripStatus('Trip cancelled');
+      const stage = stageConfig[data.status];
+      if (!stage) return;
+
+      stage.haptic?.();
+      safeSetTripStatus(stage.statusLabel);
+      showBanner(stage.banner);
+
+      if (stage.isCancellation) {
         if (!mountedRef.current) return;
         disconnectSocket();
         useRideStore.getState().clearRideState();
@@ -484,6 +570,13 @@ export default function TrackingScreen() {
           [{ text: 'OK', onPress: () => router.replace('/(tabs)/home' as Href) }],
           { cancelable: false }
         );
+      } else if (stage.navigate) {
+        const { getTo, delay } = stage.navigate;
+        setTimeout(() => {
+          if (!mountedRef.current) return;
+          disconnectSocket();
+          router.replace(getTo());
+        }, delay);
       }
     });
 
@@ -580,7 +673,7 @@ export default function TrackingScreen() {
             geometry: {
               type: 'LineString',
               coordinates: routeCoords.length >= 2
-                ? routeCoords
+                ? revealedCoords
                 : tripInProgress
                   ? [[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude], destCoord]
                   : [[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude], passengerPickupCoord],
@@ -691,9 +784,7 @@ export default function TrackingScreen() {
         >
           <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
             <Ionicons name="time-outline" size={14} color={colors.primary} />
-            <Text style={styles.etaPillText}>
-              {formatDuration(tripEta)} away
-            </Text>
+            <RollingETA minutes={tripEta} color={colors.primary} />
           </BlurView>
         </MotiView>
       )}
@@ -771,7 +862,7 @@ export default function TrackingScreen() {
               <Text style={[styles.tierLabel, { color: tierColor }]}>{tier}</Text>
             </View>
             <View style={styles.fareBlock}>
-              <Text style={styles.fareAmount}>{formatCurrency(fare)}</Text>
+              <AnimatedFareText value={fare} variant="fareMedium" color={colors.primary} />
               <Text style={styles.fareEstLabel}>Est. total</Text>
             </View>
           </MotiView>
@@ -864,7 +955,7 @@ export default function TrackingScreen() {
           {tripEta != null && (
             <View style={styles.etaRow}>
               <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={styles.etaText}>{formatDuration(tripEta)} away</Text>
+              <RollingETA minutes={tripEta} color={colors.primary} />
               <Text style={styles.etaStatusText}>· {tripStatus}</Text>
             </View>
           )}
@@ -1029,13 +1120,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: 0.8,
   },
   fareBlock: { alignItems: 'flex-end' },
-  fareAmount: {
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
-    lineHeight: 28,
-    color: colors.primary,
-    letterSpacing: -0.5,
-  },
   fareEstLabel: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,

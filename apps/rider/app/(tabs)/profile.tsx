@@ -16,7 +16,7 @@ import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Pressable } from '@eyego/ui';
+import { Text, Pressable, MorphSource, useMorph } from '@eyego/ui';
 import { getInitials, formatCurrency } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -52,6 +52,8 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
+  const { morphTo } = useMorph();
+  const PROFILE_MORPH_ID = 'profile-hero-avatar';
 
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((e) => {
@@ -232,17 +234,19 @@ export default function ProfileScreen() {
         style={[styles.hero, { top: insets.top, height: HERO_HEIGHT }, heroStyle]}
       >
         <View style={styles.headerLeft}>
-          <Animated.View style={[styles.avatarRing, avatarStyle]}>
-            {user?.avatarUrl ? (
-              <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={[styles.avatarInitials, { color: colors.primary }]}>
-                  {user?.name ? getInitials(user.name) : '?'}
-                </Text>
-              </View>
-            )}
-          </Animated.View>
+          <MorphSource id={PROFILE_MORPH_ID} borderRadius={32} backgroundColor={colors.surfaceContainerHigh}>
+            <Animated.View style={[styles.avatarRing, avatarStyle]}>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={[styles.avatarInitials, { color: colors.primary }]}>
+                    {user?.name ? getInitials(user.name) : '?'}
+                  </Text>
+                </View>
+              )}
+            </Animated.View>
+          </MorphSource>
           <View style={{ flex: 1 }}>
             <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
               {user?.name ?? 'Set your name'}
@@ -259,7 +263,7 @@ export default function ProfileScreen() {
           </View>
         </View>
         <Pressable
-          onPress={() => router.push('/profile/edit' as any)}
+          onPress={() => morphTo(PROFILE_MORPH_ID, () => router.push('/profile/edit' as any))}
           haptic="light"
           style={styles.editBtn}
           accessibilityLabel="Edit profile"
