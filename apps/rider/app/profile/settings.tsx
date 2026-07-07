@@ -9,6 +9,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
 import i18n from '../../i18n';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -56,8 +57,7 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* General */}
-        <View
-          >
+        <Animated.View entering={FadeInDown.delay(60).springify().damping(18)}>
           <Text variant="labelCaps" style={styles.sectionLabel}>
             GENERAL
           </Text>
@@ -83,10 +83,11 @@ export default function SettingsScreen() {
               <Toggle value={isDark} onValueChange={setDark} />
             </View>
           </GlassSurface>
-        </View>
+        </Animated.View>
 
         {/* Notifications */}
-        <View
+        <Animated.View
+          entering={FadeInDown.delay(130).springify().damping(18)}
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="labelCaps" style={styles.sectionLabel}>
@@ -126,10 +127,11 @@ export default function SettingsScreen() {
               <Toggle value={smsUpdates} onValueChange={setSmsUpdates} />
             </View>
           </GlassSurface>
-        </View>
+        </Animated.View>
 
         {/* Accessibility */}
-        <View
+        <Animated.View
+          entering={FadeInDown.delay(200).springify().damping(18)}
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="labelCaps" style={styles.sectionLabel}>
@@ -147,7 +149,7 @@ export default function SettingsScreen() {
               <Toggle value={accessibilityPings} onValueChange={setAccessibilityPings} />
             </View>
           </GlassSurface>
-        </View>
+        </Animated.View>
       </ScrollView>
 
       {/* Language Picker Modal */}

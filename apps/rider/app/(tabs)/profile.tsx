@@ -1,15 +1,22 @@
-﻿import React, { useMemo } from 'react';
-import { View, StyleSheet, Pressable, Image, ScrollView, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useMemo } from 'react';
+import { View, StyleSheet, Image, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import Animated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  interpolate,
+  Extrapolation,
+  FadeInDown,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, Pressable } from '@eyego/ui';
 import { getInitials, formatCurrency } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -18,7 +25,6 @@ interface MenuItem {
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   accent?: 'primary' | 'success' | 'error';
-  destructive?: boolean;
 }
 
 interface MenuSection {
@@ -26,11 +32,31 @@ interface MenuSection {
   items: MenuItem[];
 }
 
+/**
+ * Profile hub — collapsing-hero motion.
+ *
+ * One shared value (`scrollY`) drives every header transform: the expanded
+ * hero (big avatar + name + chips) fades and lifts away while a compact pinned
+ * navbar fades in, mirroring the iOS large-title collapse. The avatar also
+ * scales on overscroll for a parallax depth cue. Nothing animates height or
+ * font size (relayout cost) — only transforms/opacity on the UI thread — and
+ * no child invents its own motion; each header layer reads the same `scrollY`.
+ */
+const HERO_HEIGHT = 128;   // expanded hero content, below the status bar
+const NAV_HEIGHT = 52;     // collapsed pinned navbar
+const COLLAPSE_DIST = HERO_HEIGHT - NAV_HEIGHT;
+
 export default function ProfileScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
+
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((e) => {
+    scrollY.value = e.contentOffset.y;
+  });
 
   const { data: tripsTotal } = useQuery({
     queryKey: ['bookings', 'completed', 'count'],
@@ -45,7 +71,6 @@ export default function ProfileScreen() {
     staleTime: 30_000,
   });
 
-  const tripsCount = (tripsTotal ?? 0).toString();
   const rating = (user as any)?.rating ? `${(user as any).rating}` : '4.9';
 
   const handleLogout = () => {
@@ -100,64 +125,38 @@ export default function ProfileScreen() {
     : accent === 'error' ? colors.statusError
     : colors.outline;
 
-  let rowDelayOffset = 0;
+  // ── Derived header motion (all from scrollY) ──────────────────────────────
+  const heroStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [0, COLLAPSE_DIST * 0.7], [1, 0], Extrapolation.CLAMP),
+    transform: [
+      { translateY: interpolate(scrollY.value, [0, COLLAPSE_DIST], [0, -24], Extrapolation.CLAMP) },
+    ],
+  }));
+
+  const avatarStyle = useAnimatedStyle(() => ({
+    transform: [
+      // Parallax scale-up on overscroll (pull-down), settle to 1 while scrolling up.
+      { scale: interpolate(scrollY.value, [-90, 0], [1.18, 1], { extrapolateLeft: Extrapolation.EXTEND, extrapolateRight: Extrapolation.CLAMP }) },
+    ],
+  }));
+
+  const navBarStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.value, [COLLAPSE_DIST * 0.45, COLLAPSE_DIST], [0, 1], Extrapolation.CLAMP),
+  }));
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        {/* ── Header row ── */}
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.snappy }}
-          style={styles.headerRow}
-        >
-          <View style={styles.headerLeft}>
-            <View style={styles.avatarRing}>
-              {user?.avatarUrl ? (
-                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={[styles.avatarInitials, { color: colors.primary }]}>
-                    {user?.name ? getInitials(user.name) : '?'}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
-                {user?.name ?? 'Set your name'}
-              </Text>
-              <View style={styles.chipsRow}>
-                <View style={styles.memberChip}>
-                  <Text style={styles.memberChipText}>Member</Text>
-                </View>
-                <View style={styles.ratingChip}>
-                  <Ionicons name="star" size={11} color={colors.tierPremium} />
-                  <Text style={styles.ratingChipText}>{rating}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-          <Pressable
-            onPress={() => router.push('/profile/edit' as any)}
-            style={styles.editBtn}
-            accessibilityLabel="Edit profile"
-            accessibilityRole="button"
-            hitSlop={8}
-          >
-            <Ionicons name="pencil" size={18} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </MotiView>
-
+    <View style={styles.safe}>
+      <Animated.ScrollView
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingTop: insets.top + HERO_HEIGHT + spacing.base },
+        ]}
+      >
         {/* ── Wallet card ── */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.snappy, delay: 40 }}
-          style={styles.walletCard}
-        >
+        <Animated.View entering={FadeInDown.delay(60).springify().damping(18)} style={styles.walletCard}>
           <View style={styles.walletGlow} pointerEvents="none" />
           <View style={styles.walletGlowSecondary} pointerEvents="none" />
           <View style={styles.walletRow}>
@@ -170,54 +169,54 @@ export default function ProfileScreen() {
             </View>
             <Pressable
               onPress={() => router.push('/profile/wallet' as any)}
-              style={({ pressed }) => [styles.topUpBtn, pressed && { transform: [{ scale: 0.96 }] }]}
+              haptic="light"
+              style={styles.topUpBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Top up wallet"
             >
               <Text style={styles.topUpText}>Top Up</Text>
             </Pressable>
           </View>
-        </MotiView>
+        </Animated.View>
 
-        {/* ── Menu sections ── */}
-        {menuSections.map((section) => {
-          const sectionDelay = 40;
-          rowDelayOffset += section.items.length + 1;
-          return (
-            <MotiView
-              key={section.title}
-              from={{ opacity: 0, translateY: 8 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', ...springs.snappy, delay: sectionDelay }}
-              style={styles.sectionWrapper}
-            >
-              <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
-              <View style={styles.sectionCard}>
-                {section.items.map((item, itemIdx) => (
-                  <Pressable
-                    key={item.label}
-                    style={[
-                      styles.menuItem,
-                      itemIdx === section.items.length - 1 && styles.menuItemLast,
-                    ]}
-                    onPress={item.onPress}
-                    accessibilityRole="button"
+        {/* ── Menu sections (staggered reveal) ── */}
+        {menuSections.map((section, sIdx) => (
+          <Animated.View
+            key={section.title}
+            entering={FadeInDown.delay(120 + sIdx * 70).springify().damping(18)}
+            style={styles.sectionWrapper}
+          >
+            <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>
+            <View style={styles.sectionCard}>
+              {section.items.map((item, itemIdx) => (
+                <Pressable
+                  key={item.label}
+                  haptic="light"
+                  scaleOnPress={0.98}
+                  style={
+                    itemIdx === section.items.length - 1
+                      ? [styles.menuItem, styles.menuItemLast]
+                      : styles.menuItem
+                  }
+                  onPress={item.onPress}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name={item.icon} size={20} color={accentColor(item.accent)} />
+                  <Text
+                    variant="bodyLarge"
+                    style={{ flex: 1, color: item.accent === 'error' ? colors.statusError : colors.onSurface }}
                   >
-                    <Ionicons name={item.icon} size={20} color={accentColor(item.accent)} />
-                    <Text
-                      variant="bodyLarge"
-                      style={{ flex: 1, color: item.accent === 'error' ? colors.statusError : colors.onSurface }}
-                    >
-                      {item.label}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={16} color={colors.outline} />
-                  </Pressable>
-                ))}
-              </View>
-            </MotiView>
-          );
-        })}
+                    {item.label}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.outline} />
+                </Pressable>
+              ))}
+            </View>
+          </Animated.View>
+        ))}
 
         {/* ── Log out ── */}
-        <Pressable onPress={handleLogout} style={styles.logoutBtn} accessibilityRole="button">
+        <Pressable onPress={handleLogout} haptic="medium" style={styles.logoutBtn} accessibilityRole="button">
           <Ionicons name="log-out-outline" size={20} color={colors.statusError} />
           <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
@@ -225,20 +224,101 @@ export default function ProfileScreen() {
         <Text variant="caption" color={colors.onSurfaceVariant} style={styles.version}>
           EyeGo v1.0.0
         </Text>
-      </ScrollView>
-    </SafeAreaView>
+      </Animated.ScrollView>
+
+      {/* ── Expanded hero (fades + lifts away on scroll) ── */}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.hero, { top: insets.top, height: HERO_HEIGHT }, heroStyle]}
+      >
+        <View style={styles.headerLeft}>
+          <Animated.View style={[styles.avatarRing, avatarStyle]}>
+            {user?.avatarUrl ? (
+              <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={[styles.avatarInitials, { color: colors.primary }]}>
+                  {user?.name ? getInitials(user.name) : '?'}
+                </Text>
+              </View>
+            )}
+          </Animated.View>
+          <View style={{ flex: 1 }}>
+            <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
+              {user?.name ?? 'Set your name'}
+            </Text>
+            <View style={styles.chipsRow}>
+              <View style={styles.memberChip}>
+                <Text style={styles.memberChipText}>Member</Text>
+              </View>
+              <View style={styles.ratingChip}>
+                <Ionicons name="star" size={11} color={colors.tierPremium} />
+                <Text style={styles.ratingChipText}>{rating}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+        <Pressable
+          onPress={() => router.push('/profile/edit' as any)}
+          haptic="light"
+          style={styles.editBtn}
+          accessibilityLabel="Edit profile"
+          accessibilityRole="button"
+          hitSlop={8}
+        >
+          <Ionicons name="pencil" size={18} color={colors.onSurfaceVariant} />
+        </Pressable>
+      </Animated.View>
+
+      {/* ── Collapsed pinned navbar (fades in as hero leaves) ── */}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.navBar, { paddingTop: insets.top, height: insets.top + NAV_HEIGHT }, navBarStyle]}
+      >
+        <View style={styles.navContent}>
+          <View style={styles.navAvatar}>
+            {user?.avatarUrl ? (
+              <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={[styles.navAvatarInitials, { color: colors.primary }]}>
+                  {user?.name ? getInitials(user.name) : '?'}
+                </Text>
+              </View>
+            )}
+          </View>
+          <Text variant="titleSmall" numberOfLines={1} style={styles.navTitle}>
+            {user?.name ?? 'Profile'}
+          </Text>
+          <Pressable
+            onPress={() => router.push('/profile/edit' as any)}
+            haptic="light"
+            style={styles.navEditBtn}
+            accessibilityLabel="Edit profile"
+            accessibilityRole="button"
+            hitSlop={8}
+          >
+            <Ionicons name="pencil" size={16} color={colors.onSurfaceVariant} />
+          </Pressable>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'transparent' },
-  scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base, paddingBottom: TAB_BAR_BASE_HEIGHT + 64 },
+  scroll: { paddingHorizontal: spacing['2xl'], paddingBottom: TAB_BAR_BASE_HEIGHT + 64 },
 
-  headerRow: {
+  // Expanded hero
+  hero: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing['2xl'],
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.xl,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
   avatarRing: {
@@ -291,6 +371,42 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Collapsed pinned navbar
+  navBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    backgroundColor: withOpacity(colors.surfaceCard ?? colors.surfaceContainer, 0.92),
+    borderBottomWidth: 1,
+    borderBottomColor: colors.rimLightSubtle,
+  },
+  navContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing['2xl'],
+  },
+  navAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: `${colors.primary}80`,
+    overflow: 'hidden',
+  },
+  navAvatarInitials: { fontFamily: fonts.displayBold, fontSize: 13, lineHeight: 17 },
+  navTitle: { flex: 1, color: colors.onSurface },
+  navEditBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: colors.surfaceContainer,
     alignItems: 'center',
     justifyContent: 'center',
