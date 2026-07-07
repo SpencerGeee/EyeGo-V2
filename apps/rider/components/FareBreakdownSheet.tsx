@@ -1,13 +1,15 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
-import { MotiView } from 'moti';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, PanelSheet } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 
 /**
  * Per-trip fare breakdown bottom sheet (matches the client's reference design).
+ *
+ * Motion comes from the shared `PanelSheet` engine (spring open, velocity
+ * drag-to-dismiss, derived backdrop) — this component owns content only.
  *
  * The exact line-item rates (wait-time, booking fee, fixed platform fee) are
  * presentational config — Ghana-market defaults that mirror the reference
@@ -45,59 +47,43 @@ export function FareBreakdownSheet({
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Dismiss price breakdown" accessibilityRole="button">
-        {/* Stop propagation so taps inside the sheet don't close it */}
-        <Pressable style={{ width: '100%' }} onPress={(e) => e.stopPropagation()}>
-          <MotiView
-            from={{ translateY: 40, opacity: 0 }}
-            animate={{ translateY: 0, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 38 }}
-            style={styles.sheet}
-          >
-            <View style={styles.grabber} />
-
-            <View style={styles.headerRow}>
-              <Text variant="titleMedium">Price details</Text>
-              <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
-                <Ionicons name="close" size={22} color={colors.onSurface} />
-              </Pressable>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-              {/* Surge banner */}
-              {surge && (
-                <View style={styles.surgeBanner} accessibilityRole="alert">
-                  <Ionicons name="chevron-up" size={18} color={'#A66A00'} />
-                  <Text variant="bodySmall" style={{ flex: 1, color: '#7A4E00' }}>
-                    Prices are temporarily higher due to increased demand.
-                  </Text>
-                </View>
-              )}
-
-              {/* Fare headline */}
-              <View style={styles.fareHeader}>
-                <Text variant="titleLarge">Fare</Text>
-                <Text variant="fareMedium" color={colors.onSurface} style={{ fontWeight: '700' }}>
-                  {gh(fare, 0)}
-                </Text>
-              </View>
-
-              <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
-              <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
-              <DottedRow label="Platform Fee" value={gh(platformFee)} colors={colors} styles={styles} />
-              <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
-              <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
-
-              <Text variant="caption" color={colors.onSurfaceVariant} style={styles.disclaimer}>
-                The price estimation can change if actual tolls/surcharges differ from estimation (city based).
-                If the journey changes, the price will be based on rates provided.
-              </Text>
-            </ScrollView>
-          </MotiView>
+    <PanelSheet visible={visible} onDismiss={onClose} maxHeightPct={0.8} sheetStyle={styles.sheet}>
+      <View style={styles.headerRow}>
+        <Text variant="titleMedium">Price details</Text>
+        <Pressable onPress={onClose} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+          <Ionicons name="close" size={22} color={colors.onSurface} />
         </Pressable>
-      </Pressable>
-    </Modal>
+      </View>
+
+      {/* Surge banner */}
+      {surge && (
+        <View style={styles.surgeBanner} accessibilityRole="alert">
+          <Ionicons name="chevron-up" size={18} color={'#A66A00'} />
+          <Text variant="bodySmall" style={{ flex: 1, color: '#7A4E00' }}>
+            Prices are temporarily higher due to increased demand.
+          </Text>
+        </View>
+      )}
+
+      {/* Fare headline */}
+      <View style={styles.fareHeader}>
+        <Text variant="titleLarge">Fare</Text>
+        <Text variant="fareMedium" color={colors.onSurface} style={{ fontWeight: '700' }}>
+          {gh(fare, 0)}
+        </Text>
+      </View>
+
+      <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
+      <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
+      <DottedRow label="Platform Fee" value={gh(platformFee)} colors={colors} styles={styles} />
+      <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
+      <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
+
+      <Text variant="caption" color={colors.onSurfaceVariant} style={styles.disclaimer}>
+        The price estimation can change if actual tolls/surcharges differ from estimation (city based).
+        If the journey changes, the price will be based on rates provided.
+      </Text>
+    </PanelSheet>
   );
 }
 
@@ -125,27 +111,12 @@ function DottedRow({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    backdrop: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.65)',
-      justifyContent: 'flex-end',
-    },
     sheet: {
       backgroundColor: colors.surfaceCard,
       borderTopLeftRadius: radii['4xl'],
       borderTopRightRadius: radii['4xl'],
       paddingHorizontal: spacing.xl,
       paddingTop: spacing.md,
-      paddingBottom: spacing['3xl'],
-      maxHeight: '80%',
-    },
-    grabber: {
-      alignSelf: 'center',
-      width: 40,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: 'rgba(255,255,255,0.18)',
-      marginBottom: spacing.base,
     },
     headerRow: {
       flexDirection: 'row',

@@ -52,3 +52,5 @@ export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
 export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
 export type { MorphRect } from './morph';
+export { PanelSheet, usePanelMotion, panelSpring } from './panel';
+export type { PanelSheetProps, PanelState, PanelSnapPoints, PanelMotionOptions } from './panel';

@@ -1,7 +1,7 @@
 ﻿import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import BottomSheet, { BottomSheetScrollView, useBottomSheetSpringConfigs } from '@gorhom/bottom-sheet';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
@@ -44,6 +44,9 @@ export default function RideDetailScreen() {
   const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare } = useRideStore();
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['58%', '85%'], []);
+  // Same physical spring as the @eyego/ui panel engine so release velocity
+  // carries into the settle and both sheets feel like one system.
+  const sheetSpringConfigs = useBottomSheetSpringConfigs({ stiffness: 320, damping: 34, mass: 0.9 });
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selectedTier, setSelectedTier] = useState<TierKey>(
     (tierParam?.toUpperCase() as TierKey) ?? 'ECONOMY'
@@ -241,6 +244,7 @@ export default function RideDetailScreen() {
         ref={bottomSheetRef}
         index={0}
         snapPoints={snapPoints}
+        animationConfigs={sheetSpringConfigs}
         backgroundStyle={styles.sheetBackground}
         handleIndicatorStyle={styles.sheetHandle}
         enablePanDownToClose={false}
