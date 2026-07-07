@@ -265,6 +265,15 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Gesture-interruptible reverse ─────────────────────────────────────
 
+  // Stable JS-thread commit — invoked from a worklet via runOnJS. Inline
+  // arrow closures passed to runOnJS don't serialize reliably in release
+  // builds (a known crash source), so the callback is hoisted here.
+  const runGestureCommit = useCallback(() => {
+    const cb = gestureCommitRef.current;
+    gestureCommitRef.current = null;
+    cb?.();
+  }, []);
+
   const startMorphBackGesture = useCallback(
     (onCommit: () => void): MorphBackGestureHandle => {
       gestureCommitRef.current = onCommit;
@@ -289,13 +298,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           if (commit) {
             // Snap to 0 (fully reversed) then call the commit callback
             morphProgress.value = withSpring(0, springs.morph, (finished) => {
-              if (finished) {
-                runOnJS(() => {
-                  const cb = gestureCommitRef.current;
-                  gestureCommitRef.current = null;
-                  cb?.();
-                })();
-              }
+              if (finished) runOnJS(runGestureCommit)();
             });
           } else {
             // Snap back to 1 (cancel gesture, stay on target screen)
@@ -307,7 +310,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
       return handle;
     },
-    [morphProgress]
+    [morphProgress, runGestureCommit]
   );
 
   // ─── Reverse morph (programmatic back) ─────────────────────────────────
@@ -378,6 +381,17 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // phaseRef for reading phase inside callbacks
   const phaseRef = useRef<MorphPhase>('idle');
   phaseRef.current = phase;
+
+  // Teardown on unmount — cancel any in-flight spring and clear the flight
+  // timeout so a settle/cleanup callback can't fire against a dead tree.
+  React.useEffect(() => {
+    return () => {
+      cancelAnimation(morphProgress);
+      cancelAnimation(cloneOpacity);
+      const f = flightRef.current;
+      if (f?.timeout) clearTimeout(f.timeout);
+    };
+  }, [morphProgress, cloneOpacity]);
 
   // ─── Context value ─────────────────────────────────────────────────────
 
