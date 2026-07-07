@@ -34,6 +34,7 @@ export { SeatBar } from './SeatBar';
 export { TierSelector } from './TierSelector';
 export { DriverInfoCard } from './DriverInfoCard';
 export { AnimatedFareText } from './AnimatedFareText';
+export { RollingDigits } from './RollingDigits';
 export { RideCard } from './RideCard';
 
 // Premium Effects
@@ -56,5 +57,5 @@ export { PulseRing } from './effects/PulseRing';
 export type { PulseRingProps } from './effects/PulseRing';
 export { AnimatedCheckmark } from './effects/AnimatedCheckmark';
 export type { AnimatedCheckmarkProps } from './effects/AnimatedCheckmark';
-export { PanelSheet, usePanelMotion, panelSpring } from './panel';
+export { PanelSheet, usePanelMotion, usePanelLifecycle, panelSpring } from './panel';
 export type { PanelSheetProps, PanelState, PanelSnapPoints, PanelMotionOptions } from './panel';

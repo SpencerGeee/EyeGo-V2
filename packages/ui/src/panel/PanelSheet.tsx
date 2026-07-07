@@ -12,6 +12,7 @@ import { GestureDetector, GestureHandlerRootView } from 'react-native-gesture-ha
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePanelMotion, type PanelState } from './usePanelMotion';
+import { usePanelLifecycle } from './usePanelLifecycle';
 
 /**
  * Gesture-driven modal bottom panel built on the `usePanelMotion` engine:
@@ -56,21 +57,17 @@ export function PanelSheet({
 }: PanelSheetProps) {
   const { height: screenH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [mounted, setMounted] = useState(visible);
-  const [contentH, setContentH] = useState(0);
-
   const maxH = Math.round(screenH * maxHeightPct);
+
+  // contentHeight is measured inline so expanded snap-point is
+  // accurate BEFORE usePanelMotion initialises the spring engine.
+  const [contentH, setContentH] = useState(0);
   const expanded = contentH > 0 ? screenH - Math.min(contentH, maxH) : screenH;
 
-  // Ref so a re-render mid-dismissal can't swap the callback under the spring.
-  const onDismissRef = useRef(onDismiss);
-  onDismissRef.current = onDismiss;
-
-  const handleDismissed = useCallback(() => {
-    setMounted(false);
-    setContentH(0);
-    onDismissRef.current();
-  }, []);
+  // Ref indirection: usePanelMotion needs onDismissed at construction time,
+  // but handleDismissed comes from usePanelLifecycle which depends on
+  // snapToState (returned by usePanelMotion).  The ref breaks the cycle.
+  const handleDismissedRef = useRef<() => void>(() => {});
 
   const {
     progress,
@@ -83,21 +80,23 @@ export function PanelSheet({
     snapPoints: { hidden: screenH, expanded },
     initialState: 'hidden',
     dismissible: true,
-    onDismissed: handleDismissed,
+    onDismissed: () => { handleDismissedRef.current(); },
     onStateChange,
   });
 
-  useEffect(() => {
-    if (visible) setMounted(true);
-  }, [visible]);
+  const { mounted, handleDismissed } = usePanelLifecycle({
+    visible,
+    contentH,
+    snapToState,
+    onDismiss,
+    setContentH,
+  });
 
+  // Keep the ref in sync — runs after every render so by the time a spring
+  // completion fires asynchronously the latest handleDismissed is always hit.
   useEffect(() => {
-    if (mounted && visible && contentH > 0) snapToState('expanded');
-  }, [mounted, visible, contentH, snapToState]);
-
-  useEffect(() => {
-    if (!visible && mounted && contentH > 0) snapToState('hidden');
-  }, [visible, mounted, contentH, snapToState]);
+    handleDismissedRef.current = handleDismissed;
+  });
 
   const dismiss = useCallback(() => snapToState('hidden'), [snapToState]);
 
