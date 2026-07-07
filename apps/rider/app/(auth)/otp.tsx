@@ -4,10 +4,9 @@ import {
   TextInput,
   StyleSheet,
   Pressable,
-  Platform,
   Alert,
-  KeyboardAvoidingView,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
@@ -164,9 +163,10 @@ export default function OtpScreen() {
         </Pressable>
       </MotiView>
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <KeyboardAwareScrollView
         style={{ flex: 1 }}
+        contentContainerStyle={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
       >
       <View style={styles.container}>
         {/* Headline */}
@@ -266,7 +266,7 @@ export default function OtpScreen() {
           )}
         </MotiView>
       </View>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

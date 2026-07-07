@@ -1,5 +1,6 @@
 ﻿import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Pressable, RefreshControl } from 'react-native';
+import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,6 +32,12 @@ function getTypeIcons(colors: Colors): Record<AppNotification['type'], { icon: k
     promo: { icon: 'gift-outline', color: colors.tierPremium },
     system: { icon: 'notifications-outline', color: colors.onSurfaceVariant },
   };
+}
+
+// FlashList ignores `gap` in contentContainerStyle — restore row spacing via
+// a separator (matches the old list's spacing.sm gap).
+function NotifSeparator() {
+  return <View style={{ height: spacing.sm }} />;
 }
 
 function SkeletonCard() {
@@ -236,10 +243,14 @@ export default function NotificationsScreen() {
           {[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={filteredNotifications}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={{
+            paddingHorizontal: spacing['2xl'],
+            paddingBottom: 100,
+          }}
+          ItemSeparatorComponent={NotifSeparator}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl

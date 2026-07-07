@@ -3,12 +3,10 @@ import {
   View,
   StyleSheet,
   Pressable,
-  ScrollView,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
@@ -184,11 +182,12 @@ export default function RateTipScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
+      <View style={{ flex: 1 }}>
+        <KeyboardAwareScrollView
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          bottomOffset={24}
         >
           {/* Title block */}
           <MotiView
@@ -382,9 +381,10 @@ export default function RateTipScreen() {
               textAlignVertical="top"
             />
           </MotiView>
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
-        {/* Sticky footer */}
+        {/* Sticky footer — rides the keyboard while the comment box is focused */}
+        <KeyboardStickyView>
         <MotiView
           from={{ opacity: 0, translateY: 16 }}
           animate={{ opacity: 1, translateY: 0 }}
@@ -408,7 +408,8 @@ export default function RateTipScreen() {
             <Text style={styles.skipText}>Maybe later</Text>
           </Pressable>
         </MotiView>
-      </KeyboardAvoidingView>
+        </KeyboardStickyView>
+      </View>
     </SafeAreaView>
   );
 }

@@ -1007,6 +1007,15 @@
     dotenv-expand "~11.0.6"
     getenv "^2.0.0"
 
+"@expo/env@~2.1.2":
+  version "2.1.2"
+  resolved "https://registry.npmjs.org/@expo/env/-/env-2.1.2.tgz"
+  integrity sha512-RJtGFfj/ygO/6zcVbV3cckHf4THcEkv5IZft1GjCB3dfT6axvzvIwXE9EiQqQYmGHcQ+ZrvC8xZcIhiHba0pYg==
+  dependencies:
+    chalk "^4.0.0"
+    debug "^4.3.4"
+    getenv "^2.0.0"
+
 "@expo/fingerprint@0.15.5":
   version "0.15.5"
   resolved "https://registry.npmjs.org/@expo/fingerprint/-/fingerprint-0.15.5.tgz"
@@ -1318,8 +1327,10 @@
     "@react-native-community/datetimepicker" "8.4.4"
     "@react-native-community/netinfo" "^11.5.2"
     "@react-native-masked-view/masked-view" "0.3.2"
+    "@react-navigation/native" "^7.2.4"
     "@sentry/react-native" "~6.10.0"
     "@shopify/flash-list" "^2.3.1"
+    "@shopify/react-native-skia" "^2.2.12"
     "@tanstack/react-query" "^5.100.10"
     axios "^1.16.1"
     babel-preset-expo "^54.0.10"
@@ -2284,7 +2295,7 @@
   resolved "https://registry.npmjs.org/@shopify/flash-list/-/flash-list-2.3.1.tgz"
   integrity sha512-7oktg2NQR7KAODjFoDaWe8/OBzyYbdTE3zQTrUBMxjIbxHTHN7UXRX1hX3DHk8KvtkgQdRfZOV8Gjj2l4fGrXw==
 
-"@shopify/react-native-skia@^2.2.12":
+"@shopify/react-native-skia@*", "@shopify/react-native-skia@^2.2.12":
   version "2.2.12"
   resolved "https://registry.npmjs.org/@shopify/react-native-skia/-/react-native-skia-2.2.12.tgz"
   integrity sha512-P5wZSMPTp00hM0do+awNFtb5aPh5hSpodMGwy7NaxK90AV+SmUu7wZe6NGevzQIwgFa89Epn6xK3j4jKWdQi+A==
@@ -3878,10 +3889,15 @@ expo-apple-authentication@~8.0.8:
   resolved "https://registry.npmjs.org/expo-apple-authentication/-/expo-apple-authentication-8.0.8.tgz"
   integrity sha512-TwCHWXYR1kS0zaeV7QZKLWYluxsvqL31LFJubzK30njZqeWoWO89HZ8nZVaeXbFV1LrArKsze4BmMb+94wS0AQ==
 
-expo-application@~7.0.8:
+expo-application@~55.0.15:
   version "55.0.15"
   resolved "https://registry.npmjs.org/expo-application/-/expo-application-55.0.15.tgz"
   integrity sha512-eWf5OGrat1r/TYr0daL684C6pJYiN2k30NmcISsD9fbtZLfA6Sbo/JebfYzP3OjO/T/i8j/9Pf3ePqUYPLfZnw==
+
+expo-application@~7.0.8:
+  version "7.0.8"
+  resolved "https://registry.npmjs.org/expo-application/-/expo-application-7.0.8.tgz"
+  integrity sha512-qFGyxk7VJbrNOQWBbE09XUuGuvkOgFS9QfToaK2FdagM2aQ+x3CvGV2DuVgl/l4ZxPgIf3b/MNh9xHpwSwn74Q==
 
 expo-asset@~12.0.13:
   version "12.0.13"
@@ -3908,6 +3924,13 @@ expo-constants@^18.0.13, expo-constants@~18.0.13:
   dependencies:
     "@expo/config" "~12.0.13"
     "@expo/env" "~2.0.8"
+
+expo-constants@~55.0.16:
+  version "55.0.16"
+  resolved "https://registry.npmjs.org/expo-constants/-/expo-constants-55.0.16.tgz"
+  integrity sha512-Z15/No94UHoogD+pulxjudGAeOHTEIWZgb/vnX48Wx5D+apWTeCbnKxQZZtGQlosvduYL5kaic2/W8U+NHfBQQ==
+  dependencies:
+    "@expo/env" "~2.1.2"
 
 expo-contacts@~15.0.11:
   version "15.0.11"
@@ -4066,17 +4089,15 @@ expo-modules-core@3.0.30:
     invariant "^2.2.4"
 
 expo-notifications@^55.0.23, expo-notifications@~0.32.17:
-  version "0.32.17"
-  resolved "https://registry.npmjs.org/expo-notifications/-/expo-notifications-0.32.17.tgz"
-  integrity sha512-lwwzn7tImuzTzn9PAglZlS2VfZEvsfFGJTK9Eb8I4cqkGh2DI23YJFJH+WPEIu4QhDvk5JeBjklenJ8IZbmA4A==
+  version "55.0.23"
+  resolved "https://registry.npmjs.org/expo-notifications/-/expo-notifications-55.0.23.tgz"
+  integrity sha512-oWEsBZSedRFu+ErcJaIev7QQhCE/gTRO6KURAkFpMflMgI3yjT4O/qixXh4tHmEk5zfoOpR2u79AzvVcchfwww==
   dependencies:
-    "@expo/image-utils" "^0.8.8"
-    "@ide/backoff" "^1.0.0"
+    "@expo/image-utils" "^0.8.14"
     abort-controller "^3.0.0"
-    assert "^2.0.0"
     badgin "^1.1.5"
-    expo-application "~7.0.8"
-    expo-constants "~18.0.13"
+    expo-application "~55.0.15"
+    expo-constants "~55.0.16"
 
 expo-router@*, expo-router@~6.0.23:
   version "6.0.23"
@@ -6533,6 +6554,13 @@ react-native-is-edge-to-edge@^1.1.6, react-native-is-edge-to-edge@^1.2.1:
   resolved "https://registry.npmjs.org/react-native-is-edge-to-edge/-/react-native-is-edge-to-edge-1.3.1.tgz"
   integrity sha512-NIXU/iT5+ORyCc7p0z2nnlkouYKX425vuU1OEm6bMMtWWR9yvb+Xg5AZmImTKoF9abxCPqrKC3rOZsKzUYgYZA==
 
+react-native-keyboard-controller@^1.18.5:
+  version "1.18.5"
+  resolved "https://registry.npmjs.org/react-native-keyboard-controller/-/react-native-keyboard-controller-1.18.5.tgz"
+  integrity sha512-wbYN6Tcu3G5a05dhRYBgjgd74KqoYWuUmroLpigRg9cXy5uYo7prTMIvMgvLtARQtUF7BOtFggUnzgoBOgk0TQ==
+  dependencies:
+    react-native-is-edge-to-edge "^1.2.1"
+
 react-native-maps@1.20.1:
   version "1.20.1"
   resolved "https://registry.npmjs.org/react-native-maps/-/react-native-maps-1.20.1.tgz"
@@ -6540,7 +6568,7 @@ react-native-maps@1.20.1:
   dependencies:
     "@types/geojson" "^7946.0.13"
 
-react-native-reanimated@*, "react-native-reanimated@>=3.16.0 || >=4.0.0-", react-native-reanimated@>=3.19.1, react-native-reanimated@>=3.6.2, react-native-reanimated@~4.1.1:
+react-native-reanimated@*, react-native-reanimated@>=3.0.0, "react-native-reanimated@>=3.16.0 || >=4.0.0-", react-native-reanimated@>=3.19.1, react-native-reanimated@>=3.6.2, react-native-reanimated@~4.1.1:
   version "4.1.7"
   resolved "https://registry.npmjs.org/react-native-reanimated/-/react-native-reanimated-4.1.7.tgz"
   integrity sha512-Q4H6xA3Tn7QL0/E/KjI86I1KK4tcf+ErRE04LH34Etka2oVQhW6oXQ+Q8ZcDCVxiWp5vgbBH6XcH8BOo4w/Rhg==

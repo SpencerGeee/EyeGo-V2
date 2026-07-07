@@ -9,6 +9,7 @@ import { SplashAnimation } from '../components/SplashAnimation';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, View, Animated, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import {
@@ -415,6 +416,7 @@ export default function RootLayout() {
     <I18nextProvider i18n={i18n}>
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
+      <KeyboardProvider>
         <AmbientRotationProvider>
         <QueryClientProvider client={queryClient}>
           <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.backgroundDeep} />
@@ -499,7 +501,13 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="profile/edit"
-              options={detailPush}
+              options={{
+                // Morph target: the profile hero avatar flies into this screen
+                // via the MorphProvider overlay — fade lets the clone own the
+                // forward motion (same treatment as ride/[id]).
+                animation: 'fade',
+                gestureEnabled: true,
+              }}
             />
             <Stack.Screen
               name="profile/help"
@@ -680,6 +688,7 @@ export default function RootLayout() {
           )}
         </QueryClientProvider>
         </AmbientRotationProvider>
+      </KeyboardProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
     </I18nextProvider>

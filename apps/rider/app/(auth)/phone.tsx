@@ -3,11 +3,10 @@ import {
   View,
   TextInput,
   StyleSheet,
-  ScrollView,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView, MotiText } from 'moti';
@@ -63,15 +62,12 @@ export default function PhoneScreen() {
         transition={{ type: 'timing', duration: 900, delay: 80 }}
       />
 
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
           {/* Logo */}
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
@@ -195,8 +191,7 @@ export default function PhoneScreen() {
               />
             )}
           </MotiView>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

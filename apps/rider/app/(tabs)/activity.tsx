@@ -3,10 +3,10 @@ import {
   View,
   StyleSheet,
   Pressable,
-  FlatList,
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
@@ -115,6 +115,12 @@ function NotificationItem({ notification, colors, styles }: { notification: any;
       </View>
     </View>
   );
+}
+
+// FlashList honors only padding in contentContainerStyle — row gaps come from
+// a separator so spacing survives the migration off FlatList.
+function ItemSeparator() {
+  return <View style={{ height: spacing.sm }} />;
 }
 
 function FilterChip({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof makeStyles> }) {
@@ -231,7 +237,7 @@ export default function ActivityScreen() {
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={feedItems}
           keyExtractor={(item, idx) => `${item.type}-${item.data.id ?? idx}`}
           renderItem={({ item }) =>
@@ -241,11 +247,11 @@ export default function ActivityScreen() {
               <NotificationItem notification={item.data} colors={colors} styles={styles} />
             )
           }
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 },
-            feedItems.length === 0 && styles.emptyContent,
-          ]}
+          ItemSeparatorComponent={ItemSeparator}
+          contentContainerStyle={{
+            paddingHorizontal: spacing.lg,
+            paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24,
+          }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

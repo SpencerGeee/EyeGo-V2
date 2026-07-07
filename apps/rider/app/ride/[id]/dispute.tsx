@@ -2,12 +2,12 @@
 import {
   View,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Pressable,
   TextInput,
   Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
@@ -115,7 +115,12 @@ export default function DisputeScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={24}
+      >
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
@@ -206,18 +211,20 @@ export default function DisputeScreen() {
             </Text>
           </View>
         </MotiView>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
-      {/* Fixed bottom CTA */}
-      <View style={styles.footer}>
-        <Button
-          label={disputeMutation.isPending ? 'Submitting...' : 'Submit Report'}
-          onPress={handleSubmit}
-          variant="primary"
-          disabled={!selectedType || disputeMutation.isPending}
-          icon={<Ionicons name="send" size={18} color={colors.onPrimary} />}
-        />
-      </View>
+      {/* Fixed bottom CTA — rides the keyboard while the description box is focused */}
+      <KeyboardStickyView>
+        <View style={styles.footer}>
+          <Button
+            label={disputeMutation.isPending ? 'Submitting...' : 'Submit Report'}
+            onPress={handleSubmit}
+            variant="primary"
+            disabled={!selectedType || disputeMutation.isPending}
+            icon={<Ionicons name="send" size={18} color={colors.onPrimary} />}
+          />
+        </View>
+      </KeyboardStickyView>
     </SafeAreaView>
   );
 }

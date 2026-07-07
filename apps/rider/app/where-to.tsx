@@ -4,13 +4,12 @@ import {
   StyleSheet,
   TextInput,
   Pressable,
-  KeyboardAvoidingView,
-  Platform,
   ActivityIndicator,
   ScrollView,
   Keyboard,
   BackHandler,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -251,17 +250,13 @@ export default function WhereToScreen() {
         </View>
 
         {/* ── Floating glass card ─────────────────────── */}
-        {/* KAV spans to the bottom of the screen, so no extra offset — any
-            offset here just eats visible list height while typing. */}
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        <KeyboardAwareScrollView
           style={{ flex: 1 }}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bottomOffset={24}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
             <MorphTarget id={activeMorphId} borderRadius={24}>
             <MorphBackSwipeDetector>
             <View style={styles.floatingCard}>
@@ -480,8 +475,7 @@ export default function WhereToScreen() {
             </View>
             </MorphBackSwipeDetector>
             </MorphTarget>
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
       </View>
     </Animated.View>
   );

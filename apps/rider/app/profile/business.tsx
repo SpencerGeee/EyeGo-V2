@@ -1,5 +1,6 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Platform } from 'react-native';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
@@ -41,10 +42,7 @@ export default function BusinessProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
@@ -54,7 +52,12 @@ export default function BusinessProfileScreen() {
           <View style={{ width: 24 }} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          bottomOffset={24}
+        >
           {/* Toggle Section */}
           <View
             style={styles.toggleContainer}
@@ -122,16 +125,19 @@ export default function BusinessProfileScreen() {
               </View>
             </View>
           )}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
-        <View style={styles.footer}>
-          <Button
-            label="Save Preferences"
-            onPress={handleSave}
-            loading={isSaving}
-          />
-        </View>
-      </KeyboardAvoidingView>
+        {/* Footer rides the keyboard so Save stays reachable while typing */}
+        <KeyboardStickyView>
+          <View style={styles.footer}>
+            <Button
+              label="Save Preferences"
+              onPress={handleSave}
+              loading={isSaving}
+            />
+          </View>
+        </KeyboardStickyView>
+      </View>
     </SafeAreaView>
   );
 }

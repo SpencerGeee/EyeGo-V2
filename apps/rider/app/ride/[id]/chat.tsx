@@ -2,14 +2,13 @@
 import {
   View,
   StyleSheet,
-  FlatList,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   Image,
 } from 'react-native';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -114,7 +113,7 @@ export default function ChatScreen() {
   const isPrivateMode = chatMode === 'private';
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<ChatMessage>>(null);
   const visibleMessageIdsRef = useRef<Set<string>>(new Set());
   // Track which unread message IDs we've already sent read receipts for
   // to avoid re-sending on every re-render (race condition fix)
@@ -604,13 +603,9 @@ export default function ChatScreen() {
         </Pressable>
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
+      <View style={{ flex: 1 }}>
         {/* Messages */}
-        <FlatList
+        <FlashList
           ref={flatListRef}
           data={visibleMessages}
           renderItem={renderMessage}
@@ -664,7 +659,9 @@ export default function ChatScreen() {
             </MotiView>
           }
         />
+      </View>
 
+      <KeyboardStickyView>
         {/* Quick replies */}
         <ScrollView
           horizontal
@@ -726,7 +723,7 @@ export default function ChatScreen() {
             </Pressable>
           </GlassSurface>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardStickyView>
     </SafeAreaView>
   );
 }
@@ -793,8 +790,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing['2xl'],
-    paddingVertical: spacing.base,
-    flexGrow: 1,
+    paddingTop: spacing.base + 156,
+    paddingBottom: spacing.base,
   },
   emptyState: {
     flex: 1,
