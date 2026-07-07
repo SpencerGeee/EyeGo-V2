@@ -102,7 +102,7 @@ half4 main(float2 C) {
   col = tanhv(col * uGlowAmount / widthNorm);
 
   // Film grain noise
-  col -= hash(sk_FragCoord.xy) / 15.0 * uNoiseIntensity;
+  col -= hash(C) / 15.0 * uNoiseIntensity;
 
   return half4(half3(col * uIntensity), 1.0) * uOpacity;
 }
@@ -176,8 +176,20 @@ half4 main(float2 C) {
 }
 `;
 
-const EFFECT_HIGH = Skia.RuntimeEffect.Make(SKSL);
-const EFFECT_LOW = Skia.RuntimeEffect.Make(SKSL_LOW);
+// RuntimeEffect.Make throws on SkSL compile errors; a throw here happens at
+// module import and kills the app on startup, so trap it and use the
+// tinted-layer fallback instead.
+function makeEffect(sksl: string) {
+  try {
+    return Skia.RuntimeEffect.Make(sksl);
+  } catch (e) {
+    console.warn('[LightPillarBackground] SkSL compile failed', e);
+    return null;
+  }
+}
+
+const EFFECT_HIGH = makeEffect(SKSL);
+const EFFECT_LOW = makeEffect(SKSL_LOW);
 
 function hexToRgb(hex: string): [number, number, number] {
   const c = hex.replace('#', '').padEnd(6, '0');

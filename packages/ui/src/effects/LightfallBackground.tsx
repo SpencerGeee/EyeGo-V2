@@ -96,7 +96,14 @@ half4 main(float2 C) {
 }
 `;
 
-const EFFECT = Skia.RuntimeEffect.Make(SKSL);
+// RuntimeEffect.Make throws on SkSL compile errors; a throw here happens at
+// module import and kills the app on startup, so trap it and fall back.
+let EFFECT: ReturnType<typeof Skia.RuntimeEffect.Make> = null;
+try {
+  EFFECT = Skia.RuntimeEffect.Make(SKSL);
+} catch (e) {
+  console.warn('[LightfallBackground] SkSL compile failed', e);
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const c = hex.replace('#', '').padEnd(6, '0');
