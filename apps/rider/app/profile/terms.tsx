@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii } from '@eyego/config';
-import { Text, AppBackground } from '@eyego/ui';
+import { Text, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 
 const TERMS_SECTIONS: { heading: string; body: string }[] = [
@@ -78,7 +78,7 @@ export default function TermsScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} {...backgroundScrollPauseProps}>
         <View style={styles.card}>
           {TERMS_SECTIONS.map((section, i) => (
             <View key={section.heading} style={i > 0 ? { marginTop: spacing.lg } : undefined}>

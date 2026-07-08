@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, GradientGlowBorder, MorphTarget, useMorph, MorphBackSwipeDetector, type GradientGlowBorderHandle } from '@eyego/ui';
+import { Text, GradientGlowBorder, MorphTarget, useMorph, MorphBackSwipeDetector, backgroundScrollPauseProps, type GradientGlowBorderHandle } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
@@ -198,6 +198,7 @@ function SearchStageImpl() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         bottomOffset={24}
+        {...backgroundScrollPauseProps}
       >
           <MorphTarget id={activeMorphId} borderRadius={24}>
           <Animated.View style={styles.floatingCard} layout={LinearTransition.springify().damping(20).stiffness(180)}>
@@ -346,6 +347,7 @@ function SearchStageImpl() {
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.chipsRow}
+                  {...backgroundScrollPauseProps}
                 >
                   {quickChips.map((chip) => (
                     <Pressable

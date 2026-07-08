@@ -5,7 +5,21 @@ export type PerformanceTier = 'high' | 'low';
 
 let cachedTier: PerformanceTier | null = null;
 
+/**
+ * Module-level flag set externally from the app layout when iOS Low Power
+ * Mode or Android Power Saver is active — forces the performance tier to
+ * 'low' so every ambient effect, shader, and animation throttles down.
+ * The rider app's _layout.tsx wires this via expo-battery's useLowPowerMode.
+ */
+let _lowPowerOverride = false;
+export function setLowPowerMode(enabled: boolean) {
+  _lowPowerOverride = enabled;
+  // Bust the cached tier so next computeTier() picks up the change.
+  cachedTier = null;
+}
+
 function computeTier(): PerformanceTier {
+  if (_lowPowerOverride) return 'low';
   if (cachedTier) return cachedTier;
 
   let tier: PerformanceTier = 'high';
@@ -26,8 +40,9 @@ function computeTier(): PerformanceTier {
   return tier;
 }
 
-/** 'low' on older/likely-weaker Android devices — consumers should drop
- * ambient motion, glow intensity, and chromatic hints on this tier. */
+/** 'low' on older/likely-weaker Android devices OR when Low Power Mode is
+ * active — consumers should drop ambient motion, glow intensity, and
+ * chromatic hints on this tier. */
 export function usePerformanceTier(): PerformanceTier {
   return useMemo(() => computeTier(), []);
 }

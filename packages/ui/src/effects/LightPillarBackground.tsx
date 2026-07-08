@@ -1,8 +1,9 @@
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { Canvas, Fill, Shader, Skia } from '@shopify/react-native-skia';
 import { useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { usePerformanceTier } from './usePerformanceTier';
+import { subscribeBackgroundBusy } from './backgroundActivity';
 
 /**
  * "LightPillar" premium ambient background — a GPU port of the React Bits
@@ -34,8 +35,8 @@ uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
 
-const float STEP_MULT = 1.2;
-const int MAX_ITER = 40;
+const float STEP_MULT = 1.35;
+const int MAX_ITER = 28;
 const int WAVE_ITER = 2;
 
 float3 tanhv(float3 x) {
@@ -238,28 +239,52 @@ export function LightPillarBackground({
   style,
 }: LightPillarBackgroundProps) {
   const tier = usePerformanceTier();
-  const isAnimated = animated && tier !== 'low';
   const { width, height } = useWindowDimensions();
 
-  // 30fps clock instead of Skia's useClock() (60fps) — half the GPU work
-  // for an ambient background that nobody pixel-peeps.
+  // Pause the shader entirely while any registered scrollable is actively
+  // scrolling — the raymarch must never compete with list frames.
+  const [scrollBusy, setScrollBusy] = useState(false);
+  useEffect(() => subscribeBackgroundBusy(setScrollBusy), []);
+
+  const isAnimated = animated && tier !== 'low' && !scrollBusy;
+
+  // Battery-aware clock: 24fps on high tier, 8fps on low (saves ~66% GPU).
+  // Low Power Mode forces the 'low' tier via usePerformanceTier, so this
+  // auto-throttles when the OS limits CPU/GPU for battery.
   const clock = useSharedValue(0);
-  const startTimeRef = useRef(Date.now());
+  const elapsedRef = useRef(0);
+  const lastTickRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!isAnimated) return;
-    const tick = () => { clock.value = (Date.now() - startTimeRef.current) / 1000; };
+    const fps = tier === 'high' ? 24 : 8;
+    const intervalMs = Math.round(1000 / fps);
+    lastTickRef.current = Date.now();
+    const tick = () => {
+      const now = Date.now();
+      elapsedRef.current += (now - lastTickRef.current) / 1000;
+      lastTickRef.current = now;
+      clock.value = elapsedRef.current;
+    };
     tick();
-    intervalRef.current = setInterval(tick, 33); // ≈30 fps
+    intervalRef.current = setInterval(tick, intervalMs);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isAnimated, clock]);
+  }, [isAnimated, clock, tier]);
 
   const EFFECT = tier === 'low' ? EFFECT_LOW : EFFECT_HIGH;
 
+  // Render the canvas at reduced resolution and scale it up — raymarch cost
+  // scales with pixel count, so 0.5x res ≈ 4x less GPU work. The effect is a
+  // soft glow field; the upscale is imperceptible.
+  // Low tier (incl. Low Power Mode) drops to 0.35x for ~8x less GPU fill.
+  const RES_SCALE = tier === 'high' ? 0.5 : 0.35;
+  const cw = Math.ceil(width * RES_SCALE);
+  const ch = Math.ceil(height * RES_SCALE);
+
   const staticUniforms = useMemo(() => {
     return {
-      iResolution: [width, height],
+      iResolution: [cw, ch],
       uTopColor: hexToRgb(topColor),
       uBottomColor: hexToRgb(bottomColor),
       uIntensity: intensity,
@@ -270,15 +295,16 @@ export function LightPillarBackground({
       uRotationSpeed: rotationSpeed,
       uOpacity: opacity,
     };
-  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, width, height, tier]);
+  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, cw, ch, tier]);
 
   const uniforms = useDerivedValue(
     () => ({
       ...staticUniforms,
-      // Frozen frame at an arbitrary pleasing phase when not animated
-      iTime: isAnimated ? clock.value : 0.0,
+      // clock only advances while animated; while paused (scroll/static) the
+      // frame freezes at its current phase instead of snapping to a fixed one.
+      iTime: clock.value,
     }),
-    [staticUniforms, isAnimated]
+    [staticUniforms]
   );
 
   if (!EFFECT) {
@@ -287,8 +313,18 @@ export function LightPillarBackground({
   }
 
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, style]}>
-      <Canvas style={StyleSheet.absoluteFill}>
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, pillarStyles.clip, style]}>
+      <Canvas
+        style={{
+          position: 'absolute',
+          left: (width - cw) / 2,
+          top: (height - ch) / 2,
+          width: cw,
+          height: ch,
+          // Low-res surface scaled up to fill the screen (scales about center)
+          transform: [{ scale: 1 / RES_SCALE }],
+        }}
+      >
         <Fill>
           <Shader source={EFFECT} uniforms={uniforms} />
         </Fill>
@@ -296,3 +332,9 @@ export function LightPillarBackground({
     </View>
   );
 }
+
+const pillarStyles = StyleSheet.create({
+  // The upscaled canvas overshoots the screen by up to 1px of rounding —
+  // clip so it never paints outside the background layer.
+  clip: { overflow: 'hidden' },
+});

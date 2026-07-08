@@ -48,9 +48,10 @@ export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbien
 export { GlassSurface } from './effects/GlassSurface';
 export { LensSheen } from './effects/LensSheen';
 export { GlowSearchInput, GlowSearchPressable } from './effects/GlowSearchInput';
-export { usePerformanceTier } from './effects/usePerformanceTier';
+export { usePerformanceTier, setLowPowerMode } from './effects/usePerformanceTier';
 export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
+export { setBackgroundBusy, subscribeBackgroundBusy, backgroundScrollPauseProps } from './effects/backgroundActivity';
 export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
 export type { MorphRect } from './morph';
 export { PulseRing } from './effects/PulseRing';
@@ -61,5 +62,5 @@ export type { EntranceProps, EntranceAnimation, ExitAnimation, StaggerListProps,
 export type { PulseRingProps } from './effects/PulseRing';
 export { AnimatedCheckmark } from './effects/AnimatedCheckmark';
 export type { AnimatedCheckmarkProps } from './effects/AnimatedCheckmark';
-export { PanelSheet, usePanelMotion, usePanelLifecycle, panelSpring } from './panel';
-export type { PanelSheetProps, PanelState, PanelSnapPoints, PanelMotionOptions } from './panel';
+export { PanelSheet, InlayPanel, usePanelMotion, usePanelLifecycle, panelSpring } from './panel';
+export type { PanelSheetProps, InlayPanelProps, PanelState, PanelSnapPoints, PanelMotionOptions } from './panel';

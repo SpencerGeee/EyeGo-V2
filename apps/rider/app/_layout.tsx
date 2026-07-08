@@ -30,7 +30,8 @@ import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, setLowPowerMode } from '@eyego/ui';
+import { useLowPowerMode } from 'expo-battery';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -176,6 +177,11 @@ export default function RootLayout() {
 
   const [splashDone, setSplashDone] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+
+  // Low Power Mode detection — forces 'low' performance tier so the Skia
+  // raymarch shard drops to SVG blobs, conserving GPU for scroll compositing.
+  const isLowPower = useLowPowerMode();
+  useEffect(() => { setLowPowerMode(isLowPower); }, [isLowPower]);
 
   // Pause the Skia shader when a detailPush or opaque screen covers the root
   // background. All transparent-content screens (where-to, auth, join) sit at
@@ -450,8 +456,9 @@ export default function RootLayout() {
             <Stack.Screen name="(onboarding)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
             <Stack.Screen name="(tabs)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
             <Stack.Screen
-              name="where-to"
+              name="trip"
               options={{
+                // The persistent trip surface (search → … → tracking stages).
                 // Morph target: the where-to pill flies into this screen via
                 // the MorphProvider overlay, so the route itself must not
                 // animate. transparentModal keeps home mounted beneath while
@@ -461,6 +468,11 @@ export default function RootLayout() {
                 contentStyle: TRANSPARENT_CONTENT,
                 gestureEnabled: false,
               }}
+            />
+            {/* Legacy deep-link stub — redirects to /trip. */}
+            <Stack.Screen
+              name="where-to"
+              options={{ animation: 'none', presentation: 'transparentModal', contentStyle: TRANSPARENT_CONTENT }}
             />
             <Stack.Screen
               name="ride/select"

@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, GlowSearchInput, AppBackground } from '@eyego/ui';
+import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useToastStore } from '../../stores/toast.store';
@@ -172,6 +172,7 @@ export default function SavedPlacesScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         bottomOffset={24}
+        {...backgroundScrollPauseProps}
       >
         <Text variant="labelCaps" style={styles.sectionLabel}>FAVORITES</Text>
 

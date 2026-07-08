@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, Image, Alert } from 'react-native';
+import { View, StyleSheet, Alert } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, {
@@ -9,6 +10,7 @@ import Animated, {
   interpolate,
   Extrapolation,
   FadeIn,
+  runOnJS,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -16,7 +18,7 @@ import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Pressable, MorphSource, useMorph } from '@eyego/ui';
+import { Text, Pressable, MorphSource, useMorph, setBackgroundBusy, backgroundScrollPauseProps } from '@eyego/ui';
 import { getInitials, formatCurrency } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -56,8 +58,24 @@ export default function ProfileScreen() {
   const PROFILE_MORPH_ID = 'profile-hero-avatar';
 
   const scrollY = useSharedValue(0);
-  const onScroll = useAnimatedScrollHandler((e) => {
-    scrollY.value = e.contentOffset.y;
+  // Pause the ambient shader while the list is actively scrolling — the
+  // begin/end pairs stay balanced (busy counter) across drag → momentum.
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      scrollY.value = e.contentOffset.y;
+    },
+    onBeginDrag: () => {
+      runOnJS(setBackgroundBusy)(true);
+    },
+    onEndDrag: () => {
+      runOnJS(setBackgroundBusy)(false);
+    },
+    onMomentumBegin: () => {
+      runOnJS(setBackgroundBusy)(true);
+    },
+    onMomentumEnd: () => {
+      runOnJS(setBackgroundBusy)(false);
+    },
   });
 
   const { data: tripsTotal } = useQuery({
@@ -154,6 +172,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         bounces={false}
         overScrollMode="never"
+        {...backgroundScrollPauseProps}
         contentContainerStyle={[
           styles.scroll,
           { paddingTop: insets.top + HERO_HEIGHT + spacing.base },
