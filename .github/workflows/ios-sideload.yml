@@ -125,7 +125,12 @@ jobs:
             2>&1 | tee /tmp/xcodebuild.log; XCODE_EXIT=${PIPESTATUS[0]}
           if [ $XCODE_EXIT -ne 0 ]; then
             echo "=== RAW COMPILER ERRORS ==="
-            grep -n -i "error:" /tmp/xcodebuild.log | head -30
+            # Match actual Xcode error: lines (prefixed by "error:", not method names
+            # containing "error:" like "onAnimationFailureWithError:")
+            grep -n " error:" /tmp/xcodebuild.log | head -40
+            echo "=== BUNDLE COMMAND CONTEXT ==="
+            # Show the actual metro bundler invocation and its output
+            grep -B2 -A10 "Bundle React Native\|FATAL\|Error: bundling\|Unable to resolve\|Module.*not found\|Cannot find" /tmp/xcodebuild.log | head -50
             echo "=== BUILD FAILED (exit $XCODE_EXIT) ==="
             exit $XCODE_EXIT
           fi
