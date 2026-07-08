@@ -8,7 +8,7 @@ import Animated, {
   useAnimatedStyle,
   interpolate,
   Extrapolation,
-  FadeInDown,
+  FadeIn,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -137,8 +137,8 @@ export default function ProfileScreen() {
 
   const avatarStyle = useAnimatedStyle(() => ({
     transform: [
-      // Parallax scale-up on overscroll (pull-down), settle to 1 while scrolling up.
-      { scale: interpolate(scrollY.value, [-90, 0], [1.18, 1], { extrapolateLeft: Extrapolation.EXTEND, extrapolateRight: Extrapolation.CLAMP }) },
+      // Subtle parallax settle — no overscroll bounce (clamped).
+      { scale: interpolate(scrollY.value, [-90, 0], [1.08, 1], Extrapolation.CLAMP) },
     ],
   }));
 
@@ -152,13 +152,15 @@ export default function ProfileScreen() {
         onScroll={onScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
+        bounces={false}
+        overScrollMode="never"
         contentContainerStyle={[
           styles.scroll,
           { paddingTop: insets.top + HERO_HEIGHT + spacing.base },
         ]}
       >
         {/* ── Wallet card ── */}
-        <Animated.View entering={FadeInDown.delay(60).springify().damping(18)} style={styles.walletCard}>
+        <Animated.View entering={FadeIn.delay(60).duration(200)} style={styles.walletCard}>
           <View style={styles.walletGlow} pointerEvents="none" />
           <View style={styles.walletGlowSecondary} pointerEvents="none" />
           <View style={styles.walletRow}>
@@ -185,7 +187,7 @@ export default function ProfileScreen() {
         {menuSections.map((section, sIdx) => (
           <Animated.View
             key={section.title}
-            entering={FadeInDown.delay(120 + sIdx * 70).springify().damping(18)}
+            entering={FadeIn.delay(120 + sIdx * 50).duration(200)}
             style={styles.sectionWrapper}
           >
             <Text style={styles.sectionHeader}>{section.title.toUpperCase()}</Text>

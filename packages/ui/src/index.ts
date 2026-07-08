@@ -54,6 +54,10 @@ export { AppBackground } from './effects/AppBackground';
 export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
 export type { MorphRect } from './morph';
 export { PulseRing } from './effects/PulseRing';
+
+// Animation Primitives
+export { Entrance, StaggerList, AnimatedList } from './animations';
+export type { EntranceProps, EntranceAnimation, ExitAnimation, StaggerListProps, AnimatedListProps } from './animations';
 export type { PulseRingProps } from './effects/PulseRing';
 export { AnimatedCheckmark } from './effects/AnimatedCheckmark';
 export type { AnimatedCheckmarkProps } from './effects/AnimatedCheckmark';

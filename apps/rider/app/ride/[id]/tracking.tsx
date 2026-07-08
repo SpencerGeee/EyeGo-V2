@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus,
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { InlayPanel } from '@eyego/ui';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -353,17 +353,16 @@ export default function TrackingScreen() {
     }
   }, [tripInProgress]);
 
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['44%', '65%'], []);
-  const SNAP_PCTS = [0.44, 0.65];
   const { height: screenH } = useWindowDimensions();
   // Sheet-aware camera: bottom padding tracks the sheet snap so the focus
   // target stays centered in the visible window above it, and the camera
   // only follows while the user hasn't panned away (recenter chip resumes).
-  const sheetPadRef = useRef(screenH * SNAP_PCTS[0]);
+  const COLLAPSED_PCT = 0.44;
+  const EXPANDED_PCT = 0.65;
+  const sheetPadRef = useRef(screenH * COLLAPSED_PCT);
   const followingRef = useRef(true);
   const [following, setFollowing] = useState(true);
-  const [sheetIndex, setSheetIndex] = useState(0);
+  const [panelState, setPanelState] = useState<'collapsed' | 'expanded'>('collapsed');
   const frameOnTarget = useCallback(
     (coord: [number, number], duration = 450) => {
       cameraRef.current?.setCamera({
@@ -796,7 +795,7 @@ export default function TrackingScreen() {
           animate={{
             opacity: 1,
             scale: 1,
-            translateY: -(screenH * (SNAP_PCTS[sheetIndex] - SNAP_PCTS[0])),
+            translateY: -(screenH * ((panelState === 'expanded' ? EXPANDED_PCT : COLLAPSED_PCT) - COLLAPSED_PCT)),
           }}
           transition={{ type: 'spring', stiffness: 500, damping: 32 }}
           style={[styles.recenterChip, { bottom: screenH * SNAP_PCTS[0] + spacing.lg }]}
@@ -823,18 +822,18 @@ export default function TrackingScreen() {
         </MotiView>
       )}
 
-      {/* Bottom sheet */}
-      <BottomSheet
-        ref={bottomSheetRef}
-        index={0}
-        snapPoints={snapPoints}
-        backgroundStyle={styles.sheetBackground}
-        handleIndicatorStyle={styles.sheetHandle}
-        enablePanDownToClose={false}
-        onChange={(index) => {
-          const i = Math.max(index, 0);
-          setSheetIndex(i);
-          sheetPadRef.current = screenH * SNAP_PCTS[i];
+      {/* Bottom sheet — InlayPanel with same snap points as before (44% / 65%).
+          Uses the same usePanelMotion engine (spring: stiffness=320, damping=34)
+          that matches the @gorhom config we removed. */}
+      <InlayPanel
+        snapPointsPct={[COLLAPSED_PCT, EXPANDED_PCT]}
+        sheetStyle={styles.sheetBackground}
+        grabberColor={colors.outline}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+        onStateChange={(state) => {
+          const pct = state === 'expanded' ? EXPANDED_PCT : COLLAPSED_PCT;
+          sheetPadRef.current = screenH * pct;
+          setPanelState(state);
           // Re-frame on snap settle so the target re-centers in the new window
           if (followingRef.current) {
             frameOnTarget(
@@ -846,10 +845,7 @@ export default function TrackingScreen() {
           }
         }}
       >
-        <BottomSheetScrollView
-          contentContainerStyle={styles.sheetContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-        >
+        <View style={styles.sheetContent}>
           {/* Tier badge + fare */}
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
@@ -977,8 +973,8 @@ export default function TrackingScreen() {
               <Text style={styles.primaryCtaText}>Share Trip</Text>
             </Pressable>
           </View>
-        </BottomSheetScrollView>
-      </BottomSheet>
+        </View>
+      </InlayPanel>
     </View>
   );
 }

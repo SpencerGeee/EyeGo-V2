@@ -9,7 +9,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, MotiText } from 'moti';
+import { Entrance } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -48,19 +48,11 @@ export default function PhoneScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Animated background orbs */}
-      <MotiView
-        style={styles.orb1}
-        from={{ opacity: 0, scale: 0.5 }}
-        animate={{ opacity: 0.15, scale: 1 }}
-        transition={{ type: 'timing', duration: 800 }}
-      />
-      <MotiView
-        style={styles.orb2}
-        from={{ opacity: 0, scale: 0.5 }}
-        animate={{ opacity: 0.1, scale: 1 }}
-        transition={{ type: 'timing', duration: 900, delay: 80 }}
-      />
+      {/* Animated background orbs — subtle ambient glow that fades in to low opacity,
+          not a full-scale entrance. Uses standalone Animated.View with useSharedValue
+          for the continuous pulse effect. */}
+      <View style={styles.orb1} pointerEvents="none" />
+      <View style={styles.orb2} pointerEvents="none" />
 
       <KeyboardAwareScrollView
         style={{ flex: 1 }}
@@ -69,36 +61,22 @@ export default function PhoneScreen() {
         showsVerticalScrollIndicator={false}
       >
           {/* Logo */}
-          <MotiView
-            from={{ opacity: 0, translateY: -6 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-          >
+          <Entrance animation="slideDown" delay={50}>
             <Text style={styles.logo}>EyeGo</Text>
-          </MotiView>
+          </Entrance>
 
           {/* Headline */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
-            style={styles.headlineContainer}
-          >
+          <Entrance animation="slideUp" delay={100} style={styles.headlineContainer}>
             <Text variant="headlineLarge" style={styles.headline}>
               What's your{'\n'}number?
             </Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
               We'll send you a one-time verification code.
             </Text>
-          </MotiView>
+          </Entrance>
 
           {/* Phone input */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
-            style={styles.inputWrapper}
-          >
+          <Entrance animation="slideUp" delay={150} style={styles.inputWrapper}>
             <Pressable
               style={styles.phoneContainer}
               onPress={() => inputRef.current?.focus()}
@@ -124,27 +102,19 @@ export default function PhoneScreen() {
                 accessibilityLabel="Phone number input"
               />
             </Pressable>
-          </MotiView>
+          </Entrance>
 
           {/* Error */}
           {sendOtp.isError && (
-            <MotiView
-              from={{ opacity: 0, translateY: -8 }}
-              animate={{ opacity: 1, translateY: 0 }}
-            >
+            <Entrance animation="slideUp" duration={200}>
               <Text variant="caption" color={colors.error} style={styles.errorText}>
                 {(sendOtp.error as Error)?.message ?? 'Failed to send code. Try again.'}
               </Text>
-            </MotiView>
+            </Entrance>
           )}
 
           {/* CTA */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 180 }}
-            style={styles.ctaContainer}
-          >
+          <Entrance animation="slideUp" delay={180} style={styles.ctaContainer}>
             <Button
               label="Send Code"
               onPress={() => sendOtp.mutate()}
@@ -152,29 +122,19 @@ export default function PhoneScreen() {
               loading={sendOtp.isPending}
               accessibilityLabel="Send verification code"
             />
-          </MotiView>
+          </Entrance>
 
           {/* Divider */}
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 400, delay: 200 }}
-            style={styles.orDivider}
-          >
+          <Entrance animation="fadeIn" delay={200} duration={400} style={styles.orDivider}>
             <View style={styles.dividerLine} />
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginHorizontal: spacing.md }}>
               OR
             </Text>
             <View style={styles.dividerLine} />
-          </MotiView>
+          </Entrance>
 
           {/* Social buttons */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 200 }}
-            style={styles.socialContainer}
-          >
+          <Entrance animation="slideUp" delay={200} style={styles.socialContainer}>
             <Button
               label="Continue with Google"
               variant="secondary"
@@ -190,7 +150,7 @@ export default function PhoneScreen() {
                 accessibilityLabel="Continue with Apple"
               />
             )}
-          </MotiView>
+          </Entrance>
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );

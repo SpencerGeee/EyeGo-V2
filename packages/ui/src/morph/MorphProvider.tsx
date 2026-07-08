@@ -81,8 +81,10 @@ export function useMorphOptional() {
 
 /** If the destination never mounts a MorphTarget, dissolve the clone. */
 const TARGET_TIMEOUT_MS = 700;
-/** Cross-fade window between the clone and the real target content. */
-const CROSSFADE_MS = 120;
+/** Cross-fade window between the clone and the real target content — 200ms
+ *  (up from 120ms) so the eye registers the real content before the clone
+ *  disappears, avoiding the previous "flash" feel. */
+const CROSSFADE_MS = 200;
 /** Pixels of drag needed to fully reverse the morph (Yango: ~250–300). */
 const GESTURE_FULL_REVERSE_DIST = 280;
 /** Progress below this threshold commits the back-navigation on release. */

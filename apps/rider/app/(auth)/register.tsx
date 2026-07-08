@@ -9,7 +9,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { Entrance } from '@eyego/ui';
 import * as ImagePicker from 'expo-image-picker';
 import { useMutation } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -126,26 +126,17 @@ export default function RegisterScreen() {
         bottomOffset={24}
       >
           {/* Header */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-          >
+          <Entrance animation="slideUp" delay={50}>
             <Text variant="headlineLarge" style={styles.headline}>
               Complete your{'\n'}profile
             </Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
               Just a few details to personalise your experience.
             </Text>
-          </MotiView>
+          </Entrance>
 
           {/* Avatar picker */}
-          <MotiView
-            from={{ opacity: 0, scale: 0.94 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
-            style={styles.avatarSection}
-          >
+          <Entrance animation="scaleIn" delay={100} style={styles.avatarSection}>
             <Pressable onPress={pickImage} style={styles.avatarContainer} accessibilityRole="button" accessibilityLabel="Add profile photo">
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatar} />
@@ -163,15 +154,10 @@ export default function RegisterScreen() {
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
               Tap to add photo
             </Text>
-          </MotiView>
+          </Entrance>
 
           {/* Name input */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 120 }}
-            style={styles.inputSection}
-          >
+          <Entrance animation="slideUp" delay={120} style={styles.inputSection}>
             <Input
               label="Full name"
               value={name}
@@ -182,15 +168,10 @@ export default function RegisterScreen() {
               onSubmitEditing={handleContinue}
               error={nameError}
             />
-          </MotiView>
+          </Entrance>
 
           {/* Date of Birth input */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
-            style={styles.inputSection}
-          >
+          <Entrance animation="slideUp" delay={150} style={styles.inputSection}>
             <Input
               label="Date of birth"
               value={dob}
@@ -219,15 +200,10 @@ export default function RegisterScreen() {
                 onChange={onDateChange}
               />
             )}
-          </MotiView>
+          </Entrance>
 
           {/* CTA */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 160 }}
-            style={styles.ctaSection}
-          >
+          <Entrance animation="slideUp" delay={160} style={styles.ctaSection}>
             <Button
               label="Continue"
               onPress={handleContinue}
@@ -239,14 +215,10 @@ export default function RegisterScreen() {
                 Something went wrong. Please try again.
               </Text>
             )}
-          </MotiView>
+          </Entrance>
 
           {/* Skip */}
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 400, delay: 180 }}
-          >
+          <Entrance animation="fadeIn" delay={180} duration={400}>
             <Pressable
               onPress={() => router.replace('/(onboarding)')}
               style={styles.skipButton}
@@ -257,7 +229,7 @@ export default function RegisterScreen() {
                 Skip for now
               </Text>
             </Pressable>
-          </MotiView>
+          </Entrance>
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );

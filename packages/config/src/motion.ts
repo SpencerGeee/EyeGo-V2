@@ -16,12 +16,15 @@ export const springs = {
   snappy: { duration: 350, dampingRatio: 1, overshootClamping: true },
   /**
    * Container-transform ("morph") — a card expanding into a full screen and
-   * back, Yango/Material style. Short (280ms) with a tiny overshoot bounce
-   * (dampingRatio 0.82, no clamping) so the growth reads as one continuous
-   * surface with a touch of alive tension — matching Yango's signature feel.
+   * back, Yango/Material style. Uses a PHYSICAL spring (stiffness/damping/mass
+   * instead of duration/dampingRatio) so the morph responds naturally to
+   * gesture velocity and feels like one continuous surface being stretched.
+   *
+   * Low stiffness (~180) and light damping (~18) give it Yango's signature
+   * "alive" tension with a whisper of overshoot — never bouncy, never stiff.
    * Used by MorphProvider for both forward and reverse flights.
    */
-  morph: { duration: 280, dampingRatio: 0.82, overshootClamping: false },
+  morph: { stiffness: 180, damping: 18, mass: 1 },
   /** Screen/element entrances — a whisper of life, still clamped. */
   entrance: { duration: 450, dampingRatio: 0.9, overshootClamping: true },
   /** Press release back to rest. */

@@ -30,7 +30,15 @@ import {
  * always advances one stop in the flick direction.
  */
 
-export type PanelState = 'hidden' | 'collapsed' | 'expanded';
+/**
+ * Panel finite-state machine.
+ * - hidden: off-screen
+ * - collapsed / preview: mid-stop (peek)
+ * - expanded: fully open
+ * - dismissing: animating from expanded to hidden (allows mid-dismiss gesture
+ *   interruption, matching the architecture philosophy's "dismissing" state)
+ */
+export type PanelState = 'hidden' | 'collapsed' | 'expanded' | 'dismissing';
 
 export interface PanelSnapPoints {
   /** Sheet top (y, screen px) when fully off-screen. */
@@ -52,8 +60,11 @@ export interface PanelMotionOptions {
   onDismissed?: () => void;
 }
 
-/** Physical (not duration-based) so release inherits finger velocity. */
-export const panelSpring: WithSpringConfig = { stiffness: 320, damping: 34, mass: 0.9 };
+/** Physical (not duration-based) so release inherits finger velocity.
+ *  Softer than before (stiffness 240→down from 320, damping 22→down from 34,
+ *  mass 1→up from 0.9) so the sheet feels naturally reactive to gesture
+ *  velocity — Yango's signature "alive but not bouncy" tension. */
+export const panelSpring: WithSpringConfig = { stiffness: 240, damping: 22, mass: 1 };
 
 const FLICK_VELOCITY = 900; // px/s — beyond this, always advance a stop
 const PROJECTION = 0.15; // s of velocity projection for snap choice
@@ -109,11 +120,26 @@ export function usePanelMotion({
   const panGesture = useMemo(() => {
     const settle = (target: number, velocity: number) => {
       'worklet';
-      const s: PanelState = target === expanded ? 'expanded' : target === hidden ? 'hidden' : 'collapsed';
+      let s: PanelState;
+      if (target === expanded) {
+        s = 'expanded';
+      } else if (target === hidden) {
+        // If the panel was expanded and is now heading to hidden, it passes
+        // through 'dismissing' until the spring settles.
+        s = stateSV.value === 'expanded' ? 'dismissing' : 'hidden';
+      } else {
+        s = 'collapsed';
+      }
       stateSV.value = s;
       runOnJS(emitState)(s);
       y.value = withSpring(target, { ...spring, velocity }, (finished) => {
-        if (finished && s === 'hidden') runOnJS(emitDismissed)();
+        if (finished && s === 'dismissing') {
+          stateSV.value = 'hidden';
+          runOnJS(emitState)('hidden');
+          runOnJS(emitDismissed)();
+        } else if (finished && s === 'hidden') {
+          runOnJS(emitDismissed)();
+        }
       });
     };
 

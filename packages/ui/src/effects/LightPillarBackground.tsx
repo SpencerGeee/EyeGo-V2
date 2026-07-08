@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
-import { Canvas, Fill, Shader, Skia, useClock } from '@shopify/react-native-skia';
-import { useDerivedValue } from 'react-native-reanimated';
+import { Canvas, Fill, Shader, Skia } from '@shopify/react-native-skia';
+import { useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { usePerformanceTier } from './usePerformanceTier';
 
 /**
@@ -241,7 +241,19 @@ export function LightPillarBackground({
   const isAnimated = animated && tier !== 'low';
   const { width, height } = useWindowDimensions();
 
-  const clock = useClock();
+  // 30fps clock instead of Skia's useClock() (60fps) — half the GPU work
+  // for an ambient background that nobody pixel-peeps.
+  const clock = useSharedValue(0);
+  const startTimeRef = useRef(Date.now());
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!isAnimated) return;
+    const tick = () => { clock.value = (Date.now() - startTimeRef.current) / 1000; };
+    tick();
+    intervalRef.current = setInterval(tick, 33); // ≈30 fps
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [isAnimated, clock]);
 
   const EFFECT = tier === 'low' ? EFFECT_LOW : EFFECT_HIGH;
 
@@ -264,7 +276,7 @@ export function LightPillarBackground({
     () => ({
       ...staticUniforms,
       // Frozen frame at an arbitrary pleasing phase when not animated
-      iTime: isAnimated ? clock.value / 1000 : 0.0,
+      iTime: isAnimated ? clock.value : 0.0,
     }),
     [staticUniforms, isAnimated]
   );

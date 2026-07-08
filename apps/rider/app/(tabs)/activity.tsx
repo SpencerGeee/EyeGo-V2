@@ -15,7 +15,7 @@ import { bookingsApi, notificationsApi } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, GlassSurface } from '@eyego/ui';
+import { Text, MorphSource, useMorph } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -63,11 +63,10 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
       borderRadius={radii.lg}
       backgroundColor={colors.surfaceCard}
     >
-    {/* Primary trip cards get a frosted glass surface; the denser
-        notification rows below stay flat to avoid one blur layer per row. */}
-    <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.tripGlass}>
+    {/* Flat card with surfaceCard background — no blur layer per row.
+        Dense lists should avoid GlassSurface (GPU compositing cost). */}
     <Pressable
-      style={({ pressed }) => [styles.tripCardInner, pressed && { opacity: 0.75 }]}
+      style={({ pressed }) => [styles.tripCardInner, styles.tripGlass, pressed && { opacity: 0.75 }]}
       onPress={() => {
         Haptics.selectionAsync();
         // Card expands into the ride detail screen (route animates 'fade' —
@@ -96,7 +95,6 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         </Text>
       )}
     </Pressable>
-    </GlassSurface>
     </MorphSource>
   );
 }

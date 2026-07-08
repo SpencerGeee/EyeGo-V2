@@ -9,7 +9,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from 'moti';
+import { Entrance } from '@eyego/ui';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -152,16 +152,11 @@ export default function OtpScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       {/* Back button */}
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.backButton}
-      >
+      <Entrance animation="slideDown" delay={0} style={styles.backButton}>
         <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
-      </MotiView>
+      </Entrance>
 
       <KeyboardAwareScrollView
         style={{ flex: 1 }}
@@ -170,11 +165,7 @@ export default function OtpScreen() {
       >
       <View style={styles.container}>
         {/* Headline */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
-        >
+        <Entrance animation="slideUp" delay={50}>
           <Text variant="headlineLarge" style={styles.headline}>
             Enter the code
           </Text>
@@ -192,14 +183,10 @@ export default function OtpScreen() {
               <Text variant="label" color={colors.primary}>{currentDevOtp}</Text>
             </View>
           )}
-        </MotiView>
+        </Entrance>
 
         {/* OTP boxes */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
-        >
+        <Entrance animation="slideUp" delay={100}>
           <Animated.View style={[styles.otpRow, shakeStyle]}>
             {Array.from({ length: OTP_LENGTH }).map((_, i) => (
               <OtpCell
@@ -215,41 +202,29 @@ export default function OtpScreen() {
               />
             ))}
           </Animated.View>
-        </MotiView>
+        </Entrance>
 
         {/* Error */}
         {verifyOtp.isError && (
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={styles.errorContainer}
-          >
+          <Entrance animation="fadeIn" style={styles.errorContainer}>
             <Text variant="caption" color={colors.error} style={{ textAlign: 'center' }}>
               Invalid code. Please try again.
             </Text>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Loading indicator */}
         {verifyOtp.isPending && (
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={styles.verifyingRow}
-          >
+          <Entrance animation="fadeIn" style={styles.verifyingRow}>
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>
               Verifying...
             </Text>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Resend */}
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 150 }}
-          style={styles.resendContainer}
-        >
+        <Entrance animation="fadeIn" delay={150} duration={400} style={styles.resendContainer}>
+
           {countdown > 0 ? (
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>
               Resend code in{' '}
@@ -264,7 +239,7 @@ export default function OtpScreen() {
               </Text>
             </Pressable>
           )}
-        </MotiView>
+        </Entrance>
       </View>
       </KeyboardAwareScrollView>
     </SafeAreaView>

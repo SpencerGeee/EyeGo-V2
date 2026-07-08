@@ -250,6 +250,7 @@ export default function WhereToScreen() {
         </View>
 
         {/* ── Floating glass card ─────────────────────── */}
+        <MorphBackSwipeDetector style={{ flex: 1 }}>
         <KeyboardAwareScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.scrollContent}
@@ -258,7 +259,6 @@ export default function WhereToScreen() {
           bottomOffset={24}
         >
             <MorphTarget id={activeMorphId} borderRadius={24}>
-            <MorphBackSwipeDetector>
             <View style={styles.floatingCard}>
 
               {/* ── Dual input + timeline ─────────────── */}
@@ -473,9 +473,9 @@ export default function WhereToScreen() {
                 </>
               )}
             </View>
-            </MorphBackSwipeDetector>
             </MorphTarget>
         </KeyboardAwareScrollView>
+        </MorphBackSwipeDetector>
       </View>
     </Animated.View>
   );

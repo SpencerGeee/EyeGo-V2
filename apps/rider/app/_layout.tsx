@@ -176,6 +176,12 @@ export default function RootLayout() {
 
   const [splashDone, setSplashDone] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+
+  // Pause the Skia shader when a detailPush or opaque screen covers the root
+  // background. All transparent-content screens (where-to, auth, join) sit at
+  // depth ≤ 2 inside the root Stack; detailPush screens (profile/settings,
+  // ride/[id]/seat, etc.) are at depth ≥ 3 — no blur layer behind them to run.
+  const isOpaqueDetail = segments.length >= 3;
   const offlineAnim = useRef(new Animated.Value(0)).current;
 
   const [inAppBanner, setInAppBanner] = useState<{ title: string; body: string } | null>(null);
@@ -422,7 +428,7 @@ export default function RootLayout() {
           <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.backgroundDeep} />
           {/* Ambient premium background — fade-group screens (transparent
               contentStyle below) show this instead of a flat fill. */}
-          <AppBackground />
+          <AppBackground isDark={isDark} paused={isOpaqueDetail} />
           {/* MorphProvider hosts the container-transform overlay: it must
               wrap the Stack (sources/targets live inside screens) and its
               overlay renders above every screen but below toasts/banners. */}

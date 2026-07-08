@@ -2,7 +2,7 @@
 import { View, StyleSheet, Alert, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -98,12 +98,7 @@ export default function SocialAuthScreen() {
         </Pressable>
       </View>
 
-      <MotiView
-        from={{ opacity: 0, translateY: 10 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.content}
-      >
+      <Entrance animation="slideUp" duration={350} style={styles.content}>
         {/* Wordmark */}
         <Text style={styles.wordmark}>EyeGo</Text>
 
@@ -119,13 +114,9 @@ export default function SocialAuthScreen() {
           style={[styles.socialBtn, loadingGoogle && styles.socialBtnDisabled]}
         >
           {loadingGoogle ? (
-            <MotiView
-              from={{ opacity: 0.4 }} animate={{ opacity: 1 }}
-              transition={{ loop: true, type: 'timing', duration: 500 }}
-              style={styles.loadingDots}
-            >
+            <Entrance animation="fadeIn" duration={500} style={styles.loadingDots}>
               <Text style={styles.socialBtnText}>Signing in…</Text>
-            </MotiView>
+            </Entrance>
           ) : (
             <>
               <Text style={styles.googleIcon}>G</Text>
@@ -142,12 +133,9 @@ export default function SocialAuthScreen() {
             style={[styles.socialBtn, styles.appleSocialBtn, loadingApple && styles.socialBtnDisabled]}
           >
             {loadingApple ? (
-              <MotiView
-                from={{ opacity: 0.4 }} animate={{ opacity: 1 }}
-                transition={{ loop: true, type: 'timing', duration: 500 }}
-              >
+              <Entrance animation="fadeIn" duration={500}>
                 <Text style={[styles.socialBtnText, { color: colors.backgroundDeep }]}>Signing in…</Text>
-              </MotiView>
+              </Entrance>
             ) : (
               <>
                 <Ionicons name="logo-apple" size={20} color={colors.backgroundDeep} />
@@ -162,7 +150,7 @@ export default function SocialAuthScreen() {
         <Text variant="caption" color={colors.onSurfaceVariant} style={styles.legal}>
           By continuing, you agree to EyeGo's Terms of Service and Privacy Policy.
         </Text>
-      </MotiView>
+      </Entrance>
     </SafeAreaView>
   );
 }

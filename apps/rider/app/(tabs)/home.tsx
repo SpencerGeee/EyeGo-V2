@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -259,11 +259,7 @@ export default function HomeScreen() {
         }
       >
         {/* Where To Search Bar */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 50 }}
-        >
+        <Animated.View entering={FadeIn.duration(250)}>
           <MorphSource
             id="where-to-pill"
             borderRadius={24}
@@ -271,14 +267,10 @@ export default function HomeScreen() {
           >
             <WhereToPressable onPress={handleWhereTo} colors={colors} styles={styles} />
           </MorphSource>
-        </MotiView>
+        </Animated.View>
 
         {/* Quick Action Circles */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 100 }}
-        >
+        <Animated.View entering={FadeIn.delay(80).duration(250)}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -299,16 +291,11 @@ export default function HomeScreen() {
               </Pressable>
             ))}
           </ScrollView>
-        </MotiView>
+        </Animated.View>
 
         {/* Active Ride Bento Card */}
         {activeBooking && (
-          <MotiView
-            from={{ opacity: 0, translateY: -8, scale: 0.98 }}
-            animate={{ opacity: 1, translateY: 0, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 32, delay: 50 }}
-            style={styles.activeBentoCard}
-          >
+          <Animated.View entering={FadeIn.duration(250)} style={styles.activeBentoCard}>
             {/* Dark map placeholder area */}
             <View style={styles.activeBentoMapArea}>
               <View style={styles.activeBentoRouteChip}>
@@ -353,7 +340,7 @@ export default function HomeScreen() {
                 </Text>
               </View>
             </View>
-          </MotiView>
+          </Animated.View>
         )}
 
         {/* Suggested Rides */}
@@ -377,11 +364,9 @@ export default function HomeScreen() {
           )}
 
           {!tripsLoading && rawTrips.slice(0, 6).map((trip: any, idx: number) => (
-            <MotiView
+            <Animated.View
               key={trip.id ?? idx}
-              from={{ opacity: 0, translateY: 8 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'timing', duration: 250, delay: idx * 60 }}
+              entering={FadeIn.delay(idx * 60).duration(200)}
             >
               <SuggestedTripCard
                 trip={trip}
@@ -392,7 +377,7 @@ export default function HomeScreen() {
                 colors={colors}
                 styles={styles}
               />
-            </MotiView>
+            </Animated.View>
           ))}
         </View>
 

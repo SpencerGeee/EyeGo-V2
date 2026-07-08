@@ -5,10 +5,8 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
   withTiming,
   interpolate,
-  interpolateColor,
   Easing,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +14,7 @@ import * as Haptics from 'expo-haptics';
 
 const AnimatedIonicons = Animated.createAnimatedComponent(Ionicons);
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fonts, springs, type ColorTokens } from '@eyego/config';
+import { fonts, type ColorTokens } from '@eyego/config';
 import { Text, GlassSurface } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -111,39 +109,25 @@ function TabItem({
   const icons = TAB_ICONS[routeName];
 
   React.useEffect(() => {
-    focus.value = withSpring(isFocused ? 1 : 0, springs.tab);
+    focus.value = withTiming(isFocused ? 1 : 0, { duration: 150, easing: Easing.out(Easing.quad) });
   }, [isFocused, focus]);
 
   // Guard: route exists in the directory but is not a visible tab
   if (!icons) return null;
 
-  // Press feedback multiplies onto the focus-driven idle scale.
+  // Press feedback multiplier
   const innerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
-  // Pill background fades + subtly scales up as the tab gains focus.
-  const pillStyle = useAnimatedStyle(() => ({
+  // Combined pill+active pill scale — both fade+scale identically.
+  const activeStyle = useAnimatedStyle(() => ({
     opacity: focus.value,
-    transform: [{ scale: interpolate(focus.value, [0, 1], [0.8, 1]) }],
+    transform: [{ scale: interpolate(focus.value, [0, 1], [0.82, 1]) }],
   }));
 
-  // Crossfade the filled (active) icon over the outline (inactive) one and
-  // give the active glyph a gentle pop so the swap reads as a morph.
-  const activeIconStyle = useAnimatedStyle(() => ({
-    opacity: focus.value,
-    transform: [{ scale: interpolate(focus.value, [0, 1], [0.85, 1]) }],
-  }));
   const inactiveIconStyle = useAnimatedStyle(() => ({
     opacity: 1 - focus.value,
-  }));
-
-  const labelStyle = useAnimatedStyle(() => ({
-    color: interpolateColor(
-      focus.value,
-      [0, 1],
-      [colors.onSurfaceVariant, colors.primary]
-    ),
   }));
 
   return (
@@ -152,14 +136,14 @@ function TabItem({
       onPressIn={() => {
         scale.value = withTiming(0.92, { duration: 100, easing: Easing.out(Easing.quad) });
       }}
-      onPressOut={() => { scale.value = withSpring(1, springs.press); }}
+      onPressOut={() => { scale.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.back) }); }}
       style={styles.tabItem}
       accessibilityRole="button"
       accessibilityLabel={TAB_LABELS[routeName]}
       accessibilityState={{ selected: isFocused }}
     >
       <Animated.View style={[styles.tabItemInner, innerStyle]}>
-        <Animated.View style={[styles.tabItemActive, StyleSheet.absoluteFill, pillStyle]} />
+        <Animated.View style={[styles.tabItemActive, StyleSheet.absoluteFill, activeStyle]} />
         <View style={styles.iconWrap}>
           <AnimatedIonicons
             style={[StyleSheet.absoluteFill, styles.iconLayer, inactiveIconStyle]}
@@ -168,15 +152,15 @@ function TabItem({
             color={colors.onSurfaceVariant}
           />
           <AnimatedIonicons
-            style={[StyleSheet.absoluteFill, styles.iconLayer, activeIconStyle]}
+            style={[StyleSheet.absoluteFill, styles.iconLayer, activeStyle]}
             name={icons.active}
             size={22}
             color={colors.primary}
           />
         </View>
-        <Animated.Text style={[styles.tabLabel, labelStyle]}>
+        <Text style={[styles.tabLabel, { color: isFocused ? colors.primary : colors.onSurfaceVariant }]}>
           {TAB_LABELS[routeName]}
-        </Animated.Text>
+        </Text>
       </Animated.View>
     </Pressable>
   );

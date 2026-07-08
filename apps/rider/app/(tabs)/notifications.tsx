@@ -1,8 +1,9 @@
 ﻿import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MotiView } from 'moti';
+import { Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -43,19 +44,20 @@ function NotifSeparator() {
 function SkeletonCard() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const pulse = useSharedValue(0.4);
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
+
+  React.useEffect(() => {
+    pulse.value = withRepeat(withTiming(1, { duration: 500, easing: Easing.inOut(Easing.sin) }), -1, true);
+  }, [pulse]);
+
   return (
-    <MotiView
-      from={{ opacity: 0.4 }}
-      animate={{ opacity: 1 }}
-      transition={{ type: 'timing', duration: 500, loop: true }}
-      style={styles.skeletonCard}
-    >
+    <Animated.View style={[styles.skeletonCard, pulseStyle]}>
       <View style={styles.skeletonIcon} />
       <View style={styles.skeletonContent}>
         <View style={[styles.skeletonLine, { width: '60%' }]} />
         <View style={[styles.skeletonLine, { width: '90%', marginTop: spacing.xs }]} />
-      </View>
-    </MotiView>
+      </View>      </Animated.View>
   );
 }
 
@@ -75,11 +77,7 @@ function NotificationCard({
   const typeInfo = getTypeIcons(colors)[item.type] ?? { icon: 'notifications-outline' as const, color: colors.onSurfaceVariant };
 
   return (
-    <MotiView
-      from={{ opacity: 0, translateY: 10 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'spring', stiffness: 600, damping: 34, delay: index * 35 }}
-    >
+    <Entrance animation="slideUp" delay={index * 35} duration={300}>
       <Pressable onPress={onPress} style={styles.cardWrapper}>
         {/* Glass card — canonical GlassSurface behind each primary card
             (replaces the ad-hoc per-row BlurView; gates on perf tier internally). */}
@@ -113,7 +111,7 @@ function NotificationCard({
           {!item.read && <View style={styles.unreadDot} />}
         </View>
       </Pressable>
-    </MotiView>
+    </Entrance>
   );
 }
 
@@ -191,12 +189,7 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
-      <MotiView
-        from={{ opacity: 0, translateY: -6 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.header}
-      >
+      <Entrance animation="slideDown" duration={300} style={styles.header}>
         <Text variant="headlineMedium">Notifications</Text>
         {hasUnread && (
           <Pressable
@@ -208,15 +201,11 @@ export default function NotificationsScreen() {
             <Text variant="label" color={colors.primary}>Mark all read</Text>
           </Pressable>
         )}
-      </MotiView>
+      </Entrance>
 
       {/* Category pills */}
-      <MotiView
-        from={{ opacity: 0, translateY: 4 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 60 }}
-        style={styles.categoryRow}
-      >
+      <Entrance animation="slideUp" delay={60} duration={300} style={styles.categoryRow}>
+
         {CATEGORIES.map((cat) => (
           <Pressable
             key={cat}
@@ -236,7 +225,7 @@ export default function NotificationsScreen() {
             {activeCategory === cat && <View style={styles.categoryUnderline} />}
           </Pressable>
         ))}
-      </MotiView>
+      </Entrance>
 
       {isLoading ? (
         <View style={styles.list}>
@@ -261,12 +250,7 @@ export default function NotificationsScreen() {
           }
           renderItem={renderItem}
           ListEmptyComponent={
-            <MotiView
-              from={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-              style={styles.empty}
-            >
+            <Entrance animation="scaleIn" duration={300} style={styles.empty}>
               <View style={styles.emptyIconWrapper}>
                 <Ionicons name="notifications-outline" size={52} color={colors.onSurfaceVariant} style={{ opacity: 0.3 }} />
               </View>
@@ -274,7 +258,7 @@ export default function NotificationsScreen() {
               <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
                 No {activeCategory === 'All' ? '' : activeCategory.toLowerCase() + ' '}notifications yet.
               </Text>
-            </MotiView>
+            </Entrance>
           }
         />
       )}

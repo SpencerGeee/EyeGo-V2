@@ -12,6 +12,8 @@ export interface InlayPanelProps {
   sheetStyle?: StyleProp<ViewStyle>;
   grabberColor?: string;
   onStateChange?: (state: PanelState) => void;
+  /** Optional RefreshControl element for pull-to-refresh on the inner scroll view. */
+  refreshControl?: React.ReactElement;
 }
 
 export function InlayPanel({
@@ -54,6 +56,7 @@ export function InlayPanel({
                 scrollEventThrottle={16}
                 bounces={false}
                 showsVerticalScrollIndicator={false}
+                refreshControl={refreshControl}
                 style={{ maxHeight: screenH - expanded - insets.bottom }}
               >
                 {children}

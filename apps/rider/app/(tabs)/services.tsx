@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -115,11 +115,7 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
   };
 
   return (
-    <MotiView
-      from={{ opacity: 0, translateY: 12 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'timing', duration: 300 }}
-    >
+    <Animated.View entering={FadeIn.duration(300)}>
       <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceCard}>
       <Pressable onPress={handlePress}>
         <Card
@@ -147,7 +143,7 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
         </Card>
       </Pressable>
       </MorphSource>
-    </MotiView>
+    </Animated.View>
   );
 }
 
@@ -219,11 +215,7 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
   );
 
   return (
-    <MotiView
-      from={{ opacity: 0, translateY: 12 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'timing', duration: 300 }}
-    >
+    <Animated.View entering={FadeIn.duration(300)}>
       {canMorph ? (
         <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceContainerHigh}>
           {inner}
@@ -231,7 +223,7 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
       ) : (
         inner
       )}
-    </MotiView>
+    </Animated.View>
   );
 }
 

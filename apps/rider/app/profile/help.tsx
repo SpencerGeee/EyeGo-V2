@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -12,13 +12,13 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
 import type { Booking } from '@eyego/types';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, GlassSurface } from '@eyego/ui';
+import { Text, Button, GlassSurface, PanelSheet } from '@eyego/ui';
 
 const FAQ_ITEMS = [
   {
@@ -100,8 +100,7 @@ export default function HelpScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [openItems, setOpenItems] = useState<Set<string>>(new Set());
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['60%', '92%'], []);
+  const [showTickets, setShowTickets] = useState(false);
   
   const [ticketCategory, setTicketCategory] = useState<'General Support' | 'Dispute' | 'Lost Item'>('General Support');
   const [ticketSubject, setTicketSubject] = useState('');
@@ -156,7 +155,7 @@ export default function HelpScreen() {
   };
 
   const handleOpenTickets = () => {
-    bottomSheetRef.current?.expand();
+    setShowTickets(true);
   };
 
   const handleSubmitTicket = () => {
@@ -278,20 +277,17 @@ export default function HelpScreen() {
         </MotiView>
       </ScrollView>
 
-      {/* My Tickets Bottom Sheet */}
-      <BottomSheet
-        ref={bottomSheetRef}
-        index={-1}
-        snapPoints={snapPoints}
-        backgroundStyle={{
-          backgroundColor: colors.background,
-          borderTopLeftRadius: radii['3xl'],
-          borderTopRightRadius: radii['3xl'],
-        }}
-        handleIndicatorStyle={styles.sheetHandle}
-        enablePanDownToClose={true}
+      {/* My Tickets — PanelSheet replaces @gorhom/bottom-sheet.
+          Uses the same usePanelMotion engine: spring snap with velocity,
+          backdrop opacity, scroll/drag arbitration. */}
+      <PanelSheet
+        visible={showTickets}
+        onDismiss={() => setShowTickets(false)}
+        maxHeightPct={0.92}
+        sheetStyle={{ backgroundColor: colors.background }}
+        backdropOpacity={0.7}
       >
-        <BottomSheetScrollView contentContainerStyle={styles.sheetContent}>
+        <View style={styles.sheetContent}>
           <Text variant="titleMedium" style={{ marginBottom: spacing.md, color: colors.onSurface }}>
             My Tickets
           </Text>
@@ -457,8 +453,8 @@ export default function HelpScreen() {
               </View>
             ))
           )}
-        </BottomSheetScrollView>
-      </BottomSheet>
+        </View>
+      </PanelSheet>
     </SafeAreaView>
   );
 }

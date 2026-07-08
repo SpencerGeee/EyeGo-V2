@@ -1,7 +1,6 @@
-﻿import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
+﻿import React, { useMemo, useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
-import BottomSheet, { BottomSheetScrollView, useBottomSheetSpringConfigs } from '@gorhom/bottom-sheet';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
@@ -13,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import eyegoDarkStyle from '@eyego/map-styles';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel } from '@eyego/ui';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
@@ -42,11 +41,6 @@ export default function RideDetailScreen() {
   }, [morphBack, router]);
   const { user } = useAuthStore();
   const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare } = useRideStore();
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['58%', '85%'], []);
-  // Same physical spring as the @eyego/ui panel engine so release velocity
-  // carries into the settle and both sheets feel like one system.
-  const sheetSpringConfigs = useBottomSheetSpringConfigs({ stiffness: 320, damping: 34, mass: 0.9 });
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selectedTier, setSelectedTier] = useState<TierKey>(
     (tierParam?.toUpperCase() as TierKey) ?? 'ECONOMY'
@@ -239,17 +233,14 @@ export default function RideDetailScreen() {
         <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
       </Pressable>
 
-      {/* Bottom sheet */}
-      <BottomSheet
-        ref={bottomSheetRef}
-        index={0}
-        snapPoints={snapPoints}
-        animationConfigs={sheetSpringConfigs}
-        backgroundStyle={styles.sheetBackground}
-        handleIndicatorStyle={styles.sheetHandle}
-        enablePanDownToClose={false}
+      {/* Bottom sheet — InlayPanel uses the same usePanelMotion engine as PanelSheet,
+          same spring constants, no gorhom dependency. */}
+      <InlayPanel
+        snapPointsPct={[0.58, 0.85]}
+        sheetStyle={styles.sheetBackground}
+        grabberColor={colors.outline}
       >
-        <BottomSheetScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.sheetContent}>
           {/* Tier selector */}
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
@@ -421,8 +412,8 @@ export default function RideDetailScreen() {
               </MotiView>
             </>
           )}
-        </BottomSheetScrollView>
-      </BottomSheet>
+        </View>
+      </InlayPanel>
 
       <FareBreakdownSheet
         visible={showFareBreakdown}

@@ -32,6 +32,13 @@ interface AppBackgroundProps {
    * (transparent pushed screens white-flash on iOS native-stack slides).
    */
   variant?: 'animated' | 'static';
+  /** Pass the current theme's dark/light state so the shader can tone down
+   *  in light mode. Defaults to dark (existing behaviour). */
+  isDark?: boolean;
+  /** When paused, the shader stops updating (frozen frame / no-op interval).
+   *  Set when an opaque detailPush screen covers the background entirely —
+   *  saves 30fps GPU fill cycles the user can't see. */
+  paused?: boolean;
 }
 
 /**
@@ -41,12 +48,16 @@ interface AppBackgroundProps {
  * gradient blobs drift/pulse slowly via worklet-driven Reanimated. Mounted
  * once in the root layout so every "bare background" screen inherits it.
  */
-export function AppBackground({ style, variant = 'animated' }: AppBackgroundProps) {
+export function AppBackground({ style, variant = 'animated', isDark = true, paused = false }: AppBackgroundProps) {
   const colors = useThemedColors();
   const tier = usePerformanceTier();
   const { width, height } = Dimensions.get('window');
 
-  const animated = variant === 'animated' && tier !== 'low';
+  const animated = variant === 'animated' && tier !== 'low' && !paused;
+
+  // Light mode: drop shader opacity way down so the View's light background
+  // shows through — just a subtle ambient tint instead of a full dark overlay.
+  const ambientOpacity = isDark ? 0.85 : 0.12;
 
   // Mid/high tiers get the real GPU shader (Skia "LightPillar" port) —
   // a vertical rotating light beam in brand green, continuously alive.
@@ -63,16 +74,16 @@ export function AppBackground({ style, variant = 'animated' }: AppBackgroundProp
         ]}
       >
         <LightPillarBackground
-          topColor={colors.primary}
-          bottomColor={colors.onPrimaryFixedVariant}
+          topColor={isDark ? colors.primary : '#e0e0e0'}
+          bottomColor={isDark ? colors.onPrimaryFixedVariant : '#ffffff'}
           animated={animated}
-          intensity={1.0}
+          intensity={isDark ? 1.0 : 0.4}
           rotationSpeed={tier === 'high' ? 0.4 : 0.25}
           glowAmount={tier === 'high' ? 0.006 : 0.004}
           pillarWidth={3.0}
           pillarHeight={0.4}
-          noiseIntensity={tier === 'high' ? 0.5 : 0.3}
-          opacity={0.85}
+          noiseIntensity={isDark ? (tier === 'high' ? 0.5 : 0.3) : 0}
+          opacity={ambientOpacity}
         />
       </View>
     );
