@@ -8,7 +8,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from 'moti';
 import {
   useSharedValue,
   useAnimatedStyle,
@@ -21,9 +20,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { tripsApi, routesApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph } from '@eyego/ui';
+import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../lib/sentry';
@@ -246,11 +245,7 @@ export default function RideSelectScreen() {
       >
         <View style={styles.dockedContent}>
         {/* Search bar */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.snappy, delay: 40 }}
-        >
+        <Entrance animation="slideUp" delay={40}>
           <Pressable
             style={styles.searchBar}
             onPress={() => router.push('/where-to' as any)}
@@ -272,14 +267,10 @@ export default function RideSelectScreen() {
               <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
             )}
           </Pressable>
-        </MotiView>
+        </Entrance>
 
         {/* Tier filter pills */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', ...springs.snappy, delay: 60 }}
-        >
+        <Entrance animation="slideUp" delay={60}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tierPillsBleed} contentContainerStyle={styles.tierPillsRow}>
             <Pressable
               style={[styles.tierPill, !selectedTier && styles.tierPillAllActive]}
@@ -305,24 +296,21 @@ export default function RideSelectScreen() {
               );
             })}
           </ScrollView>
-        </MotiView>
+        </Entrance>
 
         {/* Auto-search on mount if destination is set */}
         {!searched && !searchTrips.isPending && (destText || destText) && (
-          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ type: 'timing', duration: 200 }}>
+          <Entrance animation="fadeIn" duration={200}>
             <Pressable style={styles.searchCta} onPress={() => searchTrips.mutate()}>
               <Button variant="glow" label="Find Available Rides" onPress={() => searchTrips.mutate()} loading={searchTrips.isPending} />
             </Pressable>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Results */}
         {searched && trips.length === 0 && (
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 300 }}
-          >
+          <Entrance animation="fadeIn" duration={300}>
+
             {searchTrips.isError ? (
               <EmptyState
                 icon="⚠️"
@@ -374,15 +362,12 @@ export default function RideSelectScreen() {
                 </View>
               </View>
             )}
-          </MotiView>
+          </Entrance>
         )}
 
         {searched && trips.length > 0 && (
-          <MotiView
-            from={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 300 }}
-          >
+          <Entrance animation="fadeIn" duration={300}>
+
             <Text style={styles.resultsCount}>
               {displayTrips.length} ride{displayTrips.length !== 1 ? 's' : ''} available
               {filtersActive ? ' (filtered)' : ''}
@@ -402,11 +387,11 @@ export default function RideSelectScreen() {
                   ? new Date(trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
                   : 'Departing soon';
                 return (
-                  <MotiView
+                  <Entrance
                     key={trip.id ?? i}
-                    from={{ opacity: 0, translateY: 10 }}
-                    animate={{ opacity: 1, translateY: 0 }}
-                    transition={{ type: 'spring', ...springs.snappy, delay: i * 40 }}
+                    animation="slideUp"
+                    delay={i * 40}
+                    duration={350}
                   >
                     <MorphSource
                       id={`ride-card-${trip.id}`}
@@ -509,10 +494,9 @@ export default function RideSelectScreen() {
                     </MorphSource>
 
                     {enRoutePickerTripId === trip.id && (
-                      <MotiView
-                        from={{ opacity: 0, translateY: -8 }}
-                        animate={{ opacity: 1, translateY: 0 }}
-                        transition={{ type: 'spring', ...springs.snappy }}
+                      <Entrance
+                        animation="slideDown"
+                        duration={350}
                         style={styles.stopPickerCard}
                       >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
@@ -563,13 +547,13 @@ export default function RideSelectScreen() {
                             </Pressable>
                           );
                         })}
-                      </MotiView>
+                      </Entrance>
                     )}
-                  </MotiView>
+                  </Entrance>
                 );
               })}
             </View>
-          </MotiView>
+          </Entrance>
         )}
         </View>
       </ScrollView>

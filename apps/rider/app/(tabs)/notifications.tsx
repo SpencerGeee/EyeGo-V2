@@ -1,7 +1,7 @@
 ﻿import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
-import { FlashList } from '@shopify/flash-list';
+import { AnimatedList } from '@eyego/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -63,13 +63,12 @@ function SkeletonCard() {
 
 function NotificationCard({
   item,
-  index,
   onPress,
   styles,
   colors,
 }: {
   item: AppNotification;
-  index: number;
+  index?: number;
   onPress: () => void;
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
@@ -77,7 +76,6 @@ function NotificationCard({
   const typeInfo = getTypeIcons(colors)[item.type] ?? { icon: 'notifications-outline' as const, color: colors.onSurfaceVariant };
 
   return (
-    <Entrance animation="slideUp" delay={index * 35} duration={300}>
       <Pressable onPress={onPress} style={styles.cardWrapper}>
         {/* Glass card — canonical GlassSurface behind each primary card
             (replaces the ad-hoc per-row BlurView; gates on perf tier internally). */}
@@ -111,7 +109,6 @@ function NotificationCard({
           {!item.read && <View style={styles.unreadDot} />}
         </View>
       </Pressable>
-    </Entrance>
   );
 }
 
@@ -232,9 +229,12 @@ export default function NotificationsScreen() {
           {[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}
         </View>
       ) : (
-        <FlashList
+        <AnimatedList
           data={filteredNotifications}
           keyExtractor={(item) => item.id}
+          entranceAnimation="slideUp"
+          staggerDelay={35}
+          entranceDuration={300}
           contentContainerStyle={{
             paddingHorizontal: spacing['2xl'],
             paddingBottom: 100,
