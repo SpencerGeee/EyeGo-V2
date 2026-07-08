@@ -5,8 +5,8 @@ import {
   Pressable,
   Alert,
   Modal,
-  FlatList,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import * as Contacts from 'expo-contacts';
@@ -330,7 +330,8 @@ export default function EditProfileScreen() {
               <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>
-          <FlatList
+          <FlashList
+            {...({ estimatedItemSize: 64 } as any)}
             data={contactList}
             keyExtractor={(item: any) => item.id ?? item.name ?? Math.random().toString()}
             renderItem={renderContactItem}
