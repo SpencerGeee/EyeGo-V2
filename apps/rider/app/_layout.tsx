@@ -577,7 +577,11 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="ride/schedule"
-              options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+              options={{
+                animation: 'slide_from_bottom',
+                presentation: 'modal',
+                gestureEnabled: true,
+              }}
             />
             <Stack.Screen
               name="ride/request"

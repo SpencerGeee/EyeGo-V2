@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback } from 'react';
+﻿import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,7 +6,6 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
@@ -15,7 +14,7 @@ import { bookingsApi, notificationsApi } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -121,6 +120,39 @@ function ItemSeparator() {
   return <View style={{ height: spacing.sm }} />;
 }
 
+/** Partition a date string into a human-readable section label. */
+function getDateLabel(dateStr: string): string {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const d = new Date(dateStr);
+  const itemDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.floor(
+    (today.getTime() - itemDate.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return 'This Week';
+  return 'Earlier';
+}
+
+function SectionHeader({
+  label,
+  colors,
+  styles,
+}: {
+  label: string;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionHeaderText}>{label}</Text>
+    </View>
+  );
+}
+
 function FilterChip({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof makeStyles> }) {
   return (
     <Pressable
@@ -133,6 +165,7 @@ function FilterChip({ label, active, onPress, styles }: { label: string; active:
 }
 
 export default function ActivityScreen() {
+  const router = useRouter();
   const colors = useColors();
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
@@ -209,37 +242,78 @@ export default function ActivityScreen() {
     );
   }, [bookings, notifications, filter]);
 
+  /** Flat array with section headers interleaved, grouped by date period. */
+  const feedWithSections = React.useMemo(() => {
+    const flat = feedItems;
+    if (flat.length === 0) return [];
+
+    const groups = new Map<string, typeof feedItems>();
+    for (const item of flat) {
+      const label = getDateLabel(item.date);
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label)!.push(item);
+    }
+
+    const order = ['Today', 'Yesterday', 'This Week', 'Earlier'];
+    const result: Array<
+      | { type: 'section'; label: string; date: string }
+      | (typeof feedItems)[number]
+    > = [];
+    for (const label of order) {
+      const items = groups.get(label);
+      if (items && items.length > 0) {
+        result.push({ type: 'section', label, date: items[0].date });
+        result.push(...items);
+      }
+    }
+    return result;
+  }, [feedItems]);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Activity</Text>
-      </View>
+      <Entrance animation="slideDown" duration={300}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Activity</Text>
+        </View>
+      </Entrance>
 
-      <View style={styles.filterRow}>
-        {(['all', 'trips', 'alerts'] as FilterTab[]).map((f) => (
-          <FilterChip
-            key={f}
-            label={f === 'all' ? 'All' : f === 'trips' ? 'Trips' : 'Alerts'}
-            active={filter === f}
-            styles={styles}
-            onPress={() => {
-              Haptics.selectionAsync();
-              setFilter(f);
-            }}
-          />
-        ))}
-      </View>
+      <Entrance animation="fadeIn" delay={100} duration={250}>
+        <View style={styles.filterRow}>
+          {(['all', 'trips', 'alerts'] as FilterTab[]).map((f) => (
+            <FilterChip
+              key={f}
+              label={f === 'all' ? 'All' : f === 'trips' ? 'Trips' : 'Alerts'}
+              active={filter === f}
+              styles={styles}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setFilter(f);
+              }}
+            />
+          ))}
+        </View>
+      </Entrance>
 
       {isLoading && !refreshing ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
       ) : (
-        <FlashList
-          data={feedItems}
-          keyExtractor={(item, idx) => `${item.type}-${item.data.id ?? idx}`}
+        <AnimatedList
+          entranceAnimation="slideUp"
+          staggerDelay={30}
+          entranceDuration={200}
+          {...backgroundScrollPauseProps}
+          data={feedWithSections}
+          keyExtractor={(item, idx) =>
+            'label' in item && 'type' in item && item.type === 'section'
+              ? `section-${(item as any).label}`
+              : `${(item as any).type}-${(item as any).data?.id ?? idx}`
+          }
           renderItem={({ item }) =>
-            item.type === 'trip' ? (
+            'label' in item && item.type === 'section' ? (
+              <SectionHeader label={item.label} colors={colors} styles={styles} />
+            ) : item.type === 'trip' ? (
               <TripItem booking={item.data} colors={colors} styles={styles} />
             ) : (
               <NotificationItem notification={item.data} colors={colors} styles={styles} />
@@ -262,6 +336,34 @@ export default function ActivityScreen() {
               <Ionicons name="time-outline" size={48} color={colors.onSurfaceVariant} />
               <Text style={styles.emptyText}>No activity yet</Text>
               <Text style={styles.emptyHint}>Your rides and alerts will appear here</Text>
+              {filter !== 'alerts' && (
+                <View style={styles.emptyCtaRow}>
+                  <Pressable
+                    style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.8 }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.push('/trip?stage=search' as any);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Request a trip"
+                  >
+                    <Ionicons name="search" size={16} color={colors.onSurface} />
+                    <Text style={styles.emptyCtaText}>Request a trip</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [styles.emptyCta, styles.emptyCtaSecondary, pressed && { opacity: 0.8 }]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.push('/ride/schedule' as any);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Schedule a ride"
+                  >
+                    <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
+                    <Text style={styles.emptyCtaText}>Schedule</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
           }
           showsVerticalScrollIndicator={false}
@@ -314,6 +416,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   chipTextActive: {
     color: colors.inverseOnSurface,
+  },
+  sectionHeader: {
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  sectionHeaderText: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.titleSmall,
+    lineHeight: fontSizes.titleSmall * 1.25,
+    color: colors.onSurfaceVariant,
+    letterSpacing: -0.3,
   },
   listContent: {
     paddingHorizontal: spacing.lg,
@@ -409,5 +523,30 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: fontSizes.bodySmall,
     color: colors.onSurfaceVariant,
     textAlign: 'center',
+  },
+  emptyCtaRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  emptyCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.onSurface,
+    borderRadius: radii.lg,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm + 2,
+  },
+  emptyCtaSecondary: {
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+  },
+  emptyCtaText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    lineHeight: fontSizes.bodyMedium * 1.3,
+    color: colors.inverseOnSurface,
   },
 });

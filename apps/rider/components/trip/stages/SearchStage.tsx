@@ -191,7 +191,7 @@ function SearchStageImpl() {
       </View>
 
       {/* ── Floating glass card ─────────────────────── */}
-      <MorphBackSwipeDetector style={{ flex: 1 }}>
+      <MorphBackSwipeDetector style={{ flex: 1 }} onSwipeBack={handleClose}>
       <KeyboardAwareScrollView
         style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}

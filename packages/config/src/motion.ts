@@ -24,7 +24,7 @@ export const springs = {
    * "alive" tension with a whisper of overshoot — never bouncy, never stiff.
    * Used by MorphProvider for both forward and reverse flights.
    */
-  morph: { stiffness: 180, damping: 18, mass: 1 },
+  morph: { stiffness: 100, damping: 20, mass: 1 },
   /** Screen/element entrances — a whisper of life, still clamped. */
   entrance: { duration: 450, dampingRatio: 0.9, overshootClamping: true },
   /** Press release back to rest. */

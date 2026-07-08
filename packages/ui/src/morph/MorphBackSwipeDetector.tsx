@@ -14,11 +14,6 @@ import Animated, {
 import { springs } from '@eyego/config';
 import { useMorphOptional } from './MorphProvider';
 
-interface MorphBackSwipeDetectorProps {
-  children: React.ReactNode;
-  style?: StyleProp<ViewStyle>;
-}
-
 /**
  * Yango-style gesture handler for reverse morph. Wrap the content of a morph
  * target screen with this component to enable pull-down-to-dismiss with
@@ -36,12 +31,26 @@ interface MorphBackSwipeDetectorProps {
  * Only activates when the provider has an active morph flight and the phase
  * is 'settled' (not during the forward flight itself).
  */
+interface MorphBackSwipeDetectorProps {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  /** Called when the gesture completes the reverse morph and the screen
+   *  should navigate back. If omitted, the gesture only reverses the morph
+   *  overlay visually — the caller must navigate back separately. */
+  onSwipeBack?: () => void;
+}
+
 export function MorphBackSwipeDetector({
   children,
   style,
+  onSwipeBack,
 }: MorphBackSwipeDetectorProps) {
   const morph = useMorphOptional();
   const commitRef = useRef<(() => void) | null>(null);
+  // Sync the onSwipeBack prop into a ref so the gesture callback always
+  // sees the latest value without re-creating the gesture.
+  const swipeBackRef = useRef(onSwipeBack);
+  swipeBackRef.current = onSwipeBack;
 
   // Worklet-safe refs for the gesture handle + active state
   const gestureHandleRef = useRef<ReturnType<
@@ -62,6 +71,8 @@ export function MorphBackSwipeDetector({
   const onCommit = useCallback(() => {
     isActiveRef.current = false;
     gestureHandleRef.current = null;
+    // Call the user-provided callback first, then the ref-based fallback
+    swipeBackRef.current?.();
     commitRef.current?.();
   }, []);
 

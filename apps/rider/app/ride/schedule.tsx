@@ -63,7 +63,12 @@ export default function ScheduleRideScreen() {
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      // Dismiss any open picker modal before unmount to avoid native modal
+      // conflicts during swipe-back gesture.
+      setShowPicker(false);
+    };
   }, []);
 
   // Load available routes

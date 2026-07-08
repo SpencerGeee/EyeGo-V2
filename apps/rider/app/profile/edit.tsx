@@ -165,18 +165,11 @@ export default function EditProfileScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <KeyboardAwareScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bottomOffset={24}
-          {...backgroundScrollPauseProps}
-        >
-          {/* Avatar */}
-          <View
-            style={styles.avatarSection}
-          >
-            <MorphTarget id={morphId ?? 'profile-hero-avatar'} borderRadius={48}>
+        {/* MorphTarget hoisted outside KeyboardAwareScrollView so its
+            measureInWindow fires from a stable layout position — no delay
+            from scroll-view / GradientGlowBorder settling. */}
+        <MorphTarget id={morphId ?? 'profile-hero-avatar'} borderRadius={48}>
+          <View style={styles.avatarSection}>
             <Pressable onPress={pickImage} style={styles.avatarContainer}>
               <GradientGlowBorder
                 colors={PREMIUM_RING_COLORS}
@@ -201,9 +194,17 @@ export default function EditProfileScreen() {
                 <Ionicons name="camera-outline" size={14} color={colors.onPrimary} />
               </View>
             </Pressable>
-            </MorphTarget>
             <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
           </View>
+        </MorphTarget>
+
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bottomOffset={24}
+          {...backgroundScrollPauseProps}
+        >
 
           {/* Name */}
           <View

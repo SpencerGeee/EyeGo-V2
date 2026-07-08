@@ -136,7 +136,7 @@ function TabItem({
       onPressIn={() => {
         scale.value = withTiming(0.92, { duration: 100, easing: Easing.out(Easing.quad) });
       }}
-      onPressOut={() => { scale.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.back) }); }}
+      onPressOut={() => { scale.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.back(1.5)) }); }}
       style={styles.tabItem}
       accessibilityRole="button"
       accessibilityLabel={TAB_LABELS[routeName]}
@@ -189,7 +189,6 @@ export default function TabLayout() {
       {/* Legacy screens kept for deep-link routing — hidden from tab bar */}
       <Tabs.Screen name="trips" options={{ href: null }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
-      <Tabs.Screen name="profile" options={{ href: null }} />
     </Tabs>
   );
 }
