@@ -3,3 +3,5 @@ export type { PanelState, PanelSnapPoints, PanelMotionOptions } from './usePanel
 export { usePanelLifecycle } from './usePanelLifecycle';
 export { PanelSheet } from './PanelSheet';
 export type { PanelSheetProps } from './PanelSheet';
+export { InlayPanel } from './InlayPanel';
+export type { InlayPanelProps } from './InlayPanel';
