@@ -237,6 +237,7 @@ const makeStyles = (colors: DriverColors) =>
     segmentText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     },
     loadingContainer: {
       paddingHorizontal: spacing['2xl'],

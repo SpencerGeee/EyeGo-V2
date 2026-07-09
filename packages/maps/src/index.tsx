@@ -93,30 +93,71 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
   },
   ref,
 ) {
+  // Diagnostic fallback — the native Map view otherwise fails *silently*
+  // (a black frame with only the app background layer showing) when the
+  // style JSON or its tile sources don't load, which is indistinguishable
+  // from "still loading" without device logs. Surface it visibly instead so
+  // the next build reports *why*, not just *that* it's black.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (loaded || loadError) return;
+    // onDidFailLoadingMap fires for a bad style document, but tile-fetch
+    // failures (e.g. OpenFreeMap unreachable) don't trip it — they just
+    // never finish loading. A generous timeout catches that silent case too.
+    const timer = setTimeout(() => {
+      if (!loaded) setLoadError('style/tiles did not finish loading (timeout — check network or map style URL)');
+    }, 12000);
+    return () => clearTimeout(timer);
+  }, [loaded, loadError]);
+
   return (
-    <NativeMap
-      ref={ref}
-      style={style}
-      mapStyle={mapStyle ?? styleURL}
-      logo={logoEnabled ?? false}
-      attribution={attributionEnabled ?? false}
-      compass={compassEnabled ?? false}
-      touchRotate={rotateEnabled ?? true}
-      touchZoom={zoomEnabled ?? true}
-      dragPan={scrollEnabled ?? true}
-      // scaleBarEnabled has no direct v11 prop — omitted, not load-bearing.
-      // onRegionDidChange/onUserPan: neither current screen consumer passes
-      // these; the exact v11 viewport-change event name is unconfirmed
-      // (Map.js doesn't destructure it explicitly — it's forwarded to the
-      // native view manager as-is). Verify the real event name before any
-      // future consumer relies on this.
-      onRegionDidChange={(e: any) => {
-        if (e?.nativeEvent?.properties?.isUserInteraction) onUserPan?.();
-        onRegionDidChange?.(e?.nativeEvent ?? e);
-      }}
-    >
-      {children}
-    </NativeMap>
+    <View style={style}>
+      <NativeMap
+        ref={ref}
+        style={{ flex: 1 }}
+        mapStyle={mapStyle ?? styleURL}
+        logo={logoEnabled ?? false}
+        attribution={attributionEnabled ?? false}
+        compass={compassEnabled ?? false}
+        touchRotate={rotateEnabled ?? true}
+        touchZoom={zoomEnabled ?? true}
+        dragPan={scrollEnabled ?? true}
+        // scaleBarEnabled has no direct v11 prop — omitted, not load-bearing.
+        // onRegionDidChange/onUserPan: neither current screen consumer passes
+        // these; the exact v11 viewport-change event name is unconfirmed
+        // (Map.js doesn't destructure it explicitly — it's forwarded to the
+        // native view manager as-is). Verify the real event name before any
+        // future consumer relies on this.
+        onRegionDidChange={(e: any) => {
+          if (e?.nativeEvent?.properties?.isUserInteraction) onUserPan?.();
+          onRegionDidChange?.(e?.nativeEvent ?? e);
+        }}
+        onDidFinishLoadingMap={() => setLoaded(true)}
+        onDidFailLoadingMap={() => setLoadError('native onDidFailLoadingMap — bad style document or unreachable style URL')}
+      >
+        {children}
+      </NativeMap>
+      {loadError && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            right: 8,
+            padding: 8,
+            borderRadius: 8,
+            backgroundColor: 'rgba(180,20,20,0.9)',
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
+            Map failed to load — {loadError}
+          </Text>
+        </View>
+      )}
+    </View>
   );
 });
 

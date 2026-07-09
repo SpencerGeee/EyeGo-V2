@@ -549,6 +549,7 @@ const makeStyles = (colors: Colors) =>
     vehiclePillText: {
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurfaceVariant,
     },
     heroName: {
@@ -573,6 +574,7 @@ const makeStyles = (colors: Colors) =>
     farePillText: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
+      lineHeight: 14,
       color: colors.primary,
     },
     starsSection: {
@@ -586,6 +588,7 @@ const makeStyles = (colors: Colors) =>
     starMessage: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       letterSpacing: 0.2,
     },
     card: {
@@ -622,6 +625,7 @@ const makeStyles = (colors: Colors) =>
     tipBadgeText: {
       fontFamily: fonts.medium,
       fontSize: 10,
+      lineHeight: 13,
       color: colors.primary,
     },
     tipGrid: {
@@ -664,6 +668,7 @@ const makeStyles = (colors: Colors) =>
     tipOptionLabel: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurface,
     },
     tipOptionLabelActive: {
@@ -682,6 +687,7 @@ const makeStyles = (colors: Colors) =>
     customInputPrefix: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.primary,
       marginRight: spacing.xs,
     },
@@ -689,6 +695,7 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyLarge,
+      lineHeight: Math.round(fontSizes.bodyLarge * 1.4),
       color: colors.onSurface,
     },
     chipsWrap: {
@@ -714,6 +721,7 @@ const makeStyles = (colors: Colors) =>
     chipLabel: {
       fontFamily: fonts.medium,
       fontSize: 12,
+      lineHeight: 16,
       color: colors.onSurface,
     },
     chipLabelActive: {
@@ -727,6 +735,7 @@ const makeStyles = (colors: Colors) =>
       padding: spacing.base,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
       minHeight: 96,
     },
@@ -746,6 +755,7 @@ const makeStyles = (colors: Colors) =>
     skipText: {
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurfaceVariant,
     },
   });

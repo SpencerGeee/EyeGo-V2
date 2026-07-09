@@ -349,6 +349,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 13,
     letterSpacing: 1.4,
     color: colors.outline,
     marginBottom: spacing.sm,
@@ -409,6 +410,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   inputLabel: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.onSurfaceVariant,
     marginBottom: spacing.xs,
   },

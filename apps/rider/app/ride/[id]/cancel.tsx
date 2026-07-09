@@ -376,6 +376,7 @@ const makeStyles = (colors: Colors) =>
     cardHeaderLabel: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       letterSpacing: 0.6,
       color: colors.onSurfaceVariant,
       textTransform: 'uppercase',
@@ -391,7 +392,7 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: spacing.sm,
       paddingVertical: 4,
     },
-    etaText: { fontFamily: fonts.medium, fontSize: 11, color: colors.primary },
+    etaText: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 14, color: colors.primary },
     timeline: { position: 'relative', paddingLeft: spacing['2xl'], paddingTop: spacing.base },
     timelineLine: {
       position: 'absolute',
@@ -432,6 +433,7 @@ const makeStyles = (colors: Colors) =>
     routeLabel: {
       fontFamily: fonts.semiBold,
       fontSize: 10,
+      lineHeight: 13,
       letterSpacing: 0.8,
       color: colors.onSurfaceVariant,
       marginBottom: 2,
@@ -455,6 +457,7 @@ const makeStyles = (colors: Colors) =>
     policyTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurface,
       marginBottom: 2,
     },
@@ -467,6 +470,7 @@ const makeStyles = (colors: Colors) =>
     policySub: {
       fontFamily: fonts.regular,
       fontSize: 12,
+      lineHeight: 16,
       color: colors.outline,
       marginTop: 4,
     },
@@ -499,6 +503,7 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurfaceVariant,
     },
     reasonLabelSelected: { color: colors.onSurface, fontFamily: fonts.semiBold },
@@ -511,6 +516,7 @@ const makeStyles = (colors: Colors) =>
       padding: spacing.base,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
       minHeight: 110,
     },

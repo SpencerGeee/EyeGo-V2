@@ -300,6 +300,7 @@ export default function ActivityScreen() {
         </View>
       ) : (
         <AnimatedList
+          style={{ flex: 1 }}
           entranceAnimation="slideUp"
           staggerDelay={30}
           entranceDuration={200}
@@ -521,6 +522,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emptyHint: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     color: colors.onSurfaceVariant,
     textAlign: 'center',
   },

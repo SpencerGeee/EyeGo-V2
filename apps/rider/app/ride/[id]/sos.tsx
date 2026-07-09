@@ -523,6 +523,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
+    lineHeight: 14,
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: colors.outline,
@@ -563,6 +564,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   protSub: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
@@ -575,6 +577,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   manageLink: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.primary,
   },
   contactsGrid: {
@@ -621,11 +624,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contactName: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
   },
   contactPhone: {
     fontFamily: fonts.regular,
     fontSize: 11,
+    lineHeight: 14,
     color: colors.onSurfaceVariant,
   },
   addCard: {
@@ -652,6 +657,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   addLabel: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.primary,
   },
   emergencyBar: {
@@ -683,6 +689,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emergencyHint: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     color: colors.onSurfaceVariant,
     textAlign: 'center',
     marginTop: spacing.xs,

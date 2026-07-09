@@ -1,8 +1,7 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, StyleSheet, FlatList, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from 'moti';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -15,7 +14,7 @@ import { tripsApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, Button, EmptyState, AppBackground } from '@eyego/ui';
+import { Text, Button, EmptyState, AppBackground, Entrance, GlassSurface } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
 
 export default function SeatPickerScreen() {
@@ -91,7 +90,7 @@ export default function SeatPickerScreen() {
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
-          <Text variant="titleMedium">Choose Your Seat</Text>
+          <Text variant="labelCaps">Choose Your Seat</Text>
           <View style={{ width: 24 }} />
         </View>
         <View style={{ flex: 1, justifyContent: 'center' }}>
@@ -114,31 +113,22 @@ export default function SeatPickerScreen() {
         <Pressable onPress={() => router.back()} style={styles.headerBackBtn} hitSlop={12}>
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleMedium">Choose Your Seat</Text>
+        <Text variant="labelCaps">Choose Your Seat</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Legend */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 1200, damping: 18, delay: 50 }}
-          style={styles.legend}
-        >
+        <Entrance animation="slideUp" delay={50} style={styles.legend}>
           <LegendItem color={colors.surfaceContainerHigh} borderColor={colors.outline} label="Available" />
           <LegendItem color={colors.primary} borderColor={colors.primary} label="Selected" />
           <LegendItem color={colors.statusWarning} borderColor={colors.statusWarning} label="Pending" disabled />
           <LegendItem color={colors.surfaceContainer} borderColor={colors.outlineVariant} label="Taken" disabled />
-        </MotiView>
+        </Entrance>
 
-        {/* Bus outline */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 1200, damping: 18, delay: 100 }}
-          style={styles.busContainer}
-        >
+        {/* Bus outline — glass surface */}
+        <Entrance animation="scaleIn" delay={100} style={styles.busContainer}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} />
           {/* Driver area */}
           <View style={styles.driverArea}>
             <View style={styles.steeringWheel}>
@@ -149,11 +139,10 @@ export default function SeatPickerScreen() {
 
           <View style={styles.seatGrid}>
             {rows.map((rowSeats, rowIdx) => (
-              <MotiView
+              <Entrance
                 key={rowIdx}
-                from={{ opacity: 0, translateX: -10 }}
-                animate={{ opacity: 1, translateX: 0 }}
-                transition={{ type: 'spring', stiffness: 1200, damping: 18, delay: 120 + rowIdx * 30 }}
+                animation="slideLeft"
+                delay={120 + rowIdx * 30}
                 style={styles.seatRow}
               >
                 {rowSeats.map((seat) => (
@@ -167,41 +156,32 @@ export default function SeatPickerScreen() {
                     }}
                   />
                 ))}
-              </MotiView>
+              </Entrance>
             ))}
           </View>
-        </MotiView>
-
-        {/* Selected seat info */}
-        {selectedSeat && (
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 1200, damping: 15 }}
-            style={styles.selectedInfo}
-          >
-            <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
-            <Text variant="bodyMedium">
-              Seat <Text variant="titleSmall" color={colors.primary}>#{selectedSeat.number}</Text> selected
-            </Text>
-          </MotiView>
-        )}
+        </Entrance>
       </ScrollView>
 
-      {/* Confirm CTA */}
-      <MotiView
-        from={{ opacity: 0, translateY: 20 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 1200, damping: 15, delay: 150 }}
-        style={styles.footer}
-      >
-        <Button
-          variant="glow"
-          label="Confirm Seat"
-          onPress={handleConfirm}
-          disabled={!selectedId}
-        />
-      </MotiView>
+      {/* Selected seat summary + Confirm CTA — combined glass footer */}
+      <Entrance animation="slideUp" delay={150} style={styles.footer}>
+        <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} />
+        <View style={styles.footerInner}>
+          {selectedSeat && (
+            <View style={styles.selectedInfo}>
+              <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
+              <Text variant="bodyMedium">
+                Seat <Text variant="titleSmall" color={colors.primary}>#{selectedSeat.number}</Text> selected
+              </Text>
+            </View>
+          )}
+          <Button
+            variant="glow"
+            label="Confirm Seat"
+            onPress={handleConfirm}
+            disabled={!selectedId}
+          />
+        </View>
+      </Entrance>
     </SafeAreaView>
   );
 }
@@ -319,11 +299,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 1.5,
   },
   busContainer: {
-    backgroundColor: colors.surfaceContainer,
     borderRadius: radii['2xl'],
+    overflow: 'hidden',
     padding: spacing.xl,
-    borderWidth: 1.5,
-    borderColor: colors.outlineVariant,
     alignItems: 'center',
     gap: spacing.lg,
     width: '100%',
@@ -395,13 +373,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.full,
     borderWidth: 1,
     borderColor: withOpacity(colors.primary, 0.25),
+    alignSelf: 'center',
   },
   footer: {
-    paddingHorizontal: spacing['2xl'],
-    paddingBottom: spacing['2xl'],
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.outlineVariant,
-    backgroundColor: colors.backgroundDeep,
+    marginHorizontal: spacing['2xl'],
+    marginTop: spacing.md,
+    marginBottom: spacing['2xl'],
+    borderRadius: radii['2xl'],
+    overflow: 'hidden',
+  },
+  footerInner: {
+    padding: spacing.xl,
+    gap: spacing.md,
   },
 });

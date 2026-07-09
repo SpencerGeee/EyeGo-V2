@@ -18,10 +18,9 @@ import {
   GlassSurface,
   InlayPanel,
   GradientGlowBorder,
-  PREMIUM_RING_COLORS,
-  PREMIUM_RING_LOCATIONS,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
@@ -32,6 +31,7 @@ import eyegoDarkStyle from '@eyego/map-styles';
 
 export default function HomeScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const qc = useQueryClient();
@@ -276,32 +276,35 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* MAP */}
-      <MapboxGL.MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
-        styleURL={eyegoDarkStyle}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={false}
-      >
-        <MapboxGL.Camera centerCoordinate={initialCenter} zoomLevel={initialZoom} animationMode="none" />
+      {/* MAP — contained rounded card, not full-bleed, so the ambient
+          shader background (mounted in _layout.tsx) reads at the edges. */}
+      <View style={[styles.mapCard, { top: insets.top + 8 }]}>
+        <MapboxGL.MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFillObject}
+          styleURL={eyegoDarkStyle}
+          logoEnabled={false}
+          attributionEnabled={false}
+          compassEnabled={false}
+        >
+          <MapboxGL.Camera centerCoordinate={initialCenter} zoomLevel={initialZoom} animationMode="none" />
 
-        {location && (
-          <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
-            <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
-              <Ionicons name="car" size={16} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
-        )}
+          {location && (
+            <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
+              <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
+                <Ionicons name="car" size={16} color="#fff" />
+              </View>
+            </MapboxGL.MarkerView>
+          )}
 
-        {/* Demand heatmap overlay — weighted circles for high-demand areas */}
-        <DemandOverlay
-          cells={heatmapData ?? []}
-          primaryColor={colors.primary}
-          visible={showHeatmap && isOnline}
-        />
-      </MapboxGL.MapView>
+          {/* Demand heatmap overlay — weighted circles for high-demand areas */}
+          <DemandOverlay
+            cells={heatmapData ?? []}
+            primaryColor={colors.primary}
+            visible={showHeatmap && isOnline}
+          />
+        </MapboxGL.MapView>
+      </View>
 
       {/* Header overlay — glass */}
       <Entrance animation="slideUp" delay={100} style={styles.header}>
@@ -360,7 +363,7 @@ export default function HomeScreen() {
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
               >
                 <Ionicons name="flash-outline" size={12} color={colors.primary} />
-                <Text style={{ fontFamily: fonts.semiBold, fontSize: 11, color: colors.primary }}>
+                <Text style={{ fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 14, color: colors.primary }}>
                   {devActivate.isPending ? 'Activating…' : 'Activate Account (Dev)'}
                 </Text>
               </Pressable>
@@ -413,13 +416,10 @@ export default function HomeScreen() {
           {/* Active trip / Create trip CTA — the screen's hero action gets the premium ring */}
           <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>
             <GradientGlowBorder
-              colors={PREMIUM_RING_COLORS}
-              locations={PREMIUM_RING_LOCATIONS}
+              palette="driver"
               fillColor={colors.surfaceContainerHigh}
               borderRadius={radii['2xl']}
               glow
-              glowColor={colors.primary}
-              glowColorSecondary="#FF7A3D"
               disabled={!isOnline && !activeTripData}
               style={styles.ctaGlow}
             >
@@ -458,7 +458,20 @@ export default function HomeScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    // Transparent — AppBackground (mounted in _layout.tsx) must show through
+    // wherever the contained map card doesn't cover, not get blocked by an
+    // opaque fill here.
+    container: { flex: 1, backgroundColor: 'transparent' },
+    mapCard: {
+      position: 'absolute',
+      left: spacing.md,
+      right: spacing.md,
+      bottom: spacing.md,
+      borderRadius: radii['2xl'],
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: colors.rimLight,
+    },
     header: {
       position: 'absolute',
       top: 56,
@@ -475,6 +488,7 @@ const makeStyles = (colors: DriverColors) =>
     headerLogo: {
       fontFamily: fonts.displayBold,
       fontSize: 18,
+      lineHeight: 23,
       color: colors.primary,
       letterSpacing: -0.5,
     },
@@ -509,6 +523,7 @@ const makeStyles = (colors: DriverColors) =>
     statValue: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleMedium,
+      lineHeight: Math.round(fontSizes.titleMedium * 1.3),
       color: colors.onSurface,
     },
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
@@ -528,6 +543,7 @@ const makeStyles = (colors: DriverColors) =>
     activeTripText: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
       flex: 1,
     },

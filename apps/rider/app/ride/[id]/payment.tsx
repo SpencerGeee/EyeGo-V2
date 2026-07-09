@@ -140,10 +140,6 @@ export default function PaymentScreen() {
       // Declare outside try so the catch block can use the value even if booking was created before the error
       let bookingId = activeBooking?.id ?? '';
       try {
-        // BUGFIX: Double-submit lock — prevent concurrent mutations
-        if (isSubmittingRef.current) {
-          throw new Error('Payment already in progress');
-        }
         if (!bookingId && id && selectedSeat) {
           const { data: bookingData } = await bookingsApi.create({
             tripId: id,

@@ -180,7 +180,7 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    avatarInitials: { fontFamily: fonts.displayBold, fontSize: 30, color: colors.primary },
+    avatarInitials: { fontFamily: fonts.displayBold, fontSize: 30, lineHeight: 39, color: colors.primary },
     cameraBadge: {
       position: 'absolute',
       bottom: 2,
@@ -212,6 +212,7 @@ const makeStyles = (colors: DriverColors) =>
       flex: 1,
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
     },
   });

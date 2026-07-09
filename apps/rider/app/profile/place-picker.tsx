@@ -167,6 +167,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headerTitle: {
     fontFamily: fonts.displaySemiBold,
     fontSize: 18,
+    lineHeight: 23,
     color: colors.onSurface,
     letterSpacing: -0.3,
   },
@@ -241,17 +242,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   addressName: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
+    lineHeight: 21,
     color: colors.onSurface,
   },
   addressFull: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: 17,
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
   addressDim: {
     fontFamily: fonts.regular,
     fontSize: 13,
+    lineHeight: 18,
     color: colors.onSurfaceVariant,
   },
 });

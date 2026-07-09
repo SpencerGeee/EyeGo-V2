@@ -187,7 +187,7 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
     },
-    tierText: { fontFamily: fonts.semiBold, fontSize: 12, color: colors.primary, letterSpacing: 1 },
+    tierText: { fontFamily: fonts.semiBold, fontSize: 12, lineHeight: 16, color: colors.primary, letterSpacing: 1 },
     divider: { height: 1, backgroundColor: colors.outlineVariant },
     emptyCard: {
       backgroundColor: colors.surfaceContainer,

@@ -178,8 +178,12 @@ export default function TabLayout() {
         // root AppBackground. Transparent scenes are what let the ambient
         // orb background show through on home/services/activity/account.
         sceneStyle: { backgroundColor: 'transparent' },
-        // Cross-fade between tabs instead of a hard cut.
-        animation: 'fade',
+        // Native tab bars (iOS UITabBarController, Uber/Bolt/Yango) switch
+        // instantly — no cross-fade. 'fade' here was also the likely cause
+        // of screens blanking out on fast successive tab taps: each screen's
+        // own Entrance fade-in-on-mount could overlap with an in-flight tab
+        // cross-fade, leaving a moment where neither scene was fully opaque.
+        animation: 'none',
       }}
     >
       <Tabs.Screen name="home" />

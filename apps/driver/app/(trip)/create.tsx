@@ -14,7 +14,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi, routesApi } from '@eyego/api';
 import type { Route } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -144,6 +144,7 @@ export default function CreateTripScreen() {
             </Text>
             {/* Simple search field */}
             <View style={styles.searchBox}>
+              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
               <Ionicons name="search" size={16} color={colors.onSurfaceVariant} />
               <Pressable style={{ flex: 1 }}>
                 <Text color={colors.onSurfaceVariant} style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSizes.bodyMedium }}>
@@ -201,6 +202,7 @@ export default function CreateTripScreen() {
                 if (Platform.OS === 'android') setShowTimePicker(true);
               }}
             >
+              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
               <Ionicons name="time-outline" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
                 <Text variant="caption" color={colors.onSurfaceVariant}>Departure time</Text>
@@ -259,6 +261,7 @@ export default function CreateTripScreen() {
               How many passenger seats are available?
             </Text>
             <View style={styles.seatsCard}>
+              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
               <Pressable
                 style={[styles.seatsBtn, seats <= 1 && styles.seatsBtnDisabled]}
                 onPress={() => setSeats((s) => Math.max(1, s - 1))}
@@ -301,13 +304,10 @@ export default function CreateTripScreen() {
               Confirm your trip details before publishing.
             </Text>
             <GradientGlowBorder
-              colors={PREMIUM_RING_COLORS}
-              locations={PREMIUM_RING_LOCATIONS}
+              palette="driver"
               fillColor={colors.surfaceContainerHigh}
               borderRadius={radii['2xl']}
               glow
-              glowColor={colors.primary}
-              glowColorSecondary="#FF7A3D"
               style={styles.summaryCard}
             >
               <View style={styles.summaryGlow} />
@@ -323,6 +323,7 @@ export default function CreateTripScreen() {
             {/* Fare Estimate — fetched from backend so it matches what riders see */}
             {fareEstimateData ? (
               <View style={styles.fareCard}>
+                <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
                 <View style={styles.fareHeader}>
                   <Ionicons name="cash-outline" size={18} color={colors.primary} />
                   <Text style={styles.fareTitle}>Fare Estimate (ECONOMY)</Text>
@@ -448,6 +449,7 @@ const makeStyles = (colors: DriverColors) =>
     headerTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
     },
     scroll: {
@@ -457,6 +459,7 @@ const makeStyles = (colors: DriverColors) =>
     stepTitle: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.headlineMedium,
+      lineHeight: Math.round(fontSizes.headlineMedium * 1.3),
       color: colors.onSurface,
       letterSpacing: -0.5,
       marginTop: spacing.xl,
@@ -467,12 +470,10 @@ const makeStyles = (colors: DriverColors) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing.base,
       marginBottom: spacing.md,
+      overflow: 'hidden',
     },
     routeList: { gap: spacing.md },
     routeCard: {
@@ -510,27 +511,28 @@ const makeStyles = (colors: DriverColors) =>
     routeOrigin: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
     },
     routeDest: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.primary,
       marginTop: 2,
     },
     timeCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surfaceContainerHigh,
       borderRadius: radii.xl,
-      borderWidth: 1.5,
-      borderColor: colors.outline,
       padding: spacing.xl,
       gap: spacing.md,
+      overflow: 'hidden',
     },
     timeDisplay: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.display,
+      lineHeight: Math.round(fontSizes.display * 1.3),
       color: colors.onSurface,
       letterSpacing: -1,
       marginVertical: 2,
@@ -539,13 +541,11 @@ const makeStyles = (colors: DriverColors) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.surfaceContainerHigh,
       borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing.xl,
       gap: spacing['3xl'],
       marginBottom: spacing.xl,
+      overflow: 'hidden',
     },
     seatsBtn: {
       width: 52,
@@ -592,11 +592,9 @@ const makeStyles = (colors: DriverColors) =>
     summaryDivider: { height: 1, backgroundColor: colors.outlineVariant },
     fareCard: {
       marginTop: spacing.xl,
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: `${colors.primary}33`,
       padding: spacing.base,
+      overflow: 'hidden',
     },
     fareHeader: {
       flexDirection: 'row',
@@ -607,6 +605,7 @@ const makeStyles = (colors: DriverColors) =>
     fareTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.primary,
     },
     fareDivider: { height: 1, backgroundColor: `${colors.primary}22`, marginVertical: spacing.sm },

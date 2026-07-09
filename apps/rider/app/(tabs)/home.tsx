@@ -487,6 +487,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   whereToSub: {
     fontFamily: fonts.regular,
     fontSize: 14,
+    lineHeight: 20,
     color: colors.onSurfaceVariant,
     marginTop: 1,
   },
@@ -514,6 +515,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   quickActionLabel: {
     fontFamily: fonts.regular,
     fontSize: 11,
+    lineHeight: 14,
     color: colors.onSurfaceVariant,
     textAlign: 'center',
   },
@@ -594,11 +596,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   activeBentoDriverName: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
+    lineHeight: 20,
     color: colors.onSurface,
   },
   activeBentoDriverMeta: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: 16,
     color: colors.onSurfaceVariant,
     marginTop: 1,
   },
@@ -632,6 +636,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   activeBentoDestText: {
     fontFamily: fonts.regular,
     fontSize: 13,
+    lineHeight: 18,
     color: colors.onSurface,
     flex: 1,
   },
@@ -681,6 +686,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tripTierName: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
+    lineHeight: 20,
     color: colors.onSurface,
   },
   tripTierBadge: {
@@ -716,11 +722,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emptyText: {
     fontFamily: fonts.semiBold,
     fontSize: 15,
+    lineHeight: 21,
     color: colors.onSurfaceVariant,
   },
   emptyHint: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: 17,
     color: colors.outline,
   },
 });

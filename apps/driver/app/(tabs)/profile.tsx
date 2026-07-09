@@ -12,8 +12,6 @@ import {
   Entrance,
   GlassSurface,
   GradientGlowBorder,
-  PREMIUM_RING_COLORS,
-  PREMIUM_RING_LOCATIONS,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -196,13 +194,10 @@ export default function ProfileScreen() {
         {/* Avatar + info card — hero element gets the premium ring */}
         <Entrance animation="slideDown" delay={100} style={styles.profileCardWrapper}>
         <GradientGlowBorder
-          colors={PREMIUM_RING_COLORS}
-          locations={PREMIUM_RING_LOCATIONS}
+          palette="driver"
           fillColor={colors.surfaceContainerHigh}
           borderRadius={radii['2xl']}
           glow
-          glowColor={colors.primary}
-          glowColorSecondary="#FF7A3D"
           style={styles.profileCard}
         >
           <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={StyleSheet.absoluteFill} />
@@ -360,6 +355,7 @@ const makeStyles = (colors: DriverColors) =>
     driverName: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
+      lineHeight: Math.round(fontSizes.titleLarge * 1.3),
       color: colors.onSurface,
     },
     ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
@@ -378,6 +374,7 @@ const makeStyles = (colors: DriverColors) =>
     statValue: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
     },
     badgeRow: {
@@ -400,6 +397,7 @@ const makeStyles = (colors: DriverColors) =>
     badgeText: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
+      lineHeight: 14,
       color: colors.primary,
     },
     onlineDot: { width: 7, height: 7, borderRadius: 4 },
@@ -433,6 +431,7 @@ const makeStyles = (colors: DriverColors) =>
       flex: 1,
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
     version: { textAlign: 'center', marginBottom: spacing.lg },

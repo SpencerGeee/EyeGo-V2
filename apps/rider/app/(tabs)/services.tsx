@@ -291,6 +291,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   subtitle: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurfaceVariant,
     marginTop: 4,
   },

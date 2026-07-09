@@ -198,6 +198,7 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
   textInput: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
     borderWidth: 1.5,
     borderRadius: radii.xl,

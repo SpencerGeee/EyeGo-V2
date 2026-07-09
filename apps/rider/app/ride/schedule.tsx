@@ -75,7 +75,7 @@ export default function ScheduleRideScreen() {
   const { data: routes, isLoading: routesLoading } = useQuery({
     queryKey: ['routes', 'all'],
     queryFn: routesApi.getAll,
-    select: (r) => ((r.data as any)?.data ?? []) as ScheduleRoute[],
+    select: (r) => ((r.data as any)?.data?.routes ?? []) as ScheduleRoute[],
   });
 
   // Client-side filter for the search field
@@ -514,6 +514,7 @@ const makeStyles = (colors: Colors) =>
     modeToggle: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.primary,
     },
     searchBar: {
@@ -531,6 +532,7 @@ const makeStyles = (colors: Colors) =>
       flex: 1,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyLarge,
+      lineHeight: Math.round(fontSizes.bodyLarge * 1.4),
       color: colors.onSurface,
       height: '100%',
     },

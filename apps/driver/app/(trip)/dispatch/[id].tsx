@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -155,13 +155,10 @@ export default function DispatchScreen() {
         {/* Route card — the hero element gets the premium ring */}
         <Entrance animation="slideDown" delay={140}>
         <GradientGlowBorder
-          colors={PREMIUM_RING_COLORS}
-          locations={PREMIUM_RING_LOCATIONS}
+          palette="driver"
           fillColor={colors.surfaceContainer}
           borderRadius={radii['2xl']}
           glow
-          glowColor={colors.primary}
-          glowColorSecondary="#FF7A3D"
           style={styles.routeCard}
         >
           <View style={styles.routeRow}>
@@ -190,6 +187,7 @@ export default function DispatchScreen() {
         {/* Estimated Earnings */}
         {estimatedEarnings && (
           <Entrance animation="slideDown" delay={170} style={styles.earningsCard}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>Estimated earnings</Text>
               <Text style={{ fontFamily: fonts.displayBold, fontSize: 18, color: colors.primary }}>
@@ -264,10 +262,11 @@ const makeStyles = (colors: DriverColors) =>
       marginBottom: spacing.xs,
     },
     dispatchDot: { width: 7, height: 7, borderRadius: 4 },
-    dispatchLabel: { fontFamily: fonts.semiBold, fontSize: 11, letterSpacing: 0.5 },
+    dispatchLabel: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: Math.round(11 * 1.3), letterSpacing: 0.5 },
     headline: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.headlineLarge ?? 28,
+      lineHeight: Math.round((fontSizes.headlineLarge ?? 28) * 1.3),
       color: colors.onSurface,
       letterSpacing: -0.5,
     },
@@ -291,6 +290,7 @@ const makeStyles = (colors: DriverColors) =>
     timerDigits: {
       fontFamily: fonts.displayBold,
       fontSize: 42,
+      lineHeight: Math.round(42 * 1.3),
       letterSpacing: -2,
     },
     routeCard: {
@@ -303,6 +303,7 @@ const makeStyles = (colors: DriverColors) =>
     routeText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
     },
     routeLine: {
@@ -315,12 +316,10 @@ const makeStyles = (colors: DriverColors) =>
     metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     actions: { gap: spacing.md, marginTop: 'auto' },
     earningsCard: {
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.primary + '30',
       padding: spacing.xl,
       gap: spacing.xs,
+      overflow: 'hidden',
     },
     acceptBtn: {},
     declineBtn: {},

@@ -199,7 +199,7 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    levelName: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, letterSpacing: -0.5 },
+    levelName: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleMedium, lineHeight: Math.round(fontSizes.titleMedium * 1.3), letterSpacing: -0.5 },
     card: {
       backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
@@ -207,7 +207,7 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: colors.outline,
       padding: spacing.xl,
     },
-    cardTitle: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, color: colors.onSurface, marginBottom: spacing.md },
+    cardTitle: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, lineHeight: Math.round(fontSizes.titleSmall * 1.3), color: colors.onSurface, marginBottom: spacing.md },
     weekGrid: { flexDirection: 'row', justifyContent: 'space-around' },
     weekStat: { alignItems: 'center', gap: spacing.sm },
     weekIconBg: {
@@ -218,5 +218,5 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    weekValue: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, color: colors.onSurface },
+    weekValue: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, lineHeight: Math.round(fontSizes.titleSmall * 1.3), color: colors.onSurface },
   });

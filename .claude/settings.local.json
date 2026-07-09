@@ -9,7 +9,14 @@
       "mcp__plugin_context-mode_context-mode__ctx_fetch_and_index",
       "mcp__plugin_context-mode_context-mode__ctx_execute_file",
       "Bash(npx skills:*)",
-      "WebSearch"
+      "WebSearch",
+      "PowerShell(if \\($env:ANDROID_HOME\\) { Write-Output \"ANDROID_HOME=$env:ANDROID_HOME\"; Get-ChildItem \"$env:ANDROID_HOME\\\\platform-tools\\\\adb.exe\" -ErrorAction SilentlyContinue } else { Write-Output \"ANDROID_HOME not set in this session\" })",
+      "PowerShell($candidates = @\\(\"$env:LOCALAPPDATA\\\\Android\\\\Sdk\", \"$env:USERPROFILE\\\\AppData\\\\Local\\\\Android\\\\Sdk\", \"C:\\\\Android\\\\Sdk\"\\); foreach \\($c in $candidates\\) { if \\(Test-Path \"$c\\\\platform-tools\\\\adb.exe\"\\) { Write-Output \"FOUND: $c\" } else { Write-Output \"not found: $c\" } })",
+      "Bash(ls apps *)",
+      "Bash(ls eyego *)",
+      "Bash(ls \"current screens \\(rider\\)\")",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }

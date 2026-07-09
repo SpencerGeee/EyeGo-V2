@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, Entrance, GradientGlowBorder } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 
@@ -84,13 +84,10 @@ export default function TripDetailScreen() {
         {/* Route card — hero element gets the premium ring */}
         <Entrance animation="scaleIn" delay={80}>
         <GradientGlowBorder
-          colors={PREMIUM_RING_COLORS}
-          locations={PREMIUM_RING_LOCATIONS}
+          palette="driver"
           fillColor={colors.surfaceContainerHigh}
           borderRadius={radii['2xl']}
           glow
-          glowColor={colors.primary}
-          glowColorSecondary="#FF7A3D"
           style={styles.routeCard}
         >
           <View style={styles.routeGlow} />
@@ -264,7 +261,7 @@ const makeStyles = (colors: DriverColors) =>
     routeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
     routeDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
     routeLine: { width: 2, height: 16, backgroundColor: colors.outline, marginLeft: 4 },
-    routeText: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface, flex: 1 },
+    routeText: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.4), color: colors.onSurface, flex: 1 },
     routeMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
     statusChip: { borderRadius: radii.full, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
     card: {
@@ -274,7 +271,7 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: colors.outline,
       padding: spacing.xl,
     },
-    cardTitle: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, color: colors.onSurface, marginBottom: spacing.md },
+    cardTitle: { fontFamily: fonts.displaySemiBold, fontSize: fontSizes.titleSmall, lineHeight: Math.round(fontSizes.titleSmall * 1.3), color: colors.onSurface, marginBottom: spacing.md },
     statsGrid: { flexDirection: 'row', justifyContent: 'space-around', flexWrap: 'wrap', gap: spacing.md },
     passengerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.md },
     passengerAvatar: {

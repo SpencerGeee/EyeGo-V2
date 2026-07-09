@@ -212,6 +212,7 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 13,
     color: driverColors.primary,
     flexShrink: 0,
   },

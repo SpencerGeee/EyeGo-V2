@@ -294,21 +294,24 @@ const makeStyles = (colors: DriverColors) =>
     avatarInitial: {
       fontFamily: fonts.displayBold,
       fontSize: 32,
+      lineHeight: 42,
       color: colors.primary,
     },
     passengerName: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
+      lineHeight: Math.round(fontSizes.titleLarge * 1.3),
       color: colors.onSurface,
     },
     starsSection: { alignItems: 'center', gap: spacing.sm },
     sectionTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
     starsRow: { flexDirection: 'row', gap: spacing.md },
-    star: { fontSize: 42 },
+    star: { fontSize: 42, lineHeight: 55 },
     card: {
       backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
@@ -320,6 +323,7 @@ const makeStyles = (colors: DriverColors) =>
     cardTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
     },
     chipsWrap: {
@@ -345,6 +349,7 @@ const makeStyles = (colors: DriverColors) =>
     chipLabel: {
       fontFamily: fonts.medium,
       fontSize: 12,
+      lineHeight: 16,
       color: colors.onSurface,
     },
     chipLabelActive: {
@@ -358,6 +363,7 @@ const makeStyles = (colors: DriverColors) =>
       padding: spacing.base,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
       minHeight: 80,
     },

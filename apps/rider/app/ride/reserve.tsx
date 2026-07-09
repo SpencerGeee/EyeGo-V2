@@ -339,6 +339,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   dateDayName: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 13,
     letterSpacing: 0.8,
     opacity: 0.9,
   },
@@ -379,6 +380,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   timeText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     letterSpacing: 0.4,
   },
   routePanel: {
@@ -423,6 +425,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routeLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 13,
     letterSpacing: 0.8,
     color: colors.onSurfaceVariant,
   },
@@ -454,6 +457,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
+    lineHeight: 13,
     letterSpacing: 0.8,
     color: colors.onSurfaceVariant,
     marginBottom: 2,
@@ -478,6 +482,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sharedText: {
     fontFamily: fonts.medium,
     fontSize: 11,
+    lineHeight: 14,
     letterSpacing: 0.4,
     color: colors.onSurface,
   },

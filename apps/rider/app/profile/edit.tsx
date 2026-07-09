@@ -410,6 +410,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   changePhotoLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
+    lineHeight: 14,
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: colors.primary,
@@ -419,6 +420,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   phoneLabel: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.onSurfaceVariant,
     marginBottom: spacing.sm,
   },

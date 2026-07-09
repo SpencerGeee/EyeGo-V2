@@ -242,6 +242,7 @@ const makeStyles = (colors: Colors) =>
     secureNoteText: {
       fontFamily: fonts.semiBold,
       fontSize: 9,
+      lineHeight: 12,
       letterSpacing: 1,
       color: colors.outline,
     },

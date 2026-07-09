@@ -446,6 +446,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   skipButton: {
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     fontFamily: fonts.medium,
     color: colors.onSurfaceVariant,
     letterSpacing: 0.2,
@@ -507,6 +508,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   tagline: {
     fontSize: fontSizes.caption,
+    lineHeight: Math.round(fontSizes.caption * 1.3),
     fontFamily: fonts.bold,
     letterSpacing: 2,
     textTransform: 'uppercase',

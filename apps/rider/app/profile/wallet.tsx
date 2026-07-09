@@ -361,7 +361,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 4,
     marginTop: spacing.sm,
   },
-  tierText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall },
+  tierText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, lineHeight: Math.round(fontSizes.bodySmall * 1.3) },
   topUpBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -390,7 +390,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.rimLightSubtle,
     paddingVertical: spacing.lg,
   },
-  quickLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurface },
+  quickLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, lineHeight: Math.round(fontSizes.bodySmall * 1.3), color: colors.onSurface },
   section: { gap: spacing.md },
   transactionList: {
     borderRadius: radii.xl,
@@ -439,7 +439,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickAmtText: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 13 },
+  quickAmtText: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: 13, lineHeight: 17 },
   inputContainer: {
     backgroundColor: colors.surfaceInput,
     borderRadius: radii.lg,
@@ -449,6 +449,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   input: {
     fontSize: 22,
+    lineHeight: 31,
     fontFamily: fonts.bold,
     color: colors.primary,
     padding: 0,

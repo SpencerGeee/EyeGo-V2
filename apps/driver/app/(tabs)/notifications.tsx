@@ -176,6 +176,7 @@ const makeStyles = (colors: DriverColors) =>
     categoryLabel: {
       fontFamily: fonts.semiBold,
       fontSize: 13,
+      lineHeight: 17,
     },
     categoryUnderline: {
       position: 'absolute',
@@ -244,6 +245,7 @@ const makeStyles = (colors: DriverColors) =>
     title: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
       flex: 1,
       marginRight: spacing.sm,

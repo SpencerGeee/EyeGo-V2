@@ -1034,6 +1034,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statusText: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
+    lineHeight: 14,
     color: colors.primary,
     letterSpacing: 1.5,
   },
@@ -1066,12 +1067,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tierLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
+    lineHeight: 14,
     letterSpacing: 0.8,
   },
   fareBlock: { alignItems: 'flex-end' },
   fareEstLabel: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
+    lineHeight: Math.round(fontSizes.caption * 1.3),
     color: colors.onSurfaceVariant,
     marginTop: 1,
   },
@@ -1103,6 +1106,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routeLabel: {
     fontFamily: fonts.medium,
     fontSize: 10,
+    lineHeight: 13,
     color: colors.onSurfaceVariant,
     letterSpacing: 0.3,
     marginBottom: 2,
@@ -1110,6 +1114,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routePlace: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
   },
   routeDivider: {
@@ -1153,16 +1158,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   ratingText: {
     fontFamily: fonts.semiBold,
     fontSize: 9,
+    lineHeight: 12,
     color: colors.onSurface,
   },
   driverName: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
   },
   driverMeta: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
+    lineHeight: Math.round(fontSizes.caption * 1.3),
     color: colors.onSurfaceVariant,
     marginTop: 2,
   },
@@ -1180,6 +1188,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   seatsText: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
+    lineHeight: 14,
     color: colors.primary,
   },
   etaRow: {
@@ -1191,11 +1200,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   etaText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.primary,
   },
   etaStatusText: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     color: colors.onSurfaceVariant,
   },
   actionBar: {
@@ -1234,6 +1245,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   primaryCtaText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onPrimary,
     letterSpacing: 0.2,
   },
@@ -1273,6 +1285,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statusBannerLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 9,
+    lineHeight: 12,
     color: colors.primary,
     letterSpacing: 1.5,
     marginBottom: 2,
@@ -1280,6 +1293,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statusBannerText: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     color: colors.onSurface,
   },
   etaPill: {
@@ -1302,6 +1316,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   etaPillText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.primary,
   },
   driverMarker: {

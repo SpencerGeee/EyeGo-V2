@@ -222,6 +222,7 @@ const makeStyles = (colors: Colors) =>
       color: colors.primary,
       fontFamily: fonts.bold,
       fontSize: 10,
+      lineHeight: 13,
       letterSpacing: 0.5,
     },
     cardNumberRow: {
@@ -243,6 +244,7 @@ const makeStyles = (colors: Colors) =>
     },
     cardMetaLabel: {
       fontSize: 9,
+      lineHeight: 12,
       fontFamily: fonts.bold,
       color: colors.onSurfaceVariant,
       letterSpacing: 1.5,
@@ -250,6 +252,7 @@ const makeStyles = (colors: Colors) =>
     },
     cardMetaValue: {
       fontSize: 14,
+      lineHeight: 18,
       fontFamily: fonts.semiBold,
       color: colors.onSurface,
       letterSpacing: 1,

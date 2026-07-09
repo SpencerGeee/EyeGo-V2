@@ -24,8 +24,6 @@ import {
   AnimatedFareText,
   PanelSheet,
   GradientGlowBorder,
-  PREMIUM_RING_COLORS,
-  PREMIUM_RING_LOCATIONS,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -193,13 +191,10 @@ export default function EarningsScreen() {
         {/* Balance card — the screen's hero number gets the premium ring */}
         <Entrance animation="slideDown" delay={100} style={styles.balanceCardWrapper}>
         <GradientGlowBorder
-          colors={PREMIUM_RING_COLORS}
-          locations={PREMIUM_RING_LOCATIONS}
+          palette="gold"
           fillColor={colors.surfaceContainerHigh}
           borderRadius={radii['2xl']}
           glow
-          glowColor={colors.primary}
-          glowColorSecondary="#FF7A3D"
           style={styles.balanceCard}
         >
           <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={StyleSheet.absoluteFill} />
@@ -376,6 +371,7 @@ const makeStyles = (colors: DriverColors) =>
     balanceAmount: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.hero,
+      lineHeight: Math.round(fontSizes.hero * 1.3),
       color: colors.onSurface,
       letterSpacing: -1,
       marginVertical: spacing.xs,
@@ -392,6 +388,7 @@ const makeStyles = (colors: DriverColors) =>
     currencyText: {
       fontFamily: fonts.semiBold,
       fontSize: 10,
+      lineHeight: Math.round(10 * 1.3),
       color: colors.primary,
       letterSpacing: 1,
     },
@@ -413,7 +410,7 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
     },
     periodActive: { backgroundColor: colors.primary },
-    periodText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
+    periodText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3) },
     chartCardWrapper: {
       marginHorizontal: spacing['2xl'],
       marginBottom: spacing.xl,
@@ -424,6 +421,7 @@ const makeStyles = (colors: DriverColors) =>
     sectionTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
       paddingHorizontal: spacing['2xl'],
       marginBottom: spacing.md,
@@ -447,9 +445,10 @@ const makeStyles = (colors: DriverColors) =>
     txDesc: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
     },
-    txAmount: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
+    txAmount: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3) },
     sheetBg: { backgroundColor: colors.surfaceContainerHigh },
     sheetContent: { padding: spacing['2xl'], gap: spacing.lg },
     sheetTitle: { fontFamily: fonts.displayBold },
@@ -468,12 +467,14 @@ const makeStyles = (colors: DriverColors) =>
     ghsPrefix: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurfaceVariant,
     },
     amountInput: {
       flex: 1,
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
+      lineHeight: Math.round(fontSizes.titleLarge * 1.3),
       color: colors.onSurface,
     },
     confirmBtn: { marginTop: spacing.sm },

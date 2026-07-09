@@ -248,6 +248,7 @@ const makeStyles = (colors: Colors) =>
     sectionLabel: {
       fontFamily: fonts.semiBold,
       fontSize: 10,
+      lineHeight: 13,
       letterSpacing: 1.4,
       color: colors.outline,
       marginBottom: spacing.sm,
