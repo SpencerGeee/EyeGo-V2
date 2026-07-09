@@ -251,6 +251,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareLabel: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.onSurfaceVariant,
     textAlign: 'center',
     letterSpacing: 0.3,
@@ -289,6 +290,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routeText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
     flex: 1,
   },
@@ -305,6 +307,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statsLabel: {
     fontFamily: fonts.medium,
     fontSize: 10,
+    lineHeight: 13,
     color: colors.onSurfaceVariant,
     letterSpacing: 0.8,
     marginBottom: 4,
@@ -312,6 +315,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statsValue: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
   },
   receiptLink: {
@@ -326,6 +330,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   receiptLinkText: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.onSurfaceVariant,
     flex: 1,
   },

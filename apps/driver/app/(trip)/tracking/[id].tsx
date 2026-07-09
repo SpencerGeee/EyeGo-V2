@@ -11,7 +11,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import MapboxGL from '../../../utils/mapbox';
-import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +18,7 @@ import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, Skeleton, PulseRing } from '@eyego/ui';
+import { Text, Button, Entrance, Skeleton, PulseRing, GlassSurface, GradientGlowBorder, InlayPanel } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
@@ -263,10 +262,6 @@ export default function DriverTrackingScreen() {
     return () => clearInterval(interval);
   }, [isActiveTrip]);
 
-  // ── Bottom sheet ──
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['32%', '60%'], []);
-
   // ── In-app banner ──
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
   const bannerAnim = useRef(new Animated.Value(-80)).current;
@@ -497,6 +492,7 @@ export default function DriverTrackingScreen() {
       {/* Floating header */}
       <View style={styles.headerOverlay}>
         <View style={styles.headerRow}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
           <Pressable onPress={() => router.back()} style={styles.headerBtn}>
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
@@ -556,36 +552,44 @@ export default function DriverTrackingScreen() {
       )}
 
       {/* Bottom sheet */}
-      <BottomSheet
-        ref={bottomSheetRef}
-        index={0}
-        snapPoints={snapPoints}
-        backgroundStyle={styles.sheetBackground}
-        handleIndicatorStyle={styles.sheetHandle}
-        enablePanDownToClose={false}
+      <InlayPanel
+        snapPointsPct={[0.32, 0.6]}
+        initialState="collapsed"
+        sheetStyle={styles.sheetBackground}
+        grabberColor={colors.outline}
       >
-        <BottomSheetView style={styles.sheetContent}>
-          {/* ETA + Status */}
-          <Entrance animation="slideDown" style={styles.etaSection}>
-            <View style={styles.etaLeft}>
-              <Text style={styles.etaValue}>
-                {etaMinutes != null ? `${etaMinutes} min` : '...'}
-              </Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {etaMinutes != null ? 'to destination' : 'Calculating ETA...'}
-              </Text>
-            </View>
-            <View style={styles.etaDivider} />
-            <View style={styles.etaRight}>
-              <Text style={styles.etaStatus}>{etaMessage ?? statusInfo.label}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                {etaDistanceKm != null ? `${etaDistanceKm} km` : `${passengers} passenger${passengers !== 1 ? 's' : ''}`}
-              </Text>
-            </View>
+        <View style={styles.sheetContent}>
+          {/* ETA + Status — the screen's hero data gets the driver-blue premium ring */}
+          <Entrance animation="slideDown">
+            <GradientGlowBorder
+              palette="driver"
+              fillColor={colors.surfaceContainer}
+              borderRadius={radii.xl}
+              glow
+              style={styles.etaSection}
+            >
+              <GlassSurface borderRadius={radii.xl - 3} intensity="high" dark style={styles.glassInset} />
+              <View style={styles.etaLeft}>
+                <Text style={styles.etaValue}>
+                  {etaMinutes != null ? `${etaMinutes} min` : '...'}
+                </Text>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  {etaMinutes != null ? 'to destination' : 'Calculating ETA...'}
+                </Text>
+              </View>
+              <View style={styles.etaDivider} />
+              <View style={styles.etaRight}>
+                <Text style={styles.etaStatus}>{etaMessage ?? statusInfo.label}</Text>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  {etaDistanceKm != null ? `${etaDistanceKm} km` : `${passengers} passenger${passengers !== 1 ? 's' : ''}`}
+                </Text>
+              </View>
+            </GradientGlowBorder>
           </Entrance>
 
           {/* Passenger list */}
           <Entrance animation="slideDown" delay={40} style={styles.passengerListCard}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
             <View style={styles.passengerListHeader}>
               <Text style={styles.passengerListTitle}>Passengers</Text>
               <Text variant="caption" color={colors.onSurfaceVariant}>{passengers}/{total}</Text>
@@ -725,8 +729,8 @@ export default function DriverTrackingScreen() {
               </Pressable>
             </Entrance>
           )}
-        </BottomSheetView>
-      </BottomSheet>
+        </View>
+      </InlayPanel>
     </View>
   );
 }
@@ -926,16 +930,16 @@ const makeStyles = (colors: DriverColors) =>
     etaSection: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.xl,
       padding: spacing.base,
-      borderWidth: 1,
-      borderColor: colors.outlineVariant,
+      overflow: 'hidden',
     },
+    glassInset: StyleSheet.absoluteFillObject,
     etaLeft: { alignItems: 'center', flex: 1 },
     etaValue: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleLarge,
+      lineHeight: Math.round(fontSizes.titleLarge * 1.4),
       color: colors.primary,
     },
     etaDivider: { width: 1, height: 40, backgroundColor: colors.outlineVariant },
@@ -943,6 +947,7 @@ const makeStyles = (colors: DriverColors) =>
     etaStatus: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
     },
     passengerListCard: {

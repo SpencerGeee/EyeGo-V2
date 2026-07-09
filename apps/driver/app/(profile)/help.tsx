@@ -289,12 +289,12 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: colors.outline,
       padding: spacing.xl,
     },
-    contactTitle: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
+    contactTitle: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3), color: colors.onSurface },
     contactBtn: {
       backgroundColor: colors.primary,
       borderRadius: radii.lg,
       paddingHorizontal: spacing.base,
       paddingVertical: spacing.sm,
     },
-    contactBtnText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall ?? 13, color: colors.onPrimary },
+    contactBtnText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall ?? 13, lineHeight: Math.round((fontSizes.bodySmall ?? 13) * 1.3), color: colors.onPrimary },
   });

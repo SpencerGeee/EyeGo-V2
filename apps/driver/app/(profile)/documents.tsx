@@ -232,6 +232,7 @@ const styles = (colors: DriverColors) => StyleSheet.create({
   docLabel: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
   },
   statusBadge: {
@@ -243,7 +244,7 @@ const styles = (colors: DriverColors) => StyleSheet.create({
     borderRadius: radii.full,
     borderWidth: 1,
   },
-  statusText: { fontFamily: fonts.semiBold, fontSize: 11 },
+  statusText: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 14 },
   uploadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -255,5 +256,5 @@ const styles = (colors: DriverColors) => StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
   },
-  uploadText: { fontFamily: fonts.semiBold, fontSize: 11, color: colors.primary },
+  uploadText: { fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 14, color: colors.primary },
 });

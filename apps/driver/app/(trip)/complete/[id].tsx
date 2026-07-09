@@ -14,8 +14,7 @@ import {
   AnimatedCheckmark,
   AnimatedFareText,
   GradientGlowBorder,
-  PREMIUM_RING_COLORS,
-  PREMIUM_RING_LOCATIONS,
+  GlassSurface,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -86,13 +85,10 @@ export default function TripCompleteScreen() {
         {/* Earnings card — the screen's hero number gets the premium ring */}
         <Entrance animation="slideDown" delay={400} style={styles.earningsCardWrapper}>
         <GradientGlowBorder
-          colors={PREMIUM_RING_COLORS}
-          locations={PREMIUM_RING_LOCATIONS}
+          palette="driver"
           fillColor={colors.surfaceContainerHigh}
           borderRadius={radii['2xl']}
           glow
-          glowColor={colors.primary}
-          glowColorSecondary="#FF7A3D"
           style={styles.earningsCard}
         >
           <View style={styles.earningsGlow} />
@@ -119,6 +115,7 @@ export default function TripCompleteScreen() {
 
         {/* Stats row */}
         <Entrance animation="slideDown" delay={500} style={styles.statsRow}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{boarded}</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Passengers</Text>
@@ -137,6 +134,7 @@ export default function TripCompleteScreen() {
 
         {/* Receipt breakdown */}
         <Entrance animation="slideDown" delay={520} style={styles.receiptCard}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
           <Text style={styles.receiptTitle}>Earnings Breakdown</Text>
 
           <View style={styles.receiptRow}>
@@ -243,6 +241,7 @@ const makeStyles = (colors: DriverColors) =>
     headline: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.headlineLarge,
+      lineHeight: Math.round(fontSizes.headlineLarge * 1.25),
       color: colors.onSurface,
       letterSpacing: -0.5,
     },
@@ -265,6 +264,7 @@ const makeStyles = (colors: DriverColors) =>
     earningsAmount: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.hero,
+      lineHeight: Math.round(fontSizes.hero * 1.15),
       color: colors.primary,
       letterSpacing: -1,
       marginVertical: spacing.xs,
@@ -274,32 +274,30 @@ const makeStyles = (colors: DriverColors) =>
     statsRow: {
       width: '100%',
       flexDirection: 'row',
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii.xl,
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing.base,
+      overflow: 'hidden',
     },
     statItem: { flex: 1, alignItems: 'center', gap: 4 },
     statDivider: { width: 1, backgroundColor: colors.outline, marginVertical: 4 },
     statValue: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.4),
       color: colors.onSurface,
     },
     ctaWrapper: { width: '100%', gap: spacing.md },
     receiptCard: {
       width: '100%',
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing.xl,
       gap: spacing.sm,
+      overflow: 'hidden',
     },
     receiptTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.4),
       color: colors.onSurface,
       marginBottom: spacing.sm,
     },
@@ -332,6 +330,7 @@ const makeStyles = (colors: DriverColors) =>
     passengerInitial: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
+      lineHeight: 14,
       color: colors.onSurface,
     },
     payBadge: {
@@ -342,6 +341,7 @@ const makeStyles = (colors: DriverColors) =>
     payBadgeText: {
       fontFamily: fonts.semiBold,
       fontSize: 9,
+      lineHeight: 12,
       letterSpacing: 0.3,
     },
   });

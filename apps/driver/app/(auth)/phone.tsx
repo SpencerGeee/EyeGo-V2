@@ -185,6 +185,7 @@ const makeStyles = (colors: DriverColors) =>
     logo: {
       fontFamily: fonts.displayBold,
       fontSize: 22,
+      lineHeight: 29,
       color: colors.primary,
       letterSpacing: -0.5,
     },
@@ -199,6 +200,7 @@ const makeStyles = (colors: DriverColors) =>
     driverBadgeText: {
       fontFamily: fonts.semiBold,
       fontSize: 10,
+      lineHeight: 13,
       color: colors.primary,
       letterSpacing: 1.5,
     },
@@ -223,10 +225,11 @@ const makeStyles = (colors: DriverColors) =>
       gap: spacing.xs,
       minWidth: 80,
     },
-    flag: { fontSize: 20 },
+    flag: { fontSize: 20, lineHeight: 26 },
     code: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
     divider: { width: 1, height: 28, backgroundColor: colors.outline },
@@ -235,6 +238,7 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing.base,
       fontFamily: fonts.medium,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
       letterSpacing: 1,
     },

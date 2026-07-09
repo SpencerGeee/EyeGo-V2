@@ -388,6 +388,7 @@ const makeStyles = (colors: DriverColors) =>
     seatPickerValue: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.hero,
+      lineHeight: Math.round(fontSizes.hero * 1.3),
       color: colors.primary,
       minWidth: 48,
       textAlign: 'center',

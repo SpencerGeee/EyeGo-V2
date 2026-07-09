@@ -269,6 +269,7 @@ const makeStyles = (colors: DriverColors) =>
     avatarInitials: {
       fontFamily: fonts.displayBold,
       fontSize: 32,
+      lineHeight: 42,
       color: colors.primary,
     },
     avatarBadge: {
@@ -301,6 +302,7 @@ const makeStyles = (colors: DriverColors) =>
       flex: 1,
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyLarge ?? 16,
+      lineHeight: Math.round((fontSizes.bodyLarge ?? 16) * 1.4),
       color: colors.onSurface,
     },
     ctaWrapper: { marginTop: spacing.md },

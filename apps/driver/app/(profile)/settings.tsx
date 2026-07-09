@@ -338,6 +338,7 @@ const makeStyles = (colors: DriverColors) =>
       flex: 1,
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
     appInfo: { alignItems: 'center', gap: spacing.xs, marginTop: spacing.md },

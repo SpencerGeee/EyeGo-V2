@@ -247,6 +247,7 @@ const makeStyles = (colors: DriverColors) =>
     heroNumber: {
       fontFamily: fonts.displayBold,
       fontSize: 64,
+      lineHeight: 83,
       color: colors.onSurface,
       letterSpacing: -3,
     },
@@ -261,6 +262,7 @@ const makeStyles = (colors: DriverColors) =>
     cardTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
       marginBottom: spacing.md,
     },
@@ -279,6 +281,7 @@ const makeStyles = (colors: DriverColors) =>
     complimentLabel: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall ?? 12,
+      lineHeight: Math.round((fontSizes.bodySmall ?? 12) * 1.3),
       color: colors.onSurface,
     },
     recentRow: { paddingVertical: spacing.md, gap: spacing.xs },

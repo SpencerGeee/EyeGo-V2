@@ -10,12 +10,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Skeleton, PulseRing } from '@eyego/ui';
+import { Text, Button, Skeleton, PulseRing, Entrance, GlassSurface, GradientGlowBorder, InlayPanel } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -58,8 +57,6 @@ export default function ActiveTripScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['38%', '68%', '92%'], []);
 
   const qc = useQueryClient();
   const { setActiveTripId } = useDriverStore();
@@ -315,43 +312,40 @@ export default function ActiveTripScreen() {
       </View>
 
       {/* Draggable bottom sheet */}
-      <BottomSheet
-        ref={bottomSheetRef}
-        index={1}
-        snapPoints={snapPoints}
-        backgroundStyle={styles.sheetBackground}
-        handleIndicatorStyle={styles.sheetHandle}
-        enablePanDownToClose={false}
+      <InlayPanel
+        snapPointsPct={[0.38, 0.75]}
+        initialState="collapsed"
+        sheetStyle={styles.sheetBackground}
+        grabberColor={colors.outline}
       >
-        <BottomSheetScrollView
-          contentContainerStyle={styles.sheetContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.sheetContent}>
           {/* Route summary */}
-          <View style={styles.routeSummary}>
-            <View style={styles.routeDot} />
-            <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
-              {trip.route?.originName ?? '—'}
-            </Text>
-          </View>
-          <View style={styles.routeLine} />
-          <View style={[styles.routeSummary, { marginBottom: spacing.xl }]}>
-            <View style={[styles.routeDot, { backgroundColor: colors.secondary ?? '#7DD8F5', borderRadius: 3 }]} />
-            <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
-              {trip.route?.destinationName ?? '—'}
-            </Text>
-            <View style={styles.tripMeta}>
-              <Text variant="caption" color={colors.onSurfaceVariant}>
-                {trip.departureTime
-                  ? new Date(trip.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  : '--:--'}{' '}
-                · {passengers}/{total} seats
+          <Entrance animation="slideDown">
+            <View style={styles.routeSummary}>
+              <View style={styles.routeDot} />
+              <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
+                {trip.route?.originName ?? '—'}
               </Text>
             </View>
-          </View>
+            <View style={styles.routeLine} />
+            <View style={[styles.routeSummary, { marginBottom: spacing.xl }]}>
+              <View style={[styles.routeDot, { backgroundColor: colors.secondary ?? '#7DD8F5', borderRadius: 3 }]} />
+              <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
+                {trip.route?.destinationName ?? '—'}
+              </Text>
+              <View style={styles.tripMeta}>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {trip.departureTime
+                    ? new Date(trip.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '--:--'}{' '}
+                  · {passengers}/{total} seats
+                </Text>
+              </View>
+            </View>
+          </Entrance>
 
           {/* Step progress chips */}
-          <View style={styles.stepsRow}>
+          <Entrance animation="slideDown" delay={40} style={styles.stepsRow}>
             {STATUS_STEPS.slice(0, -1).map((step, i) => {
               const cfg = TRIP_STATUS_CONFIG[step];
               const isDone = i < currentStepIndex;
@@ -380,10 +374,11 @@ export default function ActiveTripScreen() {
                 </React.Fragment>
               );
             })}
-          </View>
+          </Entrance>
 
           {/* Seat map */}
-          <View style={styles.card}>
+          <Entrance animation="slideDown" delay={80} style={styles.card}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Seat Map</Text>
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>{passengers}/{total} booked</Text>
@@ -436,27 +431,35 @@ export default function ActiveTripScreen() {
                 </View>
               ))}
             </View>
-          </View>
+          </Entrance>
 
-          {/* Earnings card */}
-          <View style={[styles.card, { borderColor: colors.primary + '35' }]}>
-            <Text style={styles.earningsTitle}>Earnings Estimate</Text>
-            <View style={styles.earningsRow}>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>Gross ({passengers} seats)</Text>
-              <Text variant="bodyMedium">GHS {grossEarnings.toFixed(2)}</Text>
-            </View>
-            <View style={styles.earningsRow}>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>Platform fee (30%)</Text>
-              <Text variant="bodyMedium" color={colors.error}>− GHS {platformFee.toFixed(2)}</Text>
-            </View>
-            <View style={[styles.earningsRow, styles.earningsNet]}>
-              <Text variant="label">Your earnings</Text>
-              <Text style={styles.earningsNetValue}>GHS {netEarnings.toFixed(2)}</Text>
-            </View>
-          </View>
+          {/* Earnings card — the screen's hero money surface gets the premium ring */}
+          <Entrance animation="slideDown" delay={120}>
+            <GradientGlowBorder
+              palette="driver"
+              fillColor={colors.surfaceContainer}
+              borderRadius={radii['2xl']}
+              glow
+              style={styles.earningsCard}
+            >
+              <Text style={styles.earningsTitle}>Earnings Estimate</Text>
+              <View style={styles.earningsRow}>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>Gross ({passengers} seats)</Text>
+                <Text variant="bodyMedium">GHS {grossEarnings.toFixed(2)}</Text>
+              </View>
+              <View style={styles.earningsRow}>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>Platform fee (30%)</Text>
+                <Text variant="bodyMedium" color={colors.error}>− GHS {platformFee.toFixed(2)}</Text>
+              </View>
+              <View style={[styles.earningsRow, styles.earningsNet]}>
+                <Text variant="label">Your earnings</Text>
+                <Text style={styles.earningsNetValue}>GHS {netEarnings.toFixed(2)}</Text>
+              </View>
+            </GradientGlowBorder>
+          </Entrance>
 
           {/* Quick-action row */}
-          <View style={styles.actionRow}>
+          <Entrance animation="slideDown" delay={160} style={styles.actionRow}>
             <QuickAction
               icon="navigate-outline"
               label="Navigate"
@@ -494,21 +497,23 @@ export default function ActiveTripScreen() {
               onPress={() => router.push(`/(trip)/tracking/${id}`)}
               colors={colors}
             />
-          </View>
+          </Entrance>
 
           {/* Primary CTA */}
           {statusInfo.next && (
-            <Button
-              label={statusInfo.action}
-              onPress={() => advanceStatus.mutate()}
-              loading={advanceStatus.isPending}
-              disabled={advanceStatus.isPending}
-            />
+            <Entrance animation="slideDown" delay={200}>
+              <Button
+                label={statusInfo.action}
+                onPress={() => advanceStatus.mutate()}
+                loading={advanceStatus.isPending}
+                disabled={advanceStatus.isPending}
+              />
+            </Entrance>
           )}
 
           {/* No Show / Cancel */}
           {!['COMPLETED', 'CANCELLED'].includes(trip.status) && (
-            <View style={styles.dangerRow}>
+            <Entrance animation="slideDown" delay={220} style={styles.dangerRow}>
               <Pressable
                 style={[styles.dangerBtn, { borderColor: '#F59E0B66' }]}
                 onPress={() =>
@@ -536,10 +541,10 @@ export default function ActiveTripScreen() {
                   {cancelTrip.isPending ? 'Cancelling…' : 'Cancel Trip'}
                 </Text>
               </Pressable>
-            </View>
+            </Entrance>
           )}
-        </BottomSheetScrollView>
-      </BottomSheet>
+        </View>
+      </InlayPanel>
     </View>
   );
 }
@@ -583,7 +588,7 @@ function QuickAction({
       onPress={onPress}
     >
       <Ionicons name={icon} size={20} color={color} />
-      <Text style={{ fontFamily: fonts.medium, fontSize: 10, color, letterSpacing: 0.2 }}>{label}</Text>
+      <Text style={{ fontFamily: fonts.medium, fontSize: 10, lineHeight: 13, color, letterSpacing: 0.2 }}>{label}</Text>
     </Pressable>
   );
 }
@@ -634,6 +639,7 @@ const makeStyles = (colors: DriverColors) =>
     headerRoute: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.4),
       color: colors.onSurface,
     },
     statusBadge: {
@@ -650,6 +656,7 @@ const makeStyles = (colors: DriverColors) =>
     statusLabel: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
+      lineHeight: 14,
       letterSpacing: 0.3,
     },
     sosBtn: {
@@ -663,6 +670,7 @@ const makeStyles = (colors: DriverColors) =>
     sosBtnText: {
       fontFamily: fonts.displayBold,
       fontSize: 11,
+      lineHeight: 14,
       color: '#fff',
       letterSpacing: 0.5,
     },
@@ -726,6 +734,7 @@ const makeStyles = (colors: DriverColors) =>
     stepLabel: {
       fontFamily: fonts.medium,
       fontSize: 9,
+      lineHeight: 12,
       color: colors.onSurfaceVariant,
       letterSpacing: 0.1,
     },
@@ -737,10 +746,12 @@ const makeStyles = (colors: DriverColors) =>
     },
     // Cards
     card: {
-      backgroundColor: colors.surfaceContainer,
       borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
+      padding: spacing.xl,
+      overflow: 'hidden',
+    },
+    earningsCard: {
+      borderRadius: radii['2xl'],
       padding: spacing.xl,
     },
     cardHeader: {
@@ -752,6 +763,7 @@ const makeStyles = (colors: DriverColors) =>
     cardTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.4),
       color: colors.onSurface,
     },
     legend: {
@@ -766,6 +778,7 @@ const makeStyles = (colors: DriverColors) =>
     earningsTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: '#4be277',
       letterSpacing: 0.5,
       marginBottom: spacing.sm,
@@ -784,6 +797,7 @@ const makeStyles = (colors: DriverColors) =>
     earningsNetValue: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.titleMedium,
+      lineHeight: Math.round(fontSizes.titleMedium * 1.3),
       color: '#4be277',
     },
     // Quick actions
@@ -810,5 +824,6 @@ const makeStyles = (colors: DriverColors) =>
     dangerBtnText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     },
   });

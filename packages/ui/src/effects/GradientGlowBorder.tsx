@@ -20,7 +20,7 @@ export interface GradientGlowBorderHandle {
 interface GradientGlowBorderProps {
   /** Named preset that supplies colors/locations/glow tints in one go —
    * explicit `colors`/`locations`/`glowColor*` props override it. */
-  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort';
+  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver';
   /** Gradient stops sweeping the ring. Pass a mostly-dark array with 1-2
    * bright accent stops (see PREMIUM_RING_COLORS) to get a thin orbiting
    * light streak instead of a flat half-and-half color wash. */
@@ -67,7 +67,7 @@ export interface RingPalette {
 /** Context-matched ring palettes so a glow can follow the surface it wraps —
  * e.g. the gold PREMIUM tier card gets a gold ring, not the default
  * blue/orange. Same two-arc + hot-core construction as PREMIUM_RING_COLORS. */
-export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort', RingPalette> = {
+export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver', RingPalette> = {
   default: {
     colors: PREMIUM_RING_COLORS,
     locations: PREMIUM_RING_LOCATIONS,
@@ -109,6 +109,18 @@ export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'c
     locations: PREMIUM_RING_LOCATIONS,
     glowColor: '#3D7EFF',
     glowColorSecondary: '#2A5FD6',
+  },
+  /** Driver-native two-arc sweep — cool blue → cyan, no orange. Use for the
+   * single hero glow per driver screen (replaces the rider blue/orange combo,
+   * which reads muddy/purple against the driver blue theme). */
+  driver: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#3D7EFF', '#9CC5FF', '#3D7EFF', '#0A0A0C',
+      '#0A0A0C', '#00E0FF', '#9CF2FF', '#00E0FF', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#3D7EFF',
+    glowColorSecondary: '#00E0FF',
   },
 };
 

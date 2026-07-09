@@ -216,6 +216,7 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
   input: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
     paddingVertical: spacing.xs,
   },
@@ -239,5 +240,5 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
   reviewBody: { textAlign: 'center', marginBottom: spacing['2xl'], lineHeight: 22 },
   sectionLabel: { marginBottom: spacing.sm, marginLeft: spacing.xs },
   row: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.base, gap: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.outlineVariant },
-  rowLabel: { flex: 1, fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
+  rowLabel: { flex: 1, fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3), color: colors.onSurface },
 });

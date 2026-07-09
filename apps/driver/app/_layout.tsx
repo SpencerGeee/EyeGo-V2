@@ -83,10 +83,10 @@ class AppErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBou
 
 const errStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#060F1A', alignItems: 'center', justifyContent: 'center', padding: 32 },
-  title: { fontFamily: 'Geist_700Bold', fontSize: 22, color: '#fff', marginBottom: 12, textAlign: 'center' },
+  title: { fontFamily: 'Geist_700Bold', fontSize: 22, lineHeight: 29, color: '#fff', marginBottom: 12, textAlign: 'center' },
   message: { fontSize: 14, color: '#94A3B8', textAlign: 'center', marginBottom: 32, lineHeight: 20 },
   button: { backgroundColor: '#3B82F6', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  buttonText: { color: '#fff', fontWeight: '700', fontSize: 15, lineHeight: 20 },
 });
 
 async function registerForPushNotifications() {

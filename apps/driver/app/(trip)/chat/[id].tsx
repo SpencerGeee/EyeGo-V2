@@ -639,6 +639,7 @@ const makeStyles = (colors: DriverColors) =>
     headerTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
     },
     offlineBadge: {
@@ -655,6 +656,7 @@ const makeStyles = (colors: DriverColors) =>
     offlineText: {
       fontFamily: fonts.medium,
       fontSize: 11,
+      lineHeight: 14,
       color: '#F59E0B',
     },
     emptyChat: {
@@ -685,6 +687,7 @@ const makeStyles = (colors: DriverColors) =>
     senderInitial: {
       fontFamily: fonts.semiBold,
       fontSize: 12,
+      lineHeight: 16,
       color: colors.onSurface,
     },
     bubble: {
@@ -711,6 +714,7 @@ const makeStyles = (colors: DriverColors) =>
     senderName: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
+      lineHeight: 14,
       color: colors.primary,
     },
     seatChip: {
@@ -724,12 +728,14 @@ const makeStyles = (colors: DriverColors) =>
     seatChipText: {
       fontFamily: fonts.semiBold,
       fontSize: 9,
+      lineHeight: 12,
       color: colors.primary,
       letterSpacing: 0.3,
     },
     privateBadge: {
       fontFamily: fonts.medium,
       fontSize: 10,
+      lineHeight: 13,
       color: colors.onSurfaceVariant,
       marginBottom: 2,
     },
@@ -748,6 +754,7 @@ const makeStyles = (colors: DriverColors) =>
     timestamp: {
       fontFamily: fonts.regular,
       fontSize: 10,
+      lineHeight: 13,
       color: colors.onSurfaceVariant,
     },
     inputRow: {
@@ -770,6 +777,7 @@ const makeStyles = (colors: DriverColors) =>
       paddingVertical: spacing.sm,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
       maxHeight: 100,
     },
@@ -807,6 +815,7 @@ const makeStyles = (colors: DriverColors) =>
     tabText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.caption,
+      lineHeight: Math.round(fontSizes.caption * 1.3),
       color: colors.onSurfaceVariant,
     },
     passengerRow: {
