@@ -2,11 +2,19 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Avatar } from '@eyego/ui';
+import {
+  Text,
+  Avatar,
+  Skeleton,
+  Entrance,
+  GlassSurface,
+  GradientGlowBorder,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -136,83 +144,23 @@ export default function ProfileScreen() {
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* Skeleton header */}
           <View style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.md }}>
-            <MotiView
-              from={{ opacity: 0.4 }}
-              animate={{ opacity: 1 }}
-              transition={{ type: 'timing', duration: 800, loop: true }}
-              style={{ width: 120, height: 24, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }}
-            />
+            <Skeleton width={120} height={24} borderRadius={radii.full} />
           </View>
           {/* Skeleton profile card */}
-          <MotiView
-            from={{ opacity: 0.4 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 800, loop: true, delay: 100 }}
-            style={{
-              marginHorizontal: spacing['2xl'],
-              backgroundColor: colors.surfaceContainerHigh,
-              borderRadius: radii['2xl'],
-              borderWidth: 1,
-              borderColor: colors.outline,
-              padding: spacing['2xl'],
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.lg,
-              marginBottom: spacing.lg,
-            }}
-          >
-            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.surfaceContainerHigh }} />
+          <View style={{ marginHorizontal: spacing['2xl'], flexDirection: 'row', alignItems: 'center', gap: spacing.lg, marginBottom: spacing.lg }}>
+            <Skeleton width={72} height={72} borderRadius={36} />
             <View style={{ flex: 1, gap: 8 }}>
-              <View style={{ width: '60%', height: 18, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
-              <View style={{ width: '40%', height: 14, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
-              <View style={{ width: '50%', height: 12, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
+              <Skeleton width="60%" height={18} borderRadius={radii.full} />
+              <Skeleton width="40%" height={14} borderRadius={radii.full} />
+              <Skeleton width="50%" height={12} borderRadius={radii.full} />
             </View>
-          </MotiView>
+          </View>
           {/* Skeleton stats row */}
-          <MotiView
-            from={{ opacity: 0.4 }}
-            animate={{ opacity: 1 }}
-            transition={{ type: 'timing', duration: 800, loop: true, delay: 200 }}
-            style={{
-              marginHorizontal: spacing['2xl'],
-              flexDirection: 'row',
-              backgroundColor: colors.surfaceContainerHigh,
-              borderRadius: radii.xl,
-              borderWidth: 1,
-              borderColor: colors.outline,
-              padding: spacing.base,
-              marginBottom: spacing.lg,
-            }}
-          >
-            {[1, 2, 3].map(i => (
-              <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 50, height: 16, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
-                <View style={{ width: 70, height: 12, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
-              </View>
-            ))}
-          </MotiView>
+          <Skeleton height={72} borderRadius={radii.xl} style={{ marginHorizontal: spacing['2xl'], marginBottom: spacing.lg }} />
           {/* Skeleton settings list */}
           <View style={{ marginHorizontal: spacing['2xl'], gap: spacing.xs }}>
             {[1, 2, 3, 4, 5].map(i => (
-              <MotiView
-                key={i}
-                from={{ opacity: 0.4 }}
-                animate={{ opacity: 1 }}
-                transition={{ type: 'timing', duration: 800, loop: true, delay: 300 + i * 80 }}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  padding: spacing.base,
-                  gap: spacing.md,
-                  backgroundColor: colors.surfaceContainerHigh,
-                  borderRadius: radii.xl,
-                  borderWidth: 1,
-                  borderColor: colors.outlineVariant,
-                }}
-              >
-                <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: colors.surfaceContainerHigh }} />
-                <View style={{ flex: 1, height: 14, borderRadius: radii.full, backgroundColor: colors.surfaceContainerHigh }} />
-              </MotiView>
+              <Skeleton key={i} height={60} borderRadius={radii.xl} />
             ))}
           </View>
         </ScrollView>
@@ -241,23 +189,24 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 50 }}
-          style={styles.header}
-        >
+        <Entrance animation="slideUp" delay={50} style={styles.header}>
           <Text variant="headlineMedium" style={styles.title}>Profile</Text>
-        </MotiView>
+        </Entrance>
 
-        {/* Avatar + info card */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
+        {/* Avatar + info card — hero element gets the premium ring */}
+        <Entrance animation="slideDown" delay={100} style={styles.profileCardWrapper}>
+        <GradientGlowBorder
+          colors={PREMIUM_RING_COLORS}
+          locations={PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii['2xl']}
+          glow
+          glowColor={colors.primary}
+          glowColorSecondary="#FF7A3D"
           style={styles.profileCard}
         >
-          <View style={styles.profileCardGlow} />
+          <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={StyleSheet.absoluteFill} />
+          <View style={styles.profileCardGlow} pointerEvents="none" />
           <View style={styles.avatarRing}>
             <Avatar
               size={72}
@@ -290,15 +239,11 @@ export default function ProfileScreen() {
               )}
             </View>
           </View>
-        </MotiView>
+        </GradientGlowBorder>
+        </Entrance>
 
         {/* Stats row */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 150 }}
-          style={styles.statsRow}
-        >
+        <Entrance animation="slideDown" delay={150} style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{totalTrips}</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Total Trips</Text>
@@ -317,15 +262,10 @@ export default function ProfileScreen() {
             </Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Member Since</Text>
           </View>
-        </MotiView>
+        </Entrance>
 
         {/* Driver badge */}
-        <MotiView
-          from={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 200 }}
-          style={styles.badgeRow}
-        >
+        <Entrance animation="fadeIn" delay={200} style={styles.badgeRow}>
           <View style={styles.badge}>
             <Ionicons name="shield-checkmark" size={14} color={colors.primary} />
             <Text style={styles.badgeText}>Verified Driver</Text>
@@ -336,15 +276,10 @@ export default function ProfileScreen() {
               {driver?.isActive ? 'Active' : 'Inactive'}
             </Text>
           </View>
-        </MotiView>
+        </Entrance>
 
         {/* Settings */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 220 }}
-          style={styles.settingsCard}
-        >
+        <Entrance animation="slideDown" delay={220} style={styles.settingsCard}>
           {settingsItems.map((item, i) => (
             <Pressable
               key={item.label}
@@ -374,7 +309,7 @@ export default function ProfileScreen() {
               )}
             </Pressable>
           ))}
-        </MotiView>
+        </Entrance>
 
         {/* Version */}
         <Text variant="caption" color={colors.onSurfaceVariant} style={styles.version}>
@@ -395,18 +330,15 @@ const makeStyles = (colors: DriverColors) =>
       paddingBottom: spacing.md,
     },
     title: { fontFamily: fonts.displayBold, letterSpacing: -0.5 },
-    profileCard: {
+    profileCardWrapper: {
       marginHorizontal: spacing['2xl'],
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
+      marginBottom: spacing.lg,
+    },
+    profileCard: {
       padding: spacing['2xl'],
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.lg,
-      overflow: 'hidden',
-      marginBottom: spacing.lg,
     },
     profileCardGlow: {
       position: 'absolute',

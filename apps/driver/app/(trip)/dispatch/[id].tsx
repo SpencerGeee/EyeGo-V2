@@ -2,11 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -128,19 +127,9 @@ export default function DispatchScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <MotiView
-        from={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        style={styles.container}
-      >
+      <Entrance animation="scaleIn" style={styles.container}>
         {/* Header */}
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 60 }}
-          style={styles.header}
-        >
+        <Entrance animation="slideUp" delay={60} style={styles.header}>
           <View style={[styles.dispatchBadge, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}55` }]}>
             <View style={[styles.dispatchDot, { backgroundColor: colors.primary }]} />
             <Text style={[styles.dispatchLabel, { color: colors.primary }]}>Trip Assigned</Text>
@@ -149,15 +138,10 @@ export default function DispatchScreen() {
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
             Accept within {initialSeconds}s or it will be reassigned.
           </Text>
-        </MotiView>
+        </Entrance>
 
         {/* Countdown ring */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 100 }}
-          style={styles.timerWrapper}
-        >
+        <Entrance animation="scaleIn" delay={100} style={styles.timerWrapper}>
           <View style={[styles.timerRing, { borderColor: `${urgentColor}33` }]}>
             <View style={[styles.timerInner, { backgroundColor: `${urgentColor}14` }]}>
               <Text style={[styles.timerDigits, { color: urgentColor }]}>
@@ -166,13 +150,18 @@ export default function DispatchScreen() {
               <Text variant="caption" color={colors.onSurfaceVariant}>seconds</Text>
             </View>
           </View>
-        </MotiView>
+        </Entrance>
 
-        {/* Route card */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 140 }}
+        {/* Route card — the hero element gets the premium ring */}
+        <Entrance animation="slideDown" delay={140}>
+        <GradientGlowBorder
+          colors={PREMIUM_RING_COLORS}
+          locations={PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainer}
+          borderRadius={radii['2xl']}
+          glow
+          glowColor={colors.primary}
+          glowColorSecondary="#FF7A3D"
           style={styles.routeCard}
         >
           <View style={styles.routeRow}>
@@ -195,16 +184,12 @@ export default function DispatchScreen() {
             <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
             <Text variant="caption" color={colors.onSurfaceVariant}>Departure: {departureFormatted}</Text>
           </View>
-        </MotiView>
+        </GradientGlowBorder>
+        </Entrance>
 
         {/* Estimated Earnings */}
         {estimatedEarnings && (
-          <MotiView
-            from={{ opacity: 0, translateY: 12 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 170 }}
-            style={styles.earningsCard}
-          >
+          <Entrance animation="slideDown" delay={170} style={styles.earningsCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>Estimated earnings</Text>
               <Text style={{ fontFamily: fonts.displayBold, fontSize: 18, color: colors.primary }}>
@@ -218,16 +203,11 @@ export default function DispatchScreen() {
                 Trip departs at {departureFormatted}
               </Text>
             </View>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Actions */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
-          style={styles.actions}
-        >
+        <Entrance animation="slideDown" delay={200} style={styles.actions}>
           {timedOut ? (
             <Text
               variant="bodyMedium"
@@ -255,8 +235,8 @@ export default function DispatchScreen() {
               />
             </>
           )}
-        </MotiView>
-      </MotiView>
+        </Entrance>
+      </Entrance>
     </SafeAreaView>
   );
 }
@@ -314,10 +294,6 @@ const makeStyles = (colors: DriverColors) =>
       letterSpacing: -2,
     },
     routeCard: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing.xl,
       gap: spacing.sm,
     },

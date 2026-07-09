@@ -2,10 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { driverApi } from '@eyego/api';
@@ -63,31 +62,18 @@ export default function CancelTripScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.backRow}
-      >
+      <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
-      </MotiView>
+      </Entrance>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
-        >
+        <Entrance animation="slideUp" delay={40}>
           <Text variant="headlineLarge" style={styles.headline}>Cancel Trip</Text>
-        </MotiView>
+        </Entrance>
 
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
-        >
+        <Entrance animation="slideDown" delay={80}>
           {/* Warning Banner */}
           <View style={styles.warningBanner}>
             <Ionicons name="warning-outline" size={20} color={colors.error} style={{ marginRight: spacing.sm }} />
@@ -127,11 +113,7 @@ export default function CancelTripScreen() {
 
           {/* Note input for Other */}
           {selectedReason === 'Other' && (
-            <MotiView
-              from={{ opacity: 0, translateY: -4 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-            >
+            <Entrance animation="slideUp">
               <Text variant="labelLarge" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
                 Additional note
               </Text>
@@ -145,7 +127,7 @@ export default function CancelTripScreen() {
                 numberOfLines={4}
                 textAlignVertical="top"
               />
-            </MotiView>
+            </Entrance>
           )}
 
           <Button
@@ -154,7 +136,7 @@ export default function CancelTripScreen() {
             disabled={isPending || !selectedReason}
             style={styles.cancelBtn}
           />
-        </MotiView>
+        </Entrance>
       </ScrollView>
     </SafeAreaView>
   );

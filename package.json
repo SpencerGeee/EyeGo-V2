@@ -18,7 +18,7 @@
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
-    "@maplibre/maplibre-react-native": "^9.0.0",
+    "@maplibre/maplibre-react-native": "^11.3.2",
     "expo-contacts": "~15.0.11",
     "expo-localization": "~17.0.8",
     "expo-notifications": "^55.0.23",

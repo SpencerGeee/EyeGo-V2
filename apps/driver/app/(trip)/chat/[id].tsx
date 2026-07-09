@@ -16,7 +16,7 @@ import { MotiView } from 'moti';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { useQuery } from '@tanstack/react-query';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -340,10 +340,9 @@ export default function TripChatScreen() {
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => (
-    <MotiView
-      from={{ opacity: 0, translateY: 8 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 30, delay: Math.min(index * 30, 200) }}
+    <Entrance
+      animation="slideDown"
+      delay={Math.min(index * 30, 200)}
       style={[styles.messageRow, item.isDriver ? styles.messageRowDriver : styles.messageRowPassenger]}
     >
       {!item.isDriver && (
@@ -391,7 +390,7 @@ export default function TripChatScreen() {
           )}
         </View>
       </View>
-    </MotiView>
+    </Entrance>
   );
 
   // Filter messages for the current view
@@ -551,11 +550,10 @@ export default function TripChatScreen() {
 
         {/* Typing indicator */}
         {typingPassengers.size > 0 && (
-          <MotiView
-            from={{ opacity: 0, translateY: 4 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: 'timing', duration: 200 } as any}
+          <Entrance
+            animation="slideDown"
+            exitAnimation="fadeOut"
+            duration={200}
             style={[styles.messageRow, styles.messageRowPassenger, { marginHorizontal: spacing.xl, marginBottom: spacing.xs }]}
           >
             <View style={styles.senderAvatar}>
@@ -574,7 +572,7 @@ export default function TripChatScreen() {
                 ))}
               </View>
             </View>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Input — hidden when on passenger picker */}

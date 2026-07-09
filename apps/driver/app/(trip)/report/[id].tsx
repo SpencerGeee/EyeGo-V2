@@ -2,10 +2,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance, AnimatedCheckmark } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { apiClient } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -63,50 +62,34 @@ export default function ReportPassengerScreen() {
   if (submitted) {
     return (
       <SafeAreaView style={styles.safe}>
-        <MotiView
-          from={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-          style={styles.successContainer}
-        >
-          <Ionicons name="checkmark-circle" size={80} color="#22c55e" style={{ marginBottom: spacing.xl }} />
+        <Entrance animation="scaleIn" style={styles.successContainer}>
+          <View style={[styles.successCheckCircle, { marginBottom: spacing.xl }]}>
+            <AnimatedCheckmark size={40} color="#fff" strokeWidth={3.5} />
+          </View>
           <Text variant="headlineLarge" style={[styles.headline, { textAlign: 'center' }]}>Report Submitted</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.successBody}>
             We'll review your report within 24 hours. Your safety matters to us.
           </Text>
           <Button label="Done" onPress={() => router.replace('/(tabs)/trips' as any)} />
-        </MotiView>
+        </Entrance>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.backRow}
-      >
+      <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
-      </MotiView>
+      </Entrance>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
-        >
+        <Entrance animation="slideUp" delay={40}>
           <Text variant="headlineLarge" style={styles.headline}>Report Passenger</Text>
-        </MotiView>
+        </Entrance>
 
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
-        >
+        <Entrance animation="slideDown" delay={80}>
           <Text variant="labelLarge" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
             What happened?
           </Text>
@@ -160,7 +143,7 @@ export default function ReportPassengerScreen() {
             onPress={handleSubmit}
             disabled={isPending || !selectedType}
           />
-        </MotiView>
+        </Entrance>
       </ScrollView>
     </SafeAreaView>
   );
@@ -225,6 +208,14 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing['2xl'],
+  },
+  successCheckCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   successBody: {
     textAlign: 'center',

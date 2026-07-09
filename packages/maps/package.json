@@ -1,0 +1,13 @@
+{
+  "name": "@eyego/maps",
+  "version": "1.0.0",
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "private": true,
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "@maplibre/maplibre-react-native": "^11.3.2",
+    "react-native-reanimated": "~4.1.1"
+  }
+}

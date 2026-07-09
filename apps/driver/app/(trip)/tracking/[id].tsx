@@ -19,12 +19,24 @@ import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance, Skeleton, PulseRing } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
+
+// Initial great-circle bearing from `a` to `b`, in degrees — feeds the 3D nav
+// camera's rotation so it faces the direction of travel (Uber/Bolt/Yango-style).
+function bearingBetween(a: [number, number], b: [number, number]): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const toDeg = (r: number) => (r * 180) / Math.PI;
+  const [lng1, lat1] = a.map(toRad) as [number, number];
+  const [lng2, lat2] = b.map(toRad) as [number, number];
+  const y = Math.sin(lng2 - lng1) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
 
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
   SCHEDULED:          { label: 'Scheduled',          next: 'start',  action: 'Start Trip'    },
@@ -148,18 +160,27 @@ export default function DriverTrackingScreen() {
     return [driverLocation.longitude, driverLocation.latitude] as [number, number];
   }, [driverLocation?.latitude, driverLocation?.longitude]);
 
-  // Camera follows driver
+  // Camera follows driver — tilted/rotated 3D nav view while actively driving
+  // to/with passengers (Uber/Bolt/Yango-style), flat overview otherwise.
   useEffect(() => {
     if (driverCoord && cameraRef.current) {
+      const isDriving = trip?.status === 'DRIVER_EN_ROUTE' || trip?.status === 'IN_PROGRESS';
+      const target: [number, number] | null = !isDriving
+        ? null
+        : trip?.status === 'IN_PROGRESS'
+          ? (trip?.route?.destLat && trip?.route?.destLng ? [trip.route.destLng, trip.route.destLat] : null)
+          : (trip?.route?.originLat && trip?.route?.originLng ? [trip.route.originLng, trip.route.originLat] : null);
       cameraRef.current.setCamera({
         centerCoordinate: driverCoord,
         animationDuration: 1000,
-        zoomLevel: 14,
+        zoomLevel: isDriving ? 17.5 : 14,
+        heading: isDriving && target ? bearingBetween(driverCoord, target) : 0,
+        pitch: isDriving ? 55 : 0,
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // driverCoord is a tuple — index access is the stable primitive dep; cameraRef is a stable ref
-  }, [driverCoord?.[0], driverCoord?.[1]]);
+  }, [driverCoord?.[0], driverCoord?.[1], trip?.status]);
 
   // Destination + pickup coords — declared HERE so the OSRM effect below can reference them
   const destCoord: [number, number] = useMemo(() => {
@@ -383,13 +404,7 @@ export default function DriverTrackingScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           {[80, 160, 120].map((w, i) => (
-            <MotiView
-              key={i}
-              from={{ opacity: 0.3 }}
-              animate={{ opacity: 0.7 }}
-              transition={{ type: 'timing', duration: 800, loop: true, delay: i * 150 }}
-              style={[styles.skeleton, { width: w }]}
-            />
+            <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
           ))}
         </View>
       </SafeAreaView>
@@ -507,33 +522,23 @@ export default function DriverTrackingScreen() {
 
       {/* ETA pill */}
       {etaMinutes != null && (
-        <MotiView
-          from={{ opacity: 0, translateX: -6 }}
-          animate={{ opacity: 1, translateX: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-          style={styles.etaPill}
-        >
+        <Entrance animation="slideLeft" style={styles.etaPill}>
           <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
             <Ionicons name="time-outline" size={14} color={colors.primary} />
             <Text style={styles.etaPillText}>
               {etaMinutes < 2 ? 'Arriving now' : `${etaMinutes} min to destination`}
             </Text>
           </BlurView>
-        </MotiView>
+        </Entrance>
       )}
 
       {/* Passenger count pill */}
-      <MotiView
-        from={{ opacity: 0, translateX: 6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.passengerPill}
-      >
+      <Entrance animation="slideRight" style={styles.passengerPill}>
         <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
           <Ionicons name="people-outline" size={14} color={colors.primary} />
           <Text style={styles.etaPillText}>{boarded}/{passengers} boarded</Text>
         </BlurView>
-      </MotiView>
+      </Entrance>
 
       {/* In-app banner */}
       {bannerMsg != null && (
@@ -561,12 +566,7 @@ export default function DriverTrackingScreen() {
       >
         <BottomSheetView style={styles.sheetContent}>
           {/* ETA + Status */}
-          <MotiView
-            from={{ opacity: 0, translateY: 6 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-            style={styles.etaSection}
-          >
+          <Entrance animation="slideDown" style={styles.etaSection}>
             <View style={styles.etaLeft}>
               <Text style={styles.etaValue}>
                 {etaMinutes != null ? `${etaMinutes} min` : '...'}
@@ -582,15 +582,10 @@ export default function DriverTrackingScreen() {
                 {etaDistanceKm != null ? `${etaDistanceKm} km` : `${passengers} passenger${passengers !== 1 ? 's' : ''}`}
               </Text>
             </View>
-          </MotiView>
+          </Entrance>
 
           {/* Passenger list */}
-          <MotiView
-            from={{ opacity: 0, translateY: 6 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
-            style={styles.passengerListCard}
-          >
+          <Entrance animation="slideDown" delay={40} style={styles.passengerListCard}>
             <View style={styles.passengerListHeader}>
               <Text style={styles.passengerListTitle}>Passengers</Text>
               <Text variant="caption" color={colors.onSurfaceVariant}>{passengers}/{total}</Text>
@@ -635,31 +630,22 @@ export default function DriverTrackingScreen() {
                 </View>
               ))
             )}
-          </MotiView>
+          </Entrance>
 
           {/* Primary action button */}
           {statusInfo.next && (
-            <MotiView
-              from={{ opacity: 0, translateY: 6 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
-            >
+            <Entrance animation="slideDown" delay={80}>
               <Button
                 label={statusInfo.action}
                 onPress={() => advanceStatus.mutate()}
                 loading={advanceStatus.isPending}
                 disabled={advanceStatus.isPending}
               />
-            </MotiView>
+            </Entrance>
           )}
 
           {/* Secondary actions row */}
-          <MotiView
-            from={{ opacity: 0, translateY: 6 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
-            style={styles.secondaryActions}
-          >
+          <Entrance animation="slideDown" delay={100} style={styles.secondaryActions}>
             <Pressable
               style={styles.secondaryBtn}
               onPress={() => router.push(`/(trip)/chat/${id}`)}
@@ -697,16 +683,11 @@ export default function DriverTrackingScreen() {
               <Ionicons name="warning" size={18} color={colors.error} />
               <Text style={[styles.secondaryBtnText, { color: colors.error }]}>SOS</Text>
             </Pressable>
-          </MotiView>
+          </Entrance>
 
           {/* No Show + Cancel actions */}
           {!['COMPLETED', 'CANCELLED'].includes(trip.status) && (
-            <MotiView
-              from={{ opacity: 0, translateY: 6 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 120 }}
-              style={styles.cancelRow}
-            >
+            <Entrance animation="slideDown" delay={120} style={styles.cancelRow}>
               <Pressable
                 style={[styles.cancelBtn, { flex: 1, borderColor: '#F59E0B55' }]}
                 onPress={() => {
@@ -742,7 +723,7 @@ export default function DriverTrackingScreen() {
                   {cancelTrip.isPending ? 'Cancelling…' : 'Cancel Trip'}
                 </Text>
               </Pressable>
-            </MotiView>
+            </Entrance>
           )}
         </BottomSheetView>
       </BottomSheet>
@@ -786,15 +767,9 @@ function PulseMarker({ color }: { color?: string }) {
   const colors = useColors();
   const resolvedColor = color ?? colors.primary;
   return (
-    <View style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
-      <MotiView
-        style={[pulseStyles.ring, { backgroundColor: resolvedColor }]}
-        from={{ scale: 1, opacity: 0.7 }}
-        animate={{ scale: 1.8, opacity: 0 }}
-        transition={{ type: 'timing', duration: 1500, loop: true }}
-      />
+    <PulseRing size={40} color={resolvedColor} ringCount={2} duration={1500}>
       <View style={[pulseStyles.dot, { backgroundColor: resolvedColor, borderColor: '#030C18' }]} />
-    </View>
+    </PulseRing>
   );
 }
 

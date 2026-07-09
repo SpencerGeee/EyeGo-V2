@@ -11,11 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
@@ -102,12 +101,7 @@ export default function AddPassengerScreen() {
 
           {/* Mode: Select */}
           {mode === 'select' && (
-            <MotiView
-              from={{ opacity: 0, translateY: 16 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              style={styles.optionsContainer}
-            >
+            <Entrance animation="slideDown" style={styles.optionsContainer}>
               <Text style={styles.sectionTitle}>How is this passenger paying?</Text>
               <Pressable
                 style={styles.optionCard}
@@ -142,17 +136,12 @@ export default function AddPassengerScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
               </Pressable>
-            </MotiView>
+            </Entrance>
           )}
 
           {/* Mode: Phone input */}
           {mode === 'phone' && (
-            <MotiView
-              from={{ opacity: 0, translateX: 20 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              style={styles.formContainer}
-            >
+            <Entrance animation="slideRight" style={styles.formContainer}>
               <Text style={styles.sectionTitle}>Passenger Details</Text>
               <View style={styles.fieldWrapper}>
                 <Text variant="caption" color={colors.onSurfaceVariant} style={styles.fieldLabel}>
@@ -183,17 +172,12 @@ export default function AddPassengerScreen() {
                 disabled={phone.length < 9}
                 loading={addByPhone.isPending}
               />
-            </MotiView>
+            </Entrance>
           )}
 
           {/* Mode: OTP verify */}
           {mode === 'otp' && (
-            <MotiView
-              from={{ opacity: 0, translateX: 20 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              style={styles.formContainer}
-            >
+            <Entrance animation="slideRight" style={styles.formContainer}>
               <Text style={styles.sectionTitle}>Verify OTP</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Ask the passenger for the 4-digit code sent to their number.
@@ -216,17 +200,12 @@ export default function AddPassengerScreen() {
                 disabled={otp.length < 4}
                 loading={verifyOtp.isPending || boardPassenger.isPending}
               />
-            </MotiView>
+            </Entrance>
           )}
 
           {/* Mode: Cash */}
           {mode === 'cash' && (
-            <MotiView
-              from={{ opacity: 0, translateX: 20 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              style={styles.formContainer}
-            >
+            <Entrance animation="slideRight" style={styles.formContainer}>
               <Text style={styles.sectionTitle}>Cash Passenger</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Select the seat number for this passenger.
@@ -237,7 +216,7 @@ export default function AddPassengerScreen() {
                 onPress={() => addCash.mutate()}
                 loading={addCash.isPending}
               />
-            </MotiView>
+            </Entrance>
           )}
         </ScrollView>
       </KeyboardAvoidingView>

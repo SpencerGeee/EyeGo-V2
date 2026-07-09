@@ -1,12 +1,10 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { View, StyleSheet, FlatList, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, Entrance, GlassSurface, AnimatedList } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
 
@@ -62,66 +60,48 @@ export default function NotificationsScreen() {
     if (n.tripId) router.push(`/(trip)/active/${n.tripId}` as any);
   }, [markRead, router]);
 
-  const renderItem = useCallback(({ item, index }: { item: DriverNotification; index: number }) => {
+  const renderItem = useCallback(({ item }: { item: DriverNotification }) => {
     const cfg = TYPE_CONFIG[item.type] ?? TYPE_CONFIG.INFO;
     return (
-      <MotiView
-        from={{ opacity: 0, translateY: 10 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30, delay: index * 35 }}
+      <Pressable
+        style={[styles.card, !item.read && styles.cardUnread]}
+        onPress={() => handlePress(item)}
+        accessibilityRole="button"
       >
-        <Pressable
-          style={[styles.card, !item.read && styles.cardUnread]}
-          onPress={() => handlePress(item)}
-          accessibilityRole="button"
-        >
-          {Platform.OS === 'ios' && (
-            <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
-          )}
-          {!item.read && <View style={styles.unreadStripe} />}
-          <View style={[styles.iconCircle, { backgroundColor: cfg.color + '18' }]}>
-            <Ionicons name={cfg.icon} size={20} color={cfg.color} />
+        <GlassSurface borderRadius={radii.xl} intensity="low" style={StyleSheet.absoluteFill} />
+        {!item.read && <View style={styles.unreadStripe} />}
+        <View style={[styles.iconCircle, { backgroundColor: cfg.color + '18' }]}>
+          <Ionicons name={cfg.icon} size={20} color={cfg.color} />
+        </View>
+        <View style={styles.content}>
+          <View style={styles.topRow}>
+            <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+            <Text variant="caption" color={colors.onSurfaceVariant}>{formatTimestamp(item.timestamp)}</Text>
           </View>
-          <View style={styles.content}>
-            <View style={styles.topRow}>
-              <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>{formatTimestamp(item.timestamp)}</Text>
-            </View>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
-              {item.body}
-            </Text>
-          </View>
-          {!item.read && <View style={styles.unreadDot} />}
-          <Ionicons name="chevron-forward" size={14} color={colors.onSurfaceVariant} />
-        </Pressable>
-      </MotiView>
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={2}>
+            {item.body}
+          </Text>
+        </View>
+        {!item.read && <View style={styles.unreadDot} />}
+        <Ionicons name="chevron-forward" size={14} color={colors.onSurfaceVariant} />
+      </Pressable>
     );
   }, [styles, colors, handlePress]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
-      <MotiView
-        from={{ opacity: 0, translateY: -6 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-        style={styles.header}
-      >
+      <Entrance animation="slideUp" style={styles.header}>
         <Text variant="headlineMedium">Alerts</Text>
         {hasUnread && (
           <Pressable onPress={markAllRead} hitSlop={8} accessibilityRole="button" accessibilityLabel="Mark all read">
             <Text variant="label" color={colors.primary}>Mark all read</Text>
           </Pressable>
         )}
-      </MotiView>
+      </Entrance>
 
       {/* Category pills */}
-      <MotiView
-        from={{ opacity: 0, translateY: 4 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 60 }}
-        style={styles.categoryRow}
-      >
+      <Entrance animation="slideDown" delay={60} style={styles.categoryRow}>
         {CATEGORIES.map((cat) => (
           <Pressable
             key={cat}
@@ -141,7 +121,7 @@ export default function NotificationsScreen() {
             {activeCategory === cat && <View style={styles.categoryUnderline} />}
           </Pressable>
         ))}
-      </MotiView>
+      </Entrance>
 
       {/* List */}
       {filtered.length === 0 ? (
@@ -155,7 +135,7 @@ export default function NotificationsScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
+        <AnimatedList
           data={filtered}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}

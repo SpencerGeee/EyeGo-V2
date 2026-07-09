@@ -93,7 +93,11 @@ export const colors = {
   premiumOrangeBright: '#FFC59C',
 } as const;
 
-export type ColorTokens = typeof colors;
+// Widened to plain `string` per key (not `typeof colors`) so any palette with
+// the same key shape — e.g. driverColors — can satisfy this type. A literal
+// `typeof colors` type would lock ColorsProvider/useThemedColors to rider's
+// exact hex values, making the whole context rider-only.
+export type ColorTokens = { [K in keyof typeof colors]: string };
 
 export const spacing = {
   xs: 4,
@@ -144,21 +148,57 @@ export const shadows = {
 } as const;
 
 // ── Driver App Design Tokens (Electric Blue) ─────────────────────────────────
-export const driverColors = {
+// Full parity with `ColorTokens` (same keys as rider's `colors`) plus a small
+// set of driver-only extras (accent/online/offline/warning/glowAccent) — this
+// is what lets driverColors satisfy ColorsProvider's shared context type, so
+// every packages/ui component (AppBackground, GlassSurface, GradientGlowBorder,
+// etc.) renders blue for driver with zero per-component changes.
+export type DriverColorTokens = ColorTokens & {
+  accent: string;
+  accentDim: string;
+  online: string;
+  offline: string;
+  warning: string;
+  glowAccent: string;
+};
+
+export const driverColors: DriverColorTokens = {
   backgroundDeep: '#030C18',
   background: '#060F1A',
+  surfaceDim: '#060F1A',
+  surfaceCard: '#0B1826',
   surfaceContainer: '#0D1B2A',
   surfaceContainerHigh: '#112240',
   surfaceContainerHighest: '#162B4F',
+  surfaceVariant: '#162B4F',
+  surfaceBright: '#1B3A66',
+  surfaceInput: '#04101F',
+
+  rimLight: 'rgba(255, 255, 255, 0.10)',
+  rimLightSubtle: 'rgba(255, 255, 255, 0.06)',
 
   primary: '#3B82F6',
   primaryDim: '#2563EB',
   onPrimary: '#EFF6FF',
+  inversePrimary: '#1D4ED8',
+  primaryFixed: '#BFDBFE',
+  primaryFixedDim: '#60A5FA',
+  onPrimaryFixed: '#001B3D',
+  onPrimaryFixedVariant: '#0B3E91',
   accent: '#60A5FA',
   accentDim: '#3B82F6',
 
   secondary: '#60A5FA',
   secondaryContainer: '#1E3A5F',
+  onSecondary: '#001B3D',
+  onSecondaryContainer: '#DCEAFF',
+  secondaryFixed: '#D6E4FF',
+  secondaryFixedDim: '#93C5FD',
+
+  tertiary: '#ffb5ab',
+  tertiaryContainer: '#ff8b7c',
+  onTertiary: '#60130d',
+  onTertiaryContainer: '#76231b',
 
   onBackground: '#E2E8F0',
   onSurface: '#E2E8F0',
@@ -168,6 +208,7 @@ export const driverColors = {
 
   outline: '#1E3A5F',
   outlineVariant: '#0F2239',
+  surfaceTint: '#2563EB',
   scrim: '#000000',
 
   error: '#F87171',
@@ -175,14 +216,115 @@ export const driverColors = {
   errorContainer: '#991B1B',
   onErrorContainer: '#FEE2E2',
 
-  online: '#3B82F6',
-  offline: '#64748B',
+  statusSuccess: '#22C55E',
+  statusError: '#FF3B30',
+  statusWarning: '#FED639',
+  statusInfo: '#00B2FF',
+
+  tierEconomy: '#4BE277',
+  tierComfort: '#00B2FF',
+  tierPremium: '#FFD700',
+  tierRoyal: '#7000FF',
 
   glowPrimary: 'rgba(59, 130, 246, 0.4)',
+  glowSecondary: 'rgba(96, 165, 250, 0.3)',
   glowAccent: 'rgba(96, 165, 250, 0.25)',
   glowError: 'rgba(248, 113, 113, 0.4)',
+
+  premiumRingDark: '#050C16',
+  premiumBlue: '#3D7EFF',
+  premiumBlueDim: '#0A56FF',
+  premiumBlueBright: '#9CC5FF',
+  premiumOrange: '#FF7A3D',
+  premiumOrangeDim: '#FF5500',
+  premiumOrangeBright: '#FFC59C',
+
+  online: '#3B82F6',
+  offline: '#64748B',
   warning: '#FBBF24',
-} as const;
+};
+
+export const driverLightColors: DriverColorTokens = {
+  backgroundDeep: '#E2E8F0',
+  background: '#F1F5F9',
+  surfaceDim: '#F1F5F9',
+  surfaceCard: '#FFFFFF',
+  surfaceContainer: '#FFFFFF',
+  surfaceContainerHigh: '#F8FAFC',
+  surfaceContainerHighest: '#F1F5F9',
+  surfaceVariant: '#E2E8F0',
+  surfaceBright: '#FFFFFF',
+  surfaceInput: '#F8FAFC',
+
+  rimLight: 'rgba(15, 23, 42, 0.08)',
+  rimLightSubtle: 'rgba(15, 23, 42, 0.05)',
+
+  primary: '#2563EB',
+  primaryDim: '#1D4ED8',
+  onPrimary: '#FFFFFF',
+  inversePrimary: '#93C5FD',
+  primaryFixed: '#BFDBFE',
+  primaryFixedDim: '#60A5FA',
+  onPrimaryFixed: '#001B3D',
+  onPrimaryFixedVariant: '#0B3E91',
+  accent: '#3B82F6',
+  accentDim: '#2563EB',
+
+  secondary: '#3B82F6',
+  secondaryContainer: '#DBEAFE',
+  onSecondary: '#FFFFFF',
+  onSecondaryContainer: '#001B3D',
+  secondaryFixed: '#D6E4FF',
+  secondaryFixedDim: '#93C5FD',
+
+  tertiary: '#B3261E',
+  tertiaryContainer: '#F9DEDC',
+  onTertiary: '#FFFFFF',
+  onTertiaryContainer: '#410E0B',
+
+  onBackground: '#0F172A',
+  onSurface: '#0F172A',
+  onSurfaceVariant: '#64748B',
+  inverseOnSurface: '#F1F5F9',
+  inverseSurface: '#0F172A',
+
+  outline: '#CBD5E1',
+  outlineVariant: '#E2E8F0',
+  surfaceTint: '#2563EB',
+  scrim: '#000000',
+
+  error: '#DC2626',
+  onError: '#FFFFFF',
+  errorContainer: '#FEF2F2',
+  onErrorContainer: '#7F1D1D',
+
+  statusSuccess: '#16A34A',
+  statusError: '#DC2626',
+  statusWarning: '#D97706',
+  statusInfo: '#0284C7',
+
+  tierEconomy: '#16A34A',
+  tierComfort: '#0284C7',
+  tierPremium: '#B7860B',
+  tierRoyal: '#6D28D9',
+
+  glowPrimary: 'rgba(37, 99, 235, 0.25)',
+  glowSecondary: 'rgba(59, 130, 246, 0.15)',
+  glowAccent: 'rgba(59, 130, 246, 0.15)',
+  glowError: 'rgba(220, 38, 38, 0.25)',
+
+  premiumRingDark: '#F1F5F9',
+  premiumBlue: '#2563EB',
+  premiumBlueDim: '#1D4ED8',
+  premiumBlueBright: '#93C5FD',
+  premiumOrange: '#EA580C',
+  premiumOrangeDim: '#C2410C',
+  premiumOrangeBright: '#FDBA74',
+
+  online: '#2563EB',
+  offline: '#94A3B8',
+  warning: '#D97706',
+};
 
 export const animation = {
   spring: {

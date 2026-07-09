@@ -8,23 +8,22 @@ import { onlineManager } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
 import {
   useFonts,
-  SpaceGrotesk_300Light,
-  SpaceGrotesk_400Regular,
-  SpaceGrotesk_500Medium,
-  SpaceGrotesk_600SemiBold,
-  SpaceGrotesk_700Bold,
-} from '@expo-google-fonts/space-grotesk';
+  Geist_300Light,
+  Geist_400Regular,
+  Geist_500Medium,
+  Geist_600SemiBold,
+  Geist_700Bold,
+} from '@expo-google-fonts/geist';
 import {
-  Inter_300Light,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from '@expo-google-fonts/inter';
+  JetBrainsMono_500Medium,
+  JetBrainsMono_700Bold,
+} from '@expo-google-fonts/jetbrains-mono';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 import { configureApiClient, configureSocket, connectDriverSocket, driverApi, driverSocketEvents } from '@eyego/api';
@@ -84,7 +83,7 @@ class AppErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBou
 
 const errStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#060F1A', alignItems: 'center', justifyContent: 'center', padding: 32 },
-  title: { fontFamily: 'SpaceGrotesk_700Bold', fontSize: 22, color: '#fff', marginBottom: 12, textAlign: 'center' },
+  title: { fontFamily: 'Geist_700Bold', fontSize: 22, color: '#fff', marginBottom: 12, textAlign: 'center' },
   message: { fontSize: 14, color: '#94A3B8', textAlign: 'center', marginBottom: 32, lineHeight: 20 },
   button: { backgroundColor: '#3B82F6', paddingHorizontal: 28, paddingVertical: 14, borderRadius: 12 },
   buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
@@ -130,6 +129,11 @@ async function registerForPushNotifications() {
   }
 }
 
+/** Fade-group screens show the shared root <AppBackground /> through their
+ *  content view — mirrors the rider app so blur/glow surfaces read correctly
+ *  against the ambient background instead of a flat fill. */
+const TRANSPARENT_CONTENT = { backgroundColor: 'transparent' } as const;
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 2, staleTime: 1000 * 60 * 5 },
@@ -142,6 +146,10 @@ export default function RootLayout() {
   const segments = useSegments();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Pause the background effect when an opaque detail screen covers it —
+  // mirrors rider's _layout.tsx exactly (depth >= 3 = deeply pushed trip/
+  // profile screens with no blur layer behind them to run for).
+  const isOpaqueDetail = segments.length >= 3;
 
   const [splashDone, setSplashDone] = useState(false);
   const [inAppBanner, setInAppBanner] = React.useState<{ title: string; body: string } | null>(null);
@@ -161,16 +169,13 @@ export default function RootLayout() {
   }, []);
 
   const [fontsLoaded] = useFonts({
-    SpaceGrotesk_300Light,
-    SpaceGrotesk_400Regular,
-    SpaceGrotesk_500Medium,
-    SpaceGrotesk_600SemiBold,
-    SpaceGrotesk_700Bold,
-    Inter_300Light,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    Geist_300Light,
+    Geist_400Regular,
+    Geist_500Medium,
+    Geist_600SemiBold,
+    Geist_700Bold,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_700Bold,
   });
 
   useEffect(() => {
@@ -288,10 +293,20 @@ export default function RootLayout() {
   }
 
   return (
+    <ColorsProvider value={colors}>
     <AppErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
+    <KeyboardProvider>
+    <AmbientRotationProvider>
       <QueryClientProvider client={queryClient}>
         <StatusBar style={theme === 'light' ? 'dark' : 'light'} backgroundColor={colors.backgroundDeep} />
+        {/* Ambient premium background — fade-group screens (transparent
+            contentStyle above) show this instead of a flat fill. */}
+        <AppBackground isDark={theme !== 'light'} paused={isOpaqueDetail} />
+        {/* MorphProvider hosts the container-transform overlay for future
+            morph transitions (trip-card → active-trip, etc.) — wraps the
+            Stack so sources/targets living inside screens can register. */}
+        <MorphProvider>
         <Stack
           screenOptions={{
             headerShown: false,
@@ -299,9 +314,9 @@ export default function RootLayout() {
             animation: 'fade_from_bottom',
           }}
         >
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          <Stack.Screen name="index" options={{ contentStyle: TRANSPARENT_CONTENT }} />
+          <Stack.Screen name="(auth)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
+          <Stack.Screen name="(tabs)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
           <Stack.Screen
             name="(trip)/create"
             options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
@@ -356,7 +371,7 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="(onboarding)"
-            options={{ animation: 'fade', gestureEnabled: false }}
+            options={{ animation: 'fade', gestureEnabled: false, contentStyle: TRANSPARENT_CONTENT }}
           />
           <Stack.Screen
             name="(trip)/cancel/[id]"
@@ -367,6 +382,7 @@ export default function RootLayout() {
             options={{ animation: 'slide_from_right' }}
           />
         </Stack>
+        </MorphProvider>
         {/* Off-screen parity: app-wide socket banners (chat/dispatch/status) +
             cache invalidation, mirroring the rider TripStatusListener. */}
         {isLoggedIn && <DriverTripStatusListener />}
@@ -399,7 +415,10 @@ export default function RootLayout() {
           </Animated.View>
         )}
       </QueryClientProvider>
+    </AmbientRotationProvider>
+    </KeyboardProvider>
     </GestureHandlerRootView>
     </AppErrorBoundary>
+    </ColorsProvider>
   );
 }

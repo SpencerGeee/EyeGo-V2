@@ -32,14 +32,9 @@ module.exports = () => {
   const googleServicesInfoPath = path.join(__dirname, 'GoogleService-Info.plist');
   const hasGoogleServicesInfo = fs.existsSync(googleServicesInfoPath);
 
-  // The driver uses @maplibre/maplibre-react-native on native (OpenFreeMap tiles,
-  // no API key needed) and falls back to react-native-maps in Expo Go. On Android
-  // react-native-maps needs a Google Maps API key or it renders BLANK tiles.
-  // iOS uses Apple Maps and needs no key. We only inject `android.config.googleMaps`
-  // when a key is present so a keyless build still succeeds (blank tiles only
-  // affect Expo Go / fallback path on Android until key is set).
-  const googleMapsApiKey =
-    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '';
+  // Maps run entirely on @maplibre/maplibre-react-native v11 + OpenFreeMap
+  // tiles (see @eyego/maps) — free, keyless, no Google Maps API key/Cloud
+  // Billing account needed on either platform.
 
   return {
     ...expo,
@@ -47,9 +42,6 @@ module.exports = () => {
     android: {
       ...expo.android,
       ...(hasGoogleServices ? { googleServicesFile: './google-services.json' } : {}),
-      ...(googleMapsApiKey
-        ? { config: { ...(expo.android?.config ?? {}), googleMaps: { apiKey: googleMapsApiKey } } }
-        : {}),
     },
     ios: {
       ...expo.ios,

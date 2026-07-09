@@ -10,13 +10,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from 'moti';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Skeleton, PulseRing } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -214,13 +213,7 @@ export default function ActiveTripScreen() {
         />
         <View style={[styles.loadingOverlay, { paddingTop: insets.top + 20 }]}>
           {[120, 80, 160].map((w, i) => (
-            <MotiView
-              key={i}
-              from={{ opacity: 0.2 }}
-              animate={{ opacity: 0.6 }}
-              transition={{ type: 'timing', duration: 800, loop: true, delay: i * 150 }}
-              style={[styles.skeleton, { width: w }]}
-            />
+            <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
           ))}
         </View>
       </View>
@@ -276,11 +269,11 @@ export default function ActiveTripScreen() {
         rotateEnabled={false}
         scaleBarEnabled={false}
       >
-        <MapboxGL.Camera
-          centerCoordinate={driverCoord}
-          zoomLevel={13}
-          animationMode="flyTo"
-          animationDuration={800}
+        {/* 3D tilted follow camera while actively driving to/with passengers
+            (Uber/Bolt/Yango-style nav view); flat overview otherwise. */}
+        <MapboxGL.NavCamera
+          active={trip.status === 'DRIVER_EN_ROUTE' || trip.status === 'IN_PROGRESS'}
+          fallbackCenter={driverCoord}
         />
         {/* Driver position pulse */}
         <MapboxGL.MarkerView coordinate={driverCoord}>
@@ -555,15 +548,9 @@ export default function ActiveTripScreen() {
 
 function DriverPulse({ color }: { color: string }) {
   return (
-    <View style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
-      <MotiView
-        style={{ position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: color }}
-        from={{ scale: 1, opacity: 0.7 }}
-        animate={{ scale: 2, opacity: 0 }}
-        transition={{ type: 'timing', duration: 1600, loop: true }}
-      />
+    <PulseRing size={48} color={color} ringCount={2} duration={1600}>
       <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: color, borderWidth: 2.5, borderColor: '#050508' }} />
-    </View>
+    </PulseRing>
   );
 }
 

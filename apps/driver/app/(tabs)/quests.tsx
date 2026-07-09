@@ -1,13 +1,12 @@
 import React, { useMemo } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { questsApi } from '@eyego/api';
 import type { DriverQuest } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Skeleton, EmptyState } from '@eyego/ui';
+import { Text, Skeleton, EmptyState, Entrance } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import QuestCard from '../../components/QuestCard';
 
@@ -119,33 +118,16 @@ export default function QuestsScreen() {
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          style={styles.header}
-        >
+        <Entrance animation="slideUp" style={styles.header}>
           <Text variant="headlineSmall">Quests & Bonuses</Text>
           <Text variant="bodySmall" color={colors.onSurfaceVariant}>
             Complete quests to earn bonus rewards
           </Text>
-        </MotiView>
+        </Entrance>
 
         {/* Active quests */}
-        <MotiView
-          from={{ opacity: 0, translateY: 10 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 80 }}
-        >
+        <Entrance animation="slideDown" delay={80}>
           <Text variant="titleSmall" style={styles.sectionLabel}>Active Quests</Text>
-
-          {isLoading && (
-            <View style={{ gap: spacing.base }}>
-              {[1, 2].map((i) => (
-                <Skeleton key={i} height={120} borderRadius={radii.xl} />
-              ))}
-            </View>
-          )}
 
           {isLoading && (
             <View style={{ gap: spacing.base }}>
@@ -180,15 +162,11 @@ export default function QuestsScreen() {
               ))}
             </View>
           )}
-        </MotiView>
+        </Entrance>
 
         {/* Completed history */}
         {(historyData ?? []).length > 0 && (
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 140 }}
-          >
+          <Entrance animation="slideDown" delay={140}>
             <Text variant="titleSmall" style={styles.sectionLabel}>Completed</Text>
             <View style={{ gap: spacing.sm }}>
               {(historyData as any[]).map((item: any) => (
@@ -203,7 +181,7 @@ export default function QuestsScreen() {
                 </View>
               ))}
             </View>
-          </MotiView>
+          </Entrance>
         )}
       </ScrollView>
     </SafeAreaView>

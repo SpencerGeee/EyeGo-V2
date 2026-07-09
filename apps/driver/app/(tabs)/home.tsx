@@ -4,18 +4,23 @@ import {
   StyleSheet,
   Pressable,
   Alert,
-  Platform,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import MapboxGL from '../../utils/mapbox';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import {
+  Text,
+  Button,
+  Entrance,
+  GlassSurface,
+  InlayPanel,
+  GradientGlowBorder,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -23,8 +28,7 @@ import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import DemandOverlay from '../../components/DemandOverlay';
-
-const MARKER_ANCHOR = { x: 0.5, y: 0.5 };
+import eyegoDarkStyle from '@eyego/map-styles';
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -37,8 +41,7 @@ export default function HomeScreen() {
   const setOnline = useDriverStore(s => s.setOnline);
   const setActiveTripId = useDriverStore(s => s.setActiveTripId);
   const updateDriver = useDriverStore(s => s.updateDriver);
-  const sheetRef = useRef<BottomSheet>(null);
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<any>(null);
   const [onlineError, setOnlineError] = useState<string | null>(null);
   // D14: reconnect retry counter
   const reconnectAttemptsRef = useRef(0);
@@ -265,32 +268,31 @@ export default function HomeScreen() {
     goOnline.mutate();
   }, [isOnline, hasPermission, location, walletData, goOnline, goOffline]);
 
-  const initialRegion = useMemo(
-    () =>
-      location
-        ? { latitude: location.latitude, longitude: location.longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }
-        : { latitude: 5.6037, longitude: -0.187, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+  const initialCenter: [number, number] = useMemo(
+    () => (location ? [location.longitude, location.latitude] : [-0.187, 5.6037]),
     [location?.latitude, location?.longitude]
   );
+  const initialZoom = location ? 14 : 13;
 
   return (
     <View style={styles.container}>
       {/* MAP */}
-      <MapView
+      <MapboxGL.MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
-        provider={PROVIDER_GOOGLE}
-        initialRegion={initialRegion}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
-        customMapStyle={darkMapStyle}
+        styleURL={eyegoDarkStyle}
+        logoEnabled={false}
+        attributionEnabled={false}
+        compassEnabled={false}
       >
+        <MapboxGL.Camera centerCoordinate={initialCenter} zoomLevel={initialZoom} animationMode="none" />
+
         {location && (
-          <Marker coordinate={location} anchor={MARKER_ANCHOR}>
+          <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
             <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
               <Ionicons name="car" size={16} color="#fff" />
             </View>
-          </Marker>
+          </MapboxGL.MarkerView>
         )}
 
         {/* Demand heatmap overlay — weighted circles for high-demand areas */}
@@ -299,18 +301,11 @@ export default function HomeScreen() {
           primaryColor={colors.primary}
           visible={showHeatmap && isOnline}
         />
-      </MapView>
+      </MapboxGL.MapView>
 
       {/* Header overlay — glass */}
-      <MotiView
-        from={{ opacity: 0, translateY: -10 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
-        style={styles.header}
-      >
-        {Platform.OS === 'ios' && (
-          <BlurView intensity={70} tint="systemChromeMaterialDark" style={StyleSheet.absoluteFill} />
-        )}
+      <Entrance animation="slideUp" delay={100} style={styles.header}>
+        <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} />
         <View>
           <Text style={styles.headerLogo}>EyeGo</Text>
           {!!driver?.name && (
@@ -340,16 +335,11 @@ export default function HomeScreen() {
             onToggle={handleToggleOnline}
           />
         </View>
-      </MotiView>
+      </Entrance>
 
       {/* Online error banner */}
       {!!onlineError && (
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          style={styles.errorBanner}
-        >
+        <Entrance animation="slideUp" style={styles.errorBanner}>
           <Ionicons
             name={onlineError === 'pending_review' ? 'time-outline' : 'warning-outline'}
             size={16}
@@ -379,41 +369,27 @@ export default function HomeScreen() {
           <Pressable onPress={() => setOnlineError(null)}>
             <Ionicons name="close" size={14} color={colors.onSurfaceVariant} />
           </Pressable>
-        </MotiView>
+        </Entrance>
       )}
 
       {/* No internet banner */}
       {isOffline && (
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          style={styles.offlineBanner}
-        >
+        <Entrance animation="slideUp" style={styles.offlineBanner}>
           <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
           <Text variant="caption" style={{ color: '#fff', flex: 1 }}>No internet connection</Text>
-        </MotiView>
+        </Entrance>
       )}
 
-      {/* Bottom sheet */}
-      <BottomSheet
-        ref={sheetRef}
-        index={0}
-        snapPoints={['28%', '60%']}
-        backgroundStyle={styles.sheetBg}
-        handleIndicatorStyle={styles.sheetHandle}
+      {/* Bottom panel */}
+      <InlayPanel
+        snapPointsPct={[0.28, 0.6]}
+        sheetStyle={styles.sheetBg}
+        grabberColor={colors.outline}
       >
-        <BottomSheetScrollView contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
+        <View style={styles.sheetContent}>
           {/* Status row */}
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 150 }}
-            style={styles.statsRow}
-          >
-            {Platform.OS === 'ios' && (
-              <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
-            )}
+          <Entrance animation="slideDown" delay={150} style={styles.statsRow}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Today</Text>
               <Text style={styles.statValue}>
@@ -432,43 +408,50 @@ export default function HomeScreen() {
                 GHS {walletData?.balance != null ? walletData.balance.toFixed(2) : '0.00'}
               </Text>
             </View>
-          </MotiView>
+          </Entrance>
 
-          {/* Active trip / Create trip CTA */}
-          <MotiView
-            from={{ opacity: 0, translateY: 12 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
-            style={styles.ctaWrapper}
-          >
-            {activeTripData ? (
-              <>
-                <View style={styles.activeTripBanner}>
-                  <View style={[styles.activeDot, { backgroundColor: colors.online }]} />
-                  <Text style={styles.activeTripText}>
-                    Active trip: {(activeTripData as any).route?.originName ?? '—'} → {(activeTripData as any).route?.destinationName ?? '—'}
-                  </Text>
-                </View>
+          {/* Active trip / Create trip CTA — the screen's hero action gets the premium ring */}
+          <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>
+            <GradientGlowBorder
+              colors={PREMIUM_RING_COLORS}
+              locations={PREMIUM_RING_LOCATIONS}
+              fillColor={colors.surfaceContainerHigh}
+              borderRadius={radii['2xl']}
+              glow
+              glowColor={colors.primary}
+              glowColorSecondary="#FF7A3D"
+              disabled={!isOnline && !activeTripData}
+              style={styles.ctaGlow}
+            >
+              {activeTripData ? (
+                <>
+                  <View style={styles.activeTripBanner}>
+                    <View style={[styles.activeDot, { backgroundColor: colors.online }]} />
+                    <Text style={styles.activeTripText}>
+                      Active trip: {(activeTripData as any).route?.originName ?? '—'} → {(activeTripData as any).route?.destinationName ?? '—'}
+                    </Text>
+                  </View>
+                  <Button
+                    label="Resume Trip"
+                    onPress={() => router.push(`/(trip)/active/${activeTripData.id}`)}
+                  />
+                </>
+              ) : (
                 <Button
-                  label="Resume Trip"
-                  onPress={() => router.push(`/(trip)/active/${activeTripData.id}`)}
+                  label="+ Create Trip"
+                  onPress={() => router.push('/(trip)/create')}
+                  disabled={!isOnline}
                 />
-              </>
-            ) : (
-              <Button
-                label="+ Create Trip"
-                onPress={() => router.push('/(trip)/create')}
-                disabled={!isOnline}
-              />
-            )}
+              )}
+            </GradientGlowBorder>
             {!isOnline && !activeTripData && (
               <Text variant="caption" color={colors.onSurfaceVariant} style={styles.offlineHint}>
                 Go online to start accepting trips
               </Text>
             )}
-          </MotiView>
-        </BottomSheetScrollView>
-      </BottomSheet>
+          </Entrance>
+        </View>
+      </InlayPanel>
     </View>
   );
 }
@@ -484,10 +467,7 @@ const makeStyles = (colors: DriverColors) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(6, 15, 26, 0.90)',
       borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
       paddingHorizontal: spacing.base,
       paddingVertical: spacing.sm,
       overflow: 'hidden',
@@ -512,7 +492,6 @@ const makeStyles = (colors: DriverColors) =>
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
     },
-    sheetHandle: { backgroundColor: colors.outline, width: 36 },
     sheetContent: {
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.md,
@@ -521,10 +500,7 @@ const makeStyles = (colors: DriverColors) =>
     },
     statsRow: {
       flexDirection: 'row',
-      backgroundColor: 'rgba(255,255,255,0.05)',
       borderRadius: radii.xl,
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing.base,
       overflow: 'hidden',
     },
@@ -537,6 +513,7 @@ const makeStyles = (colors: DriverColors) =>
     },
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     ctaWrapper: { gap: spacing.md },
+    ctaGlow: { padding: spacing.base, gap: spacing.sm },
     activeTripBanner: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -584,16 +561,3 @@ const makeStyles = (colors: DriverColors) =>
       paddingVertical: spacing.sm,
     },
   });
-
-// Google Maps dark style
-const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#030c18' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#112240' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1e3a5f' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#1d4ed8' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#030c18' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-];

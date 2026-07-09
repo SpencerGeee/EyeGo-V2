@@ -2,11 +2,10 @@ import React, { useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, Entrance, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 
@@ -69,33 +68,29 @@ export default function TripDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <MotiView
-        from={{ opacity: 0, translateX: -6 }}
-        animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-        style={styles.backRow}
-      >
+      <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Ionicons name="arrow-back" size={18} color={colors.onSurfaceVariant} />
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Back</Text>
         </Pressable>
-      </MotiView>
+      </Entrance>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Headline */}
-        <MotiView
-          from={{ opacity: 0, translateY: -6 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
-        >
+        <Entrance animation="slideUp" delay={40}>
           <Text variant="headlineLarge" style={styles.headline}>Trip Summary</Text>
-        </MotiView>
+        </Entrance>
 
-        {/* Route card */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 80 }}
+        {/* Route card — hero element gets the premium ring */}
+        <Entrance animation="scaleIn" delay={80}>
+        <GradientGlowBorder
+          colors={PREMIUM_RING_COLORS}
+          locations={PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii['2xl']}
+          glow
+          glowColor={colors.primary}
+          glowColorSecondary="#FF7A3D"
           style={styles.routeCard}
         >
           <View style={styles.routeGlow} />
@@ -125,15 +120,11 @@ export default function TripDetailScreen() {
               </View>
             </>
           )}
-        </MotiView>
+        </GradientGlowBorder>
+        </Entrance>
 
         {/* Stats grid */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
-          style={styles.card}
-        >
+        <Entrance animation="slideDown" delay={120} style={styles.card}>
           <Text style={styles.cardTitle}>Trip Stats</Text>
           <View style={styles.statsGrid}>
             <StatBox
@@ -165,15 +156,10 @@ export default function TripDetailScreen() {
               colors={colors}
             />
           </View>
-        </MotiView>
+        </Entrance>
 
         {/* Rating received */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 160 }}
-          style={styles.card}
-        >
+        <Entrance animation="slideDown" delay={160} style={styles.card}>
           <Text style={styles.cardTitle}>Your Rating</Text>
           {ratingReceived != null ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm }}>
@@ -196,26 +182,20 @@ export default function TripDetailScreen() {
               No rating received for this trip yet.
             </Text>
           )}
-        </MotiView>
+        </Entrance>
 
         {/* Passenger breakdown */}
         {activeBookings.length > 0 && (
-          <MotiView
-            from={{ opacity: 0, translateY: 12 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
-            style={styles.card}
-          >
+          <Entrance animation="slideDown" delay={200} style={styles.card}>
             <Text style={styles.cardTitle}>Passengers</Text>
             {activeBookings
               .filter((b: any) => b.status === 'BOARDED' || b.status === 'CONFIRMED')
               .map((booking: any) => (
-                <MotiView
+                <Entrance
                   // D21: use booking.id as key; warn if missing
                   key={booking.id /* booking.id should always be present; log if missing */}
-                  from={{ opacity: 0, translateX: -8 }}
-                  animate={{ opacity: 1, translateX: 0 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 220 }}
+                  animation="slideLeft"
+                  delay={220}
                   style={[styles.passengerRow, { borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}
                 >
                   <View style={styles.passengerAvatar}>
@@ -235,18 +215,13 @@ export default function TripDetailScreen() {
                       {booking.status === 'BOARDED' ? 'Boarded' : booking.status === 'CONFIRMED' ? 'Confirmed' : 'Unknown'}
                     </Text>
                   </View>
-                </MotiView>
+                </Entrance>
               ))}
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Earnings breakdown */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 240 }}
-          style={[styles.card, { gap: spacing.sm }]}
-        >
+        <Entrance animation="slideDown" delay={240} style={[styles.card, { gap: spacing.sm }]}>
           <Text style={styles.cardTitle}>Earnings Breakdown</Text>
           <View style={styles.earningsRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Fare × passengers</Text>
@@ -260,7 +235,7 @@ export default function TripDetailScreen() {
               GHS {earnedTotal.toFixed(2)}
             </Text>
           </View>
-        </MotiView>
+        </Entrance>
       </ScrollView>
     </SafeAreaView>
   );
@@ -273,12 +248,7 @@ const makeStyles = (colors: DriverColors) =>
     scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl },
     headline: { letterSpacing: -1 },
     routeCard: {
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii['2xl'],
-      borderWidth: 1.5,
-      borderColor: colors.outline,
       padding: spacing.xl,
-      overflow: 'hidden',
       gap: spacing.sm,
     },
     routeGlow: {

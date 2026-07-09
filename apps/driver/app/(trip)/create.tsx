@@ -9,13 +9,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi, routesApi } from '@eyego/api';
 import type { Route } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -138,12 +137,7 @@ export default function CreateTripScreen() {
       >
         {/* STEP 1: Route */}
         {step === 1 && (
-          <MotiView
-            key="step1"
-            from={{ opacity: 0, translateX: 20 }}
-            animate={{ opacity: 1, translateX: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          >
+          <Entrance key="step1" animation="slideRight">
             <Text style={styles.stepTitle}>Choose a Route</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               Select the route for this trip.
@@ -191,17 +185,12 @@ export default function CreateTripScreen() {
                 </Text>
               )}
             </View>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* STEP 2: Departure time */}
         {step === 2 && (
-          <MotiView
-            key="step2"
-            from={{ opacity: 0, translateX: 20 }}
-            animate={{ opacity: 1, translateX: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          >
+          <Entrance key="step2" animation="slideRight">
             <Text style={styles.stepTitle}>Departure Time</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               When does this trip depart?
@@ -259,17 +248,12 @@ export default function CreateTripScreen() {
                 style={{ backgroundColor: colors.surfaceContainer }}
               />
             )}
-          </MotiView>
+          </Entrance>
         )}
 
         {/* STEP 3: Seats */}
         {step === 3 && (
-          <MotiView
-            key="step3"
-            from={{ opacity: 0, translateX: 20 }}
-            animate={{ opacity: 1, translateX: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          >
+          <Entrance key="step3" animation="slideRight">
             <Text style={styles.stepTitle}>Available Seats</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               How many passenger seats are available?
@@ -306,22 +290,26 @@ export default function CreateTripScreen() {
                 />
               ))}
             </View>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* STEP 4: Summary */}
         {step === 4 && selectedRoute && (
-          <MotiView
-            key="step4"
-            from={{ opacity: 0, translateX: 20 }}
-            animate={{ opacity: 1, translateX: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          >
+          <Entrance key="step4" animation="slideRight">
             <Text style={styles.stepTitle}>Review & Publish</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
               Confirm your trip details before publishing.
             </Text>
-            <View style={styles.summaryCard}>
+            <GradientGlowBorder
+              colors={PREMIUM_RING_COLORS}
+              locations={PREMIUM_RING_LOCATIONS}
+              fillColor={colors.surfaceContainerHigh}
+              borderRadius={radii['2xl']}
+              glow
+              glowColor={colors.primary}
+              glowColorSecondary="#FF7A3D"
+              style={styles.summaryCard}
+            >
               <View style={styles.summaryGlow} />
               <SummaryRow icon="navigate" label="Route" value={`${selectedRoute.originName} → ${selectedRoute.destinationName}`} colors={colors} />
               <View style={styles.summaryDivider} />
@@ -330,7 +318,7 @@ export default function CreateTripScreen() {
               <SummaryRow icon="people" label="Seats" value={`${seats} available`} colors={colors} />
               <View style={styles.summaryDivider} />
               <SummaryRow icon="speedometer" label="Distance" value={`${selectedRoute.distanceKm} km · ~${Math.round(selectedRoute.distanceKm / 40 * 60)} min`} colors={colors} />
-            </View>
+            </GradientGlowBorder>
 
             {/* Fare Estimate — fetched from backend so it matches what riders see */}
             {fareEstimateData ? (
@@ -368,7 +356,7 @@ export default function CreateTripScreen() {
                 </View>
               </View>
             ) : null}
-          </MotiView>
+          </Entrance>
         )}
       </ScrollView>
 
@@ -589,12 +577,7 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: 8,
     },
     summaryCard: {
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
       paddingHorizontal: spacing.xl,
-      overflow: 'hidden',
     },
     summaryGlow: {
       position: 'absolute',

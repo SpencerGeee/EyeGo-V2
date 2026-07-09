@@ -89,13 +89,13 @@ const styles = StyleSheet.create({
   },
   logo: { width: 80, height: 80 },
   wordmark: {
-    fontFamily: 'SpaceGrotesk_700Bold',
+    fontFamily: 'Geist_700Bold',
     fontSize: 32,
     color: '#fff',
     letterSpacing: -0.5,
   },
   tagline: {
-    fontFamily: 'Inter_500Medium',
+    fontFamily: 'Geist_500Medium',
     fontSize: 14,
     color: `${PRIMARY}CC`,
     letterSpacing: 0.5,

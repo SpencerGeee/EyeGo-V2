@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -12,12 +12,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
-import { MotiView } from 'moti';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import {
+  Text,
+  Button,
+  Entrance,
+  GlassCard,
+  GlassSurface,
+  AnimatedFareText,
+  PanelSheet,
+  GradientGlowBorder,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { EarningsChart, type ChartDataPoint } from '../../components/EarningsChart';
@@ -36,7 +45,6 @@ export default function EarningsScreen() {
   const router = useRouter();
   const [period, setPeriod] = useState<Period>('week');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const sheetRef = useRef<BottomSheet>(null);
   const qc = useQueryClient();
 
   // Use driver profile as the source of balance — totalEarned reflects actual trip earnings.
@@ -68,7 +76,7 @@ export default function EarningsScreen() {
   const withdraw = useMutation({
     mutationFn: () => driverApi.withdraw({ amount: parseFloat(withdrawAmount) }),
     onSuccess: () => {
-      sheetRef.current?.close();
+      setSheetOpen(false);
       setWithdrawAmount('');
       qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
       Alert.alert('Withdrawal Submitted', `GHS ${parseFloat(withdrawAmount).toFixed(2)} is being processed to your mobile money account.`);
@@ -178,27 +186,30 @@ export default function EarningsScreen() {
         }
       >
         {/* Header */}
-        <MotiView
-          from={{ opacity: 0, translateY: -8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 50 }}
-          style={styles.header}
-        >
+        <Entrance animation="slideUp" delay={50} style={styles.header}>
           <Text variant="headlineMedium" style={styles.title}>Earnings</Text>
-        </MotiView>
+        </Entrance>
 
-        {/* Balance card */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
+        {/* Balance card — the screen's hero number gets the premium ring */}
+        <Entrance animation="slideDown" delay={100} style={styles.balanceCardWrapper}>
+        <GradientGlowBorder
+          colors={PREMIUM_RING_COLORS}
+          locations={PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii['2xl']}
+          glow
+          glowColor={colors.primary}
+          glowColorSecondary="#FF7A3D"
           style={styles.balanceCard}
         >
-          <View style={styles.balanceGlow} />
+          <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={StyleSheet.absoluteFill} />
+          <View style={styles.balanceGlow} pointerEvents="none" />
           <Text variant="caption" color={colors.onSurfaceVariant}>Available Balance</Text>
-          <Text style={styles.balanceAmount}>
-            GHS {isLoading ? '—' : balance.toFixed(2)}
-          </Text>
+          {isLoading ? (
+            <Text style={styles.balanceAmount}>GHS —</Text>
+          ) : (
+            <AnimatedFareText value={balance} prefix="GHS " variant="fareLarge" color={colors.onSurface} shiny />
+          )}
           <View style={styles.balanceMeta}>
             <View style={styles.currencyBadge}>
               <Text style={styles.currencyText}>{currency}</Text>
@@ -207,7 +218,7 @@ export default function EarningsScreen() {
           <Button
             label="Withdraw"
             size="sm"
-            onPress={() => { sheetRef.current?.expand(); setSheetOpen(true); }}
+            onPress={() => setSheetOpen(true)}
             style={styles.withdrawBtn}
           />
           <Pressable
@@ -217,15 +228,11 @@ export default function EarningsScreen() {
             <Ionicons name="card-outline" size={13} color={colors.onSurfaceVariant} />
             <Text variant="caption" color={colors.onSurfaceVariant}>Manage payout account</Text>
           </Pressable>
-        </MotiView>
+        </GradientGlowBorder>
+        </Entrance>
 
         {/* Period toggle */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 150 }}
-          style={styles.periodWrapper}
-        >
+        <Entrance animation="slideDown" delay={150} style={styles.periodWrapper}>
           <View style={styles.periodContainer}>
             {PERIODS.map((p) => (
               <Pressable
@@ -244,24 +251,17 @@ export default function EarningsScreen() {
               </Pressable>
             ))}
           </View>
-        </MotiView>
+        </Entrance>
 
         {/* Chart */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
-          style={styles.chartCard}
-        >
+        <Entrance animation="slideDown" delay={200} style={styles.chartCardWrapper}>
+        <GlassCard style={styles.chartCard}>
           <EarningsChart period={period} data={chartData} />
-        </MotiView>
+        </GlassCard>
+        </Entrance>
 
         {/* Transactions */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 250 }}
-        >
+        <Entrance animation="slideDown" delay={250}>
           <Text style={styles.sectionTitle}>Transactions</Text>
           {(() => {
             const txs: any[] = Array.isArray(txData) ? txData : [];
@@ -273,11 +273,10 @@ export default function EarningsScreen() {
                   </View>
                 )}
                 {txs.map((tx: any, i: number) => (
-            <MotiView
+            <Entrance
               key={tx.id}
-              from={{ opacity: 0, translateX: -12 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 260 + i * 50 }}
+              animation="slideLeft"
+              delay={260 + i * 50}
               style={styles.txRow}
             >
               <View style={[
@@ -302,27 +301,18 @@ export default function EarningsScreen() {
               ]}>
                 {tx.type === 'CREDIT' ? '+' : '-'}GHS {tx.amount.toFixed(2)}
               </Text>
-            </MotiView>
+            </Entrance>
                 ))}
               </>
             );
           })()}
-        </MotiView>
+        </Entrance>
       </ScrollView>
 
-      {/* Withdraw bottom sheet */}
-      <BottomSheet
-        ref={sheetRef}
-        index={-1}
-        snapPoints={['45%']}
-        enablePanDownToClose
-        animateOnMount={false}
-        onChange={(idx) => setSheetOpen(idx >= 0)}
-        backgroundStyle={styles.sheetBg}
-        handleIndicatorStyle={[styles.sheetHandle, !sheetOpen && { opacity: 0, height: 0 }]}
-      >
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-          <BottomSheetView style={styles.sheetContent}>
+      {/* Withdraw sheet */}
+      <PanelSheet visible={sheetOpen} onDismiss={() => setSheetOpen(false)} maxHeightPct={0.5} sheetStyle={styles.sheetBg}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.sheetContent}>
             <Text variant="titleLarge" style={styles.sheetTitle}>Withdraw Funds</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.sheetSub}>
               Balance: GHS {balance.toFixed(2)} · Min. GHS 20
@@ -346,9 +336,9 @@ export default function EarningsScreen() {
               loading={withdraw.isPending}
               style={styles.confirmBtn}
             />
-          </BottomSheetView>
+          </View>
         </KeyboardAvoidingView>
-      </BottomSheet>
+      </PanelSheet>
     </SafeAreaView>
   );
 }
@@ -365,16 +355,13 @@ const makeStyles = (colors: DriverColors) =>
       paddingBottom: spacing.md,
     },
     title: { fontFamily: fonts.displayBold, letterSpacing: -0.5 },
-    balanceCard: {
+    balanceCardWrapper: {
       marginHorizontal: spacing['2xl'],
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing['2xl'],
-      overflow: 'hidden',
-      gap: spacing.xs,
       marginBottom: spacing.xl,
+    },
+    balanceCard: {
+      padding: spacing['2xl'],
+      gap: spacing.xs,
     },
     balanceGlow: {
       position: 'absolute',
@@ -427,14 +414,12 @@ const makeStyles = (colors: DriverColors) =>
     },
     periodActive: { backgroundColor: colors.primary },
     periodText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
-    chartCard: {
+    chartCardWrapper: {
       marginHorizontal: spacing['2xl'],
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing.xl,
       marginBottom: spacing.xl,
+    },
+    chartCard: {
+      padding: spacing.xl,
     },
     sectionTitle: {
       fontFamily: fonts.displaySemiBold,
@@ -466,7 +451,6 @@ const makeStyles = (colors: DriverColors) =>
     },
     txAmount: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
     sheetBg: { backgroundColor: colors.surfaceContainerHigh },
-    sheetHandle: { backgroundColor: colors.outline, width: 36 },
     sheetContent: { padding: spacing['2xl'], gap: spacing.lg },
     sheetTitle: { fontFamily: fonts.displayBold },
     sheetSub: { marginTop: -spacing.sm },

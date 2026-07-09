@@ -2,13 +2,11 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, EmptyState } from '@eyego/ui';
+import { Text, EmptyState, Entrance, AnimatedList, Skeleton } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { TripCard } from '../../components/TripCard';
@@ -65,12 +63,8 @@ export default function TripsScreen() {
     );
   }, [allTrips, activeTrip, segment]);
 
-  const renderTripItem = useCallback(({ item, index }: { item: any; index: number }) => (
-    <MotiView
-      from={{ opacity: 0, translateY: 16 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 30, delay: index * 60 }}
-    >
+  const renderTripItem = useCallback(({ item }: { item: any }) => (
+    <>
       <TripCard
         trip={item}
         onPress={() =>
@@ -98,28 +92,18 @@ export default function TripsScreen() {
           <Text variant="caption" color={colors.onSurfaceVariant}>Report passenger</Text>
         </Pressable>
       )}
-    </MotiView>
+    </>
   ), [segment, router, styles, colors]);
 
   return (
     <SafeAreaView style={styles.safe}>
       {/* Header */}
-      <MotiView
-        from={{ opacity: 0, translateY: -8 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 50 }}
-        style={styles.header}
-      >
+      <Entrance animation="slideUp" delay={50} style={styles.header}>
         <Text variant="headlineMedium" style={styles.title}>My Trips</Text>
-      </MotiView>
+      </Entrance>
 
       {/* Segmented control */}
-      <MotiView
-        from={{ opacity: 0, translateY: 8 }}
-        animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
-        style={styles.segmentWrapper}
-      >
+      <Entrance animation="slideDown" delay={100} style={styles.segmentWrapper}>
         <View style={styles.segmentContainer}>
           {SEGMENTS.map((s) => (
             <AnimatedSegBtn
@@ -132,7 +116,7 @@ export default function TripsScreen() {
             />
           ))}
         </View>
-      </MotiView>
+      </Entrance>
 
       {/* D10: error state with retry */}
       {isError ? (
@@ -145,22 +129,11 @@ export default function TripsScreen() {
       ) : isLoading ? (
         <View style={styles.loadingContainer}>
           {[0, 1, 2].map((i) => (
-            <MotiView
-              key={i}
-              from={{ opacity: 0.3 }}
-              animate={{ opacity: 0.7 }}
-              transition={{ type: 'timing', duration: 800, loop: true, delay: i * 150 }}
-              style={styles.skeleton}
-            />
+            <Skeleton key={i} height={100} borderRadius={radii.xl} />
           ))}
         </View>
       ) : filteredTrips.length === 0 ? (
-        <MotiView
-          from={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 150 }}
-          style={styles.emptyWrapper}
-        >
+        <Entrance animation="scaleIn" delay={150} style={styles.emptyWrapper}>
           <EmptyState
             icon={segment === 'dispatch' ? 'send-outline' : 'time-outline'}
             title={
@@ -174,9 +147,9 @@ export default function TripsScreen() {
               'Completed trips will appear here.'
             }
           />
-        </MotiView>
+        </Entrance>
       ) : (
-        <FlashList
+        <AnimatedList
           data={filteredTrips}
           keyExtractor={(item: any) => item.id}
           contentContainerStyle={styles.listContent}

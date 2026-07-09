@@ -4,11 +4,19 @@ import type { DriverTrip } from '@eyego/api';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import {
+  Text,
+  Button,
+  Entrance,
+  AnimatedCheckmark,
+  AnimatedFareText,
+  GradientGlowBorder,
+  PREMIUM_RING_COLORS,
+  PREMIUM_RING_LOCATIONS,
+} from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 
@@ -61,42 +69,37 @@ export default function TripCompleteScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Animated checkmark */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.4 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 18, delay: 100 }}
-          style={styles.checkCircle}
-        >
+        {/* Animated checkmark — draws in on the UI thread */}
+        <Entrance animation="scaleIn" delay={100} style={styles.checkCircle}>
           <View style={styles.checkGlow} />
-          <Ionicons name="checkmark" size={52} color="#fff" />
-        </MotiView>
+          <AnimatedCheckmark size={52} color="#fff" strokeWidth={3.5} />
+        </Entrance>
 
         {/* Title */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 300 }}
-          style={styles.titleContainer}
-        >
+        <Entrance animation="slideDown" delay={300} style={styles.titleContainer}>
           <Text style={styles.headline}>Trip Complete!</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtitle}>
             {completedTrip?.route?.originName} → {completedTrip?.route?.destinationName}
           </Text>
-        </MotiView>
+        </Entrance>
 
-        {/* Earnings card */}
-        <MotiView
-          from={{ opacity: 0, translateY: 16, scale: 0.96 }}
-          animate={{ opacity: 1, translateY: 0, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 400 }}
+        {/* Earnings card — the screen's hero number gets the premium ring */}
+        <Entrance animation="slideDown" delay={400} style={styles.earningsCardWrapper}>
+        <GradientGlowBorder
+          colors={PREMIUM_RING_COLORS}
+          locations={PREMIUM_RING_LOCATIONS}
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii['2xl']}
+          glow
+          glowColor={colors.primary}
+          glowColorSecondary="#FF7A3D"
           style={styles.earningsCard}
         >
           <View style={styles.earningsGlow} />
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.earningsLabel}>
             You earned
           </Text>
-          <Text style={styles.earningsAmount}>GHS {driverNetTotal.toFixed(2)}</Text>
+          <AnimatedFareText value={driverNetTotal} prefix="GHS " variant="fareLarge" color={colors.primary} shiny />
           <View style={styles.earningsMeta}>
             <View style={styles.metaItem}>
               <Ionicons name="people" size={16} color={colors.onSurfaceVariant} />
@@ -111,15 +114,11 @@ export default function TripCompleteScreen() {
               </Text>
             </View>
           </View>
-        </MotiView>
+        </GradientGlowBorder>
+        </Entrance>
 
         {/* Stats row */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 500 }}
-          style={styles.statsRow}
-        >
+        <Entrance animation="slideDown" delay={500} style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statValue}>{boarded}</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Passengers</Text>
@@ -134,15 +133,10 @@ export default function TripCompleteScreen() {
             <Text style={styles.statValue}>{completedTrip?.route?.distanceKm ? Math.round(completedTrip.route.distanceKm / 40 * 60) : '—'} min</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Duration</Text>
           </View>
-        </MotiView>
+        </Entrance>
 
         {/* Receipt breakdown */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 520 }}
-          style={styles.receiptCard}
-        >
+        <Entrance animation="slideDown" delay={520} style={styles.receiptCard}>
           <Text style={styles.receiptTitle}>Earnings Breakdown</Text>
 
           <View style={styles.receiptRow}>
@@ -200,15 +194,10 @@ export default function TripCompleteScreen() {
               ~GHS {(driverNetTotal / completedTrip.route.distanceKm).toFixed(2)}/km average
             </Text>
           )}
-        </MotiView>
+        </Entrance>
 
         {/* CTA */}
-        <MotiView
-          from={{ opacity: 0, translateY: 12 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 600 }}
-          style={styles.ctaWrapper}
-        >
+        <Entrance animation="slideDown" delay={600} style={styles.ctaWrapper}>
           <Button
             label="Rate Passengers"
             onPress={() => router.push(`/(trip)/rate-passengers/${id}`)}
@@ -223,7 +212,7 @@ export default function TripCompleteScreen() {
             variant="secondary"
             onPress={() => router.replace('/(tabs)/earnings')}
           />
-        </MotiView>
+        </Entrance>
       </ScrollView>
     </SafeAreaView>
   );
@@ -258,15 +247,10 @@ const makeStyles = (colors: DriverColors) =>
       letterSpacing: -0.5,
     },
     subtitle: { textAlign: 'center', lineHeight: 22 },
+    earningsCardWrapper: { width: '100%' },
     earningsCard: {
-      width: '100%',
-      backgroundColor: colors.surfaceContainerHigh,
-      borderRadius: radii['2xl'],
-      borderWidth: 1,
-      borderColor: colors.outline,
       padding: spacing['2xl'],
       alignItems: 'center',
-      overflow: 'hidden',
       gap: spacing.xs,
     },
     earningsGlow: {

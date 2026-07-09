@@ -29,12 +29,12 @@ module.exports = {
         offline: '#64748B',
       },
       fontFamily: {
-        'display-bold': ['SpaceGrotesk_700Bold'],
-        'display-semibold': ['SpaceGrotesk_600SemiBold'],
-        'display-medium': ['SpaceGrotesk_500Medium'],
-        'body-semibold': ['Inter_600SemiBold'],
-        'body-medium': ['Inter_500Medium'],
-        'body-regular': ['Inter_400Regular'],
+        'display-bold': ['Geist_700Bold'],
+        'display-semibold': ['Geist_600SemiBold'],
+        'display-medium': ['Geist_500Medium'],
+        'body-semibold': ['Geist_600SemiBold'],
+        'body-medium': ['Geist_500Medium'],
+        'body-regular': ['Geist_400Regular'],
       },
       borderRadius: {
         '4xl': '2rem',

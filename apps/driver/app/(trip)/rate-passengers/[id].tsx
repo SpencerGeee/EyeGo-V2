@@ -9,12 +9,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Entrance } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 
 const COMPLIMENTS = [
@@ -150,12 +149,7 @@ export default function RatePassengersScreen() {
         </View>
 
         {/* Passenger avatar + name */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 28 }}
-          style={styles.heroSection}
-        >
+        <Entrance animation="scaleIn" style={styles.heroSection}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarInitial}>
               {currentPassenger?.name?.[0]?.toUpperCase() ?? '?'}
@@ -165,15 +159,10 @@ export default function RatePassengersScreen() {
           <Text variant="bodySmall" color={colors.onSurfaceVariant}>
             Seat {currentPassenger?.seatNumber ?? '—'} · {currentIndex + 1} of {passengers.length}
           </Text>
-        </MotiView>
+        </Entrance>
 
         {/* Star rating */}
-        <MotiView
-          from={{ opacity: 0, translateY: 8 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 80 }}
-          style={styles.starsSection}
-        >
+        <Entrance animation="slideDown" delay={80} style={styles.starsSection}>
           <Text style={styles.sectionTitle}>Rate this passenger</Text>
           <View style={styles.starsRow}>
             {[1, 2, 3, 4, 5].map((star) => (
@@ -193,16 +182,11 @@ export default function RatePassengersScreen() {
               {STAR_MESSAGES[currentRating]}
             </Text>
           )}
-        </MotiView>
+        </Entrance>
 
         {/* Compliments */}
         {currentRating > 0 && (
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 50 }}
-            style={styles.card}
-          >
+          <Entrance animation="slideDown" delay={50} style={styles.card}>
             <Text style={styles.cardTitle}>What went well?</Text>
             <View style={styles.chipsWrap}>
               {COMPLIMENTS.map((c) => {
@@ -225,17 +209,12 @@ export default function RatePassengersScreen() {
                 );
               })}
             </View>
-          </MotiView>
+          </Entrance>
         )}
 
         {/* Comment */}
         {currentRating > 0 && (
-          <MotiView
-            from={{ opacity: 0, translateY: 8 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 80 }}
-            style={styles.card}
-          >
+          <Entrance animation="slideDown" delay={80} style={styles.card}>
             <Text style={styles.cardTitle}>Leave a comment (optional)</Text>
             <TextInput
               style={styles.commentInput}
@@ -247,7 +226,7 @@ export default function RatePassengersScreen() {
               numberOfLines={3}
               textAlignVertical="top"
             />
-          </MotiView>
+          </Entrance>
         )}
 
         {/* CTA */}
