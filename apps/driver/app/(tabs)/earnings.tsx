@@ -24,6 +24,7 @@ import {
   AnimatedFareText,
   PanelSheet,
   GradientGlowBorder,
+  AppBackground,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -176,6 +177,7 @@ export default function EarningsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -340,7 +342,7 @@ export default function EarningsScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     scroll: {
       paddingBottom: 120,
     },

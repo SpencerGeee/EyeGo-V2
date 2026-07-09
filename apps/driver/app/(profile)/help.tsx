@@ -6,7 +6,7 @@ import { MotiView } from 'moti';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
@@ -116,6 +116,7 @@ export default function HelpScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
@@ -266,7 +267,7 @@ export default function HelpScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
     scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     headline: { letterSpacing: -1 },

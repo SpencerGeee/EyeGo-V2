@@ -52,6 +52,7 @@ export function Avatar({ uri, name, size = 44, borderColor }: AvatarProps) {
         style={{
           fontFamily: fonts.semiBold,
           fontSize: size * 0.35,
+          lineHeight: Math.round(size * 0.35 * 1.3),
           color: colors.onSurfaceVariant,
         }}
       >

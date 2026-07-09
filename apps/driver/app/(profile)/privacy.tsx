@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { WebView } from 'react-native-webview';
 import { spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
 export default function PrivacyScreen() {
@@ -16,6 +16,7 @@ export default function PrivacyScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
@@ -54,7 +55,7 @@ export default function PrivacyScreen() {
 }
 
 const makeStyles = (colors: DriverColors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
   titleRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl },
   headline: { letterSpacing: -1, marginBottom: spacing.md },

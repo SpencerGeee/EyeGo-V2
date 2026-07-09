@@ -6,7 +6,7 @@ import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -60,6 +60,7 @@ export default function PerformanceScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <MotiView from={{ opacity: 0, translateX: -6 }} animate={{ opacity: 1, translateX: 0 }}
         transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         style={styles.backRow}>
@@ -176,7 +177,7 @@ export default function PerformanceScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
     scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl },
     headline: { letterSpacing: -1 },

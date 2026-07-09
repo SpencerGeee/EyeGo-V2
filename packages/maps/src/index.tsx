@@ -13,8 +13,8 @@
  * behavior cannot be exercised by typecheck alone. Confirm on the first
  * native (dev-client/EAS) build after this lands.
  */
-import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { View, Text } from 'react-native';
+import React, { useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react';
+import { View, Text, Pressable } from 'react-native';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MapLibreModule = require('@maplibre/maplibre-react-native');
@@ -100,6 +100,9 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
   // the next build reports *why*, not just *that* it's black.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Bumped to force-remount NativeMap on retry — a fresh mount re-issues the
+  // style/tile fetch instead of retrying a native view stuck in a failed state.
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (loaded || loadError) return;
@@ -107,14 +110,21 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     // failures (e.g. OpenFreeMap unreachable) don't trip it — they just
     // never finish loading. A generous timeout catches that silent case too.
     const timer = setTimeout(() => {
-      if (!loaded) setLoadError('style/tiles did not finish loading (timeout — check network or map style URL)');
+      if (!loaded) setLoadError('style/tiles did not finish loading — check your connection');
     }, 12000);
     return () => clearTimeout(timer);
-  }, [loaded, loadError]);
+  }, [loaded, loadError, retryKey]);
+
+  const handleRetry = useCallback(() => {
+    setLoadError(null);
+    setLoaded(false);
+    setRetryKey((k) => k + 1);
+  }, []);
 
   return (
     <View style={style}>
       <NativeMap
+        key={retryKey}
         ref={ref}
         style={{ flex: 1 }}
         mapStyle={mapStyle ?? styleURL}
@@ -135,26 +145,60 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
           onRegionDidChange?.(e?.nativeEvent ?? e);
         }}
         onDidFinishLoadingMap={() => setLoaded(true)}
-        onDidFailLoadingMap={() => setLoadError('native onDidFailLoadingMap — bad style document or unreachable style URL')}
+        onDidFailLoadingMap={() => setLoadError('bad style document or unreachable style URL')}
       >
         {children}
       </NativeMap>
-      {loadError && (
+      {/* Branded loading veil — replaces the raw black frame while the style/
+          tiles are still fetching, so a slow network reads as "loading"
+          instead of "broken". */}
+      {!loaded && !loadError && (
         <View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            top: 8,
-            left: 8,
-            right: 8,
-            padding: 8,
-            borderRadius: 8,
-            backgroundColor: 'rgba(180,20,20,0.9)',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(10,10,15,0.55)',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
-          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>
-            Map failed to load — {loadError}
+          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: '600', letterSpacing: 0.4 }}>
+            Loading map…
           </Text>
+        </View>
+      )}
+      {loadError && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(10,10,15,0.85)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            paddingHorizontal: 24,
+          }}
+        >
+          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600', textAlign: 'center' }}>
+            Map couldn't load
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center' }}>
+            {loadError}
+          </Text>
+          <Pressable
+            onPress={handleRetry}
+            style={{
+              marginTop: 4,
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: 'rgba(255,255,255,0.3)',
+            }}
+          >
+            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Retry</Text>
+          </Pressable>
         </View>
       )}
     </View>

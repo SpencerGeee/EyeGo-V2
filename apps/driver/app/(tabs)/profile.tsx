@@ -12,6 +12,7 @@ import {
   Entrance,
   GlassSurface,
   GradientGlowBorder,
+  AppBackground,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -139,6 +140,7 @@ export default function ProfileScreen() {
   if (profileLoading && !driver) {
     return (
       <SafeAreaView style={styles.safe}>
+        <AppBackground variant="static" />
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* Skeleton header */}
           <View style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.md }}>
@@ -170,6 +172,7 @@ export default function ProfileScreen() {
   if (profileError && !driver && !meData) {
     return (
       <SafeAreaView style={styles.safe}>
+        <AppBackground variant="static" />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 }}>
           <Text variant="bodyMedium" color={colors.error}>Failed to load profile.</Text>
           <Pressable
@@ -185,6 +188,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Entrance animation="slideUp" delay={50} style={styles.header}>
@@ -317,7 +321,7 @@ export default function ProfileScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     scroll: { paddingBottom: 120 },
     header: {
       paddingHorizontal: spacing['2xl'],

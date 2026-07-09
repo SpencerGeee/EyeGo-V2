@@ -15,7 +15,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useDriverStore } from '../../stores/driver.store';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -61,6 +61,7 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Back */}
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
@@ -164,7 +165,7 @@ export default function EditProfileScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
     scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     headline: { letterSpacing: -1, marginBottom: spacing['2xl'] },

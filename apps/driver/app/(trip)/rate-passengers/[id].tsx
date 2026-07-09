@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 
 const COMPLIMENTS = [
@@ -121,6 +121,7 @@ export default function RatePassengersScreen() {
   if (passengers.length === 0) {
     return (
       <SafeAreaView style={styles.safe}>
+        <AppBackground variant="static" />
         <View style={styles.emptyState}>
           <Ionicons name="people-outline" size={64} color={colors.onSurfaceVariant} />
           <Text variant="bodyLarge" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, textAlign: 'center' }}>
@@ -134,6 +135,7 @@ export default function RatePassengersScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Progress indicator */}
         <View style={styles.progressRow}>
@@ -259,7 +261,7 @@ export default function RatePassengersScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     scroll: {
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing['2xl'],

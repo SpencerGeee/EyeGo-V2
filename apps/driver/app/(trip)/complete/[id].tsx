@@ -15,6 +15,7 @@ import {
   AnimatedFareText,
   GradientGlowBorder,
   GlassSurface,
+  AppBackground,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -67,6 +68,7 @@ export default function TripCompleteScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Animated checkmark — draws in on the UI thread */}
         <Entrance animation="scaleIn" delay={100} style={styles.checkCircle}>
@@ -218,7 +220,7 @@ export default function TripCompleteScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     scroll: { alignItems: 'center', paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'], gap: spacing.xl, paddingTop: spacing['3xl'] },
     checkCircle: {
       width: 100,

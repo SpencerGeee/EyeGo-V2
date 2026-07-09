@@ -6,7 +6,7 @@ import { MotiView } from 'moti';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
@@ -29,6 +29,7 @@ export default function MyVehicleScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
@@ -149,7 +150,7 @@ function VehicleRow({
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
     scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
     headline: { letterSpacing: -1 },

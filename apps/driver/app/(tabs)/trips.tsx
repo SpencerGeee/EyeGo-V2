@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, EmptyState, Entrance, AnimatedList, Skeleton } from '@eyego/ui';
+import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { TripCard } from '../../components/TripCard';
@@ -97,6 +97,7 @@ export default function TripsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Header */}
       <Entrance animation="slideUp" delay={50} style={styles.header}>
         <Text variant="headlineMedium" style={styles.title}>My Trips</Text>
@@ -203,7 +204,7 @@ function AnimatedSegBtn({
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.xl,

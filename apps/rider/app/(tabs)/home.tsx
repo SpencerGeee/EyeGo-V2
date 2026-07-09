@@ -19,6 +19,16 @@ import { useColors, Colors } from '../../utils/useColors';
 import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph, backgroundScrollPauseProps } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
+import MapboxGL from '../../utils/mapbox';
+import eyegoDarkStyle from '@eyego/map-styles';
+
+// MapLibre RN expects a JSON string via styleJSON, not a style object.
+// Same pattern as ride/[id].tsx — reused here for the tiny active-ride map preview.
+const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+
+// Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
+// when no coordinate is available.
+const DEFAULT_MAP_CENTER: [number, number] = [-0.187, 5.6037];
 
 function getTierColors(colors: Colors): Record<string, string> {
   return {
@@ -195,6 +205,16 @@ export default function HomeScreen() {
   const rawTrips: any[] = Array.isArray(realTrips) ? realTrips : [];
 
   const activeBooking = (activeBookings as any)?.data?.data?.booking ?? null;
+
+  // Center for the tiny non-interactive map preview in the active-ride bento
+  // card. Falls back to a fixed default when the booking has no coordinates.
+  const activeBookingMapCenter = useMemo<[number, number]>(() => {
+    const lng = activeBooking?.originLng ?? activeBooking?.pickupLng ?? activeBooking?.route?.originLng;
+    const lat = activeBooking?.originLat ?? activeBooking?.pickupLat ?? activeBooking?.route?.originLat;
+    if (typeof lng === 'number' && typeof lat === 'number') return [lng, lat];
+    return DEFAULT_MAP_CENTER;
+  }, [activeBooking]);
+
   const unreadCount: number = (notifsData as any)?.data?.data?.total ?? 0;
   const firstName = (user as any)?.firstName ?? (user as any)?.name?.split(' ')[0] ?? 'there';
   const initials = (firstName[0] ?? 'U').toUpperCase();
@@ -297,8 +317,26 @@ export default function HomeScreen() {
         {/* Active Ride Bento Card */}
         {activeBooking && (
           <Animated.View entering={FadeIn.duration(250)} style={styles.activeBentoCard}>
-            {/* Dark map placeholder area */}
+            {/* Small non-interactive map preview area */}
             <View style={styles.activeBentoMapArea}>
+              <MapboxGL.MapView
+                style={StyleSheet.absoluteFillObject}
+                styleJSON={EYEGO_MAP_STYLE}
+                zoomEnabled={false}
+                scrollEnabled={false}
+                rotateEnabled={false}
+                pitchEnabled={false}
+                logoEnabled={false}
+                attributionEnabled={false}
+                compassEnabled={false}
+                scaleBarEnabled={false}
+              >
+                <MapboxGL.Camera
+                  centerCoordinate={activeBookingMapCenter}
+                  zoomLevel={14}
+                  animationMode="none"
+                />
+              </MapboxGL.MapView>
               <View style={styles.activeBentoRouteChip}>
                 <View style={styles.activeBentoDot} />
                 <Text style={styles.activeBentoStatusText}>IN PROGRESS</Text>
@@ -535,6 +573,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
     padding: 12,
+    overflow: 'hidden',
   },
   activeBentoMapFade: {
     position: 'absolute',

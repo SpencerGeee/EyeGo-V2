@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { WebView } from 'react-native-webview';
 import { spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
 export default function TermsScreen() {
@@ -16,6 +16,7 @@ export default function TermsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <MotiView
         from={{ opacity: 0, translateY: -4 }}
         animate={{ opacity: 1, translateY: 0 }}
@@ -49,7 +50,7 @@ export default function TermsScreen() {
 }
 
 const makeStyles = (colors: DriverColors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

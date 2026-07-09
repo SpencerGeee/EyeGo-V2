@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
 import type { DriverDocument } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -145,7 +145,8 @@ export default function DocumentsScreen() {
   const totalDocs = DOCUMENT_CONFIG.length;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
+      <AppBackground variant="static" />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

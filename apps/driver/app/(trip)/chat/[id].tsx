@@ -16,7 +16,7 @@ import { MotiView } from 'moti';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { useQuery } from '@tanstack/react-query';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance } from '@eyego/ui';
+import { Text, Entrance, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -447,6 +447,7 @@ export default function TripChatScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable
@@ -617,7 +618,7 @@ export default function TripChatScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

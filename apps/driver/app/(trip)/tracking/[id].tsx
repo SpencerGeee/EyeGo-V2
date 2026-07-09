@@ -18,7 +18,7 @@ import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, Skeleton, PulseRing, GlassSurface, GradientGlowBorder, InlayPanel } from '@eyego/ui';
+import { Text, Button, Entrance, Skeleton, PulseRing, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
@@ -397,6 +397,7 @@ export default function DriverTrackingScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
+        <AppBackground variant="static" />
         <View style={styles.loadingContainer}>
           {[80, 160, 120].map((w, i) => (
             <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
@@ -410,6 +411,7 @@ export default function DriverTrackingScreen() {
 
   return (
     <View style={styles.container}>
+      <AppBackground variant="static" />
       {/* Map */}
       <MapboxGL.MapView
         style={StyleSheet.absoluteFill}
@@ -785,7 +787,7 @@ const pulseStyles = StyleSheet.create({
 // ── Styles ──
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.backgroundDeep },
+    container: { flex: 1, backgroundColor: 'transparent' },
     loadingContainer: { padding: spacing['2xl'], gap: spacing.lg },
     skeleton: { height: 20, borderRadius: 10, backgroundColor: colors.surfaceContainerHigh },
     headerOverlay: {

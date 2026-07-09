@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { questsApi } from '@eyego/api';
 import type { DriverQuest } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Skeleton, EmptyState, Entrance } from '@eyego/ui';
+import { Text, Skeleton, EmptyState, Entrance, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import QuestCard from '../../components/QuestCard';
 
@@ -116,6 +116,7 @@ export default function QuestsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Entrance animation="slideUp" style={styles.header}>
@@ -190,7 +191,7 @@ export default function QuestsScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     scroll: {
       paddingHorizontal: spacing['2xl'],
       paddingBottom: 120,

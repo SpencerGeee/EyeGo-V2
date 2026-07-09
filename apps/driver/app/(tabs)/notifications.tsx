@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GlassSurface, AnimatedList } from '@eyego/ui';
+import { Text, Entrance, GlassSurface, AnimatedList, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
 
@@ -90,6 +90,7 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <AppBackground variant="static" />
       {/* Header */}
       <Entrance animation="slideUp" style={styles.header}>
         <Text variant="headlineMedium">Alerts</Text>
@@ -149,7 +150,7 @@ export default function NotificationsScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',
       justifyContent: 'space-between',

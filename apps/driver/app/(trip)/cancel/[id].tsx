@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { driverApi } from '@eyego/api';
@@ -62,6 +62,7 @@ export default function CancelTripScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
@@ -143,7 +144,7 @@ export default function CancelTripScreen() {
 }
 
 const makeStyles = (colors: DriverColors) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+  safe: { flex: 1, backgroundColor: 'transparent' },
   backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
   scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'] },
   headline: { letterSpacing: -1, marginBottom: spacing['2xl'] },

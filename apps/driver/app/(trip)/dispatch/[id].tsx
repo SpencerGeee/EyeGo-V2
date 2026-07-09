@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -127,6 +127,7 @@ export default function DispatchScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <Entrance animation="scaleIn" style={styles.container}>
         {/* Header */}
         <Entrance animation="slideUp" delay={60} style={styles.header}>
@@ -241,7 +242,7 @@ export default function DispatchScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     container: {
       flex: 1,
       paddingHorizontal: spacing['2xl'],

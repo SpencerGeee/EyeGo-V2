@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GradientGlowBorder } from '@eyego/ui';
+import { Text, Entrance, GradientGlowBorder, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 
@@ -68,6 +68,7 @@ export default function TripDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Ionicons name="arrow-back" size={18} color={colors.onSurfaceVariant} />
@@ -240,7 +241,7 @@ export default function TripDetailScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.backgroundDeep },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     backRow: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.base },
     scroll: { paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl },
     headline: { letterSpacing: -1 },

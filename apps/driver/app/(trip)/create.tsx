@@ -14,7 +14,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi, routesApi } from '@eyego/api';
 import type { Route } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -119,6 +119,7 @@ export default function CreateTripScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <AppBackground variant="static" />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : router.back())} style={styles.backBtn}>
@@ -429,7 +430,7 @@ function SummaryRow({ icon, label, value, colors }: {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.background },
+    safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',
       alignItems: 'center',

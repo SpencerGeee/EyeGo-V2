@@ -276,38 +276,37 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* MAP — contained rounded card, not full-bleed, so the ambient
-          shader background (mounted in _layout.tsx) reads at the edges. */}
-      <View style={[styles.mapCard, { top: insets.top + 8 }]}>
-        <MapboxGL.MapView
-          ref={mapRef}
-          style={StyleSheet.absoluteFillObject}
-          styleURL={eyegoDarkStyle}
-          logoEnabled={false}
-          attributionEnabled={false}
-          compassEnabled={false}
-        >
-          <MapboxGL.Camera centerCoordinate={initialCenter} zoomLevel={initialZoom} animationMode="none" />
+      {/* MAP — full-bleed, mirrors the rider app's map screens (ride/[id].tsx,
+          tracking.tsx) instead of a boxed card. AppBackground (mounted in
+          _layout.tsx) only shows through the loading/error veil now. */}
+      <MapboxGL.MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFillObject}
+        styleURL={eyegoDarkStyle}
+        logoEnabled={false}
+        attributionEnabled={false}
+        compassEnabled={false}
+      >
+        <MapboxGL.Camera centerCoordinate={initialCenter} zoomLevel={initialZoom} animationMode="none" />
 
-          {location && (
-            <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
-              <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
-                <Ionicons name="car" size={16} color="#fff" />
-              </View>
-            </MapboxGL.MarkerView>
-          )}
+        {location && (
+          <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
+            <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
+              <Ionicons name="car" size={16} color="#fff" />
+            </View>
+          </MapboxGL.MarkerView>
+        )}
 
-          {/* Demand heatmap overlay — weighted circles for high-demand areas */}
-          <DemandOverlay
-            cells={heatmapData ?? []}
-            primaryColor={colors.primary}
-            visible={showHeatmap && isOnline}
-          />
-        </MapboxGL.MapView>
-      </View>
+        {/* Demand heatmap overlay — weighted circles for high-demand areas */}
+        <DemandOverlay
+          cells={heatmapData ?? []}
+          primaryColor={colors.primary}
+          visible={showHeatmap && isOnline}
+        />
+      </MapboxGL.MapView>
 
       {/* Header overlay — glass */}
-      <Entrance animation="slideUp" delay={100} style={styles.header}>
+      <Entrance animation="slideUp" delay={100} style={[styles.header, { top: insets.top + 12 }]}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} />
         <View>
           <Text style={styles.headerLogo}>EyeGo</Text>
@@ -342,7 +341,7 @@ export default function HomeScreen() {
 
       {/* Online error banner */}
       {!!onlineError && (
-        <Entrance animation="slideUp" style={styles.errorBanner}>
+        <Entrance animation="slideUp" style={[styles.errorBanner, { top: insets.top + 64 }]}>
           <Ionicons
             name={onlineError === 'pending_review' ? 'time-outline' : 'warning-outline'}
             size={16}
@@ -377,15 +376,16 @@ export default function HomeScreen() {
 
       {/* No internet banner */}
       {isOffline && (
-        <Entrance animation="slideUp" style={styles.offlineBanner}>
+        <Entrance animation="slideUp" style={[styles.offlineBanner, { top: insets.top + (onlineError ? 112 : 64) }]}>
           <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
           <Text variant="caption" style={{ color: '#fff', flex: 1 }}>No internet connection</Text>
         </Entrance>
       )}
 
-      {/* Bottom panel */}
+      {/* Bottom panel — collapsed snap keeps the CTA in view on launch;
+          driver can drag up for the fuller stats view. */}
       <InlayPanel
-        snapPointsPct={[0.28, 0.6]}
+        snapPointsPct={[0.42, 0.72]}
         sheetStyle={styles.sheetBg}
         grabberColor={colors.outline}
       >
@@ -458,23 +458,12 @@ export default function HomeScreen() {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    // Transparent — AppBackground (mounted in _layout.tsx) must show through
-    // wherever the contained map card doesn't cover, not get blocked by an
-    // opaque fill here.
+    // Transparent — the map is full-bleed and AppBackground (mounted in
+    // _layout.tsx) only needs to show through the map's own loading/error
+    // veil, not get blocked by an opaque fill here.
     container: { flex: 1, backgroundColor: 'transparent' },
-    mapCard: {
-      position: 'absolute',
-      left: spacing.md,
-      right: spacing.md,
-      bottom: spacing.md,
-      borderRadius: radii['2xl'],
-      overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: colors.rimLight,
-    },
     header: {
       position: 'absolute',
-      top: 56,
       left: spacing['2xl'],
       right: spacing['2xl'],
       flexDirection: 'row',
@@ -550,7 +539,6 @@ const makeStyles = (colors: DriverColors) =>
     offlineHint: { textAlign: 'center', marginTop: spacing.xs },
     errorBanner: {
       position: 'absolute',
-      top: 120,
       left: spacing['2xl'],
       right: spacing['2xl'],
       flexDirection: 'row',
@@ -565,7 +553,6 @@ const makeStyles = (colors: DriverColors) =>
     },
     offlineBanner: {
       position: 'absolute',
-      top: 168,
       left: spacing['2xl'],
       right: spacing['2xl'],
       flexDirection: 'row',
