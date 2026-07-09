@@ -16,7 +16,7 @@ import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph } from '@eyego/ui';
+import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph, backgroundScrollPauseProps } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -203,9 +203,9 @@ export default function HomeScreen() {
 
   const handleWhereTo = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // Container-transform: the pill flies into the where-to glass card
+    // Container-transform: the pill flies into the trip surface's search card
     // (route uses animation 'none' + transparentModal, see root _layout).
-    morphTo('where-to-pill', () => router.push('/where-to' as any));
+    morphTo('where-to-pill', () => router.push('/trip?stage=search' as any));
   };
 
   const handleQuickAction = (id: string) => {
@@ -250,6 +250,7 @@ export default function HomeScreen() {
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        {...backgroundScrollPauseProps}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

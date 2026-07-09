@@ -1,12 +1,15 @@
 import React, { useCallback } from 'react';
 import {
   View,
-  type ListRenderItem,
   type StyleProp,
   type ViewStyle,
-  type ListRenderItemInfo,
 } from 'react-native';
-import { FlashList, type FlashListProps } from '@shopify/flash-list';
+import {
+  FlashList,
+  type FlashListProps,
+  type ListRenderItem,
+  type ListRenderItemInfo,
+} from '@shopify/flash-list';
 import { Entrance, type EntranceAnimation } from './Entrance';
 
 /**

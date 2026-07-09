@@ -4,6 +4,7 @@ import {
   FlatList,
   StyleSheet,
   Dimensions,
+  Platform,
   Pressable,
   ViewToken,
   Image,
@@ -359,11 +360,20 @@ function SlideItem({
         <View style={styles.illustrationOuter}>
           <Animated.View style={[styles.glowHalo, { borderColor: slide.accentColor + '40' }, glowStyle]} />
           
-          <BlurView intensity={30} tint="dark" style={styles.illustrationGlass}>
-            <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
-              <SlideIllustration slideId={slide.id} />
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={30} tint="dark" style={styles.illustrationGlass}>
+              <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
+                <SlideIllustration slideId={slide.id} />
+              </View>
+            </BlurView>
+          ) : (
+            // expo-blur on Android is just a tint (plus native-view overhead) — render the tint directly.
+            <View style={[styles.illustrationGlass, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+              <View style={[styles.illustrationCore, { backgroundColor: withOpacity(colors.primary, 0.05) }]}>
+                <SlideIllustration slideId={slide.id} />
+              </View>
             </View>
-          </BlurView>
+          )}
         </View>
 
         {/* Feature tagline */}

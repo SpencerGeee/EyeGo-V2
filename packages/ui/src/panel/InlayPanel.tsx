@@ -13,7 +13,7 @@ export interface InlayPanelProps {
   grabberColor?: string;
   onStateChange?: (state: PanelState) => void;
   /** Optional RefreshControl element for pull-to-refresh on the inner scroll view. */
-  refreshControl?: React.ReactElement;
+  refreshControl?: React.ReactElement<import('react-native').RefreshControlProps>;
 }
 
 export function InlayPanel({
@@ -23,6 +23,7 @@ export function InlayPanel({
   sheetStyle: sheetBodyStyle,
   grabberColor = 'rgba(255,255,255,0.18)',
   onStateChange,
+  refreshControl,
 }: InlayPanelProps) {
   const { height: screenH } = useWindowDimensions();
   const insets = useSafeAreaInsets();

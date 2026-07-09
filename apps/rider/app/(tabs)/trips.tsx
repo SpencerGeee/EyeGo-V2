@@ -11,7 +11,7 @@ import { bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, EmptyState, StatusBadge } from '@eyego/ui';
+import { Text, Skeleton, EmptyState, StatusBadge, backgroundScrollPauseProps } from '@eyego/ui';
 import { formatCurrency, formatTripDate } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import type { Booking } from '@eyego/types';
@@ -201,6 +201,7 @@ export default function TripsScreen() {
         />
       ) : (
         <FlashList
+          {...backgroundScrollPauseProps}
           data={bookings}
           keyExtractor={(item: Booking) => item.id}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any

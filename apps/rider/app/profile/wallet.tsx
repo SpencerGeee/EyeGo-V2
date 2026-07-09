@@ -1,5 +1,5 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, ScrollView, Alert, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, Platform, Pressable, ScrollView, Alert, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -220,7 +220,12 @@ export default function WalletScreen() {
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
+          ) : (
+            // expo-blur on Android is just a tint (plus native-view overhead) — render the tint directly.
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.55)' }]} />
+          )}
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text variant="titleMedium" style={{ color: colors.onSurface }}>Top Up Wallet</Text>

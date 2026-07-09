@@ -105,7 +105,7 @@ export function Entrance({
   children,
 }: EntranceProps) {
   // Memoize so re-renders don't re-trigger mount/unmount animations.
-  const entering = useMemo<EntryExitAnimationFunction | typeof FadeIn>(
+  const entering = useMemo<ReturnType<typeof buildEntrance>>(
     () => buildEntrance(animation, delay, duration),
     [animation, delay, duration],
   );

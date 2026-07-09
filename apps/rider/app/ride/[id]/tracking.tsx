@@ -1,5 +1,5 @@
 ﻿import React, { useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, RefreshControl, Image, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, Platform, RefreshControl, Image, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
@@ -23,6 +23,18 @@ import { haptic } from '../../../utils/haptics';
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
 
+/**
+ * Native blur is iOS-only here: on Android expo-blur (without
+ * experimentalBlurMethod) renders a plain tint anyway, but still pays for the
+ * native view + overdraw. Render the equivalent tint directly instead.
+ */
+function GlassPane({ intensity, style, children }: { intensity: number; style?: StyleProp<ViewStyle>; children?: React.ReactNode }) {
+  if (Platform.OS === 'ios') {
+    return <BlurView intensity={intensity} tint="dark" style={style}>{children}</BlurView>;
+  }
+  return <View style={[style, { backgroundColor: 'rgba(15,17,21,0.92)' }]}>{children}</View>;
+}
+
 /** Initial bearing (deg) from point 1 → point 2, for devices that send no compass heading. */
 function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const toRad = Math.PI / 180;
@@ -34,94 +46,32 @@ function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number):
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-function useLocationInterpolation(targetCoords: { latitude: number; longitude: number; heading?: number } | null) {
-  const [coords, setCoords] = useState(targetCoords);
-  const animRef = useRef<any>(null);
-  const lastTargetRef = useRef<{ lat: number; lng: number; heading: number } | null>(null);
-  // Keep a ref to the latest rendered coords so the effect closure never goes stale.
-  const coordsRef = useRef(coords);
-  coordsRef.current = coords;
-
-  useEffect(() => {
-    if (!targetCoords) return;
-    const targetLat = targetCoords.latitude;
-    const targetLng = targetCoords.longitude;
-    let targetHeading = targetCoords.heading ?? 0;
-    // No compass heading from the driver device → derive bearing from movement
-    // (only when the hop is > ~2m, otherwise GPS jitter spins the car).
-    const cur = coordsRef.current;
-    if (!targetCoords.heading && cur) {
-      const moved = Math.abs(targetLat - cur.latitude) + Math.abs(targetLng - cur.longitude);
-      targetHeading = moved > 0.00002 ? bearingBetween(cur.latitude, cur.longitude, targetLat, targetLng) : cur.heading ?? 0;
-    }
-
-    // Prevent re-triggering animation if target coordinates are effectively the same
-    // (within 5 decimal places ≈ ~1m at the equator). This avoids restarting the
-    // interpolation loop when the store emits the same location with a new object ref.
-    const prev = lastTargetRef.current;
-    if (
-      prev &&
-      Math.abs(prev.lat - targetLat) < 0.00001 &&
-      Math.abs(prev.lng - targetLng) < 0.00001 &&
-      Math.abs(prev.heading - targetHeading) < 1
-    ) {
-      return;
-    }
-    lastTargetRef.current = { lat: targetLat, lng: targetLng, heading: targetHeading };
-
-    const currentCoords = coordsRef.current;
-    if (!currentCoords) {
-      setCoords(targetCoords);
-      return;
-    }
-
-    const startLat = currentCoords.latitude;
-    const startLng = currentCoords.longitude;
-    const startHeading = currentCoords.heading ?? 0;
-
-    const startTime = Date.now();
-    const duration = 3500; // 3.5 seconds match the socket interval
-
-    if (animRef.current) cancelAnimationFrame(animRef.current);
-
-    const animate = () => {
-      const now = Date.now();
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      // Lerp latitude and longitude
-      const currentLat = startLat + (targetLat - startLat) * progress;
-      const currentLng = startLng + (targetLng - startLng) * progress;
-
-      // Interpolate heading (shortest path)
-      let diff = targetHeading - startHeading;
-      if (diff > 180) diff -= 360;
-      if (diff < -180) diff += 360;
-      const currentHeading = startHeading + diff * progress;
-
-      setCoords({
-        latitude: currentLat,
-        longitude: currentLng,
-        heading: (currentHeading + 360) % 360,
-      });
-
-      if (progress < 1) {
-        animRef.current = requestAnimationFrame(animate);
+/**
+ * Driver-marker heading, derived once per (discrete) location update — no
+ * per-frame JS work. Position gliding between updates is handled natively by
+ * MapboxGL.AnimatedMarkerView; only the rotation prop changes here, once per
+ * socket tick (~3.5s).
+ */
+function useDriverHeading(coord: { latitude: number; longitude: number; heading?: number } | null): number {
+  const lastRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const headingRef = useRef(0);
+  return useMemo(() => {
+    if (!coord) return headingRef.current;
+    if (coord.heading) {
+      headingRef.current = coord.heading;
+    } else if (lastRef.current) {
+      // No compass heading from the driver device → derive bearing from
+      // movement (only when the hop is > ~2m, otherwise GPS jitter spins the car).
+      const last = lastRef.current;
+      const moved = Math.abs(coord.latitude - last.latitude) + Math.abs(coord.longitude - last.longitude);
+      if (moved > 0.00002) {
+        headingRef.current = bearingBetween(last.latitude, last.longitude, coord.latitude, coord.longitude);
       }
-    };
-
-    animRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-    };
-  }, [
-    targetCoords?.latitude,
-    targetCoords?.longitude,
-    targetCoords?.heading,
-  ]);
-
-  return coords;
+    }
+    lastRef.current = { latitude: coord.latitude, longitude: coord.longitude };
+    return headingRef.current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coord?.latitude, coord?.longitude, coord?.heading]);
 }
 
 // ── Polyline draw-in animation ───────────────────────────────────────────
@@ -294,7 +244,7 @@ export default function TrackingScreen() {
   const fallbackCoordRef = useRef({ latitude: driverDbLat, longitude: driverDbLng, heading: 0 });
   useEffect(() => { fallbackCoordRef.current = { latitude: driverDbLat, longitude: driverDbLng, heading: 0 }; }, [driverDbLat, driverDbLng]);
   const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
-  const animatedDriverCoord = useLocationInterpolation(currentDriverCoord);
+  const driverHeading = useDriverHeading(currentDriverCoord);
 
   // Rider's own GPS — used for pre-trip routing (rider → pickup)
   const [riderLocation, setRiderLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -311,7 +261,7 @@ export default function TrackingScreen() {
   useEffect(() => {
     if (routeFetchedRef.current) return;
     const origin: [number, number] | null = tripInProgress
-      ? [animatedDriverCoord?.longitude ?? 0, animatedDriverCoord?.latitude ?? 0]
+      ? [currentDriverCoord?.longitude ?? 0, currentDriverCoord?.latitude ?? 0]
       : riderLocation
         ? [riderLocation.longitude, riderLocation.latitude]
         : null;
@@ -336,8 +286,8 @@ export default function TrackingScreen() {
     tripInProgress,
     riderLocation?.longitude,
     riderLocation?.latitude,
-    animatedDriverCoord?.longitude,
-    animatedDriverCoord?.latitude,
+    currentDriverCoord?.longitude,
+    currentDriverCoord?.latitude,
     destCoord[0], destCoord[1],
     passengerPickupCoord[0], passengerPickupCoord[1],
   ]);
@@ -653,16 +603,18 @@ export default function TrackingScreen() {
           )}
         </MapboxGL.MarkerView>
 
-        {/* Driver marker — native rotation prop, no bitmap recapture */}
-        <MapboxGL.MarkerView
-          coordinate={[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude]}
-          rotation={animatedDriverCoord!.heading ?? 0}
+        {/* Driver marker — position glides natively between socket updates
+            (zero per-frame JS); rotation is a plain native prop update. */}
+        <MapboxGL.AnimatedMarkerView
+          coordinate={[currentDriverCoord.longitude, currentDriverCoord.latitude]}
+          duration={3500}
+          rotation={driverHeading}
           flat
         >
           <View style={styles.driverMarker}>
             <Ionicons name="car" size={18} color="#fff" />
           </View>
-        </MapboxGL.MarkerView>
+        </MapboxGL.AnimatedMarkerView>
 
         {/* Route line — OSRM road-following polyline, straight-line fallback */}
         <MapboxGL.ShapeSource
@@ -674,8 +626,8 @@ export default function TrackingScreen() {
               coordinates: routeCoords.length >= 2
                 ? revealedCoords
                 : tripInProgress
-                  ? [[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude], destCoord]
-                  : [[animatedDriverCoord!.longitude, animatedDriverCoord!.latitude], passengerPickupCoord],
+                  ? [[currentDriverCoord.longitude, currentDriverCoord.latitude], destCoord]
+                  : [[currentDriverCoord.longitude, currentDriverCoord.latitude], passengerPickupCoord],
             },
             properties: {},
           }}
@@ -749,7 +701,7 @@ export default function TrackingScreen() {
       {/* In-app status banner — prominent toast-style notification */}
       {bannerMsg != null && (
         <Animated.View style={[styles.statusBanner, { top: insets.top + 64, transform: [{ translateY: bannerAnim }] }]}>
-          <BlurView intensity={80} tint="dark" style={styles.statusBannerBlur}>
+          <GlassPane intensity={80} style={styles.statusBannerBlur}>
             <MotiView
               from={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -769,7 +721,7 @@ export default function TrackingScreen() {
             >
               <Ionicons name="chevron-forward" size={16} color={colors.primary} />
             </MotiView>
-          </BlurView>
+          </GlassPane>
         </Animated.View>
       )}
 
@@ -781,10 +733,10 @@ export default function TrackingScreen() {
           transition={{ type: 'spring', stiffness: 600, damping: 34 }}
           style={styles.etaPill}
         >
-          <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
+          <GlassPane intensity={60} style={styles.etaPillBlur}>
             <Ionicons name="time-outline" size={14} color={colors.primary} />
             <RollingETA minutes={tripEta} color={colors.primary} />
-          </BlurView>
+          </GlassPane>
         </MotiView>
       )}
 
@@ -798,7 +750,7 @@ export default function TrackingScreen() {
             translateY: -(screenH * ((panelState === 'expanded' ? EXPANDED_PCT : COLLAPSED_PCT) - COLLAPSED_PCT)),
           }}
           transition={{ type: 'spring', stiffness: 500, damping: 32 }}
-          style={[styles.recenterChip, { bottom: screenH * SNAP_PCTS[0] + spacing.lg }]}
+          style={[styles.recenterChip, { bottom: screenH * COLLAPSED_PCT + spacing.lg }]}
         >
           <Pressable
             onPress={() => {
@@ -831,6 +783,7 @@ export default function TrackingScreen() {
         grabberColor={colors.outline}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         onStateChange={(state) => {
+          if (state !== 'collapsed' && state !== 'expanded') return; // non-dismissible panel: ignore transient states
           const pct = state === 'expanded' ? EXPANDED_PCT : COLLAPSED_PCT;
           sheetPadRef.current = screenH * pct;
           setPanelState(state);

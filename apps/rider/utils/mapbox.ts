@@ -185,6 +185,70 @@ function buildMapsAdapter() {
       children
     );
 
+  // AnimatedMarkerView ──────────────────────────────────────────────────────
+  // Marker whose position glides natively between coordinate updates instead
+  // of being re-rendered per frame from JS. Android animates fully natively
+  // (animateMarkerToCoordinate); iOS drives the coordinate prop through an
+  // AnimatedRegion (legacy Animated, but no React re-render per frame).
+  // `rotation` updates as a plain native prop on each (discrete) update.
+  const { Platform } = require('react-native');
+  const ExpoAnimatedMarkerView = ({ coordinate, duration = 3500, children, rotation, flat, anchor, tracksViewChanges }: any) => {
+    const lng = coordinate[0];
+    const lat = coordinate[1];
+    const markerRef = useRef<any>(null);
+    const regionRef = useRef<any>(null); // iOS AnimatedRegion
+    const seededRef = useRef(false);
+    const seedCoordRef = useRef({ latitude: lat, longitude: lng });
+
+    if (Platform.OS !== 'android' && !regionRef.current) {
+      regionRef.current = new RNMaps.AnimatedRegion({
+        latitude: lat,
+        longitude: lng,
+        latitudeDelta: 0,
+        longitudeDelta: 0,
+      });
+    }
+
+    useEffect(() => {
+      if (!seededRef.current) {
+        // First coordinate seeds the marker; nothing to animate yet.
+        seededRef.current = true;
+        return;
+      }
+      if (Platform.OS === 'android') {
+        markerRef.current?.animateMarkerToCoordinate?.({ latitude: lat, longitude: lng }, duration);
+      } else {
+        regionRef.current
+          .timing({ latitude: lat, longitude: lng, duration, useNativeDriver: false })
+          .start();
+      }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lat, lng]);
+
+    const common = {
+      tracksViewChanges: tracksViewChanges ?? false,
+      rotation: rotation ?? 0,
+      flat: flat ?? false,
+      anchor: anchor ?? { x: 0.5, y: 0.5 },
+    };
+
+    if (Platform.OS === 'android') {
+      // coordinate prop stays at the SEED position on purpose: the native
+      // animation owns the marker position, and a changing prop would snap
+      // it back on every React re-render mid-glide.
+      return React.createElement(
+        Marker,
+        { ref: markerRef, coordinate: seedCoordRef.current, ...common },
+        children
+      );
+    }
+    return React.createElement(
+      Marker.Animated,
+      { coordinate: regionRef.current, ...common },
+      children
+    );
+  };
+
   // ShapeSource + LineLayer ─────────────────────────────────────────────────
   // Reads the line style from its LineLayer child and renders a Polyline.
   const ExpoShapeSource = ({ shape, children }: any) => {
@@ -226,6 +290,7 @@ function buildMapsAdapter() {
     MapView: ExpoMapView,
     Camera: ExpoCamera,
     MarkerView: ExpoMarkerView,
+    AnimatedMarkerView: ExpoAnimatedMarkerView,
     PointAnnotation: ExpoMarkerView,
     ShapeSource: ExpoShapeSource,
     LineLayer: ExpoLineLayer,
@@ -264,6 +329,7 @@ function buildFallback() {
     MapView: FallbackMap,
     Camera: NoopCamera,
     MarkerView: NoopOverlay,
+    AnimatedMarkerView: NoopOverlay,
     PointAnnotation: NoopOverlay,
     ShapeSource: () => null,
     LineLayer: () => null,

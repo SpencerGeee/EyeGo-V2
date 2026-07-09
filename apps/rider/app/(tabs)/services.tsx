@@ -18,6 +18,7 @@ import {
   PREMIUM_RING_LOCATIONS,
   MorphSource,
   useMorph,
+  backgroundScrollPauseProps,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 
@@ -94,7 +95,7 @@ const SPECIAL_SERVICES: SpecialService[] = [
     name: 'Group Ride',
     description: 'Share costs with up to 4 people',
     icon: 'people-outline',
-    route: '/where-to?type=group',
+    route: '/trip?stage=search&type=group',
   },
 ];
 
@@ -107,10 +108,10 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // Container-transform: the tier card grows into the where-to screen.
-    // where-to reads morphId to mount its MorphTarget under the same id.
+    // Container-transform: the tier card grows into the trip surface's
+    // search stage, which reads morphId to mount its MorphTarget.
     morphTo(morphId, () =>
-      router.push(`/where-to?tier=${tier.tier}&morphId=${morphId}` as any)
+      router.push(`/trip?stage=search&tier=${tier.tier}&morphId=${morphId}` as any)
     );
   };
 
@@ -150,9 +151,9 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
 function SpecialServiceCard({ service, colors, styles }: { service: SpecialService; colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
   const { morphTo } = useMorph();
-  // Cards that open the where-to screen morph into it; modal routes
+  // Cards that open the trip surface morph into it; modal routes
   // (e.g. /ride/schedule) keep their native rise-from-bottom presentation.
-  const canMorph = service.route.startsWith('/where-to');
+  const canMorph = service.route.startsWith('/trip');
   const morphId = `service-${service.id}`;
 
   const handlePress = () => {
@@ -242,6 +243,7 @@ export default function ServicesScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        {...backgroundScrollPauseProps}
       >
         <Text style={styles.sectionHeader}>Ride Options</Text>
         <View style={styles.tiersContainer}>
