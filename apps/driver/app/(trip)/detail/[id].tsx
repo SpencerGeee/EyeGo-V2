@@ -8,6 +8,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Entrance, GradientGlowBorder, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { useDriverStore } from '../../../stores/driver.store';
 
 function StatBox({ icon, label, value, color, colors }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -30,6 +31,7 @@ function StatBox({ icon, label, value, color, colors }: {
 
 export default function TripDetailScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -68,7 +70,7 @@ export default function TripDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Ionicons name="arrow-back" size={18} color={colors.onSurfaceVariant} />

@@ -23,6 +23,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, Avatar, AppBackground } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 
@@ -47,6 +48,7 @@ const STAR_MESSAGES = ['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent!'];
 
 export default function RateTipScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id, bookingId: paramBookingId } = useLocalSearchParams<{ id: string; bookingId?: string }>();
   const router = useRouter();
@@ -172,7 +174,7 @@ export default function RateTipScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <AppBackground variant="static" />
+      <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={handleSkip} style={styles.headerBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">

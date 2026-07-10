@@ -49,6 +49,7 @@ function StarBar({ stars, count, percentage, colors }: {
 
 export default function RatingsScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const driver = useDriverStore((s) => s.driver);
@@ -63,7 +64,7 @@ export default function RatingsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

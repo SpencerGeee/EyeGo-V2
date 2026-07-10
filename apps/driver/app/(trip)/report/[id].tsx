@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AnimatedCheckmark, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { useDriverStore } from '../../../stores/driver.store';
 import { apiClient } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -22,6 +23,7 @@ const DETAILS_MAX = 500;
 
 export default function ReportPassengerScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -62,7 +64,7 @@ export default function ReportPassengerScreen() {
   if (submitted) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground isDark={theme !== 'light'} />
         <Entrance animation="scaleIn" style={styles.successContainer}>
           <View style={[styles.successCheckCircle, { marginBottom: spacing.xl }]}>
             <AnimatedCheckmark size={40} color="#fff" strokeWidth={3.5} />
@@ -79,7 +81,7 @@ export default function ReportPassengerScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>

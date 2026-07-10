@@ -8,6 +8,7 @@ import type { DriverQuest } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Skeleton, EmptyState, Entrance, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 import QuestCard from '../../components/QuestCard';
 
 // Production-ready fallback quests shown when the API is unavailable
@@ -88,6 +89,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
 
 export default function QuestsScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const { data: questsData, isLoading, isError, refetch } = useQuery({
@@ -116,7 +118,7 @@ export default function QuestsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Entrance animation="slideUp" style={styles.header}>

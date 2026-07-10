@@ -22,6 +22,7 @@ const SAFETY_TIPS = [
 
 export default function SafetyScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const qc = useQueryClient();
@@ -88,7 +89,7 @@ export default function SafetyScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

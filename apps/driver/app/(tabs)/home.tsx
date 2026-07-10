@@ -27,10 +27,12 @@ import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import DemandOverlay from '../../components/DemandOverlay';
-import eyegoDarkStyle from '@eyego/map-styles';
+import mapStyles from '@eyego/map-styles';
 
 export default function HomeScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
+  const mapStyle = theme === 'light' ? mapStyles.eyegoLightStyle : mapStyles.eyegoDarkStyle;
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
@@ -282,7 +284,7 @@ export default function HomeScreen() {
       <MapboxGL.MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
-        styleURL={eyegoDarkStyle}
+        styleURL={mapStyle}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
@@ -491,7 +493,6 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: '#fff',
     },
     sheetBg: {
-      backgroundColor: colors.surfaceContainer,
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
     },

@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
+import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, GlowSearchInput, ShinyText, AppBackground } from '@eyego/ui';
 import { bookingsApi, apiClient } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
@@ -17,6 +18,7 @@ import { useAuthStore } from '../../stores/auth.store';
 
 export default function PromotionsScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [promoCode, setPromoCode] = useState('');
@@ -67,7 +69,7 @@ export default function PromotionsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground variant="static" isDark={isDark} />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />

@@ -9,9 +9,11 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 
 export default function MyVehicleScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
@@ -29,7 +31,7 @@ export default function MyVehicleScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

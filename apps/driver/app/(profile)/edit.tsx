@@ -22,6 +22,7 @@ import { useColors, type DriverColors } from '../../utils/useColors';
 
 export default function EditProfileScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { driver, updateDriver } = useDriverStore();
@@ -61,7 +62,7 @@ export default function EditProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       {/* Back */}
       <MotiView
         from={{ opacity: 0, translateX: -6 }}

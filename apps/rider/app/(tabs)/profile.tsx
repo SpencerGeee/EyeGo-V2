@@ -14,7 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, walletApi, queryKeys } from '@eyego/api';
+import { bookingsApi, walletApi, userApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -91,7 +91,21 @@ export default function ProfileScreen() {
     staleTime: 30_000,
   });
 
-  const rating = (user as any)?.rating ? `${(user as any).rating}` : '4.9';
+  // Rider's average rating is server-computed from driver-submitted ratings
+  // (see driverApi.ratePassenger / POST /driver/rate-passenger/:bookingId).
+  // Prefer a fresh fetch over the possibly-stale value cached on the auth
+  // store at login time; fall back to that cached value while the fetch is
+  // in flight. Previously this fell back to a hardcoded "4.9" whenever no
+  // rating was present, which fabricated a fake number for new riders —
+  // now the chip is simply hidden until a real rating exists.
+  const { data: freshProfile } = useQuery({
+    queryKey: ['user', 'profile'],
+    queryFn: () => userApi.getProfile(),
+    select: (r: any) => r.data?.data ?? null,
+    staleTime: 60_000,
+  });
+  const riderRating = freshProfile?.rating ?? (user as any)?.rating ?? null;
+  const rating = typeof riderRating === 'number' && riderRating > 0 ? riderRating.toFixed(1) : null;
 
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
@@ -276,10 +290,12 @@ export default function ProfileScreen() {
               <View style={styles.memberChip}>
                 <Text style={styles.memberChipText}>Member</Text>
               </View>
-              <View style={styles.ratingChip}>
-                <Ionicons name="star" size={11} color={colors.tierPremium} />
-                <Text style={styles.ratingChipText}>{rating}</Text>
-              </View>
+              {rating && (
+                <View style={styles.ratingChip}>
+                  <Ionicons name="star" size={11} color={colors.tierPremium} />
+                  <Text style={styles.ratingChipText}>{rating}</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>

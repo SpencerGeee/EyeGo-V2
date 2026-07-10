@@ -20,11 +20,14 @@ import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph, bac
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
-import eyegoDarkStyle from '@eyego/map-styles';
+import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
+import { useThemeStore } from '../../stores/theme.store';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
 // Same pattern as ride/[id].tsx — reused here for the tiny active-ride map preview.
-const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+// Both themes pre-stringified; the component swaps by active theme.
+const EYEGO_DARK_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+const EYEGO_LIGHT_MAP_STYLE = JSON.stringify(eyegoLightStyle);
 
 // Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
 // when no coordinate is available.
@@ -155,6 +158,7 @@ function SuggestedTripCard({
 
 export default function HomeScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -321,7 +325,7 @@ export default function HomeScreen() {
             <View style={styles.activeBentoMapArea}>
               <MapboxGL.MapView
                 style={StyleSheet.absoluteFillObject}
-                styleJSON={EYEGO_MAP_STYLE}
+                styleJSON={isDark ? EYEGO_DARK_MAP_STYLE : EYEGO_LIGHT_MAP_STYLE}
                 zoomEnabled={false}
                 scrollEnabled={false}
                 rotateEnabled={false}

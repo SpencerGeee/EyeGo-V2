@@ -9,6 +9,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 
 const TICKETS_KEY = 'eyego_driver_support_tickets';
 
@@ -74,6 +75,7 @@ function FaqItem({ q, a, colors }: { q: string; a: string; colors: DriverColors 
 
 export default function HelpScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
@@ -116,7 +118,7 @@ export default function HelpScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

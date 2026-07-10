@@ -14,11 +14,13 @@ import { tripsApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, EmptyState, AppBackground, Entrance, GlassSurface } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
 
 export default function SeatPickerScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -85,7 +87,7 @@ export default function SeatPickerScreen() {
   if (isError) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
@@ -107,7 +109,7 @@ export default function SeatPickerScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerBackBtn} hitSlop={12}>

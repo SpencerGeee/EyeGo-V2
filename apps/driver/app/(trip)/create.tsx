@@ -22,12 +22,23 @@ import { StepIndicator } from '../../components/StepIndicator';
 
 const MAX_STEPS = 4;
 
+const TIER_OPTIONS: {
+  value: 'ECONOMY' | 'COMFORT';
+  name: string;
+  desc: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { value: 'ECONOMY', name: 'Economy', desc: 'Shared · best value', icon: 'car-outline' },
+  { value: 'COMFORT', name: 'Comfort', desc: 'Premium · higher fare', icon: 'car-sport-outline' },
+];
+
 function formatCurrency(amount: number): string {
   return `₵${amount.toFixed(2)}`;
 }
 
 export default function CreateTripScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { setActiveTripId } = useDriverStore();
@@ -41,11 +52,12 @@ export default function CreateTripScreen() {
   });
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [seats, setSeats] = useState(14);
+  const [tier, setTier] = useState<'ECONOMY' | 'COMFORT'>('ECONOMY');
   const [routeSearch, setRouteSearch] = useState('');
 
   const { data: fareEstimateData } = useQuery({
-    queryKey: ['driver', 'fare-estimate', selectedRoute?.distanceKm, seats],
-    queryFn: () => driverApi.getFareEstimate({ distanceKm: selectedRoute!.distanceKm, tier: 'ECO', availableSeats: seats }),
+    queryKey: ['driver', 'fare-estimate', selectedRoute?.distanceKm, seats, tier],
+    queryFn: () => driverApi.getFareEstimate({ distanceKm: selectedRoute!.distanceKm, tier, availableSeats: seats }),
     enabled: !!selectedRoute && step === 4,
     select: (r) => r.data?.data?.fareEstimate,
   });
@@ -76,7 +88,7 @@ export default function CreateTripScreen() {
         routeId: selectedRoute!.id,
         departureTime: departureTime.toISOString(),
         availableSeats: seats,
-        tier: 'ECONOMY',
+        tier,
       }),
     onSuccess: (res) => {
       const tripId = res.data.data.trip.id;
@@ -119,7 +131,7 @@ export default function CreateTripScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : router.back())} style={styles.backBtn}>
@@ -321,13 +333,46 @@ export default function CreateTripScreen() {
               <SummaryRow icon="speedometer" label="Distance" value={`${selectedRoute.distanceKm} km · ~${Math.round(selectedRoute.distanceKm / 40 * 60)} min`} colors={colors} />
             </GradientGlowBorder>
 
+            {/* Service tier — sets pricing band; ECONOMY is the shared/pooled
+                default, COMFORT is the premium band riders pay a surcharge for. */}
+            <Text style={styles.tierLabel}>Service Tier</Text>
+            <View style={styles.tierRow}>
+              {TIER_OPTIONS.map((opt) => {
+                const active = tier === opt.value;
+                return (
+                  <Pressable
+                    key={opt.value}
+                    style={[styles.tierCard, active && styles.tierCardActive]}
+                    onPress={() => setTier(opt.value)}
+                  >
+                    <View style={[styles.tierIconWrap, active && { backgroundColor: `${colors.primary}22` }]}>
+                      <Ionicons
+                        name={opt.icon}
+                        size={20}
+                        color={active ? colors.primary : colors.onSurfaceVariant}
+                      />
+                    </View>
+                    <Text style={[styles.tierName, active && { color: colors.primary }]}>{opt.name}</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant} style={styles.tierDesc}>
+                      {opt.desc}
+                    </Text>
+                    {active && (
+                      <View style={styles.tierCheck}>
+                        <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+
             {/* Fare Estimate — fetched from backend so it matches what riders see */}
             {fareEstimateData ? (
               <View style={styles.fareCard}>
                 <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
                 <View style={styles.fareHeader}>
                   <Ionicons name="cash-outline" size={18} color={colors.primary} />
-                  <Text style={styles.fareTitle}>Fare Estimate (ECONOMY)</Text>
+                  <Text style={styles.fareTitle}>Fare Estimate ({tier})</Text>
                 </View>
                 <View style={styles.fareDivider} />
                 <FareRow
@@ -591,6 +636,45 @@ const makeStyles = (colors: DriverColors) =>
       right: -40,
     },
     summaryDivider: { height: 1, backgroundColor: colors.outlineVariant },
+    tierLabel: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+      color: colors.onSurface,
+      marginTop: spacing.xl,
+      marginBottom: spacing.md,
+    },
+    tierRow: { flexDirection: 'row', gap: spacing.md },
+    tierCard: {
+      flex: 1,
+      backgroundColor: colors.surfaceContainer,
+      borderRadius: radii.xl,
+      borderWidth: 1.5,
+      borderColor: colors.outline,
+      padding: spacing.base,
+      gap: 6,
+    },
+    tierCardActive: {
+      borderColor: colors.primary,
+      backgroundColor: `${colors.primary}12`,
+    },
+    tierIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceContainerHighest,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 2,
+    },
+    tierName: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+      color: colors.onSurface,
+    },
+    tierDesc: { lineHeight: 16 },
+    tierCheck: { position: 'absolute', top: spacing.base, right: spacing.base },
     fareCard: {
       marginTop: spacing.xl,
       borderRadius: radii['2xl'],

@@ -16,6 +16,7 @@ const DEFAULT_TIMEOUT_S = 30;
 
 export default function DispatchScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const qc = useQueryClient();
@@ -127,7 +128,7 @@ export default function DispatchScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="scaleIn" style={styles.container}>
         {/* Header */}
         <Entrance animation="slideUp" delay={60} style={styles.header}>

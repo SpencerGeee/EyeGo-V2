@@ -87,6 +87,7 @@ function DocumentRow({
 
 export default function DocumentsScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const router = useRouter();
   const qc = useQueryClient();
   const updateDriver = useDriverStore((s) => s.updateDriver);
@@ -146,7 +147,7 @@ export default function DocumentsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: 'transparent' }}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

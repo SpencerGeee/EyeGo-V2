@@ -109,11 +109,23 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     // onDidFailLoadingMap fires for a bad style document, but tile-fetch
     // failures (e.g. OpenFreeMap unreachable) don't trip it — they just
     // never finish loading. A generous timeout catches that silent case too.
+    // 25s (not 12s): on a cold start over a slow mobile connection the vector
+    // tiles + glyph PBFs can legitimately take >12s, and the old value was
+    // firing a *false* "check your connection" error on maps that were in fact
+    // still loading fine — the exact bug reported on-device.
     const timer = setTimeout(() => {
       if (!loaded) setLoadError('style/tiles did not finish loading — check your connection');
-    }, 12000);
+    }, 25000);
     return () => clearTimeout(timer);
   }, [loaded, loadError, retryKey]);
+
+  // Any of these three native signals means the map is live and we must drop
+  // the loading veil / cancel the timeout. onDidFinishLoadingMap alone is
+  // unreliable on Android (it can silently never fire even on a good render),
+  // which is what left the map stuck behind the veil and then flipped to the
+  // false timeout error. Style-loaded and first-frame-rendered are the
+  // belt-and-suspenders fallbacks.
+  const markLoaded = useCallback(() => setLoaded(true), []);
 
   const handleRetry = useCallback(() => {
     setLoadError(null);
@@ -144,7 +156,10 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
           if (e?.nativeEvent?.properties?.isUserInteraction) onUserPan?.();
           onRegionDidChange?.(e?.nativeEvent ?? e);
         }}
-        onDidFinishLoadingMap={() => setLoaded(true)}
+        onDidFinishLoadingMap={markLoaded}
+        onDidFinishLoadingStyle={markLoaded}
+        onDidFinishRenderingMap={markLoaded}
+        onDidFinishRenderingMapFully={markLoaded}
         onDidFailLoadingMap={() => setLoadError('bad style document or unreachable style URL')}
       >
         {children}

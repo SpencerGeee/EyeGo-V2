@@ -28,6 +28,7 @@ interface SettingsItem {
 
 export default function ProfileScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { driver, logout } = useDriverStore();
@@ -140,7 +141,7 @@ export default function ProfileScreen() {
   if (profileLoading && !driver) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground isDark={theme !== 'light'} />
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* Skeleton header */}
           <View style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.md }}>
@@ -172,7 +173,7 @@ export default function ProfileScreen() {
   if (profileError && !driver && !meData) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground isDark={theme !== 'light'} />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 }}>
           <Text variant="bodyMedium" color={colors.error}>Failed to load profile.</Text>
           <Pressable
@@ -188,7 +189,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Entrance animation="slideUp" delay={50} style={styles.header}>

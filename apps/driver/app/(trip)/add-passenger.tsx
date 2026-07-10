@@ -17,11 +17,13 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 
 type Mode = 'select' | 'phone' | 'otp' | 'cash';
 
 export default function AddPassengerScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const qc = useQueryClient();
@@ -78,7 +80,7 @@ export default function AddPassengerScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

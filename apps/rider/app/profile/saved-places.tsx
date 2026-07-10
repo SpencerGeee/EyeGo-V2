@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
+import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
@@ -31,6 +32,7 @@ const ICON_FOR_LABEL = (label: string): string => {
 
 export default function SavedPlacesScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -158,7 +160,7 @@ export default function SavedPlacesScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground variant="static" isDark={isDark} />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />

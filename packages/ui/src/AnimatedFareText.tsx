@@ -12,6 +12,15 @@ const FARE_SIZE: Partial<Record<TextVariant, number>> = {
   fareInline: fontSizes.fareInline,
 };
 
+// Mirrors Text.tsx's per-variant fare lineHeight ratios so the shiny path
+// (which bypasses the shared Text component) doesn't clip its own glyphs.
+const FARE_LINE_HEIGHT_RATIO: Partial<Record<TextVariant, number>> = {
+  fareLarge: 1.15,
+  fareMedium: 1.2,
+  fareSmall: 1.3,
+  fareInline: 1.3,
+};
+
 interface AnimatedFareTextProps {
   value: number;
   prefix?: string;
@@ -70,10 +79,11 @@ export function AnimatedFareText({
 
   if (shiny) {
     const fontSize = FARE_SIZE[variant] ?? fontSizes.fareLarge;
+    const lineHeight = fontSize * (FARE_LINE_HEIGHT_RATIO[variant] ?? 1.15);
     return (
       <ShinyText
         baseColor={color ?? colors.primary}
-        textStyle={{ fontFamily: fonts.monoBold, fontSize }}
+        textStyle={{ fontFamily: fonts.monoBold, fontSize, lineHeight }}
       >
         {formatted}
       </ShinyText>

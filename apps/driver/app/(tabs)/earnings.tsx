@@ -28,6 +28,7 @@ import {
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 import { EarningsChart, type ChartDataPoint } from '../../components/EarningsChart';
 
 type Period = 'today' | 'week' | 'month';
@@ -40,6 +41,7 @@ const PERIODS: { key: Period; label: string }[] = [
 
 export default function EarningsScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [period, setPeriod] = useState<Period>('week');
@@ -177,7 +179,7 @@ export default function EarningsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}

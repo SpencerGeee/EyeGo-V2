@@ -3,6 +3,7 @@ import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle }
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GlassSurface } from '../effects/GlassSurface';
 import { usePanelMotion, type PanelState } from './usePanelMotion';
 
 export interface InlayPanelProps {
@@ -50,6 +51,15 @@ export function InlayPanel({
       <GestureDetector gesture={panGesture}>
         <Animated.View style={[styles.sheetContainer, { height: screenH }, sheetStyle]}>
           <View style={[styles.sheetBody, { paddingBottom: Math.max(insets.bottom, 16) }, sheetBodyStyle]}>
+            {/* Glass backing instead of a flat opaque fill — lets the ambient
+                shader show through the whole panel (including the empty
+                space below content when expanded), not just the individual
+                cards inside it. */}
+            <GlassSurface
+              style={StyleSheet.absoluteFill}
+              borderRadius={28}
+              intensity="low"
+            />
             <View style={[styles.grabber, { backgroundColor: grabberColor }]} />
             <GestureDetector gesture={nativeGesture}>
               <Animated.ScrollView
@@ -86,7 +96,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 10,
-    backgroundColor: '#1E1E1E', // Default fallback
+    overflow: 'hidden',
   },
   grabber: {
     alignSelf: 'center',

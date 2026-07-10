@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 import { apiClient } from '@eyego/api';
 import { useQuery, useMutation } from '@tanstack/react-query';
 
@@ -37,6 +38,7 @@ type PayoutTab = 'bank' | 'momo';
 
 export default function PayoutAccountScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
@@ -117,7 +119,7 @@ export default function PayoutAccountScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

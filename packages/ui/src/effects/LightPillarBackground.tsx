@@ -1,7 +1,7 @@
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { Canvas, Fill, Shader, Skia } from '@shopify/react-native-skia';
-import { useDerivedValue, useSharedValue } from 'react-native-reanimated';
+import { useDerivedValue, useSharedValue, useFrameCallback } from 'react-native-reanimated';
 import { usePerformanceTier } from './usePerformanceTier';
 import { subscribeBackgroundBusy } from './backgroundActivity';
 
@@ -251,26 +251,33 @@ export function LightPillarBackground({
   // Battery-aware clock: 24fps on high tier, 8fps on low (saves ~66% GPU).
   // Low Power Mode forces the 'low' tier via usePerformanceTier, so this
   // auto-throttles when the OS limits CPU/GPU for battery.
+  // UI-THREAD clock via useFrameCallback — NOT a JS setInterval. The old
+  // setInterval drove clock.value from the JS thread, so every ambient frame
+  // had to win a slot against React/list/network work and then marshal across
+  // the bridge; on low-end phones that contention is exactly what made the
+  // background stutter and "not move smoothly". useFrameCallback runs the
+  // accumulator on the UI thread at the display's own vsync cadence, so motion
+  // stays fluid regardless of JS-thread load.
+  //
+  // GPU is still throttled to the target fps: the raymarch only re-renders
+  // when clock.value changes, and we only advance clock.value once per
+  // 1000/fps window (24fps high / 8fps low). Elapsed time accumulates every
+  // vsync so the phase never snaps — we just emit it at the throttled rate.
   const clock = useSharedValue(0);
-  const elapsedRef = useRef(0);
-  const lastTickRef = useRef(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsed = useSharedValue(0);
+  const sinceEmit = useSharedValue(0);
+  const frameMs = tier === 'high' ? 1000 / 24 : 1000 / 8;
 
-  useEffect(() => {
-    if (!isAnimated) return;
-    const fps = tier === 'high' ? 24 : 8;
-    const intervalMs = Math.round(1000 / fps);
-    lastTickRef.current = Date.now();
-    const tick = () => {
-      const now = Date.now();
-      elapsedRef.current += (now - lastTickRef.current) / 1000;
-      lastTickRef.current = now;
-      clock.value = elapsedRef.current;
-    };
-    tick();
-    intervalRef.current = setInterval(tick, intervalMs);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isAnimated, clock, tier]);
+  useFrameCallback((frame) => {
+    'worklet';
+    const dt = frame.timeSincePreviousFrame ?? 0;
+    elapsed.value += dt / 1000;
+    sinceEmit.value += dt;
+    if (sinceEmit.value >= frameMs) {
+      sinceEmit.value = 0;
+      clock.value = elapsed.value;
+    }
+  }, isAnimated);
 
   const EFFECT = tier === 'low' ? EFFECT_LOW : EFFECT_HIGH;
 

@@ -24,6 +24,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance } from '@eyego/ui';
 import { formatCurrency } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
@@ -91,6 +92,7 @@ function getTierInfo(colors: Colors): TierInfoMap {
  */
 function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const TIER_INFO = useMemo(() => getTierInfo(colors), [colors]);
   const router = useRouter();
@@ -197,7 +199,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       {/* Stage mode sits on the persistent trip surface; the opaque layer
           replaces the legacy static AppBackground without unmounting the map. */}
       {mode === 'route'
-        ? <AppBackground variant="static" />
+        ? <AppBackground variant="static" isDark={isDark} />
         : <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
       {/* Header */}
       <View style={styles.header}>

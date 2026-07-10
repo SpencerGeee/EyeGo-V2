@@ -45,6 +45,7 @@ function ProgressBar({ value, max, color, colors }: { value: number; max: number
 
 export default function PerformanceScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const driver = useDriverStore((s) => s.driver);
@@ -60,7 +61,7 @@ export default function PerformanceScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView from={{ opacity: 0, translateX: -6 }} animate={{ opacity: 1, translateX: 0 }}
         transition={{ type: 'spring', stiffness: 600, damping: 34 }}
         style={styles.backRow}>

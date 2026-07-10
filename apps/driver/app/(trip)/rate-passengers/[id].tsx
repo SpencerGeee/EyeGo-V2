@@ -15,6 +15,7 @@ import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { useDriverStore } from '../../../stores/driver.store';
 
 const COMPLIMENTS = [
   { label: 'Polite', icon: 'hand-left-outline' },
@@ -29,6 +30,7 @@ const STAR_MESSAGES = ['', 'Needs improvement', 'Fair passenger', 'Good', 'Great
 
 export default function RatePassengersScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -121,7 +123,7 @@ export default function RatePassengersScreen() {
   if (passengers.length === 0) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground isDark={theme !== 'light'} />
         <View style={styles.emptyState}>
           <Ionicons name="people-outline" size={64} color={colors.onSurfaceVariant} />
           <Text variant="bodyLarge" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, textAlign: 'center' }}>
@@ -135,7 +137,7 @@ export default function RatePassengersScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Progress indicator */}
         <View style={styles.progressRow}>

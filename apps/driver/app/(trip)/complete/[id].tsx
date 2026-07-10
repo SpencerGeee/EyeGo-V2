@@ -19,9 +19,11 @@ import {
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { useDriverStore } from '../../../stores/driver.store';
 
 export default function TripCompleteScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id, earnings: earningsParam } = useLocalSearchParams<{ id: string; earnings?: string }>();
   const router = useRouter();
@@ -68,7 +70,7 @@ export default function TripCompleteScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Animated checkmark — draws in on the UI thread */}
         <Entrance animation="scaleIn" delay={100} style={styles.checkCircle}>

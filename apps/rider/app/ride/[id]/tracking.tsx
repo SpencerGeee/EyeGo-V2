@@ -16,12 +16,15 @@ import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { formatDuration } from '@eyego/utils';
-import eyegoDarkStyle from '@eyego/map-styles';
+import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
+import { useThemeStore } from '../../../stores/theme.store';
 import { shareLiveTracking } from '../../../utils/safety';
 import { haptic } from '../../../utils/haptics';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
-const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+// Pre-stringify both themes once; component swaps by active theme.
+const EYEGO_DARK_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+const EYEGO_LIGHT_MAP_STYLE = JSON.stringify(eyegoLightStyle);
 
 /**
  * Native blur is iOS-only here: on Android expo-blur (without
@@ -137,6 +140,7 @@ function RollingETA({ minutes, color }: { minutes: number; color: string }) {
 
 export default function TrackingScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -566,7 +570,7 @@ export default function TrackingScreen() {
       {/* Map */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
-        styleJSON={EYEGO_MAP_STYLE}
+        styleJSON={isDark ? EYEGO_DARK_MAP_STYLE : EYEGO_LIGHT_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}

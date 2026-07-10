@@ -27,12 +27,29 @@ interface GlassSurfaceProps {
   borderRadius?: number;
   /** 'high' = maximum transparency (thin frost, strong blur). 'low' = a denser panel. */
   intensity?: 'low' | 'high';
+  /** Force a specific glass tint regardless of theme. Omit to auto-detect
+   * from the active color scheme (dark theme -> dark glass, light theme ->
+   * light glass) — every call site in both apps relies on this default;
+   * none intentionally want a fixed tint independent of theme. */
   dark?: boolean;
   /** Faint complementary-tint rim offsets — a cheap nod to the web sample's
    * RGB-channel displacement trick. iOS only; skipped on Android. */
   chromaticHint?: boolean;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
+}
+
+// Colors in this design system are always #RRGGBB hex — cheap perceived-
+// luminance check to tell a light theme's near-white background apart from
+// a dark theme's near-black one, so GlassSurface can auto-tint correctly.
+function isLightColor(hex: string): boolean {
+  const c = hex.replace('#', '');
+  if (c.length < 6) return false;
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  if ([r, g, b].some(Number.isNaN)) return false;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
 }
 
 /**
@@ -46,12 +63,13 @@ interface GlassSurfaceProps {
 export function GlassSurface({
   borderRadius = 0,
   intensity = 'high',
-  dark = true,
+  dark: darkProp,
   chromaticHint = false,
   style,
   children,
 }: GlassSurfaceProps) {
   const colors = useThemedColors();
+  const dark = darkProp ?? !isLightColor(colors.background);
   const tier = usePerformanceTier();
   const effectiveIntensity = tier === 'low' ? 'low' : intensity;
   const effectiveChromaticHint = tier === 'low' ? false : chromaticHint;

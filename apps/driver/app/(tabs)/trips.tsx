@@ -9,6 +9,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 import { TripCard } from '../../components/TripCard';
 
 type Segment = 'active' | 'upcoming' | 'history' | 'dispatch';
@@ -22,6 +23,7 @@ const SEGMENTS: { key: Segment; label: string }[] = [
 
 export default function TripsScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [segment, setSegment] = useState<Segment>('active');
@@ -97,7 +99,7 @@ export default function TripsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <Entrance animation="slideUp" delay={50} style={styles.header}>
         <Text variant="headlineMedium" style={styles.title}>My Trips</Text>

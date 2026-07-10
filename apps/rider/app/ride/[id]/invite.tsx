@@ -10,6 +10,7 @@ import { bookingsApi, tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, AnimatedFareText, Loader, AppBackground } from '@eyego/ui';
 import type { GroupMember, Trip } from '@eyego/types';
 
@@ -21,6 +22,7 @@ type LinkState = 'generating' | 'ready' | 'error';
 
 export default function InviteScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -189,7 +191,7 @@ export default function InviteScreen() {
   if (!bookingReady && createBooking.isPending) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
@@ -207,7 +209,7 @@ export default function InviteScreen() {
   if (!bookingReady && createBooking.isError) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
@@ -239,7 +241,7 @@ export default function InviteScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={12}>

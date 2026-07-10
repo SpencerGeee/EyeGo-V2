@@ -39,6 +39,7 @@ interface Message {
 
 export default function TripChatScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id, seatNumber, recipientId, riderName } = useLocalSearchParams<{
     id: string;
@@ -447,7 +448,7 @@ export default function TripChatScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <View style={styles.header}>
         <Pressable

@@ -676,7 +676,6 @@ const makeStyles = (colors: DriverColors) =>
     },
     // Bottom sheet
     sheetBackground: {
-      backgroundColor: 'rgba(9,14,9,0.96)',
       borderTopLeftRadius: radii['3xl'],
       borderTopRightRadius: radii['3xl'],
     },

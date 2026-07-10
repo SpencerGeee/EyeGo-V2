@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Entrance, GlassSurface, AnimatedList, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
 
 type Category = 'All' | 'Dispatch' | 'Earnings' | 'System';
@@ -42,6 +43,7 @@ function formatTimestamp(iso: string) {
 
 export default function NotificationsScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { notifications, markRead, markAllRead } = useNotificationsStore();
@@ -90,7 +92,7 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <Entrance animation="slideUp" style={styles.header}>
         <Text variant="headlineMedium">Alerts</Text>

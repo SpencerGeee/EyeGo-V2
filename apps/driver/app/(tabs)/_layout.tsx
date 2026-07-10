@@ -12,7 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, spacing } from '@eyego/config';
 import { Text } from '@eyego/ui';
-import { driverColors } from '../../utils/useColors';
+import { useColors, type DriverColors } from '../../utils/useColors';
+import { useDriverStore } from '../../stores/driver.store';
 
 // Liquid Glass — only available on iOS 26+; fails silently if not installed
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -47,26 +48,35 @@ const TAB_LABELS: Record<TabRoute, string> = {
 };
 
 /** Renders the glassmorphism / Liquid Glass background layer */
-function GlassLayer() {
+function GlassLayer({ isDark, colors }: { isDark: boolean; colors: DriverColors }) {
   if (isLiquidGlassSupported && LiquidGlassView) {
-    return <LiquidGlassView style={StyleSheet.absoluteFill} />;
+    return <LiquidGlassView style={StyleSheet.absoluteFill} colorScheme={isDark ? 'dark' : 'light'} />;
   }
   if (Platform.OS === 'ios') {
     return (
       <BlurView
         intensity={80}
-        tint="systemChromeMaterialDark"
+        tint={isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
         style={StyleSheet.absoluteFill}
       />
     );
   }
-  return <View style={[StyleSheet.absoluteFill, styles.androidFallback]} />;
+  return (
+    <View
+      style={[
+        StyleSheet.absoluteFill,
+        { backgroundColor: isDark ? 'rgba(6, 15, 26, 0.92)' : 'rgba(255, 255, 255, 0.85)' },
+      ]}
+    />
+  );
 }
 
-function TabItem({ routeName, isFocused, onPress }: {
+function TabItem({ routeName, isFocused, onPress, colors, styles }: {
   routeName: TabRoute;
   isFocused: boolean;
   onPress: () => void;
+  colors: DriverColors;
+  styles: ReturnType<typeof makeStyles>;
 }) {
   const scale = useSharedValue(1);
   const icons = TAB_ICONS[routeName];
@@ -93,7 +103,7 @@ function TabItem({ routeName, isFocused, onPress }: {
         <Ionicons
           name={isFocused ? icons.active : icons.inactive}
           size={20}
-          color={isFocused ? driverColors.primary : 'rgba(255,255,255,0.40)'}
+          color={isFocused ? colors.primary : colors.onSurfaceVariant}
         />
         {isFocused && (
           <Text style={styles.tabLabel}>
@@ -106,9 +116,14 @@ function TabItem({ routeName, isFocused, onPress }: {
 }
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
+  const isDark = theme !== 'light';
+  const styles = React.useMemo(() => makeStyles(colors), [colors]);
+
   return (
     <View style={styles.tabBarWrapper}>
-      <GlassLayer />
+      <GlassLayer isDark={isDark} colors={colors} />
       <View style={styles.topBorder} />
       <View style={styles.tabBar}>
         {state.routes.map((route, index) => {
@@ -130,6 +145,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               routeName={route.name as TabRoute}
               isFocused={isFocused}
               onPress={handlePress}
+              colors={colors}
+              styles={styles}
             />
           );
         })}
@@ -154,7 +171,7 @@ export default function TabLayout() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: DriverColors) => StyleSheet.create({
   tabBarWrapper: {
     position: 'absolute',
     bottom: 24,
@@ -162,16 +179,13 @@ const styles = StyleSheet.create({
     right: spacing['2xl'],
     borderRadius: 28,
     borderWidth: 1,
-    borderColor: `${driverColors.primary}22`,
-    shadowColor: driverColors.primary,
+    borderColor: `${colors.primary}22`,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.30,
     shadowRadius: 24,
     elevation: 20,
     overflow: 'hidden',
-  },
-  androidFallback: {
-    backgroundColor: 'rgba(6, 15, 26, 0.92)',
   },
   topBorder: {
     position: 'absolute',
@@ -179,7 +193,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 1,
-    backgroundColor: `${driverColors.primary}30`,
+    backgroundColor: `${colors.primary}30`,
     zIndex: 1,
   },
   tabBar: {
@@ -207,13 +221,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   tabItemActive: {
-    backgroundColor: `${driverColors.primary}20`,
+    backgroundColor: `${colors.primary}20`,
   },
   tabLabel: {
     fontFamily: fonts.semiBold,
     fontSize: 10,
     lineHeight: 13,
-    color: driverColors.primary,
+    color: colors.primary,
     flexShrink: 0,
   },
 });

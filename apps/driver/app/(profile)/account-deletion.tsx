@@ -20,6 +20,7 @@ const DELETION_CONSEQUENCES = [
 
 export default function AccountDeletionScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const logout = useDriverStore((s: any) => s.logout);
@@ -43,7 +44,7 @@ export default function AccountDeletionScreen() {
   if (step === 2) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground variant="static" />
+        <AppBackground isDark={theme !== 'light'} />
         <MotiView
           from={{ opacity: 0, translateX: -6 }}
           animate={{ opacity: 1, translateX: 0 }}
@@ -104,7 +105,7 @@ export default function AccountDeletionScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}

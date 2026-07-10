@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii } from '@eyego/config';
 import { Text, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
+import { useThemeStore } from '../../stores/theme.store';
 
 const TERMS_SECTIONS: { heading: string; body: string }[] = [
   {
@@ -64,12 +65,13 @@ const TERMS_SECTIONS: { heading: string; body: string }[] = [
 
 export default function TermsScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground variant="static" />
+      <AppBackground variant="static" isDark={isDark} />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />

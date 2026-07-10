@@ -49,6 +49,7 @@ const STATUS_FLOW: Record<string, { label: string; next: string | null; action: 
 
 export default function DriverTrackingScreen() {
   const colors = useColors();
+  const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -397,7 +398,7 @@ export default function DriverTrackingScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <AppBackground variant="static" />
+        <AppBackground isDark={theme !== 'light'} />
         <View style={styles.loadingContainer}>
           {[80, 160, 120].map((w, i) => (
             <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
@@ -411,7 +412,7 @@ export default function DriverTrackingScreen() {
 
   return (
     <View style={styles.container}>
-      <AppBackground variant="static" />
+      <AppBackground isDark={theme !== 'light'} />
       {/* Map */}
       <MapboxGL.MapView
         style={StyleSheet.absoluteFill}
@@ -919,13 +920,16 @@ const makeStyles = (colors: DriverColors) =>
       color: colors.onSurface,
     },
     sheetBackground: {
-      backgroundColor: colors.background,
       borderTopLeftRadius: radii['3xl'],
       borderTopRightRadius: radii['3xl'],
     },
     sheetHandle: { backgroundColor: colors.outline, width: 40, height: 4 },
     sheetContent: {
       paddingHorizontal: spacing['2xl'],
+      // Top padding gives the ETA card's GradientGlowBorder room for its
+      // shadow-based glow to bleed upward — without it, the ScrollView's
+      // implicit overflow clips the glow flush at the top edge.
+      paddingTop: spacing.lg,
       paddingBottom: spacing['2xl'],
       gap: spacing.base,
     },

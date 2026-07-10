@@ -11,11 +11,15 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import eyegoDarkStyle from '@eyego/map-styles';
+import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
+import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel } from '@eyego/ui';
 
 // MapLibre RN expects a JSON string via styleJSON, not a style object.
-const EYEGO_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+// Both themes are pre-stringified once at module scope; the component picks
+// the one matching the active theme so the map turns light in light mode.
+const EYEGO_DARK_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
+const EYEGO_LIGHT_MAP_STYLE = JSON.stringify(eyegoLightStyle);
 import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 
@@ -29,6 +33,7 @@ type TierKey = typeof TIERS[number]['key'];
 
 export default function RideDetailScreen() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const insets = useSafeAreaInsets();
   const { id, tier: tierParam, group } = useLocalSearchParams<{ id: string; tier?: string; group?: string }>();
   const isGroupFlow = group === '1';
@@ -152,7 +157,7 @@ export default function RideDetailScreen() {
       {/* Map background */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
-        styleJSON={EYEGO_MAP_STYLE}
+        styleJSON={isDark ? EYEGO_DARK_MAP_STYLE : EYEGO_LIGHT_MAP_STYLE}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
