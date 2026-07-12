@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
+import { driverSocketEvents } from '@eyego/api';
 
 interface Coords {
   latitude: number;
@@ -18,6 +20,73 @@ interface Options {
 const MAX_PLAUSIBLE_SPEED_KMH = 180;
 // How old a cached position can be and still be used as a seed (5 min)
 const MAX_LAST_KNOWN_AGE_MS = 5 * 60 * 1000;
+
+// ── Background location task ─────────────────────────────────────────────
+// expo-location's `startLocationUpdatesAsync` only keeps reporting positions
+// while the app is backgrounded if it's wired to an expo-task-manager task —
+// `watchPositionAsync` (used below in `startWatch`) is foreground-only and is
+// suspended by the OS a few seconds after backgrounding. `defineTask` MUST be
+// called at module scope (before any component mounts) — Expo re-invokes the
+// registered task by name from a headless JS instance when the OS wakes the
+// app for a location update, so this can't live inside the hook body.
+export const DRIVER_LOCATION_TASK = 'EYEGO_DRIVER_LOCATION_TASK';
+
+if (!TaskManager.isTaskDefined(DRIVER_LOCATION_TASK)) {
+  TaskManager.defineTask(DRIVER_LOCATION_TASK, ({ data, error }: any) => {
+    if (error) {
+      console.warn('[DriverLocation] Background task error:', error.message);
+      return;
+    }
+    const locations = data?.locations as Location.LocationObject[] | undefined;
+    const latest = locations?.[locations.length - 1];
+    if (!latest) return;
+    // Background execution: no React state/closures from the hook survive
+    // here, so push straight to the same channel the foreground watch uses
+    // (driverSocketEvents.emitLocation is a plain module export backed by a
+    // lazily-created, already-connected socket — see useDriverSocket.ts and
+    // app/(trip)/tracking/[id].tsx for the equivalent foreground emit).
+    try {
+      driverSocketEvents.emitLocation({
+        lat: latest.coords.latitude,
+        lng: latest.coords.longitude,
+        heading: latest.coords.heading ?? 0,
+        speed: latest.coords.speed ?? 0,
+      });
+    } catch (e) {
+      console.warn('[DriverLocation] Background emitLocation failed:', e);
+    }
+  });
+}
+
+async function startBackgroundLocationTracking(isOnTrip: boolean) {
+  try {
+    const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK);
+    if (alreadyStarted) return;
+    await Location.startLocationUpdatesAsync(DRIVER_LOCATION_TASK, {
+      accuracy: isOnTrip ? Location.Accuracy.BestForNavigation : Location.Accuracy.Balanced,
+      timeInterval: 5000,
+      distanceInterval: 15,
+      showsBackgroundLocationIndicator: true,
+      foregroundService: {
+        notificationTitle: 'EyeGo Driver is online',
+        notificationBody: 'Sharing your location with passengers and dispatch.',
+        notificationColor: '#4be277',
+      },
+      pausesUpdatesAutomatically: false,
+    });
+  } catch (err) {
+    console.warn('[DriverLocation] Failed to start background location updates:', err);
+  }
+}
+
+async function stopBackgroundLocationTracking() {
+  try {
+    const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK);
+    if (alreadyStarted) await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK);
+  } catch (err) {
+    console.warn('[DriverLocation] Failed to stop background location updates:', err);
+  }
+}
 
 export function useDriverLocation({ enabled = true, isOnTrip = false }: Options = {}) {
   const [location, setLocation] = useState<Coords | null>(null);
@@ -101,11 +170,13 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       setHasPermission(true);
       permissionGranted.current = true;
 
-      if (Platform.OS === 'android') {
-        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-        if (bgStatus !== 'granted') {
-          console.warn('[DriverLocation] Background location denied — tracking may stop when backgrounded');
-        }
+      // Request background permission on both platforms — iOS needs its own
+      // "Always" prompt (NSLocationAlwaysAndWhenInUseUsageDescription) just
+      // like Android does, or startBackgroundLocationTracking() below will
+      // silently fail to report positions once the app is backgrounded.
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') {
+        console.warn('[DriverLocation] Background location denied — tracking may stop when backgrounded');
       }
 
       // ── 2. Mock provider check ────────────────────────────────────────
@@ -130,6 +201,14 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // Don't block on getCurrentPositionAsync first — the watch will
       // deliver a fresh high-accuracy fix within its first update.
       if (!cancelledRef.current) await startWatch();
+
+      // ── 4b. Start the background task too ─────────────────────────────
+      // watchPositionAsync above is foreground-only; this keeps location
+      // updates (and the socket emit in the task handler) flowing while the
+      // driver has the app backgrounded but is online/on a trip.
+      if (!cancelledRef.current && bgStatus === 'granted') {
+        await startBackgroundLocationTracking(isOnTrip);
+      }
 
       // ── 5. Force a fresh one-shot fix concurrently ───────────────────
       // Runs in parallel with the watch; overwrites the stale seed if the
@@ -165,6 +244,10 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       watchRef.current?.remove();
       watchRef.current = null;
       appStateSub.remove();
+      // Stop background tracking whenever this hook goes disabled/unmounts
+      // (driver toggles offline, or the screen using it unmounts) — fire and
+      // forget, this cleanup can't be async.
+      stopBackgroundLocationTracking();
     };
   }, [enabled, isOnTrip]);
 

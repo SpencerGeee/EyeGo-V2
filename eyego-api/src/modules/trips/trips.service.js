@@ -268,11 +268,11 @@ async function getPulseSchedules() {
   const today = new Date();
   const dayOfWeek = today.getDay();
 
-  const schedules = await prisma.pulseSchedule.findMany({
-    where: {
-      isActive: true,
-      daysOfWeek: { has: dayOfWeek },
-    },
+  // daysOfWeek is a JSON-encoded string column (e.g. "[1,2,3,4,5]"), not a
+  // native list — Prisma's `has` filter only works on real list fields and
+  // throws a validation error on every call. Filter in JS after fetch instead.
+  const allActiveSchedules = await prisma.pulseSchedule.findMany({
+    where: { isActive: true },
     include: {
       route: true,
       trips: {
@@ -288,6 +288,15 @@ async function getPulseSchedules() {
       },
     },
     orderBy: { departureTime: 'asc' },
+  });
+
+  const schedules = allActiveSchedules.filter((s) => {
+    try {
+      const days = JSON.parse(s.daysOfWeek);
+      return Array.isArray(days) && days.includes(dayOfWeek);
+    } catch {
+      return false;
+    }
   });
 
   return schedules.map((s) => ({
@@ -409,8 +418,47 @@ async function getActiveTrip(userId) {
   return booking;
 }
 
+/**
+ * Store (or clear) the ActivityKit push token for the rider's Live Activity
+ * on a given trip. Scoped to the rider's own CONFIRMED/PAID/BOARDED booking
+ * for that trip — a rider can only register a token for their own booking.
+ *
+ * `activityId` is the native Activity's local id (from LiveActivity.startActivity
+ * on-device); it's stored mainly for debugging/log correlation, the push
+ * itself only needs `pushToken`.
+ */
+async function saveLiveActivityToken(userId, tripId, { pushToken, activityId }) {
+  const booking = await prisma.booking.findFirst({
+    where: { tripId, userId, status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] } },
+    select: { id: true },
+  });
+  if (!booking) {
+    throw new NotFoundError('No active booking found for this trip');
+  }
+
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: {
+      liveActivityPushToken: pushToken || null,
+      liveActivityId: activityId || null,
+    },
+  });
+
+  return { bookingId: booking.id };
+}
+
+/** Clear the stored token — called once the activity ends (COMPLETED/CANCELLED/NO_SHOW). */
+async function clearLiveActivityToken(bookingId) {
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: { liveActivityPushToken: null, liveActivityId: null },
+  }).catch(() => null); // non-critical — booking may already be gone/reassigned
+}
+
 async function completeTrip(tripId) {
-  return prisma.$transaction(async (tx) => {
+  const completedRiderTokens = []; // populated inside the tx, pushed to after commit
+
+  await prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findUnique({
       where: { id: tripId },
       select: { status: true, driverId: true, departureTime: true },
@@ -445,8 +493,18 @@ async function completeTrip(tripId) {
         status: { in: ['CONFIRMED', 'COMPLETED'] },
         paymentStatus: 'PAID',
       },
-      select: { id: true, userId: true, fareAmount: true, commissionAmount: true, paymentMethod: true, updatedAt: true, paymentTransactions: { where: { status: 'SUCCESS' }, select: { createdAt: true }, take: 1, orderBy: { createdAt: 'desc' } } },
+      select: {
+        id: true, userId: true, fareAmount: true, commissionAmount: true, paymentMethod: true, updatedAt: true,
+        paymentTxs: { where: { status: 'SUCCESS' }, select: { createdAt: true }, take: 1, orderBy: { createdAt: 'desc' } },
+        user: { select: { fcmToken: true, notificationPrefs: true } },
+      },
     });
+
+    for (const b of paidBookings) {
+      if (b.user?.fcmToken) {
+        completedRiderTokens.push({ token: b.user.fcmToken, fareAmount: b.fareAmount, notificationPrefs: b.user.notificationPrefs });
+      }
+    }
 
     let totalNetEarnings = 0;
     let totalCommission = 0;
@@ -454,7 +512,7 @@ async function completeTrip(tripId) {
     if (paidBookings.length > 0) {
       // Generate per-rider Receipt records
       for (const b of paidBookings) {
-        const commission = b.commissionAmount != null ? b.commissionAmount : b.fareAmount * 0.15;
+        const commission = b.commissionAmount != null ? b.commissionAmount : Math.round(b.fareAmount * 0.15 * 100) / 100;
         const driverEarnings = b.fareAmount - commission;
         totalNetEarnings += driverEarnings;
         totalCommission += commission;
@@ -470,7 +528,7 @@ async function completeTrip(tripId) {
             driverEarnings,
             discountApplied: 0,
             paymentMethod: b.paymentMethod ?? 'MOMO',
-            paidAt: b.paymentTransactions?.[0]?.createdAt ?? b.updatedAt,
+            paidAt: b.paymentTxs?.[0]?.createdAt ?? b.updatedAt,
           },
         });
       }
@@ -527,6 +585,15 @@ async function completeTrip(tripId) {
     }
   });
 
+  // notifications.rideComplete was defined but never called — a backgrounded rider
+  // (no live socket connection) never got a "trip complete, rate your ride" push.
+  // savedAmount is a rough shared-vs-private-ride estimate for the notification copy,
+  // not a precise financial figure.
+  for (const { token, fareAmount, notificationPrefs } of completedRiderTokens) {
+    const savedAmount = Math.round(fareAmount);
+    pushService.notifications.rideComplete(token, savedAmount, notificationPrefs).catch(() => {});
+  }
+
   // Notify GraphQL subscribers of trip completion (fire-and-forget)
   pubSub.publish(`TRIP_STATUS:${tripId}`, {
     tripId,
@@ -547,8 +614,9 @@ async function getTripReceipt(tripId, userId) {
         include: {
           trip: {
             include: {
-              route: { select: { origin: true, destination: true } },
-              driver: { select: { name: true, phone: true, vehicle: true } },
+              route: { select: { originName: true, destinationName: true } },
+              driver: { select: { name: true, phone: true } },
+              vehicle: { select: { make: true, model: true, plateNumber: true } },
             },
           },
         },
@@ -567,11 +635,11 @@ async function getTripReceipt(tripId, userId) {
     paymentMethod: receipt.paymentMethod,
     paidAt: receipt.paidAt,
     seatNumber: receipt.booking.seatNumber,
-    origin: trip.route?.origin,
-    destination: trip.route?.destination,
+    origin: trip.route?.originName,
+    destination: trip.route?.destinationName,
     departureTime: trip.departureTime,
     driver: trip.driver
-      ? { name: trip.driver.name, phone: trip.driver.phone, vehicle: trip.driver.vehicle }
+      ? { name: trip.driver.name, phone: trip.driver.phone, vehicle: trip.vehicle }
       : null,
   };
 }
@@ -589,18 +657,21 @@ async function driverNoShow(tripId, reportingUserId) {
           where: { status: 'CONFIRMED' },
           include: { user: { select: { fcmToken: true } } },
         },
-        route: { select: { origin: true, destination: true } },
+        route: { select: { originName: true, destinationName: true } },
       },
     });
     if (!trip) throw new NotFoundError('Trip');
+    if (trip.driverId !== reportingUserId) {
+      throw new ForbiddenError('You are not the driver assigned to this trip');
+    }
     if (!['SCHEDULED', 'FILLING', 'CONFIRMED', 'DRIVER_EN_ROUTE'].includes(trip.status)) {
       throw new AppError('Trip cannot be marked as driver no-show in current state', 400);
     }
 
     // Collect FCM tokens for post-transaction push (fire-and-forget after commit)
     affectedFcmTokens = trip.bookings.map((b) => b.user?.fcmToken).filter(Boolean);
-    if (trip.route?.origin && trip.route?.destination) {
-      tripRouteLabel = `${trip.route.origin} → ${trip.route.destination}`;
+    if (trip.route?.originName && trip.route?.destinationName) {
+      tripRouteLabel = `${trip.route.originName} → ${trip.route.destinationName}`;
     }
 
     // Cancel the trip
@@ -618,6 +689,7 @@ async function driverNoShow(tripId, reportingUserId) {
         await tx.paymentTransaction.create({
           data: {
             bookingId: booking.id,
+            userId: booking.userId,
             amount: booking.fareAmount,
             status: 'REFUNDED',
             paystackRef: booking.paystackRef ?? `noshow_refund_${booking.id}`,
@@ -648,8 +720,14 @@ async function driverNoShow(tripId, reportingUserId) {
   return result;
 }
 
-async function riderNoShow(tripId, bookingId) {
+async function riderNoShow(tripId, bookingId, reportingUserId) {
   return prisma.$transaction(async (tx) => {
+    const trip = await tx.trip.findUnique({ where: { id: tripId }, select: { driverId: true } });
+    if (!trip) throw new NotFoundError('Trip');
+    if (trip.driverId !== reportingUserId) {
+      throw new ForbiddenError('You are not the driver assigned to this trip');
+    }
+
     const booking = await tx.booking.findUnique({ where: { id: bookingId } });
     if (!booking) throw new NotFoundError('Booking');
     if (booking.tripId !== tripId) throw new AppError('Booking does not belong to this trip', 400);
@@ -682,20 +760,39 @@ async function scheduleTrip(userId, { routeId, scheduledAt, seatCount = 1 }) {
   if (isNaN(departureTime.getTime())) throw new AppError('Invalid scheduledAt date', 400);
   if (departureTime <= new Date()) throw new AppError('Scheduled time must be in the future', 400);
 
-  // Check user doesn't already have a scheduled booking for the same route/time window (±30 min)
+  // Cap how far out a rider can schedule — nothing processes intents indefinitely into the future.
+  const maxAheadMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+  if (departureTime.getTime() - Date.now() > maxAheadMs) {
+    throw new AppError('Trips can only be scheduled up to 30 days in advance', 400, 'SCHEDULE_TOO_FAR_OUT');
+  }
+
+  // Check user doesn't already have a scheduled booking OR a pending scheduled-ride
+  // intent for the same route/time window (±30 min). This flow only ever writes to
+  // ScheduledRideIntent, so both tables must be checked — a Booking-only check never
+  // actually blocks a repeat schedule attempt.
   const windowStart = new Date(departureTime.getTime() - 30 * 60 * 1000);
   const windowEnd   = new Date(departureTime.getTime() + 30 * 60 * 1000);
-  const existing = await prisma.booking.findFirst({
-    where: {
-      userId,
-      status: { in: ['PENDING', 'CONFIRMED', 'SEAT_HELD'] },
-      trip: { routeId, departureTime: { gte: windowStart, lte: windowEnd } },
-    },
-  });
-  if (existing) throw new AppError('You already have a booking on this route around that time', 409, 'DUPLICATE_SCHEDULE');
+  const [existingBooking, existingIntent] = await Promise.all([
+    prisma.booking.findFirst({
+      where: {
+        userId,
+        status: { in: ['PENDING', 'CONFIRMED', 'SEAT_HELD'] },
+        trip: { routeId, departureTime: { gte: windowStart, lte: windowEnd } },
+      },
+    }),
+    prisma.scheduledRideIntent.findFirst({
+      where: {
+        userId,
+        routeId,
+        status: 'PENDING',
+        scheduledAt: { gte: windowStart, lte: windowEnd },
+      },
+    }),
+  ]);
+  if (existingBooking || existingIntent) {
+    throw new AppError('You already have a booking or scheduled ride on this route around that time', 409, 'DUPLICATE_SCHEDULE');
+  }
 
-  // Find an existing SCHEDULED trip on this route at that time, or record the intent
-  // Dispatch will match this intent when a driver publishes a trip
   const scheduledIntent = await prisma.scheduledRideIntent.create({
     data: {
       userId,
@@ -707,6 +804,137 @@ async function scheduleTrip(userId, { routeId, scheduledAt, seatCount = 1 }) {
   });
 
   return scheduledIntent;
+}
+
+/**
+ * List the calling rider's scheduled ride intents (upcoming + past), newest scheduledAt first.
+ */
+async function getScheduledRides(userId) {
+  return prisma.scheduledRideIntent.findMany({
+    where: { userId },
+    include: { route: { select: { originName: true, destinationName: true } } },
+    orderBy: { scheduledAt: 'desc' },
+  });
+}
+
+/**
+ * Cancel a rider's own pending scheduled-ride intent.
+ */
+async function cancelScheduledRide(userId, intentId) {
+  const intent = await prisma.scheduledRideIntent.findUnique({ where: { id: intentId } });
+  if (!intent) throw new NotFoundError('ScheduledRideIntent');
+  if (intent.userId !== userId) throw new ForbiddenError();
+  if (intent.status !== 'PENDING') {
+    throw new AppError('Only a pending scheduled ride can be cancelled', 400, 'INVALID_STATUS');
+  }
+  return prisma.scheduledRideIntent.update({ where: { id: intentId }, data: { status: 'CANCELLED' } });
+}
+
+/**
+ * Periodic worker (called from server.js on an interval): processes ScheduledRideIntent
+ * rows whose scheduledAt has arrived or is imminent. For each PENDING intent:
+ *   1. Try to seat the rider on an existing Trip for the same route within a ±30 min window.
+ *   2. If no Trip exists, hand it off to the same live on-demand dispatch used by
+ *      "Request a Trip" so nearby drivers get notified close to the actual pickup time,
+ *      instead of silently doing nothing (the previous behavior).
+ * Intents whose scheduledAt has passed by more than 1 hour with no match are marked EXPIRED.
+ */
+async function processScheduledRideIntents() {
+  const now = new Date();
+  const lookAheadMs = 15 * 60 * 1000; // start trying to match 15 min before departure
+  const dispatchHorizon = new Date(now.getTime() + lookAheadMs);
+
+  const dueIntents = await prisma.scheduledRideIntent.findMany({
+    where: { status: 'PENDING', scheduledAt: { lte: dispatchHorizon } },
+    include: { route: true },
+  });
+
+  for (const intent of dueIntents) {
+    try {
+      const staleMs = now.getTime() - intent.scheduledAt.getTime();
+      if (staleMs > 60 * 60 * 1000) {
+        // Over an hour past its scheduled time with nobody having matched it — give up.
+        await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { status: 'EXPIRED' } });
+        continue;
+      }
+
+      const windowStart = new Date(intent.scheduledAt.getTime() - 30 * 60 * 1000);
+      const windowEnd = new Date(intent.scheduledAt.getTime() + 30 * 60 * 1000);
+
+      const candidateTrip = await prisma.trip.findFirst({
+        where: {
+          routeId: intent.routeId,
+          status: { in: ['SCHEDULED', 'FILLING'] },
+          departureTime: { gte: windowStart, lte: windowEnd },
+        },
+        orderBy: { confirmedSeats: 'desc' }, // prefer filling up an already-popular trip
+      });
+
+      if (candidateTrip && candidateTrip.confirmedSeats + intent.seatCount <= candidateTrip.maxSeats) {
+        const fare = calculateFare({
+          tier: candidateTrip.tier,
+          distanceKm: intent.route.distanceKm,
+          seatCount: candidateTrip.maxSeats,
+          storedBaseFare: candidateTrip.baseFare,
+          storedPerKmRate: candidateTrip.perKmRate,
+          surgeMultiplier: candidateTrip.surgeMultiplier,
+        });
+
+        await prisma.$transaction(async (tx) => {
+          await tx.booking.create({
+            data: {
+              tripId: candidateTrip.id,
+              userId: intent.userId,
+              fareAmount: fare.farePerPerson,
+              commissionAmount: fare.commissionPerSeat,
+              paymentMethod: 'CASH',
+              paymentStatus: 'PENDING',
+              status: 'SEAT_HELD',
+            },
+          });
+          await tx.trip.update({
+            where: { id: candidateTrip.id },
+            data: { confirmedSeats: { increment: intent.seatCount } },
+          });
+          await tx.scheduledRideIntent.update({
+            where: { id: intent.id },
+            data: { status: 'MATCHED', matchedTripId: candidateTrip.id },
+          });
+        });
+
+        const rider = await prisma.user.findUnique({ where: { id: intent.userId }, select: { fcmToken: true } });
+        if (rider?.fcmToken) {
+          await pushService.sendPush(
+            rider.fcmToken,
+            'Scheduled ride confirmed',
+            `A seat has been booked for your ${intent.route.destinationName} trip.`,
+            { type: 'SCHEDULE_MATCHED', tripId: candidateTrip.id },
+          ).catch(() => {});
+        }
+        logger.info('Scheduled ride matched to existing trip', { intentId: intent.id, tripId: candidateTrip.id });
+      } else {
+        // No existing trip to seat them on — dispatch it live to nearby drivers now,
+        // close to the actual pickup time, instead of leaving it unprocessed forever.
+        const tripRequestService = require('./trip-request.service');
+        await tripRequestService.createRequest(intent.userId, {
+          destination: intent.route.destinationName,
+          scheduledAt: intent.scheduledAt.toISOString(),
+          seatCount: intent.seatCount,
+          pickupLat: intent.route.originLat,
+          pickupLng: intent.route.originLng,
+          destLat: intent.route.destLat,
+          destLng: intent.route.destLng,
+        });
+        // Mark as handed off so this worker doesn't keep re-dispatching it every tick.
+        await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { status: 'EXPIRED' } });
+        logger.info('Scheduled ride handed off to live dispatch (no matching trip)', { intentId: intent.id });
+      }
+    } catch (err) {
+      logger.warn('Failed to process scheduled ride intent (non-blocking):', { intentId: intent.id, error: err.message });
+    }
+  }
+
+  return { processed: dueIntents.length };
 }
 
 async function getTrackingData(shortId) {
@@ -741,4 +969,4 @@ async function getTrackingData(shortId) {
   };
 }
 
-module.exports = { createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData };
+module.exports = { createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken };

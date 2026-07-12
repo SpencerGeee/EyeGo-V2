@@ -41,6 +41,19 @@ router.post('/:id/group', authenticate, bookingsController.createGroup);
 // POST /v1/trips/:id/emergency  — SOS emergency alert
 router.post('/:id/emergency', authenticate, tripsController.emergencyAlert);
 
+// POST /v1/trips/:id/live-activity-token — rider registers/refreshes the
+// ActivityKit push token for their lock-screen Live Activity on this trip.
+// Separate channel from the FCM device token (see users.routes.js) — this
+// one is consumed only by live-activity-push.service.js (direct APNs).
+router.post(
+  '/:id/live-activity-token',
+  authenticate,
+  body('pushToken').isString().notEmpty().withMessage('pushToken is required'),
+  body('activityId').optional().isString(),
+  validate,
+  tripsController.saveLiveActivityToken
+);
+
 // POST /v1/trips/request — rider requests a trip to a free-text destination
 // Dispatched to nearby drivers who can accept and create the trip
 router.post(
@@ -51,9 +64,17 @@ router.post(
   body('seatCount').optional().isInt({ min: 1, max: 6 }),
   body('pickupLat').optional().isFloat({ min: -90, max: 90 }),
   body('pickupLng').optional().isFloat({ min: -180, max: 180 }),
+  body('destLat').optional().isFloat({ min: -90, max: 90 }),
+  body('destLng').optional().isFloat({ min: -180, max: 180 }),
   validate,
   tripsController.requestTrip
 );
+
+// GET /v1/trips/request/:id — rider polls/checks status of a pending trip request
+router.get('/request/:id', authenticate, tripsController.getTripRequestStatus);
+
+// DELETE /v1/trips/request/:id — rider cancels a still-pending on-demand request
+router.delete('/request/:id', authenticate, tripsController.cancelTripRequest);
 
 // POST /v1/trips/schedule — schedule a future trip (rider)
 router.post(
@@ -65,6 +86,12 @@ router.post(
   validate,
   tripsController.scheduleTrip
 );
+
+// GET /v1/trips/scheduled — rider's own scheduled ride intents
+router.get('/scheduled', authenticate, tripsController.getScheduledRides);
+
+// DELETE /v1/trips/scheduled/:id — cancel a pending scheduled ride
+router.delete('/scheduled/:id', authenticate, tripsController.cancelScheduledRide);
 
 // ── Driver-only state transitions ────────────────────────────
 router.post('/:id/driver-no-show', authenticateDriver, tripsController.driverNoShow);

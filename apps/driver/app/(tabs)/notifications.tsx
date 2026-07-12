@@ -59,7 +59,15 @@ export default function NotificationsScreen() {
 
   const handlePress = useCallback((n: DriverNotification) => {
     if (!n.read) markRead(n.id);
-    if (n.tripId) router.push(`/(trip)/active/${n.tripId}` as any);
+    if (!n.tripId) return;
+    if (n.type === 'COMPLETED') {
+      router.push(`/(trip)/complete/${n.tripId}` as any);
+    } else if (n.type === 'TRIP_ASSIGNED') {
+      router.push(`/(trip)/dispatch/${n.tripId}` as any);
+    } else {
+      // DRIVER_EN_ROUTE / ARRIVED_AT_PICKUP / IN_PROGRESS / everything else in-trip
+      router.push(`/(trip)/active/${n.tripId}` as any);
+    }
   }, [markRead, router]);
 
   const renderItem = useCallback(({ item }: { item: DriverNotification }) => {

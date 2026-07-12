@@ -2,11 +2,13 @@
 
 const { Router } = require('express');
 const controller = require('./contact.controller');
-const authenticate = require('../../middleware/auth');
+const { authenticateAny } = require('../../middleware/auth');
 
 const router = Router();
 
-router.use(authenticate);
+// Either party (rider or driver) on a trip may be the caller — reject only
+// tokens with no valid role at all, not tokens belonging to the "wrong" app.
+router.use(authenticateAny);
 
 // POST /v1/contact/call — initiate an anonymized contact relay
 router.post('/call', controller.initiateCall);

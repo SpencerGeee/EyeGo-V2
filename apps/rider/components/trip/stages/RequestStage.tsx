@@ -1,13 +1,18 @@
-﻿import React, { useMemo } from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+﻿import React, { useMemo, useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Pressable, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
+import { tripsApi, queryKeys } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripFlow } from '../../../stores/tripFlow.store';
+import { useRideStore } from '../../../stores/ride.store';
+
+const POLL_INTERVAL_MS = 4000;
 
 /**
  * "Looking for a driver" stage of the persistent trip surface, ported from
@@ -20,10 +25,88 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const popStage = useTripFlow((s) => s.popStage);
-  const { destination, scheduledAt } = useLocalSearchParams<{
+  const queryClient = useQueryClient();
+  const { origin, destination: storeDestination } = useRideStore();
+  const { destination: paramDestination, scheduledAt } = useLocalSearchParams<{
     destination?: string;
     scheduledAt?: string;
   }>();
+
+  const destination = storeDestination?.address ?? paramDestination;
+
+  const [status, setStatus] = useState<'sending' | 'searching' | 'matched' | 'error'>('sending');
+  const [cancelling, setCancelling] = useState(false);
+  const requestIdRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sentRef = useRef(false);
+
+  useEffect(() => {
+    if (sentRef.current || !destination) return;
+    sentRef.current = true;
+
+    (async () => {
+      try {
+        const res = await tripsApi.requestTrip({
+          destination,
+          scheduledAt: scheduledAt ?? new Date().toISOString(),
+          seatCount: 1,
+          pickupLat: origin?.latitude,
+          pickupLng: origin?.longitude,
+          destLat: storeDestination?.latitude,
+          destLng: storeDestination?.longitude,
+        });
+        requestIdRef.current = res.data?.data?.requestId ?? null;
+        setStatus('searching');
+
+        if (requestIdRef.current) {
+          pollTimerRef.current = setInterval(async () => {
+            try {
+              const check = await tripsApi.getTripRequest(requestIdRef.current!);
+              const req = check.data?.data;
+              if (req?.status === 'ACCEPTED' && req.matchedTripId) {
+                if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+                setStatus('matched');
+                queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+                queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+                router.replace(`/ride/${req.matchedTripId}/tracking` as any);
+              }
+            } catch {
+              // transient poll failure — try again on next tick
+            }
+          }, POLL_INTERVAL_MS);
+        }
+      } catch {
+        setStatus('error');
+      }
+    })();
+
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Actually cancels the live request server-side (previously "Back to home"
+  // only navigated away while the request kept searching, so a driver could
+  // still accept it minutes later and silently create a booking the rider
+  // had no idea was still live).
+  const handleCancel = async () => {
+    if (!requestIdRef.current) {
+      router.replace('/(tabs)/home' as any);
+      return;
+    }
+    setCancelling(true);
+    try {
+      await tripsApi.cancelTripRequest(requestIdRef.current);
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      router.replace('/(tabs)/home' as any);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message;
+      Alert.alert('Could not cancel', msg ?? 'A driver may have already accepted — check your Activity tab.');
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const formattedTime = scheduledAt
     ? new Date(scheduledAt).toLocaleString('en-GH', {
@@ -72,14 +155,27 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           </View>
         </View>
 
-        <Text style={styles.title}>Looking for a driver</Text>
+        <Text style={styles.title}>
+          {status === 'matched' ? 'Driver found!' : status === 'error' ? "Couldn't send request" : 'Looking for a driver'}
+        </Text>
         <Text style={styles.subtitle}>
-          Your trip request to{' '}
-          <Text style={styles.highlight}>{destination ?? 'your destination'}</Text>
-          {formattedTime ? ` on ${formattedTime}` : ''} has been sent to nearby drivers.
+          {status === 'error' ? (
+            "We couldn't reach the server to send your trip request. Check your connection and try again."
+          ) : (
+            <>
+              Your trip request to{' '}
+              <Text style={styles.highlight}>{destination ?? 'your destination'}</Text>
+              {formattedTime ? ` on ${formattedTime}` : ''}{' '}
+              {status === 'sending'
+                ? 'is being sent to nearby drivers…'
+                : status === 'matched'
+                ? 'was accepted — taking you to your trip.'
+                : 'has been sent to nearby drivers.'}
+            </>
+          )}
         </Text>
         <Text style={styles.hint}>
-          You'll get a notification as soon as a driver accepts and creates the trip.
+          You'll be taken to live tracking automatically as soon as a driver accepts.
         </Text>
 
         {/* Info card */}
@@ -90,11 +186,42 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           </Text>
         </View>
 
-        <Button
-          label="Back to home"
-          onPress={() => router.replace('/(tabs)/home' as any)}
-          style={{ width: '100%', marginTop: spacing.xl }}
-        />
+        {status === 'searching' ? (
+          <>
+            <Button
+              label={cancelling ? 'Cancelling…' : 'Cancel request'}
+              variant="ghost"
+              onPress={() =>
+                Alert.alert(
+                  'Cancel trip request?',
+                  'Nearby drivers will no longer be able to accept this request.',
+                  [
+                    { text: 'Keep searching', style: 'cancel' },
+                    { text: 'Cancel request', style: 'destructive', onPress: handleCancel },
+                  ]
+                )
+              }
+              disabled={cancelling}
+              style={{ width: '100%', marginTop: spacing.xl }}
+            />
+            <Pressable
+              style={styles.activityBtn}
+              onPress={() => router.replace('/(tabs)/home' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Leave without cancelling"
+            >
+              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
+                Leave without cancelling — keep searching in the background
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          <Button
+            label="Back to home"
+            onPress={() => router.replace('/(tabs)/home' as any)}
+            style={{ width: '100%', marginTop: spacing.xl }}
+          />
+        )}
 
         <Pressable
           style={styles.activityBtn}

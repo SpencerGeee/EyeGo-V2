@@ -21,6 +21,7 @@
         "NSLocationAlwaysUsageDescription": "EyeGo uses your location to track your ride.",
         "NSCameraUsageDescription": "EyeGo needs camera access to update your profile photo.",
         "NSPhotoLibraryUsageDescription": "EyeGo needs photo library access to update your profile photo.",
+        "NSContactsUsageDescription": "Allow EyeGo to access your contacts to add an emergency contact.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
@@ -42,12 +43,14 @@
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.VIBRATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS"
       ]
     },
     "plugins": [
       "expo-router",
       "expo-font",
+      "@maplibre/maplibre-react-native",
       [
         "expo-notifications",
         {
@@ -61,8 +64,15 @@
           "photosPermission": "Allow EyeGo to access your photos to update your profile picture."
         }
       ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow EyeGo to access your contacts to add an emergency contact."
+        }
+      ],
       "expo-secure-store",
       "expo-web-browser",
+      "expo-apple-authentication",
       "@react-native-community/datetimepicker"
     ],
     "experiments": {

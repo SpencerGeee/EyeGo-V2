@@ -7,9 +7,12 @@ dist/
 **/*/build/
 **/*/dist/
 
-# Generated native projects (expo prebuild)
-**/ios/
-**/android/
+# Generated native projects (expo prebuild) — scoped to each app's own
+# top-level ios/android folder only, NOT **/ios/, which also matched (and
+# silently dropped) hand-written native source under apps/*/modules/*/ios/
+# and similar custom Expo module/target folders.
+apps/*/ios/
+apps/*/android/
 
 # Env files (contain secrets)
 .env

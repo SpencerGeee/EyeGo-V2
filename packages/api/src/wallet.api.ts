@@ -35,6 +35,13 @@ export interface SavedCard {
   createdAt: string;
 }
 
+// A per-attempt idempotency key. Not cryptographically strong — it only needs
+// to be unique per submission so retries of the SAME attempt collapse to one
+// top-up/withdrawal while a deliberate new attempt gets a fresh key.
+function makeIdempotencyKey(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e9).toString(36)}`;
+}
+
 export const walletApi = {
   getBalance: () =>
     apiClient.get<ApiResponse<WalletBalance>>('/wallet/balance'),
@@ -42,11 +49,19 @@ export const walletApi = {
   getTransactions: (params?: { page?: number; limit?: number }) =>
     apiClient.get<PaginatedResponse<WalletTransaction>>('/wallet/transactions', { params }),
 
-  topUp: (data: TopUpRequest) =>
-    apiClient.post<ApiResponse<{ reference: string; authorizationUrl?: string }>>('/wallet/topup', data),
+  topUp: (data: TopUpRequest, idempotencyKey?: string) =>
+    apiClient.post<ApiResponse<{ reference: string; authorizationUrl?: string }>>(
+      '/wallet/topup',
+      data,
+      { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey('topup') } }
+    ),
 
-  withdraw: (data: { amount: number }) =>
-    apiClient.post<ApiResponse<{ reference: string; message: string }>>('/wallet/withdraw', data),
+  withdraw: (data: { amount: number }, idempotencyKey?: string) =>
+    apiClient.post<ApiResponse<{ reference: string; message: string }>>(
+      '/wallet/withdraw',
+      data,
+      { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey('withdraw') } }
+    ),
 
   getPaymentMethods: async (): Promise<SavedCard[]> => {
     const res = await apiClient.get<ApiResponse<{ methods: SavedCard[] }>>('/wallet/payment-methods');

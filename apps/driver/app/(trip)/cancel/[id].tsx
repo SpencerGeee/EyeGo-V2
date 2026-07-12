@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,7 +40,7 @@ export default function CancelTripScreen() {
   const { setActiveTripId } = useDriverStore();
 
   const { mutate: cancelTrip, isPending } = useMutation({
-    mutationFn: () => driverApi.cancelTrip(id as string),
+    mutationFn: () => driverApi.cancelTrip(id as string, selectedReason, note || undefined),
     onSuccess: () => {
       // D13: clear active trip in store before navigating away
       setActiveTripId(null);
@@ -70,6 +70,11 @@ export default function CancelTripScreen() {
         </Pressable>
       </Entrance>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      >
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Entrance animation="slideUp" delay={40}>
           <Text variant="headlineLarge" style={styles.headline}>Cancel Trip</Text>
@@ -140,6 +145,7 @@ export default function CancelTripScreen() {
           />
         </Entrance>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

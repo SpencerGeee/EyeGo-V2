@@ -41,6 +41,7 @@ router.get('/live/drivers', controller.getLiveDrivers);
 router.get('/trips/unassigned', controller.getUnassignedTrips);
 router.post('/trips/:id/assign', adminActionLimiter, controller.assignDriver);
 
+router.post('/drivers/:id/documents/:type/review', adminActionLimiter, controller.reviewDriverDocument);
 router.post('/drivers/:id/approve', adminActionLimiter, controller.approveDriver);
 router.post('/drivers/:id/suspend', adminActionLimiter, controller.suspendDriver);
 router.post('/drivers/:id/reject', adminActionLimiter, controller.rejectDriver);

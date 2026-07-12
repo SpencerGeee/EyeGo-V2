@@ -20,7 +20,7 @@ export const paymentsApi = {
   initialize: (data: InitializePaymentRequest, idempotencyKey?: string) =>
     apiClient.post<ApiResponse<PaymentInitResponse>>(
       '/payments/initiate',
-      { bookingId: data.bookingId, method: data.method, phone: data.momoPhone },
+      { bookingId: data.bookingId, method: data.method, phone: data.momoPhone, savedCardId: data.savedCardId },
       { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey(data.bookingId) } }
     ),
 
@@ -53,5 +53,30 @@ export const paymentsApi = {
       await new Promise((r) => setTimeout(r, intervalMs));
     }
     throw new Error('Payment verification timed out');
+  },
+
+  // Wallet top-ups don't produce a `booking` in the verify response (there's no
+  // booking involved), so they need their own success check: the verify endpoint
+  // returns { type: 'WALLET_TOPUP', status: 'SUCCESS' } once the webhook/charge
+  // has actually landed. Used to avoid declaring "Top Up Successful" before the
+  // MoMo charge is actually confirmed.
+  pollWalletTopup: async (
+    reference: string,
+    intervalMs = 3000,
+    maxAttempts = 20
+  ): Promise<{ status: 'SUCCESS' | 'FAILED' }> => {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const { data } = await paymentsApi.verify(reference);
+        const payload = data.data as any;
+        if (payload?.type === 'WALLET_TOPUP' && payload?.status === 'SUCCESS') {
+          return { status: 'SUCCESS' };
+        }
+      } catch (err: any) {
+        if (!err?.response || err.response.status >= 500) throw err;
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+    throw new Error('Top-up verification timed out');
   },
 };

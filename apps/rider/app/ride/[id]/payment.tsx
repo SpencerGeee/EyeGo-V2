@@ -12,7 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { WebView } from 'react-native-webview';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { queryKeys } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, paymentsApi, socketEvents, walletApi } from '@eyego/api';
 import * as Haptics from 'expo-haptics';
@@ -32,6 +33,7 @@ export default function PaymentScreen() {
   const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const router = useRouter();
   const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore();
+  const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState<PaymentTab>('momo');
@@ -41,6 +43,13 @@ export default function PaymentScreen() {
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [useSavedCard, setUseSavedCard] = useState(true);
+  const { data: savedCardsData } = useQuery({
+    queryKey: ['wallet', 'payment-methods'],
+    queryFn: walletApi.getPaymentMethods,
+  });
+  const savedCards = (savedCardsData as any) ?? [];
+  const defaultSavedCard = savedCards.find((c: any) => c.isDefault) ?? savedCards[0] ?? null;
   const MAX_POLL_ATTEMPTS = 30; // ~60s timeout at 2s intervals
   // Stable idempotency key for the current payment attempt; cleared when the
   // rider switches payment method (which starts a genuinely new attempt).
@@ -187,6 +196,7 @@ export default function PaymentScreen() {
             // signed-in user's email — the card path is guarded below so this is
             // never undefined when activeTab === 'card'.
             email: activeTab === 'card' ? (user?.email ?? undefined) : undefined,
+            savedCardId: activeTab === 'card' && useSavedCard ? defaultSavedCard?.id : undefined,
           },
           idempotencyKeyRef.current,
         );
@@ -209,6 +219,8 @@ export default function PaymentScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         walletApi.getBalance().catch(() => {});
         setGuestInfo(null); // clear guest info after successful booking
+        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
         socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
         const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
         pendingTimeoutsRef.current.push(t);
@@ -231,6 +243,8 @@ export default function PaymentScreen() {
         setIsPolling(false);
         setStatus('success');
         setGuestInfo(null); // clear guest info after successful booking
+        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+        queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
         socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
         const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
         pendingTimeoutsRef.current.push(t);
@@ -257,6 +271,36 @@ export default function PaymentScreen() {
     },
   });
 
+  // Server-side verification for a card checkout that just redirected back — the
+  // redirect itself doesn't distinguish a successful charge from a declined one.
+  const verifyCardPayment = async () => {
+    if (!isMountedRef.current) return;
+    setIsPolling(true);
+    setStatus('processing');
+    try {
+      const reference = paymentRef;
+      if (!reference) throw new Error('Missing payment reference');
+      await paymentsApi.pollStatus(reference, 2000, MAX_POLL_ATTEMPTS);
+      if (!isMountedRef.current) return;
+      setIsPolling(false);
+      setStatus('success');
+      setGuestInfo(null); // clear guest info after successful booking
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+      socketEvents.emitPaymentConfirmed(activeBooking?.id ?? '', id ?? '');
+      const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+      pendingTimeoutsRef.current.push(t);
+    } catch {
+      if (!isMountedRef.current) return;
+      setIsPolling(false);
+      setStatus('idle');
+      Alert.alert(
+        'Payment Not Confirmed',
+        'Your card payment could not be confirmed — it may have been declined. Please try again.',
+      );
+    }
+  };
+
   // WebView: detect Paystack success redirect with secure whitelist filtering
   const handleWebViewNavigate = (url: string) => {
     // BUGFIX: WebView URL validation — require reference= parameter for success detection
@@ -279,17 +323,13 @@ export default function PaymentScreen() {
       return;
     }
 
-    // Whitelisted domain with reference parameter = payment success.
-    // (Single block — this was previously duplicated, which double-fired
-    // emitPaymentConfirmed and double-scheduled the tracking navigation.)
+    // Whitelisted domain with reference parameter = the checkout FLOW finished —
+    // but Paystack uses this exact redirect shape for both a successful charge AND
+    // a declined one. The redirect alone is not proof of payment; verify server-side
+    // before ever telling the rider "Payment Confirmed."
     if (hasPaystackReference) {
       setCheckoutUrl(null);
-      setStatus('success');
-      setGuestInfo(null); // clear guest info after successful booking
-      // Notify the driver instantly!
-      socketEvents.emitPaymentConfirmed(activeBooking?.id ?? '', id ?? '');
-      const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
-      pendingTimeoutsRef.current.push(t);
+      void verifyCardPayment();
     }
   };
 
@@ -472,12 +512,36 @@ export default function PaymentScreen() {
                 from={{ opacity: 0, translateY: 6 }}
                 animate={{ opacity: 1, translateY: 0 }}
                 transition={{ type: 'spring', stiffness: 600, damping: 34 }}
-                style={styles.cardInfo}
+                style={{ gap: spacing.sm }}
               >
-                <Ionicons name="lock-closed-outline" size={16} color={colors.primary} />
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  You'll be redirected to Paystack's secure checkout to enter your card details.
-                </Text>
+                {defaultSavedCard ? (
+                  <Pressable
+                    onPress={() => setUseSavedCard((v) => !v)}
+                    style={[styles.cardInfo, { justifyContent: 'space-between' }]}
+                    accessibilityRole="button"
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1, flex: 1 }}>
+                      <Ionicons name="card-outline" size={16} color={colors.primary} />
+                      <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={1} style={{ flexShrink: 1 }}>
+                        {defaultSavedCard.brand?.toUpperCase()} •••• {defaultSavedCard.last4} (one-tap)
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={useSavedCard ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={20}
+                      color={useSavedCard ? colors.primary : colors.onSurfaceVariant}
+                      style={{ flexShrink: 0 }}
+                    />
+                  </Pressable>
+                ) : null}
+                <View style={styles.cardInfo}>
+                  <Ionicons name="lock-closed-outline" size={16} color={colors.primary} />
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                    {defaultSavedCard && useSavedCard
+                      ? "Charged instantly to your saved card — no redirect needed."
+                      : "You'll be redirected to Paystack's secure checkout to enter your card details."}
+                  </Text>
+                </View>
               </MotiView>
             )}
 

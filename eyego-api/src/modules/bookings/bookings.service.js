@@ -410,6 +410,7 @@ async function tipDriver(userId, bookingId, { amount, phone }) {
     await tx.paymentTransaction.create({
       data: {
         bookingId,
+        userId: booking.userId,
         amount,
         status: 'INTENT',
         paystackRef: reference,

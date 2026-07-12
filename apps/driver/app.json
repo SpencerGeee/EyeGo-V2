@@ -21,7 +21,9 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "EyeGo Driver uses your location to broadcast your position to passengers.",
         "NSCameraUsageDescription": "EyeGo Driver needs camera access to update your profile photo.",
         "NSPhotoLibraryUsageDescription": "EyeGo Driver needs photo library access to update your profile photo.",
-        "ITSAppUsesNonExemptEncryption": false
+        "NSContactsUsageDescription": "Allow EyeGo to access your contacts to add an emergency contact.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["location"]
       }
     },
     "android": {
@@ -37,7 +39,8 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.READ_CONTACTS"
       ]
     },
     "plugins": [
@@ -54,6 +57,12 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow EyeGo Driver to access your photos to update your profile picture."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow EyeGo to access your contacts to add an emergency contact."
         }
       ],
       "expo-secure-store",

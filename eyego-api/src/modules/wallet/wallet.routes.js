@@ -5,6 +5,7 @@ const controller = require('./wallet.controller');
 const { authenticateDriver, requireActiveDriver } = require('../../middleware/driverAuth');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
+const idempotency = require('../../middleware/idempotency');
 
 const router = Router();
 
@@ -16,6 +17,7 @@ router.get('/transactions', controller.getTransactions);
 
 router.post(
   '/topup',
+  idempotency, // safe retries: same Idempotency-Key never double-credits
   body('amount').isFloat({ min: 1 }).withMessage('Amount must be at least GHS 1'),
   validate,
   controller.topUp
@@ -24,6 +26,7 @@ router.post(
 router.post(
   '/withdraw',
   requireActiveDriver,
+  idempotency, // safe retries: same Idempotency-Key never double-withdraws
   body('amount').isFloat({ min: 20 }).withMessage('Minimum withdrawal is GHS 20'),
   validate,
   controller.withdraw

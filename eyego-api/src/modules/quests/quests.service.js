@@ -126,4 +126,35 @@ async function incrementProgress(driverId, type, amount, tx) {
   }
 }
 
-module.exports = { listActiveQuestsForDriver, listQuestHistoryForDriver, incrementProgress };
+/**
+ * Regenerate the standard daily/weekly quest set for the current period. Uses
+ * fixed quest ids so this is a safe upsert to re-run on a schedule — previously
+ * these rows only ever came from a one-time seed script with hardcoded dates, so
+ * the Quests tab went permanently empty once those windows passed.
+ */
+async function regenerateStandardQuests() {
+  const now = new Date();
+  const startOfToday = new Date(now); startOfToday.setHours(0, 0, 0, 0);
+  const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
+  const endOfWeek = new Date(now); endOfWeek.setDate(endOfWeek.getDate() + 7);
+
+  const questData = [
+    { id: 'q-rides-daily-3', title: 'Daily Driver', description: 'Complete 3 trips today to earn a bonus.', type: 'RIDES_COUNT', target: 3, rewardAmount: 12.0, periodStart: startOfToday, periodEnd: endOfToday },
+    { id: 'q-earn-daily-100', title: 'Earnings Sprint', description: 'Earn GHS 100 in net fares today for a bonus.', type: 'EARNINGS', target: 100, rewardAmount: 15.0, periodStart: startOfToday, periodEnd: endOfToday },
+    { id: 'q-rides-week-25', title: 'Weekly Warrior', description: 'Complete 25 trips this week to unlock a reward.', type: 'RIDES_COUNT', target: 25, rewardAmount: 40.0, periodStart: startOfToday, periodEnd: endOfWeek },
+    { id: 'q-earn-week-500', title: 'Weekly Champion', description: 'Earn GHS 500 in net fares this week.', type: 'EARNINGS', target: 500, rewardAmount: 60.0, periodStart: startOfToday, periodEnd: endOfWeek },
+  ];
+
+  for (const q of questData) {
+    await prisma.driverQuest.upsert({
+      where: { id: q.id },
+      update: { title: q.title, description: q.description, type: q.type, target: q.target, rewardAmount: q.rewardAmount, periodStart: q.periodStart, periodEnd: q.periodEnd, isActive: true },
+      create: { ...q, isActive: true },
+    });
+  }
+
+  logger.info(`Quest regeneration: refreshed ${questData.length} standard quests for current period`);
+  return questData.length;
+}
+
+module.exports = { listActiveQuestsForDriver, listQuestHistoryForDriver, incrementProgress, regenerateStandardQuests };

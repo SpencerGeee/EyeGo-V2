@@ -21,6 +21,16 @@ module.exports = ({ config }) => {
   const googleServicesInfoPath = path.join(__dirname, 'GoogleService-Info.plist');
   const hasGoogleServicesInfo = fs.existsSync(googleServicesInfoPath);
 
+  // ── iOS Live Activity (ActivityKit) ───────────────────────────────────────
+  // Apple Team ID is required by @bacons/apple-targets to sign the widget
+  // extension target it generates. Find yours at
+  // https://developer.apple.com/account → Membership details, or in Xcode
+  // under Signing & Capabilities once you've opened the project once.
+  // Safe to leave unset for now — `expo prebuild` still succeeds, you'll
+  // just need to set the team manually in Xcode before the extension will
+  // codesign for a physical-device build.
+  const appleTeamId = process.env.EXPO_APPLE_TEAM_ID;
+
   return {
     ...baseConfig.expo,
     android: {
@@ -30,6 +40,24 @@ module.exports = ({ config }) => {
     ios: {
       ...baseConfig.expo.ios,
       ...(hasGoogleServicesInfo ? { googleServicesFile: './GoogleService-Info.plist' } : {}),
+      ...(appleTeamId ? { appleTeamId } : {}),
+      infoPlist: {
+        ...baseConfig.expo.ios.infoPlist,
+        // Required for ActivityKit — without this the app cannot start any
+        // Live Activity, even from the widget extension target itself.
+        NSSupportsLiveActivities: true,
+        // Opt in to more frequent background pushed updates (still subject
+        // to Apple's budget — see live-activity-push.service.js comments).
+        NSSupportsLiveActivitiesFrequentUpdates: true,
+      },
     },
+    plugins: [
+      ...baseConfig.expo.plugins,
+      // Injects the EyeGoLiveActivity widget-extension Xcode target from
+      // apps/rider/targets/live-activity/ during `expo prebuild`. Runs in
+      // EAS Build's cloud prebuild too — no local Xcode required to SHIP
+      // this, only to iterate on the SwiftUI views or run on a device.
+      '@bacons/apple-targets',
+    ],
   };
 };

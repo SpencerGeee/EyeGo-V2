@@ -8,7 +8,7 @@ const smsService = require('../../services/sms.service');
 const pushService = require('../../services/push.service');
 const { NotFoundError, AppError, InsufficientWalletError, ForbiddenError } = require('../../utils/errors');
 const { isWithinGhana } = require('../../services/mapbox.service');
-const { generateTripReceipt } = require('../cancellation/cancellation.service');
+const { generateTripReceipt, refundBookingForDriverCancellation } = require('../cancellation/cancellation.service');
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { estimateFare, calculateFare } = require('../trips/fare.calculator');
@@ -111,12 +111,59 @@ async function goOnline(driverId, lat, lng) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
   if (driver.status !== 'ACTIVE') throw new ForbiddenError('Your account must be approved before going online');
+
+  // Document verification gating — previously goOnline() never checked this despite
+  // the app's own copy claiming unverified documents block "full trip access."
+  if (env.NODE_ENV !== 'development') {
+    const docs = await getDocuments(driverId);
+    const required = docs.filter((d) => d.type === 'DRIVERS_LICENSE' || d.type === 'GHANA_CARD');
+    const notVerified = required.find((d) => d.status !== 'VERIFIED');
+    if (notVerified) {
+      throw new AppError(
+        `Your ${notVerified.type === 'GHANA_CARD' ? 'Ghana Card' : 'driver\'s license'} must be verified before you can go online.`,
+        403,
+        'DOCUMENTS_NOT_VERIFIED',
+      );
+    }
+  }
+
   if (driver.walletBalance < 0) {
     throw new AppError(
       `Account suspended — GHS ${Math.abs(driver.walletBalance).toFixed(2)} outstanding. Top up your wallet to go back online.`,
       402,
       'NEGATIVE_WALLET_BALANCE'
     );
+  }
+
+  // Rating & acceptance-rate enforcement — the driver terms screen warns that a
+  // pattern of low ratings/declines "may affect your driver level or trigger a
+  // review," but nothing previously enforced it. Mirror the document/wallet gates
+  // above: block going online (rather than silently suspending) once a driver has
+  // enough history to judge fairly.
+  if (env.NODE_ENV !== 'development') {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [ratingAgg, accepted, declined] = await Promise.all([
+      prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: { stars: true } }),
+      prisma.dispatchAction.count({ where: { driverId, action: 'ACCEPTED', createdAt: { gte: thirtyDaysAgo } } }),
+      prisma.dispatchAction.count({ where: { driverId, action: 'DECLINED', createdAt: { gte: thirtyDaysAgo } } }),
+    ]);
+
+    if (ratingAgg._count.stars >= 5 && (ratingAgg._avg.stars ?? 5) < 3.5) {
+      throw new AppError(
+        'Your rating has fallen below the minimum required to accept trips. Contact support to appeal.',
+        403,
+        'RATING_TOO_LOW',
+      );
+    }
+
+    const totalDispatches = accepted + declined;
+    if (totalDispatches >= 10 && accepted / totalDispatches < 0.3) {
+      throw new AppError(
+        'Your acceptance rate is too low to go online. Accept more of your dispatched trips to restore access.',
+        403,
+        'ACCEPTANCE_RATE_TOO_LOW',
+      );
+    }
   }
 
   if (lat && lng && !isWithinGhana(lat, lng) && env.NODE_ENV !== 'development') {
@@ -162,7 +209,7 @@ async function getActiveTrip(driverId) {
   const trip = await prisma.trip.findFirst({
     where: {
       driverId,
-      status: { in: ['SCHEDULED', 'CONFIRMED', 'DRIVER_EN_ROUTE', 'IN_PROGRESS', 'FILLING'] },
+      status: { in: ['SCHEDULED', 'CONFIRMED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'FILLING'] },
     },
     include: {
       route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
@@ -365,14 +412,25 @@ async function uploadDocument(driverId, file, type) {
   const fieldMap = {
     DRIVERS_LICENSE: 'licensePhoto',
     PROFILE_PHOTO: 'profilePhoto',
+    GHANA_CARD: 'ghanaCardPhoto',
   };
 
   const field = fieldMap[type];
   if (field) {
-    await prisma.driver.update({ where: { id: driverId }, data: { [field]: url } });
+    // New/re-uploaded documents go to PENDING review, not straight to VERIFIED —
+    // previously any photo present flipped status to VERIFIED with zero human review.
+    const current = await prisma.driver.findUnique({ where: { id: driverId }, select: { documentReview: true } });
+    let review = {};
+    try { review = current?.documentReview ? JSON.parse(current.documentReview) : {}; } catch { /* reset on malformed data */ }
+    review[type] = { status: 'PENDING', reviewedAt: null, rejectionReason: null };
+
+    await prisma.driver.update({
+      where: { id: driverId },
+      data: { [field]: url, documentReview: JSON.stringify(review) },
+    });
   }
 
-  return { url, type };
+  return { url, type, status: 'PENDING' };
 }
 
 async function startTrip(driverId, tripId) {
@@ -515,13 +573,13 @@ async function arriveTrip(driverId, tripId) {
       const completedTrip = result.trip;
       const bookings = await prisma.booking.findMany({
         where: { tripId, status: 'COMPLETED' },
-        include: { user: { select: { fcmToken: true } } },
+        include: { user: { select: { fcmToken: true, notificationPrefs: true } } },
       });
       const originName = completedTrip.route?.originName ?? 'your stop';
       await Promise.all(
         bookings.map(b => {
           if (!b.user?.fcmToken) return null;
-          return pushService.notifications.driverArrived(b.user.fcmToken, originName);
+          return pushService.notifications.driverArrived(b.user.fcmToken, originName, b.user.notificationPrefs);
         }),
       );
     } catch (_) {}
@@ -712,21 +770,48 @@ async function boardPassenger(driverId, tripId, bookingId) {
   return prisma.booking.update({ where: { id: bookingId }, data: { status: 'BOARDED' } });
 }
 
-async function cancelTrip(driverId, tripId) {
+async function cancelTrip(driverId, tripId, { reason, note } = {}) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
   if (['COMPLETED', 'CANCELLED'].includes(trip.status)) {
     throw new AppError('Trip cannot be cancelled in its current state', 400, 'INVALID_STATUS');
   }
-  await prisma.booking.updateMany({
-    where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
-    data: { status: 'CANCELLED', seatNumber: null },
+
+  const updatedTrip = await prisma.$transaction(async (tx) => {
+    const bookingsToCancel = await tx.booking.findMany({
+      where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+    });
+
+    for (const booking of bookingsToCancel) {
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: 'CANCELLED',
+          seatNumber: null,
+          cancelledAt: new Date(),
+          cancellationReason: reason || 'DRIVER_CANCELLED',
+        },
+      });
+      // Rider isn't at fault when the driver cancels — always a full refund, no fee.
+      if (booking.paymentStatus === 'PAID') {
+        await refundBookingForDriverCancellation(
+          tx,
+          booking,
+          reason ? `Driver cancelled trip: ${reason}` : 'Driver cancelled trip',
+        );
+      }
+    }
+
+    return tx.trip.update({
+      where: { id: tripId },
+      data: { status: 'CANCELLED' },
+      include: { route: true },
+    });
   });
-  return prisma.trip.update({
-    where: { id: tripId },
-    data: { status: 'CANCELLED' },
-    include: { route: true },
-  });
+
+  logger.info('Driver cancelled trip', { driverId, tripId, reason, note });
+
+  return updatedTrip;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -776,7 +861,7 @@ module.exports = {
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
-  getTripById, acceptDispatch, declineDispatch, uploadDocument,
+  getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
@@ -897,11 +982,24 @@ async function getPerformance(driverId) {
   };
 }
 
+// Canonical compliment tags the rider app lets riders attach to a rating
+// (apps/rider/app/ride/[id]/rate-tip.tsx). They're sent as a comma-joined
+// prefix on the free-text comment (e.g. "Punctual, Friendly — great driver!"),
+// so we count real occurrences here instead of returning made-up numbers.
+const COMPLIMENT_TAGS = [
+  { label: 'Punctual', icon: 'time-outline' },
+  { label: 'Safe Driver', icon: 'shield-checkmark-outline' },
+  { label: 'Clean Vehicle', icon: 'sparkles-outline' },
+  { label: 'Friendly', icon: 'happy-outline' },
+  { label: 'Helpful', icon: 'heart-outline' },
+  { label: 'Smooth Ride', icon: 'car-sport-outline' },
+];
+
 // ── Ratings ────────────────────────────────────────────────────────
 async function getRatings(driverId) {
   const [aggregate, allRatings, recent] = await Promise.all([
     prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: true }),
-    prisma.driverRating.findMany({ where: { driverId }, select: { stars: true } }),
+    prisma.driverRating.findMany({ where: { driverId }, select: { stars: true, comment: true } }),
     prisma.driverRating.findMany({
       where: { driverId },
       orderBy: { createdAt: 'desc' },
@@ -920,19 +1018,22 @@ async function getRatings(driverId) {
     };
   });
 
+  // Real compliment counts — how many ratings' comment text mentions each tag.
+  const compliments = COMPLIMENT_TAGS.map(({ label, icon }) => ({
+    label,
+    icon,
+    count: allRatings.filter((r) => r.comment?.includes(label)).length,
+  })).filter((c) => c.count > 0);
+
   return {
     average: aggregate._avg.stars ?? 5.0,
     total: aggregate._count,
     breakdown,
-    compliments: [
-      { label: 'Punctual', count: 12, icon: 'time-outline' },
-      { label: 'Clean Car', count: 8, icon: 'car-outline' },
-      { label: 'Safe Driving', count: 15, icon: 'shield-outline' },
-    ],
+    compliments,
     recent: recent.map((r) => ({
       tripId: r.tripId,
       stars: r.stars,
-      comment: undefined,
+      comment: r.comment || undefined,
       createdAt: r.createdAt.toISOString(),
     })),
   };
@@ -942,16 +1043,49 @@ async function getRatings(driverId) {
 async function getDocuments(driverId) {
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
-    select: { ghanaCardNumber: true, licensePhoto: true, profilePhoto: true },
+    select: { ghanaCardPhoto: true, licensePhoto: true, profilePhoto: true, documentReview: true },
   });
   if (!driver) throw new NotFoundError('Driver');
 
+  let review = {};
+  try { review = driver.documentReview ? JSON.parse(driver.documentReview) : {}; } catch { /* ignore malformed data */ }
+
+  const statusFor = (type, hasPhoto) => {
+    if (!hasPhoto) return 'MISSING';
+    // Grandfather photos uploaded before this review system existed — otherwise every
+    // already-active driver would be retroactively gated offline pending re-review.
+    // Only uploads made through the (now PENDING-by-default) upload flow have a
+    // review entry at all, so its absence here specifically means "predates review."
+    return review[type]?.status ?? 'VERIFIED';
+  };
+
   const docs = [
-    { id: 'license', type: 'DRIVERS_LICENSE', status: driver.licensePhoto ? 'VERIFIED' : 'MISSING', url: driver.licensePhoto ?? undefined },
-    { id: 'ghana_card', type: 'VEHICLE_REGISTRATION', status: driver.ghanaCardNumber ? 'VERIFIED' : 'MISSING' },
-    { id: 'profile', type: 'PROFILE_PHOTO', status: driver.profilePhoto ? 'VERIFIED' : 'MISSING', url: driver.profilePhoto ?? undefined },
+    { id: 'license', type: 'DRIVERS_LICENSE', status: statusFor('DRIVERS_LICENSE', !!driver.licensePhoto), url: driver.licensePhoto ?? undefined, rejectionReason: review.DRIVERS_LICENSE?.rejectionReason ?? undefined },
+    { id: 'ghana_card', type: 'GHANA_CARD', status: statusFor('GHANA_CARD', !!driver.ghanaCardPhoto), url: driver.ghanaCardPhoto ?? undefined, rejectionReason: review.GHANA_CARD?.rejectionReason ?? undefined },
+    { id: 'profile', type: 'PROFILE_PHOTO', status: statusFor('PROFILE_PHOTO', !!driver.profilePhoto), url: driver.profilePhoto ?? undefined, rejectionReason: review.PROFILE_PHOTO?.rejectionReason ?? undefined },
   ];
   return docs;
+}
+
+/**
+ * Admin approve/reject a specific driver document. Previously there was no
+ * per-document review path at all — status was a binary present→VERIFIED.
+ */
+async function reviewDocument(driverId, type, { approve, rejectionReason } = {}) {
+  const driver = await prisma.driver.findUnique({ where: { id: driverId }, select: { documentReview: true } });
+  if (!driver) throw new NotFoundError('Driver');
+
+  let review = {};
+  try { review = driver.documentReview ? JSON.parse(driver.documentReview) : {}; } catch { /* reset on malformed data */ }
+
+  review[type] = {
+    status: approve ? 'VERIFIED' : 'REJECTED',
+    reviewedAt: new Date().toISOString(),
+    rejectionReason: approve ? null : (rejectionReason || 'Document rejected by review team'),
+  };
+
+  await prisma.driver.update({ where: { id: driverId }, data: { documentReview: JSON.stringify(review) } });
+  return review[type];
 }
 
 // ── Emergency contact ───────────────────────────────────────────────

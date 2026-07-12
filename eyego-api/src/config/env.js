@@ -30,6 +30,30 @@ const envSchema = z.object({
   MAPBOX_SECRET_TOKEN: z.string().min(1),
   MAPBOX_PUBLIC_TOKEN: z.string().optional(),
 
+  // ── APNs / iOS Live Activities (ActivityKit) — optional ────────────────
+  // Live Activity push updates go over a DIRECT connection to Apple's push
+  // gateway (api.push.apple.com), completely separate from Firebase/FCM.
+  // You need an APNs Auth Key (.p8), NOT the old certificate-based auth:
+  //   1. developer.apple.com → Certificates, Identifiers & Profiles → Keys
+  //   2. Create a new key with the "Apple Push Notifications service (APNs)"
+  //      capability enabled. Download the .p8 file ONCE (Apple won't re-issue it).
+  //   3. Note the Key ID (shown on the key's page) and your Team ID
+  //      (top-right of the Apple Developer account page).
+  // Paste the .p8 contents (including the BEGIN/END lines) into
+  // APNS_AUTH_KEY, escaping newlines as \n — same convention as
+  // FIREBASE_PRIVATE_KEY above.
+  APNS_AUTH_KEY: z.string().optional(),
+  APNS_KEY_ID: z.string().optional(),
+  APNS_TEAM_ID: z.string().optional(),
+  // Bundle ID of the WIDGET EXTENSION target (main app id + suffix), e.g.
+  // "com.eyego.rider.LiveActivity" — this is what apple-targets names the
+  // target it generates under apps/rider/targets/live-activity.
+  APNS_LIVE_ACTIVITY_TOPIC: z.string().optional(),
+  // 'production' hits api.push.apple.com, 'sandbox' hits api.sandbox.push.apple.com
+  // (Xcode debug builds register sandbox tokens; TestFlight/App Store builds
+  // register production tokens).
+  APNS_ENVIRONMENT: z.enum(['production', 'sandbox']).default('sandbox'),
+
   CLOUDINARY_CLOUD_NAME: z.string().min(1),
   CLOUDINARY_API_KEY: z.string().min(1),
   CLOUDINARY_API_SECRET: z.string().min(1),

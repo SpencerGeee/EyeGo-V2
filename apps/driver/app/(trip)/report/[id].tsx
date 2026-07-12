@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -88,6 +88,11 @@ export default function ReportPassengerScreen() {
         </Pressable>
       </Entrance>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      >
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Entrance animation="slideUp" delay={40}>
           <Text variant="headlineLarge" style={styles.headline}>Report Passenger</Text>
@@ -149,6 +154,7 @@ export default function ReportPassengerScreen() {
           />
         </Entrance>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

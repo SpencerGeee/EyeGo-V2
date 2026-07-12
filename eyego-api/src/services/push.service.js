@@ -116,19 +116,40 @@ async function sendMulticastPush(fcmTokens, title, body, data = {}) {
   }
 }
 
+// Rider-controllable categories (apps/rider/app/profile/notification-preferences.tsx)
+// stored as a JSON blob on User.notificationPrefs. Explicit `false` opts out; any
+// other value (including a category that's never been touched) defaults to on.
+function prefAllows(notificationPrefs, category) {
+  if (!notificationPrefs) return true;
+  try {
+    const prefs = typeof notificationPrefs === 'string' ? JSON.parse(notificationPrefs) : notificationPrefs;
+    return prefs[category] !== false;
+  } catch {
+    return true; // malformed prefs blob — fail open rather than silently drop notifications
+  }
+}
+
 // Convenience wrappers for specific events
 const notifications = {
-  rideConfirmed: (token, route, departureTime) =>
-    sendPush(token, 'Your EyeGo is confirmed!', `Departing at ${departureTime} from ${route}`, { type: 'RIDE_CONFIRMED' }),
+  rideConfirmed: (token, route, departureTime, notificationPrefs) =>
+    prefAllows(notificationPrefs, 'paymentConfirmations')
+      ? sendPush(token, 'Your EyeGo is confirmed!', `Departing at ${departureTime} from ${route}`, { type: 'RIDE_CONFIRMED' })
+      : null,
 
-  driverEnRoute: (token, driverName, etaMinutes) =>
-    sendPush(token, 'Driver is on the way', `${driverName} is ${etaMinutes} min away`, { type: 'DRIVER_EN_ROUTE' }),
+  driverEnRoute: (token, driverName, etaMinutes, notificationPrefs) =>
+    prefAllows(notificationPrefs, 'driverArriving')
+      ? sendPush(token, 'Driver is on the way', `${driverName} is ${etaMinutes} min away`, { type: 'DRIVER_EN_ROUTE' })
+      : null,
 
-  driverArrived: (token, stopName) =>
-    sendPush(token, 'EyeGo is here!', `Your van is waiting at ${stopName}`, { type: 'DRIVER_ARRIVED' }),
+  driverArrived: (token, stopName, notificationPrefs) =>
+    prefAllows(notificationPrefs, 'driverArriving')
+      ? sendPush(token, 'EyeGo is here!', `Your van is waiting at ${stopName}`, { type: 'DRIVER_ARRIVED' })
+      : null,
 
-  rideComplete: (token, savedAmount) =>
-    sendPush(token, 'Ride complete', `Rate your trip. You saved GHS ${savedAmount} vs a private ride.`, { type: 'RIDE_COMPLETE' }),
+  rideComplete: (token, savedAmount, notificationPrefs) =>
+    prefAllows(notificationPrefs, 'tripCompleted')
+      ? sendPush(token, 'Ride complete', `Rate your trip. You saved GHS ${savedAmount} vs a private ride.`, { type: 'RIDE_COMPLETE' })
+      : null,
 
   passengerJoined: (token, passengerName, seatNumber) =>
     sendPush(token, 'Someone joined your EyeGo', `${passengerName} just booked seat #${seatNumber}`, { type: 'PASSENGER_JOINED' }),

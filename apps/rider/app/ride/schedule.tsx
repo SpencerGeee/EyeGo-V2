@@ -97,7 +97,7 @@ export default function ScheduleRideScreen() {
       }),
     onSuccess: () => {
       if (!mountedRef.current) return;
-      router.replace('/(tabs)/activity' as any);
+      router.replace('/scheduled-rides' as any);
     },
     onError: (err: any) => {
       Alert.alert('Scheduling Failed', err?.message || 'Could not schedule your ride. Please try again.');

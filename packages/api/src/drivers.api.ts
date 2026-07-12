@@ -179,8 +179,8 @@ export const driverApi = {
     apiClient.post<ApiResponse<{ boarded: boolean }>>(`/driver/trips/${tripId}/board/${bookingId}`),
 
   // Cancel a self-created trip (only allowed before COMPLETED/CANCELLED)
-  cancelTrip: (tripId: string) =>
-    apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/cancel`),
+  cancelTrip: (tripId: string, reason?: string, note?: string) =>
+    apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/cancel`, { reason, note }),
 
   // Admin dispatch — accept or decline an assigned trip
   acceptDispatch: (tripId: string) =>
@@ -188,6 +188,10 @@ export const driverApi = {
 
   declineDispatch: (tripId: string, reason?: string) =>
     apiClient.post<ApiResponse<{ declined: boolean }>>(`/driver/trips/${tripId}/decline`, { reason }),
+
+  // On-demand trip requests — first driver to accept becomes the owning driver
+  acceptTripRequest: (requestId: string) =>
+    apiClient.post<ApiResponse<{ trip: DriverTrip }>>(`/driver/trip-requests/${requestId}/accept`),
 
   // Push notifications — register/update FCM device token.
   // Backend validates body('fcmToken') (drivers.routes.js) — sending { token }
@@ -216,6 +220,11 @@ export const driverApi = {
   // Emergency contact
   updateEmergencyContact: (data: { name: string; phone: string; relationship: string }) =>
     apiClient.patch<ApiResponse<void>>('/driver/emergency-contact', data),
+
+  // SOS — creates a real SosEvent, notifies admin + trip riders, and SMS's the
+  // driver's saved emergency contact (not just a bare `tel:191` dialer call).
+  emergencyAlert: (tripId: string, data: { latitude?: number; longitude?: number; timestamp?: string }) =>
+    apiClient.post<ApiResponse<{ alertReceived: boolean }>>(`/driver/trips/${tripId}/emergency`, data),
 
   // App preferences — navigation app choice
   updatePreferences: (data: { navigationApp?: 'google_maps' | 'waze' | 'apple_maps' }) =>

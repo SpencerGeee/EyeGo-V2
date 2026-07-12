@@ -4,8 +4,8 @@ const paymentsService = require('./payments.service');
 const { ok } = require('../../utils/response');
 
 const initiatePayment = async (req, res) => {
-  const { bookingId, phone } = req.body;
-  const result = await paymentsService.initiatePayment({ userId: req.user.userId, bookingId, phone });
+  const { bookingId, phone, savedCardId } = req.body;
+  const result = await paymentsService.initiatePayment({ userId: req.user.userId, bookingId, phone, savedCardId });
   const message =
     result.method === 'CASH'
       ? 'Booking confirmed. Pay your driver in cash on boarding.'

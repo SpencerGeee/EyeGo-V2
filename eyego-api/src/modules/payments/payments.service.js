@@ -17,7 +17,7 @@ const MOMO_METHODS = ['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO'];
 //   • Card  → Paystack hosted checkout; client opens authorizationUrl → PENDING
 //   • Wallet→ synchronous balance debit inside confirmPayment → SUCCESS
 //   • Cash  → no gateway; seat confirmed now, rider pays driver on board → SUCCESS
-async function initiatePayment({ userId, bookingId, phone }) {
+async function initiatePayment({ userId, bookingId, phone, savedCardId }) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { trip: { include: { route: true } }, user: true },
@@ -78,6 +78,20 @@ async function initiatePayment({ userId, bookingId, phone }) {
         reference,
         metadata,
       });
+    } else if (method === 'CARD' && savedCardId) {
+      // One-tap repeat charge: reuse a previously-saved card's authorization code
+      // instead of forcing a fresh hosted checkout every time.
+      const savedCard = await prisma.savedCard.findUnique({ where: { id: savedCardId } });
+      if (!savedCard || savedCard.userId !== userId) {
+        throw new AppError('Saved card not found', 404, 'CARD_NOT_FOUND');
+      }
+      result = await paystack.initiateCardCharge({
+        email,
+        amount: booking.fareAmount,
+        authorizationCode: savedCard.authorizationCode,
+        reference,
+        metadata,
+      });
     } else if (method === 'CARD') {
       result = await paystack.initializeCheckout({
         email,
@@ -97,6 +111,7 @@ async function initiatePayment({ userId, bookingId, phone }) {
     await prisma.paymentTransaction.create({
       data: {
         bookingId,
+        userId: booking.userId,
         amount: booking.fareAmount,
         status: 'INTENT',
         paystackRef: reference,
@@ -216,6 +231,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
       await tx.paymentTransaction.create({
         data: {
           bookingId,
+          userId: booking.userId,
           amount: booking.fareAmount,
           status: 'REFUNDED',
           paystackRef: reference,
@@ -252,6 +268,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     await tx.paymentTransaction.create({
       data: {
         bookingId,
+        userId: booking.userId,
         amount: booking.fareAmount,
         status: cashOnBoard ? 'PENDING' : 'SUCCESS',
         paystackRef: reference,
@@ -287,8 +304,73 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     // Send driver earnings to wallet (credited when trip completes, not now)
     logger.info('Payment confirmed', { bookingId, reference });
 
-    return booking;
+    return { ...booking, _justConfirmed: true };
+  }).then((result) => {
+    if (result?._justConfirmed) {
+      notifyEmergencyContactIfShareTripEnabled(bookingId).catch(() => {});
+      notifyRideConfirmed(bookingId).catch(() => {});
+    }
+    return result;
   });
+}
+
+// notifications.rideConfirmed / notifications.passengerJoined were defined in
+// push.service.js but never called from anywhere — booking a seat produced no
+// confirmation push to the rider and no "someone joined" push to the driver.
+async function notifyRideConfirmed(bookingId) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      user: { select: { fcmToken: true, name: true, notificationPrefs: true } },
+      trip: { include: { route: true, driver: { select: { fcmToken: true } } } },
+    },
+  });
+  if (!booking) return;
+
+  if (booking.user?.fcmToken) {
+    const route = booking.trip?.route
+      ? `${booking.trip.route.originName} → ${booking.trip.route.destinationName}`
+      : 'your trip';
+    const departure = booking.trip?.departureTime
+      ? new Date(booking.trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
+      : '';
+    await pushService.notifications.rideConfirmed(booking.user.fcmToken, route, departure, booking.user.notificationPrefs).catch(() => {});
+  }
+
+  if (booking.trip?.driver?.fcmToken) {
+    await pushService.notifications.passengerJoined(
+      booking.trip.driver.fcmToken,
+      booking.user?.name || booking.guestName || 'A passenger',
+      booking.seatNumber ?? 0,
+    ).catch(() => {});
+  }
+}
+
+// "Share Trip Status" safety setting (profile/safety.tsx): when enabled, SMS the
+// rider's default emergency contact a tracking link as soon as their trip is
+// confirmed — previously this toggle persisted but nothing ever read it.
+async function notifyEmergencyContactIfShareTripEnabled(bookingId) {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { user: { include: { emergencyContacts: true } }, trip: { include: { route: true } } },
+  });
+  if (!booking?.user) return;
+
+  let safetySettings = {};
+  try {
+    safetySettings = booking.user.safetySettings ? JSON.parse(booking.user.safetySettings) : {};
+  } catch { /* ignore malformed settings */ }
+  if (!safetySettings.shareTrip) return;
+
+  const contact = booking.user.emergencyContacts?.[0];
+  if (!contact?.phone) return;
+
+  const smsService = require('../../services/sms.service');
+  const trackingLink = `https://eyego.app/track/${booking.trip?.shortId ?? booking.tripId}`;
+  await smsService.sendSms(
+    contact.phone,
+    `${booking.user.name || 'Your contact'} started an EyeGo trip to ${booking.trip?.route?.destinationName ?? 'their destination'}. Track live: ${trackingLink}`,
+  ).catch(() => {});
 }
 
 async function handleWebhook(rawBody, signature) {

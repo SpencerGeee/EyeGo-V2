@@ -120,7 +120,10 @@ model Driver {
   name            String
   profilePhoto    String?
   ghanaCardNumber String?
+  ghanaCardPhoto  String?
   licensePhoto    String?
+  // JSON: { DRIVERS_LICENSE?: { status: 'PENDING'|'VERIFIED'|'REJECTED', rejectionReason?, reviewedAt? }, GHANA_CARD?: {...}, PROFILE_PHOTO?: {...} }
+  documentReview  String?
   dateOfBirth     String?
   status          String @default("PENDING_REVIEW")
   rejectionReason String?
@@ -308,6 +311,13 @@ model Booking {
   pickupStopId        String?
   pickupStop          VirtualStop?  @relation(fields: [pickupStopId], references: [id])
   enRouteRatio        Float?
+  // ── iOS Live Activity (ActivityKit) ──────────────────────────────────
+  // Populated once the native Activity.pushTokenUpdates stream on the
+  // rider's device yields a token — see POST /v1/trips/:id/live-activity-token.
+  // Cleared when the activity ends (trip completes/cancels) so a stale
+  // token can never be pushed to for a dead activity.
+  liveActivityId        String?
+  liveActivityPushToken String?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
@@ -390,8 +400,9 @@ model DriverReceipt {
 
 model PaymentTransaction {
   id              String   @id @default(cuid())
-  bookingId       String
-  booking         Booking  @relation(fields: [bookingId], references: [id])
+  bookingId       String?
+  booking         Booking? @relation(fields: [bookingId], references: [id])
+  userId          String?
   amount          Float
   currency        String   @default("GHS")
   status          String
@@ -401,6 +412,7 @@ model PaymentTransaction {
 
   @@index([bookingId])
   @@index([paystackRef])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────
@@ -489,6 +501,9 @@ model TripRequest {
   seatCount   Int      @default(1)
   pickupLat   Float?
   pickupLng   Float?
+  destLat     Float?
+  destLng     Float?
+  matchedTripId String?
   status      String   @default("PENDING") // PENDING | DISPATCHED | ACCEPTED | EXPIRED | CANCELLED
   groupId     String?  // shared across grouped requests heading to same destination/time
   createdAt   DateTime @default(now())
@@ -651,6 +666,7 @@ model DriverRating {
   user     User     @relation("UserRatings", fields: [userId], references: [id])
   tripId   String
   stars    Int
+  comment  String?
   createdAt DateTime @default(now())
 
   @@unique([userId, tripId])

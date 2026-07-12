@@ -3,6 +3,7 @@
 const { Router } = require('express');
 const { v4: uuidv4 } = require('uuid');
 const authenticate = require('../../middleware/auth');
+const idempotency = require('../../middleware/idempotency');
 const { ok } = require('../../utils/response');
 const prisma = require('../../config/database');
 const paystack = require('../payments/paystack.client');
@@ -75,7 +76,7 @@ router.get('/transactions', async (req, res) => {
   });
 });
 
-router.post('/topup', async (req, res) => {
+router.post('/topup', idempotency, async (req, res) => {
   const { amount, method, momoPhone, email } = req.body;
 
   if (!amount || amount <= 0) {
@@ -93,6 +94,7 @@ router.post('/topup', async (req, res) => {
   await prisma.paymentTransaction.create({
     data: {
       bookingId: null,
+      userId: req.user.userId,
       amount: Number(amount),
       status: 'INTENT',
       paystackRef: reference,

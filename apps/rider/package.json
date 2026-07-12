@@ -9,9 +9,12 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@bacons/apple-targets": "^4.0.7",
     "@callstack/liquid-glass": "^0.8.0",
     "@expo-google-fonts/geist": "^0.4.2",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@maplibre/maplibre-react-native": "^11.3.2",
+    "eyego-live-activity": "file:./modules/eyego-live-activity",
     "@eyego/api": "*",
     "@eyego/config": "*",
     "@eyego/map-styles": "*",
@@ -60,7 +63,6 @@
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
     "react-native-keyboard-controller": "^1.18.5",
-    "react-native-maps": "1.20.1",
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",

@@ -3,9 +3,10 @@
 const redis = require('../config/redis');
 const prisma = require('../config/database');
 const { isWithinGhana, getDirections } = require('../services/mapbox.service');
-const { completeTrip } = require('../modules/trips/trips.service');
+const { completeTrip, clearLiveActivityToken } = require('../modules/trips/trips.service');
 const pubSub = require('../graphql/pubsub');
 const { notifications: pushNotifications, sendMulticastPush, sendPush } = require('../services/push.service');
+const liveActivityPush = require('../services/live-activity-push.service');
 const { haversineMeters, distanceToPolyline } = require('../utils/geo');
 const logger = require('../utils/logger');
 const env = require('../config/env');
@@ -13,6 +14,73 @@ const env = require('../config/env');
 const LOCATION_UPDATE_CHANNEL = (driverId) => `driver:${driverId}:location`;
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
 const ETA_FALLBACK_SPEED_KPH = parseInt(process.env.ETA_FALLBACK_SPEED_KPH) || 30;
+
+// ── iOS Live Activity (ActivityKit) push fan-out ─────────────────────────
+// Separate channel from the FCM-based pushNotifications above — these go
+// straight to APNs via live-activity-push.service.js. Every rider with an
+// active booking on the trip AND a registered liveActivityPushToken gets
+// pushed; riders who never started a Live Activity (e.g. Android, or an iOS
+// rider who denied the permission) simply have no token and are skipped.
+const LIVE_ACTIVITY_STATUS_TEXT = {
+  DRIVER_EN_ROUTE: 'Driver is on the way',
+  IN_PROGRESS: 'Trip in progress',
+  COMPLETED: 'You have arrived',
+  CANCELLED: 'Trip cancelled',
+};
+
+async function pushLiveActivityUpdate(tripId, { status, etaMinutes, distanceKm, driverLat, driverLng } = {}) {
+  try {
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        status: true,
+        bookings: {
+          where: { liveActivityPushToken: { not: null }, status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] } },
+          select: { id: true, liveActivityPushToken: true },
+        },
+      },
+    });
+    if (!trip || !trip.bookings.length) return;
+
+    const resolvedStatus = status || trip.status;
+    const contentState = {
+      status: resolvedStatus,
+      statusText: LIVE_ACTIVITY_STATUS_TEXT[resolvedStatus] || resolvedStatus,
+      etaMinutes: etaMinutes ?? null,
+      distanceKm: distanceKm ?? null,
+      driverLat: driverLat ?? null,
+      driverLng: driverLng ?? null,
+      updatedAt: Date.now(),
+    };
+
+    await Promise.all(
+      trip.bookings.map((b) => liveActivityPush.pushUpdate(b.liveActivityPushToken, contentState))
+    );
+  } catch (err) {
+    logger.debug('[DriverSocket] Live Activity push update failed (non-blocking):', err?.message ?? err);
+  }
+}
+
+async function endLiveActivityForTrip(tripId, finalStatus) {
+  try {
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { bookings: { where: { liveActivityPushToken: { not: null } }, select: { id: true, liveActivityPushToken: true } } },
+    });
+    if (!trip || !trip.bookings.length) return;
+
+    const contentState = { status: finalStatus, statusText: LIVE_ACTIVITY_STATUS_TEXT[finalStatus] || finalStatus, updatedAt: Date.now() };
+
+    await Promise.all(
+      trip.bookings.map(async (b) => {
+        await liveActivityPush.pushEnd(b.liveActivityPushToken, contentState);
+        await clearLiveActivityToken(b.id);
+      })
+    );
+  } catch (err) {
+    logger.debug('[DriverSocket] Live Activity end push failed (non-blocking):', err?.message ?? err);
+  }
+}
 
 // ── ETA throttle config ────────────────────────────────────────────────────────
 const ETA_INTERVAL_MS = 10_000;   // minimum ms between ETA calculations per driver
@@ -220,6 +288,16 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
               .to(TRIP_ROOM(tripId))
               .emit('trip:eta', etaPayload);
 
+            // Live Activity update — fire-and-forget, throttled by the same
+            // ETA_INTERVAL_MS/ETA_DISTANCE_M gate as the socket emit above
+            // (~1 push per 10s or 50m), well inside Apple's rate limits.
+            pushLiveActivityUpdate(tripId, {
+              etaMinutes: etaPayload.etaMinutes,
+              distanceKm: etaPayload.distanceKm,
+              driverLat: lat,
+              driverLng: lng,
+            });
+
             etaCache.set(driverId, {
               tripId, destLat, destLng,
               lastCalcAt: now,
@@ -345,6 +423,7 @@ function emitSafetyCheck(io, tripId, reason) {
         driverLng: null,
         updatedAt: new Date().toISOString(),
       });
+      pushLiveActivityUpdate(tripId, { status: 'DRIVER_EN_ROUTE' });
     });
 
     socket.on('driver:trip_departed', async ({ tripId }) => {
@@ -359,9 +438,23 @@ function emitSafetyCheck(io, tripId, reason) {
         driverLng: null,
         updatedAt: new Date().toISOString(),
       });
+      pushLiveActivityUpdate(tripId, { status: 'IN_PROGRESS' });
     });
 
     socket.on('driver:arrived', async ({ tripId }) => {
+      // Ownership check — without this, any authenticated driver socket could complete
+      // ANY trip by id (wrong wallet credited, trip state corrupted for its real driver).
+      try {
+        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
+        if (!owns) {
+          logger.warn(`driver:arrived rejected — driver ${driverId} does not own trip ${tripId}`);
+          return;
+        }
+      } catch (err) {
+        logger.error('Failed to verify trip ownership for driver:arrived:', err);
+        return;
+      }
+
       // Persist trip + booking completion in DB so rider Past tab and trip count update
       try {
         await completeTrip(tripId);
@@ -376,6 +469,7 @@ function emitSafetyCheck(io, tripId, reason) {
         tripId,
         status: 'COMPLETED',
       });
+      endLiveActivityForTrip(tripId, 'COMPLETED');
     });
 
     // ── Typing indicators ────────────────────────────────────

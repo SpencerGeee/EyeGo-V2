@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking, Modal, FlatList } from 'react-native';
 import * as Contacts from 'expo-contacts';
+import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -28,6 +29,7 @@ export default function SafetyScreen() {
   const qc = useQueryClient();
   const driver = useDriverStore((s) => s.driver);
   const updateDriver = useDriverStore((s) => s.updateDriver);
+  const activeTripId = useDriverStore((s) => s.activeTripId);
 
   const existing = driver?.emergencyContact;
   const [name, setName] = useState(existing?.name ?? '');
@@ -119,7 +121,7 @@ export default function SafetyScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: colors.error }]}>Emergency SOS</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>
-              Calls 191 (Ghana Police) and shares your live location with your emergency contact.
+              Calls 191 (Ghana Police){activeTripId ? ' and shares your live location with your emergency contact' : ''}.
             </Text>
           </View>
           <Pressable
@@ -129,7 +131,25 @@ export default function SafetyScreen() {
               'This will call Ghana Police (191). Are you in immediate danger?',
               [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Call 191', style: 'destructive', onPress: () => Linking.openURL('tel:191') },
+                {
+                  text: 'Call 191',
+                  style: 'destructive',
+                  onPress: async () => {
+                    if (activeTripId) {
+                      try {
+                        const pos = await Location.getLastKnownPositionAsync();
+                        await driverApi.emergencyAlert(activeTripId, {
+                          latitude: pos?.coords.latitude,
+                          longitude: pos?.coords.longitude,
+                          timestamp: new Date().toISOString(),
+                        });
+                      } catch {
+                        // Never block the actual emergency call on this
+                      }
+                    }
+                    Linking.openURL('tel:191');
+                  },
+                },
               ]
             )}
           >

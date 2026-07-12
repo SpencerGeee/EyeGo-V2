@@ -51,8 +51,12 @@ router.post('/trips/:id/start', requireActiveDriver, controller.startTrip);
 router.post('/trips/:id/arrive-at-pickup', requireActiveDriver, controller.arriveAtPickup);
 router.post('/trips/:id/depart', requireActiveDriver, controller.departTrip);
 router.post('/trips/:id/arrive', requireActiveDriver, controller.arriveTrip);
+router.post('/trips/:id/emergency', controller.emergencyAlert);
 router.post('/trips/:id/accept', requireActiveDriver, controller.acceptDispatch);
 router.post('/trips/:id/decline', controller.declineDispatch);
+
+// On-demand trip requests (rider "Request a Trip" flow)
+router.post('/trip-requests/:id/accept', requireActiveDriver, controller.acceptTripRequest);
 
 // Offline passenger flow
 router.post(

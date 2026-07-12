@@ -60,7 +60,8 @@ export default function AddPassengerScreen() {
   const boardPassenger = useMutation({
     mutationFn: () => driverApi.boardPassenger(tripId, pendingBookingId!),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', tripId] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', tripId] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', tripId] });
       Alert.alert('Boarded!', 'Passenger has been boarded successfully.', [
         { text: 'OK', onPress: () => router.back() },
       ]);
@@ -70,7 +71,8 @@ export default function AddPassengerScreen() {
   const addCash = useMutation({
     mutationFn: () => driverApi.addCashPassenger(tripId, { seatNumber }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', tripId] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', tripId] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', tripId] });
       Alert.alert('Added!', 'Cash passenger has been added.', [
         { text: 'OK', onPress: () => router.back() },
       ]);

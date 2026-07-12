@@ -2,12 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import MapboxGL from '../../utils/mapbox';
+import mapStyles from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
 import { useColors, Colors } from '../../utils/useColors';
-
-const STADIA_DARK = 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json';
-const STADIA_LIGHT = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
 
 /**
  * The ONE persistent MapView for the whole trip surface. Mounted once by
@@ -41,7 +39,7 @@ function TripMapImpl() {
   return (
     <MapboxGL.MapView
       style={StyleSheet.absoluteFill}
-      styleURL={isDark ? STADIA_DARK : STADIA_LIGHT}
+      styleURL={isDark ? mapStyles.eyegoDarkStyle : mapStyles.eyegoLightStyle}
       compassEnabled={false}
       rotateEnabled={false}
       attributionEnabled={false}

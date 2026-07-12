@@ -63,6 +63,28 @@ const authenticateDriver = async (req, res, next) => {
 };
 
 /**
+ * Middleware for endpoints either a rider OR a driver may call (e.g. the
+ * call-relay feature, where either party can be the caller). Accepts both
+ * PASSENGER and DRIVER token roles.
+ */
+const authenticateAny = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new AuthError('No token provided');
+  }
+
+  const token = authHeader.split(' ')[1];
+  const decoded = await checkJwtBlacklist(token);
+
+  if (decoded.role !== 'PASSENGER' && decoded.role !== 'DRIVER') {
+    throw new AuthError('Invalid token role');
+  }
+
+  req.user = decoded;
+  next();
+};
+
+/**
  * Blacklist an access token until it naturally expires.
  * Call this on logout. No-op if Redis is unavailable.
  */
@@ -82,4 +104,5 @@ const blacklistToken = async (token) => {
 
 module.exports = authenticate;
 module.exports.authenticateDriver = authenticateDriver;
+module.exports.authenticateAny = authenticateAny;
 module.exports.blacklistToken = blacklistToken;

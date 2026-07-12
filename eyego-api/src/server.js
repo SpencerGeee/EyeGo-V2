@@ -98,6 +98,58 @@ async function start() {
     setImmediate(runIdempotencyCleanup);
     setInterval(runIdempotencyCleanup, 24 * 60 * 60 * 1000);
 
+    // ── Scheduled-ride dispatcher ────────────────────────────────────
+    // Converts ScheduledRideIntent rows into a real Booking (or a live on-demand
+    // dispatch request) as their scheduled time approaches. Previously nothing
+    // ever read this table after creation.
+    const tripsService = require('./modules/trips/trips.service');
+    const runScheduledRideDispatch = async () => {
+      try {
+        const { processed } = await tripsService.processScheduledRideIntents();
+        if (processed > 0) {
+          logger.info(`Scheduled ride dispatch: processed ${processed} due intent(s)`);
+        }
+      } catch (err) {
+        logger.warn('Scheduled ride dispatch sweep failed (non-blocking):', err.message);
+      }
+    };
+    setImmediate(runScheduledRideDispatch);
+    setInterval(runScheduledRideDispatch, 2 * 60 * 1000);
+
+    // ── Unanswered dispatch offer expiry ─────────────────────────────
+    // Admin's assignDriverToTrip sets a trip to FILLING with a driver-facing
+    // countdown, but nothing previously enforced that expiry server-side —
+    // an ignored offer left the trip stuck with a phantom driver assignment.
+    const adminService = require('./modules/admin/admin.service');
+    const runDispatchOfferExpiry = async () => {
+      try {
+        const reverted = await adminService.expireUnansweredDispatchOffers();
+        if (reverted > 0) {
+          logger.info(`Dispatch offer expiry: reverted ${reverted} unanswered offer(s)`);
+        }
+      } catch (err) {
+        logger.warn('Dispatch offer expiry sweep failed (non-blocking):', err.message);
+      }
+    };
+    setImmediate(runDispatchOfferExpiry);
+    setInterval(runDispatchOfferExpiry, 60 * 1000);
+
+    // ── Driver quest regeneration ────────────────────────────────────
+    // DriverQuest rows previously only came from a one-time seed script with
+    // hardcoded date windows — the Quests tab went permanently empty once those
+    // windows passed. Re-run the same upsert daily to keep today's/this week's
+    // quests current.
+    const questsService = require('./modules/quests/quests.service');
+    const runQuestRegeneration = async () => {
+      try {
+        await questsService.regenerateStandardQuests();
+      } catch (err) {
+        logger.warn('Quest regeneration failed (non-blocking):', err.message);
+      }
+    };
+    setImmediate(runQuestRegeneration);
+    setInterval(runQuestRegeneration, 24 * 60 * 60 * 1000);
+
     server.listen(env.PORT, () => {
       logger.info(`EyeGo API running on port ${env.PORT} (${env.NODE_ENV})`);
       logger.info(`Health: http://localhost:${env.PORT}/health`);

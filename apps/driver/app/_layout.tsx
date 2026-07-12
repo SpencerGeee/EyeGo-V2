@@ -236,8 +236,22 @@ export default function RootLayout() {
             expiresAt: data.expiresAt ?? '',
           },
         } as any);
-      } else if (type === 'DISPATCH_REQUEST' && tripId) {
-        router.push({ pathname: '/(trip)/dispatch/[id]', params: { id: tripId } } as any);
+      } else if (type === 'TRIP_REQUEST_DISPATCH' && data.requestId) {
+        // On-demand rider request — first driver to accept wins, unlike TRIP_ASSIGNED
+        // which is already owned by another driver.
+        router.push({
+          pathname: '/(trip)/dispatch/[id]',
+          params: {
+            id: data.requestId,
+            kind: 'REQUEST',
+            destination: data.destination ?? '',
+            departureTime: data.scheduledAt ?? '',
+          },
+        } as any);
+      } else if (type === 'DISPATCH_REQUEST') {
+        // Informational only — this trip already has an owning driver, so there's
+        // nothing here for another driver to accept. Just surface high-demand areas.
+        router.push('/(tabs)/home' as any);
       } else if (type === 'CHAT_MESSAGE' && tripId) {
         router.push({ pathname: '/(trip)/chat/[id]', params: { id: tripId } } as any);
       }

@@ -11,6 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import * as KeepAwake from 'expo-keep-awake';
+import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -63,7 +64,7 @@ export default function ActiveTripScreen() {
   const { addNotification } = useNotificationsStore();
 
   const { data: trip, isLoading } = useQuery({
-    queryKey: ['driver', 'trip', id],
+    queryKey: ['driver', 'trip', 'active', id],
     queryFn: () => driverApi.getActiveTrip(),
     select: (r) => r.data.data?.trip ?? null,
     refetchInterval: 8000,
@@ -93,12 +94,12 @@ export default function ActiveTripScreen() {
       if (data.tripId === id) {
         addNotification({ type: 'PAYMENT_CONFIRMED', title: 'Payment Confirmed', body: 'A passenger just completed their payment.', tripId: id });
         Alert.alert('Payment Confirmed', 'A passenger just completed their payment.');
-        qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       }
     });
 
     const unsubSeat = driverSocketEvents.onSeatUpdate((data) => {
-      if (data.tripId === id) qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+      if (data.tripId === id) qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
     });
 
     return () => { unsubPayment(); unsubSeat(); };
@@ -152,7 +153,7 @@ export default function ActiveTripScreen() {
       if (toStatus === 'DRIVER_EN_ROUTE') {
         driverSocketEvents.emitTripStarted(id);
         addNotification({ type: 'DRIVER_EN_ROUTE', title: 'Trip started', body: 'You are now en route to the pickup stop.', tripId: id });
-        qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
         // Redirect driver to the live tracking screen
         router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href);
@@ -169,7 +170,7 @@ export default function ActiveTripScreen() {
       if (toStatus === 'COMPLETED') {
         driverSocketEvents.emitArrived(id);
         setActiveTripId(null);
-        qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
         qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
         qc.invalidateQueries({ queryKey: ['driver', 'me'] });
@@ -186,7 +187,7 @@ export default function ActiveTripScreen() {
         return;
       }
 
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
     onError: (err) => Alert.alert('Error', (err as Error).message),
@@ -213,6 +214,18 @@ export default function ActiveTripScreen() {
             <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
           ))}
         </View>
+        {/* Escape hatch — without this, a trip that's no longer in getActiveTrip's
+            result set (e.g. mid-transition) leaves the driver stuck on this skeleton
+            with no way back short of force-closing the app. */}
+        {!isLoading && !trip && (
+          <Pressable
+            onPress={() => router.replace('/(tabs)' as any)}
+            hitSlop={12}
+            style={[styles.backEscapeButton, { top: insets.top + 12 }]}
+          >
+            <Text style={{ color: '#fff', fontFamily: fonts.semiBold, fontSize: 13 }}>← Back to Home</Text>
+          </Pressable>
+        )}
       </View>
     );
   }
@@ -302,7 +315,23 @@ export default function ActiveTripScreen() {
               'This will call Ghana Police (191). Are you in immediate danger?',
               [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Call 191', style: 'destructive', onPress: () => Linking.openURL('tel:191') },
+                {
+                  text: 'Call 191',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      const pos = await Location.getLastKnownPositionAsync();
+                      await driverApi.emergencyAlert(id, {
+                        latitude: pos?.coords.latitude,
+                        longitude: pos?.coords.longitude,
+                        timestamp: new Date().toISOString(),
+                      });
+                    } catch {
+                      // Never block the actual emergency call on this
+                    }
+                    Linking.openURL('tel:191');
+                  },
+                },
               ],
             )
           }
@@ -410,7 +439,7 @@ export default function ActiveTripScreen() {
                       onPress: () => {
                         if (!seat.bookingId) return;
                         driverApi.boardPassenger(id, seat.bookingId)
-                          .then(() => qc.invalidateQueries({ queryKey: ['driver', 'trip', id] }))
+                          .then(() => qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] }))
                           .catch((err: any) => Alert.alert('Error', err?.response?.data?.message ?? 'Failed'));
                       },
                     },
@@ -604,6 +633,14 @@ const makeStyles = (colors: DriverColors) =>
       padding: spacing['2xl'],
       gap: spacing.lg,
       backgroundColor: 'rgba(5,5,8,0.5)',
+    },
+    backEscapeButton: {
+      position: 'absolute',
+      left: spacing.base,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.lg,
+      backgroundColor: 'rgba(0,0,0,0.5)',
     },
     skeleton: {
       height: 20,

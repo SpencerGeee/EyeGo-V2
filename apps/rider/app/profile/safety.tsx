@@ -42,18 +42,23 @@ const SAFETY_FEATURES: {
   {
     id: 'speedAlerts',
     icon: 'speedometer-outline',
-    title: 'Speed Alerts',
+    title: 'Speed Alerts (Coming Soon)',
     description: 'Notify you if your driver exceeds the speed limit',
     defaultEnabled: false,
   },
   {
     id: 'nightSafety',
     icon: 'moon-outline',
-    title: 'Night Safety Check',
+    title: 'Night Safety Check (Coming Soon)',
     description: 'Extra verification for trips between 10pm - 5am',
-    defaultEnabled: true,
+    defaultEnabled: false,
   },
 ];
+
+// These two aren't wired to any backend behavior yet (no speed-limit data source /
+// no night-trip verification flow exists) — surface a honest "coming soon" instead
+// of silently persisting a toggle that changes nothing, like the two above did.
+const UNIMPLEMENTED_FEATURE_IDS: Array<keyof SafetySettings> = ['speedAlerts', 'nightSafety'];
 
 const DEFAULTS = Object.fromEntries(
   SAFETY_FEATURES.map((f) => [f.id, f.defaultEnabled])
@@ -90,6 +95,10 @@ export default function SafetyScreen() {
   });
 
   const toggleFeature = (id: keyof SafetySettings) => {
+    if (UNIMPLEMENTED_FEATURE_IDS.includes(id)) {
+      Alert.alert('Coming Soon', 'This safety feature is not available yet — we\'ll notify you when it launches.');
+      return;
+    }
     setSettings((prev) => {
       const next = { ...prev, [id]: !prev[id] };
       AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)).catch(() => {});

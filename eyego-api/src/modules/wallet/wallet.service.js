@@ -110,37 +110,69 @@ async function withdraw(driverId, amount) {
   // Step 2: Initiate Paystack transfer OUTSIDE transaction
   // If this fails, we run a compensating credit to restore the driver's balance.
   try {
-    const recipient = await paystack.createTransferRecipient({
-      name: driver.name,
-      accountNumber: driver.phone,
-    });
+    // Route to the driver's saved payout preference (bank or a specific MoMo
+    // network) instead of always defaulting to MTN via their phone number.
+    let payoutPref = null;
+    try {
+      const fresh = await prisma.driver.findUnique({ where: { id: driverId }, select: { payoutData: true } });
+      payoutPref = fresh?.payoutData ? JSON.parse(fresh.payoutData) : null;
+    } catch { /* malformed/missing payout data — fall back below */ }
+
+    let recipientParams = { name: driver.name, accountNumber: driver.phone };
+    if (payoutPref) {
+      const resolved = await paystack.resolvePayoutBankCode(payoutPref);
+      if (resolved) {
+        recipientParams = {
+          name: resolved.name || driver.name,
+          accountNumber: resolved.accountNumber,
+          bankCode: resolved.bankCode,
+          recipientType: resolved.recipientType,
+        };
+      }
+    }
+
+    const recipient = await paystack.createTransferRecipient(recipientParams);
 
     await paystack.initiateTransfer({
-      amount,
+      amount: safeAmount,
       recipient: recipient.data.recipient_code,
       reason: 'EyeGo Driver earnings withdrawal',
       reference,
     });
   } catch (paystackErr) {
-    // Compensating transaction — credit wallet back and record the reversal
+    // Compensating transaction — credit wallet back and record the reversal.
+    // Must use safeAmount (the exact rounded figure that was debited in step 1),
+    // not the raw request `amount` — crediting back an unrounded value here would
+    // leave the driver's wallet permanently off by a fraction of a pesewa.
     await prisma.$transaction(async (tx) => {
       await tx.driver.update({
         where: { id: driverId },
-        data: { walletBalance: { increment: amount } },
+        data: { walletBalance: { increment: safeAmount } },
       });
       await tx.walletTransaction.create({
         data: {
           driverId,
           type: 'WITHDRAWAL_REVERSAL',
-          amount,
+          amount: safeAmount,
           description: 'Withdrawal reversal — Paystack transfer failed',
-          balanceBefore: driver.walletBalance - amount,
+          balanceBefore: driver.walletBalance - safeAmount,
           balanceAfter: driver.walletBalance,
           paystackRef: `${reference}_reversal`,
         },
       });
     });
     throw new AppError('Withdrawal failed. Your balance has been restored.', 502, 'WITHDRAWAL_FAILED');
+  }
+
+  // notifications.lowWallet was defined but never called — nudge the driver if this
+  // withdrawal took them below the minimum required to go online.
+  const pushService = require('../../services/push.service');
+  const remaining = driver.walletBalance - safeAmount;
+  const lowBalanceThreshold = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE ?? 20;
+  if (remaining < lowBalanceThreshold) {
+    prisma.driver.findUnique({ where: { id: driverId }, select: { fcmToken: true } })
+      .then((d) => { if (d?.fcmToken) pushService.notifications.lowWallet(d.fcmToken, remaining.toFixed(2)); })
+      .catch(() => {});
   }
 
   return { message: 'Withdrawal initiated. You will receive your MoMo payment shortly.', reference };

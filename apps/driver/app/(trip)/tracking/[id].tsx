@@ -58,7 +58,7 @@ export default function DriverTrackingScreen() {
   const { addNotification } = useNotificationsStore();
 
   const { data: trip, isLoading } = useQuery({
-    queryKey: ['driver', 'trip', id],
+    queryKey: ['driver', 'trip', 'tracking', id],
     // Use getTripById so the screen stays populated through all status transitions.
     // getActiveTrip() returns null after ARRIVED_AT_PICKUP, causing an infinite skeleton.
     queryFn: () => driverApi.getTripById(id),
@@ -122,12 +122,12 @@ export default function DriverTrackingScreen() {
           body: 'A passenger just completed their payment.',
           tripId: id,
         });
-        qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
       }
     });
 
     const unsubSeat = driverSocketEvents.onSeatUpdate(() => {
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
     });
 
     // Emit location every 4s so rider gets updates AND ETA is calculated
@@ -312,7 +312,7 @@ export default function DriverTrackingScreen() {
       if (toStatus === 'COMPLETED') {
         driverSocketEvents.emitArrived(id);
         setActiveTripId(null);
-        qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
         qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
         qc.invalidateQueries({ queryKey: ['driver', 'me'] });
@@ -332,7 +332,7 @@ export default function DriverTrackingScreen() {
         return;
       }
 
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', id] });
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
     onError: (err) => Alert.alert('Error', (err as Error).message),
@@ -682,7 +682,22 @@ export default function DriverTrackingScreen() {
                   'This will call Ghana Police (191). Are you in immediate danger?',
                   [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Call 191', style: 'destructive', onPress: () => Linking.openURL('tel:191') },
+                    {
+                      text: 'Call 191',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await driverApi.emergencyAlert(id, {
+                            latitude: driverLocation?.latitude,
+                            longitude: driverLocation?.longitude,
+                            timestamp: new Date().toISOString(),
+                          });
+                        } catch {
+                          // Never block the actual emergency call on this
+                        }
+                        Linking.openURL('tel:191');
+                      },
+                    },
                   ],
                 );
               }}

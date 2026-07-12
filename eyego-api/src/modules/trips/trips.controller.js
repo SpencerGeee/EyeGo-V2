@@ -5,6 +5,8 @@ const surgeService = require('./surge.service');
 const { estimateFare } = require('./fare.calculator');
 const { ok } = require('../../utils/response');
 const tripRequestService = require('./trip-request.service');
+const prisma = require('../../config/database');
+const { NotFoundError } = require('../../utils/errors');
 
 const getFareEstimate = async (req, res) => {
   const { lat, lng, tier, distanceKm, doorstepPickup, heavyLoad } = req.query;
@@ -172,6 +174,16 @@ const scheduleTrip = async (req, res) => {
   ok(res, { intent }, 'Ride scheduled. We will notify you when a driver is available.', 201);
 };
 
+const getScheduledRides = async (req, res) => {
+  const intents = await tripsService.getScheduledRides(req.user.userId);
+  ok(res, { intents });
+};
+
+const cancelScheduledRide = async (req, res) => {
+  const intent = await tripsService.cancelScheduledRide(req.user.userId, req.params.id);
+  ok(res, { intent }, 'Scheduled ride cancelled');
+};
+
 const getTrackingData = async (req, res) => {
   const data = await tripsService.getTrackingData(req.params.shortId);
   ok(res, data);
@@ -188,20 +200,44 @@ const driverNoShow = async (req, res) => {
 };
 
 const riderNoShow = async (req, res) => {
-  const result = await tripsService.riderNoShow(req.params.id, req.params.bookingId);
+  const result = await tripsService.riderNoShow(req.params.id, req.params.bookingId, req.user.userId);
   ok(res, result, 'Rider no-show recorded');
 };
 
 const requestTrip = async (req, res) => {
-  const { destination, scheduledAt, seatCount, pickupLat, pickupLng } = req.body;
+  const { destination, scheduledAt, seatCount, pickupLat, pickupLng, destLat, destLng } = req.body;
   const result = await tripRequestService.createRequest(req.user.userId, {
     destination,
     scheduledAt,
     seatCount,
     pickupLat,
     pickupLng,
+    destLat,
+    destLng,
   });
   ok(res, result, result.message, 201);
 };
 
-module.exports = { createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getJoinData, requestTrip };
+const getTripRequestStatus = async (req, res) => {
+  const request = await prisma.tripRequest.findFirst({
+    where: { id: req.params.id, userId: req.user.userId },
+    select: { id: true, status: true, matchedTripId: true },
+  });
+  if (!request) throw new NotFoundError('TripRequest');
+  ok(res, request);
+};
+
+const cancelTripRequest = async (req, res) => {
+  const result = await tripRequestService.cancelRequest(req.user.userId, req.params.id);
+  ok(res, result, 'Trip request cancelled');
+};
+
+// POST /v1/trips/:id/live-activity-token — rider registers/refreshes the
+// ActivityKit push token for their Live Activity on this trip.
+const saveLiveActivityToken = async (req, res) => {
+  const { pushToken, activityId } = req.body;
+  const result = await tripsService.saveLiveActivityToken(req.user.userId, req.params.id, { pushToken, activityId });
+  ok(res, result, 'Live Activity token saved');
+};
+
+module.exports = { createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };

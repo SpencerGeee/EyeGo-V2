@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { walletApi, bookingsApi, queryKeys } from '@eyego/api';
+import { walletApi, bookingsApi, paymentsApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
@@ -59,15 +59,39 @@ export default function WalletScreen() {
   const balance = (balanceData as any)?.data?.data?.balance ?? (balanceData as any)?.data?.balance ?? 0;
   const transactions = (txData as any)?.data?.data?.transactions ?? (txData as any)?.data?.transactions ?? [];
 
+  const [isVerifyingTopUp, setIsVerifyingTopUp] = useState(false);
+
   const topUp = useMutation({
-    mutationFn: (amount: number) =>
-      walletApi.topUp({ amount, method: 'MOMO' }),
-    onSuccess: (_, amount) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
+    mutationFn: (amount: number) => walletApi.topUp({ amount, method: 'MOMO' }),
+    onSuccess: async (res, amount) => {
+      const reference = (res as any)?.data?.data?.reference;
       setModalVisible(false);
       setTopUpAmount('');
-      Alert.alert('Top Up Successful', `GHS ${amount.toFixed(2)} has been added to your EyeGo Wallet.`);
+
+      if (!reference) {
+        // No reference to verify against — fall back to an honest "in progress" message
+        // rather than falsely declaring success.
+        Alert.alert('Top Up Initiated', 'Approve the prompt on your phone to complete the top-up.');
+        return;
+      }
+
+      // The charge is only *initiated* here — approve on the phone happens next, and the
+      // balance is only actually credited once the webhook confirms it. Poll before telling
+      // the rider their money has been added.
+      setIsVerifyingTopUp(true);
+      try {
+        await paymentsApi.pollWalletTopup(reference);
+        queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
+        queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
+        Alert.alert('Top Up Successful', `GHS ${amount.toFixed(2)} has been added to your EyeGo Wallet.`);
+      } catch {
+        Alert.alert(
+          'Top Up Not Confirmed',
+          'We could not confirm your payment yet. If you approved the prompt, your balance will update shortly — otherwise please try again.',
+        );
+      } finally {
+        setIsVerifyingTopUp(false);
+      }
     },
     onError: () => {
       Alert.alert('Failed', 'Top up could not be processed. Please try again.');
@@ -266,12 +290,13 @@ export default function WalletScreen() {
             </View>
 
             <Button
-              label="Confirm Top Up"
+              label={isVerifyingTopUp ? 'Confirming payment…' : 'Confirm Top Up'}
               onPress={() => {
                 const amt = parseFloat(topUpAmount);
                 handleTopUp(amt);
               }}
-              loading={topUp.isPending}
+              loading={topUp.isPending || isVerifyingTopUp}
+              disabled={topUp.isPending || isVerifyingTopUp}
               style={{ marginTop: spacing.lg }}
             />
           </View>

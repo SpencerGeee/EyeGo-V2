@@ -8,6 +8,7 @@ import {
   Linking,
   Alert,
   Platform,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -40,6 +41,26 @@ export default function SOSScreen() {
   const [rideCheckActive, setRideCheckActive] = useState(false);
   // Use a ref for the timer so cleanup always sees the latest handle (no stale closure)
   const autoAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rideCheckAnsweredRef = useRef(true);
+  const rideCheckEscalateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // JS timers are throttled/frozen while backgrounded (especially iOS), so a
+  // plain setTimeout can silently never fire — exactly the distraction/coercion
+  // scenario this escalation exists to catch. Track the real deadline and
+  // re-check it on foreground resume as a backstop.
+  const rideCheckDeadlineRef = useRef<number | null>(null);
+
+  // Initialize RideCheck from the rider's actually-saved preference (profile/safety.tsx)
+  // instead of always defaulting off — previously this reset to off on every mount
+  // regardless of what the rider had saved, so the persisted setting was functionally
+  // inert.
+  useEffect(() => {
+    userApi.getSafetySettings()
+      .then((res: any) => {
+        const saved = res?.data?.data?.settings?.rideCheck;
+        if (typeof saved === 'boolean') setRideCheckActive(saved);
+      })
+      .catch(() => {});
+  }, []);
   // Ref keeps the latest location for the stream interval (avoids stale closure over `initial`)
   const locationRef = useRef<Location.LocationObject | null>(null);
 
@@ -228,6 +249,24 @@ export default function SOSScreen() {
     }
   };
 
+  // Backstop for the RideCheck auto-escalation timer above: JS timers can be
+  // frozen while the app is backgrounded and never fire. On foreground resume,
+  // check the real deadline directly and escalate immediately if it's passed.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const deadline = rideCheckDeadlineRef.current;
+      if (deadline && !rideCheckAnsweredRef.current && Date.now() >= deadline) {
+        rideCheckAnsweredRef.current = true;
+        rideCheckDeadlineRef.current = null;
+        if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+        handleSOSPress();
+      }
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // RideCheck: monitor route deviations via socket.
   // The backend emits 'safety:check' { tripId, reason, timestamp } (driver.socket.js
   // emitSafetyCheck) — NOT 'safety:ride_check_alert', which nothing ever emits. We
@@ -243,13 +282,33 @@ export default function SOSScreen() {
           reason.includes('route') ? 'Your trip has deviated from the expected route. Are you safe?'
           : reason.includes('stop') ? 'Your driver has been stopped for a while. Is everything okay?'
           : 'A safety check was triggered on your trip. Are you safe?';
+
+        // Auto-escalate to a real SOS if the rider doesn't respond at all — previously
+        // an unanswered RideCheck (e.g. an incapacitated rider) triggered nothing further.
+        rideCheckAnsweredRef.current = false;
+        rideCheckDeadlineRef.current = Date.now() + 45_000;
+        if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+        rideCheckEscalateTimerRef.current = setTimeout(() => {
+          if (!rideCheckAnsweredRef.current) handleSOSPress();
+        }, 45_000);
+
         Alert.alert(
           'RideCheck Alert',
-          message,
+          `${message}\n\nIf you don't respond within 45 seconds, SOS will trigger automatically.`,
           [
-            { text: "I'm safe", style: 'default' },
-            { text: 'Trigger SOS', style: 'destructive', onPress: () => handleSOSPress() },
-          ]
+            { text: "I'm safe", style: 'default', onPress: () => {
+              rideCheckAnsweredRef.current = true;
+              rideCheckDeadlineRef.current = null;
+              if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+            } },
+            { text: 'Trigger SOS', style: 'destructive', onPress: () => {
+              rideCheckAnsweredRef.current = true;
+              rideCheckDeadlineRef.current = null;
+              if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+              handleSOSPress();
+            } },
+          ],
+          { cancelable: false },
         );
       });
       return () => { unsub?.(); };

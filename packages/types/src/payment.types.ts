@@ -6,6 +6,7 @@ export interface InitializePaymentRequest {
   method: PaymentMethod;
   momoPhone?: string; // required for MOMO
   email?: string;     // required for CARD (Paystack)
+  savedCardId?: string; // optional: one-tap charge using a previously-saved card
 }
 
 export interface PaymentInitResponse {

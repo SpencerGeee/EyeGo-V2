@@ -22,14 +22,16 @@ export default function DispatchScreen() {
   const qc = useQueryClient();
   const { setActiveTripId } = useDriverStore();
 
-  const { id, origin, destination, departureTime, expiresAt, estimatedEarnings } = useLocalSearchParams<{
+  const { id, origin, destination, departureTime, expiresAt, estimatedEarnings, kind } = useLocalSearchParams<{
     id: string;
     origin: string;
     destination: string;
     departureTime: string;
     estimatedEarnings?: string;
     expiresAt?: string;
+    kind?: string;
   }>();
+  const isTripRequest = kind === 'REQUEST';
 
   const initialSeconds = useMemo(() => {
     if (expiresAt) {
@@ -77,11 +79,20 @@ export default function DispatchScreen() {
   }
 
   const accept = useMutation({
-    mutationFn: () => driverApi.acceptDispatch(id),
+    mutationFn: () => (isTripRequest ? driverApi.acceptTripRequest(id) : driverApi.acceptDispatch(id)),
     onSuccess: (res: AcceptDispatchResponse) => {
       // DM5: haptic feedback on successful trip accept
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const tripData = res?.data?.data?.trip ?? res?.data?.data;
+      // For acceptDispatch, `id` already IS the trip id — a safe fallback.
+      // For acceptTripRequest, `id` is the *trip request* id, a different
+      // record — falling back to it would silently route to a nonexistent
+      // trip, so require a real trip id from the response on that path.
+      if (isTripRequest && !tripData?.id) {
+        Alert.alert('Something went wrong', 'Trip accepted, but we could not open it. Check your active trips.');
+        router.replace('/(tabs)' as any);
+        return;
+      }
       const tripId = tripData?.id ?? id;
       setActiveTripId(tripId);
       // Invalidate trip lists so the accepted trip leaves the dispatch/assigned
@@ -93,7 +104,12 @@ export default function DispatchScreen() {
     onError: (err: any) => {
       const status = err?.response?.status;
       if (status === 409 || status === 410) {
-        Alert.alert('Dispatch Unavailable', 'This dispatch has already expired or been claimed by another driver.');
+        Alert.alert(
+          'Dispatch Unavailable',
+          isTripRequest
+            ? 'Another driver already accepted this trip request.'
+            : 'This dispatch has already expired or been claimed by another driver.',
+        );
         router.replace('/(tabs)' as any);
       } else {
         Alert.alert('Error', 'Failed to accept trip. Please try again.');
@@ -102,7 +118,9 @@ export default function DispatchScreen() {
   });
 
   const decline = useMutation({
-    mutationFn: () => driverApi.declineDispatch(id),
+    // There's no server-side "decline" concept for an on-demand trip request —
+    // ignoring it just leaves it available for another nearby driver to accept.
+    mutationFn: async () => { if (!isTripRequest) await driverApi.declineDispatch(id); },
     onSuccess: () => router.back(),
     onError: () => router.back(), // navigate away regardless
   });
@@ -167,7 +185,7 @@ export default function DispatchScreen() {
             <View style={[styles.routeDot, { backgroundColor: colors.primary }]} />
             <View style={styles.routeInfo}>
               <Text variant="caption" color={colors.onSurfaceVariant}>From</Text>
-              <Text style={styles.routeText}>{origin ?? '—'}</Text>
+              <Text style={styles.routeText} numberOfLines={1} ellipsizeMode="tail">{origin ?? '—'}</Text>
             </View>
           </View>
           <View style={styles.routeLine} />
@@ -175,7 +193,7 @@ export default function DispatchScreen() {
             <Ionicons name="location" size={16} color={colors.error} style={{ marginLeft: 2 }} />
             <View style={styles.routeInfo}>
               <Text variant="caption" color={colors.onSurfaceVariant}>To</Text>
-              <Text style={styles.routeText}>{destination ?? '—'}</Text>
+              <Text style={styles.routeText} numberOfLines={1} ellipsizeMode="tail">{destination ?? '—'}</Text>
             </View>
           </View>
           <View style={styles.routeDivider} />

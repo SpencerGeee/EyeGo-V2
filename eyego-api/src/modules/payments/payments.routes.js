@@ -20,6 +20,7 @@ router.post(
   paymentInitiateLimiter,
   idempotency, // safe retries: same Idempotency-Key never charges twice
   body('bookingId').notEmpty().withMessage('bookingId is required'),
+  body('savedCardId').optional().isString(),
   validate,
   controller.initiatePayment
 );

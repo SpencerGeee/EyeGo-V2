@@ -611,13 +611,7 @@ async function getLiveDrivers() {
 }
 
 async function assignDriverToTrip(tripId, driverId, adminId) {
-  const trip = await prisma.trip.findUnique({
-    where: { id: tripId },
-    include: {
-      route: true,
-      driver: { select: { name: true } },
-    },
-  });
+  const trip = await prisma.trip.findUnique({ where: { id: tripId } });
   if (!trip) throw new NotFoundError('Trip');
   if (!['SCHEDULED', 'FILLING'].includes(trip.status)) {
     throw new (require('../../utils/errors').AppError)('Trip cannot be assigned in its current state', 400, 'INVALID_STATUS');
@@ -627,13 +621,23 @@ async function assignDriverToTrip(tripId, driverId, adminId) {
   if (!driver) throw new NotFoundError('Driver');
   if (!driver.isOnline) throw new (require('../../utils/errors').AppError)('Driver is offline', 400, 'DRIVER_OFFLINE');
 
-  // Assign the trip to this driver
-  const updated = await prisma.trip.update({
-    where: { id: tripId },
+  // Atomic check-then-act: only assign if the trip's status hasn't changed since we
+  // read it above. Prevents two admins (or a double-tap) racing to assign different
+  // drivers to the same trip — the loser gets a clean 409 instead of silently
+  // overwriting the winner's assignment.
+  const claim = await prisma.trip.updateMany({
+    where: { id: tripId, status: trip.status },
     data: {
       driverId,
       status: 'FILLING', // Keep as FILLING so driver accepts via acceptDispatch
     },
+  });
+  if (claim.count === 0) {
+    throw new (require('../../utils/errors').AppError)('Trip was already reassigned by another admin action', 409, 'ASSIGNMENT_CONFLICT');
+  }
+
+  const updated = await prisma.trip.findUnique({
+    where: { id: tripId },
     include: {
       route: true,
       driver: { select: { id: true, name: true, phone: true } },
@@ -648,6 +652,49 @@ async function assignDriverToTrip(tripId, driverId, adminId) {
   logger.info(`[ADMIN] Driver ${driverId} assigned to trip ${tripId} by admin ${adminId}`);
 
   return updated;
+}
+
+const DISPATCH_OFFER_WINDOW_MS = 3 * 60 * 1000; // matches the driver app's ~2 min countdown + buffer
+const DISPATCH_OFFER_ESCALATE_MS = 15 * 60 * 1000; // flag loudly if still unanswered after this long
+
+/**
+ * Trip.driverId is required (a trip always has an owning driver), so an unanswered
+ * assignment can't be "unassigned" the way a nullable-driver design could. Instead:
+ * re-nudge the driver once with a fresh push, and log loudly for admin follow-up if
+ * it's been ignored well past the offer window — so a stuck offer is now visible
+ * instead of silently sitting in FILLING forever.
+ */
+async function expireUnansweredDispatchOffers() {
+  const cutoff = new Date(Date.now() - DISPATCH_OFFER_WINDOW_MS);
+  const escalateCutoff = new Date(Date.now() - DISPATCH_OFFER_ESCALATE_MS);
+
+  const staleOffers = await prisma.trip.findMany({
+    where: { status: 'FILLING', updatedAt: { lt: cutoff } },
+    include: { driver: { select: { id: true, name: true, fcmToken: true } }, route: { select: { destinationName: true } } },
+    take: 100,
+  });
+
+  let actioned = 0;
+  for (const trip of staleOffers) {
+    const answered = await prisma.dispatchAction.findFirst({
+      where: { tripId: trip.id, driverId: trip.driverId },
+    });
+    if (answered) continue; // driver did respond; FILLING is legitimate (e.g. awaiting more seats)
+
+    if (trip.updatedAt < escalateCutoff) {
+      logger.warn(`[Dispatch expiry] Trip ${trip.id} assigned to driver ${trip.driverId} has been unanswered for 15+ min — needs admin attention`);
+    } else if (trip.driver?.fcmToken) {
+      await pushService.sendPush(
+        trip.driver.fcmToken,
+        'Trip Still Waiting',
+        `You have an unanswered trip assignment to ${trip.route?.destinationName ?? 'a destination'}. Please respond.`,
+        { type: 'TRIP_ASSIGNED', tripId: trip.id },
+      ).catch(() => {});
+    }
+    actioned++;
+  }
+
+  return actioned;
 }
 
 async function getUnassignedTrips() {
@@ -669,7 +716,7 @@ async function getUnassignedTrips() {
 
 module.exports = {
   approveDriver, suspendDriver, rejectDriver, banUser,
-  getMetrics, getActiveTrips, setSurgeMultiplier,
+  getMetrics, getActiveTrips, setSurgeMultiplier, expireUnansweredDispatchOffers,
   getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops,
   getAllPulseSchedules, createPulseSchedule,
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,

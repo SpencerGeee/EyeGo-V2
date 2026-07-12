@@ -94,7 +94,7 @@ export default function ReserveScreen() {
       tripsApi.schedule({ routeId: routeId as string, scheduledAt, seatCount: 1 }),
     onSuccess: (_res, scheduledAt) => {
       setScheduledTime(scheduledAt);
-      router.back();
+      router.replace('/scheduled-rides' as any);
     },
     onError: (err) => {
       captureException(err, { screen: 'reserve', action: 'schedule', routeId });

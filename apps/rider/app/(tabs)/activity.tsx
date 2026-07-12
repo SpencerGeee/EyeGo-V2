@@ -10,7 +10,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi, notificationsApi } from '@eyego/api';
+import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -177,9 +177,10 @@ export default function ActivityScreen() {
     isLoading: bookingsLoading,
     refetch: refetchBookings,
   } = useQuery({
-    queryKey: ['bookings', 'history'],
+    queryKey: queryKeys.bookings.myHistory(),
     queryFn: () => bookingsApi.getHistory(),
     staleTime: 60_000,
+    refetchOnMount: true,
   });
 
   const {

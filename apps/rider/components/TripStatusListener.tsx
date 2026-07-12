@@ -8,6 +8,18 @@ import { socketEvents, connectSocket, disconnectSocket, bookingsApi, queryKeys }
 import { useRideStore } from '../stores/ride.store';
 import { useAuthStore } from '../stores/auth.store';
 import { useColors } from '../utils/useColors';
+import {
+  startTripLiveNotification,
+  updateTripLiveStatus,
+  updateTripLiveETA,
+  endTripLiveNotification,
+} from '../utils/tripLiveNotification';
+import {
+  startTripLiveActivity,
+  updateTripLiveActivity,
+  setTripLiveActivityStatus,
+  endTripLiveActivity,
+} from '../utils/liveActivity';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes } from '@eyego/config';
@@ -187,10 +199,43 @@ export function TripStatusListener() {
 
       if (data.status === 'DRIVER_EN_ROUTE') {
         showBanner('Your driver has started the trip', 'car-outline');
+        startTripLiveNotification(data.status);
+        // iOS Live Activity — lock-screen / Dynamic Island trip status. This
+        // is the ONE always-mounted listener (unlike tracking.tsx, which
+        // only exists while that screen is on-screen), so it's the right
+        // place to start the activity: riders background the app right
+        // after the driver starts moving, which is exactly when the Live
+        // Activity becomes useful.
+        if (computedTripId) {
+          const booking = activeBookingRef.current;
+          const trip = selectedTripRef.current;
+          startTripLiveActivity(
+            computedTripId,
+            {
+              routeName:
+                safeRead(trip, 'route.originName') && safeRead(trip, 'route.destinationName')
+                  ? `${safeRead(trip, 'route.originName')} → ${safeRead(trip, 'route.destinationName')}`
+                  : 'Your EyeGo trip',
+              driverName: safeRead(booking, 'trip.driver.name') ?? safeRead(trip, 'driver.name') ?? 'Your Driver',
+              driverPhotoURL: safeRead(booking, 'trip.driver.profilePhoto') ?? safeRead(trip, 'driver.profilePhoto'),
+              vehicleDescription:
+                [safeRead(trip, 'vehicle.make'), safeRead(trip, 'vehicle.model')].filter(Boolean).join(' ') ||
+                'Your Vehicle',
+              tripShortId: safeRead(trip, 'shortId') ?? computedTripId,
+            },
+            'DRIVER_EN_ROUTE'
+          );
+        }
       } else if (data.status === 'IN_PROGRESS') {
         showBanner('EyeGo has departed — enjoy the ride!', 'navigate-outline');
+        updateTripLiveStatus(data.status);
+        if (computedTripId) {
+          setTripLiveActivityStatus(computedTripId, 'IN_PROGRESS', 'Trip in progress');
+        }
       } else if (data.status === 'CANCELLED' || data.status === 'NO_SHOW' || data.status === 'REFUNDED') {
         showBanner('Trip was cancelled', 'close-circle');
+        endTripLiveNotification();
+        endTripLiveActivity('CANCELLED');
         disconnectSocket();
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
@@ -199,6 +244,8 @@ export function TripStatusListener() {
           router.replace('/(tabs)/home' as Href);
         }, 1500);
       } else if (data.status === 'COMPLETED') {
+        endTripLiveNotification();
+        endTripLiveActivity('COMPLETED');
         // Refresh all relevant query caches
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: ['bookings', 'completed', 'count'] });
@@ -229,11 +276,20 @@ export function TripStatusListener() {
         longitude: data.longitude,
         heading: data.heading,
       });
+      const locTripId = safeRead(activeBookingRef.current, 'tripId') ?? safeRead(selectedTripRef.current, 'id');
+      if (locTripId) {
+        updateTripLiveActivity(locTripId, { driverLat: data.latitude, driverLng: data.longitude });
+      }
     });
 
     // Capture dynamic ETA in background to keep store hydrated
     const unsubEta = socketEvents.onTripEta((data) => {
       useRideStore.getState().setTripEta(data.etaMinutes);
+      updateTripLiveETA(data.etaMinutes);
+      const etaTripId = safeRead(activeBookingRef.current, 'tripId') ?? safeRead(selectedTripRef.current, 'id');
+      if (etaTripId) {
+        updateTripLiveActivity(etaTripId, { etaMinutes: data.etaMinutes, distanceKm: (data as any).distanceKm });
+      }
     });
 
     // ── Listen for safety check events (route deviation, stopped too long) ──

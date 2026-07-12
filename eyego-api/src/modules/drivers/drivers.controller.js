@@ -2,6 +2,7 @@
 
 const driversService = require('./drivers.service');
 const tripsService = require('../trips/trips.service');
+const tripRequestService = require('../trips/trip-request.service');
 const { estimateFare } = require('../trips/fare.calculator');
 const surgeService = require('../trips/surge.service');
 const { ok, created } = require('../../utils/response');
@@ -174,13 +175,19 @@ const declineDispatch = async (req, res) => {
   ok(res, { trip }, 'Trip declined');
 };
 
+const acceptTripRequest = async (req, res) => {
+  const { trip, bookings } = await tripRequestService.acceptTripRequest(req.user.userId, req.params.id);
+  ok(res, { trip, bookings }, 'Trip request accepted');
+};
+
 const uploadDocument = async (req, res) => {
   const result = await driversService.uploadDocument(req.user.userId, req.file, req.body.type);
   ok(res, result, 'Document uploaded');
 };
 
 const cancelTrip = async (req, res) => {
-  const trip = await driversService.cancelTrip(req.user.userId, req.params.id);
+  const { reason, note } = req.body || {};
+  const trip = await driversService.cancelTrip(req.user.userId, req.params.id, { reason, note });
   // Notify any rider on the live tracking screen so they aren't stranded on a
   // stale "en route" state until the next REST poll. Reuses the existing
   // trip:status_change event the rider already listens on.
@@ -300,6 +307,96 @@ const deleteMe = async (req, res) => {
   ok(res, null, 'Account deleted');
 };
 
+// ── Emergency SOS ────────────────────────────────────────────────────
+// Mirrors the rider-side emergencyAlert (trips.controller.js): a real DB record,
+// admin/rider push, and an SMS to the driver's saved emergency contact. Previously
+// the driver app's 3 SOS buttons only did `Linking.openURL('tel:191')` with no
+// backend call at all, despite the UI claiming location would be shared.
+const emergencyAlert = async (req, res) => {
+  const { latitude, longitude, timestamp } = req.body;
+  const tripId = req.params.id;
+  const driverId = req.user.userId;
+
+  ok(res, { alertReceived: true }, 'Emergency alert dispatched');
+
+  setImmediate(async () => {
+    try {
+      const prisma = require('../../config/database');
+      const pushService = require('../../services/push.service');
+      const smsService = require('../../services/sms.service');
+      const redis = require('../../config/redis');
+      const logger = require('../../utils/logger');
+
+      const lat = latitude ? parseFloat(latitude) : null;
+      const lng = longitude ? parseFloat(longitude) : null;
+
+      // SosEvent.userId has no FK constraint — it's a plain identifier column,
+      // so it's safe to store the reporting driver's id here.
+      await prisma.sosEvent.create({ data: { tripId, userId: driverId, lat, lng } }).catch(() => {});
+
+      const driver = await prisma.driver.findUnique({
+        where: { id: driverId },
+        select: { name: true, emergencyContact: true },
+      });
+
+      const trip = await prisma.trip.findFirst({
+        where: { id: tripId, driverId },
+        include: { bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } } },
+      });
+
+      const ticket = await prisma.supportTicket.create({
+        data: {
+          userId: driverId,
+          driverId,
+          subject: `🚨 DRIVER EMERGENCY ALERT — Trip #${tripId.slice(0, 8)}`,
+          status: 'URGENT',
+        },
+      }).catch(() => null);
+      if (ticket) {
+        await prisma.ticketMessage.create({
+          data: {
+            ticketId: ticket.id,
+            senderId: driverId,
+            senderRole: 'DRIVER',
+            text: `EMERGENCY triggered by driver ${driverId} on trip ${tripId}.\nLocation: ${lat}, ${lng}\nTime: ${timestamp || new Date().toISOString()}`,
+          },
+        }).catch(() => {});
+      }
+
+      const riderTokens = (trip?.bookings ?? []).map((b) => b.user?.fcmToken).filter(Boolean);
+      const adminTokens = await redis.smembers('admin:fcm_tokens').catch(() => []);
+      const fcmTargets = [...riderTokens, ...adminTokens].filter(Boolean);
+      if (fcmTargets.length > 0) {
+        await pushService.sendMulticastPush(
+          fcmTargets,
+          '🚨 Driver SOS Alert!',
+          `Your driver triggered an SOS on trip ${tripId.slice(0, 8)}.`,
+          { type: 'SOS', tripId },
+        ).catch(() => {});
+      }
+
+      if (driver?.emergencyContact) {
+        try {
+          const contact = JSON.parse(driver.emergencyContact);
+          if (contact?.phone) {
+            const googleMapsLink = lat && lng ? `https://maps.google.com/?q=${lat},${lng}` : 'Location unavailable';
+            await smsService.sendSms(
+              contact.phone,
+              `🚨 EMERGENCY: ${driver.name || 'Your contact'} (EyeGo driver) has triggered an SOS alert. Trip ID: ${tripId.slice(0, 8)}. Location: ${googleMapsLink}. Please contact them immediately.`,
+            );
+          }
+        } catch (smsErr) {
+          logger.warn('Failed to send driver SOS SMS to emergency contact:', smsErr.message);
+        }
+      }
+
+      logger.warn('Driver SOS emergency alert', { tripId, driverId, lat, lng });
+    } catch (_) {
+      // Silent fail — never block the SOS response
+    }
+  });
+};
+
 // ── Trip Report ───────────────────────────────────────────────────────
 const reportTrip = async (req, res) => {
   const report = await driversService.reportTrip(req.user.userId, req.params.id, req.body);
@@ -310,7 +407,7 @@ module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getAllTrips, devActivate,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
-  getTripById, acceptDispatch, declineDispatch, uploadDocument,
+  getTripById, acceptDispatch, declineDispatch, acceptTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences,
   createTrip, ratePassenger, getFareEstimate,
@@ -319,5 +416,5 @@ module.exports = {
   getEarningsBreakdown, getWalletTransactions,
   createSupportTicket, getSupportTickets, replyToTicket,
   scheduleInspection, getInspections,
-  deleteMe, reportTrip,
+  deleteMe, reportTrip, emergencyAlert,
 };

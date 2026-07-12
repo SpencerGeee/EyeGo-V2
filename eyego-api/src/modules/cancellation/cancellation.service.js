@@ -3,6 +3,8 @@
 const prisma = require('../../config/database');
 const env = require('../../config/env');
 const { AppError, NotFoundError, ForbiddenError } = require('../../utils/errors');
+const { pushEnd } = require('../../services/live-activity-push.service');
+const logger = require('../../utils/logger');
 
 /**
  * Calculate cancellation fee based on time before departure.
@@ -57,7 +59,7 @@ async function calculateCancellationFee(bookingId, userId) {
  * Cancel a booking with cancellation fee calculation and receipt generation.
  */
 async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
       include: {
@@ -111,6 +113,7 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       await tx.paymentTransaction.create({
         data: {
           bookingId,
+          userId: booking.userId,
           amount: refundAmount,
           status: cancellationFee ? 'PARTIAL_REFUND' : 'REFUNDED',
           paystackRef: booking.paystackRef,
@@ -119,6 +122,15 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
             : 'Full refund processed',
         },
       });
+
+      // Credit the refund to the rider's wallet — the PaymentTransaction row above
+      // is just a ledger record and does not itself move money.
+      if (refundAmount > 0) {
+        await tx.user.update({
+          where: { id: booking.userId },
+          data: { walletBalance: { increment: refundAmount } },
+        });
+      }
     }
 
     // Update booking with cancellation info
@@ -163,6 +175,20 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
 
     return { booking: updated, refundAmount, cancellationFee, receipt };
   });
+
+  // Fire-and-forget: end this rider's Live Activity outside the DB
+  // transaction (it's a network call to Apple, not something that should
+  // hold a transaction open or roll back the cancellation if it fails).
+  if (result.booking.liveActivityPushToken) {
+    pushEnd(result.booking.liveActivityPushToken, { status: 'CANCELLED', statusText: 'Trip cancelled' })
+      .then(() => prisma.booking.update({
+        where: { id: result.booking.id },
+        data: { liveActivityPushToken: null, liveActivityId: null },
+      }))
+      .catch((err) => logger.debug('[Cancellation] Live Activity end push failed (non-blocking):', err?.message ?? err));
+  }
+
+  return result;
 }
 
 /**
@@ -191,6 +217,35 @@ async function generateReceipt(tx, booking, refundAmount = 0, cancellationFee = 
   });
 
   return receipt;
+}
+
+/**
+ * Full (100%) refund for a booking cancelled by the driver/platform, not the rider.
+ * No cancellation fee applies since the rider isn't at fault. Must be called inside
+ * an existing $transaction (tx) alongside the booking status update.
+ */
+async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Driver-cancelled trip') {
+  if (booking.paymentStatus !== 'PAID') return null;
+
+  await tx.paymentTransaction.create({
+    data: {
+      bookingId: booking.id,
+      userId: booking.userId,
+      amount: booking.fareAmount,
+      status: 'REFUNDED',
+      paystackRef: booking.paystackRef,
+      gatewayResponse: `Refunded: ${reasonLabel}`,
+    },
+  });
+
+  if (booking.userId) {
+    await tx.user.update({
+      where: { id: booking.userId },
+      data: { walletBalance: { increment: booking.fareAmount } },
+    });
+  }
+
+  return generateReceipt(tx, booking, booking.fareAmount, null);
 }
 
 /**
@@ -274,6 +329,7 @@ async function getUserReceipts(userId, page = 1, limit = 20) {
 module.exports = {
   calculateCancellationFee,
   cancelBookingWithFee,
+  refundBookingForDriverCancellation,
   getReceipt,
   getUserReceipts,
   generateTripReceipt,

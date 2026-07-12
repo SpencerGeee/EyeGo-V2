@@ -1,7 +1,14 @@
 'use strict';
 
 const adminService = require('./admin.service');
+const driversService = require('../drivers/drivers.service');
 const { ok, created } = require('../../utils/response');
+
+const reviewDriverDocument = async (req, res) => {
+  const { approve, rejectionReason } = req.body;
+  const result = await driversService.reviewDocument(req.params.id, req.params.type, { approve: !!approve, rejectionReason });
+  ok(res, { review: result }, approve ? 'Document approved' : 'Document rejected');
+};
 
 const approveDriver = async (req, res) => {
   const driver = await adminService.approveDriver(req.params.id);
@@ -204,6 +211,7 @@ const getUnassignedTrips = async (req, res) => {
 };
 
 module.exports = {
+  reviewDriverDocument,
   approveDriver, suspendDriver, rejectDriver, banUser,
   getMetrics, getActiveTrips, setSurge,
   createRoute, updateRoute, deleteRoute, addStops,
