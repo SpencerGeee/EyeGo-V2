@@ -1,7 +1,7 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { questsApi } from '@eyego/api';
 import type { DriverQuest } from '@eyego/api';
@@ -91,12 +91,36 @@ export default function QuestsScreen() {
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const queryClient = useQueryClient();
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
   const { data: questsData, isLoading, isError, refetch } = useQuery({
     queryKey: ['driver', 'quests', 'active'],
     queryFn: () => questsApi.listActive(),
     select: (r) => (r.data as any)?.data?.quests ?? [],
     retry: 2,
+  });
+
+  const claimMutation = useMutation({
+    mutationFn: (questId: string) => questsApi.claim(questId),
+    onMutate: (questId: string) => setClaimingId(questId),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['driver', 'quests', 'active'] });
+      queryClient.invalidateQueries({ queryKey: ['driver', 'quests', 'history'] });
+      queryClient.invalidateQueries({ queryKey: ['driver', 'me'] });
+      queryClient.invalidateQueries({ queryKey: ['driver', 'wallet'] });
+      const amount = res?.data?.data?.rewardAmount;
+      Alert.alert('Bonus Claimed!', typeof amount === 'number' ? `GHS ${amount.toFixed(2)} added to your wallet.` : 'Your bonus has been added to your wallet.');
+    },
+    onError: (err: any) => {
+      const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;
+      const message =
+        code === 'ALREADY_CLAIMED' ? 'This bonus has already been claimed.'
+        : code === 'QUEST_NOT_COMPLETED' ? 'This quest isn\'t completed yet.'
+        : err?.response?.data?.message ?? 'Could not claim your bonus. Please try again.';
+      Alert.alert('Claim Failed', message);
+    },
+    onSettled: () => setClaimingId(null),
   });
 
   const { data: historyData } = useQuery({
@@ -161,6 +185,10 @@ export default function QuestsScreen() {
                   current={quest.progress?.current ?? 0}
                   completed={quest.progress?.completed ?? false}
                   rewardedAt={quest.progress?.rewardedAt ?? null}
+                  // Fallback quests (shown offline) aren't real backend rows —
+                  // no claim action for those, only for live server data.
+                  onClaim={isError ? undefined : () => claimMutation.mutate(quest.id)}
+                  claiming={claimingId === quest.id}
                 />
               ))}
             </View>

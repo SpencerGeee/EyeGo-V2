@@ -40,6 +40,7 @@ const prisma = require('../src/config/database');
 const bookingsService = require('../src/modules/bookings/bookings.service');
 const walletService = require('../src/modules/wallet/wallet.service');
 const driversService = require('../src/modules/drivers/drivers.service');
+const questsService = require('../src/modules/quests/quests.service');
 
 jest.setTimeout(30000);
 
@@ -229,6 +230,69 @@ describe('REAL concurrency: arriveTrip double-credit idempotency', () => {
     // debited at boarding. Crediting here would double-pay the driver.
     expect(earningsCredits.length).toBe(0);
     expect(finalDriver.walletBalance).toBe(0);
+  });
+});
+
+describe('REAL concurrency: quest claim double-credit race', () => {
+  it('double-tapping Claim Bonus concurrently only credits the reward ONCE', async () => {
+    const driver = await makeDriver();
+    await prisma.driver.update({ where: { id: driver.id }, data: { walletBalance: 0 } });
+
+    const quest = await prisma.driverQuest.create({
+      data: {
+        title: 'Test Quest', description: 'Complete 1 trip', type: 'RIDES_COUNT',
+        target: 1, rewardAmount: 12,
+        periodStart: new Date(Date.now() - 1000), periodEnd: new Date(Date.now() + 3600_000),
+        isActive: true,
+      },
+    });
+    await prisma.driverQuestProgress.create({
+      data: { questId: quest.id, driverId: driver.id, current: 1, completed: true },
+    });
+
+    // Two concurrent claim attempts for the same completed-but-unclaimed quest.
+    const results = await Promise.allSettled([
+      questsService.claimQuestReward(driver.id, quest.id),
+      questsService.claimQuestReward(driver.id, quest.id),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+
+    expect(fulfilled.length).toBe(1);
+    expect(rejected.length).toBe(1);
+    expect(rejected[0].reason?.code).toBe('ALREADY_CLAIMED');
+
+    const finalDriver = await prisma.driver.findUnique({ where: { id: driver.id } });
+    const bonusCredits = await prisma.walletTransaction.findMany({
+      where: { driverId: driver.id, type: 'QUEST_BONUS' },
+    });
+
+    expect(bonusCredits.length).toBe(1);
+    expect(finalDriver.walletBalance).toBe(12);
+  });
+
+  it('claiming an already-claimed quest a second time (sequentially) is rejected, not re-credited', async () => {
+    const driver = await makeDriver();
+    await prisma.driver.update({ where: { id: driver.id }, data: { walletBalance: 0 } });
+
+    const quest = await prisma.driverQuest.create({
+      data: {
+        title: 'Test Quest 2', description: 'Earn GHS 50', type: 'EARNINGS',
+        target: 50, rewardAmount: 8,
+        periodStart: new Date(Date.now() - 1000), periodEnd: new Date(Date.now() + 3600_000),
+        isActive: true,
+      },
+    });
+    await prisma.driverQuestProgress.create({
+      data: { questId: quest.id, driverId: driver.id, current: 50, completed: true },
+    });
+
+    await questsService.claimQuestReward(driver.id, quest.id);
+    await expect(questsService.claimQuestReward(driver.id, quest.id)).rejects.toMatchObject({ code: 'ALREADY_CLAIMED' });
+
+    const finalDriver = await prisma.driver.findUnique({ where: { id: driver.id } });
+    expect(finalDriver.walletBalance).toBe(8);
   });
 });
 

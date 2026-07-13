@@ -14,6 +14,8 @@ interface QuestCardProps {
   current: number;
   completed: boolean;
   rewardedAt: string | null;
+  onClaim?: () => void;
+  claiming?: boolean;
 }
 
 const QuestCard: React.FC<QuestCardProps> = ({
@@ -25,6 +27,8 @@ const QuestCard: React.FC<QuestCardProps> = ({
   current,
   completed,
   rewardedAt,
+  onClaim,
+  claiming,
 }) => {
   const colors = useColors();
   const progress = Math.min(current / target, 1);
@@ -65,7 +69,7 @@ const QuestCard: React.FC<QuestCardProps> = ({
             : `GHS ${current.toFixed(2)} / GHS ${target.toFixed(2)}`}
         </Text>
         {completed && !rewardedAt && (
-          <Button label="Claim Bonus" variant="primary" onPress={() => {}} />
+          <Button label="Claim Bonus" variant="primary" onPress={onClaim} loading={claiming} disabled={!onClaim || claiming} />
         )}
         {rewardedAt && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>

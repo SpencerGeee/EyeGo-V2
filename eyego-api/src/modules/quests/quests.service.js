@@ -90,40 +90,74 @@ async function incrementProgress(driverId, type, amount, tx) {
       create: { questId: quest.id, driverId, current: amount },
     });
 
-    // Check if target met and not yet rewarded
+    // Target met — mark completed so the Quests tab can show a "Claim Reward"
+    // button. The wallet is credited on-demand via claimQuestReward(), not
+    // automatically here — the driver taps to claim, matching the reward
+    // moment other quest/achievement UIs give.
     if (progress.current >= quest.target && !progress.completed) {
-      // Credit wallet
-      const driver = await tx.driver.findUnique({
-        where: { id: driverId },
-        select: { walletBalance: true },
-      });
-      const balanceBefore = driver?.walletBalance ?? 0;
-
-      await tx.driver.update({
-        where: { id: driverId },
-        data: { walletBalance: { increment: quest.rewardAmount } },
-      });
-
-      await tx.walletTransaction.create({
-        data: {
-          driverId,
-          type: 'QUEST_BONUS',
-          amount: quest.rewardAmount,
-          description: `Quest bonus: ${quest.title}`,
-          balanceBefore,
-          balanceAfter: balanceBefore + quest.rewardAmount,
-        },
-      });
-
-      // Mark progress as completed
       await tx.driverQuestProgress.update({
         where: { questId_driverId: { questId: quest.id, driverId } },
-        data: { completed: true, rewardedAt: now },
+        data: { completed: true },
       });
 
-      logger.info(`Quest ${quest.id} completed for driver ${driverId}, bonus ${quest.rewardAmount} credited`);
+      logger.info(`Quest ${quest.id} completed for driver ${driverId} — awaiting claim`);
     }
   }
+}
+
+/**
+ * Credit the driver's wallet for a completed-but-unclaimed quest.
+ * Atomic conditional update (completed:true, rewardedAt:null in the WHERE
+ * clause itself) so a double-tap or retry can never double-credit — same
+ * pattern as wallet withdraw / send-money.
+ */
+async function claimQuestReward(driverId, questId) {
+  const quest = await prisma.driverQuest.findUnique({ where: { id: questId } });
+  if (!quest) throw new NotFoundError('Quest');
+
+  const progress = await prisma.driverQuestProgress.findUnique({
+    where: { questId_driverId: { questId, driverId } },
+  });
+  if (!progress || !progress.completed) {
+    throw new AppError('Quest is not completed yet', 400, 'QUEST_NOT_COMPLETED');
+  }
+  if (progress.rewardedAt) {
+    throw new AppError('Reward already claimed', 400, 'ALREADY_CLAIMED');
+  }
+
+  const now = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const claimed = await tx.driverQuestProgress.updateMany({
+      where: { questId, driverId, completed: true, rewardedAt: null },
+      data: { rewardedAt: now },
+    });
+    if (claimed.count === 0) {
+      throw new AppError('Reward already claimed', 400, 'ALREADY_CLAIMED');
+    }
+
+    const driver = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalance: true } });
+    const balanceBefore = driver?.walletBalance ?? 0;
+
+    await tx.driver.update({
+      where: { id: driverId },
+      data: { walletBalance: { increment: quest.rewardAmount } },
+    });
+
+    await tx.walletTransaction.create({
+      data: {
+        driverId,
+        type: 'QUEST_BONUS',
+        amount: quest.rewardAmount,
+        description: `Quest bonus: ${quest.title}`,
+        balanceBefore,
+        balanceAfter: balanceBefore + quest.rewardAmount,
+      },
+    });
+
+    logger.info(`Quest ${questId} reward claimed by driver ${driverId}: GHS ${quest.rewardAmount}`);
+    return { rewardAmount: quest.rewardAmount, title: quest.title };
+  });
 }
 
 /**
@@ -157,4 +191,4 @@ async function regenerateStandardQuests() {
   return questData.length;
 }
 
-module.exports = { listActiveQuestsForDriver, listQuestHistoryForDriver, incrementProgress, regenerateStandardQuests };
+module.exports = { listActiveQuestsForDriver, listQuestHistoryForDriver, incrementProgress, regenerateStandardQuests, claimQuestReward };

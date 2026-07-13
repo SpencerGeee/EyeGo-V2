@@ -37,4 +37,7 @@ export const questsApi = {
 
   listHistory: () =>
     apiClient.get<ApiResponse<{ history: QuestHistoryItem[] }>>('/quests/history'),
+
+  claim: (questId: string) =>
+    apiClient.post<ApiResponse<{ rewardAmount: number; title: string }>>(`/quests/${questId}/claim`),
 };

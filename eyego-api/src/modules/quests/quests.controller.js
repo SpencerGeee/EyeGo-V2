@@ -15,4 +15,10 @@ const listQuestHistory = async (req, res) => {
   ok(res, { history });
 };
 
-module.exports = { listActiveQuests, listQuestHistory };
+const claimQuest = async (req, res) => {
+  const driverId = req.user?.userId;
+  const result = await questsService.claimQuestReward(driverId, req.params.questId);
+  ok(res, result, `GHS ${result.rewardAmount.toFixed(2)} claimed for ${result.title}`);
+};
+
+module.exports = { listActiveQuests, listQuestHistory, claimQuest };
