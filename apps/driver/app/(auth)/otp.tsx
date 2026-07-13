@@ -4,6 +4,7 @@ import {
   TextInput,
   StyleSheet,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -102,6 +103,15 @@ export default function DriverOtpScreen() {
       setActiveIndex(0);
       setCountdown(RESEND_SECONDS);
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    },
+    onError: (err: any) => {
+      const status = err?.response?.status ?? err?.status;
+      if (status === 429) {
+        setCountdown(RESEND_SECONDS);
+        Alert.alert('Too many attempts', 'Please wait 60 seconds before requesting a new code.');
+      } else {
+        Alert.alert('Failed to Resend', 'Could not resend the code. Please try again.');
+      }
     },
   });
 

@@ -66,6 +66,7 @@ export default function AddPassengerScreen() {
         { text: 'OK', onPress: () => router.back() },
       ]);
     },
+    onError: (err) => Alert.alert('Error', (err as Error).message ?? 'Failed to board passenger. Please try again.'),
   });
 
   const addCash = useMutation({

@@ -23,6 +23,10 @@ export interface User {
     newFeatures?: boolean;
     safetyAlerts?: boolean;
   };
+  businessMode?: boolean;
+  businessCompanyName?: string | null;
+  businessTaxId?: string | null;
+  businessExpenseEmail?: string | null;
 }
 
 export interface AuthTokens {
@@ -43,4 +47,10 @@ export interface UpdateProfileRequest {
   name?: string;
   email?: string;
   avatarUrl?: string;
+  dob?: string;
+  preferredTier?: 'ECO' | 'COMFORT';
+  businessMode?: boolean;
+  businessCompanyName?: string | null;
+  businessTaxId?: string | null;
+  businessExpenseEmail?: string | null;
 }

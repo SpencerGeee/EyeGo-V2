@@ -65,7 +65,12 @@ export default function CancelRideScreen() {
     onSuccess: (res: any) => {
       const data = res.data?.data ?? res.data ?? res;
       const fee = data?.cancellationFee ?? 0;
+      // Invalidate every surface that could still show this ride as live:
+      // booking lists/active queries, the tracking screen's ['trip', id] +
+      // active-tracking query, and the scheduled-rides list.
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      queryClient.invalidateQueries({ queryKey: ['trip', id] });
+      queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
       if (fee > 0) {
         Alert.alert(
           'Ride Cancelled',

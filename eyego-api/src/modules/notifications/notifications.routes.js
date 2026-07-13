@@ -42,6 +42,8 @@ router.get('/', async (req, res) => {
           body: `Your trip to ${dest} with ${driver} is complete. How was it?`,
           read: true,
           createdAt: b.updatedAt || b.createdAt,
+          bookingId: b.id,
+          tripId: b.tripId,
         });
       } else if (b.paymentStatus === 'PAID' && b.status !== 'CANCELLED') {
         items.push({
@@ -51,6 +53,8 @@ router.get('/', async (req, res) => {
           body: `GHS ${b.fareAmount?.toFixed(2) ?? '—'} paid. Seat #${b.seatNumber} on your trip to ${dest}.`,
           read: false,
           createdAt: b.updatedAt || b.createdAt,
+          bookingId: b.id,
+          tripId: b.tripId,
         });
       } else if (['CONFIRMED', 'SEAT_HELD', 'BOARDED'].includes(b.status)) {
         items.push({
@@ -60,6 +64,8 @@ router.get('/', async (req, res) => {
           body: `Seat #${b.seatNumber} on your trip to ${dest} is confirmed.`,
           read: false,
           createdAt: b.createdAt,
+          bookingId: b.id,
+          tripId: b.tripId,
         });
       } else if (b.status === 'CANCELLED') {
         items.push({
@@ -69,6 +75,8 @@ router.get('/', async (req, res) => {
           body: `Your booking for the trip to ${dest} was cancelled.`,
           read: true,
           createdAt: b.updatedAt || b.createdAt,
+          bookingId: b.id,
+          tripId: b.tripId,
         });
       }
 

@@ -18,15 +18,19 @@ import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { driverApi } from '@eyego/api';
-import { useMutation } from '@tanstack/react-query';
+import type { DriverDocument } from '@eyego/api';
+import { useFocusEffect } from 'expo-router';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 const TOTAL_STEPS = 3;
 
-const REQUIRED_DOCS = [
-  "Driver's Licence",
-  'Vehicle Registration',
-  'Insurance Certificate',
-  'Roadworthy Certificate',
+// Matches the document types the backend actually tracks/verifies
+// (drivers.service.js getDocuments/uploadDocument) — vehicle registration,
+// insurance and roadworthy certs are not modeled on the backend yet, so they
+// aren't listed as gating requirements here.
+const REQUIRED_DOCS: { label: string; type: DriverDocument['type'] }[] = [
+  { label: "Driver's Licence", type: 'DRIVERS_LICENSE' },
+  { label: 'Ghana Card / National ID', type: 'GHANA_CARD' },
 ];
 
 function ProgressDots({ step, colors }: { step: number; colors: DriverColors }) {
@@ -80,6 +84,32 @@ export default function OnboardingScreen() {
       return;
     }
     updateVehicle();
+  };
+
+  // Step 2: refetch on focus so returning from the upload screen reflects
+  // what was just submitted.
+  const { data: documents, refetch: refetchDocuments } = useQuery({
+    queryKey: ['driver', 'documents'],
+    queryFn: () => driverApi.getDocuments(),
+    select: (r) => r.data.data ?? [],
+    enabled: step === 2,
+  });
+  useFocusEffect(
+    React.useCallback(() => {
+      if (step === 2) refetchDocuments();
+    }, [step, refetchDocuments])
+  );
+
+  const isDocUploaded = (type: DriverDocument['type']) =>
+    documents?.some((d) => d.type === type && d.status !== 'MISSING') ?? false;
+  const allRequiredDocsUploaded = REQUIRED_DOCS.every((doc) => isDocUploaded(doc.type));
+
+  const handleStep2Continue = () => {
+    if (!allRequiredDocsUploaded) {
+      Alert.alert('Documents required', 'Please upload all required documents before continuing.');
+      return;
+    }
+    setStep(3);
   };
 
   return (
@@ -148,25 +178,36 @@ export default function OnboardingScreen() {
               </Text>
 
               <View style={styles.card}>
-                {REQUIRED_DOCS.map((doc, idx) => (
-                  <Pressable
-                    key={doc}
-                    style={[styles.docRow, idx === REQUIRED_DOCS.length - 1 && { borderBottomWidth: 0 }]}
-                    onPress={() => router.push('/(profile)/documents' as any)}
-                  >
-                    <View style={styles.iconBg}>
-                      <Ionicons name="document-attach-outline" size={18} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.medium }}>{doc}</Text>
-                      <Text variant="labelSmall" color={colors.onSurfaceVariant}>Tap to upload</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-                  </Pressable>
-                ))}
+                {REQUIRED_DOCS.map((doc, idx) => {
+                  const uploaded = isDocUploaded(doc.type);
+                  return (
+                    <Pressable
+                      key={doc.type}
+                      style={[styles.docRow, idx === REQUIRED_DOCS.length - 1 && { borderBottomWidth: 0 }]}
+                      onPress={() => router.push('/(profile)/documents' as any)}
+                    >
+                      <View style={styles.iconBg}>
+                        <Ionicons
+                          name={uploaded ? 'checkmark-circle' : 'document-attach-outline'}
+                          size={18}
+                          color={uploaded ? '#22C55E' : colors.primary}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.medium }}>{doc.label}</Text>
+                        <Text variant="labelSmall" color={colors.onSurfaceVariant}>{uploaded ? 'Uploaded' : 'Tap to upload'}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+                    </Pressable>
+                  );
+                })}
               </View>
 
-              <Button label="Continue" onPress={() => setStep(3)} />
+              <Button
+                label="Continue"
+                onPress={handleStep2Continue}
+                disabled={!allRequiredDocsUploaded}
+              />
             </MotiView>
           )}
 

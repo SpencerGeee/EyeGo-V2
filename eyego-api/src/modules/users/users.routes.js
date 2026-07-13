@@ -21,6 +21,10 @@ router.patch(
   body('name').optional().notEmpty().trim(),
   body('preferredTier').optional().isIn(['ECO', 'COMFORT']),
   body('email').optional().isEmail(),
+  body('businessMode').optional().isBoolean(),
+  body('businessCompanyName').optional({ nullable: true }).trim(),
+  body('businessTaxId').optional({ nullable: true }).trim(),
+  body('businessExpenseEmail').optional({ nullable: true, checkFalsy: true }).isEmail(),
   validate,
   controller.updateMe
 );

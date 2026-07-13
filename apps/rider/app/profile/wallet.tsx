@@ -106,9 +106,6 @@ export default function WalletScreen() {
     topUp.mutate(amount);
   };
 
-  const comingSoon = (feature: string) =>
-    Alert.alert(feature, `${feature} is coming soon to EyeGo Wallet.`);
-
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
@@ -175,11 +172,11 @@ export default function WalletScreen() {
         <View
           style={styles.quickGrid}
         >
-          <Pressable style={styles.quickCard} onPress={() => comingSoon('Send Money')}>
+          <Pressable style={styles.quickCard} onPress={() => router.push('/profile/send-money' as any)}>
             <Ionicons name="send-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Send Money</Text>
           </Pressable>
-          <Pressable style={styles.quickCard} onPress={() => comingSoon('Scan & Pay')}>
+          <Pressable style={styles.quickCard} onPress={() => router.push('/profile/scan-pay' as any)}>
             <Ionicons name="qr-code-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Scan & Pay</Text>
           </Pressable>

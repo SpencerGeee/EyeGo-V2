@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ApiResponse, PaginatedResponse } from '@eyego/types';
+import type { ApiResponse } from '@eyego/types';
 
 export interface WalletBalance {
   balance: number;
@@ -9,7 +9,9 @@ export interface WalletBalance {
 
 export interface WalletTransaction {
   id: string;
-  type: 'CREDIT' | 'DEBIT';
+  // Matches the literal values actually written by drivers.service.js /
+  // wallet.service.js walletTransaction.create calls — not a generic CREDIT/DEBIT.
+  type: 'TRIP_EARNING' | 'EARNINGS_CREDIT' | 'QUEST_BONUS' | 'COMMISSION_DEDUCTION' | 'TOP_UP' | 'WITHDRAWAL' | 'WITHDRAWAL_REVERSAL';
   amount: number;
   description: string;
   reference?: string;
@@ -47,13 +49,21 @@ export const walletApi = {
     apiClient.get<ApiResponse<WalletBalance>>('/wallet/balance'),
 
   getTransactions: (params?: { page?: number; limit?: number }) =>
-    apiClient.get<PaginatedResponse<WalletTransaction>>('/wallet/transactions', { params }),
+    apiClient.get<ApiResponse<{ transactions: WalletTransaction[]; total: number; page: number; totalPages: number }>>('/wallet/transactions', { params }),
 
   topUp: (data: TopUpRequest, idempotencyKey?: string) =>
     apiClient.post<ApiResponse<{ reference: string; authorizationUrl?: string }>>(
       '/wallet/topup',
       data,
       { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey('topup') } }
+    ),
+
+  // Send Money / Scan & Pay — wallet-to-wallet transfer by recipient phone.
+  sendMoney: (data: { recipientPhone: string; amount: number }, idempotencyKey?: string) =>
+    apiClient.post<ApiResponse<{ reference: string; recipientName: string }>>(
+      '/wallet/send',
+      data,
+      { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey('p2p') } }
     ),
 
   withdraw: (data: { amount: number }, idempotencyKey?: string) =>

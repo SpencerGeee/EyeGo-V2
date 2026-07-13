@@ -10,6 +10,7 @@ async function getMe(userId) {
     select: {
       id: true, phone: true, email: true, name: true, dob: true,
       profilePhoto: true, preferredTier: true, authProvider: true, createdAt: true,
+      businessMode: true, businessCompanyName: true, businessTaxId: true, businessExpenseEmail: true,
     },
   });
   if (!user) throw new NotFoundError('User');
@@ -27,6 +28,10 @@ async function updateMe(userId, data) {
   if (data.dob) allowed.dob = data.dob;
   if (data.profilePhoto) allowed.profilePhoto = data.profilePhoto;
   if (data.avatarUrl) allowed.profilePhoto = data.avatarUrl;
+  if (typeof data.businessMode === 'boolean') allowed.businessMode = data.businessMode;
+  if (data.businessCompanyName !== undefined) allowed.businessCompanyName = data.businessCompanyName || null;
+  if (data.businessTaxId !== undefined) allowed.businessTaxId = data.businessTaxId || null;
+  if (data.businessExpenseEmail !== undefined) allowed.businessExpenseEmail = data.businessExpenseEmail || null;
 
   const user = await prisma.user.update({ where: { id: userId }, data: allowed });
   return {

@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ApiResponse, PaginatedResponse } from '@eyego/types';
+import type { ApiResponse } from '@eyego/types';
 import type { TripDriver } from '@eyego/types';
 
 // ── Driver-facing (used by driver app) ───────────────────────────────────────
@@ -95,6 +95,10 @@ export interface DriverTrip {
   confirmedSeats: number;
   // UI convenience alias — equals baseFare from backend
   farePerSeat: number;
+  // Real per-seat commission split, computed server-side (attachFarePerSeat) —
+  // use these instead of guessing a commission rate/split client-side.
+  commissionRate?: number;
+  driverEarningsPerSeat?: number;
   baseFare: number;
   status: 'SCHEDULED' | 'FILLING' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   totalEarnings?: number;
@@ -147,7 +151,7 @@ export const driverApi = {
     apiClient.post<ApiResponse<{ trip: DriverTrip }>>('/driver/trips', data),
 
   getTrips: (params?: { page?: number; limit?: number }) =>
-    apiClient.get<PaginatedResponse<DriverTrip>>('/driver/trips', { params }),
+    apiClient.get<ApiResponse<{ trips: DriverTrip[]; total: number; page: number; totalPages: number }>>('/driver/trips', { params }),
 
   getActiveTrip: () =>
     apiClient.get<ApiResponse<{ trip: DriverTrip } | null>>('/driver/trips/active'),
@@ -181,6 +185,12 @@ export const driverApi = {
   // Cancel a self-created trip (only allowed before COMPLETED/CANCELLED)
   cancelTrip: (tripId: string, reason?: string, note?: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/cancel`, { reason, note }),
+
+  // Whole-trip driver no-show (nobody boarded) — dedicated endpoint under the
+  // trips module: correct pre-departure state guard + refund + rider push
+  // copy ("driver no-show"), instead of reusing the generic cancel action.
+  driverNoShow: (tripId: string) =>
+    apiClient.post<ApiResponse<{ tripId: string; refundedCount: number }>>(`/trips/${tripId}/driver-no-show`),
 
   // Admin dispatch — accept or decline an assigned trip
   acceptDispatch: (tripId: string) =>
@@ -243,7 +253,15 @@ export const driverApi = {
 
   getWalletTransactions: (params?: { page?: number; limit?: number }) =>
     apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amount: number; description: string; createdAt: string }> }>>(
-      '/driver/wallet/transactions',
+      '/driver/earnings/transactions',
+      { params },
+    ),
+
+  // Derived notification history (trip completed/cancelled + payments) —
+  // backfills what the live socket-driven store missed while the app was killed.
+  getNotifications: (params?: { limit?: number }) =>
+    apiClient.get<ApiResponse<{ notifications: Array<{ id: string; type: string; title: string; body: string; tripId?: string; createdAt: string }> }>>(
+      '/driver/notifications',
       { params },
     ),
 

@@ -45,8 +45,17 @@ async function topUp(driverId, amount) {
 async function confirmTopUp(driverId, reference, amount) {
   const safeAmount = toCedis(amount);
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) throw new NotFoundError('Driver');
 
   return prisma.$transaction(async (tx) => {
+    // Idempotency guard: if a top-up for this Paystack reference was already
+    // credited, do not credit again (mirrors the webhook/verify paths).
+    const existing = await tx.walletTransaction.findFirst({
+      where: { paystackRef: reference, type: 'TOP_UP' },
+      select: { id: true },
+    });
+    if (existing) return;
+
     await tx.driver.update({
       where: { id: driverId },
       data: { walletBalance: { increment: safeAmount } },

@@ -346,6 +346,7 @@
     try {
       const res = await fetch(`${API_BASE}/v1/trips/join/${SHARE_TOKEN}/data`);
       if (!res.ok) {
+        document.getElementById('loading').classList.add('hidden');
         if (res.status === 410) {
           showEndState('expired', '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>', 'Invite Expired', 'This invite link has expired. Ask the host to send a new link.');
         } else if (res.status === 404) {
@@ -361,7 +362,10 @@
       render(data);
       document.getElementById('loading').classList.add('hidden');
     } catch (e) {
+      // Network/parse failure — without this the spinner was left stuck
+      // forever with no way for the visitor to know anything went wrong.
       console.warn('Fetch failed', e);
+      showError('Could not load ride details. Check your connection and try again.');
     }
   }
 

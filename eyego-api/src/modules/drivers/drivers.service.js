@@ -34,7 +34,12 @@ function attachFarePerSeat(trip) {
     storedBaseFare: trip.baseFare,
     storedPerKmRate: trip.perKmRate,
   });
-  return { ...trip, farePerSeat: fareInfo.farePerPerson };
+  return {
+    ...trip,
+    farePerSeat: fareInfo.farePerPerson,
+    commissionRate: fareInfo.commissionRate,
+    driverEarningsPerSeat: fareInfo.driverEarningsPerSeat,
+  };
 }
 
 async function getMe(driverId) {
@@ -525,8 +530,15 @@ async function arriveTrip(driverId, tripId) {
       data: { status: 'COMPLETED' },
     });
 
-    // Credit driver earnings
-    const totalEarnings = trip.bookings.reduce((sum, b) => sum + toCedis(b.fareAmount * (1 - env.PLATFORM_COMMISSION)), 0);
+    // Credit driver earnings — ONLY for online-paid bookings (MoMo/card/wallet).
+    // Cash bookings (paymentStatus PENDING, paid in hand) already had commission
+    // debited at boarding and the driver keeps the cash directly, so crediting the
+    // wallet too would double-pay. Match completeTrip's PAID-only filter.
+    const ONLINE_METHODS = ['MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO', 'CARD', 'WALLET'];
+    const onlinePaidBookings = trip.bookings.filter(
+      (b) => b.paymentStatus === 'PAID' && ONLINE_METHODS.includes(b.paymentMethod),
+    );
+    const totalEarnings = onlinePaidBookings.reduce((sum, b) => sum + toCedis(b.fareAmount * (1 - env.PLATFORM_COMMISSION)), 0);
     const safeEarnings = toCedis(totalEarnings);
     if (safeEarnings > 0) {
       const driver = await tx.driver.findUnique({ where: { id: driverId } });
@@ -857,9 +869,70 @@ async function reportTrip(driverId, tripId, { type, details }) {
   });
 }
 
+// Derives a notification history from the driver's own trips/bookings — mirrors
+// the rider notifications module's "no separate Notification model needed"
+// pattern. Backfills what a driver missed while the app was fully killed (the
+// live socket-driven notifications store only catches events while connected).
+async function getNotifications(driverId, limit = 30) {
+  const take = Math.min(parseInt(limit, 10) || 30, 50);
+
+  const trips = await prisma.trip.findMany({
+    where: { driverId, status: { in: ['COMPLETED', 'CANCELLED'] } },
+    include: {
+      route: { select: { originName: true, destinationName: true } },
+      bookings: { where: { paymentStatus: 'PAID' }, select: { id: true, fareAmount: true, seatNumber: true, updatedAt: true } },
+    },
+    orderBy: { updatedAt: 'desc' },
+    take,
+  });
+
+  const notifications = trips.flatMap((trip) => {
+    const dest = trip.route?.destinationName ?? 'your destination';
+    const items = [];
+
+    if (trip.status === 'COMPLETED') {
+      items.push({
+        id: `${trip.id}:completed`,
+        type: 'COMPLETED',
+        title: 'Trip completed',
+        body: `Your trip to ${dest} is complete.`,
+        tripId: trip.id,
+        createdAt: (trip.arrivedAt ?? trip.updatedAt).toISOString(),
+      });
+    } else if (trip.status === 'CANCELLED') {
+      items.push({
+        id: `${trip.id}:cancelled`,
+        type: 'INFO',
+        title: 'Trip cancelled',
+        body: `Your trip to ${dest} was cancelled.`,
+        tripId: trip.id,
+        createdAt: trip.updatedAt.toISOString(),
+      });
+    }
+
+    for (const b of trip.bookings) {
+      items.push({
+        id: `${b.id}:paid`,
+        type: 'PAYMENT_CONFIRMED',
+        title: 'Payment confirmed',
+        body: `GHS ${b.fareAmount?.toFixed(2) ?? '—'} paid for Seat #${b.seatNumber} on your trip to ${dest}.`,
+        tripId: trip.id,
+        createdAt: b.updatedAt.toISOString(),
+      });
+    }
+
+    return items;
+  });
+
+  notifications.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return { notifications: notifications.slice(0, take) };
+}
+
 module.exports = {
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
+  getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
   getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger,

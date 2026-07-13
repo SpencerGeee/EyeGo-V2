@@ -6,6 +6,7 @@ import {
   Pressable,
   Alert,
   Platform,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -159,11 +160,13 @@ export default function CreateTripScreen() {
             <View style={styles.searchBox}>
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
               <Ionicons name="search" size={16} color={colors.onSurfaceVariant} />
-              <Pressable style={{ flex: 1 }}>
-                <Text color={colors.onSurfaceVariant} style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSizes.bodyMedium }}>
-                  Search routes…
-                </Text>
-              </Pressable>
+              <TextInput
+                value={routeSearch}
+                onChangeText={setRouteSearch}
+                placeholder="Search routes…"
+                placeholderTextColor={colors.onSurfaceVariant}
+                style={{ flex: 1, fontFamily: fonts.regular, fontSize: fontSizes.bodyMedium, color: colors.onSurface, paddingVertical: 0 }}
+              />
             </View>
             <View style={styles.routeList}>
               {(filteredRoutes as Route[]).map((route) => (

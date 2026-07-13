@@ -47,9 +47,12 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
 
       // Cancel any existing SEAT_HELD booking this user already has on this trip
       // (handles the "go back and pick a different seat" flow — prevents ghost bookings)
+      // Null the seatNumber too — otherwise the cancelled row keeps its old
+      // seatNumber and re-picking the same (or that) seat collides on the
+      // @@unique([tripId, seatNumber]) constraint.
       await tx.booking.updateMany({
         where: { tripId, userId, status: 'SEAT_HELD' },
-        data: { status: 'CANCELLED' },
+        data: { status: 'CANCELLED', seatNumber: null },
       });
 
       // Check seat is not already taken by someone else
@@ -505,16 +508,16 @@ async function generateInvite(bookingId, userId) {
 async function regenerateInvite(bookingId, userId) {
   const booking = await prisma.booking.findFirst({
     where: { id: bookingId, userId },
-    include: { trip: { select: { id: true, rideGroup: true } } },
+    include: { trip: { select: { id: true, group: true } } },
   });
   if (!booking) throw new NotFoundError('Booking');
-  if (!booking.trip.rideGroup) {
+  if (!booking.trip.group) {
     // No group exists yet — delegate to generateInvite instead of erroring
     return generateInvite(bookingId, userId);
   }
 
   const group = await prisma.rideGroup.update({
-    where: { id: booking.trip.rideGroup.id },
+    where: { id: booking.trip.group.id },
     data: {
       shareToken: crypto.randomBytes(12).toString('hex'),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
@@ -531,7 +534,7 @@ async function getGroup(bookingId, userId) {
     include: {
       trip: {
         include: {
-          rideGroup: true,
+          group: true,
           bookings: {
             where: { status: { notIn: ['CANCELLED'] } },
             include: { user: { select: { id: true, name: true, profilePhoto: true } } },
@@ -543,7 +546,7 @@ async function getGroup(bookingId, userId) {
   });
   if (!booking) throw new NotFoundError('Booking');
 
-  const group = booking.trip.rideGroup;
+  const group = booking.trip.group;
   const inviteLink = group ? `${env.APP_URL}/invite/${group.shareToken}` : '';
 
   const members = booking.trip.bookings

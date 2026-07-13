@@ -70,7 +70,10 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         Haptics.selectionAsync();
         // Card expands into the ride detail screen (route animates 'fade' —
         // the morph overlay carries the motion).
-        morphTo(`ride-card-${booking.id}`, () => router.push(`/ride/${booking.id}` as any));
+        // /ride/[id] looks up by TRIP id (tripsApi.getById), not booking id —
+        // booking.tripId is the FK to the actual trip; booking.id is a
+        // different entity and would 404 the detail screen.
+        morphTo(`ride-card-${booking.id}`, () => router.push(`/ride/${booking.tripId ?? booking.trip?.id}` as any));
       }}
     >
       <View style={[styles.itemIcon, { backgroundColor: withOpacity(statusColor, 0.1) }]}>

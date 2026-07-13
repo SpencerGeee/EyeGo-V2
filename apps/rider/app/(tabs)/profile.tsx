@@ -130,6 +130,7 @@ export default function ProfileScreen() {
         { label: 'Edit Profile', icon: 'person-outline', onPress: () => router.push('/profile/edit' as RiderRoute) },
         { label: 'Payment Methods', icon: 'card-outline', onPress: () => router.push('/profile/payment-methods' as RiderRoute) },
         { label: 'Saved Places', icon: 'bookmark-outline', onPress: () => router.push('/profile/saved-places' as RiderRoute) },
+        { label: 'Business Profile', icon: 'briefcase-outline', onPress: () => router.push('/profile/business' as RiderRoute) },
         { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/activity' as any) },
       ],
     },

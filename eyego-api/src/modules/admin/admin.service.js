@@ -504,10 +504,15 @@ async function banUser(userId, reason) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new NotFoundError('User');
 
-  // Invalidate refresh token so active sessions expire
+  // Revoke active refresh-token sessions so the ban takes effect immediately.
+  await prisma.refreshToken.updateMany({
+    where: { userId },
+    data: { revokedAt: new Date() },
+  });
+
   return prisma.user.update({
     where: { id: userId },
-    data: { isBanned: true, refreshToken: null },
+    data: { isBanned: true },
   });
 }
 
@@ -531,7 +536,7 @@ async function getMetrics() {
     }),
     prisma.user.count(),
     prisma.driver.count(),
-    prisma.driver.count({ where: { status: 'PENDING' } }),
+    prisma.driver.count({ where: { status: 'PENDING_REVIEW' } }),
   ]);
 
   const todayRevenue = todayPayments._sum.amount ?? 0;
@@ -553,7 +558,7 @@ async function getActiveTrips() {
     where: { status: { in: ['DRIVER_EN_ROUTE', 'IN_PROGRESS'] } },
     include: {
       driver: { select: { id: true, name: true, currentLat: true, currentLng: true, phone: true } },
-      route: { select: { originName: true, destName: true } },
+      route: { select: { originName: true, destinationName: true } },
       _count: { select: { bookings: { where: { status: { notIn: ['CANCELLED'] } } } } },
     },
     orderBy: { createdAt: 'desc' },

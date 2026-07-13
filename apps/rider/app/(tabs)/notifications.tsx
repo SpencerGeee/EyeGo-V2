@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { AnimatedList } from '@eyego/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, type Href } from 'expo-router';
 import { Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -173,15 +174,23 @@ export default function NotificationsScreen() {
     return allNotifications.filter((n) => typeFilter.includes(n.type));
   }, [allNotifications, activeCategory]);
 
+  const router = useRouter();
+  const handlePress = useCallback((item: AppNotification) => {
+    if (!item.read) markRead(item.id);
+    // Trip/payment notifications carry a real tripId to jump back into —
+    // without this, tapping a notification did nothing but mark it read.
+    if (item.tripId) router.push(`/ride/${item.tripId}` as Href);
+  }, [markRead, router]);
+
   const renderItem = useCallback(({ item, index }: { item: AppNotification; index: number }) => (
     <NotificationCard
       item={item}
       index={index}
-      onPress={() => { if (!item.read) markRead(item.id); }}
+      onPress={() => handlePress(item)}
       styles={styles}
       colors={colors}
     />
-  ), [styles, colors, markRead]);
+  ), [styles, colors, handlePress]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

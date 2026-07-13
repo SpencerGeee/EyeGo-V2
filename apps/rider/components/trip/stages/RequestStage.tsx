@@ -13,6 +13,9 @@ import { useTripFlow } from '../../../stores/tripFlow.store';
 import { useRideStore } from '../../../stores/ride.store';
 
 const POLL_INTERVAL_MS = 4000;
+// If no driver has accepted within this window, stop polling and show a
+// terminal "no driver found" state instead of spinning forever.
+const SEARCH_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
  * "Looking for a driver" stage of the persistent trip surface, ported from
@@ -34,10 +37,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
   const destination = storeDestination?.address ?? paramDestination;
 
-  const [status, setStatus] = useState<'sending' | 'searching' | 'matched' | 'error'>('sending');
+  const [status, setStatus] = useState<'sending' | 'searching' | 'matched' | 'error' | 'timeout'>('sending');
   const [cancelling, setCancelling] = useState(false);
   const requestIdRef = useRef<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentRef = useRef(false);
 
   useEffect(() => {
@@ -56,25 +60,44 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           destLng: storeDestination?.longitude,
         });
         requestIdRef.current = res.data?.data?.requestId ?? null;
-        setStatus('searching');
 
-        if (requestIdRef.current) {
-          pollTimerRef.current = setInterval(async () => {
-            try {
-              const check = await tripsApi.getTripRequest(requestIdRef.current!);
-              const req = check.data?.data;
-              if (req?.status === 'ACCEPTED' && req.matchedTripId) {
-                if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-                setStatus('matched');
-                queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-                queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-                router.replace(`/ride/${req.matchedTripId}/tracking` as any);
-              }
-            } catch {
-              // transient poll failure — try again on next tick
-            }
-          }, POLL_INTERVAL_MS);
+        if (!requestIdRef.current) {
+          // Backend accepted the call but returned no id to poll — nothing to
+          // wait on, so surface it instead of sitting in "searching" forever.
+          setStatus('error');
+          return;
         }
+
+        setStatus('searching');
+        pollTimerRef.current = setInterval(async () => {
+          try {
+            const check = await tripsApi.getTripRequest(requestIdRef.current!);
+            const req = check.data?.data;
+            if (req?.status === 'ACCEPTED' && req.matchedTripId) {
+              if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+              if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+              setStatus('matched');
+              queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+              queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+              router.replace(`/ride/${req.matchedTripId}/tracking` as any);
+            }
+          } catch {
+            // transient poll failure — try again on next tick
+          }
+        }, POLL_INTERVAL_MS);
+
+        // No driver accepted within the window — stop polling and show a
+        // terminal state instead of spinning on "Looking for a driver" forever.
+        // Also cancel server-side so a driver can't still accept it later
+        // while the rider believes the search ended.
+        searchTimeoutRef.current = setTimeout(() => {
+          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+          setStatus((prev) => {
+            if (prev !== 'searching') return prev;
+            if (requestIdRef.current) tripsApi.cancelTripRequest(requestIdRef.current).catch(() => {});
+            return 'timeout';
+          });
+        }, SEARCH_TIMEOUT_MS);
       } catch {
         setStatus('error');
       }
@@ -82,6 +105,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -156,11 +180,16 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         </View>
 
         <Text style={styles.title}>
-          {status === 'matched' ? 'Driver found!' : status === 'error' ? "Couldn't send request" : 'Looking for a driver'}
+          {status === 'matched' ? 'Driver found!'
+            : status === 'error' ? "Couldn't send request"
+            : status === 'timeout' ? 'No drivers found'
+            : 'Looking for a driver'}
         </Text>
         <Text style={styles.subtitle}>
           {status === 'error' ? (
             "We couldn't reach the server to send your trip request. Check your connection and try again."
+          ) : status === 'timeout' ? (
+            "No nearby drivers accepted your request in time. Please try again, or search for a scheduled route instead."
           ) : (
             <>
               Your trip request to{' '}

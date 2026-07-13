@@ -2,7 +2,9 @@ import React, { useMemo, useCallback, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
+import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Entrance, GlassSurface, AnimatedList, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -46,8 +48,37 @@ export default function NotificationsScreen() {
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { notifications, markRead, markAllRead } = useNotificationsStore();
+  const { notifications: liveNotifications, markRead, markAllRead } = useNotificationsStore();
   const [activeCategory, setActiveCategory] = useState<Category>('All');
+
+  // Backfills history the live socket-driven store missed while the app was
+  // fully killed (push arrived, but nothing was connected to call addNotification).
+  const { data: derivedNotifications = [] } = useQuery({
+    queryKey: ['driver', 'notifications', 'derived'],
+    queryFn: () => driverApi.getNotifications({ limit: 30 }),
+    select: (r) => r.data.data?.notifications ?? [],
+    staleTime: 60_000,
+  });
+
+  const notifications = useMemo<DriverNotification[]>(() => {
+    const liveIds = new Set(liveNotifications.map((n) => n.id));
+    // Live entries carry the real read state — only add derived items the
+    // live store doesn't already know about, and treat backfilled history as read.
+    const backfilled: DriverNotification[] = derivedNotifications
+      .filter((n) => !liveIds.has(n.id))
+      .map((n) => ({
+        id: n.id,
+        type: (n.type as NotificationType) ?? 'INFO',
+        title: n.title,
+        body: n.body,
+        tripId: n.tripId,
+        timestamp: n.createdAt,
+        read: true,
+      }));
+    return [...liveNotifications, ...backfilled].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    );
+  }, [liveNotifications, derivedNotifications]);
 
   const hasUnread = useMemo(() => notifications.some((n) => !n.read), [notifications]);
 

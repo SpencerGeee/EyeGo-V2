@@ -140,7 +140,9 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
         status: 'CANCELLED',
         seatNumber: null,
         cancelledAt: now,
-        cancellationReason: reason || null,
+        // Booking has no separate free-text column — fold the rider's "Other"
+        // note into the reason string so it isn't silently dropped.
+        cancellationReason: note ? `${reason || 'other'}: ${note}` : (reason || null),
         cancellationFee: cancellationFee,
       },
     });

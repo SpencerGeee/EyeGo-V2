@@ -9,10 +9,13 @@ import {
   Keyboard,
   BackHandler,
 } from 'react-native';
+import * as Location from 'expo-location';
 import Animated, { LinearTransition, FadeIn, FadeOut } from 'react-native-reanimated';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { userApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, GradientGlowBorder, MorphTarget, useMorph, MorphBackSwipeDetector, backgroundScrollPauseProps, type GradientGlowBorderHandle } from '@eyego/ui';
@@ -55,7 +58,7 @@ function SearchStageImpl() {
   const quickChips = useMemo(() => getQuickChips(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { setDestination } = useRideStore();
+  const { origin, setOrigin, setDestination } = useRideStore();
   const tier = useTripFlow((s) => s.tier);
   const type = useTripFlow((s) => s.type);
   const morphId = useTripFlow((s) => s.morphId);
@@ -72,6 +75,15 @@ function SearchStageImpl() {
   const [isSearching, setIsSearching] = useState(false);
   const [, setActiveField] = useState<'origin' | 'dest'>('dest');
 
+  // Backing data for the Home/Work quick chips — previously these three chips
+  // had no onPress at all (dead buttons).
+  const { data: savedPlaces } = useQuery({
+    queryKey: ['user', 'saved-places'],
+    queryFn: () => userApi.getSavedPlaces(),
+    select: (r: any) => r.data?.data?.places ?? r.data?.data ?? [],
+    staleTime: 60_000,
+  });
+
   const destRef = useRef<TextInput>(null);
   const originRef = useRef<TextInput>(null);
   const originRingRef = useRef<GradientGlowBorderHandle>(null);
@@ -80,6 +92,39 @@ function SearchStageImpl() {
 
   useEffect(() => {
     setTimeout(() => destRef.current?.focus(), 300);
+  }, []);
+
+  // BUGFIX: `origin` in the ride store was never populated from the device's
+  // real GPS location (or from this screen's own pickup field) — every trip
+  // search silently fell back to a hardcoded Accra-center coordinate
+  // (searchTrips: origin?.latitude ?? 5.6037) regardless of where the rider
+  // actually was. The "Current Location" placeholder text promised real GPS
+  // but nothing ever wired it to the store. Capture it once on mount.
+  useEffect(() => {
+    if (origin) return; // already set (e.g. rider swapped origin/dest earlier)
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          const req = await Location.requestForegroundPermissionsAsync();
+          if (req.status !== 'granted') return;
+        }
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!cancelled) {
+          setOrigin({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            address: 'Current Location',
+          });
+        }
+      } catch {
+        // No GPS available — searchTrips' fallback coordinate is the last resort,
+        // not the default path.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSearch = useCallback((text: string) => {
@@ -123,6 +168,24 @@ function SearchStageImpl() {
     haptic.light();
     commitPlace({ name: dest.name, fullAddress: dest.address, latitude: dest.lat, longitude: dest.lon });
   }, [commitPlace]);
+
+  // Chips had no onPress at all before — tapping Home/Work/Accra Mall did
+  // nothing. Home/Work resolve against the rider's saved places; if not yet
+  // saved, send them to set one up rather than silently doing nothing.
+  const handleQuickChip = useCallback((chipId: string) => {
+    haptic.light();
+    if (chipId === 'mall') {
+      const mall = QUICK_DESTINATIONS.find((d) => d.id === 'mall')!;
+      commitPlace({ name: mall.name, fullAddress: mall.address, latitude: mall.lat, longitude: mall.lon });
+      return;
+    }
+    const saved = (savedPlaces ?? []).find((p: { label: string }) => p.label?.toLowerCase() === chipId);
+    if (saved) {
+      commitPlace({ name: saved.label, fullAddress: saved.address, latitude: saved.lat, longitude: saved.lng });
+    } else {
+      router.push('/profile/saved-places' as any);
+    }
+  }, [savedPlaces, commitPlace, router]);
 
   const handleClearDest = useCallback(() => {
     setDestQuery('');
@@ -353,6 +416,7 @@ function SearchStageImpl() {
                     <Pressable
                       key={chip.id}
                       style={({ pressed }) => [styles.chip, pressed && { opacity: 0.75 }]}
+                      onPress={() => handleQuickChip(chip.id)}
                       accessibilityRole="button"
                       accessibilityLabel={chip.label}
                     >

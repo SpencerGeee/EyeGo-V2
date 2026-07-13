@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -8,7 +8,8 @@ import {
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type SafetySettings } from '@eyego/api';
@@ -42,23 +43,24 @@ const SAFETY_FEATURES: {
   {
     id: 'speedAlerts',
     icon: 'speedometer-outline',
-    title: 'Speed Alerts (Coming Soon)',
+    title: 'Speed Alerts',
     description: 'Notify you if your driver exceeds the speed limit',
     defaultEnabled: false,
   },
   {
     id: 'nightSafety',
     icon: 'moon-outline',
-    title: 'Night Safety Check (Coming Soon)',
-    description: 'Extra verification for trips between 10pm - 5am',
+    title: 'Night Safety Check',
+    description: 'Periodic check-ins on trips between 10pm - 5am, with automatic SOS escalation if you don\'t respond',
     defaultEnabled: false,
   },
 ];
 
-// These two aren't wired to any backend behavior yet (no speed-limit data source /
-// no night-trip verification flow exists) — surface a honest "coming soon" instead
-// of silently persisting a toggle that changes nothing, like the two above did.
-const UNIMPLEMENTED_FEATURE_IDS: Array<keyof SafetySettings> = ['speedAlerts', 'nightSafety'];
+// Both features are now live: Speed Alerts reads the driver's real-time GPS
+// speed from the socket location stream (tracking.tsx); Night Safety Check
+// runs a periodic check-in prompt during night trips that escalates through
+// the existing emergencyAlert/SOS flow if unanswered.
+const UNIMPLEMENTED_FEATURE_IDS: Array<keyof SafetySettings> = [];
 
 const DEFAULTS = Object.fromEntries(
   SAFETY_FEATURES.map((f) => [f.id, f.defaultEnabled])

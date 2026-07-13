@@ -39,6 +39,7 @@ export default function SOSScreen() {
   const [shareTripStatus, setShareTripStatus] = useState(false);
   const [audioRecording, setAudioRecording] = useState(false);
   const [rideCheckActive, setRideCheckActive] = useState(false);
+  const [nightSafetyActive, setNightSafetyActive] = useState(false);
   // Use a ref for the timer so cleanup always sees the latest handle (no stale closure)
   const autoAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rideCheckAnsweredRef = useRef(true);
@@ -56,8 +57,9 @@ export default function SOSScreen() {
   useEffect(() => {
     userApi.getSafetySettings()
       .then((res: any) => {
-        const saved = res?.data?.data?.settings?.rideCheck;
-        if (typeof saved === 'boolean') setRideCheckActive(saved);
+        const settings = res?.data?.data?.settings;
+        if (typeof settings?.rideCheck === 'boolean') setRideCheckActive(settings.rideCheck);
+        if (typeof settings?.nightSafety === 'boolean') setNightSafetyActive(settings.nightSafety);
       })
       .catch(() => {});
   }, []);
@@ -316,6 +318,51 @@ export default function SOSScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // handleSOSPress is a plain async function — adding it would cause infinite re-runs
   }, [rideCheckActive, id]);
+
+  // Night Safety Check: periodic "are you OK?" prompt during night trips
+  // (10pm-5am), independent of the backend-driven RideCheck event above.
+  // Reuses the same answered/deadline/escalate refs — only one check-in can
+  // realistically be pending at a time.
+  useEffect(() => {
+    if (!nightSafetyActive || !id) return;
+    const NIGHT_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+    const RESPONSE_WINDOW_MS = 60_000;
+    const isNightHour = () => {
+      const h = new Date().getHours();
+      return h >= 22 || h < 5;
+    };
+    const fireCheckIn = () => {
+      if (!isNightHour()) return;
+      rideCheckAnsweredRef.current = false;
+      rideCheckDeadlineRef.current = Date.now() + RESPONSE_WINDOW_MS;
+      if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+      rideCheckEscalateTimerRef.current = setTimeout(() => {
+        if (!rideCheckAnsweredRef.current) handleSOSPress();
+      }, RESPONSE_WINDOW_MS);
+
+      Alert.alert(
+        'Night Safety Check',
+        "Just checking in on your night trip. Everything OK?\n\nIf you don't respond within 60 seconds, SOS will trigger automatically.",
+        [
+          { text: "I'm OK", style: 'default', onPress: () => {
+            rideCheckAnsweredRef.current = true;
+            rideCheckDeadlineRef.current = null;
+            if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+          } },
+          { text: 'Trigger SOS', style: 'destructive', onPress: () => {
+            rideCheckAnsweredRef.current = true;
+            rideCheckDeadlineRef.current = null;
+            if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
+            handleSOSPress();
+          } },
+        ],
+        { cancelable: false },
+      );
+    };
+    const interval = setInterval(fireCheckIn, NIGHT_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nightSafetyActive, id]);
 
   // Cleanup auto-alert timer on unmount
   useEffect(() => () => {

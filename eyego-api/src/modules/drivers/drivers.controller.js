@@ -255,6 +255,13 @@ const getWalletTransactions = async (req, res) => {
   ok(res, result);
 };
 
+// ── Notifications (derived history — backfills what was missed while killed) ──
+const getNotifications = async (req, res) => {
+  const { limit } = req.query;
+  const result = await driversService.getNotifications(req.user.userId, limit);
+  ok(res, result);
+};
+
 // ── Support Tickets ──────────────────────────────────────────────────
 const createSupportTicket = async (req, res) => {
   const ticket = await driversService.createSupportTicket(req.user.userId, req.body);
@@ -413,7 +420,7 @@ module.exports = {
   createTrip, ratePassenger, getFareEstimate,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
   startShift, endShift, getCurrentShift, getShiftHistory,
-  getEarningsBreakdown, getWalletTransactions,
+  getEarningsBreakdown, getWalletTransactions, getNotifications,
   createSupportTicket, getSupportTickets, replyToTicket,
   scheduleInspection, getInspections,
   deleteMe, reportTrip, emergencyAlert,

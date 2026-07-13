@@ -174,8 +174,11 @@ export default function HomeScreen() {
   });
 
   const { data: notifsData } = useQuery({
-    queryKey: ['notifications', 'count'],
-    queryFn: () => notificationsApi.getAll({ limit: 1 }),
+    queryKey: ['notifications', 'unread-count'],
+    // getAll().total counts EVERY derived notification ever, read or not — the
+    // dot would never go away once a rider had a single trip. getUnreadCount()
+    // is the actual unread signal.
+    queryFn: () => notificationsApi.getUnreadCount(),
     refetchInterval: 30_000,
     staleTime: 20_000,
   });
@@ -219,7 +222,7 @@ export default function HomeScreen() {
     return DEFAULT_MAP_CENTER;
   }, [activeBooking]);
 
-  const unreadCount: number = (notifsData as any)?.data?.data?.total ?? 0;
+  const unreadCount: number = (notifsData as any)?.data?.data?.count ?? 0;
   const firstName = (user as any)?.firstName ?? (user as any)?.name?.split(' ')[0] ?? 'there';
   const initials = (firstName[0] ?? 'U').toUpperCase();
 
@@ -261,7 +264,7 @@ export default function HomeScreen() {
 
         <Pressable
           style={styles.notifBtn}
-          onPress={() => router.push('/(tabs)/activity' as any)}
+          onPress={() => router.push('/(tabs)/notifications' as any)}
           accessibilityLabel="Notifications"
         >
           <Ionicons name="notifications-outline" size={22} color={colors.onSurface} />

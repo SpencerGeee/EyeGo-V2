@@ -1,7 +1,6 @@
 import { apiClient } from './client';
 import type {
   ApiResponse,
-  PaginatedResponse,
   Booking,
   CreateBookingRequest,
   RatingRequest,
@@ -19,7 +18,7 @@ export const bookingsApi = {
     apiClient.get<ApiResponse<Booking | null>>('/bookings/active'),
 
   getHistory: (params?: { page?: number; limit?: number; status?: string }) =>
-    apiClient.get<PaginatedResponse<Booking>>('/bookings', { params }),
+    apiClient.get<ApiResponse<{ bookings: Booking[]; total: number; page: number; totalPages: number }>>('/bookings', { params }),
 
   cancel: (id: string) =>
     apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/cancel`),

@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi } from '@eyego/api';
+import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi, userApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -169,6 +169,17 @@ export default function TrackingScreen() {
     staleTime: 0,
     refetchOnMount: true,
   });
+
+  // Speed Alerts: gated on the rider's safety-settings toggle (profile/safety.tsx).
+  const { data: speedAlertsEnabled } = useQuery({
+    queryKey: ['user', 'safety-settings', 'speedAlerts'],
+    queryFn: async () => (await userApi.getSafetySettings()).data?.data?.settings?.speedAlerts ?? false,
+    staleTime: 60_000,
+  });
+  const SPEED_ALERT_THRESHOLD_KMH = 100;
+  const SPEED_ALERT_SUSTAINED_READINGS = 3;
+  const highSpeedStreakRef = useRef(0);
+  const speedAlertShownRef = useRef(false);
 
   // Fetch active booking from API so bookingId is always available for rating,
   // even if the rider navigated here from the Trips tab (store may be empty).
@@ -369,6 +380,23 @@ export default function TrackingScreen() {
 
   const handleSOS = () => router.push(`/ride/${id}/sos` as Href);
   const handleChat = () => router.push(`/ride/${id}/chat` as Href);
+  const handleShare = () =>
+    shareLiveTracking(
+      syncedTripRef.current?.shortId ?? id,
+      syncedTripRef.current?.driver?.name ?? 'Your Driver',
+      syncedTripRef.current?.vehicle?.plateNumber ?? (syncedTripRef.current?.vehicle as any)?.plate ?? 'Unknown'
+    );
+
+  // In-trip action menu for the floating "Options" button. Reuses the same
+  // handlers as the panel CTAs so there are no dead entry points.
+  const handleOptions = () => {
+    Alert.alert('Trip options', undefined, [
+      { text: 'Share trip', onPress: handleShare },
+      { text: 'Contact driver', onPress: handleChat },
+      { text: 'Safety / SOS', style: 'destructive', onPress: handleSOS },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
 
   // Tier display data
   const tier = ((syncedTrip as any)?.tier as string) ?? 'ECONOMY';
@@ -456,13 +484,37 @@ export default function TrackingScreen() {
       // Glide until the next ping (~3.5s) with sheet-aware framing; never
       // fight the user — a manual pan pauses following until re-centered.
       if (followingRef.current) frameOnTarget([data.longitude, data.latitude], 3400);
+
+      // Speed Alerts — data.speed is m/s (matches expo-location's convention,
+      // and the driver socket forwards its own GPS speed verbatim).
+      if (speedAlertsEnabled && !speedAlertShownRef.current && typeof data.speed === 'number') {
+        const kmh = data.speed * 3.6;
+        if (kmh >= SPEED_ALERT_THRESHOLD_KMH) {
+          highSpeedStreakRef.current += 1;
+          if (highSpeedStreakRef.current >= SPEED_ALERT_SUSTAINED_READINGS) {
+            speedAlertShownRef.current = true;
+            Alert.alert(
+              'Speed Alert',
+              `Your driver appears to be traveling at ~${Math.round(kmh)} km/h. This is faster than usual — you can share your trip or contact support if you're concerned.`,
+              [
+                { text: 'Dismiss', style: 'cancel' },
+                { text: 'Share Trip', onPress: handleShare },
+              ],
+            );
+          }
+        } else {
+          highSpeedStreakRef.current = 0;
+        }
+      }
     });
 
     const unsubEta = socketEvents.onTripEta((data) => {
       setTripEta(data.etaMinutes);
       setStopsAway(data.stopsAway ?? null);
       setEtaDistanceKm(data.distanceKm ?? null);
-      safeSetTripStatus(data.message);
+      // Pure-ETA ticks may omit `message`; only overwrite the status line when
+      // a real label arrives so it doesn't blank out between updates.
+      if (typeof data.message === 'string' && data.message.trim()) safeSetTripStatus(data.message);
       if (data.geometry?.coordinates && data.geometry.coordinates.length >= 2) {
         setRouteCoords(data.geometry.coordinates);
       }
@@ -679,7 +731,7 @@ export default function TrackingScreen() {
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 70 }}
         style={[styles.optionsFloating, { top: insets.top + 12 }]}
       >
-        <Pressable style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Trip options">
+        <Pressable onPress={handleOptions} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Trip options">
           <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
         </Pressable>
       </MotiView>

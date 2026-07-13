@@ -113,6 +113,9 @@ router.get('/shifts/history', controller.getShiftHistory);
 router.get('/earnings/breakdown', controller.getEarningsBreakdown);
 router.get('/earnings/transactions', controller.getWalletTransactions);
 
+// ── Notifications ─────────────────────────────────────────────────
+router.get('/notifications', controller.getNotifications);
+
 // ── Support Tickets ───────────────────────────────────────────────
 router.get('/support-tickets', controller.getSupportTickets);
 router.post('/support-tickets', controller.createSupportTicket);

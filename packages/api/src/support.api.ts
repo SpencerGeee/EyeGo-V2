@@ -21,6 +21,6 @@ export const supportTicketsApi = {
   getById: (id: string) =>
     apiClient.get<SupportTicket>(`/user/me/support-tickets/${id}`),
 
-  addMessage: (id: string, data: { message: string }) =>
+  addMessage: (id: string, data: { text: string }) =>
     apiClient.post(`/user/me/support-tickets/${id}/messages`, data),
 };

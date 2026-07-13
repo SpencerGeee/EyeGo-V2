@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ApiResponse, PaginatedResponse } from '@eyego/types';
+import type { ApiResponse } from '@eyego/types';
 
 export interface Notification {
   id: string;
@@ -9,11 +9,13 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   data?: Record<string, string>;
+  bookingId?: string;
+  tripId?: string;
 }
 
 export const notificationsApi = {
   getAll: (params?: { page?: number; limit?: number }) =>
-    apiClient.get<PaginatedResponse<Notification>>('/notifications', { params }),
+    apiClient.get<ApiResponse<{ notifications: Notification[]; total: number; page: number; totalPages: number }>>('/notifications', { params }),
 
   markRead: (id: string) =>
     apiClient.patch<ApiResponse<Notification>>(`/notifications/${id}/read`),

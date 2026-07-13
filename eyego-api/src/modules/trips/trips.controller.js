@@ -93,11 +93,16 @@ const emergencyAlert = async (req, res) => {
       }).catch(() => {});
 
       // Create urgent support ticket
+      // URGENT is a valid `priority`, not a `status` — SupportTicket.status only
+      // ever transitions OPEN → IN_PROGRESS → CLOSED. Setting status:'URGENT'
+      // made SOS tickets invisible to the admin queue's default status filters.
       const ticket = await prisma.supportTicket.create({
         data: {
           userId,
           subject: `🚨 EMERGENCY ALERT — Trip #${tripId.slice(0, 8)}`,
-          status: 'URGENT',
+          status: 'OPEN',
+          priority: 'URGENT',
+          category: 'TRIP',
         },
       });
 

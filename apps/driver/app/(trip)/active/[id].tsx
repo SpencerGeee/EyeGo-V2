@@ -65,7 +65,9 @@ export default function ActiveTripScreen() {
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
-    queryFn: () => driverApi.getActiveTrip(),
+    // getTripById(id) — not getActiveTrip(), which is a findFirst that can
+    // return the WRONG trip if the driver has more than one active trip.
+    queryFn: () => driverApi.getTripById(id!),
     select: (r) => r.data.data?.trip ?? null,
     refetchInterval: 8000,
     enabled: !!id && typeof id === 'string',
@@ -105,8 +107,15 @@ export default function ActiveTripScreen() {
     return () => { unsubPayment(); unsubSeat(); };
   }, [trip?.status, id, qc, addNotification]);
 
-  const cancelTrip = useMutation({
-    mutationFn: () => driverApi.cancelTrip(id),
+  // Route to the dedicated cancel screen (reason picker + note + penalty
+  // warning) instead of a bare confirm Alert with no reason capture.
+  const handleCancel = () => router.push(`/(trip)/cancel/${id}` as Href);
+
+  // Dedicated no-show endpoint — not cancelTrip. It guards to pre-departure
+  // states only, issues no-show-labeled refunds, and sends riders the
+  // correct "driver no-show" push copy instead of a generic cancellation one.
+  const noShowTrip = useMutation({
+    mutationFn: () => driverApi.driverNoShow(id),
     onSuccess: () => {
       setActiveTripId(null);
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
@@ -115,17 +124,6 @@ export default function ActiveTripScreen() {
     },
     onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? (err as Error).message),
   });
-
-  const handleCancel = () => {
-    Alert.alert(
-      'Cancel Trip',
-      'Are you sure you want to cancel this trip? All passenger bookings will also be cancelled.',
-      [
-        { text: 'Keep Trip', style: 'cancel' },
-        { text: 'Cancel Trip', style: 'destructive', onPress: () => cancelTrip.mutate() },
-      ],
-    );
-  };
 
   const pendingFromStatus = useRef<string | null>(null);
   const VALID_ADVANCE_STATUSES = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
@@ -236,13 +234,16 @@ export default function ActiveTripScreen() {
   const statusCfg = TRIP_STATUS_CONFIG[trip.status] ?? { label: trip.status, color: colors.onSurfaceVariant };
   const rawBookings = trip.bookings ?? [];
   const total = trip.maxSeats ?? 14;
-  // farePerSeat is the driver's 70% net cut. Reverse-calculate full passenger fare.
-  const fare      = trip.farePerSeat ?? 0;
-  const fullFare  = fare > 0 ? parseFloat((fare / 0.70).toFixed(2)) : 0;
+  // farePerSeat IS the full passenger-facing fare (same value as booking.fareAmount) —
+  // it is NOT the driver's net cut. Use the backend-computed commissionRate/
+  // driverEarningsPerSeat directly instead of guessing a split client-side.
+  const fullFare      = trip.farePerSeat ?? 0;
+  const commissionRate = trip.commissionRate ?? 0.15;
+  const fare          = trip.driverEarningsPerSeat ?? parseFloat((fullFare * (1 - commissionRate)).toFixed(2));
   const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
   const passengers = activeBookings.length;
   const grossEarnings = passengers * fullFare;
-  const platformFee   = passengers * (fullFare - fare);   // 30% platform cut
+  const platformFee   = passengers * (fullFare - fare);
   const netEarnings   = passengers * fare;
   const seats = activeBookings.map((b: any) => ({
     seatNumber: b.seatNumber,
@@ -551,11 +552,11 @@ export default function ActiveTripScreen() {
                     'Mark this trip as a no-show? This will cancel all bookings.',
                     [
                       { text: 'Cancel', style: 'cancel' },
-                      { text: 'Mark No Show', style: 'destructive', onPress: () => cancelTrip.mutate() },
+                      { text: 'Mark No Show', style: 'destructive', onPress: () => noShowTrip.mutate() },
                     ],
                   )
                 }
-                disabled={cancelTrip.isPending}
+                disabled={noShowTrip.isPending}
               >
                 <Ionicons name="eye-off-outline" size={16} color="#F59E0B" />
                 <Text style={[styles.dangerBtnText, { color: '#F59E0B' }]}>No Show</Text>
@@ -563,12 +564,10 @@ export default function ActiveTripScreen() {
               <Pressable
                 style={[styles.dangerBtn, { borderColor: colors.error + '66' }]}
                 onPress={handleCancel}
-                disabled={cancelTrip.isPending}
+                disabled={noShowTrip.isPending}
               >
                 <Ionicons name="close-circle-outline" size={16} color={colors.error} />
-                <Text style={[styles.dangerBtnText, { color: colors.error }]}>
-                  {cancelTrip.isPending ? 'Cancelling…' : 'Cancel Trip'}
-                </Text>
+                <Text style={[styles.dangerBtnText, { color: colors.error }]}>Cancel Trip</Text>
               </Pressable>
             </Entrance>
           )}

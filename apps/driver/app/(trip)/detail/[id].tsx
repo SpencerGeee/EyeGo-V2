@@ -54,8 +54,17 @@ export default function TripDetailScreen() {
   const activeBookings = (trip?.bookings ?? []).filter((b: any) => b.status !== 'CANCELLED');
   const boardedCount = activeBookings.filter((b: any) => b.status === 'BOARDED').length;
   // D24: guard against trip being undefined before reduce
+  // "Total Earned" is the driver's net cut, not the raw fare — subtract each
+  // booking's actual commissionAmount (falling back to trip.commissionRate
+  // for legacy bookings that predate the column).
   const earnedTotal = trip
-    ? activeBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmount) || trip.farePerSeat || 0), 0)
+    ? activeBookings.reduce((s: number, b: any) => {
+        const gross = parseFloat(b.fareAmount) || trip.farePerSeat || 0;
+        const commission = b.commissionAmount != null
+          ? parseFloat(b.commissionAmount)
+          : gross * (trip.commissionRate ?? 0.15);
+        return s + (gross - commission);
+      }, 0)
     : 0;
 
   // D22: safe date construction

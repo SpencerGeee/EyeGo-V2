@@ -8,7 +8,7 @@ import {
 import MapboxGL from '../../utils/mapbox';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, driverSocketEvents } from '@eyego/api';
+import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import {
@@ -157,7 +157,9 @@ export default function HomeScreen() {
         reconnectTimerRef.current = setTimeout(() => {
           reconnectTimerRef.current = null;
           if (useDriverStore.getState().isOnline) {
-            connectDriverSocket();
+            // Reconnect the existing instance — connectDriverSocket() would bump
+            // the refcount without a paired disconnect and leak the ref.
+            getDriverSocket().connect();
           }
         }, delay);
       }

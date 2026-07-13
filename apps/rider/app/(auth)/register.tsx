@@ -4,6 +4,7 @@ import {
   StyleSheet,
   Platform,
   Pressable,
+  Alert,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
@@ -81,6 +82,9 @@ export default function RegisterScreen() {
     onSuccess: (updatedUser) => {
       updateUser(updatedUser as any);
       router.replace('/(onboarding)');
+    },
+    onError: (err: any) => {
+      Alert.alert('Couldn\'t save profile', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
     },
   });
 

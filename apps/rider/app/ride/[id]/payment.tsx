@@ -554,7 +554,7 @@ export default function PaymentScreen() {
               >
                 <Ionicons name="cash-outline" size={16} color={colors.primary} />
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  You'll pay your driver GHS {fareAmount} in cash upon boarding. Highly convenient!
+                  You'll pay your driver {formatCurrency(fareAmount)} in cash upon boarding. Highly convenient!
                 </Text>
               </MotiView>
             )}

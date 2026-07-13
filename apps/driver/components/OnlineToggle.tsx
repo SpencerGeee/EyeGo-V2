@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text } from '@eyego/ui';
-import { driverColors } from '../utils/useColors';
+import { useColors } from '../utils/useColors';
 
 interface Props {
   isOnline: boolean;
@@ -12,6 +12,7 @@ interface Props {
 }
 
 export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
+  const driverColors = useColors();
   const scale = useSharedValue(1);
 
   const animStyle = useAnimatedStyle(() => ({

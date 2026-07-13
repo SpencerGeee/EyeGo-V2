@@ -21,6 +21,8 @@ export const routesApi = {
   getById: (id: string) =>
     apiClient.get<ApiResponse<Route>>(`/routes/${id}`),
 
-  search: (params: { origin?: string; destination?: string }) =>
-    apiClient.get<ApiResponse<Route[]>>('/routes/search', { params }),
+  // NOTE: there is no backend /routes/search — the old client stub 404'd
+  // (path collides with GET /routes/:id, matching id="search"). No screen
+  // calls this; use getAll() and filter client-side, or add real backend
+  // search support before wiring a route-search UI.
 };

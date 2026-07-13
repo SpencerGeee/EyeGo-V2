@@ -24,6 +24,10 @@ model User {
   notificationPrefs     String?  // JSON blob: { driverArriving, tripStarted, ... }
   safetySettings        String?  // JSON blob: { shareTrip, rideCheck, speedAlerts, nightSafety }
   privacySettings       String?  // JSON blob: { shareData, personalizedAds, locationHistory }
+  businessMode          Boolean  @default(false)
+  businessCompanyName   String?
+  businessTaxId         String?
+  businessExpenseEmail  String?
   isActive      Boolean      @default(true)
   isBanned      Boolean      @default(false)
   walletBalance Float        @default(0)

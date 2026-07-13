@@ -59,7 +59,10 @@ export function useDriverSocket({ tripId, enabled = false }: Options) {
         authRetryTimerRef.current = setTimeout(() => {
           authRetryTimerRef.current = null;
           if (useDriverStore.getState().accessToken) {
-            connectDriverSocket();
+            // Reconnect the existing instance — do NOT call connectDriverSocket()
+            // here, which would bump the refcount without a paired disconnect and
+            // leak the ref (count never returns to 0 on logout).
+            getDriverSocket().connect();
           }
         }, 1000);
       }

@@ -70,7 +70,7 @@ async function startBackgroundLocationTracking(isOnTrip: boolean) {
       foregroundService: {
         notificationTitle: 'EyeGo Driver is online',
         notificationBody: 'Sharing your location with passengers and dispatch.',
-        notificationColor: '#4be277',
+        notificationColor: '#3B82F6',
       },
       pausesUpdatesAutomatically: false,
     });
@@ -88,6 +88,22 @@ async function stopBackgroundLocationTracking() {
   }
 }
 
+// ── Ref-count background tracking ────────────────────────────────────────
+// This hook mounts on home + active + tracking simultaneously. Without a
+// refcount, unmounting ONE of those screens (e.g. leaving the active-trip
+// screen while still online on home) would call stopBackgroundLocationTracking
+// and tear down location for ALL consumers. Mirror the socket refcount pattern:
+// only stop when the last consumer releases.
+let bgTrackingRefs = 0;
+
+function releaseBackgroundTracking() {
+  bgTrackingRefs = Math.max(0, bgTrackingRefs - 1);
+  if (bgTrackingRefs === 0) {
+    // fire-and-forget: React cleanup can't be async
+    stopBackgroundLocationTracking();
+  }
+}
+
 export function useDriverLocation({ enabled = true, isOnTrip = false }: Options = {}) {
   const [location, setLocation] = useState<Coords | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
@@ -95,6 +111,9 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
   const watchRef = useRef<Location.LocationSubscription | null>(null);
   const cancelledRef = useRef(false);
   const permissionGranted = useRef(false);
+  // Whether THIS hook instance incremented the background-tracking refcount,
+  // so cleanup only releases the ref it actually acquired.
+  const bgAcquiredRef = useRef(false);
   // True when the OS reports a mock GPS provider is active — a persistent
   // condition that must NOT be cleared by a later plausible-speed fix.
   const osMockRef = useRef(false);
@@ -207,6 +226,8 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // updates (and the socket emit in the task handler) flowing while the
       // driver has the app backgrounded but is online/on a trip.
       if (!cancelledRef.current && bgStatus === 'granted') {
+        bgTrackingRefs++;
+        bgAcquiredRef.current = true;
         await startBackgroundLocationTracking(isOnTrip);
       }
 
@@ -244,10 +265,13 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       watchRef.current?.remove();
       watchRef.current = null;
       appStateSub.remove();
-      // Stop background tracking whenever this hook goes disabled/unmounts
-      // (driver toggles offline, or the screen using it unmounts) — fire and
-      // forget, this cleanup can't be async.
-      stopBackgroundLocationTracking();
+      // Release this instance's background-tracking ref. Tracking only actually
+      // stops when the LAST consumer (home/active/tracking) releases — so
+      // leaving one screen while still online elsewhere won't kill location.
+      if (bgAcquiredRef.current) {
+        bgAcquiredRef.current = false;
+        releaseBackgroundTracking();
+      }
     };
   }, [enabled, isOnTrip]);
 

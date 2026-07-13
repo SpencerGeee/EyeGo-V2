@@ -26,7 +26,7 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
-import { configureApiClient, configureSocket, connectDriverSocket, driverApi, driverSocketEvents } from '@eyego/api';
+import { configureApiClient, configureSocket, getDriverSocket, driverApi, driverSocketEvents } from '@eyego/api';
 import { useDriverStore } from '../stores/driver.store';
 import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
@@ -279,7 +279,10 @@ export default function RootLayout() {
     if (!isLoggedIn) return;
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        connectDriverSocket();
+        // Reconnect the existing socket instance on foreground — do NOT call
+        // connectDriverSocket() here (it bumps the refcount without a paired
+        // disconnect, so the ref never returns to 0 on logout).
+        getDriverSocket().connect();
         // Re-join the active trip room on foreground reconnect so live updates
         // (chat, seat, location) keep flowing — the socket dropped room
         // membership while backgrounded.

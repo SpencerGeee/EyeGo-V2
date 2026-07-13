@@ -33,6 +33,11 @@ import { EarningsChart, type ChartDataPoint } from '../../components/EarningsCha
 
 type Period = 'today' | 'week' | 'month';
 
+// Driver earnings ledger uses several credit types — TRIP_EARNING (completeTrip),
+// EARNINGS_CREDIT (arriveTrip), QUEST_BONUS, and legacy CREDIT (seed). Anything
+// not in this set is treated as a debit (e.g. WITHDRAWAL).
+const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS'];
+
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'week', label: 'Week' },
@@ -80,6 +85,8 @@ export default function EarningsScreen() {
       setSheetOpen(false);
       setWithdrawAmount('');
       qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
+      // Balance is derived from ['driver','me'] (walletBalance), so refresh that too.
+      qc.invalidateQueries({ queryKey: ['driver', 'me'] });
       Alert.alert('Withdrawal Submitted', `GHS ${parseFloat(withdrawAmount).toFixed(2)} is being processed to your mobile money account.`);
     },
     onError: (err) => Alert.alert('Withdrawal Failed', (err as Error).message),
@@ -92,8 +99,8 @@ export default function EarningsScreen() {
       Alert.alert('Invalid Amount', 'Enter a valid amount.');
       return;
     }
-    if (amount < 1) {
-      Alert.alert('Minimum Withdrawal', 'The minimum withdrawal amount is GHS 1.00.');
+    if (amount < 20) {
+      Alert.alert('Minimum Withdrawal', 'The minimum withdrawal amount is GHS 20.00.');
       return;
     }
     if (amount > balance) {
@@ -115,10 +122,8 @@ export default function EarningsScreen() {
     // D5: guard against non-array transactions before any derivation
     if (!Array.isArray(txData)) return [];
     const txs: any[] = txData;
-    // Driver earnings ledger uses several credit types — TRIP_EARNING (completeTrip),
-    // EARNINGS_CREDIT (arriveTrip), QUEST_BONUS, and legacy CREDIT (seed). Filtering
-    // only 'CREDIT' made the chart/Today/Trips render 0.
-    const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS'];
+    // Filtering only 'CREDIT' made the chart/Today/Trips render 0 — use the
+    // full credit-type set (module-level CREDIT_TYPES).
     const credits = txs.filter((t) => CREDIT_TYPES.includes(t.type));
     const now = new Date();
 
@@ -271,7 +276,9 @@ export default function EarningsScreen() {
                     <Text variant="bodyMedium" color={colors.onSurfaceVariant}>No transactions yet.</Text>
                   </View>
                 )}
-                {txs.map((tx: any, i: number) => (
+                {txs.map((tx: any, i: number) => {
+                  const isCredit = CREDIT_TYPES.includes(tx.type);
+                  return (
             <Entrance
               key={tx.id}
               animation="slideLeft"
@@ -280,12 +287,12 @@ export default function EarningsScreen() {
             >
               <View style={[
                 styles.txIcon,
-                { backgroundColor: tx.type === 'CREDIT' ? `${colors.online}22` : `${colors.error}22` },
+                { backgroundColor: isCredit ? `${colors.online}22` : `${colors.error}22` },
               ]}>
                 <Ionicons
-                  name={tx.type === 'CREDIT' ? 'arrow-down' : 'arrow-up'}
+                  name={isCredit ? 'arrow-down' : 'arrow-up'}
                   size={16}
-                  color={tx.type === 'CREDIT' ? colors.online : colors.error}
+                  color={isCredit ? colors.online : colors.error}
                 />
               </View>
               <View style={styles.txInfo}>
@@ -296,12 +303,13 @@ export default function EarningsScreen() {
               </View>
               <Text style={[
                 styles.txAmount,
-                { color: tx.type === 'CREDIT' ? colors.online : colors.error },
+                { color: isCredit ? colors.online : colors.error },
               ]}>
-                {tx.type === 'CREDIT' ? '+' : '-'}GHS {tx.amount.toFixed(2)}
+                {isCredit ? '+' : '-'}GHS {tx.amount.toFixed(2)}
               </Text>
             </Entrance>
-                ))}
+                  );
+                })}
               </>
             );
           })()}

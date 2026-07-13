@@ -332,13 +332,25 @@
   async function fetchAndRender() {
     try {
       const res = await fetch(`${API_BASE}/v1/trips/track/${SHORT_ID}/data`);
-      if (!res.ok) { if (res.status === 404) showError('Trip not found or link has expired.'); return; }
+      if (!res.ok) {
+        if (res.status === 404) {
+          showError('Trip not found or link has expired.');
+        } else if (!tripData) {
+          // Only surface an error on the FIRST failed load — once tripData is
+          // populated, a later poll hiccup shouldn't blank out a working page.
+          showError('Could not load trip details.');
+        }
+        return;
+      }
       const json = await res.json();
       const data = json.data ?? json;
       tripData = data;
       render(data);
     } catch (e) {
+      // Network/parse failure — without this the spinner was left stuck
+      // forever on the first load if the request never resolved cleanly.
       console.warn('Poll failed', e);
+      if (!tripData) showError('Could not load trip details. Check your connection and try again.');
     }
   }
 

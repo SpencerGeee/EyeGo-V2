@@ -2,6 +2,7 @@
 
 const adminService = require('./admin.service');
 const driversService = require('../drivers/drivers.service');
+const env = require('../../config/env');
 const { ok, created } = require('../../utils/response');
 
 const reviewDriverDocument = async (req, res) => {
@@ -192,7 +193,7 @@ const assignDriver = async (req, res) => {
         routeOrigin: trip.route?.originName || '—',
         routeDestination: trip.route?.destinationName || '—',
         departureTime: trip.departureTime,
-        estimatedEarnings: Math.round(earnings * 0.70 * 100) / 100, // 70% driver cut
+        estimatedEarnings: Math.round(earnings * (1 - env.PLATFORM_COMMISSION) * 100) / 100, // driver cut after platform commission
         seatCount: trip.maxSeats || 0,
         bookedCount: (trip.bookings || []).length,
         expiresAt: new Date(Date.now() + 120 * 1000).toISOString(), // 2 min to accept

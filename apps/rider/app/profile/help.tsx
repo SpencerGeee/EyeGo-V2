@@ -6,6 +6,7 @@ import {
   Pressable,
   Linking,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -142,6 +143,17 @@ export default function HelpScreen() {
       supportTicketsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
+      Alert.alert('Ticket Submitted', "We've received your message and will get back to you soon.");
+      setTicketSubject('');
+      setTicketMessage('');
+      setLostItemDesc('');
+      setSelectedTripId(null);
+      setTicketCategory('General Support');
+    },
+    onError: (err: any) => {
+      // Fields are deliberately NOT cleared here — a failed submit used to wipe
+      // the user's typed message with zero feedback, forcing a full retype.
+      Alert.alert('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
     },
   });
 
@@ -174,12 +186,6 @@ export default function HelpScreen() {
       category: ticketCategory,
       relatedBookingId: selectedTripId ?? undefined,
     });
-
-    setTicketSubject('');
-    setTicketMessage('');
-    setLostItemDesc('');
-    setSelectedTripId(null);
-    setTicketCategory('General Support');
   };
 
   return (

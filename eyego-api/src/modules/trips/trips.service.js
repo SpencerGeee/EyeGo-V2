@@ -326,7 +326,7 @@ async function searchTrips(query) {
   const skip = (Math.max(1, Number(page)) - 1) * Math.min(Number(limit), 100);
   const take = Math.min(Number(limit), 100);
 
-  const [totalCount, trips] = await Promise.all([
+  let [totalCount, trips] = await Promise.all([
     prisma.trip.count({ where }),
     prisma.trip.findMany({
       where,

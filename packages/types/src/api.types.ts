@@ -11,16 +11,10 @@ export interface ApiError {
   statusCode: number;
 }
 
-export interface PaginatedResponse<T> {
-  success: boolean;
-  data: T[];
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
-}
+// NOTE: there is no single flat "PaginatedResponse<T>" shape — every list
+// endpoint nests its array under a different key (bookings/trips/transactions/
+// notifications) alongside flat total/page/totalPages fields, not a `pagination`
+// sub-object. Each api.ts file below types its own endpoint accordingly.
 
 // Socket.io event types
 export interface DriverLocationEvent {

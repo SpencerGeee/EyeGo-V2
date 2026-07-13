@@ -76,6 +76,54 @@ router.get('/transactions', async (req, res) => {
   });
 });
 
+// ── Send Money (wallet-to-wallet P2P transfer) ─────────────────────────────
+// Also backs "Scan & Pay" — the QR flow just resolves a scanned code to a
+// recipientPhone client-side and calls this same endpoint.
+router.post('/send', idempotency, async (req, res) => {
+  const senderId = req.user.userId;
+  const { recipientPhone, amount } = req.body;
+
+  if (!recipientPhone) throw new AppError('recipientPhone is required', 400);
+  const safeAmount = Math.round(Number(amount) * 100) / 100;
+  if (!safeAmount || safeAmount <= 0) throw new AppError('Amount must be greater than 0', 400, 'INVALID_AMOUNT');
+  if (safeAmount < 1) throw new AppError('Minimum transfer is GHS 1.00', 400, 'INVALID_AMOUNT');
+
+  const normalizedPhone = recipientPhone.trim();
+  const recipient = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+  if (!recipient) throw new AppError('No EyeGo user found with that phone number', 404, 'RECIPIENT_NOT_FOUND');
+  if (recipient.id === senderId) throw new AppError('You cannot send money to yourself', 400, 'SELF_TRANSFER');
+
+  const result = await prisma.$transaction(async (tx) => {
+    // Atomic conditional decrement — the balance check happens as part of the
+    // UPDATE itself (not a separate read-then-write), so concurrent sends
+    // can never overdraw the sender's wallet. Same pattern as driver withdraw.
+    const debited = await tx.user.updateMany({
+      where: { id: senderId, walletBalance: { gte: safeAmount } },
+      data: { walletBalance: { decrement: safeAmount } },
+    });
+    if (debited.count === 0) {
+      throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_WALLET');
+    }
+
+    await tx.user.update({
+      where: { id: recipient.id },
+      data: { walletBalance: { increment: safeAmount } },
+    });
+
+    const reference = `p2p_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
+    await tx.paymentTransaction.create({
+      data: { userId: senderId, amount: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_SEND:${recipient.id}` },
+    });
+    await tx.paymentTransaction.create({
+      data: { userId: recipient.id, amount: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_RECEIVE:${senderId}` },
+    });
+
+    return { reference, recipientName: recipient.name };
+  });
+
+  ok(res, result, `GHS ${safeAmount.toFixed(2)} sent to ${result.recipientName}`);
+});
+
 router.post('/topup', idempotency, async (req, res) => {
   const { amount, method, momoPhone, email } = req.body;
 

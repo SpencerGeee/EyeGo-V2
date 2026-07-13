@@ -106,7 +106,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime } = useRideStore();
   const [originText, setOriginText] = useState(origin?.address ?? '');
   const [destText, setDestText] = useState(destination?.address ?? '');
-  const [selectedTier, setSelectedTier] = useState<TripTier>('ECONOMY');
+  const [selectedTier, setSelectedTier] = useState<TripTier | null>(null);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [searched, setSearched] = useState(false);
   const [heavyLoad, setHeavyLoad] = useState(false);
@@ -178,7 +178,8 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         originLng: origin?.longitude ?? -0.187,
         destinationLat: destination?.latitude ?? 5.65,
         destinationLng: destination?.longitude ?? -0.19,
-        tier: selectedTier,
+        // null = "ALL TRIPS": omit tier so the backend returns every tier.
+        tier: selectedTier ?? undefined,
       }),
     onSuccess: ({ data }) => {
       const realTrips = (data?.data as any)?.trips ?? data?.data ?? [];
@@ -292,7 +293,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tierPillsBleed} contentContainerStyle={styles.tierPillsRow}>
             <Pressable
               style={[styles.tierPill, !selectedTier && styles.tierPillAllActive]}
-              onPress={() => { setSelectedTier('ECONOMY'); searchTrips.mutate(); }}
+              onPress={() => { setSelectedTier(null); searchTrips.mutate(); }}
             >
               <Text style={[styles.tierPillText, !selectedTier && styles.tierPillTextActive]}>ALL TRIPS</Text>
             </Pressable>
@@ -317,7 +318,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         </Entrance>
 
         {/* Auto-search on mount if destination is set */}
-        {!searched && !searchTrips.isPending && (destText || destText) && (
+        {!searched && !searchTrips.isPending && !!destText && (
           <Entrance animation="fadeIn" duration={200}>
             <Pressable style={styles.searchCta} onPress={() => searchTrips.mutate()}>
               <Button variant="glow" label="Find Available Rides" onPress={() => searchTrips.mutate()} loading={searchTrips.isPending} />
@@ -341,7 +342,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 <Ionicons name="bus-outline" size={48} color={colors.onSurfaceVariant} style={{ marginBottom: spacing.md }} />
                 <Text variant="titleSmall" style={{ textAlign: 'center' }}>No rides available right now</Text>
                 <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.xs }}>
-                  No {selectedTier.toLowerCase()} trips match this route. Try a different tier or destination.
+                  No {selectedTier ? `${selectedTier.toLowerCase()} ` : ''}trips match this route. Try a different tier or destination.
                 </Text>
                 <View style={styles.noDriversCtas}>
                   <Pressable

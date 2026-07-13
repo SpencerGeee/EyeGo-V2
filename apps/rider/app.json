@@ -19,7 +19,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "EyeGo needs your location to show nearby rides.",
         "NSLocationAlwaysUsageDescription": "EyeGo uses your location to track your ride.",
-        "NSCameraUsageDescription": "EyeGo needs camera access to update your profile photo.",
+        "NSCameraUsageDescription": "EyeGo needs camera access to update your profile photo and scan Send Money QR codes.",
         "NSPhotoLibraryUsageDescription": "EyeGo needs photo library access to update your profile photo.",
         "NSContactsUsageDescription": "Allow EyeGo to access your contacts to add an emergency contact.",
         "ITSAppUsesNonExemptEncryption": false,
