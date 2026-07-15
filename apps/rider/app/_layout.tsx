@@ -339,16 +339,19 @@ export default function RootLayout() {
       const responseSub = Notifications.addNotificationResponseReceivedListener((response: any) => {
         const data = response.notification.request.content.data as Record<string, string | undefined>;
         const { type, tripId, bookingId, screen, deepLink } = data ?? {};
-        if (type === 'TRIP_CONFIRMED' && bookingId) {
+        // NOTE: the backend's actual push types are RIDE_CONFIRMED / RIDE_COMPLETE
+        // (see eyego-api/src/services/push.service.js `notifications` wrappers) —
+        // not TRIP_CONFIRMED / TRIP_COMPLETED. Keep these in sync with that file.
+        if (type === 'RIDE_CONFIRMED' && bookingId) {
           router.push(`/ride/${bookingId}` as Href);
-        } else if ((type === 'DRIVER_EN_ROUTE' || type === 'ARRIVED_AT_PICKUP') && bookingId) {
-          router.push(`/ride/${bookingId}/tracking` as Href);
+        } else if ((type === 'DRIVER_EN_ROUTE' || type === 'ARRIVED_AT_PICKUP' || type === 'DRIVER_ARRIVED') && (bookingId || tripId)) {
+          router.push(`/ride/${bookingId || tripId}/tracking` as Href);
         } else if ((type === 'CHAT_MESSAGE' || type === 'PRIVATE_CHAT') && tripId) {
           router.push(`/ride/${tripId}/chat` as Href);
-        } else if (type === 'TRIP_COMPLETED' && bookingId) {
+        } else if (type === 'RIDE_COMPLETE' && bookingId) {
           router.push(`/ride/${bookingId}/complete` as Href);
-        } else if (type === 'SOS_RESOLVED' && tripId) {
-          router.push(`/ride/${tripId}/tracking` as Href);
+        } else if (type === 'TRIP_CANCELLED_NO_SHOW') {
+          router.push('/(tabs)/trips' as Href);
         } else if (tripId) {
           router.push(`/ride/${tripId}/tracking` as Href);
         } else if (screen) {

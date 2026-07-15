@@ -334,7 +334,7 @@ async function notifyRideConfirmed(bookingId) {
     const departure = booking.trip?.departureTime
       ? new Date(booking.trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
       : '';
-    await pushService.notifications.rideConfirmed(booking.user.fcmToken, route, departure, booking.user.notificationPrefs).catch(() => {});
+    await pushService.notifications.rideConfirmed(booking.user.fcmToken, route, departure, booking.user.notificationPrefs, booking.id, booking.tripId).catch(() => {});
   }
 
   if (booking.trip?.driver?.fcmToken) {
@@ -342,7 +342,17 @@ async function notifyRideConfirmed(bookingId) {
       booking.trip.driver.fcmToken,
       booking.user?.name || booking.guestName || 'A passenger',
       booking.seatNumber ?? 0,
+      booking.tripId,
     ).catch(() => {});
+  }
+
+  // Express mode: this booking just filled the trip's last seat — switch the trip to
+  // direct-to-destination mode and let the driver know so they can skip remaining stops.
+  const trip = booking.trip;
+  if (trip && !trip.isExpressMode && trip.confirmedSeats >= trip.maxSeats && trip.driver?.fcmToken) {
+    await prisma.trip.update({ where: { id: trip.id }, data: { isExpressMode: true } }).catch(() => {});
+    const destination = trip.route?.destinationName ?? 'the destination';
+    await pushService.notifications.expressMode(trip.driver.fcmToken, destination, trip.id).catch(() => {});
   }
 }
 

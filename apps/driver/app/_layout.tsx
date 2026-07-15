@@ -254,6 +254,23 @@ export default function RootLayout() {
         router.push('/(tabs)/home' as any);
       } else if (type === 'CHAT_MESSAGE' && tripId) {
         router.push({ pathname: '/(trip)/chat/[id]', params: { id: tripId } } as any);
+      } else if (type === 'DRIVER_APPROVED') {
+        router.push('/(tabs)/home' as any);
+      } else if (type === 'LOW_WALLET' || type === 'TIP') {
+        router.push('/(tabs)/earnings' as any);
+      } else if (type === 'DRIVER_REJECTED') {
+        router.push('/(profile)/documents' as any);
+      } else if (type === 'DRIVER_RATING') {
+        router.push('/(profile)/ratings' as any);
+      } else if (type === 'SOS' && tripId) {
+        router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as any);
+      } else if (type === 'EXPRESS_MODE' && tripId) {
+        router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as any);
+      } else if (tripId) {
+        // Fallback for any other trip-scoped push (e.g. DRIVER_ARRIVED-style events
+        // that don't have a dedicated case above) — land on the active trip screen
+        // rather than silently doing nothing on tap.
+        router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as any);
       }
     });
     return () => sub.remove();

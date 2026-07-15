@@ -358,8 +358,8 @@ model Receipt {
   id              String   @id @default(cuid())
   bookingId       String
   booking         Booking  @relation(fields: [bookingId], references: [id])
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id])
   receiptNumber   String   @unique
   totalPaid       Float
   platformFee     Float

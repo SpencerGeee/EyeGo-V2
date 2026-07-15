@@ -127,7 +127,6 @@ export function DriverTripStatusListener() {
       const segs = segmentsRef.current;
       // The dispatch modal already presents the offer — don't double-fire.
       if (segs.some((s) => s === 'dispatch')) return;
-      queryClient.invalidateQueries({ queryKey: ['driver', 'dispatch'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
       bannerDestRef.current = { type: 'dispatch', tripId: tId };
       const route = safeRead(data, 'routeOrigin');

@@ -49,6 +49,16 @@ export default function HomeScreen() {
   const reconnectAttemptsRef = useRef(0);
   // FIX2: single ref for reconnect timer — prevents leaked timers on rapid disconnect/reconnect
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards router.push() calls fired from async socket callbacks (e.g. onTripAssigned)
+  // against navigating on/after unmount — e.g. driver switches tabs the instant a
+  // dispatch offer lands.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const { location, hasPermission } = useDriverLocation({ enabled: true, isOnTrip: false });
   const { isOffline } = useNetworkStatus();
@@ -136,6 +146,7 @@ export default function HomeScreen() {
     reconnectAttemptsRef.current = 0;
     connectDriverSocket();
     const cleanDispatch = driverSocketEvents.onTripAssigned((data) => {
+      if (!isMountedRef.current) return; // home screen unmounted (e.g. driver switched tabs) — don't navigate
       router.push({
         pathname: '/(trip)/dispatch/[id]',
         params: {
@@ -221,7 +232,6 @@ export default function HomeScreen() {
         setActiveTripId(null); // no active trip, safe to clear
       }
       // If there IS an active trip, keep it — connectivity blips shouldn't lose the trip
-      qc.invalidateQueries({ queryKey: ['activeTrip'] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
     onError: (err: any) => {

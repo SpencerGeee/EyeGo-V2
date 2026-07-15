@@ -591,7 +591,7 @@ async function arriveTrip(driverId, tripId) {
       await Promise.all(
         bookings.map(b => {
           if (!b.user?.fcmToken) return null;
-          return pushService.notifications.driverArrived(b.user.fcmToken, originName, b.user.notificationPrefs);
+          return pushService.notifications.driverArrived(b.user.fcmToken, originName, b.user.notificationPrefs, tripId, b.id);
         }),
       );
     } catch (_) {}
@@ -1399,15 +1399,20 @@ async function getWalletTransactions(driverId, page = 1, limit = 20) {
   const [transactions, total] = await Promise.all([
     prisma.walletTransaction.findMany({
       where: { driverId },
-      include: {
-        trip: { select: { shortId: true } },
-      },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
     }),
     prisma.walletTransaction.count({ where: { driverId } }),
   ]);
+
+  // WalletTransaction only stores a scalar tripId (no relation), so batch-fetch
+  // shortIds separately instead of an invalid Prisma `include`.
+  const tripIds = [...new Set(transactions.map((tx) => tx.tripId).filter(Boolean))];
+  const trips = tripIds.length
+    ? await prisma.trip.findMany({ where: { id: { in: tripIds } }, select: { id: true, shortId: true } })
+    : [];
+  const shortIdByTripId = new Map(trips.map((t) => [t.id, t.shortId]));
 
   return {
     transactions: transactions.map((tx) => ({
@@ -1417,7 +1422,7 @@ async function getWalletTransactions(driverId, page = 1, limit = 20) {
       description: tx.description,
       balanceBefore: tx.balanceBefore,
       balanceAfter: tx.balanceAfter,
-      tripShortId: tx.trip?.shortId ?? null,
+      tripShortId: tx.tripId ? (shortIdByTripId.get(tx.tripId) ?? null) : null,
       createdAt: tx.createdAt.toISOString(),
     })),
     total,

@@ -502,7 +502,7 @@ async function completeTrip(tripId) {
 
     for (const b of paidBookings) {
       if (b.user?.fcmToken) {
-        completedRiderTokens.push({ token: b.user.fcmToken, fareAmount: b.fareAmount, notificationPrefs: b.user.notificationPrefs });
+        completedRiderTokens.push({ token: b.user.fcmToken, fareAmount: b.fareAmount, notificationPrefs: b.user.notificationPrefs, bookingId: b.id });
       }
     }
 
@@ -589,9 +589,9 @@ async function completeTrip(tripId) {
   // (no live socket connection) never got a "trip complete, rate your ride" push.
   // savedAmount is a rough shared-vs-private-ride estimate for the notification copy,
   // not a precise financial figure.
-  for (const { token, fareAmount, notificationPrefs } of completedRiderTokens) {
+  for (const { token, fareAmount, notificationPrefs, bookingId } of completedRiderTokens) {
     const savedAmount = Math.round(fareAmount);
-    pushService.notifications.rideComplete(token, savedAmount, notificationPrefs).catch(() => {});
+    pushService.notifications.rideComplete(token, savedAmount, notificationPrefs, bookingId).catch(() => {});
   }
 
   // Notify GraphQL subscribers of trip completion (fire-and-forget)
@@ -705,7 +705,7 @@ async function driverNoShow(tripId, reportingUserId) {
 
   // Notify affected riders — non-blocking, must not fail the response
   if (affectedFcmTokens.length > 0) {
-    pushService.notifications.tripCancelledNoShow(affectedFcmTokens, tripRouteLabel).catch(() => {});
+    pushService.notifications.tripCancelledNoShow(affectedFcmTokens, tripRouteLabel, tripId).catch(() => {});
   }
 
   // Notify GraphQL subscribers of trip cancellation

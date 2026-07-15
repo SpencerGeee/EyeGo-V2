@@ -131,34 +131,34 @@ function prefAllows(notificationPrefs, category) {
 
 // Convenience wrappers for specific events
 const notifications = {
-  rideConfirmed: (token, route, departureTime, notificationPrefs) =>
+  rideConfirmed: (token, route, departureTime, notificationPrefs, bookingId, tripId) =>
     prefAllows(notificationPrefs, 'paymentConfirmations')
-      ? sendPush(token, 'Your EyeGo is confirmed!', `Departing at ${departureTime} from ${route}`, { type: 'RIDE_CONFIRMED' })
+      ? sendPush(token, 'Your EyeGo is confirmed!', `Departing at ${departureTime} from ${route}`, { type: 'RIDE_CONFIRMED', bookingId: bookingId || '', tripId: tripId || '' })
       : null,
 
-  driverEnRoute: (token, driverName, etaMinutes, notificationPrefs) =>
+  driverEnRoute: (token, driverName, etaMinutes, notificationPrefs, tripId) =>
     prefAllows(notificationPrefs, 'driverArriving')
-      ? sendPush(token, 'Driver is on the way', `${driverName} is ${etaMinutes} min away`, { type: 'DRIVER_EN_ROUTE' })
+      ? sendPush(token, 'Driver is on the way', `${driverName} is ${etaMinutes} min away`, { type: 'DRIVER_EN_ROUTE', tripId: tripId || '' })
       : null,
 
-  driverArrived: (token, stopName, notificationPrefs) =>
+  driverArrived: (token, stopName, notificationPrefs, tripId, bookingId) =>
     prefAllows(notificationPrefs, 'driverArriving')
-      ? sendPush(token, 'EyeGo is here!', `Your van is waiting at ${stopName}`, { type: 'DRIVER_ARRIVED' })
+      ? sendPush(token, 'EyeGo is here!', `Your van is waiting at ${stopName}`, { type: 'DRIVER_ARRIVED', tripId: tripId || '', bookingId: bookingId || '' })
       : null,
 
-  rideComplete: (token, savedAmount, notificationPrefs) =>
+  rideComplete: (token, savedAmount, notificationPrefs, bookingId) =>
     prefAllows(notificationPrefs, 'tripCompleted')
-      ? sendPush(token, 'Ride complete', `Rate your trip. You saved GHS ${savedAmount} vs a private ride.`, { type: 'RIDE_COMPLETE' })
+      ? sendPush(token, 'Ride complete', `Rate your trip. You saved GHS ${savedAmount} vs a private ride.`, { type: 'RIDE_COMPLETE', bookingId: bookingId || '' })
       : null,
 
-  passengerJoined: (token, passengerName, seatNumber) =>
-    sendPush(token, 'Someone joined your EyeGo', `${passengerName} just booked seat #${seatNumber}`, { type: 'PASSENGER_JOINED' }),
+  passengerJoined: (token, passengerName, seatNumber, tripId) =>
+    sendPush(token, 'Someone joined your EyeGo', `${passengerName} just booked seat #${seatNumber}`, { type: 'PASSENGER_JOINED', tripId: tripId || '' }),
 
   lowWallet: (token, balance) =>
     sendPush(token, 'Top up your wallet', `Your balance is GHS ${balance}. Top up to keep driving.`, { type: 'LOW_WALLET' }),
 
-  expressMode: (token, destination) =>
-    sendPush(token, 'Express Mode!', `Van is full. Heading directly to ${destination}.`, { type: 'EXPRESS_MODE' }),
+  expressMode: (token, destination, tripId) =>
+    sendPush(token, 'Express Mode!', `Van is full. Heading directly to ${destination}.`, { type: 'EXPRESS_MODE', tripId: tripId || '' }),
 
   driverApproved: (token) =>
     sendPush(token, 'You\'re approved!', 'Your EyeGo Driver account is now active. You can start accepting trips.', { type: 'DRIVER_APPROVED' }),
@@ -166,8 +166,8 @@ const notifications = {
   chatMessage: (token, senderName, text, tripId) =>
     sendPush(token, `💬 ${senderName}`, text.length > 80 ? text.slice(0, 77) + '…' : text, { type: 'CHAT_MESSAGE', tripId: tripId || '' }),
 
-  tripCancelledNoShow: (tokens, route) =>
-    sendMulticastPush(tokens, 'Trip cancelled — driver no-show', `Your EyeGo trip (${route}) was cancelled. A full refund will be issued.`, { type: 'TRIP_CANCELLED_NO_SHOW' }),
+  tripCancelledNoShow: (tokens, route, tripId) =>
+    sendMulticastPush(tokens, 'Trip cancelled — driver no-show', `Your EyeGo trip (${route}) was cancelled. A full refund will be issued.`, { type: 'TRIP_CANCELLED_NO_SHOW', tripId: tripId || '' }),
 };
 
 module.exports = { sendPush, sendMulticastPush, notifications };

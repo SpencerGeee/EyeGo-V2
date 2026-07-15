@@ -385,7 +385,6 @@ function emitSafetyCheck(io, tripId, reason) {
               tripId,
               OR: [
                 { isPrivate: false },
-                { isPrivate: null },
                 { senderId: driverId },
                 { recipientId: driverId },
               ],

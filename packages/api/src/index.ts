@@ -5,7 +5,6 @@ export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPre
 export { tripsApi } from './trips.api';
 export { bookingsApi } from './bookings.api';
 export { paymentsApi } from './payments.api';
-export { configApi } from './config.api';
 export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth } from './socket';
 export { notificationsApi } from './notifications.api';
 export type { Notification as AppNotification } from './notifications.api';

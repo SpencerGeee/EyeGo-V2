@@ -62,22 +62,34 @@ async function dispatchToNearbyDrivers(trip, radiusKm = DISPATCH_RADIUS_KM) {
     }
 
     // Exclude the trip's own driver and find eligible drivers (ACTIVE, no IN_PROGRESS trip)
-    const eligibleDrivers = await prisma.driver.findMany({
+    // Driver has no `rating` scalar column — it's derived from the DriverRating relation,
+    // so it can't be selected/ordered on directly in this query.
+    let eligibleDrivers = await prisma.driver.findMany({
       where: {
         id: { in: nearbyDriverIds.filter((id) => id !== trip.driverId) },
         status: 'ACTIVE',
         fcmToken: { not: null },
         trips: { none: { status: { in: ['IN_PROGRESS', 'DRIVER_EN_ROUTE'] } } },
       },
-      select: { id: true, fcmToken: true, rating: true },
-      orderBy: { rating: 'desc' },
-      take: MAX_DRIVERS_TO_NOTIFY,
+      select: { id: true, fcmToken: true },
+      take: MAX_DRIVERS_TO_NOTIFY * 3, // over-fetch so we can rank by rating before trimming to MAX_DRIVERS_TO_NOTIFY
     });
 
     if (eligibleDrivers.length === 0) {
       logger.info('No eligible drivers found for dispatch', { tripId: trip.id });
       return;
     }
+
+    // Rank by average rating (unrated drivers default to 5 so new drivers aren't starved of trips).
+    const avgRatings = await prisma.driverRating.groupBy({
+      by: ['driverId'],
+      where: { driverId: { in: eligibleDrivers.map((d) => d.id) } },
+      _avg: { stars: true },
+    });
+    const ratingByDriverId = new Map(avgRatings.map((r) => [r.driverId, r._avg.stars ?? 5]));
+    eligibleDrivers = eligibleDrivers
+      .sort((a, b) => (ratingByDriverId.get(b.id) ?? 5) - (ratingByDriverId.get(a.id) ?? 5))
+      .slice(0, MAX_DRIVERS_TO_NOTIFY);
 
     const fcmTokens = eligibleDrivers.map((d) => d.fcmToken).filter(Boolean);
     const expiresAt = new Date(Date.now() + DISPATCH_EXPIRY_SECONDS * 1000).toISOString();
@@ -97,6 +109,30 @@ async function dispatchToNearbyDrivers(trip, radiusKm = DISPATCH_RADIUS_KM) {
         expiresAt,
       }
     );
+
+    // Also emit a live socket event so the driver app can show/update the dispatch
+    // card in real time without relying solely on the push notification landing
+    // (push may be delayed/dropped by the OS). The driver home screen and
+    // DriverTripStatusListener both listen for this via driverSocketEvents.onTripAssigned.
+    try {
+      const io = require('../app').get('io');
+      const assignedPayload = {
+        tripId: trip.id,
+        tripShortId: trip.shortId,
+        routeOrigin: trip.route?.origin ?? '',
+        routeDestination: trip.route?.destination ?? '',
+        departureTime: trip.departureTime?.toISOString() ?? '',
+        estimatedEarnings: trip.farePerSeat ?? undefined,
+        seatCount: trip.maxSeats ?? undefined,
+        bookedCount: trip.confirmedSeats ?? undefined,
+        expiresAt,
+      };
+      for (const d of eligibleDrivers) {
+        io.of('/driver').to(`driver:${d.id}`).emit('trip:assigned', assignedPayload);
+      }
+    } catch (emitErr) {
+      logger.warn('Dispatch socket emit failed (non-blocking):', emitErr.message);
+    }
 
     logger.info('Dispatch sent', { tripId: trip.id, driverCount: fcmTokens.length, radiusKm });
   } catch (err) {

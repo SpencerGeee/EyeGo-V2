@@ -313,11 +313,6 @@ export const socketEvents = {
     getSocket().emit('safety:location', data);
   },
 
-  onRideCheckAlert: (cb: (data: { message: string; severity: string }) => void) => {
-    getSocket().on('safety:ride_check_alert', cb);
-    return () => getSocket().off('safety:ride_check_alert', cb);
-  },
-
   onTyping: (cb: (data: TypingPayload) => void) => {
     getSocket().on('chat:typing', cb);
     return () => getSocket().off('chat:typing', cb);

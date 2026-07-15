@@ -2,7 +2,6 @@
 import {
   View,
   StyleSheet,
-  TouchableOpacity,
   Pressable,
   TextInput,
   Alert,
@@ -73,9 +72,9 @@ export default function DisputeScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} activeOpacity={0.7}>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
             <Ionicons name="close" size={22} color={colors.onSurface} />
-          </TouchableOpacity>
+          </Pressable>
           <Text variant="titleSmall">Report Issue</Text>
           <View style={{ width: 40 }} />
         </View>
@@ -109,9 +108,9 @@ export default function DisputeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn} activeOpacity={0.7}>
+        <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
           <Ionicons name="close" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
+        </Pressable>
         <View style={{ width: 40 }} />
       </View>
 

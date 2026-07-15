@@ -110,7 +110,6 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
           tripId,
           OR: [
             { isPrivate: false },
-            { isPrivate: null },
             { senderId: userId },
             { recipientId: userId },
           ],
