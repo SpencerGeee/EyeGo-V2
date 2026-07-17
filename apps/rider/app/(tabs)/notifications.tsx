@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useCallback, useState, useEffect } from 'react';
+﻿import React, { useMemo, useCallback, useState } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
 import { AnimatedList } from '@eyego/ui';
@@ -6,14 +6,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Entrance } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { notificationsApi } from '@eyego/api';
 import type { AppNotification } from '@eyego/api';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, GlassSurface } from '@eyego/ui';
 import { relativeTime } from '@eyego/utils';
+import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 
 type Category = 'All' | 'Trips' | 'Payments' | 'Promos';
 
@@ -118,55 +116,19 @@ export default function NotificationsScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [activeCategory, setActiveCategory] = useState<Category>('All');
 
-  // Notifications are DERIVED live from booking history on the backend (no stored
-  // read-state model), so the server mark-read routes are intentional no-ops.
-  // We persist read-state locally keyed by the stable derived id (e.g.
-  // "<bookingId>:paid") so the buttons actually work and the unread dot stays
-  // cleared across refetches/sessions.
-  const READ_KEY = 'eyego_read_notifications';
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    AsyncStorage.getItem(READ_KEY)
-      .then((raw) => { if (raw) setReadIds(new Set(JSON.parse(raw) as string[])); })
-      .catch(() => {});
-  }, []);
-
-  const persistReadIds = useCallback((next: Set<string>) => {
-    setReadIds(next);
-    AsyncStorage.setItem(READ_KEY, JSON.stringify([...next])).catch(() => {});
-  }, []);
-
-  const { data, isLoading, isRefetching, refetch } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => notificationsApi.getAll({ limit: 50 }),
-    refetchInterval: 30_000,
-    refetchOnMount: true,
-  });
-
-  const rawNotifications: AppNotification[] = (data as any)?.data?.data?.notifications ?? [];
-  // Overlay locally-persisted read-state on top of the server-derived flag.
-  const allNotifications: AppNotification[] = useMemo(
-    () => rawNotifications.map((n) => (readIds.has(n.id) ? { ...n, read: true } : n)),
-    [rawNotifications, readIds],
-  );
-  const hasUnread = allNotifications.some((n) => !n.read);
-
-  const markRead = useCallback((notifId: string) => {
-    if (readIds.has(notifId)) return;
-    const next = new Set(readIds);
-    next.add(notifId);
-    persistReadIds(next);
-    // Best-effort server call (currently a no-op) — harmless if it stays one.
-    notificationsApi.markRead(notifId).catch(() => {});
-  }, [readIds, persistReadIds]);
-
-  const markAllRead = useCallback(() => {
-    const next = new Set(readIds);
-    allNotifications.forEach((n) => next.add(n.id));
-    persistReadIds(next);
-    notificationsApi.markAllRead().catch(() => {});
-  }, [readIds, allNotifications, persistReadIds]);
+  // Shared with the home screen's bell badge — both MUST agree on what's
+  // unread, or the badge stays lit after the user has already read everything
+  // (see useUnreadNotifications for why: notifications are derived from
+  // booking history server-side with no stored read state).
+  const {
+    notifications: allNotifications,
+    isLoading,
+    isRefetching,
+    refetch,
+    hasUnread,
+    markRead,
+    markAllRead,
+  } = useUnreadNotifications();
 
   const filteredNotifications = useMemo(() => {
     const typeFilter = CATEGORY_TYPES[activeCategory];

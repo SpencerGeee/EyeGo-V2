@@ -45,7 +45,7 @@ export default function PaymentScreen() {
   const [isPolling, setIsPolling] = useState(false);
   const [useSavedCard, setUseSavedCard] = useState(true);
   const { data: savedCardsData } = useQuery({
-    queryKey: ['wallet', 'payment-methods'],
+    queryKey: ['payment-methods'],
     queryFn: walletApi.getPaymentMethods,
   });
   const savedCards = (savedCardsData as any) ?? [];

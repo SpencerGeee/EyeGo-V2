@@ -12,7 +12,8 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
+import { tripsApi, bookingsApi, queryKeys } from '@eyego/api';
+import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -186,15 +187,12 @@ export default function HomeScreen() {
     staleTime: 10_000,
   });
 
-  const { data: notifsData } = useQuery({
-    queryKey: ['notifications', 'unread-count'],
-    // getAll().total counts EVERY derived notification ever, read or not — the
-    // dot would never go away once a rider had a single trip. getUnreadCount()
-    // is the actual unread signal.
-    queryFn: () => notificationsApi.getUnreadCount(),
-    refetchInterval: 30_000,
-    staleTime: 20_000,
-  });
+  // Shared with the notifications tab so the bell badge and the list agree on
+  // what's unread — this was previously its own /unread-count query (active
+  // paid bookings), a completely different signal from the notifications
+  // list's read state, so the dot never cleared even after the rider read
+  // everything in the tab.
+  const { hasUnread } = useUnreadNotifications();
 
   const { data: activeBookings } = useQuery({
     queryKey: ['bookings', 'active'],
@@ -235,7 +233,6 @@ export default function HomeScreen() {
     return DEFAULT_MAP_CENTER;
   }, [activeBooking]);
 
-  const unreadCount: number = (notifsData as any)?.data?.data?.count ?? 0;
   const firstName = (user as any)?.firstName ?? (user as any)?.name?.split(' ')[0] ?? 'there';
   const initials = (firstName[0] ?? 'U').toUpperCase();
 
@@ -281,7 +278,7 @@ export default function HomeScreen() {
           accessibilityLabel="Notifications"
         >
           <Ionicons name="notifications-outline" size={22} color={colors.onSurface} />
-          {unreadCount > 0 && <View style={styles.notifDot} />}
+          {hasUnread && <View style={styles.notifDot} />}
         </Pressable>
       </View>
 
