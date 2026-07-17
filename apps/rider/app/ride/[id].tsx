@@ -15,11 +15,6 @@ import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel } from '@eyego/ui';
 
-// MapLibre RN expects a JSON string via styleJSON, not a style object.
-// Both themes are pre-stringified once at module scope; the component picks
-// the one matching the active theme so the map turns light in light mode.
-const EYEGO_DARK_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
-const EYEGO_LIGHT_MAP_STYLE = JSON.stringify(eyegoLightStyle);
 import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 
@@ -157,7 +152,7 @@ export default function RideDetailScreen() {
       {/* Map background */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
-        styleJSON={isDark ? EYEGO_DARK_MAP_STYLE : EYEGO_LIGHT_MAP_STYLE}
+        styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}

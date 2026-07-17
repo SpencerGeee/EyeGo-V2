@@ -21,10 +21,6 @@ import { useThemeStore } from '../../../stores/theme.store';
 import { shareLiveTracking } from '../../../utils/safety';
 import { haptic } from '../../../utils/haptics';
 
-// MapLibre RN expects a JSON string via styleJSON, not a style object.
-// Pre-stringify both themes once; component swaps by active theme.
-const EYEGO_DARK_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
-const EYEGO_LIGHT_MAP_STYLE = JSON.stringify(eyegoLightStyle);
 
 /**
  * Native blur is iOS-only here: on Android expo-blur (without
@@ -622,7 +618,7 @@ export default function TrackingScreen() {
       {/* Map */}
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
-        styleJSON={isDark ? EYEGO_DARK_MAP_STYLE : EYEGO_LIGHT_MAP_STYLE}
+        styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}

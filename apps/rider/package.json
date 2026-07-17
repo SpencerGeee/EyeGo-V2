@@ -16,6 +16,7 @@
     "@eyego/api": "*",
     "@eyego/config": "*",
     "@eyego/map-styles": "*",
+    "@eyego/maps": "*",
     "@eyego/types": "*",
     "@eyego/ui": "*",
     "@eyego/utils": "*",

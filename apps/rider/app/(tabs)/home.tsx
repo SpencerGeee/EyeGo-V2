@@ -23,12 +23,6 @@ import MapboxGL from '../../utils/mapbox';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 
-// MapLibre RN expects a JSON string via styleJSON, not a style object.
-// Same pattern as ride/[id].tsx — reused here for the tiny active-ride map preview.
-// Both themes pre-stringified; the component swaps by active theme.
-const EYEGO_DARK_MAP_STYLE = JSON.stringify(eyegoDarkStyle);
-const EYEGO_LIGHT_MAP_STYLE = JSON.stringify(eyegoLightStyle);
-
 // Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
 // when no coordinate is available.
 const DEFAULT_MAP_CENTER: [number, number] = [-0.187, 5.6037];
@@ -328,7 +322,7 @@ export default function HomeScreen() {
             <View style={styles.activeBentoMapArea}>
               <MapboxGL.MapView
                 style={StyleSheet.absoluteFillObject}
-                styleJSON={isDark ? EYEGO_DARK_MAP_STYLE : EYEGO_LIGHT_MAP_STYLE}
+                styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
                 zoomEnabled={false}
                 scrollEnabled={false}
                 rotateEnabled={false}

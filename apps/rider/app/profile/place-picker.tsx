@@ -8,6 +8,8 @@ import { Text, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { haptic } from '../../utils/haptics';
 import MapboxGL from '../../utils/mapbox';
+import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
+import { useThemeStore } from '../../stores/theme.store';
 import { reverseGeocode, type GeocodeResult } from '../../utils/geocoding';
 import { setPickedPlace } from '../../utils/placePickerResult';
 
@@ -22,6 +24,7 @@ export default function PlacePickerScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const { isDark } = useThemeStore();
 
   const [center, setCenter] = useState<[number, number] | null>(null);
   const [resolved, setResolved] = useState<GeocodeResult | null>(null);
@@ -75,6 +78,7 @@ export default function PlacePickerScreen() {
       {initialCoords && (
         <MapboxGL.MapView
           style={StyleSheet.absoluteFill}
+          styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
           compassEnabled={false}
           onRegionDidChange={handleRegionChange}
         >
