@@ -42,6 +42,7 @@ export interface MapViewProps {
   attributionEnabled?: boolean;
   compassEnabled?: boolean;
   rotateEnabled?: boolean;
+  pitchEnabled?: boolean;
   scaleBarEnabled?: boolean;
   zoomEnabled?: boolean;
   scrollEnabled?: boolean;
@@ -85,6 +86,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     attributionEnabled,
     compassEnabled,
     rotateEnabled,
+    pitchEnabled,
     scaleBarEnabled,
     zoomEnabled,
     scrollEnabled,
@@ -144,9 +146,10 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         attribution={attributionEnabled ?? false}
         compass={compassEnabled ?? false}
         touchRotate={rotateEnabled ?? true}
+        touchPitch={pitchEnabled ?? true}
         touchZoom={zoomEnabled ?? true}
         dragPan={scrollEnabled ?? true}
-        // scaleBarEnabled has no direct v11 prop — omitted, not load-bearing.
+        scaleBar={scaleBarEnabled ?? false}
         // onRegionDidChange/onUserPan: neither current screen consumer passes
         // these; the exact v11 viewport-change event name is unconfirmed
         // (Map.js doesn't destructure it explicitly — it's forwarded to the
@@ -319,6 +322,8 @@ export function NavCamera({ active, pitch = 55, zoom = 17.5, duration = 800, fal
 // ── Markers ──────────────────────────────────────────────────────────────
 
 export interface MarkerViewProps {
+  /** Accepted for prop compat with the old Mapbox-style API — v11's ViewAnnotation is keyed by lngLat, not id. */
+  id?: string;
   coordinate: LngLat;
   children?: React.ReactNode;
   rotation?: number;
@@ -409,6 +414,7 @@ export interface LineLayerStyle {
   lineOpacity?: number;
   lineCap?: 'butt' | 'round' | 'square';
   lineJoin?: 'bevel' | 'round' | 'miter';
+  lineDasharray?: number[];
 }
 
 export interface LineLayerProps {
@@ -431,6 +437,7 @@ export const LineLayer = ({ id, style, aboveLayerID, belowLayerID, source }: Lin
       'line-color': style?.lineColor ?? '#3B82F6',
       'line-width': style?.lineWidth ?? 3,
       'line-opacity': style?.lineOpacity ?? 1,
+      ...(style?.lineDasharray ? { 'line-dasharray': style.lineDasharray } : {}),
     }}
     layout={{
       'line-cap': style?.lineCap ?? 'round',

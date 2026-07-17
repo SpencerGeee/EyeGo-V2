@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useEffect, useState, useCallback } from 'react';
+﻿import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -101,6 +101,21 @@ export default function RideDetailScreen() {
     }
   }, [trip, selectedTrip, setSelectedTrip]);
 
+  // MapboxGL.Camera has no declarative `bounds` prop (only an imperative
+  // fitBounds via ref) — frame origin+destination here instead.
+  const cameraRef = useRef<any>(null);
+  useEffect(() => {
+    if (!trip?.origin || !trip?.destination) return;
+    cameraRef.current?.fitBounds(
+      [
+        [trip.origin.longitude, trip.origin.latitude],
+        [trip.destination.longitude, trip.destination.latitude],
+      ],
+      { top: 80, bottom: 380, left: 40, right: 40 },
+      false,
+    );
+  }, [trip?.origin?.longitude, trip?.origin?.latitude, trip?.destination?.longitude, trip?.destination?.latitude]);
+
   useEffect(() => {
     if (!trip) return;
     // Lock selectedTier to the trip's tier once data loads
@@ -159,26 +174,7 @@ export default function RideDetailScreen() {
         rotateEnabled={false}
         scaleBarEnabled={false}
       >
-        {trip?.origin && trip?.destination && (
-          <MapboxGL.Camera
-            bounds={{
-              ne: [
-                Math.max(trip.origin.longitude, trip.destination.longitude) + 0.02,
-                Math.max(trip.origin.latitude, trip.destination.latitude) + 0.02,
-              ],
-              sw: [
-                Math.min(trip.origin.longitude, trip.destination.longitude) - 0.02,
-                Math.min(trip.origin.latitude, trip.destination.latitude) - 0.02,
-              ],
-              paddingTop: 80,
-              paddingBottom: 380,
-              paddingLeft: 40,
-              paddingRight: 40,
-            }}
-            animationMode="none"
-            animationDuration={0}
-          />
-        )}
+        <MapboxGL.Camera ref={cameraRef} animationMode="none" animationDuration={0} />
         {trip?.origin && (
           <MapboxGL.MarkerView coordinate={[trip.origin.longitude, trip.origin.latitude]}>
             <View style={styles.markerOrigin}>

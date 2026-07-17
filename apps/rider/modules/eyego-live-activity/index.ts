@@ -1,4 +1,4 @@
-import { requireNativeModule, EventEmitter, type Subscription } from 'expo-modules-core';
+import { requireNativeModule, EventEmitter, type EventSubscription } from 'expo-modules-core';
 import { Platform } from 'react-native';
 
 // Lazily resolved — requireNativeModule throws on Android / when the native
@@ -101,8 +101,13 @@ export async function endAllActivities(): Promise<void> {
   }
 }
 
-let emitter: EventEmitter | null = null;
-function getEmitter(): EventEmitter | null {
+// `EventEmitter`'s exported type and exported value resolve to two
+// structurally-incompatible class declarations in this expo-modules-core
+// version (its own ts-declarations vs build output disagree on `prototype`)
+// — an upstream typing bug, not fixable from call sites. `any` sidesteps it;
+// the real runtime contract (native module → EventSubscription) is unaffected.
+let emitter: any = null;
+function getEmitter(): any {
   const mod = getNativeModule();
   if (!mod) return null;
   if (!emitter) emitter = new EventEmitter(mod);
@@ -115,7 +120,7 @@ function getEmitter(): EventEmitter | null {
  * tripsApi.submitLiveActivityToken() (see apps/rider/utils/liveActivity.ts)
  * so the backend can push updates via direct APNs.
  */
-export function addPushTokenListener(listener: (event: PushTokenEvent) => void): Subscription | null {
+export function addPushTokenListener(listener: (event: PushTokenEvent) => void): EventSubscription | null {
   const em = getEmitter();
   if (!em) return null;
   return em.addListener('onPushTokenUpdate', listener);

@@ -20,7 +20,7 @@ export interface GradientGlowBorderHandle {
 interface GradientGlowBorderProps {
   /** Named preset that supplies colors/locations/glow tints in one go —
    * explicit `colors`/`locations`/`glowColor*` props override it. */
-  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver';
+  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green';
   /** Gradient stops sweeping the ring. Pass a mostly-dark array with 1-2
    * bright accent stops (see PREMIUM_RING_COLORS) to get a thin orbiting
    * light streak instead of a flat half-and-half color wash. */
@@ -67,7 +67,7 @@ export interface RingPalette {
 /** Context-matched ring palettes so a glow can follow the surface it wraps —
  * e.g. the gold PREMIUM tier card gets a gold ring, not the default
  * blue/orange. Same two-arc + hot-core construction as PREMIUM_RING_COLORS. */
-export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver', RingPalette> = {
+export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green', RingPalette> = {
   default: {
     colors: PREMIUM_RING_COLORS,
     locations: PREMIUM_RING_LOCATIONS,
@@ -121,6 +121,18 @@ export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'c
     locations: PREMIUM_RING_LOCATIONS,
     glowColor: '#3D7EFF',
     glowColorSecondary: '#00E0FF',
+  },
+  /** Brand-green sweep with a gold hot-core fleck for contrast — for surfaces
+   * sitting over the green video background (rider home "Suggested for you"),
+   * so the ring reads as premium without clashing against the green backdrop. */
+  green: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#1FAE52', '#9CFFC2', '#4BE277', '#0A0A0C',
+      '#0A0A0C', '#D6A800', '#FFE9A0', '#D6A800', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#4BE277',
+    glowColorSecondary: '#D6A800',
   },
 };
 

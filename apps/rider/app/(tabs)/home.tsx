@@ -16,7 +16,7 @@ import { tripsApi, notificationsApi, bookingsApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph, backgroundScrollPauseProps } from '@eyego/ui';
+import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
@@ -82,11 +82,16 @@ function SuggestedTripCard({
   onPress,
   colors,
   styles,
+  featured,
 }: {
   trip: any;
   onPress: () => void;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
+  /** Top pick gets the full animated glow sweep; the rest keep the same green
+   * ring but static (GradientGlowBorder perf note: reserve rotation for one
+   * card per screen). */
+  featured: boolean;
 }) {
   const tierColors = getTierColors(colors);
   const tier = (trip.tier as string) ?? 'ECONOMY';
@@ -108,15 +113,27 @@ function SuggestedTripCard({
 
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.tripCard,
-        { borderLeftColor: tierColor },
-        pressed && { opacity: 0.82 },
-      ]}
+      style={({ pressed }) => pressed && styles.pressed}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Book ${tier} ride`}
     >
+      <GradientGlowBorder
+        palette="green"
+        fillColor={colors.surfaceCard}
+        borderRadius={20}
+        glow
+        disabled={!featured}
+        style={styles.tripCard}
+      >
+        <GlassSurface borderRadius={17} intensity="low" dark style={styles.tripGlassInset} />
+        {featured && (
+          <View style={styles.tripTopPickChip}>
+            <Ionicons name="sparkles" size={10} color="#0A0A0C" />
+            <Text style={styles.tripTopPickText}>TOP PICK</Text>
+          </View>
+        )}
+      <View style={styles.tripCardRow}>
       <View style={styles.tripCardLeft}>
         <View style={[styles.tripTierIcon, { backgroundColor: `${tierColor}1A`, borderColor: `${tierColor}33` }]}>
           <Ionicons name={tierIcon} size={22} color={tierColor} />
@@ -146,6 +163,8 @@ function SuggestedTripCard({
       <Text style={[styles.tripFare, { color: colors.onSurface }]}>
         GH₵{' '}{(trip.farePerSeat ?? 0).toFixed(2)}
       </Text>
+      </View>
+      </GradientGlowBorder>
     </Pressable>
   );
 }
@@ -385,7 +404,7 @@ export default function HomeScreen() {
 
         {/* Suggested Rides */}
         <View style={styles.suggestedSection}>
-          <Text style={styles.sectionTitle}>Suggested for you</Text>
+          <ShinyText baseColor={colors.onSurface} textStyle={styles.sectionTitle}>Suggested for you</ShinyText>
 
           {tripsLoading && (
             <View style={{ gap: spacing.sm }}>
@@ -410,6 +429,7 @@ export default function HomeScreen() {
             >
               <SuggestedTripCard
                 trip={trip}
+                featured={idx === 0}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   router.push(`/ride/${trip.id}` as any);
@@ -682,7 +702,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── Suggested Rides ──────────────────────────────────────
-  suggestedSection: { gap: 10 },
+  suggestedSection: { gap: 12 },
   sectionTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 20,
@@ -691,14 +711,41 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: -0.3,
     marginBottom: 2,
   },
+  pressed: { opacity: 0.82 },
   tripCard: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    borderLeftWidth: 4,
+    width: '100%',
+    overflow: 'hidden',
     paddingHorizontal: 14,
     paddingVertical: 14,
+  },
+  tripGlassInset: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    right: 3,
+    bottom: 3,
+  },
+  tripTopPickChip: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    zIndex: 1,
+  },
+  tripTopPickText: {
+    fontFamily: fonts.labelCaps,
+    fontSize: 9,
+    lineHeight: 12,
+    color: '#0A0A0C',
+    letterSpacing: 0.6,
+  },
+  tripCardRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
