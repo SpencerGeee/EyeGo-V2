@@ -8,8 +8,7 @@
   "sources": {
     "openfreemap": {
       "type": "vector",
-      "tiles": ["https://tiles.openfreemap.org/planet/{z}/{x}/{y}.pbf"],
-      "maxzoom": 14,
+      "url": "https://tiles.openfreemap.org/planet",
       "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a>"
     }
   },
