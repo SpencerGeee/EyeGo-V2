@@ -146,6 +146,26 @@ const banUser = async (req, res) => {
   ok(res, null, 'User banned');
 };
 
+const unbanUser = async (req, res) => {
+  await adminService.unbanUser(req.params.id);
+  ok(res, null, 'User unbanned');
+};
+
+const deletePulseSchedule = async (req, res) => {
+  await adminService.deletePulseSchedule(req.params.id);
+  ok(res, null, 'Pulse schedule deleted');
+};
+
+const getSosEvents = async (req, res) => {
+  const result = await adminService.getSosEvents(req.query);
+  ok(res, result);
+};
+
+const resolveSosEvent = async (req, res) => {
+  const event = await adminService.resolveSosEvent(req.params.id);
+  ok(res, { event }, 'SOS event resolved');
+};
+
 const getMetrics = async (req, res) => {
   const metrics = await adminService.getMetrics();
   ok(res, metrics);
@@ -213,10 +233,10 @@ const getUnassignedTrips = async (req, res) => {
 
 module.exports = {
   reviewDriverDocument,
-  approveDriver, suspendDriver, rejectDriver, banUser,
+  approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
   getMetrics, getActiveTrips, setSurge,
   createRoute, updateRoute, deleteRoute, addStops,
-  getPulseSchedules, createPulseSchedule,
+  getPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getTrips, getBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips,
   getUserDetail, getUserTrips,
@@ -225,4 +245,5 @@ module.exports = {
   getPromotions, createPromotion, togglePromotion,
   registerAdminFcmToken,
   getLiveDrivers, assignDriver, getUnassignedTrips,
+  getSosEvents, resolveSosEvent,
 };

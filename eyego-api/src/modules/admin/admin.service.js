@@ -276,12 +276,13 @@ async function getDriverDetail(driverId) {
     }),
   ]);
 
-  // Document verification status
-  const docStatus = {
-    ghanaCard: driver.ghanaCardNumber ? 'VERIFIED' : 'MISSING',
-    licensePhoto: driver.licensePhoto ? 'VERIFIED' : 'MISSING',
-    profilePhoto: driver.profilePhoto ? 'VERIFIED' : 'MISSING',
-  };
+  // Real per-document review state (status + photo URL + rejection reason) from
+  // the same source the driver app uses. The previous presence-only summary
+  // ({ ghanaCard: 'VERIFIED'|'MISSING' }) hid PENDING/REJECTED docs entirely,
+  // so admins could never actually review uploads — while goOnline() blocks
+  // drivers until every doc is VERIFIED.
+  const driversService = require('../drivers/drivers.service');
+  const docStatus = await driversService.getDocuments(driverId);
 
   return {
     ...driver,
@@ -719,15 +720,85 @@ async function getUnassignedTrips() {
   });
 }
 
+async function unbanUser(userId) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new NotFoundError('User');
+  logger.info(`[ADMIN] User ${userId} unbanned`);
+  return prisma.user.update({ where: { id: userId }, data: { isBanned: false } });
+}
+
+async function deletePulseSchedule(id) {
+  const sched = await prisma.pulseSchedule.findUnique({ where: { id } });
+  if (!sched) throw new NotFoundError('Pulse schedule');
+  logger.info(`[ADMIN] Pulse schedule ${id} deleted`);
+  return prisma.pulseSchedule.delete({ where: { id } });
+}
+
+// SOS events are written by rider SOS, driver SOS, and the passenger socket,
+// but were never queryable by admin — the safety console read from nothing.
+// SosEvent.userId holds a rider id OR a driver id depending on who triggered
+// it, so resolve the reporter against both tables.
+async function getSosEvents({ page = 1, limit = 20, unresolvedOnly } = {}) {
+  const p = Math.max(1, parseInt(page) || 1);
+  const l = Math.min(Math.max(1, parseInt(limit) || 20), 100);
+  const where = String(unresolvedOnly) === 'true' ? { resolvedAt: null } : {};
+  const [events, total] = await Promise.all([
+    prisma.sosEvent.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (p - 1) * l, take: l }),
+    prisma.sosEvent.count({ where }),
+  ]);
+
+  const reporterIds = [...new Set(events.map((e) => e.userId))];
+  const tripIds = [...new Set(events.map((e) => e.tripId))];
+  const [users, driversList, trips] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: reporterIds } }, select: { id: true, name: true, phone: true } }),
+    prisma.driver.findMany({ where: { id: { in: reporterIds } }, select: { id: true, name: true, phone: true } }),
+    prisma.trip.findMany({
+      where: { id: { in: tripIds } },
+      select: {
+        id: true, status: true,
+        route: { select: { name: true } },
+        driver: { select: { id: true, name: true, phone: true } },
+      },
+    }),
+  ]);
+  const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+  const driverMap = Object.fromEntries(driversList.map((d) => [d.id, d]));
+  const tripMap = Object.fromEntries(trips.map((t) => [t.id, t]));
+
+  return {
+    events: events.map((e) => ({
+      ...e,
+      reporter: userMap[e.userId]
+        ? { role: 'RIDER', ...userMap[e.userId] }
+        : driverMap[e.userId]
+          ? { role: 'DRIVER', ...driverMap[e.userId] }
+          : { role: 'UNKNOWN', id: e.userId, name: 'Unknown', phone: '' },
+      trip: tripMap[e.tripId] ?? null,
+    })),
+    total,
+    page: p,
+    totalPages: Math.ceil(total / l) || 1,
+  };
+}
+
+async function resolveSosEvent(id) {
+  const event = await prisma.sosEvent.findUnique({ where: { id } });
+  if (!event) throw new NotFoundError('SOS event');
+  if (event.resolvedAt) return event; // idempotent
+  logger.info(`[ADMIN] SOS event ${id} resolved`);
+  return prisma.sosEvent.update({ where: { id }, data: { resolvedAt: new Date() } });
+}
+
 module.exports = {
-  approveDriver, suspendDriver, rejectDriver, banUser,
+  approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
   getMetrics, getActiveTrips, setSurgeMultiplier, expireUnansweredDispatchOffers,
   getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops,
-  getAllPulseSchedules, createPulseSchedule,
+  getAllPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips,
   getUserDetail, getUserTrips,
   getSupportTickets, getTripReports, respondToTicket, closeTicket,
   getPromotions, createPromotion, togglePromotion,
   getLiveDrivers, assignDriverToTrip, getUnassignedTrips,
+  getSosEvents, resolveSosEvent,
 };

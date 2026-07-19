@@ -46,6 +46,7 @@ router.post('/drivers/:id/approve', adminActionLimiter, controller.approveDriver
 router.post('/drivers/:id/suspend', adminActionLimiter, controller.suspendDriver);
 router.post('/drivers/:id/reject', adminActionLimiter, controller.rejectDriver);
 router.post('/users/:id/ban', adminActionLimiter, controller.banUser);
+router.post('/users/:id/unban', adminActionLimiter, controller.unbanUser);
 
 router.get('/routes', controller.getRoutes);
 router.post('/routes', controller.createRoute);
@@ -55,6 +56,7 @@ router.post('/routes/:id/stops', controller.addStops);
 
 router.get('/pulse-schedules', controller.getPulseSchedules);
 router.post('/pulse-schedules', controller.createPulseSchedule);
+router.delete('/pulse-schedules/:id', adminActionLimiter, controller.deletePulseSchedule);
 
 router.get('/trips', controller.getTrips);
 router.get('/bookings', controller.getBookings);
@@ -65,6 +67,10 @@ router.post('/support-tickets/:id/close', controller.closeTicket);
 
 // Driver trip reports (previously persisted but never surfaced to admin)
 router.get('/trip-reports', controller.getTripReports);
+
+// SOS / safety events (previously written by both apps but never queryable)
+router.get('/sos-events', controller.getSosEvents);
+router.post('/sos-events/:id/resolve', adminActionLimiter, controller.resolveSosEvent);
 
 router.get('/promotions', controller.getPromotions);
 router.post('/promotions', controller.createPromotion);

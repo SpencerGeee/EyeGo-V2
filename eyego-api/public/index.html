@@ -169,6 +169,10 @@
                     <span class="material-symbols-outlined" style="font-size:18px">support_agent</span> Support
                     <span id="supportBadge" class="ml-auto hidden w-5 h-5 rounded-full bg-error text-white text-[10px] font-bold flex items-center justify-center">0</span>
                 </div>
+                <div class="nav-link" data-tab="safety" onclick="switchTab('safety')">
+                    <span class="material-symbols-outlined" style="font-size:18px">sos</span> Safety
+                    <span id="sosBadge" class="ml-auto hidden w-5 h-5 rounded-full bg-error text-white text-[10px] font-bold flex items-center justify-center">0</span>
+                </div>
                 <div class="nav-link" data-tab="promotions" onclick="switchTab('promotions')">
                     <span class="material-symbols-outlined" style="font-size:18px">confirmation_number</span> Promotions
                 </div>
@@ -371,18 +375,7 @@
                             <div id="dtab-documents" class="hidden space-y-4">
                                 <h5 class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Verification Documents</h5>
                                 <div id="dmDocsList" class="space-y-3">
-                                    <div class="p-4 rounded-lg bg-surface-2 border border-border flex items-center justify-between">
-                                        <div class="flex items-center gap-3"><span class="material-symbols-outlined text-info" style="font-size:20px">badge</span><div><p class="text-sm font-medium">Ghana Card</p><p class="text-xs text-text-secondary">National ID verification</p></div></div>
-                                        <span class="doc-status" id="docGhanaCard">--</span>
-                                    </div>
-                                    <div class="p-4 rounded-lg bg-surface-2 border border-border flex items-center justify-between">
-                                        <div class="flex items-center gap-3"><span class="material-symbols-outlined text-warning" style="font-size:20px">license</span><div><p class="text-sm font-medium">Driver's License</p><p class="text-xs text-text-secondary">License photo upload</p></div></div>
-                                        <span class="doc-status" id="docLicense">--</span>
-                                    </div>
-                                    <div class="p-4 rounded-lg bg-surface-2 border border-border flex items-center justify-between">
-                                        <div class="flex items-center gap-3"><span class="material-symbols-outlined text-primary" style="font-size:20px">photo_camera</span><div><p class="text-sm font-medium">Profile Photo</p><p class="text-xs text-text-secondary">Driver profile image</p></div></div>
-                                        <span class="doc-status" id="docProfile">--</span>
-                                    </div>
+                                    <p class="text-sm text-text-secondary py-4 text-center">Loading documents...</p>
                                 </div>
                             </div>
                             <!-- Performance tab -->
@@ -464,7 +457,9 @@
                             <div><h5 class="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Trip History</h5><div id="rmTrips" class="space-y-2 max-h-64 overflow-y-auto scrollbar-thin"></div></div>
                         </div>
                         <div class="flex items-center justify-end gap-3 p-5 border-t border-border bg-surface-2/50">
-                            <button class="btn btn-danger" onclick="banUser(currentUserId)">Ban User</button>
+                            <span id="rmBannedBadge" class="badge bg-error-subtle text-error border border-error/20 mr-auto hidden">BANNED</span>
+                            <button id="rmUnbanBtn" class="btn btn-success hidden" onclick="unbanUser(currentUserId)">Unban User</button>
+                            <button id="rmBanBtn" class="btn btn-danger" onclick="banUser(currentUserId)">Ban User</button>
                         </div>
                     </div>
                 </div>
@@ -593,8 +588,8 @@
                                 <div class="p-4 border-b border-border"><h3 class="text-sm font-display font-bold">Active Pulse Schedules</h3></div>
                                 <div class="overflow-x-auto">
                                     <table>
-                                        <thead><tr><th>Route</th><th>Tier</th><th>Time</th><th>Seats</th><th>Days</th></tr></thead>
-                                        <tbody id="schedulesBody"><tr><td colspan="5" class="text-center text-text-secondary py-8">Loading schedules...</td></tr></tbody>
+                                        <thead><tr><th>Route</th><th>Tier</th><th>Time</th><th>Seats</th><th>Days</th><th class="text-right"></th></tr></thead>
+                                        <tbody id="schedulesBody"><tr><td colspan="6" class="text-center text-text-secondary py-8">Loading schedules...</td></tr></tbody>
                                     </table>
                                 </div>
                             </div>
@@ -696,6 +691,38 @@
                     </div>
                 </div>
 
+                <!-- ===================== SAFETY (SOS + TRIP REPORTS) ===================== -->
+                <div id="tab-safety" class="hidden space-y-5 animate-fade-in">
+                    <div class="flex items-center justify-between">
+                        <div class="flex gap-1.5 p-1 rounded-lg bg-surface-2 border border-border">
+                            <button class="sos-filter px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-black" data-sfilter="unresolved" onclick="setSosFilter('unresolved')">Unresolved</button>
+                            <button class="sos-filter px-3 py-1.5 text-xs font-semibold rounded-md text-text-secondary hover:text-white" data-sfilter="all" onclick="setSosFilter('all')">All</button>
+                        </div>
+                        <span id="sosCount" class="text-xs text-text-tertiary"></span>
+                    </div>
+                    <div class="card">
+                        <div class="p-4 border-b border-border flex items-center gap-2">
+                            <span class="material-symbols-outlined text-error" style="font-size:18px">sos</span>
+                            <h3 class="text-sm font-display font-bold">SOS Events</h3>
+                        </div>
+                        <div class="divide-y divide-border/50" id="sosEventsList">
+                            <div class="p-6 text-center text-text-secondary text-sm">Loading SOS events...</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="p-4 border-b border-border flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="material-symbols-outlined text-warning" style="font-size:18px">report</span>
+                                <h3 class="text-sm font-display font-bold">Driver Trip Reports</h3>
+                            </div>
+                            <span id="tripReportCount" class="text-xs text-text-tertiary"></span>
+                        </div>
+                        <div class="divide-y divide-border/50" id="tripReportsList">
+                            <div class="p-6 text-center text-text-secondary text-sm">Loading trip reports...</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ===================== PROMOTIONS ===================== -->
                 <div id="tab-promotions" class="hidden space-y-5 animate-fade-in">
                     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -785,8 +812,8 @@
         // ── State ──────────────────────────────────────────────────
         const state = {
             drivers: [], users: [], trips: [], routes: [], schedules: [], bookings: [],
-            tickets: [], promotions: [],
-            activeTab: 'overview', driverFilter: 'ALL', ticketFilter: '', tripFilter: '',
+            tickets: [], promotions: [], sosEvents: [], tripReports: [],
+            activeTab: 'overview', driverFilter: 'ALL', ticketFilter: '', tripFilter: '', sosFilter: 'unresolved',
             driverSearch: '', riderSearch: '',
             tripPage: 1, bookingPage: 1, tripTotalPages: 1, bookingTotalPages: 1,
             tripTotal: 0, bookingTotal: 0,
@@ -903,6 +930,11 @@
                 'CLOSED': 'badge bg-surface-3 text-text-secondary border border-border',
                 'VERIFIED': 'doc-status bg-success-subtle text-success border border-success/20',
                 'MISSING': 'doc-status bg-error-subtle text-error border border-error/20',
+                'REJECTED': 'doc-status bg-error-subtle text-error border border-error/20',
+                'RESOLVED': 'badge bg-success-subtle text-success border border-success/20',
+                'UNRESOLVED': 'badge bg-error-subtle text-error border border-error/20',
+                'RIDER': 'badge bg-info-subtle text-info border border-info/20',
+                'DRIVER': 'badge bg-primary-subtle text-primary border border-primary/20',
             };
             const cls = map[status] || 'badge bg-surface-3 text-text-secondary border border-border';
             // XSS-safe: escape the label text using textContent equivalent
@@ -934,12 +966,13 @@
             document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
             document.getElementById(`tab-${tab}`).classList.remove('hidden');
             document.querySelectorAll('.nav-link').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-            const titles = { overview:'Overview', drivers:'Drivers', riders:'Riders', trips:'Trips', routes:'Routes', schedules:'Schedules', revenue:'Revenue', support:'Support Tickets', promotions:'Promotions', livemap:'Live Map' };
+            const titles = { overview:'Overview', drivers:'Drivers', riders:'Riders', trips:'Trips', routes:'Routes', schedules:'Schedules', revenue:'Revenue', support:'Support Tickets', safety:'Safety & SOS', promotions:'Promotions', livemap:'Live Map' };
             document.getElementById('pageTitle').textContent = titles[tab] || 'Overview';
             if (tab === 'routes' || tab === 'schedules') populateRouteSelects();
             if (tab === 'trips') renderTrips();
             if (tab === 'revenue') renderRevenue();
             if (tab === 'support') renderTickets();
+            if (tab === 'safety') loadSafetyData();
             if (tab === 'promotions') renderPromotions();
             if (tab === 'drivers') { renderDrivers(); }
             if (tab === 'riders') { renderRiders(); }
@@ -998,7 +1031,7 @@
 
         async function refreshData() {
             try {
-                const [driversRes, usersRes, tripsRes, routesRes, schedulesRes, bookingsRes, ticketsRes, promosRes] = await Promise.allSettled([
+                const [driversRes, usersRes, tripsRes, routesRes, schedulesRes, bookingsRes, ticketsRes, promosRes, sosRes] = await Promise.allSettled([
                     apiGet(`${API_BASE}/drivers`),
                     apiGet(`${API_BASE}/users`),
                     apiGet(`${API_BASE}/trips?limit=100`),
@@ -1007,6 +1040,7 @@
                     apiGet(`${API_BASE}/bookings?limit=100`),
                     apiGet(`${API_BASE}/support-tickets`),
                     apiGet(`${API_BASE}/promotions`),
+                    apiGet(`${API_BASE}/sos-events?unresolvedOnly=true&limit=1`),
                 ]);
 
                 if (driversRes.status==='fulfilled') state.drivers = driversRes.value.data?.drivers||[];
@@ -1017,6 +1051,7 @@
                 if (bookingsRes.status==='fulfilled') { const d=bookingsRes.value.data; state.bookings=d?.bookings||[]; state.bookingTotal=d?.total||state.bookings.length; state.bookingTotalPages=d?.totalPages||1; }
                 if (ticketsRes.status==='fulfilled') state.tickets = ticketsRes.value.data?.tickets||[];
                 if (promosRes.status==='fulfilled') state.promotions = promosRes.value.data?.promotions||[];
+                if (sosRes.status==='fulfilled') updateSosBadge(sosRes.value.data?.total||0);
 
                 state.tripPage=1; state.bookingPage=1;
                 renderOverview(); renderDrivers(); renderRiders(); renderTrips(); renderRoutes(); renderSchedules(); renderRevenue(); renderCharts(); renderTickets(); renderPromotions();
@@ -1111,11 +1146,9 @@
                     vehEl.innerHTML = d.vehicles.map(v=>`<div class="flex items-center justify-between p-3 rounded-lg bg-surface-2 border border-border"><div><p class="text-sm font-medium">${escapeHtml(`${v.make} ${v.model} (${v.year})`)}</p><p class="text-xs text-text-secondary mt-0.5">${escapeHtml(String(v.seaterCount))} seats · ${escapeHtml(v.tier||'')} tier</p></div><span class="text-xs font-mono font-semibold text-primary">${escapeHtml(v.plateNumber||'')}</span></div>`).join('');
                 } else vehEl.innerHTML = '<p class="text-sm text-text-secondary">No vehicles assigned.</p>';
 
-                // Documents tab
-                const docs = d.documents||{};
-                document.getElementById('docGhanaCard').outerHTML = docs.ghanaCard==='VERIFIED'?getStatusBadge('VERIFIED'):getStatusBadge('MISSING');
-                document.getElementById('docLicense').outerHTML = docs.licensePhoto==='VERIFIED'?getStatusBadge('VERIFIED'):getStatusBadge('MISSING');
-                document.getElementById('docProfile').outerHTML = docs.profilePhoto==='VERIFIED'?getStatusBadge('VERIFIED'):getStatusBadge('MISSING');
+                // Documents tab — d.documents is an array of
+                // { id, type, status, url, rejectionReason } (status: MISSING/PENDING/VERIFIED/REJECTED)
+                renderDriverDocs(id, d.documents||[]);
 
                 // Performance tab
                 const stats = d.stats||{};
@@ -1157,6 +1190,58 @@
                     </div>`;
                 }).join('');
             } catch(err) { document.getElementById('dmTripsList').innerHTML='<p class="text-sm text-text-secondary py-4 text-center">Failed to load trips.</p>'; }
+        }
+
+        // ── DRIVER DOCUMENT REVIEW ────────────────────────────────
+        // Backend POST /drivers/:id/documents/:type/review existed but had no UI —
+        // and goOnline() blocks drivers until every document is VERIFIED, so
+        // pending uploads were previously stuck forever.
+        const DOC_META = {
+            'GHANA_CARD':      { label: 'Ghana Card',       sub: 'National ID verification', icon: 'badge',        color: 'text-info' },
+            'DRIVERS_LICENSE': { label: "Driver's License", sub: 'License photo upload',     icon: 'license',      color: 'text-warning' },
+            'PROFILE_PHOTO':   { label: 'Profile Photo',    sub: 'Driver profile image',     icon: 'photo_camera', color: 'text-primary' },
+        };
+
+        function renderDriverDocs(driverId, docs) {
+            const el = document.getElementById('dmDocsList');
+            if (!docs || docs.length === 0) { el.innerHTML = '<p class="text-sm text-text-secondary py-4 text-center">No documents.</p>'; return; }
+            el.innerHTML = docs.map(doc => {
+                const meta = DOC_META[doc.type] || { label: doc.type, sub: '', icon: 'description', color: 'text-text-secondary' };
+                const photoLink = doc.url ? `<a href="${escapeHtml(doc.url)}" target="_blank" rel="noopener" class="btn btn-secondary text-xs py-1 px-2.5"><span class="material-symbols-outlined" style="font-size:14px">visibility</span> View</a>` : '';
+                let actions = '';
+                if (doc.status === 'PENDING') {
+                    actions = `<button class="btn btn-success text-xs py-1 px-2.5" onclick="reviewDoc('${driverId}','${doc.type}',true)">Approve</button>
+                               <button class="btn btn-danger text-xs py-1 px-2.5" onclick="reviewDoc('${driverId}','${doc.type}',false)">Reject</button>`;
+                } else if (doc.status === 'REJECTED') {
+                    actions = `<button class="btn btn-success text-xs py-1 px-2.5" onclick="reviewDoc('${driverId}','${doc.type}',true)">Approve</button>`;
+                } else if (doc.status === 'VERIFIED') {
+                    actions = `<button class="btn btn-ghost text-xs py-1 px-2.5 text-error" onclick="reviewDoc('${driverId}','${doc.type}',false)">Revoke</button>`;
+                }
+                const reason = doc.status === 'REJECTED' && doc.rejectionReason ? `<p class="text-xs text-error mt-1">Reason: ${escapeHtml(doc.rejectionReason)}</p>` : '';
+                return `<div class="p-4 rounded-lg bg-surface-2 border border-border">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <span class="material-symbols-outlined ${meta.color}" style="font-size:20px">${meta.icon}</span>
+                            <div class="min-w-0"><p class="text-sm font-medium">${escapeHtml(meta.label)}</p><p class="text-xs text-text-secondary">${escapeHtml(meta.sub)}</p>${reason}</div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-shrink-0">${photoLink}${getStatusBadge(doc.status)}${actions}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        async function reviewDoc(driverId, type, approve) {
+            let rejectionReason;
+            if (!approve) {
+                rejectionReason = prompt('Reason for rejecting this document (shown to the driver):');
+                if (!rejectionReason || rejectionReason.trim() === '') { toast('Rejection requires a reason','error'); return; }
+                rejectionReason = rejectionReason.trim();
+            }
+            try {
+                await apiPost(`${API_BASE}/drivers/${driverId}/documents/${type}/review`, { approve, rejectionReason });
+                toast(approve ? 'Document approved' : 'Document rejected', approve ? 'success' : 'info');
+                await loadDriverDetail(driverId);
+            } catch { toast('Failed to review document','error'); }
         }
 
         async function approveDriver(id) {
@@ -1216,6 +1301,12 @@
                 document.getElementById('rmWallet').textContent = `GHS ${(u.walletBalance||0).toFixed(2)}`;
                 document.getElementById('rmJoined').textContent = formatDate(u.createdAt);
 
+                // Ban / unban toggle (backend unban previously didn't exist — a ban was permanent)
+                const banned = !!u.isBanned;
+                document.getElementById('rmBannedBadge').classList.toggle('hidden', !banned);
+                document.getElementById('rmBanBtn').classList.toggle('hidden', banned);
+                document.getElementById('rmUnbanBtn').classList.toggle('hidden', !banned);
+
                 const tripsEl = document.getElementById('rmTrips');
                 const recentBookings = u.bookings||[];
                 if(recentBookings.length===0){tripsEl.innerHTML='<p class="text-sm text-text-secondary text-center py-4">No trip history.</p>';return;}
@@ -1233,6 +1324,13 @@
             if(!confirm('Ban this user? They will lose access to the app.')) return;
             try{await apiPost(`${API_BASE}/users/${id}/ban`,{reason:reason.trim()});toast('User banned','error');closeRiderModal();await refreshData();}
             catch{toast('Failed to ban user','error');}
+        }
+
+        async function unbanUser(id) {
+            if(!id) return;
+            if(!confirm('Unban this user? They will regain access to the app.')) return;
+            try{await apiPost(`${API_BASE}/users/${id}/unban`);toast('User unbanned');closeRiderModal();await refreshData();}
+            catch{toast('Failed to unban user','error');}
         }
 
         // ── TRIPS ──────────────────────────────────────────────────
@@ -1304,8 +1402,90 @@
         // ── SCHEDULES ──────────────────────────────────────────────
         async function createSchedule(e){e.preventDefault();const routeId=document.getElementById('schedRoute').value;const tier=document.getElementById('schedTier').value;const maxSeats=parseInt(document.getElementById('schedMaxSeats').value);const departureTime=document.getElementById('schedTime').value;const daysStr=document.getElementById('schedDays').value.trim();if(!routeId||!departureTime)return toast('Fill all required fields','error');const daysArr=daysStr.split(',').map(d=>({'MON':0,'TUE':1,'WED':2,'THU':3,'FRI':4,'SAT':5,'SUN':6}[d.trim().toUpperCase()])).filter(d=>d!==undefined);try{await apiPost(`${API_BASE}/pulse-schedules`,{routeId,tier,maxSeats,departureTime,daysOfWeek:JSON.stringify(daysArr.length>0?daysArr:[1,2,3,4,5])});toast('Schedule created');document.getElementById('scheduleForm').reset();await refreshData();}catch{toast('Failed to create schedule','error');}}
 
-        function renderSchedules(){const tbody=document.getElementById('schedulesBody');if(state.schedules.length===0){tbody.innerHTML='<tr><td colspan="5" class="text-center text-text-secondary py-8">No pulse schedules yet.</td></tr>';return;}
-        tbody.innerHTML=state.schedules.map(s=>{const route=state.routes.find(r=>r.id===s.routeId);let daysLabel='Weekdays';try{const days=typeof s.daysOfWeek==='string'?JSON.parse(s.daysOfWeek):s.daysOfWeek||[];const map=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];daysLabel=days.map(d=>map[d]).filter(Boolean).join(', ');}catch{daysLabel=s.daysOfWeek||'Weekdays';}return `<tr><td class="font-medium">${escapeHtml(route?.name||'Unknown')}</td><td>${getStatusBadge(s.tier)}</td><td class="font-mono text-sm">${s.departureTime||'--'}</td><td class="text-sm">${s.maxSeats||'--'}</td><td class="text-xs text-text-secondary">${daysLabel}</td></tr>`;}).join('');
+        function renderSchedules(){const tbody=document.getElementById('schedulesBody');if(state.schedules.length===0){tbody.innerHTML='<tr><td colspan="6" class="text-center text-text-secondary py-8">No pulse schedules yet.</td></tr>';return;}
+        tbody.innerHTML=state.schedules.map(s=>{const route=state.routes.find(r=>r.id===s.routeId);let daysLabel='Weekdays';try{const days=typeof s.daysOfWeek==='string'?JSON.parse(s.daysOfWeek):s.daysOfWeek||[];const map=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];daysLabel=days.map(d=>map[d]).filter(Boolean).join(', ');}catch{daysLabel=s.daysOfWeek||'Weekdays';}return `<tr><td class="font-medium">${escapeHtml(route?.name||'Unknown')}</td><td>${getStatusBadge(s.tier)}</td><td class="font-mono text-sm">${s.departureTime||'--'}</td><td class="text-sm">${s.maxSeats||'--'}</td><td class="text-xs text-text-secondary">${daysLabel}</td><td class="text-right"><button onclick="deleteSchedule('${s.id}')" class="btn btn-ghost p-1.5 text-error hover:bg-error-subtle" title="Delete schedule"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button></td></tr>`;}).join('');
+        }
+
+        // Delete a pulse schedule (backend previously had create/list but no delete —
+        // a bad schedule kept generating trips forever).
+        async function deleteSchedule(id){if(!confirm('Delete this pulse schedule? Future trips will no longer be generated from it.'))return;try{await apiDelete(`${API_BASE}/pulse-schedules/${id}`);toast('Schedule deleted','info');await refreshData();}catch{toast('Failed to delete schedule','error');}}
+
+        // ── SAFETY (SOS events + driver trip reports) ─────────────
+        // SOS events are written by rider SOS, driver SOS, and the passenger
+        // socket, but were previously never surfaced anywhere — an SOS press
+        // effectively went into a black hole.
+        function updateSosBadge(count){
+            const badge=document.getElementById('sosBadge');
+            if(count>0){badge.textContent=count>99?'99+':count;badge.classList.remove('hidden');}
+            else badge.classList.add('hidden');
+        }
+
+        function setSosFilter(filter){
+            state.sosFilter=filter;
+            document.querySelectorAll('.sos-filter').forEach(el=>{const active=el.dataset.sfilter===filter;el.className=`sos-filter px-3 py-1.5 text-xs font-semibold rounded-md ${active?'bg-primary text-black':'text-text-secondary hover:text-white'}`;});
+            loadSafetyData();
+        }
+
+        async function loadSafetyData(){
+            try{
+                const unresolved=state.sosFilter==='unresolved';
+                const [sosRes,reportsRes]=await Promise.allSettled([
+                    apiGet(`${API_BASE}/sos-events?limit=50${unresolved?'&unresolvedOnly=true':''}`),
+                    apiGet(`${API_BASE}/trip-reports?limit=50`),
+                ]);
+                if(sosRes.status==='fulfilled'){state.sosEvents=sosRes.value.data?.events||[];if(unresolved)updateSosBadge(sosRes.value.data?.total||0);}
+                if(reportsRes.status==='fulfilled')state.tripReports=reportsRes.value.data?.reports||[];
+                renderSafety();
+            }catch{toast('Failed to load safety data','error');}
+        }
+
+        function renderSafety(){
+            const sosEl=document.getElementById('sosEventsList');
+            document.getElementById('sosCount').textContent=`${state.sosEvents.length} SOS event(s)`;
+            if(state.sosEvents.length===0){
+                sosEl.innerHTML=`<div class="p-6 text-center text-text-secondary text-sm">${state.sosFilter==='unresolved'?'No unresolved SOS events. All clear.':'No SOS events recorded.'}</div>`;
+            }else{
+                sosEl.innerHTML=state.sosEvents.map(e=>{
+                    const mapLink=(e.lat!=null&&e.lng!=null)?`<a href="https://www.google.com/maps?q=${e.lat},${e.lng}" target="_blank" rel="noopener" class="btn btn-secondary text-xs py-1 px-2.5"><span class="material-symbols-outlined" style="font-size:14px">location_on</span> Location</a>`:'';
+                    const resolveBtn=e.resolvedAt?'':`<button class="btn btn-success text-xs py-1 px-2.5" onclick="resolveSos('${e.id}')">Mark Resolved</button>`;
+                    const tripInfo=e.trip?`${escapeHtml(e.trip.route?.name||'--')} · driver ${escapeHtml(e.trip.driver?.name||'--')} (${escapeHtml(e.trip.driver?.phone||'--')})`:'Trip not found';
+                    return `<div class="p-4 ${e.resolvedAt?'':'bg-error-subtle/20'}">
+                        <div class="flex items-center justify-between gap-3 flex-wrap">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2">${getStatusBadge(e.reporter?.role||'UNKNOWN')}<span class="text-sm font-semibold">${escapeHtml(e.reporter?.name||'Unknown')}</span><span class="text-xs font-mono text-text-secondary">${escapeHtml(e.reporter?.phone||'')}</span>${e.resolvedAt?getStatusBadge('RESOLVED'):getStatusBadge('UNRESOLVED')}</div>
+                                <p class="text-xs text-text-secondary mt-1">${tripInfo}</p>
+                                <p class="text-[10px] text-text-tertiary mt-0.5">${formatDateTime(e.createdAt)}${e.resolvedAt?` · resolved ${formatDateTime(e.resolvedAt)}`:''}</p>
+                            </div>
+                            <div class="flex items-center gap-2 flex-shrink-0">${mapLink}${resolveBtn}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+
+            const repEl=document.getElementById('tripReportsList');
+            document.getElementById('tripReportCount').textContent=`${state.tripReports.length} report(s)`;
+            if(state.tripReports.length===0){repEl.innerHTML='<div class="p-6 text-center text-text-secondary text-sm">No trip reports.</div>';}
+            else{
+                repEl.innerHTML=state.tripReports.map(r=>{
+                    const tripInfo=r.trip?`${escapeHtml(r.trip.route?.originName||'')} → ${escapeHtml(r.trip.route?.destinationName||'')} (${escapeHtml(r.trip.shortId||shortId(r.tripId))})`:shortId(r.tripId);
+                    return `<div class="p-4">
+                        <div class="flex items-center justify-between gap-3 flex-wrap">
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-2"><span class="text-sm font-semibold">${escapeHtml((r.type||'REPORT').replace(/_/g,' '))}</span>${getStatusBadge(r.status)}</div>
+                                <p class="text-xs text-text-secondary mt-1">Driver: ${escapeHtml(r.driver?.name||'--')} (${escapeHtml(r.driver?.phone||'--')}) · ${tripInfo}</p>
+                                ${r.details?`<p class="text-xs text-text-secondary mt-1">${escapeHtml(r.details)}</p>`:''}
+                                <p class="text-[10px] text-text-tertiary mt-0.5">${formatDateTime(r.createdAt)}</p>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        async function resolveSos(id){
+            if(!confirm('Mark this SOS event as resolved? Only do this after following up with the reporter.'))return;
+            try{await apiPost(`${API_BASE}/sos-events/${id}/resolve`);toast('SOS event resolved');await loadSafetyData();}
+            catch{toast('Failed to resolve SOS event','error');}
         }
 
         // ── REVENUE ────────────────────────────────────────────────
