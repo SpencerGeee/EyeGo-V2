@@ -236,6 +236,24 @@ const getUnassignedTrips = async (req, res) => {
   ok(res, { trips });
 };
 
+// ── OTA Deploy console ───────────────────────────────────────────
+const otaService = require('./ota.service');
+
+const getOtaOverview = async (req, res) => {
+  const overview = await otaService.getOverview();
+  ok(res, overview);
+};
+
+const publishOta = async (req, res) => {
+  const result = await otaService.dispatchOta(req.body, req.admin?.userId || 'admin');
+  ok(res, result, result.action === 'republish' ? 'Rollback dispatched' : 'OTA publish dispatched');
+};
+
+const getOtaRuns = async (req, res) => {
+  const runs = await otaService.getOtaRuns();
+  ok(res, { runs });
+};
+
 module.exports = {
   reviewDriverDocument,
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
@@ -251,4 +269,5 @@ module.exports = {
   registerAdminFcmToken,
   getLiveDrivers, assignDriver, getUnassignedTrips,
   getSosEvents, resolveSosEvent,
+  getOtaOverview, publishOta, getOtaRuns,
 };

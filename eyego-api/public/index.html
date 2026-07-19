@@ -173,6 +173,9 @@
                     <span class="material-symbols-outlined" style="font-size:18px">sos</span> Safety
                     <span id="sosBadge" class="ml-auto hidden w-5 h-5 rounded-full bg-error text-white text-[10px] font-bold flex items-center justify-center">0</span>
                 </div>
+                <div class="nav-link" data-tab="ota" onclick="switchTab('ota')">
+                    <span class="material-symbols-outlined" style="font-size:18px">rocket_launch</span> OTA Deploy
+                </div>
                 <div class="nav-link" data-tab="promotions" onclick="switchTab('promotions')">
                     <span class="material-symbols-outlined" style="font-size:18px">confirmation_number</span> Promotions
                 </div>
@@ -723,6 +726,69 @@
                     </div>
                 </div>
 
+                <!-- ===================== OTA DEPLOY ===================== -->
+                <div id="tab-ota" class="hidden space-y-5 animate-fade-in">
+                    <!-- How it works -->
+                    <div class="card p-4 border-l-2 border-l-info">
+                        <div class="flex items-start gap-3">
+                            <span class="material-symbols-outlined text-info flex-shrink-0" style="font-size:20px">info</span>
+                            <div class="text-xs text-text-secondary leading-relaxed">
+                                <p><span class="text-white font-semibold">Publish</span> bundles the latest code pushed to the repo and delivers it over the air — phones pick it up on next app launch or foreground and prompt the user to restart. No app store review, no user download.</p>
+                                <p class="mt-1.5"><span class="text-white font-semibold">Rollback</span> instantly re-delivers any previously published update if something goes wrong.</p>
+                                <p class="mt-1.5">OTA covers everything except native changes (new native libraries, SDK upgrades, permissions) — those still need a store build, and updates only reach phones whose installed app version matches the update's runtime version.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Config warning (shown only when backend env is missing) -->
+                    <div id="otaConfigWarning" class="card p-4 border-l-2 border-l-warning hidden">
+                        <div class="flex items-start gap-3">
+                            <span class="material-symbols-outlined text-warning flex-shrink-0" style="font-size:20px">warning</span>
+                            <div class="text-xs text-text-secondary" id="otaConfigWarningText"></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                        <!-- Publish card -->
+                        <div class="lg:col-span-2 space-y-5">
+                            <div class="card p-5">
+                                <h3 class="text-sm font-display font-bold mb-1 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-primary" style="font-size:18px">rocket_launch</span>
+                                    Publish OTA Update
+                                </h3>
+                                <p class="text-[11px] text-text-secondary mb-4">Ships the latest pushed code to every phone on the selected channel.</p>
+                                <div class="space-y-3">
+                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">App</label>
+                                        <select id="otaApp"><option value="both">Both apps</option><option value="rider">Rider only</option><option value="driver">Driver only</option></select></div>
+                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Channel</label>
+                                        <select id="otaChannel"><option value="production">Production (live users)</option><option value="preview">Preview (internal testers)</option></select></div>
+                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">What changed</label>
+                                        <input type="text" id="otaMessage" placeholder="e.g. Fixed fare display on trip summary" maxlength="200" /></div>
+                                    <button onclick="publishOtaUpdate()" id="otaPublishBtn" class="btn btn-primary w-full py-2.5">
+                                        <span class="material-symbols-outlined" style="font-size:16px">send</span> Publish to phones
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Recent deploys -->
+                            <div class="card">
+                                <div class="p-4 border-b border-border flex items-center justify-between">
+                                    <h3 class="text-sm font-display font-bold">Recent Deploys</h3>
+                                    <button onclick="loadOtaData()" class="btn btn-ghost p-1.5" title="Refresh"><span class="material-symbols-outlined" style="font-size:16px">refresh</span></button>
+                                </div>
+                                <div class="divide-y divide-border/50" id="otaRunsList">
+                                    <div class="p-5 text-center text-text-secondary text-sm">Loading...</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Update history per app -->
+                        <div class="lg:col-span-3 space-y-5" id="otaAppsContainer">
+                            <div class="card p-6 text-center text-text-secondary text-sm">Loading update history...</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ===================== PROMOTIONS ===================== -->
                 <div id="tab-promotions" class="hidden space-y-5 animate-fade-in">
                     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -979,13 +1045,14 @@
             document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
             document.getElementById(`tab-${tab}`).classList.remove('hidden');
             document.querySelectorAll('.nav-link').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-            const titles = { overview:'Overview', drivers:'Drivers', riders:'Riders', trips:'Trips', routes:'Routes', schedules:'Schedules', revenue:'Revenue', support:'Support Tickets', safety:'Safety & SOS', promotions:'Promotions', livemap:'Live Map' };
+            const titles = { overview:'Overview', drivers:'Drivers', riders:'Riders', trips:'Trips', routes:'Routes', schedules:'Schedules', revenue:'Revenue', support:'Support Tickets', safety:'Safety & SOS', ota:'OTA Deploy', promotions:'Promotions', livemap:'Live Map' };
             document.getElementById('pageTitle').textContent = titles[tab] || 'Overview';
             if (tab === 'routes' || tab === 'schedules') populateRouteSelects();
             if (tab === 'trips') renderTrips();
             if (tab === 'revenue') renderRevenue();
             if (tab === 'support') renderTickets();
             if (tab === 'safety') loadSafetyData();
+            if (tab === 'ota') loadOtaData(); else stopOtaPolling();
             if (tab === 'promotions') renderPromotions();
             if (tab === 'drivers') { renderDrivers(); }
             if (tab === 'riders') { renderRiders(); }
@@ -1507,6 +1574,123 @@
             if(!confirm('Mark this trip report as resolved?'))return;
             try{await apiPost(`${API_BASE}/trip-reports/${id}/resolve`);toast('Trip report resolved');await loadSafetyData();}
             catch{toast('Failed to resolve trip report','error');}
+        }
+
+        // ── OTA DEPLOY ─────────────────────────────────────────────
+        // The page is a deploy trigger: Publish dispatches the ota-update.yml
+        // GitHub workflow (which runs `eas update` on the latest pushed code);
+        // Rollback republishes a previous update group. History and channels
+        // come from the EAS API via the backend proxy.
+        let otaPollTimer = null;
+
+        function stopOtaPolling(){ if(otaPollTimer){ clearInterval(otaPollTimer); otaPollTimer = null; } }
+
+        async function loadOtaData(){
+            try{
+                const res = await apiGet(`${API_BASE}/ota/overview`);
+                const d = res.data || {};
+                renderOtaConfig(d.config || {}, d.errors || []);
+                renderOtaRuns(d.runs || [], d.config || {});
+                renderOtaApps(d.apps || [], d.config || {});
+                // Poll while a deploy is running so status flips live.
+                const active = (d.runs || []).some(r => r.status === 'queued' || r.status === 'in_progress');
+                stopOtaPolling();
+                if (active && state.activeTab === 'ota') otaPollTimer = setInterval(loadOtaData, 10000);
+            }catch{ toast('Failed to load OTA overview','error'); }
+        }
+
+        function renderOtaConfig(config, errors){
+            const warn = document.getElementById('otaConfigWarning');
+            const missing = [];
+            if (!config.easRead) missing.push('<span class="text-white font-mono">EXPO_TOKEN</span> (update history + rollback list)');
+            if (!config.publish) missing.push('<span class="text-white font-mono">GITHUB_TOKEN</span> + <span class="text-white font-mono">GITHUB_REPO</span> (publish + deploy status)');
+            const parts = [];
+            if (missing.length) parts.push('Not fully configured — set in the backend .env: ' + missing.join(' · '));
+            if (errors.length) parts.push('Errors: ' + errors.map(escapeHtml).join(' · '));
+            if (parts.length){ document.getElementById('otaConfigWarningText').innerHTML = parts.join('<br/>'); warn.classList.remove('hidden'); }
+            else warn.classList.add('hidden');
+            document.getElementById('otaPublishBtn').disabled = !config.publish;
+        }
+
+        function otaRunBadge(r){
+            if (r.status !== 'completed') return `<span class="badge bg-info-subtle text-info border border-info/20">${r.status === 'queued' ? 'QUEUED' : 'RUNNING'}</span>`;
+            if (r.conclusion === 'success') return '<span class="badge bg-success-subtle text-success border border-success/20">SUCCESS</span>';
+            if (r.conclusion === 'cancelled') return '<span class="badge bg-surface-3 text-text-secondary border border-border">CANCELLED</span>';
+            return '<span class="badge bg-error-subtle text-error border border-error/20">FAILED</span>';
+        }
+
+        function renderOtaRuns(runs, config){
+            const el = document.getElementById('otaRunsList');
+            if (!config.publish){ el.innerHTML = '<div class="p-5 text-center text-text-secondary text-xs">Configure GITHUB_TOKEN + GITHUB_REPO to see deploy status.</div>'; return; }
+            if (runs.length === 0){ el.innerHTML = '<div class="p-5 text-center text-text-secondary text-xs">No deploys yet. Publish your first update above.</div>'; return; }
+            el.innerHTML = runs.map(r => `<div class="p-3 flex items-center justify-between gap-2">
+                <div class="min-w-0">
+                    <p class="text-xs font-medium truncate">${escapeHtml(r.title || 'OTA Update')}</p>
+                    <p class="text-[10px] text-text-tertiary mt-0.5">${formatDateTime(r.createdAt)}</p>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">${otaRunBadge(r)}<a href="${escapeHtml(r.htmlUrl)}" target="_blank" rel="noopener" class="btn btn-ghost p-1" title="View logs"><span class="material-symbols-outlined" style="font-size:14px">open_in_new</span></a></div>
+            </div>`).join('');
+        }
+
+        function renderOtaApps(apps, config){
+            const el = document.getElementById('otaAppsContainer');
+            if (!config.easRead){ el.innerHTML = '<div class="card p-6 text-center text-text-secondary text-sm">Set EXPO_TOKEN in the backend .env to see published updates and enable rollback.</div>'; return; }
+            if (apps.length === 0){ el.innerHTML = '<div class="card p-6 text-center text-text-secondary text-sm">No update data.</div>'; return; }
+            el.innerHTML = apps.map(a => {
+                const channels = (a.channels || []).map(c => `<span class="badge bg-surface-3 text-text-secondary border border-border">${escapeHtml(c.name)}</span>`).join(' ');
+                let body;
+                if (a.error){ body = `<div class="p-5 text-center text-error text-xs">${escapeHtml(a.error)}</div>`; }
+                else if (!a.updates || a.updates.length === 0){ body = '<div class="p-5 text-center text-text-secondary text-xs">Nothing published yet for this app.</div>'; }
+                else {
+                    body = `<div class="overflow-x-auto"><table>
+                        <thead><tr><th>Message</th><th>Branch</th><th>Runtime</th><th>Platforms</th><th>Published</th><th class="text-right"></th></tr></thead>
+                        <tbody>${a.updates.map((u, i) => `<tr>
+                            <td class="text-sm font-medium max-w-[220px] truncate" title="${escapeHtml(u.message || '')}">${escapeHtml(u.message || '--')}${u.gitCommitHash ? `<span class="text-[10px] text-text-tertiary font-mono ml-1.5">${escapeHtml(u.gitCommitHash.slice(0, 7))}</span>` : ''}</td>
+                            <td class="text-xs text-text-secondary">${escapeHtml(u.branch || '--')}</td>
+                            <td class="text-xs font-mono text-text-secondary">${escapeHtml(u.runtimeVersion || '--')}</td>
+                            <td class="text-xs text-text-secondary">${(u.platforms || []).join(', ')}</td>
+                            <td class="text-xs text-text-secondary whitespace-nowrap">${formatDateTime(u.createdAt)}</td>
+                            <td class="text-right">${i === 0
+                                ? '<span class="badge bg-primary-subtle text-primary border border-primary/20">CURRENT</span>'
+                                : `<button class="btn btn-secondary text-xs py-1 px-2.5" onclick="rollbackOta('${a.app}','${escapeHtml(u.group)}','${escapeHtml((u.message || '').replace(/'/g, ''))}')">Rollback</button>`}</td>
+                        </tr>`).join('')}</tbody>
+                    </table></div>`;
+                }
+                return `<div class="card">
+                    <div class="p-4 border-b border-border flex items-center justify-between flex-wrap gap-2">
+                        <h3 class="text-sm font-display font-bold">${escapeHtml(a.name)}</h3>
+                        <div class="flex items-center gap-1.5">${channels || '<span class="text-[10px] text-text-tertiary">no channels yet</span>'}</div>
+                    </div>
+                    ${body}
+                </div>`;
+            }).join('');
+        }
+
+        async function publishOtaUpdate(){
+            const app = document.getElementById('otaApp').value;
+            const channel = document.getElementById('otaChannel').value;
+            const message = document.getElementById('otaMessage').value.trim();
+            if (!message){ toast('Describe what this update changes','error'); return; }
+            const target = app === 'both' ? 'BOTH apps' : `the ${app} app`;
+            if (!confirm(`Publish the latest pushed code to ${target} on the ${channel.toUpperCase()} channel?\n\nEvery phone on that channel will receive it on next launch.`)) return;
+            const btn = document.getElementById('otaPublishBtn');
+            btn.disabled = true;
+            try{
+                await apiPost(`${API_BASE}/ota/publish`, { action:'publish', app, channel, message });
+                toast('Publish started — phones update once the deploy finishes (~3–5 min)','success');
+                document.getElementById('otaMessage').value = '';
+                setTimeout(loadOtaData, 2000);
+            }catch{ toast('Failed to start publish — check OTA config','error'); }
+            finally{ btn.disabled = false; }
+        }
+
+        async function rollbackOta(app, group, label){
+            if (!confirm(`Roll the ${app} app back to "${label || group}"?\n\nThis republishes that exact update to every phone on its channel.`)) return;
+            try{
+                await apiPost(`${API_BASE}/ota/publish`, { action:'republish', app, group });
+                toast('Rollback started — phones revert once the deploy finishes','info');
+                setTimeout(loadOtaData, 2000);
+            }catch{ toast('Failed to start rollback','error'); }
         }
 
         // ── REVENUE ────────────────────────────────────────────────

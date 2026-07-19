@@ -60,6 +60,20 @@ const envSchema = z.object({
 
   ADMIN_SECRET_KEY: z.string().min(16),
 
+  // ── OTA deploy console (all optional — the admin OTA page degrades to
+  // read-only/unconfigured messaging when unset) ──
+  // Personal access token from expo.dev → Account settings → Access tokens.
+  // Used to READ published updates/channels from the EAS GraphQL API.
+  EXPO_TOKEN: z.string().optional(),
+  // GitHub token with actions:write on the repo (fine-grained) or repo scope
+  // (classic). Used to trigger the ota-update.yml workflow_dispatch.
+  GITHUB_TOKEN: z.string().optional(),
+  // "owner/repo", e.g. SpencerGeee/EyeGo-V2
+  GITHUB_REPO: z.string().optional(),
+  // Branch the OTA workflow checks out and publishes from.
+  GITHUB_REF: z.string().default('main'),
+  OTA_WORKFLOW_FILE: z.string().default('ota-update.yml'),
+
   // ── Error tracking (optional — no-op when unset) ──
   SENTRY_DSN: z.string().url().optional(),
   SENTRY_ENV: z.string().optional(),

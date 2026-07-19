@@ -1,0 +1,97 @@
+name: OTA Update
+
+# Publishes an over-the-air JS/asset update via EAS Update, or republishes
+# (rolls back to) a previous update group. Triggered manually from the
+# Actions tab OR by the admin console's OTA Deploy page, which calls the
+# GitHub workflow-dispatch API through the backend (/v1/admin/ota/publish).
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: publish latest code, or republish (rollback) an old update group
+        type: choice
+        options: [publish, republish]
+        default: publish
+      app:
+        description: Which app to update
+        type: choice
+        options: [rider, driver, both]
+        default: both
+      channel:
+        description: Update channel (matches the build profile the phones were built with)
+        type: choice
+        options: [production, preview]
+        default: production
+      message:
+        description: What changed (shown in EAS dashboards and the admin console)
+        type: string
+        default: OTA update
+      group:
+        description: Update group ID to republish (required when action=republish; ignored for publish)
+        type: string
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.app }}
+  cancel-in-progress: false
+
+jobs:
+  rider:
+    name: Rider — ${{ inputs.action }} (${{ inputs.channel }})
+    runs-on: ubuntu-latest
+    if: ${{ inputs.app == 'rider' || inputs.app == 'both' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish OTA update
+        if: ${{ inputs.action == 'publish' }}
+        working-directory: apps/rider
+        run: eas update --channel "${{ inputs.channel }}" --message "${{ inputs.message }}" --non-interactive
+
+      - name: Republish (rollback) update group
+        if: ${{ inputs.action == 'republish' }}
+        working-directory: apps/rider
+        run: eas update:republish --group "${{ inputs.group }}" --non-interactive
+
+  driver:
+    name: Driver — ${{ inputs.action }} (${{ inputs.channel }})
+    runs-on: ubuntu-latest
+    if: ${{ inputs.app == 'driver' || inputs.app == 'both' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish OTA update
+        if: ${{ inputs.action == 'publish' }}
+        working-directory: apps/driver
+        run: eas update --channel "${{ inputs.channel }}" --message "${{ inputs.message }}" --non-interactive
+
+      - name: Republish (rollback) update group
+        if: ${{ inputs.action == 'republish' }}
+        working-directory: apps/driver
+        run: eas update:republish --group "${{ inputs.group }}" --non-interactive

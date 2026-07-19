@@ -87,4 +87,9 @@ router.post('/promotions/:id/toggle', controller.togglePromotion);
 // Register admin device for SOS push alerts
 router.post('/fcm-token', controller.registerAdminFcmToken);
 
+// ── OTA Deploy console ──────────────────────────────────────────
+router.get('/ota/overview', controller.getOtaOverview);
+router.get('/ota/runs', controller.getOtaRuns);
+router.post('/ota/publish', adminActionLimiter, controller.publishOta);
+
 module.exports = router;
