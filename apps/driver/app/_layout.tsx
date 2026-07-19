@@ -32,6 +32,7 @@ import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
 import { offlineQueue } from '../utils/offlineQueue';
+import { useOtaUpdates } from '../hooks/useOtaUpdates';
 
 // Initialize crash/error tracking as early as possible (no-op without DSN)
 initSentry();
@@ -143,6 +144,8 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
+  // OTA updates: check on launch/foreground, download in background, offer restart
+  useOtaUpdates();
   const { loadFromStorage, isLoggedIn, isLoading, theme } = useDriverStore();
   const colors = theme === 'light' ? driverLightColors : driverColors;
   const segments = useSegments();

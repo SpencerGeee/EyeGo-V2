@@ -36,6 +36,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
 import { offlineQueue } from '../utils/offlineQueue';
+import { useOtaUpdates } from '../hooks/useOtaUpdates';
 
 // Initialize crash/error tracking as early as possible (no-op without DSN)
 initSentry();
@@ -171,6 +172,8 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
+  // OTA updates: check on launch/foreground, download in background, offer restart
+  useOtaUpdates();
   // isExpoGo is derived above — used for conditional logic throughout
   const { loadFromStorage, accessToken, refreshToken, logout, login, isLoggedIn, isLoading } = useAuthStore();
   const segments = useSegments();
