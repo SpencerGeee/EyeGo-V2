@@ -42,14 +42,30 @@ async function recordDemand(lat, lng, passengerId) {
 /**
  * Calculate surge multiplier for a given location.
  */
+/**
+ * Admin-set manual override (POST /v1/admin/surge/:zoneId). Acts as a FLOOR:
+ * the returned multiplier is max(auto, manual), so an admin can force surge
+ * up during an event but auto-surge can still exceed it. zoneId 'global'
+ * applies everywhere; a '{lat}:{lng}' zoneId (2-dp grid) targets one cell.
+ */
+async function getManualOverride(gridKey) {
+  const [zone, global] = await Promise.all([
+    redis.get(`surge:manual:${gridKey.replace('surge:', '')}`).catch(() => null),
+    redis.get('surge:manual:global').catch(() => null),
+  ]);
+  const values = [zone, global].map((v) => parseFloat(v)).filter((v) => Number.isFinite(v));
+  return values.length ? Math.max(...values) : 1.0;
+}
+
 async function getSurgeMultiplier(lat, lng) {
   const gridKey = getGridKey(lat, lng);
   const cacheKey = `${gridKey}:multiplier`;
-  
+  const manual = await getManualOverride(gridKey);
+
   // Check cache
   const cached = await redis.get(cacheKey);
   if (cached) {
-    return parseFloat(cached);
+    return Math.max(parseFloat(cached), manual);
   }
 
   const supplyKey = `${gridKey}:supply`;
@@ -85,11 +101,12 @@ async function getSurgeMultiplier(lat, lng) {
   // Round to 2 decimal places
   multiplier = Math.round(multiplier * 100) / 100;
 
-  // Cache the new multiplier and EMA
+  // Cache the new multiplier and EMA (auto value only — the manual floor is
+  // applied at read time so clearing the override takes effect immediately)
   await redis.set(cacheKey, multiplier.toString(), 'EX', CACHE_TTL);
   await redis.set(`${gridKey}:ema`, multiplier.toString(), 'EX', WINDOW_MS / 1000);
 
-  return multiplier;
+  return Math.max(multiplier, manual);
 }
 
 module.exports = {

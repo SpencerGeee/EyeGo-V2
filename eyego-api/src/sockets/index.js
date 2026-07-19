@@ -31,11 +31,18 @@ function initSocketServer(httpServer) {
   registerDriverSocket(io, driverNs);
 
   // ── /admin namespace (Live Map real-time updates) ──────────────
+  // Same secret as the REST adminAuth middleware — validated through zod
+  // (no hardcoded fallback: the old 'admin-eyego-2024' default meant a
+  // misconfigured deploy silently accepted a publicly-guessable secret)
+  // and compared constant-time.
+  const crypto = require('crypto');
+  const env = require('../config/env');
   const adminNs = io.of('/admin');
   adminNs.use((socket, next) => {
     const secret = socket.handshake.auth?.secret || socket.handshake.query?.secret;
-    const adminSecret = process.env.ADMIN_SECRET_KEY || 'admin-eyego-2024';
-    if (secret === adminSecret) {
+    const ha = crypto.createHash('sha256').update(String(secret ?? '')).digest();
+    const hb = crypto.createHash('sha256').update(String(env.ADMIN_SECRET_KEY)).digest();
+    if (secret && crypto.timingSafeEqual(ha, hb)) {
       next();
     } else {
       next(new Error('Unauthorized'));

@@ -781,6 +781,19 @@
                                     <div class="text-xs text-text-secondary text-center py-4">Loading drivers...</div>
                                 </div>
                             </div>
+                            <!-- Surge control -->
+                            <div class="card p-3">
+                                <h3 class="text-xs font-display font-bold mb-2 flex items-center gap-2">
+                                    <span class="material-symbols-outlined text-warning" style="font-size:14px">bolt</span>
+                                    <span>Surge Override</span>
+                                </h3>
+                                <p class="text-[10px] text-text-secondary mb-2">Platform-wide fare multiplier floor. Auto-expires after 1 hour.</p>
+                                <div class="flex gap-2">
+                                    <input type="number" id="surgeInput" min="1" max="3" step="0.1" value="1.5" class="text-xs py-1.5" />
+                                    <button onclick="setGlobalSurge()" class="btn btn-primary text-xs py-1.5 px-3">Set</button>
+                                    <button onclick="clearGlobalSurge()" class="btn btn-secondary text-xs py-1.5 px-3">Clear</button>
+                                </div>
+                            </div>
                             <!-- Trip to assign -->
                             <div class="card p-3">
                                 <h3 class="text-xs font-display font-bold mb-2">Assign Trip</h3>
@@ -1032,8 +1045,8 @@
         async function refreshData() {
             try {
                 const [driversRes, usersRes, tripsRes, routesRes, schedulesRes, bookingsRes, ticketsRes, promosRes, sosRes] = await Promise.allSettled([
-                    apiGet(`${API_BASE}/drivers`),
-                    apiGet(`${API_BASE}/users`),
+                    apiGet(`${API_BASE}/drivers?limit=500`),
+                    apiGet(`${API_BASE}/users?limit=500`),
                     apiGet(`${API_BASE}/trips?limit=100`),
                     apiGet(`${API_BASE}/routes`),
                     apiGet(`${API_BASE}/pulse-schedules`).catch(()=>({data:{schedules:[]}})),
@@ -1468,14 +1481,16 @@
             else{
                 repEl.innerHTML=state.tripReports.map(r=>{
                     const tripInfo=r.trip?`${escapeHtml(r.trip.route?.originName||'')} → ${escapeHtml(r.trip.route?.destinationName||'')} (${escapeHtml(r.trip.shortId||shortId(r.tripId))})`:shortId(r.tripId);
+                    const resolveBtn=(r.status==='RESOLVED')?'':`<button class="btn btn-success text-xs py-1 px-2.5" onclick="resolveTripReport('${r.id}')">Mark Resolved</button>`;
                     return `<div class="p-4">
                         <div class="flex items-center justify-between gap-3 flex-wrap">
                             <div class="min-w-0">
                                 <div class="flex items-center gap-2"><span class="text-sm font-semibold">${escapeHtml((r.type||'REPORT').replace(/_/g,' '))}</span>${getStatusBadge(r.status)}</div>
                                 <p class="text-xs text-text-secondary mt-1">Driver: ${escapeHtml(r.driver?.name||'--')} (${escapeHtml(r.driver?.phone||'--')}) · ${tripInfo}</p>
                                 ${r.details?`<p class="text-xs text-text-secondary mt-1">${escapeHtml(r.details)}</p>`:''}
-                                <p class="text-[10px] text-text-tertiary mt-0.5">${formatDateTime(r.createdAt)}</p>
+                                <p class="text-[10px] text-text-tertiary mt-0.5">${formatDateTime(r.createdAt)}${r.resolvedAt?` · resolved ${formatDateTime(r.resolvedAt)}`:''}</p>
                             </div>
+                            <div class="flex items-center gap-2 flex-shrink-0">${resolveBtn}</div>
                         </div>
                     </div>`;
                 }).join('');
@@ -1486,6 +1501,12 @@
             if(!confirm('Mark this SOS event as resolved? Only do this after following up with the reporter.'))return;
             try{await apiPost(`${API_BASE}/sos-events/${id}/resolve`);toast('SOS event resolved');await loadSafetyData();}
             catch{toast('Failed to resolve SOS event','error');}
+        }
+
+        async function resolveTripReport(id){
+            if(!confirm('Mark this trip report as resolved?'))return;
+            try{await apiPost(`${API_BASE}/trip-reports/${id}/resolve`);toast('Trip report resolved');await loadSafetyData();}
+            catch{toast('Failed to resolve trip report','error');}
         }
 
         // ── REVENUE ────────────────────────────────────────────────
@@ -1595,6 +1616,10 @@
         let selectedDriverId = null;
         let selectedDriverName = null;
 
+        // Referenced by modal close handlers — was previously called without ever
+        // being defined, so closing the dispatch modal threw a ReferenceError.
+        function setBodyScroll(lock) { document.body.style.overflow = lock ? 'hidden' : ''; }
+
         function closeDispatchModal() {
     setBodyScroll(false);
             document.getElementById('dispatchModal').classList.add('hidden');
@@ -1683,7 +1708,7 @@
                 const markerBorder = d.hasActiveTrip ? '#22c55e' : '#3b82f6';
                 const statusClass = d.hasActiveTrip ? 'text-success' : 'text-info';
                 const statusLabel = d.hasActiveTrip ? 'On Trip' : 'Free';
-                const distance = d.distance ? d.distance.toFixed(1) + 'km' : '--';
+                const distance = d.activeTrip ? ((d.activeTrip.confirmedSeats || 0) + '/' + (d.activeTrip.maxSeats || 0) + ' seats') : 'GHS ' + (d.walletBalance || 0).toFixed(2);
                 const dName = escapeHtml(d.name || 'Unknown');
                 const dLat = d.latitude;
                 const dLng = d.longitude;
@@ -1747,7 +1772,7 @@
             const bookings = trip ? (trip.bookings || []) : [];
             let totalFare = 0;
             for (let i = 0; i < bookings.length; i++) { totalFare += (bookings[i].fareAmount || 0); }
-            const estEarnings = totalFare > 0 ? totalFare * 0.7 : ((trip ? (trip.farePerSeat || 15) : 15) * 0.7);
+            const estEarnings = totalFare > 0 ? totalFare * 0.85 : ((trip ? (trip.farePerSeat || 15) : 15) * 0.85); // driver keeps 1 - 15% platform commission (matches backend PLATFORM_COMMISSION)
             document.getElementById('dispatchEarningsInfo').classList.remove('hidden');
             document.getElementById('dispatchEarningsAmount').textContent = 'GHS ' + estEarnings.toFixed(2);
             document.getElementById('dispatchDriverSelect').innerHTML = '<option value="' + selectedDriverId + '">' + escapeHtml(selectedDriverName) + '</option>';
@@ -1779,10 +1804,34 @@
 
         function refreshLiveMap() { loadLiveDriverPositions(); }
 
+        // ── Surge override (backend POST /surge/:zoneId existed but had no UI
+        // and wrote a key nothing read — both sides fixed together) ──────────
+        async function setGlobalSurge() {
+            const val = parseFloat(document.getElementById('surgeInput').value);
+            if (!Number.isFinite(val) || val < 1 || val > 3) { toast('Multiplier must be between 1.0 and 3.0', 'error'); return; }
+            if (!confirm(`Set a platform-wide ${val}x surge floor for the next hour?`)) return;
+            try { await apiPost(`${API_BASE}/surge/global`, { multiplier: val }); toast(`Surge floor set to ${val}x (1h)`, 'success'); }
+            catch { toast('Failed to set surge', 'error'); }
+        }
+        async function clearGlobalSurge() {
+            try { await apiPost(`${API_BASE}/surge/global`, { multiplier: 1 }); toast('Surge override cleared', 'info'); }
+            catch { toast('Failed to clear surge', 'error'); }
+        }
+
         async function loadLiveDriverPositions() {
             try {
                 const res = await apiGet(API_BASE + '/live/drivers');
                 const drivers = res.data ? (res.data.drivers || []) : [];
+                // Backend returns { lat, lng, vehicle: {make,model,plateNumber}, activeTrip } —
+                // derive the flat fields this renderer was written against (it previously read
+                // driver.latitude/vehicleInfo/hasActiveTrip, which don't exist, so the map
+                // never showed a single marker).
+                for (let i = 0; i < drivers.length; i++) {
+                    const d = drivers[i];
+                    d.latitude = d.lat; d.longitude = d.lng;
+                    d.hasActiveTrip = !!d.activeTrip;
+                    d.vehicleInfo = d.vehicle ? (d.vehicle.make + ' ' + d.vehicle.model + ' (' + d.vehicle.plateNumber + ')') : '--';
+                }
                 document.getElementById('liveDriverCount').textContent = drivers.length + ' online';
                 const newIds = {};
                 for (let i = 0; i < drivers.length; i++) { newIds[drivers[i].id] = true; }

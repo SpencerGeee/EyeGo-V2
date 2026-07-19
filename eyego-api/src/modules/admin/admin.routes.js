@@ -5,18 +5,25 @@ const rateLimit = require('express-rate-limit');
 const controller = require('./admin.controller');
 const authenticateAdmin = require('../../middleware/adminAuth');
 
+// One dashboard refresh fires ~10 parallel reads and the live map polls
+// /live/drivers every 15s (60 req / 15 min on its own) — the previous cap of
+// 20/15min guaranteed 429s within a minute of normal use. This limiter only
+// needs to stop brute-forcing of x-admin-secret, not throttle a logged-in
+// admin, so keep it generous.
 const adminLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 600,
   message: 'Too many admin requests',
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-// Stricter limiter for auth-like admin endpoints (approve/suspend/reject/ban)
+// Stricter limiter for destructive admin actions (approve/suspend/reject/ban/
+// review). Sized so a real review session (e.g. a fleet of drivers x 3 docs
+// each) doesn't lock the admin out mid-task.
 const adminActionLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 50,
+  max: 300,
   message: 'Too many admin actions. Slow down.',
 });
 
@@ -67,6 +74,7 @@ router.post('/support-tickets/:id/close', controller.closeTicket);
 
 // Driver trip reports (previously persisted but never surfaced to admin)
 router.get('/trip-reports', controller.getTripReports);
+router.post('/trip-reports/:id/resolve', adminActionLimiter, controller.resolveTripReport);
 
 // SOS / safety events (previously written by both apps but never queryable)
 router.get('/sos-events', controller.getSosEvents);

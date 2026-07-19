@@ -204,8 +204,12 @@ async function getPendingDrivers() {
   });
 }
 
+// Default limit stays 20 for API callers, but the cap is 500: the admin SPA
+// renders the whole fleet in one table with client-side search (no pagination
+// UI), so the old 100-cap — and especially the unpassed default of 20 —
+// silently hid every driver beyond the first page.
 async function getAllDrivers({ page = 1, limit = 20 } = {}) {
-  const take = Math.min(Math.max(1, parseInt(limit) || 20), 100);
+  const take = Math.min(Math.max(1, parseInt(limit) || 20), 500);
   const skip = (Math.max(1, parseInt(page) || 1) - 1) * take;
   const [data, total] = await Promise.all([
     prisma.driver.findMany({
@@ -238,7 +242,7 @@ async function getAllDrivers({ page = 1, limit = 20 } = {}) {
 }
 
 async function getAllUsers({ page = 1, limit = 20 } = {}) {
-  const take = Math.min(Math.max(1, parseInt(limit) || 20), 100);
+  const take = Math.min(Math.max(1, parseInt(limit) || 20), 500);
   const skip = (Math.max(1, parseInt(page) || 1) - 1) * take;
   const [data, total] = await Promise.all([
     prisma.user.findMany({
@@ -458,15 +462,31 @@ async function getPromotions() {
 }
 
 async function createPromotion(data) {
-  return prisma.promotion.create({
-    data: {
-      code: data.code.toUpperCase(),
-      discountPercent: parseInt(data.discountPercent),
-      maxDiscount: parseFloat(data.maxDiscount),
-      expiry: new Date(data.expiry),
-      active: data.active !== false,
-    },
-  });
+  const discountPercent = parseInt(data.discountPercent);
+  const maxDiscount = parseFloat(data.maxDiscount);
+  const expiry = new Date(data.expiry);
+  const { AppError } = require('../../utils/errors');
+  if (!data.code || !data.code.trim()) throw new AppError('Promo code is required', 400);
+  if (!Number.isFinite(discountPercent) || discountPercent < 1 || discountPercent > 100) {
+    throw new AppError('discountPercent must be between 1 and 100', 400);
+  }
+  if (!Number.isFinite(maxDiscount) || maxDiscount <= 0) throw new AppError('maxDiscount must be positive', 400);
+  if (Number.isNaN(expiry.getTime())) throw new AppError('Invalid expiry date', 400);
+  try {
+    return await prisma.promotion.create({
+      data: {
+        code: data.code.trim().toUpperCase(),
+        discountPercent,
+        maxDiscount,
+        expiry,
+        active: data.active !== false,
+      },
+    });
+  } catch (err) {
+    // Promotion.code is @unique — surface a clean 409 instead of a raw P2002 500
+    if (err.code === 'P2002') throw new AppError('A promotion with this code already exists', 409, 'DUPLICATE_CODE');
+    throw err;
+  }
 }
 
 async function togglePromotion(promotionId) {
@@ -511,6 +531,10 @@ async function banUser(userId, reason) {
     data: { revokedAt: new Date() },
   });
 
+  // The reason has nowhere to live on the User model — persist it in the audit
+  // log at least, instead of silently dropping what the admin typed.
+  logger.info(`[ADMIN] User ${userId} banned. Reason: ${reason || 'none'}`);
+
   return prisma.user.update({
     where: { id: userId },
     data: { isBanned: true },
@@ -541,7 +565,8 @@ async function getMetrics() {
   ]);
 
   const todayRevenue = todayPayments._sum.amount ?? 0;
-  const todayCommission = Math.round(todayRevenue * 0.15 * 100) / 100;
+  const env = require('../../config/env');
+  const todayCommission = Math.round(todayRevenue * env.PLATFORM_COMMISSION * 100) / 100;
 
   return {
     activeTrips,
@@ -568,13 +593,24 @@ async function getActiveTrips() {
 
 async function setSurgeMultiplier(zoneId, multiplier) {
   const redis = require('../../config/redis');
-  const key = `surge:${zoneId}`;
+  // Written as a MANUAL OVERRIDE key that surge.service.getSurgeMultiplier
+  // actually reads (it applies max(auto, manual)). The previous `surge:${zoneId}`
+  // key matched nothing — the fare path reads `surge:{lat}:{lng}:multiplier`
+  // grid keys — so this endpoint was completely inert. Use zoneId 'global'
+  // for a platform-wide floor; a `lat:lng` zoneId (2-dp grid) targets one cell.
+  if (!Number.isFinite(multiplier)) {
+    throw new (require('../../utils/errors').AppError)('multiplier must be a number', 400);
+  }
+  const key = `surge:manual:${zoneId}`;
   if (multiplier <= 1) {
     await redis.del(key);
+    logger.info(`[ADMIN] Surge override cleared for zone ${zoneId}`);
     return { zoneId, multiplier: 1, cleared: true };
   }
-  await redis.set(key, multiplier, 'EX', 3600); // expires after 1 hour
-  return { zoneId, multiplier, expiresInSeconds: 3600 };
+  const capped = Math.min(multiplier, 3.0);
+  await redis.set(key, capped, 'EX', 3600); // expires after 1 hour
+  logger.info(`[ADMIN] Surge override set to ${capped}x for zone ${zoneId} (1h TTL)`);
+  return { zoneId, multiplier: capped, expiresInSeconds: 3600 };
 }
 
 async function getLiveDrivers() {
@@ -687,9 +723,15 @@ async function expireUnansweredDispatchOffers() {
     });
     if (answered) continue; // driver did respond; FILLING is legitimate (e.g. awaiting more seats)
 
+    // The sweep runs every 60s but nothing it does updates trip.updatedAt, so
+    // without this window check the same driver would get re-pushed EVERY
+    // minute for the whole 3–15 min stale range (up to 12 duplicate pushes).
+    // Only nudge during the single sweep interval right after the offer
+    // window lapses; after that, stay silent until the escalation log.
+    const nudgeWindowStart = new Date(cutoff.getTime() - 60 * 1000);
     if (trip.updatedAt < escalateCutoff) {
       logger.warn(`[Dispatch expiry] Trip ${trip.id} assigned to driver ${trip.driverId} has been unanswered for 15+ min — needs admin attention`);
-    } else if (trip.driver?.fcmToken) {
+    } else if (trip.updatedAt >= nudgeWindowStart && trip.driver?.fcmToken) {
       await pushService.sendPush(
         trip.driver.fcmToken,
         'Trip Still Waiting',
@@ -781,6 +823,20 @@ async function getSosEvents({ page = 1, limit = 20, unresolvedOnly } = {}) {
   };
 }
 
+// Trip reports could be listed but never closed — status stayed OPEN and
+// resolvedAt stayed null forever, so the safety console would fill up with
+// permanently-open reports.
+async function resolveTripReport(id) {
+  const report = await prisma.tripReport.findUnique({ where: { id } });
+  if (!report) throw new NotFoundError('Trip report');
+  if (report.status === 'RESOLVED') return report; // idempotent
+  logger.info(`[ADMIN] Trip report ${id} resolved`);
+  return prisma.tripReport.update({
+    where: { id },
+    data: { status: 'RESOLVED', resolvedAt: new Date() },
+  });
+}
+
 async function resolveSosEvent(id) {
   const event = await prisma.sosEvent.findUnique({ where: { id } });
   if (!event) throw new NotFoundError('SOS event');
@@ -797,7 +853,7 @@ module.exports = {
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips,
   getUserDetail, getUserTrips,
-  getSupportTickets, getTripReports, respondToTicket, closeTicket,
+  getSupportTickets, getTripReports, resolveTripReport, respondToTicket, closeTicket,
   getPromotions, createPromotion, togglePromotion,
   getLiveDrivers, assignDriverToTrip, getUnassignedTrips,
   getSosEvents, resolveSosEvent,
