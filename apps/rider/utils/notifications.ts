@@ -37,7 +37,14 @@ export async function registerForPushNotifications(accessToken?: string): Promis
           body: JSON.stringify({ fcmToken: token }),
         });
       } catch {
-        // Non-blocking — token will be registered on next login
+        // Queue for retry — without the token on the server, no pushes arrive.
+        // (flushQueue posts via apiClient, which attaches auth itself.)
+        try {
+          const { offlineQueue } = require('./offlineQueue');
+          offlineQueue.enqueue('FCM_TOKEN', '/user/fcm-token', 'POST', { fcmToken: token }, { replaceSameType: true });
+        } catch {
+          // offlineQueue unavailable — next launch re-registers anyway
+        }
       }
     }
     return token;

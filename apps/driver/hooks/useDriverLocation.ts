@@ -32,7 +32,7 @@ const MAX_LAST_KNOWN_AGE_MS = 5 * 60 * 1000;
 export const DRIVER_LOCATION_TASK = 'EYEGO_DRIVER_LOCATION_TASK';
 
 if (!TaskManager.isTaskDefined(DRIVER_LOCATION_TASK)) {
-  TaskManager.defineTask(DRIVER_LOCATION_TASK, ({ data, error }: any) => {
+  TaskManager.defineTask(DRIVER_LOCATION_TASK, async ({ data, error }: any) => {
     if (error) {
       console.warn('[DriverLocation] Background task error:', error.message);
       return;

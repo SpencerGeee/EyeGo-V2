@@ -23,6 +23,7 @@ import { useNotificationsStore } from '../../../stores/notifications.store';
 import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
+import { offlineQueue } from '../../../utils/offlineQueue';
 import eyegoDarkStyle from '@eyego/map-styles';
 import MapboxGL from '../../../utils/mapbox';
 
@@ -320,15 +321,19 @@ export default function ActiveTripScreen() {
                   text: 'Call 191',
                   style: 'destructive',
                   onPress: async () => {
+                    let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
+                    try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
+                    const payload = {
+                      latitude: pos?.coords.latitude,
+                      longitude: pos?.coords.longitude,
+                      timestamp: new Date().toISOString(),
+                    };
                     try {
-                      const pos = await Location.getLastKnownPositionAsync();
-                      await driverApi.emergencyAlert(id, {
-                        latitude: pos?.coords.latitude,
-                        longitude: pos?.coords.longitude,
-                        timestamp: new Date().toISOString(),
-                      });
+                      await driverApi.emergencyAlert(id, payload);
                     } catch {
-                      // Never block the actual emergency call on this
+                      // Never block the actual emergency call — but the alert
+                      // must still reach dispatch, so queue it for retry.
+                      offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
                     }
                     Linking.openURL('tel:191');
                   },

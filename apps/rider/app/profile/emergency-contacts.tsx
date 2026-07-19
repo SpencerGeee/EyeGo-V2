@@ -14,6 +14,8 @@ import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userApi } from '@eyego/api';
+import { offlineQueue } from '../../utils/offlineQueue';
+import { useToastStore } from '../../stores/toast.store';
 
 const STORAGE_KEY = 'eyego_emergency_contacts';
 const MAX_CONTACTS = 3;
@@ -70,7 +72,18 @@ export default function EmergencyContactsScreen() {
     } catch {
       // Server sync failed — keep local state, cache what we have
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});
-      // Don't throw — offline edits are preserved locally and will re-sync on next load
+      // loadContacts() prefers the server copy, so without a queued retry the
+      // next screen open would silently REVERT this edit — and server-side SOS
+      // SMS would go to the old contacts. PUT is a full replace; keep only the
+      // newest queued list.
+      offlineQueue.enqueue(
+        'CONTACT_SYNC',
+        '/user/me/emergency-contacts',
+        'PUT',
+        { contacts: updated.map(({ name, phone }) => ({ name, phone })) },
+        { replaceSameType: true }
+      );
+      useToastStore.getState().show("Saved on this phone — will sync to your account when you're back online.", 'warning');
     }
   };
 

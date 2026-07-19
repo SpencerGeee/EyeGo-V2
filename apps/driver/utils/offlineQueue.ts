@@ -1,11 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '@eyego/api';
 
-const QUEUE_KEY = '@eyego_offline_sync_queue';
+// Port of the rider app's offline sync queue — same storage format and
+// semantics so behavior stays consistent across both apps.
+const QUEUE_KEY = '@eyego_driver_offline_sync_queue';
 
 export interface QueuedAction {
   id: string;
-  type: 'SOS' | 'RATING' | 'PROMO' | 'CHAT' | 'BOOKING_STATUS' | 'TRIP_COMPLETE' | 'TRIP_REQUEST_CANCEL' | 'FCM_TOKEN' | 'CONTACT_SYNC';
+  type: 'SOS' | 'FCM_TOKEN' | 'TRIP_STATUS' | 'RATING';
   url: string;
   method: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   data: any;
@@ -18,8 +20,8 @@ export const offlineQueue = {
    * Enqueue a critical action for background/offline sync.
    *
    * `replaceSameType: true` drops any queued action of the same type before
-   * adding this one — for last-write-wins syncs (FCM token, full contact list)
-   * where flushing a stale earlier payload after a newer one would clobber it.
+   * adding this one — for last-write-wins syncs (e.g. FCM token) where
+   * flushing a stale earlier payload after a newer one would clobber it.
    */
   async enqueue(type: QueuedAction['type'], url: string, method: QueuedAction['method'], data: any, opts?: { replaceSameType?: boolean }) {
     try {
@@ -38,11 +40,11 @@ export const offlineQueue = {
         createdAt: new Date().toISOString(),
         retries: 0,
       };
-      
+
       queue.push(newAction);
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
       console.log(`[OfflineQueue] Enqueued ${type} action successfully.`);
-      
+
       // Attempt immediate flush in case network recovered
       this.flushQueue();
     } catch (e) {
@@ -50,36 +52,26 @@ export const offlineQueue = {
     }
   },
 
-  /**
-   * Drain and execute queued actions sequentially
-   */
-  /** BUGFIX: Concurrent flush lock — prevents multiple parallel flushQueue() calls
-   * from processing the same items simultaneously. This race condition occurred
-   * because enqueue() calls flushQueue() without awaiting, and rapid enqueues
-   * could start parallel flushes that both read the same queue state.
-   */
+  /** Concurrent flush lock — enqueue() calls flushQueue() without awaiting,
+   * so rapid enqueues could otherwise start parallel flushes over the same
+   * queue state. */
   _flushing: false,
 
   async flushQueue() {
-    if (this._flushing) {
-      console.log('[OfflineQueue] Already flushing, skipping...');
-      return;
-    }
+    if (this._flushing) return;
     this._flushing = true;
     try {
       const stored = await AsyncStorage.getItem(QUEUE_KEY);
       if (!stored) return;
-      
+
       const queue: QueuedAction[] = JSON.parse(stored);
       if (queue.length === 0) return;
-      
-      // Atomic read-and-clear: get the current queue and immediately set it empty
-      // so parallel flushes don't process the same items
+
+      // Atomic read-and-clear so parallel flushes don't process the same items
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify([]));
-      
-      console.log(`[OfflineQueue] Flushing queue with ${queue.length} items...`);
+
       const remaining: QueuedAction[] = [];
-      
+
       for (const action of queue) {
         try {
           if (action.method === 'POST') {
@@ -91,16 +83,15 @@ export const offlineQueue = {
           } else if (action.method === 'DELETE') {
             await apiClient.delete(action.url);
           }
-          console.log(`[OfflineQueue] Successfully synced action ${action.id} (${action.type})`);
+          console.log(`[OfflineQueue] Synced action ${action.id} (${action.type})`);
         } catch (error: any) {
-          // If it is a 4xx client error (e.g. invalid code), do not retry indefinitely
+          // 4xx client errors don't heal with retries — discard
           const status = error?.response?.status;
           if (status && status >= 400 && status < 500) {
             console.warn(`[OfflineQueue] Discarding action ${action.id} due to 4xx response:`, status);
             continue;
           }
-          
-          // Network errors or 5xx server errors get retried
+          // Network errors / 5xx get retried
           action.retries += 1;
           if (action.retries < 5) {
             remaining.push(action);
@@ -109,8 +100,8 @@ export const offlineQueue = {
           }
         }
       }
-      
-      // Append remaining (retries) back to queue — don't overwrite newly enqueued items
+
+      // Append retries back — don't overwrite newly enqueued items
       const currentRemaining = JSON.parse(await AsyncStorage.getItem(QUEUE_KEY) || '[]');
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify([...currentRemaining, ...remaining]));
     } catch (e) {
@@ -120,33 +111,19 @@ export const offlineQueue = {
     }
   },
 
-  /**
-   * Periodically retry flushing the queue when the app is active.
-   * Call this during app initialization with an interval.
-   */
   _intervalRef: null as ReturnType<typeof setInterval> | null,
 
-  /**
-   * Start periodic queue flushing at the given interval (default 60 seconds).
-   * Cleans up any previous interval before starting a new one.
-   */
   startPeriodicFlush(intervalMs: number = 60000) {
     this.stopPeriodicFlush();
     this._intervalRef = setInterval(() => {
       this.flushQueue();
     }, intervalMs);
-    console.log(`[OfflineQueue] Started periodic flush every ${intervalMs / 1000}s`);
   },
 
-  /**
-   * Stop periodic queue flushing. Safe to call multiple times.
-   */
   stopPeriodicFlush() {
     if (this._intervalRef !== null) {
       clearInterval(this._intervalRef);
       this._intervalRef = null;
-      console.log('[OfflineQueue] Stopped periodic flush');
     }
   },
 };
-

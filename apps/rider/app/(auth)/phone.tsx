@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Platform,
   Pressable,
+  Alert,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -37,6 +38,14 @@ export default function PhoneScreen() {
         // Strip '+' prefix to avoid URL encoding issues in dev builds
         params: { phone: `233${phone.replace(/\s/g, '')}`, ...(devOtp ? { devOtp } : {}) },
       });
+    },
+    onError: (err: any) => {
+      // Previously a failed request did nothing at all — the rider tapped
+      // Continue and the screen just sat there.
+      Alert.alert(
+        'Could not send code',
+        err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
+      );
     },
   });
 

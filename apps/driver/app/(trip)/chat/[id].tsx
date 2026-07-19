@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -329,7 +330,14 @@ export default function TripChatScreen() {
         const outbox = raw ? JSON.parse(raw) : [];
         outbox.push({ text: trimmed, timestamp: optimistic.timestamp });
         await AsyncStorage.setItem(outboxKey, JSON.stringify(outbox));
-      } catch (_) {}
+      } catch (_) {
+        // Outbox write failed — the message will NOT auto-send when back
+        // online. Remove the optimistic bubble so the driver doesn't believe
+        // it's queued, and say so.
+        setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        setText(trimmed);
+        Alert.alert('Message Not Saved', "You're offline and the message couldn't be queued. It has been restored to the input box — try again.");
+      }
       return;
     }
 

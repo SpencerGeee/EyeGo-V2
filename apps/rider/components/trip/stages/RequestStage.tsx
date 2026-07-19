@@ -9,6 +9,7 @@ import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { tripsApi, queryKeys } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
+import { offlineQueue } from '../../../utils/offlineQueue';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { useRideStore } from '../../../stores/ride.store';
 
@@ -94,7 +95,15 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           if (pollTimerRef.current) clearInterval(pollTimerRef.current);
           setStatus((prev) => {
             if (prev !== 'searching') return prev;
-            if (requestIdRef.current) tripsApi.cancelTripRequest(requestIdRef.current).catch(() => {});
+            if (requestIdRef.current) {
+              const reqId = requestIdRef.current;
+              tripsApi.cancelTripRequest(reqId).catch(() => {
+                // The cancel must eventually land server-side — otherwise a
+                // driver can still accept this "ended" search and create a
+                // booking the rider no longer expects. Queue it for retry.
+                offlineQueue.enqueue('TRIP_REQUEST_CANCEL', `/trips/request/${reqId}`, 'DELETE', null);
+              });
+            }
             return 'timeout';
           });
         }, SEARCH_TIMEOUT_MS);

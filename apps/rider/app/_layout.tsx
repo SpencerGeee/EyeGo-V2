@@ -121,7 +121,12 @@ async function registerForPushNotifications() {
     // dev/EAS build with google-services.json — see NOTIFICATIONS_SETUP.md.)
     const tokenData = await Notifications.getDevicePushTokenAsync();
     if (tokenData?.data) {
-      await userApi.updateFcmToken?.({ fcmToken: tokenData.data }).catch(() => {});
+      await userApi.updateFcmToken?.({ fcmToken: tokenData.data }).catch(() => {
+        // Without the token on the server the rider receives NO pushes at all.
+        // Queue it for retry; last-write-wins so a stale queued token never
+        // overwrites a newer one.
+        offlineQueue.enqueue('FCM_TOKEN', '/user/fcm-token', 'POST', { fcmToken: tokenData.data }, { replaceSameType: true });
+      });
     }
   } catch (err) {
     // Non-fatal — push token registration can fail in Expo Go or simulators

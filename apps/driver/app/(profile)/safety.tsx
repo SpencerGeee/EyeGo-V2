@@ -12,6 +12,7 @@ import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
+import { offlineQueue } from '../../utils/offlineQueue';
 
 const SAFETY_TIPS = [
   { icon: 'lock-closed-outline' as const,     tip: 'Keep your doors locked until a passenger shows their verified QR code.' },
@@ -136,15 +137,19 @@ export default function SafetyScreen() {
                   style: 'destructive',
                   onPress: async () => {
                     if (activeTripId) {
+                      let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
+                      try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
+                      const payload = {
+                        latitude: pos?.coords.latitude,
+                        longitude: pos?.coords.longitude,
+                        timestamp: new Date().toISOString(),
+                      };
                       try {
-                        const pos = await Location.getLastKnownPositionAsync();
-                        await driverApi.emergencyAlert(activeTripId, {
-                          latitude: pos?.coords.latitude,
-                          longitude: pos?.coords.longitude,
-                          timestamp: new Date().toISOString(),
-                        });
+                        await driverApi.emergencyAlert(activeTripId, payload);
                       } catch {
-                        // Never block the actual emergency call on this
+                        // Never block the actual emergency call — but the alert
+                        // must still reach dispatch, so queue it for retry.
+                        offlineQueue.enqueue('SOS', `/driver/trips/${activeTripId}/emergency`, 'POST', payload);
                       }
                     }
                     Linking.openURL('tel:191');

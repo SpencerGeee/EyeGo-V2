@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -35,6 +36,14 @@ export default function DriverPhoneScreen() {
         // Strip '+' prefix to avoid URL encoding issues in dev builds
         params: { phone: `233${phone.replace(/\s/g, '')}`, devOtp: devOtp ?? '' },
       });
+    },
+    // Without this a failed request left the driver stuck on the phone screen
+    // with zero feedback — the tap just did nothing.
+    onError: (err: any) => {
+      Alert.alert(
+        'Could not send code',
+        err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
+      );
     },
   });
 

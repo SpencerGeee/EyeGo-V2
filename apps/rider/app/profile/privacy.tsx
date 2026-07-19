@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type PrivacySettings } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
+import { useToastStore } from '../../stores/toast.store';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
@@ -115,6 +116,9 @@ export default function PrivacyScreen() {
   const saveMutation = useMutation({
     mutationFn: (patch: PrivacySettings) => userApi.updatePrivacySettings(patch),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.user.privacySettings }),
+    onError: () => {
+      useToastStore.getState().show("Couldn't sync to your account — will retry on your next change.", 'warning');
+    },
   });
 
   const setToggle = async (key: string, field: keyof PrivacySettings, value: boolean) => {
@@ -123,9 +127,17 @@ export default function PrivacyScreen() {
   };
 
   const deleteAccountMutation = useMutation({
-    mutationFn: () => (userApi as any).deleteAccount(),
+    mutationFn: () => userApi.deleteAccount(),
     onSuccess: () => {
       logout();
+    },
+    // Deleting an account is the one flow that must never fail silently —
+    // previously a failed request left the rider believing they were deleted.
+    onError: (err: any) => {
+      Alert.alert(
+        'Deletion Failed',
+        err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
+      );
     },
   });
 

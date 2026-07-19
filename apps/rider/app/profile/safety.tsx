@@ -10,17 +10,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, queryKeys, type SafetySettings } from '@eyego/api';
 import { spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
+import { useToastStore } from '../../stores/toast.store';
 import { Text } from '@eyego/ui';
 
 const CACHE_KEY = 'eyego_safety_settings';
 
+// The boolean feature toggles — excludes insuranceCardUrl, which lives in the
+// same settings blob but is a string managed by the upload flow below.
+type SafetyToggleKey = Exclude<keyof SafetySettings, 'insuranceCardUrl'>;
+
 const SAFETY_FEATURES: {
-  id: keyof SafetySettings;
+  id: SafetyToggleKey;
   icon: string;
   title: string;
   description: string;
@@ -56,12 +62,6 @@ const SAFETY_FEATURES: {
   },
 ];
 
-// Both features are now live: Speed Alerts reads the driver's real-time GPS
-// speed from the socket location stream (tracking.tsx); Night Safety Check
-// runs a periodic check-in prompt during night trips that escalates through
-// the existing emergencyAlert/SOS flow if unanswered.
-const UNIMPLEMENTED_FEATURE_IDS: Array<keyof SafetySettings> = [];
-
 const DEFAULTS = Object.fromEntries(
   SAFETY_FEATURES.map((f) => [f.id, f.defaultEnabled])
 ) as SafetySettings;
@@ -94,13 +94,14 @@ export default function SafetyScreen() {
   const saveMutation = useMutation({
     mutationFn: (next: SafetySettings) => userApi.updateSafetySettings(next),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.user.safetySettings }),
+    // Local cache already holds the change; the next toggle re-sends the full
+    // settings object, so a failed sync self-heals — but tell the rider.
+    onError: () => {
+      useToastStore.getState().show("Couldn't sync to your account — will retry on your next change.", 'warning');
+    },
   });
 
-  const toggleFeature = (id: keyof SafetySettings) => {
-    if (UNIMPLEMENTED_FEATURE_IDS.includes(id)) {
-      Alert.alert('Coming Soon', 'This safety feature is not available yet — we\'ll notify you when it launches.');
-      return;
-    }
+  const toggleFeature = (id: SafetyToggleKey) => {
     setSettings((prev) => {
       const next = { ...prev, [id]: !prev[id] };
       AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)).catch(() => {});
@@ -109,15 +110,43 @@ export default function SafetyScreen() {
     });
   };
 
-  const isEnabled = (id: keyof SafetySettings) => settings[id] ?? false;
+  const isEnabled = (id: SafetyToggleKey) => (settings[id] as boolean | undefined) ?? false;
+
+  const uploadInsuranceMutation = useMutation({
+    mutationFn: (uri: string) => userApi.uploadInsurance(uri),
+    onSuccess: (insuranceCardUrl) => {
+      setSettings((prev) => {
+        const next = { ...prev, insuranceCardUrl };
+        AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next)).catch(() => {});
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.safetySettings });
+      Alert.alert('Insurance Saved', 'Your insurance card is on file and will only be shared with emergency responders during an active emergency.');
+    },
+    onError: (err: any) => {
+      Alert.alert('Upload Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+    },
+  });
+
+  const pickAndUploadInsurance = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: true,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    uploadInsuranceMutation.mutate(result.assets[0].uri);
+  };
+
+  const hasInsurance = !!settings.insuranceCardUrl;
 
   const handleUploadInsurance = () => {
     Alert.alert(
-      'Upload Insurance',
+      hasInsurance ? 'Replace Insurance Card' : 'Upload Insurance',
       'You can upload your travel or health insurance card so it is accessible in case of an emergency during your trip. This information is encrypted and only shared with emergency responders.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Upload', onPress: () => Alert.alert('Coming Soon', 'Insurance upload will be available in the next update.') },
+        { text: hasInsurance ? 'Choose New Photo' : 'Choose Photo', onPress: () => { pickAndUploadInsurance(); } },
       ]
     );
   };
@@ -200,14 +229,27 @@ export default function SafetyScreen() {
             Upload your health or travel insurance card so it can be accessed by emergency responders if needed.
             Your data is encrypted and only shared during an active emergency.
           </Text>
+          {hasInsurance && (
+            <View style={styles.insuranceStatusRow}>
+              <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>Insurance card on file</Text>
+            </View>
+          )}
           <Pressable
-            style={styles.uploadButton}
+            style={[styles.uploadButton, uploadInsuranceMutation.isPending && { opacity: 0.5 }]}
             onPress={handleUploadInsurance}
+            disabled={uploadInsuranceMutation.isPending}
             accessibilityRole="button"
-            accessibilityLabel="Upload insurance card"
+            accessibilityLabel={hasInsurance ? 'Replace insurance card' : 'Upload insurance card'}
           >
             <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
-            <Text variant="label" color={colors.primary}>Upload Insurance Card</Text>
+            <Text variant="label" color={colors.primary}>
+              {uploadInsuranceMutation.isPending
+                ? 'Uploading…'
+                : hasInsurance
+                ? 'Replace Insurance Card'
+                : 'Upload Insurance Card'}
+            </Text>
           </Pressable>
         </View>
 
@@ -328,6 +370,12 @@ const makeStyles = (colors: Colors) =>
     divider: {
       height: 1,
       backgroundColor: colors.rimLightSubtle,
+    },
+    insuranceStatusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.md,
     },
     uploadButton: {
       flexDirection: 'row',

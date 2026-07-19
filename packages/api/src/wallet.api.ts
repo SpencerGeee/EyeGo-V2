@@ -66,12 +66,10 @@ export const walletApi = {
       { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey('p2p') } }
     ),
 
-  withdraw: (data: { amount: number }, idempotencyKey?: string) =>
-    apiClient.post<ApiResponse<{ reference: string; message: string }>>(
-      '/wallet/withdraw',
-      data,
-      { headers: { 'Idempotency-Key': idempotencyKey ?? makeIdempotencyKey('withdraw') } }
-    ),
+  // NOTE: rider wallets have no withdraw — POST /v1/wallet/withdraw does not
+  // exist on the server (only drivers cash out, via driverApi.withdraw →
+  // /driver/wallet/withdraw). A withdraw() here previously pointed at that
+  // nonexistent rider route and would always 404.
 
   getPaymentMethods: async (): Promise<SavedCard[]> => {
     const res = await apiClient.get<ApiResponse<{ methods: SavedCard[] }>>('/wallet/payment-methods');

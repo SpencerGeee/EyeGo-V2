@@ -101,24 +101,12 @@ export default function SettingsScreen() {
   ), [language, colors, selectLanguage]);
 
   const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'This will permanently delete your driver account and all data. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await driverApi.updateMe({ isDeleted: true } as any);
-            } catch {}
-            logout();
-            router.replace('/(auth)/phone' as any);
-          },
-        },
-      ]
-    );
+    // Route to the dedicated deletion screen, which calls the real
+    // DELETE /driver/me endpoint with proper error handling. The previous
+    // inline flow PATCHed { isDeleted: true } — a field updateMe ignores —
+    // then logged out regardless: the account was never actually deleted
+    // and any failure was swallowed.
+    router.push('/(profile)/account-deletion' as any);
   };
 
   const toggleNotifications = (val: boolean) => {

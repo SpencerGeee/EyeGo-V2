@@ -31,6 +31,7 @@ import { useDriverStore } from '../stores/driver.store';
 import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
+import { offlineQueue } from '../utils/offlineQueue';
 
 // Initialize crash/error tracking as early as possible (no-op without DSN)
 initSentry();
@@ -121,8 +122,9 @@ async function registerForPushNotifications() {
 
     // Register token with the backend so the server can push to this device
     await driverApi.updateFcmToken(token).catch(() => {
-      // Non-fatal — token will sync on next login
-      console.warn('[PushNotifications] Failed to register token with backend');
+      // Without the token on the server the driver gets NO pushes (dispatch,
+      // trip events) — queue for retry; last-write-wins on the token.
+      offlineQueue.enqueue('FCM_TOKEN', '/driver/fcm-token', 'POST', { fcmToken: token }, { replaceSameType: true });
     });
   } catch (e) {
     console.warn('[PushNotifications] Setup failed:', e);
@@ -207,16 +209,23 @@ export default function RootLayout() {
     if (!isLoggedIn) return;
     registerForPushNotifications();
 
+    // Drain queued critical actions (SOS retries, FCM tokens) and keep
+    // retrying periodically while logged in — mirrors the rider app.
+    offlineQueue.flushQueue();
+    offlineQueue.startPeriodicFlush(60000);
+
     const tokenSubscription = Notifications.addPushTokenListener(async (newToken) => {
       try {
         await driverApi.updateFcmToken(newToken.data);
       } catch (err) {
-        console.warn('[FCM] Token refresh failed:', err);
+        // Rotated token lost = pushes silently stop. Queue it for retry.
+        offlineQueue.enqueue('FCM_TOKEN', '/driver/fcm-token', 'POST', { fcmToken: newToken.data }, { replaceSameType: true });
       }
     });
 
     return () => {
       tokenSubscription.remove();
+      offlineQueue.stopPeriodicFlush();
     };
   }, [isLoggedIn]);
 

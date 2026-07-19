@@ -16,6 +16,7 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient, userApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
@@ -37,11 +38,8 @@ export default function SOSScreen() {
   const [loading, setLoading] = useState(false);
   const [passengerLocation, setPassengerLocation] = useState<Location.LocationObject | null>(null);
   const [shareTripStatus, setShareTripStatus] = useState(false);
-  const [audioRecording, setAudioRecording] = useState(false);
   const [rideCheckActive, setRideCheckActive] = useState(false);
   const [nightSafetyActive, setNightSafetyActive] = useState(false);
-  // Use a ref for the timer so cleanup always sees the latest handle (no stale closure)
-  const autoAlertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rideCheckAnsweredRef = useRef(true);
   const rideCheckEscalateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // JS timers are throttled/frozen while backgrounded (especially iOS), so a
@@ -61,7 +59,21 @@ export default function SOSScreen() {
         if (typeof settings?.rideCheck === 'boolean') setRideCheckActive(settings.rideCheck);
         if (typeof settings?.nightSafety === 'boolean') setNightSafetyActive(settings.nightSafety);
       })
-      .catch(() => {});
+      .catch(async () => {
+        // Server unreachable — fall back to the safety screen's local cache so
+        // saved protections don't silently arrive switched OFF during an
+        // active trip (the worst possible moment for them to be off).
+        try {
+          const raw = await AsyncStorage.getItem('eyego_safety_settings');
+          if (raw) {
+            const cached = JSON.parse(raw);
+            if (typeof cached?.rideCheck === 'boolean') setRideCheckActive(cached.rideCheck);
+            if (typeof cached?.nightSafety === 'boolean') setNightSafetyActive(cached.nightSafety);
+          }
+        } catch {
+          // no cache either — defaults stay off, switches remain visible
+        }
+      });
   }, []);
   // Ref keeps the latest location for the stream interval (avoids stale closure over `initial`)
   const locationRef = useRef<Location.LocationObject | null>(null);
@@ -96,7 +108,16 @@ export default function SOSScreen() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          console.warn('[SOS] Foreground location permission denied.');
+          // On the SOS screen a silent console.warn is not enough — the rider
+          // needs to know alerts will go out without their live position.
+          Alert.alert(
+            'Location Is Off',
+            "Without location access, SOS alerts can't include your live position — responders will only see the driver's last reported location. You can still trigger SOS.",
+            [
+              { text: 'Not Now', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
+            ]
+          );
           return;
         }
 
@@ -160,23 +181,6 @@ export default function SOSScreen() {
     };
   }, [id]);
 
-  // Auto-share current location to emergency contacts every 30 seconds after alert
-  // sent OR when the rider explicitly enables "Share Trip Status".
-  useEffect(() => {
-    if ((alertSent || shareTripStatus) && passengerLocation?.coords) {
-      const interval = setInterval(() => {
-        if (emergencyContact?.phone && id) {
-          const msg = encodeURIComponent(
-            `🆘 SOS UPDATE: ${user?.name ?? 'EyeGo rider'} location at ${new Date().toLocaleTimeString()}. ` +
-            `https://maps.google.com/?q=${passengerLocation.coords.latitude},${passengerLocation.coords.longitude}`
-          );
-          Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`);
-        }
-      }, 30000); // every 30 seconds
-      return () => clearInterval(interval);
-    }
-  }, [alertSent, shareTripStatus, passengerLocation, user, id, emergencyContact]);
-
   // Use user's active fine location if available, otherwise fallback to driver's coordinate
   const currentCoords = passengerLocation?.coords
     ? { latitude: passengerLocation.coords.latitude, longitude: passengerLocation.coords.longitude }
@@ -224,26 +228,18 @@ export default function SOSScreen() {
 
       setAlertSent(true);
 
-      // SMS the emergency contact if available
+      // Open the SMS composer to the emergency contact. The backend already
+      // SMSes them server-side via /trips/:id/emergency, so this is a direct
+      // personal follow-up — NOT the only delivery path. Deliberately no
+      // simultaneous tel: here: firing tel: right after sms: cancels the
+      // composer before the rider can send.
       if (emergencyContact?.phone) {
         const msg = encodeURIComponent(
           `🚨 EMERGENCY: ${user?.name ?? 'An EyeGo rider'} has triggered an SOS alert. ` +
           `Trip ID: ${id}. Location: https://maps.google.com/?q=${currentCoords?.latitude ?? 0},${currentCoords?.longitude ?? 0}. Please contact them immediately.`
         );
-        Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`);
+        Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`).catch(() => {});
       }
-      // Call emergency contact directly
-      if (emergencyContact?.phone) {
-        try {
-          Linking.openURL(`tel:${emergencyContact.phone}`);
-        } catch {}
-      }
-
-      // Start auto-location sharing timer
-      const timer = setTimeout(() => {
-        autoAlertTimerRef.current = null;
-      }, 60000);
-      autoAlertTimerRef.current = timer;
     } catch (err) {
       Alert.alert('Error', 'Could not send alert. Please call emergency services directly.');
     } finally {
@@ -364,11 +360,6 @@ export default function SOSScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nightSafetyActive, id]);
 
-  // Cleanup auto-alert timer on unmount
-  useEffect(() => () => {
-    if (autoAlertTimerRef.current) clearTimeout(autoAlertTimerRef.current);
-  }, []);
-
   const confirmEmergencyCall = () => {
     Alert.alert(
       'Emergency Call',
@@ -434,6 +425,18 @@ export default function SOSScreen() {
                 return;
               }
               setShareTripStatus(v);
+              // One-time SMS composer with the live-location link on enable.
+              // Ongoing updates stream silently to the backend over the socket
+              // (see startTracking above) — the previous 30-second loop that
+              // yanked the rider into the SMS app repeatedly is gone.
+              if (v && emergencyContact?.phone) {
+                const loc = locationRef.current?.coords ?? currentCoords;
+                const msg = encodeURIComponent(
+                  `${user?.name ?? 'An EyeGo rider'} is sharing their EyeGo trip with you. ` +
+                  `Live location: https://maps.google.com/?q=${loc?.latitude ?? 0},${loc?.longitude ?? 0}`
+                );
+                Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`).catch(() => {});
+              }
             }}
           />
           <View style={styles.divider} />
@@ -444,15 +447,6 @@ export default function SOSScreen() {
             subtitle="Unexpected stops & route detection"
             value={rideCheckActive}
             onValueChange={setRideCheckActive}
-          />
-          <View style={styles.divider} />
-          <ProtectionRow
-            colors={colors}
-            icon={audioRecording ? 'stop-circle-outline' : 'mic-outline'}
-            title="Audio Recording"
-            subtitle="Record trip audio for safety"
-            value={audioRecording}
-            onValueChange={setAudioRecording}
           />
         </View>
 

@@ -24,6 +24,7 @@ import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 import eyegoDarkStyle from '@eyego/map-styles';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
+import { offlineQueue } from '../../../utils/offlineQueue';
 
 // Initial great-circle bearing from `a` to `b`, in degrees — feeds the 3D nav
 // camera's rotation so it faces the direction of travel (Uber/Bolt/Yango-style).
@@ -686,14 +687,17 @@ export default function DriverTrackingScreen() {
                       text: 'Call 191',
                       style: 'destructive',
                       onPress: async () => {
+                        const payload = {
+                          latitude: driverLocation?.latitude,
+                          longitude: driverLocation?.longitude,
+                          timestamp: new Date().toISOString(),
+                        };
                         try {
-                          await driverApi.emergencyAlert(id, {
-                            latitude: driverLocation?.latitude,
-                            longitude: driverLocation?.longitude,
-                            timestamp: new Date().toISOString(),
-                          });
+                          await driverApi.emergencyAlert(id, payload);
                         } catch {
-                          // Never block the actual emergency call on this
+                          // Never block the actual emergency call — but the alert
+                          // must still reach dispatch, so queue it for retry.
+                          offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
                         }
                         Linking.openURL('tel:191');
                       },

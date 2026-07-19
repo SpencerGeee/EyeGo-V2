@@ -398,7 +398,7 @@ export default function RideDetailScreen() {
                 </Pressable>
                 <Pressable
                   style={[styles.inviteButton, { borderColor: colors.outlineVariant }]}
-                  onPress={() => router.push(`/ride/${id}/guest-selection` as Href)}
+                  onPress={() => router.push('/ride/guest-selection' as Href)}
                   accessibilityRole="button"
                   accessibilityLabel="Book for someone else"
                 >

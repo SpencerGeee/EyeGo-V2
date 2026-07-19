@@ -167,9 +167,25 @@ export default function PaymentScreen() {
 
         if (bookingId && pendingPromoCode) {
           try {
-            await bookingsApi.applyPromo(bookingId, pendingPromoCode);
-          } catch {
-            // non-blocking
+            const { data: promoData } = await bookingsApi.applyPromo(bookingId, pendingPromoCode);
+            // Reflect the discounted fare the server just wrote so the rider
+            // isn't shown the pre-discount price for the rest of the flow.
+            const discounted = (promoData as any)?.data?.booking;
+            if (discounted?.fareAmount != null) setComputedFare(discounted.fareAmount);
+            if (discounted) setActiveBooking(discounted);
+          } catch (promoErr: any) {
+            // If a prior attempt applied it but the response was lost, the
+            // server 400s "already has a promo" — that's success, continue.
+            const promoMsg: string = promoErr?.response?.data?.message ?? '';
+            if (!/already has a promo/i.test(promoMsg)) {
+              // Abort BEFORE any money moves. Previously this failed silently
+              // and the rider was charged the full, undiscounted fare while
+              // believing the discount was applied.
+              throw new Error(
+                promoMsg ||
+                  "Your promo code couldn't be applied, so we stopped before charging you. Check the code and try again, or remove it to pay the standard fare."
+              );
+            }
           }
           setPendingPromoCode(null);
         }

@@ -12,6 +12,9 @@ export interface SafetySettings {
   rideCheck?: boolean;
   speedAlerts?: boolean;
   nightSafety?: boolean;
+  // Cloudinary URL of the uploaded emergency insurance card (stored in the
+  // same safetySettings JSON blob server-side; written by uploadInsurance).
+  insuranceCardUrl?: string;
 }
 
 export interface PrivacySettings {
@@ -60,6 +63,21 @@ export const userApi = {
       { headers: { 'Content-Type': 'multipart/form-data' } }
     );
     return response.data.data.avatarUrl;
+  },
+
+  uploadInsurance: async (uri: string): Promise<string> => {
+    const formData = new FormData();
+    const filename = uri.split('/').pop() ?? 'insurance.jpg';
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : 'image/jpeg';
+    formData.append('card', { uri, name: filename, type } as unknown as Blob);
+
+    const response = await apiClient.post<ApiResponse<{ insuranceCardUrl: string }>>(
+      '/user/me/insurance',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+    return response.data.data.insuranceCardUrl;
   },
 
   updateFcmToken: (data: { fcmToken: string }) =>
