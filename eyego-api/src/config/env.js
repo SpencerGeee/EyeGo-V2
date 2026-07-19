@@ -72,6 +72,10 @@ const envSchema = z.object({
   DEVIATION_THRESHOLD_M: z.coerce.number().default(350),
   STOPPED_THRESHOLD_SEC: z.coerce.number().default(180),
   SAFETY_CHECK_COOLDOWN_SEC: z.coerce.number().default(300),
+  // Set to the string 'false' to skip Ghana-bounds validation of driver GPS.
+  // Must live in this schema: zod strips unknown keys, so before this entry
+  // env.GEO_VALIDATION_ENABLED was always undefined and the flag was inert.
+  GEO_VALIDATION_ENABLED: z.string().optional(),
 
   ECO_BASE_FARE: z.coerce.number().default(25.0),
   ECO_PER_KM_RATE: z.coerce.number().default(8.0),

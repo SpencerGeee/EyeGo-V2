@@ -204,6 +204,14 @@ async function updateSettingsBlob(userId, column, patch) {
 
 const getSafetySettings = (userId) => getSettingsBlob(userId, 'safetySettings');
 const updateSafetySettings = (userId, patch) => updateSettingsBlob(userId, 'safetySettings', patch);
+
+async function updateInsuranceCard(userId, fileBuffer) {
+  const url = await cloudinary.uploadBuffer(fileBuffer, {
+    folder: 'eyego/insurance',
+    transformation: [{ width: 1200, crop: 'limit', quality: 'auto' }],
+  });
+  return updateSettingsBlob(userId, 'safetySettings', { insuranceCardUrl: url });
+}
 const getPrivacySettings = (userId) => getSettingsBlob(userId, 'privacySettings');
 const updatePrivacySettings = (userId, patch) => updateSettingsBlob(userId, 'privacySettings', patch);
 
@@ -230,4 +238,4 @@ async function deleteSavedPlace(userId, placeId) {
   await prisma.savedPlace.delete({ where: { id: placeId } });
 }
 
-module.exports = { getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+module.exports = { getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

@@ -62,9 +62,13 @@ async function start() {
     setInterval(runTripExpiry, 6 * 60 * 60 * 1000);
 
     // ── Seat hold expiry sweep ─────────────────────────────────────────
-    // Cancel bookings stuck in SEAT_HELD (payment window expired) every 2 min
-    // BUGFIX: Made configurable via env var with 15 min default
-    const HOLD_MINUTES = parseInt(process.env.SEAT_HOLD_MINUTES, 10) || 15;
+    // Cancel bookings stuck in SEAT_HELD (payment window expired) every 2 min.
+    // Derives from the SAME knob that stamps holdExpiry (SEAT_HOLD_DURATION_MINUTES
+    // in bookings.service), plus a 5-min grace so the sweep never races an
+    // in-flight payment. Previously this read a separate SEAT_HOLD_MINUTES var,
+    // so tuning the hold duration silently didn't move the sweep.
+    const HOLD_MINUTES =
+      parseInt(process.env.SEAT_HOLD_MINUTES, 10) || env.SEAT_HOLD_DURATION_MINUTES + 5;
     const runSeatHoldExpiry = async () => {
       try {
         const cutoff = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);

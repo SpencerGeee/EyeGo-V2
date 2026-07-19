@@ -458,7 +458,16 @@ function emitSafetyCheck(io, tripId, reason) {
       try {
         await completeTrip(tripId);
       } catch (err) {
-        logger.error('Failed to complete trip in DB:', err);
+        // The COMPLETED emit below still goes out (riders shouldn't hang on a
+        // finished trip), so a lost DB write would leave the trip active in the
+        // DB with earnings never credited. completeTrip is idempotent
+        // (alreadyCompleted early-return), so one delayed retry is safe.
+        logger.error('Failed to complete trip in DB — retrying once in 5s:', err);
+        setTimeout(() => {
+          completeTrip(tripId).catch((err2) =>
+            logger.error('Retry completeTrip also failed — needs manual reconciliation:', err2),
+          );
+        }, 5000);
       }
 
       // Clear ETA cache — trip is over

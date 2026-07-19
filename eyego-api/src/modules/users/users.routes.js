@@ -100,6 +100,10 @@ router.put(
   controller.updateSafetySettings
 );
 
+// Emergency insurance card — image upload, URL stored in the safetySettings
+// JSON blob so GET /me/safety-settings returns it with no schema change.
+router.post('/me/insurance', upload.single('card'), controller.uploadInsurance);
+
 // ── Privacy settings ─────────────────────────────────────────────────
 router.get('/me/privacy-settings', controller.getPrivacySettings);
 

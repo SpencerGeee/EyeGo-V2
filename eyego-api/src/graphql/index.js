@@ -31,8 +31,12 @@ const yoga = createYoga({
     if (authHeader?.startsWith('Bearer ')) {
       try {
         const token = authHeader.slice(7);
-        // Accepts both rider tokens (userId) and driver tokens (driverId)
-        user = jwt.verify(token, env.JWT_SECRET);
+        // Accepts both rider tokens (userId) and driver tokens (driverId).
+        // Must be JWT_ACCESS_SECRET (same as middleware/auth.js) — the env
+        // schema has no JWT_SECRET, so the previous env.JWT_SECRET was
+        // undefined and EVERY GraphQL request silently fell through to
+        // anonymous.
+        user = jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
       } catch {
         // Invalid/expired token — resolvers that require auth will throw
       }

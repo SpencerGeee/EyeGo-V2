@@ -87,6 +87,14 @@ const updateSafetySettings = async (req, res) => {
   ok(res, { settings }, 'Safety settings saved');
 };
 
+const uploadInsurance = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ success: false, message: 'No file uploaded' });
+  }
+  const settings = await usersService.updateInsuranceCard(req.user.userId, req.file.buffer);
+  ok(res, { insuranceCardUrl: settings.insuranceCardUrl }, 'Insurance card uploaded');
+};
+
 const getPrivacySettings = async (req, res) => {
   const settings = await usersService.getPrivacySettings(req.user.userId);
   ok(res, { settings });
@@ -112,4 +120,4 @@ const deleteSavedPlace = async (req, res) => {
   ok(res, {}, 'Place removed');
 };
 
-module.exports = { getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+module.exports = { getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
