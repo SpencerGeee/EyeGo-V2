@@ -98,6 +98,15 @@ export const userApi = {
   updateNotificationPrefs: (prefs: NotificationPrefs) =>
     apiClient.patch<ApiResponse<{ prefs: NotificationPrefs }>>('/user/me/notifications', prefs),
 
+  // Previously the rider's dark/light toggle only lived in AsyncStorage —
+  // a reinstall or new device silently reset it. Same JSON-blob pattern the
+  // driver app already uses for its preferences.
+  getPreferences: () =>
+    apiClient.get<ApiResponse<{ preferences: { theme?: 'dark' | 'light' } }>>('/user/me/preferences'),
+
+  updatePreferences: (patch: { theme?: 'dark' | 'light' }) =>
+    apiClient.patch<ApiResponse<{ preferences: { theme?: 'dark' | 'light' } }>>('/user/me/preferences', patch),
+
   getSafetySettings: () =>
     apiClient.get<ApiResponse<{ settings: SafetySettings }>>('/user/me/safety-settings'),
 

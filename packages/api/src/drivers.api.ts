@@ -23,6 +23,8 @@ export interface DriverProfile {
   ghanaCardNumber?: string;
   emergencyContact?: { name: string; phone: string; relationship: string };
   navigationApp?: 'google_maps' | 'waze' | 'apple_maps';
+  theme?: 'dark' | 'light';
+  notificationsEnabled?: boolean;
   vehicles?: Array<{
     id: string;
     make: string;
@@ -236,8 +238,9 @@ export const driverApi = {
   emergencyAlert: (tripId: string, data: { latitude?: number; longitude?: number; timestamp?: string }) =>
     apiClient.post<ApiResponse<{ alertReceived: boolean }>>(`/driver/trips/${tripId}/emergency`, data),
 
-  // App preferences — navigation app choice
-  updatePreferences: (data: { navigationApp?: 'google_maps' | 'waze' | 'apple_maps' }) =>
+  // App preferences — navigation app choice, theme, notifications, etc
+  // (merged JSON blob server-side, read back via getMe())
+  updatePreferences: (data: { navigationApp?: 'google_maps' | 'waze' | 'apple_maps'; theme?: 'dark' | 'light'; notificationsEnabled?: boolean }) =>
     apiClient.patch<ApiResponse<void>>('/driver/preferences', data),
 
   // Rate a passenger after trip completion (driver rates rider)

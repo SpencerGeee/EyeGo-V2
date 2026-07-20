@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AuthTokens } from '@eyego/types';
 import type { DriverProfile } from '@eyego/api';
-import { disconnectDriverSocket } from '@eyego/api';
+import { disconnectDriverSocket, driverApi } from '@eyego/api';
 
 interface DriverState {
   driver: DriverProfile | null;
@@ -110,6 +110,12 @@ export const useDriverStore = create<DriverState>((set, get) => ({
       console.error('[DriverStore] Failed to persist theme:', e)
     );
     set({ theme });
+    // Sync to the account's preferences blob (same one navigationApp already
+    // uses) so theme follows the driver across reinstalls/devices instead of
+    // silently resetting — previously local-only, unlike navApp.
+    driverApi.updatePreferences({ theme }).catch(e =>
+      console.warn('[DriverStore] Failed to sync theme to account:', e)
+    );
   },
 
   setActiveTripId: (id) => {
@@ -167,6 +173,19 @@ export const useDriverStore = create<DriverState>((set, get) => ({
           driver: driverJson ? JSON.parse(driverJson) : null,
           isOnline: isOnlineStr === 'true',
           activeTripId: activeTripId ?? null,
+        });
+        // Reconcile theme with the account's saved preference — getMe() now
+        // returns it (previously the backend never read the preferences blob
+        // back out, so a reinstall/new device always fell back to the
+        // AsyncStorage default instead of what was actually saved server-side).
+        driverApi.getMe().then((res) => {
+          const remoteTheme = (res.data as any)?.data?.theme;
+          if (remoteTheme === 'dark' || remoteTheme === 'light') {
+            AsyncStorage.setItem(KEYS.theme, remoteTheme).catch(() => {});
+            set({ theme: remoteTheme });
+          }
+        }).catch(() => {
+          // Not reachable yet / token stale — local theme already applied above.
         });
       }
     } catch {

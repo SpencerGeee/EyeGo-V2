@@ -87,6 +87,10 @@ router.patch(
   controller.updateNotificationPreferences
 );
 
+// ── App preferences (theme, etc) ─────────────────────────────────────
+router.get('/me/preferences', controller.getPreferences);
+router.patch('/me/preferences', controller.updatePreferences);
+
 // ── Safety settings ──────────────────────────────────────────────────
 router.get('/me/safety-settings', controller.getSafetySettings);
 

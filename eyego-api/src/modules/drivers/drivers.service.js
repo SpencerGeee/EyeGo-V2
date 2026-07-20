@@ -49,7 +49,7 @@ async function getMe(driverId) {
       select: {
         id: true, phone: true, name: true, profilePhoto: true, dateOfBirth: true,
         status: true, isOnline: true, walletBalance: true,
-        ghanaCardNumber: true, createdAt: true,
+        ghanaCardNumber: true, createdAt: true, preferences: true,
         vehicles: { where: { isActive: true } },
       },
     }),
@@ -57,8 +57,15 @@ async function getMe(driverId) {
     prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: { stars: true } }),
   ]);
   if (!driver) throw new NotFoundError('Driver');
+  // updatePreferences() writes navigationApp/theme into the preferences JSON
+  // blob, but getMe() never read it back — the client's local cache of these
+  // settings was the only copy that ever displayed, so a reinstall silently
+  // lost them even though the account had them saved all along.
+  const { preferences: preferencesJson, ...driverFields } = driver;
+  const preferences = preferencesJson ? JSON.parse(preferencesJson) : {};
   return {
-    ...driver,
+    ...driverFields,
+    ...preferences,
     avatarUrl: driver.profilePhoto,
     totalTrips,
     // null when no ratings yet — frontend shows "New" instead of a number

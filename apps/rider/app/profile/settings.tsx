@@ -1,18 +1,14 @@
-﻿import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo } from 'react';
 import {
   View,
   StyleSheet,
   ScrollView,
   Pressable,
-  Modal,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useTranslation } from 'react-i18next';
-import i18n from '../../i18n';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { spacing, radii } from '@eyego/config';
 import { Text, Toggle, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -22,28 +18,6 @@ export default function SettingsScreen() {
   const colors = useColors();
   const { isDark, setDark } = useThemeStore();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-
-  const { t } = useTranslation();
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [emailReceipts, setEmailReceipts] = useState(true);
-  const [smsUpdates, setSmsUpdates] = useState(false);
-  const [accessibilityPings, setAccessibilityPings] = useState(false);
-  const [showLangModal, setShowLangModal] = useState(false);
-  const [currentLang, setCurrentLang] = useState(i18n.language ?? 'en');
-
-  const LANGUAGES = [
-    { code: 'en', label: 'English', flag: '🇬🇧' },
-    { code: 'fr', label: 'Français', flag: '🇫🇷' },
-    { code: 'es', label: 'Español', flag: '🇪🇸' },
-    { code: 'tw', label: 'Twi', flag: '🇬🇭' },
-  ];
-
-  const selectLanguage = async (code: string) => {
-    await i18n.changeLanguage(code);
-    setCurrentLang(code);
-    await AsyncStorage.setItem('eyego_language', code);
-    setShowLangModal(false);
-  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -62,19 +36,6 @@ export default function SettingsScreen() {
             GENERAL
           </Text>
           <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.card}>
-            <Pressable style={styles.row} onPress={() => setShowLangModal(true)}>
-              <View style={styles.rowLeft}>
-                <Ionicons name="language-outline" size={20} color={colors.onSurfaceVariant} />
-                <Text variant="bodyMedium" color={colors.onSurface}>Language</Text>
-              </View>
-              <View style={styles.rowRight}>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  {LANGUAGES.find(l => l.code === currentLang)?.label ?? 'English'}
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-              </View>
-            </Pressable>
-            <View style={styles.divider} />
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <Ionicons name="moon-outline" size={20} color={colors.onSurfaceVariant} />
@@ -85,7 +46,11 @@ export default function SettingsScreen() {
           </GlassSurface>
         </Animated.View>
 
-        {/* Notifications */}
+        {/* Notifications — previously three fake toggles here (local React
+            state only, no persistence, no backend call) duplicated and
+            conflicted with the real, fully-wired preferences screen at
+            profile/notification-preferences.tsx. One link to the real thing
+            instead of a second, non-functional copy. */}
         <Animated.View
           entering={FadeInDown.delay(130).springify().damping(18)}
           style={{ marginTop: spacing['2xl'] }}
@@ -94,86 +59,19 @@ export default function SettingsScreen() {
             NOTIFICATIONS
           </Text>
           <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.card}>
-            <View style={styles.row}>
+            <Pressable style={styles.row} onPress={() => router.push('/profile/notification-preferences' as any)}>
               <View style={styles.rowLeft}>
                 <Ionicons name="notifications-outline" size={20} color={colors.onSurfaceVariant} />
                 <View>
-                  <Text variant="bodyMedium" color={colors.onSurface}>Push Notifications</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>Ride updates and promos</Text>
+                  <Text variant="bodyMedium" color={colors.onSurface}>Notification Preferences</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>Trips, messages, promotions</Text>
                 </View>
               </View>
-              <Toggle value={pushNotifications} onValueChange={setPushNotifications} />
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Ionicons name="mail-outline" size={20} color={colors.onSurfaceVariant} />
-                <View>
-                  <Text variant="bodyMedium" color={colors.onSurface}>Email Receipts</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>Receive trip receipts</Text>
-                </View>
-              </View>
-              <Toggle value={emailReceipts} onValueChange={setEmailReceipts} />
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Ionicons name="chatbubble-outline" size={20} color={colors.onSurfaceVariant} />
-                <View>
-                  <Text variant="bodyMedium" color={colors.onSurface}>SMS Updates</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>Important alerts via SMS</Text>
-                </View>
-              </View>
-              <Toggle value={smsUpdates} onValueChange={setSmsUpdates} />
-            </View>
-          </GlassSurface>
-        </Animated.View>
-
-        {/* Accessibility */}
-        <Animated.View
-          entering={FadeInDown.delay(200).springify().damping(18)}
-          style={{ marginTop: spacing['2xl'] }}
-        >
-          <Text variant="labelCaps" style={styles.sectionLabel}>
-            ACCESSIBILITY
-          </Text>
-          <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Ionicons name="volume-high-outline" size={20} color={colors.onSurfaceVariant} />
-                <View>
-                  <Text variant="bodyMedium" color={colors.onSurface}>Audio Pings</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>Sound alerts for ride status</Text>
-                </View>
-              </View>
-              <Toggle value={accessibilityPings} onValueChange={setAccessibilityPings} />
-            </View>
+              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+            </Pressable>
           </GlassSurface>
         </Animated.View>
       </ScrollView>
-
-      {/* Language Picker Modal */}
-      <Modal visible={showLangModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
-            <Text variant="titleMedium">Choose Language</Text>
-            <Pressable onPress={() => setShowLangModal(false)}>
-              <Ionicons name="close" size={24} color={colors.onSurface} />
-            </Pressable>
-          </View>
-          {LANGUAGES.map((lang) => (
-            <Pressable
-              key={lang.code}
-              onPress={() => selectLanguage(lang.code)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.base, padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-            >
-              <Text style={{ fontSize: 24, lineHeight: 30 }}>{lang.flag}</Text>
-              <Text variant="bodyMedium" style={{ flex: 1 }}>{lang.label}</Text>
-              {currentLang === lang.code && <Ionicons name="checkmark" size={20} color={colors.primary} />}
-            </Pressable>
-          ))}
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }

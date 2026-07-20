@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Switch, Pressable, Alert, Modal, FlatList } from 'react-native';
+import React, { useState, useMemo, useEffect } from 'react';
+import { View, StyleSheet, ScrollView, Switch, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -13,14 +13,6 @@ import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 
 const NOTIF_KEY = 'eyego_driver_notifications_enabled';
-const LANG_KEY = 'eyego_driver_language';
-
-const LANGUAGES = [
-  { code: 'en', label: 'English', flag: '🇬🇧' },
-  { code: 'fr', label: 'Français', flag: '🇫🇷' },
-  { code: 'es', label: 'Español', flag: '🇪🇸' },
-  { code: 'tw', label: 'Twi', flag: '🇬🇭' },
-];
 
 type NavApp = 'google_maps' | 'waze' | 'apple_maps';
 const NAV_OPTIONS: { key: NavApp; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -68,37 +60,28 @@ export default function SettingsScreen() {
   const { theme, setTheme, logout } = useDriverStore();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [navApp, setNavApp] = useState<NavApp>('google_maps');
-  const [language, setLanguage] = useState('en');
-  const [showLangModal, setShowLangModal] = useState(false);
 
   useEffect(() => {
+    // Local cache first for instant paint...
     AsyncStorage.getItem(NOTIF_KEY).then((val) => {
       if (val !== null) setNotificationsEnabled(val === 'true');
     });
     AsyncStorage.getItem('eyego_driver_nav_app').then((val) => {
       if (val) setNavApp(val as NavApp);
     });
-    AsyncStorage.getItem(LANG_KEY).then((val) => {
-      if (val) setLanguage(val);
-    });
+    // ...then the account's saved value wins, so this follows the driver
+    // across reinstalls/devices instead of always defaulting to "on".
+    // Previously toggling this only wrote to AsyncStorage — nothing was ever
+    // sent to the backend, so the setting was invisible to anything else
+    // (support, admin) and lost on reinstall.
+    driverApi.getMe().then((res) => {
+      const remote = (res.data as any)?.data?.notificationsEnabled;
+      if (typeof remote === 'boolean') {
+        setNotificationsEnabled(remote);
+        AsyncStorage.setItem(NOTIF_KEY, String(remote)).catch(() => {});
+      }
+    }).catch(() => {});
   }, []);
-
-  const selectLanguage = async (code: string) => {
-    setLanguage(code);
-    await AsyncStorage.setItem(LANG_KEY, code);
-    setShowLangModal(false);
-  };
-
-  const renderLanguageItem = useCallback(({ item }: { item: typeof LANGUAGES[number] }) => (
-    <Pressable
-      onPress={() => selectLanguage(item.code)}
-      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.base, padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-    >
-      <Text style={{ fontSize: 24 }}>{item.flag}</Text>
-      <Text variant="bodyMedium" style={{ flex: 1 }}>{item.label}</Text>
-      {language === item.code && <Ionicons name="checkmark" size={20} color={colors.primary} />}
-    </Pressable>
-  ), [language, colors, selectLanguage]);
 
   const handleDeleteAccount = () => {
     // Route to the dedicated deletion screen, which calls the real
@@ -112,6 +95,9 @@ export default function SettingsScreen() {
   const toggleNotifications = (val: boolean) => {
     setNotificationsEnabled(val);
     AsyncStorage.setItem(NOTIF_KEY, String(val));
+    driverApi.updatePreferences({ notificationsEnabled: val }).catch((e) =>
+      console.warn('[Settings] Failed to sync notification preference:', e)
+    );
   };
 
   const updateNavPref = useMutation({
@@ -182,15 +168,6 @@ export default function SettingsScreen() {
                 thumbColor={colors.onPrimary}
               />
             </View>
-            {/* Language */}
-            <Pressable style={styles.settingsRow} onPress={() => setShowLangModal(true)}>
-              <View style={styles.iconBg}>
-                <Ionicons name="language-outline" size={18} color={colors.primary} />
-              </View>
-              <Text style={styles.rowLabel}>Language</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>{LANGUAGES.find(l => l.code === language)?.label ?? 'English'}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-            </Pressable>
           </View>
         </MotiView>
 
@@ -273,23 +250,6 @@ export default function SettingsScreen() {
           <Text variant="caption" color={colors.onSurfaceVariant}>© 2025 EyeGo Technologies</Text>
         </MotiView>
       </ScrollView>
-
-      {/* Language Picker Modal */}
-      <Modal visible={showLangModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
-            <Text variant="titleMedium">Choose Language</Text>
-            <Pressable onPress={() => setShowLangModal(false)}>
-              <Ionicons name="close" size={24} color={colors.onSurface} />
-            </Pressable>
-          </View>
-          <FlatList
-            data={LANGUAGES}
-            keyExtractor={(item) => item.code}
-            renderItem={renderLanguageItem}
-          />
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }

@@ -55,13 +55,22 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
 
   const animated = variant === 'animated' && tier !== 'low' && !paused;
 
-  // Light mode: drop shader opacity way down so the View's light background
-  // shows through — just a subtle ambient tint instead of a full dark overlay.
-  const ambientOpacity = isDark ? 0.85 : 0.12;
+  // Light mode: lower opacity than dark (a full-strength wash reads as too
+  // loud on a white surface) but NOT down to a near-invisible tint — the
+  // wave needs to still read as a wave, just lighter, not vanish entirely.
+  const ambientOpacity = isDark ? 0.85 : 0.4;
 
   // Mid/high tiers get the real GPU shader (Skia "LightPillar" port) —
-  // a vertical rotating light beam in brand green, continuously alive.
-  // The SVG blob field below survives as the low-tier / fallback path.
+  // a vertical rotating light beam in the app's brand color, continuously
+  // alive. The SVG blob field below survives as the low-tier / fallback path.
+  //
+  // Light mode previously hardcoded topColor to flat gray ('#e0e0e0') instead
+  // of the theme's own `colors.primary` — on dark backgrounds the wave reads
+  // as brand green (rider) / brand blue (driver), but in light mode it lost
+  // that color entirely and just looked like a plain white background with
+  // no aesthetic. Using `colors.primary` in both modes keeps the same brand
+  // wave color; only intensity/opacity drop for a lighter, white-appropriate
+  // version of the same effect instead of disappearing.
   if (tier !== 'low') {
     return (
       <View
@@ -74,10 +83,10 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
         ]}
       >
         <LightPillarBackground
-          topColor={isDark ? colors.primary : '#e0e0e0'}
+          topColor={colors.primary}
           bottomColor={isDark ? colors.onPrimaryFixedVariant : '#ffffff'}
           animated={animated}
-          intensity={isDark ? 1.0 : 0.4}
+          intensity={isDark ? 1.0 : 0.55}
           rotationSpeed={tier === 'high' ? 0.4 : 0.25}
           glowAmount={tier === 'high' ? 0.006 : 0.004}
           pillarWidth={3.0}

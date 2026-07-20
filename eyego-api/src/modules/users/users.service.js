@@ -205,6 +205,13 @@ async function updateSettingsBlob(userId, column, patch) {
 const getSafetySettings = (userId) => getSettingsBlob(userId, 'safetySettings');
 const updateSafetySettings = (userId, patch) => updateSettingsBlob(userId, 'safetySettings', patch);
 
+// App preferences (theme, etc) — mirrors the driver app's /driver/preferences.
+// Previously the rider's dark/light toggle was AsyncStorage-only; a reinstall
+// or new device silently reset it to the default instead of following the
+// account like every other setting on this screen does.
+const getPreferences = (userId) => getSettingsBlob(userId, 'preferences');
+const updatePreferences = (userId, patch) => updateSettingsBlob(userId, 'preferences', patch);
+
 async function updateInsuranceCard(userId, fileBuffer) {
   const url = await cloudinary.uploadBuffer(fileBuffer, {
     folder: 'eyego/insurance',
@@ -238,4 +245,5 @@ async function deleteSavedPlace(userId, placeId) {
   await prisma.savedPlace.delete({ where: { id: placeId } });
 }
 
-module.exports = { getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+module.exports = {
+  getPreferences, updatePreferences, getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

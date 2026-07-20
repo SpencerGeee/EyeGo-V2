@@ -26,6 +26,16 @@ const updateFcmToken = async (req, res) => {
   ok(res, null, 'FCM token updated');
 };
 
+const getPreferences = async (req, res) => {
+  const preferences = await usersService.getPreferences(req.user.userId);
+  ok(res, { preferences });
+};
+
+const updatePreferences = async (req, res) => {
+  const preferences = await usersService.updatePreferences(req.user.userId, req.body);
+  ok(res, { preferences }, 'Preferences updated');
+};
+
 const deleteMe = async (req, res) => {
   await usersService.deactivateAccount(req.user.userId);
   ok(res, null, 'Account deactivated');
@@ -120,4 +130,4 @@ const deleteSavedPlace = async (req, res) => {
   ok(res, {}, 'Place removed');
 };
 
-module.exports = { getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+module.exports = { getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
