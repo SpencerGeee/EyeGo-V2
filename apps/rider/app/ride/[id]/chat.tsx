@@ -6,9 +6,10 @@ import {
   Pressable,
   ScrollView,
   Image,
+  Platform,
 } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { KeyboardStickyView } from 'react-native-keyboard-controller';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -448,8 +449,17 @@ export default function ChatScreen() {
   );
 
   // Show only the messages for the active tab: group (broadcast) vs private.
+  // Sorted by timestamp (not insertion order) — the rider and driver sockets
+  // can deliver two near-simultaneous messages in different arrival order on
+  // each device, and relying on prepend/append order alone made the two
+  // sides disagree on who "came first". Sorting by the authoritative
+  // timestamp keeps both apps' rendering deterministic and consistent.
+  // Newest-first because the list is `inverted` (index 0 renders at bottom).
   const visibleMessages = useMemo(
-    () => messages.filter((m) => (isPrivateMode ? m.isPrivate : !m.isPrivate)),
+    () =>
+      messages
+        .filter((m) => (isPrivateMode ? m.isPrivate : !m.isPrivate))
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
     [messages, isPrivateMode],
   );
 
@@ -603,6 +613,18 @@ export default function ChatScreen() {
         </Pressable>
       </View>
 
+      {/*
+        FlashList and the input bar used to be siblings, with only the input
+        bar wrapped in KeyboardStickyView. That translates the input above the
+        keyboard but never shrinks the list's own height — so the list still
+        occupied the full screen, its bottom (newest, in an inverted list) end
+        hidden behind the keyboard. A just-sent message was invisible until the
+        keyboard closed and the list regained its true visible area. Wrapping
+        list + input together in one KeyboardAvoidingView shrinks the list
+        container itself when the keyboard opens, so the newest message stays
+        visible right above the input bar the whole time.
+      */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={{ flex: 1 }}>
         {/* Messages */}
         <FlashList
@@ -661,7 +683,7 @@ export default function ChatScreen() {
         />
       </View>
 
-      <KeyboardStickyView>
+      <View>
         {/* Quick replies */}
         <ScrollView
           horizontal
@@ -723,7 +745,8 @@ export default function ChatScreen() {
             </Pressable>
           </GlassSurface>
         </View>
-      </KeyboardStickyView>
+      </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

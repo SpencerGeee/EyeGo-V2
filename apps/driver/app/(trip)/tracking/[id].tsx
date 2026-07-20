@@ -432,12 +432,24 @@ export default function DriverTrackingScreen() {
           animationDuration={0}
         />
 
-        {/* Driver's current location — always visible, starts at pickup until GPS fix */}
-        <MapboxGL.MarkerView coordinate={driverCoord ?? pickupCoord}>
+        {/* Driver's current location — always visible, starts at pickup until GPS fix.
+            Previously a static Ionicons rotate('45deg') that never changed — the arrow
+            looked frozen no matter which way the phone/vehicle actually turned. Now
+            driven by the live GPS heading and glides between fixes via
+            AnimatedMarkerView instead of jumping. */}
+        <MapboxGL.AnimatedMarkerView
+          coordinate={driverCoord ?? pickupCoord}
+          // The Ionicons "navigate" glyph itself points north-east by default —
+          // the old code's fixed rotate('45deg') was compensating for that so
+          // the icon rests "up" when stationary. Keep that same +45 offset and
+          // add the live GPS heading on top so the arrow actually turns with it.
+          rotation={((driverLocation?.heading ?? 0) + 45) % 360}
+          duration={1000}
+        >
           <View style={styles.driverMarker}>
-            <Ionicons name="navigate" size={20} color="#3B82F6" style={{ transform: [{ rotate: '45deg' }] }} />
+            <Ionicons name="navigate" size={20} color="#3B82F6" />
           </View>
-        </MapboxGL.MarkerView>
+        </MapboxGL.AnimatedMarkerView>
 
         {/* Pickup marker */}
         {trip?.status !== 'IN_PROGRESS' && (

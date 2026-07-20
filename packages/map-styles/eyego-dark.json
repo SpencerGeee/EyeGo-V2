@@ -12,12 +12,12 @@
       "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a>"
     }
   },
-  "glyphs": "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",
       "type": "background",
-      "paint": { "background-color": "#0a0a0f" }
+      "paint": { "background-color": "#0B0E14" }
     },
     {
       "id": "landuse",
@@ -29,16 +29,16 @@
         "fill-color": [
           "match",
           ["get", "class"],
-          "park", "#0f1a12",
-          "forest", "#0d1810",
-          "cemetery", "#141418",
-          "hospital", "#1a1015",
-          "school", "#14161c",
-          "industrial", "#111116",
-          "commercial", "#111114",
-          "#111114"
+          "park", "#132A1D",
+          "forest", "#102619",
+          "cemetery", "#1D212B",
+          "hospital", "#2B1720",
+          "school", "#1A2038",
+          "industrial", "#1B1E28",
+          "commercial", "#181B24",
+          "#171A22"
         ],
-        "fill-opacity": 0.8
+        "fill-opacity": 0.85
       }
     },
     {
@@ -48,7 +48,7 @@
       "source-layer": "water",
       "filter": ["==", "$type", "Polygon"],
       "paint": {
-        "fill-color": "#0d1b1f"
+        "fill-color": "#123449"
       }
     },
     {
@@ -57,7 +57,7 @@
       "source": "openfreemap",
       "source-layer": "waterway",
       "paint": {
-        "line-color": "#0d1b1f",
+        "line-color": "#1B4B63",
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 14, 2]
       }
     },
@@ -67,9 +67,9 @@
       "source": "openfreemap",
       "source-layer": "building",
       "paint": {
-        "fill-color": "#1a1a22",
-        "fill-opacity": 0.7,
-        "fill-outline-color": "#252530"
+        "fill-color": "#242938",
+        "fill-opacity": 0.8,
+        "fill-outline-color": "#3A415A"
       }
     },
     {
@@ -79,8 +79,8 @@
       "source-layer": "aeroway",
       "filter": ["==", "$type", "Polygon"],
       "paint": {
-        "fill-color": "#14141c",
-        "fill-opacity": 0.6
+        "fill-color": "#1C2030",
+        "fill-opacity": 0.65
       }
     },
     {
@@ -90,7 +90,7 @@
       "source-layer": "transportation",
       "filter": ["in", "class", "path", "track"],
       "paint": {
-        "line-color": "#1a1a24",
+        "line-color": "#262C3D",
         "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 18, 2]
       }
     },
@@ -101,9 +101,9 @@
       "source-layer": "transportation",
       "filter": ["in", "class", "minor", "service"],
       "paint": {
-        "line-color": "#222230",
+        "line-color": "#333A4F",
         "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 2],
-        "line-opacity": 0.6
+        "line-opacity": 0.85
       }
     },
     {
@@ -113,9 +113,9 @@
       "source-layer": "transportation",
       "filter": ["in", "class", "primary", "secondary", "tertiary"],
       "paint": {
-        "line-color": "#2a2a38",
+        "line-color": "#4A5470",
         "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 16, 4],
-        "line-opacity": 0.7
+        "line-opacity": 0.95
       }
     },
     {
@@ -125,9 +125,9 @@
       "source-layer": "transportation",
       "filter": ["in", "class", "motorway", "trunk"],
       "paint": {
-        "line-color": ["interpolate", ["linear"], ["zoom"], 8, "#1a1a28", 12, "#2e3a2a"],
+        "line-color": ["interpolate", ["linear"], ["zoom"], 8, "#3E4964", 12, "#3F6E4E"],
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 6],
-        "line-opacity": 0.8
+        "line-opacity": 1
       }
     },
     {
@@ -137,9 +137,9 @@
       "source-layer": "transportation",
       "filter": ["in", "class", "primary", "secondary", "tertiary"],
       "paint": {
-        "line-color": "#3a3a48",
+        "line-color": "#6B7590",
         "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 16, 2],
-        "line-opacity": 0.3
+        "line-opacity": 0.4
       }
     },
     {
@@ -151,7 +151,7 @@
       "paint": {
         "line-color": "#4BE277",
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 16, 3],
-        "line-opacity": 0.15
+        "line-opacity": 0.4
       }
     },
     {
@@ -161,7 +161,7 @@
       "source-layer": "boundary",
       "filter": ["in", "admin_level", 2, 4],
       "paint": {
-        "line-color": "rgba(75, 226, 119, 0.12)",
+        "line-color": "rgba(75, 226, 119, 0.28)",
         "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 12, 1.5],
         "line-dasharray": [3, 3]
       }
@@ -181,8 +181,8 @@
         "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.6)",
-        "text-halo-color": "#0a0a0f",
+        "text-color": "rgba(240, 240, 245, 0.9)",
+        "text-halo-color": "#0B0E14",
         "text-halo-width": 1.5,
         "text-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0, 10, 1]
       }
@@ -200,8 +200,8 @@
         "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.4)",
-        "text-halo-color": "#0a0a0f",
+        "text-color": "rgba(240, 240, 245, 0.65)",
+        "text-halo-color": "#0B0E14",
         "text-halo-width": 1.5
       }
     },
@@ -220,8 +220,8 @@
         "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.35)",
-        "text-halo-color": "#0a0a0f",
+        "text-color": "rgba(240, 240, 245, 0.55)",
+        "text-halo-color": "#0B0E14",
         "text-halo-width": 2
       }
     },
@@ -240,8 +240,8 @@
         "text-rotation-alignment": "map"
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.25)",
-        "text-halo-color": "#0a0a0f",
+        "text-color": "rgba(240, 240, 245, 0.5)",
+        "text-halo-color": "#0B0E14",
         "text-halo-width": 1.5
       }
     },
@@ -258,8 +258,8 @@
         "symbol-spacing": 500
       },
       "paint": {
-        "text-color": "rgba(75, 226, 119, 0.2)",
-        "text-halo-color": "#0a0a0f",
+        "text-color": "rgba(120, 200, 230, 0.5)",
+        "text-halo-color": "#0B0E14",
         "text-halo-width": 1.5
       }
     },
@@ -276,8 +276,8 @@
         "icon-allow-overlap": false
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.3)",
-        "text-halo-color": "#0a0a0f",
+        "text-color": "rgba(240, 240, 245, 0.55)",
+        "text-halo-color": "#0B0E14",
         "text-halo-width": 1
       }
     }

@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
+import * as Contacts from 'expo-contacts';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
@@ -84,6 +85,30 @@ export default function EmergencyContactsScreen() {
         { replaceSameType: true }
       );
       useToastStore.getState().show("Saved on this phone — will sync to your account when you're back online.", 'warning');
+    }
+  };
+
+  const handlePickContact = async () => {
+    if (contacts.length >= MAX_CONTACTS) {
+      Alert.alert('Limit Reached', `You can only save up to ${MAX_CONTACTS} emergency contacts.`);
+      return;
+    }
+    try {
+      // presentContactPickerAsync shows the OS's own contact-picker sheet and
+      // only returns the one contact the user taps — no READ_CONTACTS
+      // permission prompt needed, unlike getContactsAsync.
+      const picked = await Contacts.presentContactPickerAsync();
+      if (!picked) return; // user cancelled
+      const phone = picked.phoneNumbers?.[0]?.number?.trim();
+      const name = picked.name?.trim();
+      if (!phone) {
+        Alert.alert('No Phone Number', 'That contact has no phone number saved.');
+        return;
+      }
+      setNewName(name || '');
+      setNewPhone(phone);
+    } catch (e) {
+      Alert.alert('Error', 'Could not open contacts. You can still enter the details manually below.');
     }
   };
 
@@ -193,6 +218,15 @@ export default function EmergencyContactsScreen() {
             >
               <Text variant="labelCaps" style={styles.sectionLabel}>ADD CONTACT</Text>
               <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.formCard}>
+                <Pressable onPress={handlePickContact} style={[styles.pickContactBtn, { borderColor: colors.primary }]}>
+                  <Ionicons name="people-outline" size={18} color={colors.primary} />
+                  <Text variant="bodyMedium" style={{ color: colors.primary }}>Choose from Contacts</Text>
+                </Pressable>
+                <View style={styles.orDivider}>
+                  <View style={[styles.orLine, { backgroundColor: colors.rimLightSubtle }]} />
+                  <Text variant="caption" style={{ color: colors.onSurfaceVariant }}>or enter manually</Text>
+                  <View style={[styles.orLine, { backgroundColor: colors.rimLightSubtle }]} />
+                </View>
                 <TextInput
                   value={newName}
                   onChangeText={setNewName}
@@ -302,6 +336,21 @@ const makeStyles = (colors: Colors) =>
       padding: spacing.base,
       gap: spacing.base,
     },
+    pickContactBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.sm,
+      height: 50,
+      borderRadius: radii.lg,
+      borderWidth: 1.5,
+    },
+    orDivider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+    },
+    orLine: { flex: 1, height: 1 },
     input: {
       height: 50,
       borderWidth: 1,

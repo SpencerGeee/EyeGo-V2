@@ -190,11 +190,14 @@ export default function PaymentScreen() {
           setPendingPromoCode(null);
         }
 
-        // Cash is collected in-person — no payment gateway initiation needed.
-        // Booking already exists; navigate directly to tracking.
-        if (activeTab === 'cash') {
-          return { requiresVerification: false, bookingId, reference: null };
-        }
+        // Cash still has to hit the backend: initiatePayment's CASH branch is what
+        // actually flips the booking from SEAT_HELD → CONFIRMED (confirmPayment with
+        // cashOnBoard: true). Previously this short-circuited here and returned a
+        // fake success without ever calling the server, so cash bookings stayed at
+        // SEAT_HELD forever (invisible to the driver's passenger list) until the
+        // seat-hold sweep silently cancelled them — "no passengers yet" even though
+        // the rider had booked. Falling through to the same initialize() call below
+        // (already branches on method === 'cash' → 'CASH') fixes that.
 
         // One idempotency key per booking+method attempt — a retry of this exact
         // attempt collapses to a single charge on the server.

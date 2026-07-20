@@ -402,14 +402,23 @@ export default function TripChatScreen() {
     </Entrance>
   );
 
-  // Filter messages for the current view
+  // Filter messages for the current view. Sorted by timestamp (not insertion
+  // order) — rider and driver sockets can deliver two near-simultaneous
+  // messages in different arrival order on each device, which made whichever
+  // side's message got processed first visually look like it "came first"
+  // even when it didn't. Sorting by the authoritative timestamp keeps both
+  // apps' rendering deterministic and consistent. Oldest-first since this
+  // list is NOT inverted (newest renders at the bottom, near the input).
   const visibleMessages = useMemo(() => {
+    const sorted = [...messages].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
     if (chatMode === 'group') {
-      return messages.filter((m) => !m.isPrivate);
+      return sorted.filter((m) => !m.isPrivate);
     }
     if (!privateRecipientId) return []; // passenger picker — no messages yet
     // Private: show messages between driver and this specific passenger
-    return messages.filter(
+    return sorted.filter(
       (m) =>
         m.isPrivate &&
         (m.senderId === privateRecipientId ||

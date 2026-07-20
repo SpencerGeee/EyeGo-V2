@@ -12,7 +12,7 @@
       "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a>"
     }
   },
-  "glyphs": "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",

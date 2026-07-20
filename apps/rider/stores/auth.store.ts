@@ -47,17 +47,33 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // new user's data loads. Guards against a stale activeBooking/trip surviving
     // a crash-without-logout into the next sign-in.
     useRideStore.getState().clearRideState();
-    await Promise.all([
-      SecureStore.setItemAsync(KEYS.accessToken, tokens.accessToken),
-      SecureStore.setItemAsync(KEYS.refreshToken, tokens.refreshToken),
-      SecureStore.setItemAsync(KEYS.user, JSON.stringify(user)),
-    ]);
+    // Set in-memory state FIRST (synchronous) — mirrors the driver store's
+    // login(), which documents the exact bug this used to have: awaiting the
+    // SecureStore writes before calling set() left a ~50ms window where the
+    // store's getRefreshToken() still returned the OLD refresh token. The
+    // backend rotates refresh tokens on every use (old one is revoked the
+    // instant a new one is issued), so any request that 401'd and triggered a
+    // second refresh during that window sent the already-revoked token,
+    // server-rejected it, and forced a real logout — exactly what "anything
+    // that connects to the backend logs me out" looks like from the outside,
+    // especially with several queries refetching in parallel on reconnect.
     set({
       user,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       isLoggedIn: true,
     });
+    // Persist after — fire-and-forget is fine, the in-memory store (which the
+    // API client actually reads from) is already correct.
+    SecureStore.setItemAsync(KEYS.accessToken, tokens.accessToken).catch((e) =>
+      console.error('[AuthStore] Failed to persist accessToken:', e)
+    );
+    SecureStore.setItemAsync(KEYS.refreshToken, tokens.refreshToken).catch((e) =>
+      console.error('[AuthStore] Failed to persist refreshToken:', e)
+    );
+    SecureStore.setItemAsync(KEYS.user, JSON.stringify(user)).catch((e) =>
+      console.error('[AuthStore] Failed to persist user:', e)
+    );
   },
 
   updateUser: (user) => {
