@@ -1,25 +1,16 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Linking, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
-
-const TICKETS_KEY = 'eyego_driver_support_tickets';
-
-type Ticket = {
-  id: string;
-  subject: string;
-  message: string;
-  createdAt: string;
-  status: 'open' | 'resolved';
-};
 
 const FAQS = [
   {
@@ -79,41 +70,47 @@ export default function HelpScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [ticketSubject, setTicketSubject] = useState('');
   const [ticketMessage, setTicketMessage] = useState('');
 
-  useEffect(() => {
-    AsyncStorage.getItem(TICKETS_KEY).then((val) => {
-      if (val) {
-        try { setTickets(JSON.parse(val)); } catch {}
-      }
-    });
-  }, []);
+  // Previously this whole feature was AsyncStorage-only — "Submit Ticket"
+  // told the driver it had been sent to support, but nothing ever left the
+  // phone. The backend already had /driver/support-tickets wired (used by
+  // the admin console); the client just never called it.
+  const queryClient = useQueryClient();
+  const { data: ticketsData } = useQuery({
+    queryKey: ['driver', 'support-tickets'],
+    queryFn: () => driverApi.getSupportTickets(),
+  });
+  const tickets = ticketsData?.data?.data?.tickets ?? [];
 
-  const saveTickets = async (updated: Ticket[]) => {
-    setTickets(updated);
-    await AsyncStorage.setItem(TICKETS_KEY, JSON.stringify(updated));
-  };
+  const createTicketMutation = useMutation({
+    mutationFn: (data: { subject: string; category: string; description: string }) =>
+      driverApi.createSupportTicket(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driver', 'support-tickets'] });
+      setTicketSubject('');
+      setTicketMessage('');
+      setShowNewTicket(false);
+      Alert.alert('Submitted', 'Your support ticket has been submitted. We\'ll respond within 2 hours.');
+    },
+    onError: (err: any) => {
+      // Fields deliberately kept so a failed submit doesn't force a retype.
+      Alert.alert('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+    },
+  });
 
-  const handleSubmitTicket = async () => {
+  const handleSubmitTicket = () => {
     if (!ticketSubject.trim() || !ticketMessage.trim()) {
       Alert.alert('Required', 'Please fill in subject and message.');
       return;
     }
-    const newTicket: Ticket = {
-      id: Date.now().toString(),
+    createTicketMutation.mutate({
       subject: ticketSubject.trim(),
-      message: ticketMessage.trim(),
-      createdAt: new Date().toISOString(),
-      status: 'open',
-    };
-    await saveTickets([newTicket, ...tickets]);
-    setTicketSubject('');
-    setTicketMessage('');
-    setShowNewTicket(false);
-    Alert.alert('Submitted', 'Your support ticket has been submitted. We\'ll respond within 2 hours.');
+      category: 'GENERAL',
+      description: ticketMessage.trim(),
+    });
   };
 
   return (
@@ -185,9 +182,9 @@ export default function HelpScreen() {
                     <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface, flex: 1 }}>
                       {ticket.subject}
                     </Text>
-                    <View style={{ backgroundColor: ticket.status === 'open' ? `${colors.primary}22` : `${'#22C55E'}22`, borderRadius: radii.full, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
-                      <Text variant="caption" color={ticket.status === 'open' ? colors.primary : '#22C55E'}>
-                        {ticket.status === 'open' ? 'Open' : 'Resolved'}
+                    <View style={{ backgroundColor: ticket.status === 'OPEN' ? `${colors.primary}22` : `${'#22C55E'}22`, borderRadius: radii.full, paddingHorizontal: spacing.sm, paddingVertical: 2 }}>
+                      <Text variant="caption" color={ticket.status === 'OPEN' ? colors.primary : '#22C55E'}>
+                        {ticket.status === 'OPEN' ? 'Open' : 'Closed'}
                       </Text>
                     </View>
                   </View>
@@ -195,7 +192,7 @@ export default function HelpScreen() {
                     {new Date(ticket.createdAt).toLocaleDateString()}
                   </Text>
                   <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs, lineHeight: 20 }} numberOfLines={2}>
-                    {ticket.message}
+                    {ticket.messages?.[0]?.text ?? ''}
                   </Text>
                 </View>
               ))}
@@ -259,7 +256,7 @@ export default function HelpScreen() {
                 multiline
               />
             </View>
-            <Button label="Submit Ticket" onPress={handleSubmitTicket} />
+            <Button label="Submit Ticket" onPress={handleSubmitTicket} loading={createTicketMutation.isPending} disabled={createTicketMutation.isPending} />
           </View>
         </SafeAreaView>
       </Modal>

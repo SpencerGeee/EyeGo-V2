@@ -267,4 +267,28 @@ export const driverApi = {
 
   withdraw: (data: { amount: number }) =>
     apiClient.post<ApiResponse<{ reference: string; message: string }>>('/driver/wallet/withdraw', data),
+
+  // Support tickets — backend already had /driver/support-tickets wired
+  // (drivers.routes.js) but no client ever called it; the driver app's help
+  // screen saved "tickets" to AsyncStorage only, so nothing ever reached
+  // support/admin despite the confirmation message telling the driver it had.
+  getSupportTickets: () =>
+    apiClient.get<ApiResponse<{ tickets: DriverSupportTicket[] }>>('/driver/support-tickets'),
+
+  createSupportTicket: (data: { subject: string; category: string; description: string }) =>
+    apiClient.post<ApiResponse<{ ticket: DriverSupportTicket }>>('/driver/support-tickets', data),
+
+  replyToTicket: (ticketId: string, data: { message: string }) =>
+    apiClient.post<ApiResponse<void>>(`/driver/support-tickets/${ticketId}/reply`, data),
 };
+
+export interface DriverSupportTicket {
+  id: string;
+  subject: string;
+  category: string;
+  status: string;
+  priority: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: Array<{ id: string; text: string; senderRole: string; createdAt: string }>;
+}
