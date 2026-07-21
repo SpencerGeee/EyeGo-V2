@@ -64,15 +64,21 @@ export default function RideDetailScreen() {
 
     return {
       ...rawTrip,
+      // BUGFIX: previously defaulted missing route coordinates to (0,0) — the
+      // Gulf of Guinea — and rendered it as a real pickup/destination pin
+      // since `trip?.origin` / `trip?.destination` are always truthy objects.
+      // Keep lat/lng null when the route genuinely has no coordinates so the
+      // marker/camera/route-line guards below (trip?.origin?.longitude etc.)
+      // correctly skip rendering instead of showing a fabricated point.
       origin: {
         address: rawTrip.route?.originName ?? 'Origin',
-        latitude: rawTrip.route?.originLat ?? 0,
-        longitude: rawTrip.route?.originLng ?? 0,
+        latitude: typeof rawTrip.route?.originLat === 'number' ? rawTrip.route.originLat : null,
+        longitude: typeof rawTrip.route?.originLng === 'number' ? rawTrip.route.originLng : null,
       },
       destination: {
         address: rawTrip.route?.destinationName ?? 'Destination',
-        latitude: rawTrip.route?.destLat ?? 0,
-        longitude: rawTrip.route?.destLng ?? 0,
+        latitude: typeof rawTrip.route?.destLat === 'number' ? rawTrip.route.destLat : null,
+        longitude: typeof rawTrip.route?.destLng === 'number' ? rawTrip.route.destLng : null,
       },
       availableSeats: rawTrip.maxSeats - (rawTrip.bookings?.length ?? 0),
       totalSeats: rawTrip.maxSeats,
@@ -105,7 +111,11 @@ export default function RideDetailScreen() {
   // fitBounds via ref) — frame origin+destination here instead.
   const cameraRef = useRef<any>(null);
   useEffect(() => {
-    if (!trip?.origin || !trip?.destination) return;
+    // trip.origin/destination are always truthy objects (see the trip memo
+    // above) — check the actual coordinates, not object presence, or a route
+    // with no real coordinates would fitBounds to (undefined, undefined).
+    if (trip?.origin?.latitude == null || trip?.origin?.longitude == null) return;
+    if (trip?.destination?.latitude == null || trip?.destination?.longitude == null) return;
     cameraRef.current?.fitBounds(
       [
         [trip.origin.longitude, trip.origin.latitude],
@@ -175,21 +185,26 @@ export default function RideDetailScreen() {
         scaleBarEnabled={false}
       >
         <MapboxGL.Camera ref={cameraRef} animationMode="none" animationDuration={0} />
-        {trip?.origin && (
+        {/* BUGFIX: trip.origin/destination are always-truthy objects even when
+            the route has no real coordinates (see the trip memo above) — guard
+            on the actual lat/lng so a missing coordinate renders no pin instead
+            of one at (undefined, undefined). */}
+        {trip?.origin?.latitude != null && trip?.origin?.longitude != null && (
           <MapboxGL.MarkerView coordinate={[trip.origin.longitude, trip.origin.latitude]}>
             <View style={styles.markerOrigin}>
               <View style={styles.markerDot} />
             </View>
           </MapboxGL.MarkerView>
         )}
-        {trip?.destination && (
+        {trip?.destination?.latitude != null && trip?.destination?.longitude != null && (
           <MapboxGL.MarkerView coordinate={[trip.destination.longitude, trip.destination.latitude]}>
             <View style={styles.markerDestination}>
               <Ionicons name="location" size={20} color={colors.secondary} />
             </View>
           </MapboxGL.MarkerView>
         )}
-        {trip?.origin && trip?.destination && (
+        {trip?.origin?.latitude != null && trip?.origin?.longitude != null &&
+         trip?.destination?.latitude != null && trip?.destination?.longitude != null && (
           <MapboxGL.ShapeSource
             id="routeLine"
             shape={{

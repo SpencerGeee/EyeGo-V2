@@ -221,41 +221,77 @@ export default function TrackingScreen() {
       ...syncedTrip,
       origin: {
         address: syncedTrip.route?.originName ?? 'Origin',
-        latitude: syncedTrip.route?.originLat ?? 5.6037,
-        longitude: syncedTrip.route?.originLng ?? -0.187,
+        // No numeric fallback — a missing route coordinate must never render as
+        // a real pickup pin. hasPickup below gates every consumer (markers,
+        // OSRM routing, ETA). The only place a fallback is allowed is the
+        // map's initial camera framing, which uses VIEWPORT_FALLBACK directly.
+        latitude: typeof syncedTrip.route?.originLat === 'number' ? syncedTrip.route.originLat : null,
+        longitude: typeof syncedTrip.route?.originLng === 'number' ? syncedTrip.route.originLng : null,
       },
       destination: {
         address: syncedTrip.route?.destinationName ?? 'Destination',
-        latitude: syncedTrip.route?.destLat ?? 5.65,
-        longitude: syncedTrip.route?.destLng ?? -0.19,
+        latitude: typeof syncedTrip.route?.destLat === 'number' ? syncedTrip.route.destLat : null,
+        longitude: typeof syncedTrip.route?.destLng === 'number' ? syncedTrip.route.destLng : null,
       },
     };
   }, [syncedTrip]);
 
+  // Camera/viewport-only fallback — used ONLY to give the map a sane initial
+  // frame before a real pickup/dest/driver coordinate is known. Never used for
+  // markers, OSRM routing, or ETA — those are gated on hasPickup/hasDest/
+  // hasDriverPos below so a missing coordinate shows nothing rather than a
+  // fabricated pin.
+  const VIEWPORT_FALLBACK: [number, number] = [-0.187, 5.6037];
+
+  const hasPickup = trip?.origin?.longitude != null && trip?.origin?.latitude != null;
+  const hasDest = trip?.destination?.longitude != null && trip?.destination?.latitude != null;
+
   const passengerPickupCoord: [number, number] = useMemo(() => {
-    if (trip?.origin && trip.origin.longitude && trip.origin.latitude) {
+    if (trip?.origin?.longitude != null && trip?.origin?.latitude != null) {
       return [trip.origin.longitude, trip.origin.latitude];
     }
-    return [-0.187, 5.6037];
+    return VIEWPORT_FALLBACK;
   }, [trip?.origin?.longitude, trip?.origin?.latitude]);
 
   const destCoord: [number, number] = useMemo(() => {
-    if (trip?.destination?.longitude && trip?.destination?.latitude) {
+    if (trip?.destination?.longitude != null && trip?.destination?.latitude != null) {
       return [trip.destination.longitude, trip.destination.latitude];
     }
-    return [-0.19, 5.65];
+    return VIEWPORT_FALLBACK;
   }, [trip?.destination?.longitude, trip?.destination?.latitude]);
 
   // Trip phase determines routing direction
   const tripInProgress = syncedTrip?.status === 'IN_PROGRESS';
 
-  // Driver location with interpolation — seed from DB coords so marker shows immediately.
-  const driverDbLat = syncedTrip?.driver?.currentLat ?? 5.61;
-  const driverDbLng = syncedTrip?.driver?.currentLng ?? -0.187;
-  const fallbackCoordRef = useRef({ latitude: driverDbLat, longitude: driverDbLng, heading: 0 });
-  useEffect(() => { fallbackCoordRef.current = { latitude: driverDbLat, longitude: driverDbLng, heading: 0 }; }, [driverDbLat, driverDbLng]);
+  // Driver location with interpolation — seed from DB coords so marker shows
+  // immediately. BUGFIX: this used to default to a fixed Accra-ish point
+  // (5.61, -0.187) whenever the driver hadn't reported a position yet, which
+  // rendered a fake driver pin on the rider's map indistinguishable from a
+  // real one and fed a fabricated coordinate into the OSRM ETA/route fetch
+  // below. Now the seed is only used when the backend actually has a real
+  // currentLat/currentLng for this driver; otherwise currentDriverCoord stays
+  // null until the live socket delivers a real fix, and every consumer
+  // (marker, OSRM origin, route line) is gated on hasDriverPos.
+  const driverDbLat = syncedTrip?.driver?.currentLat;
+  const driverDbLng = syncedTrip?.driver?.currentLng;
+  const hasDriverDbCoord = typeof driverDbLat === 'number' && typeof driverDbLng === 'number';
+  const fallbackCoordRef = useRef<{ latitude: number; longitude: number; heading: number } | null>(
+    hasDriverDbCoord ? { latitude: driverDbLat as number, longitude: driverDbLng as number, heading: 0 } : null
+  );
+  useEffect(() => {
+    fallbackCoordRef.current = hasDriverDbCoord
+      ? { latitude: driverDbLat as number, longitude: driverDbLng as number, heading: 0 }
+      : null;
+  }, [driverDbLat, driverDbLng, hasDriverDbCoord]);
   const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
+  const hasDriverPos = currentDriverCoord != null;
   const driverHeading = useDriverHeading(currentDriverCoord);
+  // Camera-only convenience tuple — safe to fall back to the viewport default
+  // since it only ever feeds MapboxGL.Camera/setCamera centering, never a
+  // marker or a routing/ETA calculation.
+  const cameraDriverCoord: [number, number] = currentDriverCoord
+    ? [currentDriverCoord.longitude, currentDriverCoord.latitude]
+    : VIEWPORT_FALLBACK;
 
   // Rider's own GPS — used for pre-trip routing (rider → pickup)
   const [riderLocation, setRiderLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -271,13 +307,20 @@ export default function TrackingScreen() {
   const routeFetchedRef = useRef(false);
   useEffect(() => {
     if (routeFetchedRef.current) return;
+    // BUGFIX: origin used to default missing driver coords to `0 ?? 0`
+    // (Gulf of Guinea), which passes the isNaN guard below and would fetch —
+    // and display as a real ETA — a route from (0,0). Gate on hasDriverPos/
+    // hasDest/hasPickup instead so a genuinely missing coordinate skips the
+    // fetch entirely rather than fabricating one.
     const origin: [number, number] | null = tripInProgress
-      ? [currentDriverCoord?.longitude ?? 0, currentDriverCoord?.latitude ?? 0]
+      ? (hasDriverPos ? [currentDriverCoord!.longitude, currentDriverCoord!.latitude] : null)
       : riderLocation
         ? [riderLocation.longitude, riderLocation.latitude]
         : null;
-    const target: [number, number] = tripInProgress ? destCoord : passengerPickupCoord;
-    if (!origin || isNaN(origin[0]) || isNaN(origin[1])) return;
+    const target: [number, number] | null = tripInProgress
+      ? (hasDest ? destCoord : null)
+      : (hasPickup ? passengerPickupCoord : null);
+    if (!origin || !target || isNaN(origin[0]) || isNaN(origin[1])) return;
 
     routeFetchedRef.current = true;
     fetch(
@@ -648,31 +691,46 @@ export default function TrackingScreen() {
         <MapboxGL.UserLocation visible={true} showsUserHeadingIndicator={true} />
 
         {/* Pickup marker — radar pulse while waiting, calm dot once riding.
-            tracksViewChanges must be on for the rings to actually animate. */}
-        <MapboxGL.MarkerView coordinate={passengerPickupCoord} tracksViewChanges={!tripInProgress}>
-          {tripInProgress ? (
-            <PulseMarker color={colors.secondary} />
-          ) : (
-            <PulseRing size={72} color={colors.secondary} duration={2200}>
+            tracksViewChanges must be on for the rings to actually animate.
+            BUGFIX: only render once a real pickup coordinate is known —
+            previously this fell back to a fixed Accra point and showed a
+            fake pickup pin indistinguishable from a real one. */}
+        {hasPickup && (
+          <MapboxGL.MarkerView coordinate={passengerPickupCoord} tracksViewChanges={!tripInProgress}>
+            {tripInProgress ? (
               <PulseMarker color={colors.secondary} />
-            </PulseRing>
-          )}
-        </MapboxGL.MarkerView>
+            ) : (
+              <PulseRing size={72} color={colors.secondary} duration={2200}>
+                <PulseMarker color={colors.secondary} />
+              </PulseRing>
+            )}
+          </MapboxGL.MarkerView>
+        )}
 
         {/* Driver marker — position glides natively between socket updates
-            (zero per-frame JS); rotation is a plain native prop update. */}
-        <MapboxGL.AnimatedMarkerView
-          coordinate={[currentDriverCoord.longitude, currentDriverCoord.latitude]}
-          duration={3500}
-          rotation={driverHeading}
-          flat
-        >
-          <View style={styles.driverMarker}>
-            <Ionicons name="car" size={18} color="#fff" />
-          </View>
-        </MapboxGL.AnimatedMarkerView>
+            (zero per-frame JS); rotation is a plain native prop update.
+            BUGFIX: only render once a real driver position is known (live
+            socket fix or a real DB currentLat/currentLng) — previously this
+            defaulted to a fixed Accra-ish point and rendered a fake driver
+            pin the rider had no way to distinguish from a real one. */}
+        {hasDriverPos && (
+          <MapboxGL.AnimatedMarkerView
+            coordinate={[currentDriverCoord!.longitude, currentDriverCoord!.latitude]}
+            duration={3500}
+            rotation={driverHeading}
+            flat
+          >
+            <View style={styles.driverMarker}>
+              <Ionicons name="car" size={18} color="#fff" />
+            </View>
+          </MapboxGL.AnimatedMarkerView>
+        )}
 
-        {/* Route line — OSRM road-following polyline, straight-line fallback */}
+        {/* Route line — OSRM road-following polyline, straight-line fallback.
+            BUGFIX: the straight-line fallback used to draw from/to whatever
+            fabricated coordinates were in play; now it only renders once the
+            real endpoints for this phase are actually known. */}
+        {(routeCoords.length >= 2 || (hasDriverPos && (tripInProgress ? hasDest : hasPickup))) && (
         <MapboxGL.ShapeSource
           id="routeLine"
           shape={{
@@ -682,8 +740,8 @@ export default function TrackingScreen() {
               coordinates: routeCoords.length >= 2
                 ? revealedCoords
                 : tripInProgress
-                  ? [[currentDriverCoord.longitude, currentDriverCoord.latitude], destCoord]
-                  : [[currentDriverCoord.longitude, currentDriverCoord.latitude], passengerPickupCoord],
+                  ? [[currentDriverCoord!.longitude, currentDriverCoord!.latitude], destCoord]
+                  : [[currentDriverCoord!.longitude, currentDriverCoord!.latitude], passengerPickupCoord],
             },
             properties: {},
           }}
@@ -711,6 +769,7 @@ export default function TrackingScreen() {
             aboveLayerID="routeLineShadow"
           />
         </MapboxGL.ShapeSource>
+        )}
       </MapboxGL.MapView>
 
       {/* Back button */}
@@ -815,7 +874,7 @@ export default function TrackingScreen() {
               setFollowing(true);
               frameOnTarget(
                 tripInProgress
-                  ? [currentDriverCoord.longitude, currentDriverCoord.latitude]
+                  ? cameraDriverCoord
                   : (passengerPickupCoord as [number, number]),
                 600
               );
@@ -847,7 +906,7 @@ export default function TrackingScreen() {
           if (followingRef.current) {
             frameOnTarget(
               tripInProgress
-                ? [currentDriverCoord.longitude, currentDriverCoord.latitude]
+                ? cameraDriverCoord
                 : (passengerPickupCoord as [number, number]),
               400
             );

@@ -109,11 +109,15 @@ export default function HomeScreen() {
   }, [txData]);
 
   const { data: heatmapData } = useQuery({
-    queryKey: ['driver', 'heatmap'],
-    queryFn: () => heatmapApi.getDemand(location?.latitude ?? 5.6037, location?.longitude ?? -0.187, 5),
+    queryKey: ['driver', 'heatmap', location?.latitude, location?.longitude],
+    // BUGFIX: previously queried demand around a fixed Accra center whenever
+    // the driver's own location wasn't known yet, silently showing "nearby"
+    // demand cells that weren't actually near the driver. Gated on a real
+    // location below instead of guessing one.
+    queryFn: () => heatmapApi.getDemand(location!.latitude, location!.longitude, 5),
     select: (r) => r.data.data?.cells ?? [],
     refetchInterval: showHeatmap ? 60000 : false, // ~60s poll
-    enabled: showHeatmap && isOnline,
+    enabled: showHeatmap && isOnline && !!location,
   });
 
   const { data: activeTripData } = useQuery({

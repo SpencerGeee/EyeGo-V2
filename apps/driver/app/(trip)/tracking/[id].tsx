@@ -184,24 +184,32 @@ export default function DriverTrackingScreen() {
   // driverCoord is a tuple — index access is the stable primitive dep; cameraRef is a stable ref
   }, [driverCoord?.[0], driverCoord?.[1], trip?.status]);
 
-  // Destination + pickup coords — declared HERE so the OSRM effect below can reference them
-  const destCoord: [number, number] = useMemo(() => {
+  // Destination + pickup coords — declared HERE so the OSRM effect below can
+  // reference them. BUGFIX: these used to default a missing route coordinate
+  // to a fixed Accra center, which rendered a fake destination/pickup pin and
+  // fed a fabricated point into the OSRM ETA fetch below. A trip's route
+  // should always carry real coordinates, but if it genuinely doesn't, stay
+  // null and let every consumer (markers, camera, route line, OSRM) skip
+  // rendering/fetching instead of showing made-up data.
+  const CAMERA_FALLBACK: [number, number] = [-0.187, 5.6037];
+
+  const destCoord: [number, number] | null = useMemo(() => {
     const lat = trip?.route?.destLat;
     const lng = trip?.route?.destLng;
-    if (lat && lng) return [lng, lat];
-    return [-0.187, 5.6037]; // fallback Accra center
+    if (typeof lat === 'number' && typeof lng === 'number') return [lng, lat];
+    return null;
   }, [trip?.route?.destLat, trip?.route?.destLng]);
 
-  const pickupCoord: [number, number] = useMemo(() => {
+  const pickupCoord: [number, number] | null = useMemo(() => {
     const lat = trip?.route?.originLat;
     const lng = trip?.route?.originLng;
-    if (lat && lng) return [lng, lat];
+    if (typeof lat === 'number' && typeof lng === 'number') return [lng, lat];
     return destCoord;
   }, [trip?.route?.originLat, trip?.route?.originLng, destCoord]);
 
   // Route target: pickup when en-route/arrived, destination when trip is running.
   // This makes the driver's map show "navigate to pickup" first, then "navigate to destination".
-  const driverRouteTarget: [number, number] = useMemo(() => {
+  const driverRouteTarget: [number, number] | null = useMemo(() => {
     return (trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED')
       ? destCoord
       : pickupCoord;
@@ -241,14 +249,14 @@ export default function DriverTrackingScreen() {
       .catch(() => {
         // OSRM unavailable — route line stays as straight fallback, no crash
       });
-  }, [driverCoord?.[0], driverCoord?.[1], driverRouteTarget[0], driverRouteTarget[1]]);
+  }, [driverCoord?.[0], driverCoord?.[1], driverRouteTarget?.[0], driverRouteTarget?.[1]]);
 
   // Reset OSRM fetch when route target changes (en-route → in-progress phase switch)
   const prevRouteTargetRef = useRef(driverRouteTarget);
   useEffect(() => {
     if (
-      prevRouteTargetRef.current[0] !== driverRouteTarget[0] ||
-      prevRouteTargetRef.current[1] !== driverRouteTarget[1]
+      prevRouteTargetRef.current?.[0] !== driverRouteTarget?.[0] ||
+      prevRouteTargetRef.current?.[1] !== driverRouteTarget?.[1]
     ) {
       prevRouteTargetRef.current = driverRouteTarget;
       routeFetchedRef.current = false;
@@ -428,7 +436,7 @@ export default function DriverTrackingScreen() {
       >
         <MapboxGL.Camera
           ref={cameraRef}
-          centerCoordinate={driverCoord ?? pickupCoord}
+          centerCoordinate={driverCoord ?? pickupCoord ?? CAMERA_FALLBACK}
           zoomLevel={14}
           animationMode="none"
           animationDuration={0}
@@ -438,36 +446,44 @@ export default function DriverTrackingScreen() {
             Previously a static Ionicons rotate('45deg') that never changed — the arrow
             looked frozen no matter which way the phone/vehicle actually turned. Now
             driven by the live GPS heading and glides between fixes via
-            AnimatedMarkerView instead of jumping. */}
-        <MapboxGL.AnimatedMarkerView
-          coordinate={driverCoord ?? pickupCoord}
-          // The Ionicons "navigate" glyph itself points north-east by default —
-          // the old code's fixed rotate('45deg') was compensating for that so
-          // the icon rests "up" when stationary. Keep that same +45 offset and
-          // add the live GPS heading on top so the arrow actually turns with it.
-          rotation={((driverLocation?.heading ?? 0) + 45) % 360}
-          duration={1000}
-        >
-          <View style={styles.driverMarker}>
-            <Ionicons name="navigate" size={20} color="#3B82F6" />
-          </View>
-        </MapboxGL.AnimatedMarkerView>
+            AnimatedMarkerView instead of jumping.
+            BUGFIX: only render once a real coordinate (live GPS or the trip's
+            real pickup point) is known — pickupCoord/destCoord no longer fall
+            back to a fabricated Accra point, so this must guard on that. */}
+        {(driverCoord ?? pickupCoord) && (
+          <MapboxGL.AnimatedMarkerView
+            coordinate={(driverCoord ?? pickupCoord)!}
+            // The Ionicons "navigate" glyph itself points north-east by default —
+            // the old code's fixed rotate('45deg') was compensating for that so
+            // the icon rests "up" when stationary. Keep that same +45 offset and
+            // add the live GPS heading on top so the arrow actually turns with it.
+            rotation={((driverLocation?.heading ?? 0) + 45) % 360}
+            duration={1000}
+          >
+            <View style={styles.driverMarker}>
+              <Ionicons name="navigate" size={20} color="#3B82F6" />
+            </View>
+          </MapboxGL.AnimatedMarkerView>
+        )}
 
         {/* Pickup marker */}
-        {trip?.status !== 'IN_PROGRESS' && (
+        {trip?.status !== 'IN_PROGRESS' && pickupCoord && (
           <MapboxGL.MarkerView coordinate={pickupCoord}>
             <PulseMarker color={colors.secondary} />
           </MapboxGL.MarkerView>
         )}
 
         {/* Destination marker */}
-        <MapboxGL.MarkerView coordinate={destCoord}>
-          <View style={styles.destMarker}>
-            <Ionicons name="flag" size={14} color="#fff" />
-          </View>
-        </MapboxGL.MarkerView>
+        {destCoord && (
+          <MapboxGL.MarkerView coordinate={destCoord}>
+            <View style={styles.destMarker}>
+              <Ionicons name="flag" size={14} color="#fff" />
+            </View>
+          </MapboxGL.MarkerView>
+        )}
 
         {/* Route polyline */}
+        {(routeCoords.length >= 2 || (driverCoord && driverRouteTarget) || (pickupCoord && destCoord)) && (
         <MapboxGL.ShapeSource
           id="routeLine"
           shape={{
@@ -476,9 +492,9 @@ export default function DriverTrackingScreen() {
               type: 'LineString',
               coordinates: routeCoords.length >= 2
                 ? routeCoords
-                : driverCoord
+                : driverCoord && driverRouteTarget
                 ? [driverCoord, driverRouteTarget]
-                : [pickupCoord, destCoord],
+                : [pickupCoord!, destCoord!],
             },
             properties: {},
           }}
@@ -505,6 +521,7 @@ export default function DriverTrackingScreen() {
             aboveLayerID="routeLineShadow"
           />
         </MapboxGL.ShapeSource>
+        )}
       </MapboxGL.MapView>
 
       {/* Floating header */}

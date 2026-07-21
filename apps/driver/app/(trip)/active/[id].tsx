@@ -236,20 +236,32 @@ export default function ActiveTripScreen() {
   // guaranteed to render once in the loading state first) — trips reached via
   // the create-trip flow could avoid it if the data happened to already be
   // cached, which is why it looked resume-specific.
+  // driverCoord's Accra fallback is fine to keep: it only ever seeds
+  // NavCamera.fallbackCenter and the driver's own position pulse before a
+  // live GPS fix arrives — a self-view convenience, never sent to the rider.
   const driverCoord: [number, number] = location
     ? [location.longitude, location.latitude]
     : [trip?.route?.originLng ?? -0.187, trip?.route?.originLat ?? 5.6037];
-  const pickupCoord: [number, number] = trip?.route?.originLat && trip?.route?.originLng
+  // BUGFIX: pickup/dest markers used to silently collapse onto driverCoord's
+  // Accra fallback whenever trip.route lacked real coordinates, rendering a
+  // fake pickup/destination pin on the driver's own map. An active trip's
+  // route should always carry real coordinates (route creation requires
+  // successful geocoding), but stay null instead of fabricating one if it
+  // somehow doesn't — the marker guards below then simply render nothing.
+  const pickupCoord: [number, number] | null = typeof trip?.route?.originLat === 'number' && typeof trip?.route?.originLng === 'number'
     ? [trip.route.originLng, trip.route.originLat]
-    : driverCoord;
-  const destCoord: [number, number] = trip?.route?.destLat && trip?.route?.destLng
+    : null;
+  const destCoord: [number, number] | null = typeof trip?.route?.destLat === 'number' && typeof trip?.route?.destLng === 'number'
     ? [trip.route.destLng, trip.route.destLat]
     : pickupCoord;
   // Navigate to pickup while en-route/arrived, then to destination once the
   // trip is actually running — mirrors tracking/[id].tsx's target logic.
-  const routeTarget: [number, number] = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED'
+  // Falls back to driverCoord only as the OSRM/polyline target so the route
+  // line has somewhere plausible to draw to — this is display-only geometry,
+  // not a coordinate presented as a real pickup/destination.
+  const routeTarget: [number, number] = (trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED'
     ? destCoord
-    : pickupCoord;
+    : pickupCoord) ?? driverCoord;
   const routeCoords = useRoadRoute(driverCoord, routeTarget);
 
   // ─── Loading skeleton ────────────────────────────────────────────────────
@@ -354,7 +366,7 @@ export default function ActiveTripScreen() {
         </MapboxGL.MarkerView>
 
         {/* Pickup marker — hidden once the trip is actually running */}
-        {trip.status !== 'IN_PROGRESS' && trip.status !== 'COMPLETED' && (
+        {trip.status !== 'IN_PROGRESS' && trip.status !== 'COMPLETED' && pickupCoord && (
           <MapboxGL.MarkerView coordinate={pickupCoord}>
             <View style={styles.pickupMarker}>
               <Ionicons name="location" size={14} color="#fff" />
@@ -363,11 +375,13 @@ export default function ActiveTripScreen() {
         )}
 
         {/* Destination marker */}
-        <MapboxGL.MarkerView coordinate={destCoord}>
-          <View style={styles.destMarker}>
-            <Ionicons name="flag" size={14} color="#fff" />
-          </View>
-        </MapboxGL.MarkerView>
+        {destCoord && (
+          <MapboxGL.MarkerView coordinate={destCoord}>
+            <View style={styles.destMarker}>
+              <Ionicons name="flag" size={14} color="#fff" />
+            </View>
+          </MapboxGL.MarkerView>
+        )}
 
         {/* Route polyline — road-following via OSRM, straight-line fallback until it resolves */}
         <MapboxGL.ShapeSource
