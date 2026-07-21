@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,18 +7,24 @@ import {
   Alert,
   Modal,
   Platform,
-  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
 import { Text, GlassCard, Button, GlowSearchInput, AnimatedFareText } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { apiClient, routesApi, tripsApi } from '@eyego/api';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { consumePickedPlace } from '../../utils/placePickerResult';
+
+interface PickedLocation {
+  lat: number;
+  lng: number;
+  address: string;
+}
 
 // Route shape returned by routesApi.getAll (subset we render here).
 interface ScheduleRoute {
@@ -57,9 +63,46 @@ export default function ScheduleRideScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(getMinDate());
   const [requestMode, setRequestMode] = useState(false);
-  const [requestDest, setRequestDest] = useState('');
+  const [requestPickup, setRequestPickup] = useState<PickedLocation | null>(null);
+  const [requestDest, setRequestDest] = useState<PickedLocation | null>(null);
   const [search, setSearch] = useState('');
+  const pickingFieldRef = useRef<'pickup' | 'dest' | null>(null);
 
+  // Default pickup to the device's current position (same default the main
+  // on-demand request flow uses) so the rider only has to actively pick a
+  // destination — pickup stays overridable via the same map picker.
+  useEffect(() => {
+    if (!requestMode || requestPickup) return;
+    (async () => {
+      try {
+        const Location = await import('expo-location');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setRequestPickup({ lat: loc.coords.latitude, lng: loc.coords.longitude, address: 'Current location' });
+      } catch {
+        // No GPS fix — pickup stays unset; rider can still set it manually via the map picker.
+      }
+    })();
+  }, [requestMode, requestPickup]);
+
+  // Consume a location confirmed on the map picker screen — pickingFieldRef
+  // tracks which of the two fields (pickup/dest) triggered the navigation.
+  useFocusEffect(
+    useCallback(() => {
+      const field = pickingFieldRef.current;
+      if (!field) return;
+      const picked = consumePickedPlace();
+      if (!picked) return;
+      pickingFieldRef.current = null;
+      const location: PickedLocation = { lat: picked.latitude, lng: picked.longitude, address: picked.fullAddress };
+      if (field === 'pickup') setRequestPickup(location);
+      else setRequestDest(location);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
+
+  const queryClient = useQueryClient();
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -97,36 +140,46 @@ export default function ScheduleRideScreen() {
       }),
     onSuccess: () => {
       if (!mountedRef.current) return;
+      queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
       router.replace('/scheduled-rides' as any);
     },
     onError: (err: any) => {
-      Alert.alert('Scheduling Failed', err?.message || 'Could not schedule your ride. Please try again.');
+      // err.message was the generic axios message ("Request failed with status
+      // code 409") — the backend's actual reason (e.g. the duplicate-schedule
+      // dedupe check) lives in the response body and was never surfaced, so a
+      // 409 looked identical to any other failure and riders assumed nothing
+      // had been scheduled when the first attempt may have already succeeded.
+      Alert.alert('Scheduling Failed', err?.response?.data?.message || err?.message || 'Could not schedule your ride. Please try again.');
     },
   });
 
   const requestMutation = useMutation({
     mutationFn: () =>
       tripsApi.requestTrip({
-        destination: requestDest.trim(),
+        destination: requestDest!.address,
         scheduledAt: selectedDate.toISOString(),
         seatCount,
+        pickupLat: requestPickup?.lat,
+        pickupLng: requestPickup?.lng,
+        destLat: requestDest!.lat,
+        destLng: requestDest!.lng,
       }),
     onSuccess: () => {
       if (!mountedRef.current) return;
       router.replace({
         pathname: '/ride/request',
-        params: { destination: requestDest.trim(), scheduledAt: selectedDate.toISOString() },
+        params: { destination: requestDest!.address, scheduledAt: selectedDate.toISOString() },
       } as any);
     },
     onError: (err: any) => {
-      Alert.alert('Request Failed', err?.message || 'Could not submit your trip request. Please try again.');
+      Alert.alert('Request Failed', err?.response?.data?.message || err?.message || 'Could not submit your trip request. Please try again.');
     },
   });
 
   const handleSubmit = () => {
     if (requestMode) {
-      if (!requestDest.trim()) {
-        Alert.alert('Enter a Destination', 'Please type where you want to go.');
+      if (!requestDest) {
+        Alert.alert('Choose a Destination', 'Please pick where you want to go on the map.');
         return;
       }
       const minDate = getMinDate();
@@ -199,18 +252,45 @@ export default function ScheduleRideScreen() {
         </View>
 
         {requestMode ? (
-          /* ── Free-text destination request ── */
-          <View style={styles.searchBar}>
-            <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-            <TextInput
-              style={styles.searchInput}
-              value={requestDest}
-              onChangeText={setRequestDest}
-              placeholder="e.g. Madina, Lapaz, Achimota…"
-              placeholderTextColor={colors.outlineVariant}
-              returnKeyType="done"
-              autoCorrect={false}
-            />
+          /* ── Map-picked pickup + destination — same fixed-center-pin picker
+              used by the main "where to" flow, instead of free-text (which
+              never sent coordinates and could collapse pickup/dropoff onto
+              the same point server-side). ── */
+          <View style={{ gap: spacing.sm }}>
+            <Pressable
+              style={styles.searchBar}
+              onPress={() => {
+                pickingFieldRef.current = 'pickup';
+                router.push('/profile/place-picker' as any);
+              }}
+            >
+              <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
+              <Text
+                variant="bodyLarge"
+                numberOfLines={1}
+                style={{ flex: 1, color: requestPickup ? colors.onSurface : colors.outlineVariant }}
+              >
+                {requestPickup?.address ?? 'Locating pickup…'}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+            </Pressable>
+            <Pressable
+              style={styles.searchBar}
+              onPress={() => {
+                pickingFieldRef.current = 'dest';
+                router.push('/profile/place-picker' as any);
+              }}
+            >
+              <Ionicons name="navigate-outline" size={18} color={colors.primary} />
+              <Text
+                variant="bodyLarge"
+                numberOfLines={1}
+                style={{ flex: 1, color: requestDest ? colors.onSurface : colors.outlineVariant }}
+              >
+                {requestDest?.address ?? 'Choose destination on map'}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+            </Pressable>
           </View>
         ) : (
           <>

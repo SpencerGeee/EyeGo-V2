@@ -34,6 +34,7 @@ uniform float uPillarHeight;
 uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
+uniform float uLightMode;
 
 const float STEP_MULT = 1.35;
 const int MAX_ITER = 28;
@@ -105,7 +106,14 @@ half4 main(float2 C) {
   // Film grain noise
   col -= hash(C) / 15.0 * uNoiseIntensity;
 
-  return half4(half3(col * uIntensity), 1.0) * uOpacity;
+  // Dark mode: flat wash over the whole frame (alpha = uOpacity everywhere),
+  // which reads fine over a dark container. Light mode: alpha follows the
+  // glow's own post-tanh brightness (already normalized to [0,1] per
+  // channel) so empty background is fully transparent — the white container
+  // shows through as true white — while the pillar's green/blue glow stays
+  // opaque exactly where it's actually lit.
+  float bgAlpha = uLightMode > 0.5 ? clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0) : 1.0;
+  return half4(half3(col * uIntensity) * bgAlpha, bgAlpha) * uOpacity;
 }
 `;
 
@@ -122,6 +130,7 @@ uniform float uPillarHeight;
 uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
+uniform float uLightMode;
 
 const float STEP_MULT = 1.5;
 const int MAX_ITER = 24;
@@ -173,7 +182,8 @@ half4 main(float2 C) {
   float widthNorm = uPillarWidth / 3.0;
   col = tanhv(col * uGlowAmount / widthNorm);
 
-  return half4(half3(col * uIntensity), 1.0) * uOpacity;
+  float bgAlpha = uLightMode > 0.5 ? clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0) : 1.0;
+  return half4(half3(col * uIntensity) * bgAlpha, bgAlpha) * uOpacity;
 }
 `;
 
@@ -222,6 +232,10 @@ export interface LightPillarBackgroundProps {
   opacity?: number;
   /** false renders a single frozen frame (no per-frame work). */
   animated?: boolean;
+  /** When true, empty background renders fully transparent instead of a
+   *  flat black wash — lets a light container show through as true white
+   *  while the pillar's own glow color stays opaque. */
+  lightMode?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -236,6 +250,7 @@ export function LightPillarBackground({
   noiseIntensity = 0.5,
   opacity = 1,
   animated = true,
+  lightMode = false,
   style,
 }: LightPillarBackgroundProps) {
   const tier = usePerformanceTier();
@@ -301,8 +316,9 @@ export function LightPillarBackground({
       uNoiseIntensity: tier === 'low' ? 0 : noiseIntensity,
       uRotationSpeed: rotationSpeed,
       uOpacity: opacity,
+      uLightMode: lightMode ? 1 : 0,
     };
-  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, cw, ch, tier]);
+  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, lightMode, cw, ch, tier]);
 
   const uniforms = useDerivedValue(
     () => ({

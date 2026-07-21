@@ -7,6 +7,8 @@ import {
   ScrollView,
   Image,
   Platform,
+  Linking,
+  Alert,
 } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -585,9 +587,20 @@ export default function ChatScreen() {
           </View>
         </View>
         <Pressable
-          onPress={() => {
-            const phone = driver?.phone;
-            if (phone) require('react-native').Linking.openURL(`tel:${phone}`);
+          onPress={async () => {
+            // driver.phone is never included in the trip payload (privacy —
+            // trip listings are visible pre-booking), so this always used to
+            // be undefined and the button silently did nothing. Resolve it
+            // through the auth-gated contact endpoint instead.
+            if (!id) return;
+            try {
+              const res = await tripsApi.getContact(id);
+              const phone = (res.data as any)?.data?.phone;
+              if (phone) Linking.openURL(`tel:${phone}`);
+              else Alert.alert('Unavailable', "Driver's number isn't available right now.");
+            } catch {
+              Alert.alert('Unavailable', "Couldn't get the driver's number. Please try again.");
+            }
           }}
           style={styles.callBtn}
         >

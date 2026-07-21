@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
+import { useNotificationsStore } from '../../stores/notifications.store';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { OnlineToggle } from '../../components/OnlineToggle';
@@ -146,15 +147,23 @@ export default function HomeScreen() {
     reconnectAttemptsRef.current = 0;
     connectDriverSocket();
     const cleanDispatch = driverSocketEvents.onTripAssigned((data) => {
+      useNotificationsStore.getState().addNotification({
+        type: 'TRIP_ASSIGNED',
+        title: data.kind === 'REQUEST' ? 'New ride request nearby' : 'New trip assigned',
+        body: data.routeDestination ? `To ${data.routeDestination}` : '',
+        tripId: data.tripId,
+      });
       if (!isMountedRef.current) return; // home screen unmounted (e.g. driver switched tabs) — don't navigate
       router.push({
         pathname: '/(trip)/dispatch/[id]',
         params: {
           id: data.tripId,
+          kind: data.kind,
           origin: data.routeOrigin,
           destination: data.routeDestination,
           departureTime: data.departureTime,
           expiresAt: data.expiresAt,
+          estimatedEarnings: data.estimatedEarnings != null ? String(data.estimatedEarnings) : undefined,
         },
       } as any);
     });

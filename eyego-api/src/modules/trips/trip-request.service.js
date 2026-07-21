@@ -157,6 +157,34 @@ async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, g
       }
     );
 
+    // Also emit a live socket event, mirroring dispatch.service.js's pattern for
+    // the pre-scheduled-trip path — without this, on-demand rider requests only
+    // ever reached drivers via FCM push, so a driver with the app open in the
+    // foreground (no OS push banner) never saw the dispatch screen at all, and
+    // the Alerts "Dispatch" tab (fed by the same handler) stayed empty.
+    // `kind: 'REQUEST'` tells the client to call acceptTripRequest(id) instead
+    // of acceptDispatch(id) — apps/driver/app/(trip)/dispatch/[id].tsx already
+    // branches on this.
+    try {
+      const io = require('../../app').get('io');
+      const expiresAt = new Date(Date.now() + 30 * 1000).toISOString();
+      const assignedPayload = {
+        tripId: tripRequest.id,
+        kind: 'REQUEST',
+        routeOrigin: 'Pickup nearby',
+        routeDestination: destination,
+        departureTime: scheduledAt.toISOString(),
+        estimatedEarnings: undefined,
+        seatCount: groupedCount,
+        expiresAt,
+      };
+      for (const d of eligibleDrivers) {
+        io.of('/driver').to(`driver:${d.id}`).emit('trip:assigned', assignedPayload);
+      }
+    } catch (emitErr) {
+      logger.warn('Trip request dispatch socket emit failed (non-blocking):', emitErr.message);
+    }
+
     logger.info('Trip request dispatched', {
       requestId:   tripRequest.id,
       destination,
@@ -230,14 +258,29 @@ async function acceptTripRequest(driverId, tripRequestId) {
     const vehicle = await tx.vehicle.findFirst({ where: { driverId, isActive: true } });
     if (!vehicle) throw new AppError('No active vehicle registered. Add a vehicle before accepting requests.', 400, 'NO_VEHICLE');
 
-    const originLat = tripRequest.pickupLat ?? 0;
-    const originLng = tripRequest.pickupLng ?? 0;
-    const hasDestCoords = tripRequest.destLat != null && tripRequest.destLng != null;
-    const destLat = hasDestCoords ? tripRequest.destLat : originLat;
-    const destLng = hasDestCoords ? tripRequest.destLng : originLng;
+    // Defaulting missing coordinates to (0,0)/origin (the old behavior) put
+    // pickup in the Gulf of Guinea or collapsed dropoff onto pickup whenever a
+    // request came from a free-text flow with no map picker (e.g. schedule's
+    // "request new destination"). Geocode the free-text destination as a last
+    // resort instead of fabricating coordinates that render nonsensically.
+    if (tripRequest.pickupLat == null || tripRequest.pickupLng == null) {
+      throw new AppError('Trip request is missing a pickup location', 400, 'MISSING_PICKUP_COORDS');
+    }
+    const originLat = tripRequest.pickupLat;
+    const originLng = tripRequest.pickupLng;
+    let destLat = tripRequest.destLat;
+    let destLng = tripRequest.destLng;
+    if (destLat == null || destLng == null) {
+      const mapboxService = require('../../services/mapbox.service');
+      const geo = await mapboxService.forwardGeocode(tripRequest.destination).catch(() => null)
+        ?? await mapboxService.nominatimForwardGeocode(tripRequest.destination).catch(() => null);
+      if (geo) { destLat = geo.lat; destLng = geo.lng; }
+    }
+    const hasDestCoords = destLat != null && destLng != null;
     const distanceKm = hasDestCoords
       ? Math.max(haversineKm(originLat, originLng, destLat, destLng), 1)
       : ON_DEMAND_FALLBACK_DISTANCE_KM;
+    if (!hasDestCoords) { destLat = originLat; destLng = originLng; }
 
     const route = await tx.route.create({
       data: {

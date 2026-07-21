@@ -71,7 +71,7 @@ export interface CreateTripPayload {
   routeId: string;
   departureTime: string;
   availableSeats: number;
-  tier?: 'ECONOMY' | 'COMFORT';
+  tier?: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
   vehicleId?: string;
 }
 

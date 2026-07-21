@@ -39,10 +39,14 @@ function calculateFare({
   storedBaseFare,
   storedPerKmRate,
 }) {
-  const baseFare = storedBaseFare != null ? storedBaseFare
-    : (tier === 'ECO' ? env.ECO_BASE_FARE : env.COMFORT_BASE_FARE);
-  const perKmRate = storedPerKmRate != null ? storedPerKmRate
-    : (tier === 'ECO' ? env.ECO_PER_KM_RATE : env.COMFORT_PER_KM_RATE);
+  const rates = {
+    ECO: [env.ECO_BASE_FARE, env.ECO_PER_KM_RATE],
+    COMFORT: [env.COMFORT_BASE_FARE, env.COMFORT_PER_KM_RATE],
+    PREMIUM: [env.PREMIUM_BASE_FARE, env.PREMIUM_PER_KM_RATE],
+  };
+  const [tierBaseFare, tierPerKmRate] = rates[tier] ?? rates.ECO;
+  const baseFare = storedBaseFare != null ? storedBaseFare : tierBaseFare;
+  const perKmRate = storedPerKmRate != null ? storedPerKmRate : tierPerKmRate;
 
   const doorstepSurcharge = doorstepPickup ? env.DOORSTEP_SURCHARGE : 0;
   const heavyLoadSurcharge = heavyLoad ? env.HEAVY_LOAD_SURCHARGE : 0;

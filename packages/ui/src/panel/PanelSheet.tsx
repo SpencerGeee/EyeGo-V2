@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Keyboard,
   Modal,
   Pressable,
   StyleSheet,
@@ -102,7 +103,14 @@ export function PanelSheet({
     handleDismissedRef.current = handleDismissed;
   });
 
-  const dismiss = useCallback(() => snapToState('hidden'), [snapToState]);
+  // Sheets holding a focused TextInput (e.g. withdraw amount) left the native
+  // keyboard visible after a backdrop tap on Android — the Modal's focused
+  // input unmounts abruptly without blurring first, so the OS never gets the
+  // signal to hide it. Dismiss explicitly rather than relying on unmount.
+  const dismiss = useCallback(() => {
+    Keyboard.dismiss();
+    snapToState('hidden');
+  }, [snapToState]);
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: progress.value * backdropOpacity }));
 

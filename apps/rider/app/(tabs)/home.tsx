@@ -28,6 +28,15 @@ import { useThemeStore } from '../../stores/theme.store';
 // when no coordinate is available.
 const DEFAULT_MAP_CENTER: [number, number] = [-0.187, 5.6037];
 
+function activeBookingStatusLabel(status: string | undefined): string {
+  switch (status) {
+    case 'DRIVER_EN_ROUTE': return 'DRIVER ON THE WAY';
+    case 'IN_PROGRESS': return 'TRIP IN PROGRESS';
+    case 'FILLING': return 'CONFIRMED · FILLING';
+    default: return 'CONFIRMED';
+  }
+}
+
 function getTierColors(colors: Colors): Record<string, string> {
   return {
     ECONOMY: colors.tierEconomy,
@@ -220,9 +229,15 @@ export default function HomeScreen() {
   // query never resolves and rawTrips stayed the [] fallback.
   const tripsBody = (tripsData as any)?.data;
   const realTrips = (tripsBody?.data as any)?.trips ?? tripsBody?.data ?? [];
-  const rawTrips: any[] = Array.isArray(realTrips) ? realTrips : [];
 
   const activeBooking = (activeBookings as any)?.data?.data?.booking ?? null;
+
+  // searchTrips doesn't exclude trips the rider already booked, so without this
+  // filter the trip they just booked (still OPEN/FILLING) could resurface here
+  // and tapping it would route right back into the booking they just made.
+  const rawTrips: any[] = (Array.isArray(realTrips) ? realTrips : []).filter(
+    (t: any) => t.id !== activeBooking?.tripId
+  );
 
   // Center for the tiny non-interactive map preview in the active-ride bento
   // card. Falls back to a fixed default when the booking has no coordinates.
@@ -331,8 +346,17 @@ export default function HomeScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* Active Ride Bento Card */}
+        {/* Active Ride Bento Card — morphs into the tracking screen
+            (container-transform, same engine as the where-to pill above)
+            instead of a plain push, so it reads as one continuous surface. */}
         {activeBooking && (
+          <MorphSource id="home-active-ride" borderRadius={24} backgroundColor={colors.surfaceCard}>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              morphTo('home-active-ride', () => router.push(`/ride/${activeBooking.tripId}/tracking` as any));
+            }}
+          >
           <Animated.View entering={FadeIn.duration(250)} style={styles.activeBentoCard}>
             {/* Small non-interactive map preview area */}
             <View style={styles.activeBentoMapArea}>
@@ -370,33 +394,36 @@ export default function HomeScreen() {
               <View style={styles.activeBentoTopRow}>
                 <View style={styles.activeBentoDriverLeft}>
                   <Avatar
-                    uri={activeBooking.driverAvatarUrl}
-                    name={activeBooking.driverName}
+                    uri={activeBooking.trip?.driver?.profilePhoto}
+                    name={activeBooking.trip?.driver?.name}
                     size={44}
                     borderColor={colors.rimLight}
                   />
                   <View>
                     <Text style={styles.activeBentoDriverName} numberOfLines={1}>
-                      {activeBooking.driverName ?? 'Your Driver'}
+                      {activeBooking.trip?.driver?.name ?? 'Your Driver'}
                     </Text>
                     <Text style={styles.activeBentoDriverMeta}>
-                      ★ {activeBooking.rating?.toFixed(1) ?? '—'} · {activeBooking.vehicle ?? '—'}
+                      {activeBooking.trip?.vehicle
+                        ? `${activeBooking.trip.vehicle.make} ${activeBooking.trip.vehicle.model}`
+                        : '—'}
                     </Text>
                   </View>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.activeBentoEta}>{activeBooking.eta ?? '5 min'}</Text>
-                  <Text style={styles.activeBentoAway}>AWAY</Text>
+                  <Text style={styles.activeBentoAway}>{activeBookingStatusLabel(activeBooking.trip?.status)}</Text>
                 </View>
               </View>
               <View style={styles.activeBentoDestRow}>
                 <Ionicons name="navigate-outline" size={15} color={colors.tierComfort} />
                 <Text style={styles.activeBentoDestText} numberOfLines={1}>
-                  {activeBooking.routeDestination ?? 'Your destination'}
+                  {activeBooking.trip?.route?.destinationName ?? 'Your destination'}
                 </Text>
               </View>
             </View>
           </Animated.View>
+          </Pressable>
+          </MorphSource>
         )}
 
         {/* Suggested Rides */}

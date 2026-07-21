@@ -2,7 +2,7 @@
   "version": 8,
   "name": "EyeGo Dark",
   "metadata": {
-    "description": "Premium dark map theme for EyeGo — green-accented, no API key required, works with OpenFreeMap free tiles.",
+    "description": "Premium dark map theme for EyeGo — desaturated ink base so roads/route/pins own the hierarchy, muted brand-green reserved for highways and boundaries. No API key required, works with OpenFreeMap free tiles.",
     "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a> · <a href=\"https://openmaptiles.org\" target=\"_blank\">OpenMapTiles</a> · <a href=\"https://openstreetmap.org\" target=\"_blank\">OpenStreetMap</a>"
   },
   "sources": {
@@ -17,7 +17,7 @@
     {
       "id": "background",
       "type": "background",
-      "paint": { "background-color": "#0B0E14" }
+      "paint": { "background-color": "#0A0C10" }
     },
     {
       "id": "landuse",
@@ -29,16 +29,16 @@
         "fill-color": [
           "match",
           ["get", "class"],
-          "park", "#132A1D",
-          "forest", "#102619",
-          "cemetery", "#1D212B",
-          "hospital", "#2B1720",
-          "school", "#1A2038",
-          "industrial", "#1B1E28",
-          "commercial", "#181B24",
-          "#171A22"
+          "park", "#101C16",
+          "forest", "#0D1912",
+          "cemetery", "#171A20",
+          "hospital", "#231519",
+          "school", "#161A26",
+          "industrial", "#15171E",
+          "commercial", "#13151B",
+          "#121319"
         ],
-        "fill-opacity": 0.85
+        "fill-opacity": 0.8
       }
     },
     {
@@ -48,7 +48,7 @@
       "source-layer": "water",
       "filter": ["==", "$type", "Polygon"],
       "paint": {
-        "fill-color": "#123449"
+        "fill-color": "#0E2C3A"
       }
     },
     {
@@ -57,7 +57,7 @@
       "source": "openfreemap",
       "source-layer": "waterway",
       "paint": {
-        "line-color": "#1B4B63",
+        "line-color": "#1C5770",
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 14, 2]
       }
     },
@@ -66,10 +66,11 @@
       "type": "fill",
       "source": "openfreemap",
       "source-layer": "building",
+      "minzoom": 13,
       "paint": {
-        "fill-color": "#242938",
-        "fill-opacity": 0.8,
-        "fill-outline-color": "#3A415A"
+        "fill-color": "#1B1F29",
+        "fill-opacity": 0.82,
+        "fill-outline-color": "#2C3340"
       }
     },
     {
@@ -79,7 +80,7 @@
       "source-layer": "aeroway",
       "filter": ["==", "$type", "Polygon"],
       "paint": {
-        "fill-color": "#1C2030",
+        "fill-color": "#171A22",
         "fill-opacity": 0.65
       }
     },
@@ -90,8 +91,9 @@
       "source-layer": "transportation",
       "filter": ["in", "class", "path", "track"],
       "paint": {
-        "line-color": "#262C3D",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 18, 2]
+        "line-color": "#1E222C",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 18, 2],
+        "line-dasharray": [2, 1.6]
       }
     },
     {
@@ -100,10 +102,24 @@
       "source": "openfreemap",
       "source-layer": "transportation",
       "filter": ["in", "class", "minor", "service"],
+      "minzoom": 12,
       "paint": {
-        "line-color": "#333A4F",
+        "line-color": "#282E3B",
         "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 16, 2],
         "line-opacity": 0.85
+      }
+    },
+    {
+      "id": "road-major-case",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "primary", "secondary", "tertiary"],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#171A22",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.4, 16, 7],
+        "line-opacity": 0.9
       }
     },
     {
@@ -112,10 +128,25 @@
       "source": "openfreemap",
       "source-layer": "transportation",
       "filter": ["in", "class", "primary", "secondary", "tertiary"],
+      "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#4A5470",
+        "line-color": "#525C72",
         "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1, 16, 4],
-        "line-opacity": 0.95
+        "line-opacity": 1
+      }
+    },
+    {
+      "id": "road-highway-case",
+      "type": "line",
+      "source": "openfreemap",
+      "source-layer": "transportation",
+      "filter": ["in", "class", "motorway", "trunk"],
+      "minzoom": 6,
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "#12151B",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 16, 8.5],
+        "line-opacity": 1
       }
     },
     {
@@ -124,34 +155,12 @@
       "source": "openfreemap",
       "source-layer": "transportation",
       "filter": ["in", "class", "motorway", "trunk"],
+      "minzoom": 6,
+      "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": ["interpolate", ["linear"], ["zoom"], 8, "#3E4964", 12, "#3F6E4E"],
+        "line-color": ["interpolate", ["linear"], ["zoom"], 6, "#4C5872", 11, "#3E9E68", 15, "#4BE277"],
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 6],
         "line-opacity": 1
-      }
-    },
-    {
-      "id": "road-major-bright",
-      "type": "line",
-      "source": "openfreemap",
-      "source-layer": "transportation",
-      "filter": ["in", "class", "primary", "secondary", "tertiary"],
-      "paint": {
-        "line-color": "#6B7590",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 16, 2],
-        "line-opacity": 0.4
-      }
-    },
-    {
-      "id": "road-highway-bright",
-      "type": "line",
-      "source": "openfreemap",
-      "source-layer": "transportation",
-      "filter": ["in", "class", "motorway", "trunk"],
-      "paint": {
-        "line-color": "#4BE277",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 16, 3],
-        "line-opacity": 0.4
       }
     },
     {
@@ -161,7 +170,7 @@
       "source-layer": "boundary",
       "filter": ["in", "admin_level", 2, 4],
       "paint": {
-        "line-color": "rgba(75, 226, 119, 0.28)",
+        "line-color": "rgba(75, 226, 119, 0.22)",
         "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.5, 12, 1.5],
         "line-dasharray": [3, 3]
       }
@@ -177,12 +186,12 @@
         "text-font": ["Noto Sans Bold"],
         "text-size": ["interpolate", ["linear"], ["zoom"], 8, 11, 14, 16],
         "text-transform": "uppercase",
-        "text-letter-spacing": 0.08,
+        "text-letter-spacing": 0.1,
         "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.9)",
-        "text-halo-color": "#0B0E14",
+        "text-color": "rgba(232, 236, 240, 0.92)",
+        "text-halo-color": "#0A0C10",
         "text-halo-width": 1.5,
         "text-opacity": ["interpolate", ["linear"], ["zoom"], 8, 0, 10, 1]
       }
@@ -193,15 +202,17 @@
       "source": "openfreemap",
       "source-layer": "place",
       "filter": ["in", "class", "village", "hamlet"],
+      "minzoom": 10,
       "layout": {
         "text-field": "{name}",
         "text-font": ["Noto Sans Regular"],
         "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 14],
+        "text-letter-spacing": 0.02,
         "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.65)",
-        "text-halo-color": "#0B0E14",
+        "text-color": "rgba(232, 236, 240, 0.6)",
+        "text-halo-color": "#0A0C10",
         "text-halo-width": 1.5
       }
     },
@@ -216,12 +227,12 @@
         "text-font": ["Noto Sans Bold"],
         "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 10, 16],
         "text-transform": "uppercase",
-        "text-letter-spacing": 0.12,
+        "text-letter-spacing": 0.14,
         "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.55)",
-        "text-halo-color": "#0B0E14",
+        "text-color": "rgba(232, 236, 240, 0.5)",
+        "text-halo-color": "#0A0C10",
         "text-halo-width": 2
       }
     },
@@ -231,17 +242,19 @@
       "source": "openfreemap",
       "source-layer": "transportation_name",
       "filter": ["in", "class", "motorway", "trunk", "primary"],
+      "minzoom": 10,
       "layout": {
         "text-field": "{name}",
         "text-font": ["Noto Sans Regular"],
         "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 16, 14],
+        "text-letter-spacing": 0.02,
         "symbol-placement": "line",
         "symbol-spacing": 400,
         "text-rotation-alignment": "map"
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.5)",
-        "text-halo-color": "#0B0E14",
+        "text-color": "rgba(232, 236, 240, 0.5)",
+        "text-halo-color": "#0A0C10",
         "text-halo-width": 1.5
       }
     },
@@ -258,8 +271,8 @@
         "symbol-spacing": 500
       },
       "paint": {
-        "text-color": "rgba(120, 200, 230, 0.5)",
-        "text-halo-color": "#0B0E14",
+        "text-color": "rgba(94, 189, 219, 0.55)",
+        "text-halo-color": "#0A0C10",
         "text-halo-width": 1.5
       }
     },
@@ -268,16 +281,19 @@
       "type": "symbol",
       "source": "openfreemap",
       "source-layer": "poi",
+      "minzoom": 14,
+      "filter": ["<=", ["get", "rank"], 15],
       "layout": {
         "text-field": "{name}",
         "text-font": ["Noto Sans Regular"],
-        "text-size": 11,
+        "text-size": ["interpolate", ["linear"], ["zoom"], 14, 9, 18, 13],
         "text-max-width": 8,
-        "icon-allow-overlap": false
+        "icon-allow-overlap": false,
+        "symbol-sort-key": ["get", "rank"]
       },
       "paint": {
-        "text-color": "rgba(240, 240, 245, 0.55)",
-        "text-halo-color": "#0B0E14",
+        "text-color": "rgba(232, 236, 240, 0.55)",
+        "text-halo-color": "#0A0C10",
         "text-halo-width": 1
       }
     }

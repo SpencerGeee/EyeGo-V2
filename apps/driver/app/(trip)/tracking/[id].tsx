@@ -420,8 +420,9 @@ export default function DriverTrackingScreen() {
         styleURL={eyegoDarkStyle}
         logoEnabled={false}
         attributionEnabled={false}
-        compassEnabled={false}
-        rotateEnabled={false}
+        compassEnabled={true}
+        rotateEnabled={true}
+        pitchEnabled={true}
         scaleBarEnabled={false}
       >
         <MapboxGL.Camera

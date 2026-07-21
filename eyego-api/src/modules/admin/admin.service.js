@@ -4,7 +4,7 @@ const prisma = require('../../config/database');
 const pushService = require('../../services/push.service');
 const mapboxService = require('../../services/mapbox.service');
 const { haversineMeters } = require('../../utils/geo');
-const { NotFoundError } = require('../../utils/errors');
+const { NotFoundError, AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
 
 async function approveDriver(driverId) {
@@ -56,27 +56,41 @@ async function getRoutes() {
 async function createRoute(data) {
   let { name, originName, destinationName, originLat, originLng, destLat, destLng, distanceKm, stops } = data;
 
-  // Auto-geocode if coordinates not provided
+  // Auto-geocode if coordinates not provided. Mapbox first (real address match),
+  // then free Nominatim if Mapbox is unconfigured/failing — without a fallback,
+  // every route silently fell through to the same fake coordinates below whenever
+  // MAPBOX_SECRET_TOKEN was a placeholder, making genuinely different routes
+  // price identically.
   if (!originLat || !originLng) {
-    const geo = await mapboxService.forwardGeocode(originName).catch(() => null);
+    const geo = await mapboxService.forwardGeocode(originName).catch(() => null)
+      ?? await mapboxService.nominatimForwardGeocode(originName).catch(() => null);
     if (geo) { originLat = geo.lat; originLng = geo.lng; }
   }
   if (!destLat || !destLng) {
-    const geo = await mapboxService.forwardGeocode(destinationName).catch(() => null);
+    const geo = await mapboxService.forwardGeocode(destinationName).catch(() => null)
+      ?? await mapboxService.nominatimForwardGeocode(destinationName).catch(() => null);
     if (geo) { destLat = geo.lat; destLng = geo.lng; }
   }
 
-  // Auto-calculate distance if not provided using Haversine
-  if (!distanceKm && originLat && originLng && destLat && destLng) {
-    distanceKm = Math.round((haversineMeters(originLat, originLng, destLat, destLng) / 1000) * 10) / 10;
+  // A route with no resolvable coordinates can't be priced correctly — surface
+  // that now instead of silently collapsing it onto a shared fake point (the old
+  // behavior, which made unrelated routes look "eerily similar" in fare).
+  if (!originLat || !originLng || !destLat || !destLng) {
+    throw new AppError(
+      'Could not determine coordinates for this route. Provide originLat/originLng and destLat/destLng manually.',
+      400,
+      'ROUTE_GEOCODE_FAILED',
+    );
   }
 
-  // Default fallback coordinates
-  originLat = originLat || 5.6;
-  originLng = originLng || -0.19;
-  destLat = destLat || 5.6;
-  destLng = destLng || -0.19;
-  distanceKm = distanceKm || 15.0;
+  // Auto-calculate distance if not provided. Straight-line haversine undershoots
+  // real driving distance; apply the same 1.35x winding-road multiplier already
+  // used as the ETA fallback (driver.socket.js) when Mapbox Directions isn't
+  // available, so distance-based fare actually reflects the route.
+  if (!distanceKm) {
+    const straightKm = haversineMeters(originLat, originLng, destLat, destLng) / 1000;
+    distanceKm = Math.round(straightKm * 1.35 * 10) / 10;
+  }
 
   return prisma.route.create({
     data: {

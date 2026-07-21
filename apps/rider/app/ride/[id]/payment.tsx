@@ -146,8 +146,13 @@ export default function PaymentScreen() {
 
   const initPayment = useMutation({
     mutationFn: async () => {
-      // Declare outside try so the catch block can use the value even if booking was created before the error
-      let bookingId = activeBooking?.id ?? '';
+      // Declare outside try so the catch block can use the value even if booking was created before the error.
+      // Only reuse a persisted activeBooking if it's actually for THIS trip — a
+      // leftover booking from an earlier abandoned flow (different trip, possibly
+      // since expired/cancelled server-side) was being reused blindly here, so
+      // confirmPayment's SEAT_HELD guard rejected it and every payment attempt
+      // failed with a generic "initialization failed" error.
+      let bookingId = activeBooking?.tripId === id ? activeBooking?.id ?? '' : '';
       try {
         if (!bookingId && id && selectedSeat) {
           const { data: bookingData } = await bookingsApi.create({

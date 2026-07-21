@@ -480,15 +480,17 @@ export default function SOSScreen() {
               </Text>
             </View>
           ))}
-          <Pressable
-            onPress={() => router.push('/profile/emergency-contacts')}
-            style={styles.addCard}
-          >
-            <View style={styles.addIcon}>
-              <Ionicons name="person-add-outline" size={22} color={colors.primary} />
-            </View>
-            <Text style={styles.addLabel}>Add Contact</Text>
-          </Pressable>
+          {contactsList.length < 3 && (
+            <Pressable
+              onPress={() => router.push('/profile/emergency-contacts')}
+              style={styles.addCard}
+            >
+              <View style={styles.addIcon}>
+                <Ionicons name="person-add-outline" size={22} color={colors.primary} />
+              </View>
+              <Text style={styles.addLabel}>Add Contact</Text>
+            </Pressable>
+          )}
         </View>
       </ScrollView>
 

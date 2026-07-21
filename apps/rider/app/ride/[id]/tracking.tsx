@@ -14,7 +14,7 @@ import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi, u
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget } from '@eyego/ui';
 import { formatDuration } from '@eyego/utils';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../../stores/theme.store';
@@ -614,6 +614,10 @@ export default function TrackingScreen() {
   // Driver location with interpolation (declared above in the block)
 
   return (
+    // Morph landing target for the home screen's active-ride card — only
+    // matters as an entry animation when that's actually where navigation
+    // came from; harmless no-op otherwise (e.g. entering from Activity).
+    <MorphTarget id="home-active-ride" borderRadius={0} style={{ flex: 1 }}>
     <View style={styles.container}>
       {/* Map */}
       <MapboxGL.MapView
@@ -981,6 +985,7 @@ export default function TrackingScreen() {
         </View>
       </InlayPanel>
     </View>
+    </MorphTarget>
   );
 }
 

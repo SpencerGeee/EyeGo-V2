@@ -8,6 +8,12 @@ export const tripsApi = {
   getById: (id: string) =>
     apiClient.get<ApiResponse<Trip>>(`/trips/${id}`),
 
+  // Driver phone is excluded from the trip payload for privacy (trip listings
+  // are visible pre-booking) — this narrow, auth-gated lookup only succeeds
+  // for a rider with an active booking on the trip. Powers the chat call button.
+  getContact: (tripId: string) =>
+    apiClient.get<ApiResponse<{ phone: string }>>(`/trips/${tripId}/contact`),
+
   getSeats: (tripId: string) =>
     apiClient.get<ApiResponse<Seat[]>>(`/trips/${tripId}/seats`),
 

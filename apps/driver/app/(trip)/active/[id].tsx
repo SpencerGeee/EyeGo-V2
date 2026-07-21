@@ -51,6 +51,37 @@ const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 
 const STATUS_STEPS = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'COMPLETED'];
 
+// Fetches a road-following route from OSRM between the driver and a moving
+// target (pickup, then destination), re-fetching whenever the target changes
+// or every 60s while active — same source as tracking/[id].tsx.
+function useRoadRoute(from: [number, number], to: [number, number]): [number, number][] {
+  const [coords, setCoords] = React.useState<[number, number][]>([]);
+  const fetchedForRef = useRef<string>('');
+
+  useEffect(() => {
+    const [dLng, dLat] = from;
+    const [eLng, eLat] = to;
+    if (isNaN(dLat) || isNaN(dLng) || isNaN(eLat) || isNaN(eLng)) return;
+    const key = `${dLng.toFixed(4)},${dLat.toFixed(4)}-${eLng.toFixed(4)},${eLat.toFixed(4)}`;
+    if (fetchedForRef.current === key) return;
+    fetchedForRef.current = key;
+
+    const url = `https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${eLng},${eLat}?overview=full&geometries=geojson`;
+    fetch(url)
+      .then((r) => r.json())
+      .then((data) => {
+        const route = data?.routes?.[0];
+        const routeCoords: [number, number][] = route?.geometry?.coordinates ?? [];
+        if (routeCoords.length >= 2) setCoords(routeCoords);
+      })
+      .catch(() => {
+        // OSRM unavailable — straight fallback line stays, no crash
+      });
+  }, [from[0], from[1], to[0], to[1]]);
+
+  return coords;
+}
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function ActiveTripScreen() {
@@ -265,6 +296,19 @@ export default function ActiveTripScreen() {
     ? [location.longitude, location.latitude]
     : [trip.route?.originLng ?? -0.187, trip.route?.originLat ?? 5.6037];
 
+  const pickupCoord: [number, number] = trip.route?.originLat && trip.route?.originLng
+    ? [trip.route.originLng, trip.route.originLat]
+    : driverCoord;
+  const destCoord: [number, number] = trip.route?.destLat && trip.route?.destLng
+    ? [trip.route.destLng, trip.route.destLat]
+    : pickupCoord;
+  // Navigate to pickup while en-route/arrived, then to destination once the
+  // trip is actually running — mirrors tracking/[id].tsx's target logic.
+  const routeTarget: [number, number] = trip.status === 'IN_PROGRESS' || trip.status === 'COMPLETED'
+    ? destCoord
+    : pickupCoord;
+  const routeCoords = useRoadRoute(driverCoord, routeTarget);
+
   const currentStepIndex = STATUS_STEPS.indexOf(trip.status);
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -277,8 +321,9 @@ export default function ActiveTripScreen() {
         styleURL={eyegoDarkStyle}
         logoEnabled={false}
         attributionEnabled={false}
-        compassEnabled={false}
-        rotateEnabled={false}
+        compassEnabled={true}
+        rotateEnabled={true}
+        pitchEnabled={true}
         scaleBarEnabled={false}
       >
         {/* 3D tilted follow camera while actively driving to/with passengers
@@ -291,6 +336,45 @@ export default function ActiveTripScreen() {
         <MapboxGL.MarkerView coordinate={driverCoord}>
           <DriverPulse color={statusCfg.color} />
         </MapboxGL.MarkerView>
+
+        {/* Pickup marker — hidden once the trip is actually running */}
+        {trip.status !== 'IN_PROGRESS' && trip.status !== 'COMPLETED' && (
+          <MapboxGL.MarkerView coordinate={pickupCoord}>
+            <View style={styles.pickupMarker}>
+              <Ionicons name="location" size={14} color="#fff" />
+            </View>
+          </MapboxGL.MarkerView>
+        )}
+
+        {/* Destination marker */}
+        <MapboxGL.MarkerView coordinate={destCoord}>
+          <View style={styles.destMarker}>
+            <Ionicons name="flag" size={14} color="#fff" />
+          </View>
+        </MapboxGL.MarkerView>
+
+        {/* Route polyline — road-following via OSRM, straight-line fallback until it resolves */}
+        <MapboxGL.ShapeSource
+          id="activeRouteLine"
+          shape={{
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: routeCoords.length >= 2 ? routeCoords : [driverCoord, routeTarget],
+            },
+            properties: {},
+          }}
+        >
+          <MapboxGL.LineLayer
+            id="activeRouteLineShadow"
+            style={{ lineColor: '#000000', lineWidth: 7, lineOpacity: 0.18, lineCap: 'round', lineJoin: 'round' }}
+          />
+          <MapboxGL.LineLayer
+            id="activeRouteLineLayer"
+            style={{ lineColor: statusCfg.color, lineWidth: 4, lineOpacity: 0.9, lineCap: 'round', lineJoin: 'round' }}
+            aboveLayerID="activeRouteLineShadow"
+          />
+        </MapboxGL.ShapeSource>
       </MapboxGL.MapView>
 
       {/* Glassmorphic top header */}
@@ -650,6 +734,26 @@ const makeStyles = (colors: DriverColors) =>
       height: 20,
       borderRadius: 10,
       backgroundColor: colors.surfaceContainerHigh,
+    },
+    pickupMarker: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.secondary ?? '#7DD8F5',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: '#fff',
+    },
+    destMarker: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      backgroundColor: colors.error,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: '#fff',
     },
     // Glassmorphic header
     header: {

@@ -80,9 +80,13 @@ async function createTrip(driverId, data) {
   const route = await prisma.route.findUnique({ where: { id: routeId } });
   if (!route) throw new NotFoundError('Route');
 
-  const normalizedTier = tier === 'ECO' ? 'ECO' : (tier === 'COMFORT' ? 'COMFORT' : 'ECO');
-  const baseFare = normalizedTier === 'ECO' ? env.ECO_BASE_FARE : env.COMFORT_BASE_FARE;
-  const perKmRate = normalizedTier === 'ECO' ? env.ECO_PER_KM_RATE : env.COMFORT_PER_KM_RATE;
+  const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
+  const tierRates = {
+    ECO: [env.ECO_BASE_FARE, env.ECO_PER_KM_RATE],
+    COMFORT: [env.COMFORT_BASE_FARE, env.COMFORT_PER_KM_RATE],
+    PREMIUM: [env.PREMIUM_BASE_FARE, env.PREMIUM_PER_KM_RATE],
+  };
+  const [baseFare, perKmRate] = tierRates[normalizedTier];
 
   // Record supply and get surge multiplier
   let surgeMultiplier = 1.0;
@@ -131,6 +135,21 @@ async function createTrip(driverId, data) {
   setImmediate(() => dispatchToNearbyDrivers(trip));
 
   return trip;
+}
+
+// Driver phone is deliberately excluded from every other trip/booking query
+// (privacy — trip listings are visible to any rider browsing, not just those
+// booked). The chat call button needs a real number to dial, so expose it
+// through a narrow, auth-gated lookup instead: only a rider with an active
+// booking on THIS trip can resolve it.
+async function getTripDriverPhone(tripId, userId) {
+  const booking = await prisma.booking.findFirst({
+    where: { tripId, userId, status: { notIn: ['CANCELLED', 'NO_SHOW'] } },
+  });
+  if (!booking) throw new AppError('You do not have an active booking on this trip', 403, 'NOT_BOOKED');
+  const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { driver: { select: { phone: true } } } });
+  if (!trip?.driver?.phone) throw new NotFoundError('Driver contact');
+  return trip.driver.phone;
 }
 
 async function getTrip(id) {
@@ -969,4 +988,4 @@ async function getTrackingData(shortId) {
   };
 }
 
-module.exports = { createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken };
+module.exports = { createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken };

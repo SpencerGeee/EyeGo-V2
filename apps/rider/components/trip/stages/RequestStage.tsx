@@ -80,7 +80,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               setStatus('matched');
               queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
               queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-              router.replace(`/ride/${req.matchedTripId}/tracking` as any);
+              router.dismissTo(`/ride/${req.matchedTripId}/tracking` as any);
             }
           } catch {
             // transient poll failure — try again on next tick
@@ -125,14 +125,14 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   // had no idea was still live).
   const handleCancel = async () => {
     if (!requestIdRef.current) {
-      router.replace('/(tabs)/home' as any);
+      router.dismissTo('/(tabs)/home' as any);
       return;
     }
     setCancelling(true);
     try {
       await tripsApi.cancelTripRequest(requestIdRef.current);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-      router.replace('/(tabs)/home' as any);
+      router.dismissTo('/(tabs)/home' as any);
     } catch (err: any) {
       const msg = err?.response?.data?.message;
       Alert.alert('Could not cancel', msg ?? 'A driver may have already accepted — check your Activity tab.');
@@ -244,7 +244,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             />
             <Pressable
               style={styles.activityBtn}
-              onPress={() => router.replace('/(tabs)/home' as any)}
+              onPress={() => router.dismissTo('/(tabs)/home' as any)}
               accessibilityRole="button"
               accessibilityLabel="Leave without cancelling"
             >
@@ -256,14 +256,14 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         ) : (
           <Button
             label="Back to home"
-            onPress={() => router.replace('/(tabs)/home' as any)}
+            onPress={() => router.dismissTo('/(tabs)/home' as any)}
             style={{ width: '100%', marginTop: spacing.xl }}
           />
         )}
 
         <Pressable
           style={styles.activityBtn}
-          onPress={() => router.replace('/(tabs)/activity' as any)}
+          onPress={() => router.dismissTo('/(tabs)/activity' as any)}
           accessibilityRole="button"
           accessibilityLabel="View in Activity"
         >

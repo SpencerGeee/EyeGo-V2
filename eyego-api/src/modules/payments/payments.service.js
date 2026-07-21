@@ -17,7 +17,7 @@ const MOMO_METHODS = ['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO'];
 //   • Card  → Paystack hosted checkout; client opens authorizationUrl → PENDING
 //   • Wallet→ synchronous balance debit inside confirmPayment → SUCCESS
 //   • Cash  → no gateway; seat confirmed now, rider pays driver on board → SUCCESS
-async function initiatePayment({ userId, bookingId, phone, savedCardId }) {
+async function initiatePayment({ userId, bookingId, phone, savedCardId, method: requestedMethod }) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { trip: { include: { route: true } }, user: true },
@@ -26,7 +26,19 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId }) {
   if (booking.userId !== userId) throw new AppError('Unauthorized', 403);
   if (booking.paymentStatus === 'PAID') throw new AppError('Already paid', 400);
 
-  const method = booking.paymentMethod;
+  // Honor the method the rider actually picked on the payment screen. Without
+  // this, a booking created with a placeholder method (e.g. group-invite always
+  // pre-creates with CASH) silently ignored whatever the rider chose afterward,
+  // because this used to always fall back to the DB's original paymentMethod.
+  let method = booking.paymentMethod;
+  if (requestedMethod) {
+    const { normalizePaymentMethod } = require('../bookings/bookings.service');
+    const normalized = normalizePaymentMethod(requestedMethod);
+    if (normalized !== booking.paymentMethod) {
+      await prisma.booking.update({ where: { id: bookingId }, data: { paymentMethod: normalized } });
+      method = normalized;
+    }
+  }
   const reference = `eyego_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
   const email = booking.user?.email || `${booking.user.phone}@eyego.app`;
   const metadata = { bookingId, tripId: booking.tripId, userId };

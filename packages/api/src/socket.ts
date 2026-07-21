@@ -445,6 +445,10 @@ export const driverSocketEvents = {
   onTripAssigned: (cb: (data: {
     tripId: string;
     tripShortId?: string;
+    // 'REQUEST' = an on-demand rider trip request, not yet a real Trip row —
+    // the dispatch screen must call acceptTripRequest(id) instead of
+    // acceptDispatch(id). Absent/undefined = the normal pre-scheduled-trip path.
+    kind?: 'REQUEST';
     routeOrigin: string;
     routeDestination: string;
     departureTime: string;

@@ -39,6 +39,11 @@ const getTrip = async (req, res) => {
   ok(res, { trip });
 };
 
+const getTripContact = async (req, res) => {
+  const phone = await tripsService.getTripDriverPhone(req.params.id, req.user.userId);
+  ok(res, { phone });
+};
+
 const getTripByShareToken = async (req, res) => {
   const result = await tripsService.getTripByShareToken(req.params.shareToken);
   ok(res, result);
@@ -245,4 +250,4 @@ const saveLiveActivityToken = async (req, res) => {
   ok(res, result, 'Live Activity token saved');
 };
 
-module.exports = { createTrip, getTrip, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };
+module.exports = { createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };

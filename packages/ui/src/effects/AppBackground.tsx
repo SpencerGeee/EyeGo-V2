@@ -93,6 +93,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
           pillarHeight={0.4}
           noiseIntensity={isDark ? (tier === 'high' ? 0.5 : 0.3) : 0}
           opacity={ambientOpacity}
+          lightMode={!isDark}
         />
       </View>
     );

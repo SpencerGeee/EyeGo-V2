@@ -14,11 +14,21 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, GradientGlowBorder, Button } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { tripsApi } from '@eyego/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Alert } from 'react-native';
 
-type FilterTab = 'all' | 'trips' | 'alerts';
+type FilterTab = 'all' | 'trips' | 'alerts' | 'scheduled';
+
+const SCHEDULED_STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Waiting for a match',
+  MATCHED: 'Confirmed',
+  CANCELLED: 'Cancelled',
+  EXPIRED: 'Expired',
+};
 
 function getStatusColors(colors: Colors): Record<string, string> {
   return {
@@ -117,6 +127,63 @@ function NotificationItem({ notification, colors, styles }: { notification: any;
   );
 }
 
+function ScheduledItem({
+  intent,
+  colors,
+  styles,
+  onCancel,
+  cancelling,
+}: {
+  intent: any;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+  onCancel: (id: string) => void;
+  cancelling: boolean;
+}) {
+  const statusColor = intent.status === 'MATCHED' ? colors.statusSuccess : colors.onSurfaceVariant;
+  return (
+    <View style={[styles.itemCard, styles.notifCard]}>
+      <View style={[styles.itemIcon, { backgroundColor: withOpacity(colors.primary, 0.08) }]}>
+        <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+      </View>
+      <View style={styles.itemBody}>
+        <Text style={styles.itemTitle} numberOfLines={1}>
+          {intent.route?.originName ?? 'Unknown'} → {intent.route?.destinationName ?? 'Unknown'}
+        </Text>
+        <Text style={styles.itemMeta}>
+          {new Date(intent.scheduledAt).toLocaleString('en-GH', {
+            weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+          })}
+          {'  ·  '}{intent.seatCount} seat{intent.seatCount > 1 ? 's' : ''}
+        </Text>
+        <View style={[styles.statusChip, { backgroundColor: withOpacity(statusColor, 0.15) }]}>
+          <Text style={[styles.statusChipText, { color: statusColor }]}>
+            {SCHEDULED_STATUS_LABEL[intent.status] ?? intent.status}
+          </Text>
+        </View>
+      </View>
+      {intent.status === 'PENDING' && (
+        <Button
+          label="Cancel"
+          variant="ghost"
+          onPress={() =>
+            Alert.alert(
+              'Cancel scheduled ride?',
+              'This cannot be undone.',
+              [
+                { text: 'Keep it', style: 'cancel' },
+                { text: 'Cancel ride', style: 'destructive', onPress: () => onCancel(intent.id) },
+              ]
+            )
+          }
+          disabled={cancelling}
+          style={{ paddingHorizontal: spacing.sm }}
+        />
+      )}
+    </View>
+  );
+}
+
 // FlashList honors only padding in contentContainerStyle — row gaps come from
 // a separator so spacing survives the migration off FlatList.
 function ItemSeparator() {
@@ -174,6 +241,28 @@ export default function ActivityScreen() {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<FilterTab>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+
+  const {
+    data: scheduledData,
+    isLoading: scheduledLoading,
+    refetch: refetchScheduled,
+  } = useQuery({
+    queryKey: ['trips', 'scheduled'],
+    queryFn: () => tripsApi.getScheduledRides(),
+    enabled: filter === 'scheduled',
+  });
+
+  const cancelScheduled = useMutation({
+    mutationFn: (id: string) => tripsApi.cancelScheduledRide(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] }),
+    onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
+  });
+
+  const scheduledIntents = React.useMemo(() => {
+    const list = (scheduledData as any)?.data?.data?.intents ?? [];
+    return [...list].sort((a: any, b: any) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  }, [scheduledData]);
 
   const {
     data: bookings,
@@ -282,11 +371,17 @@ export default function ActivityScreen() {
       </Entrance>
 
       <Entrance animation="fadeIn" delay={100} duration={250}>
-        <View style={styles.filterRow}>
-          {(['all', 'trips', 'alerts'] as FilterTab[]).map((f) => (
+        <GradientGlowBorder
+          palette="green"
+          fillColor="transparent"
+          borderRadius={radii.lg}
+          glow
+          style={styles.filterRow}
+        >
+          {(['all', 'trips', 'alerts', 'scheduled'] as FilterTab[]).map((f) => (
             <FilterChip
               key={f}
-              label={f === 'all' ? 'All' : f === 'trips' ? 'Trips' : 'Alerts'}
+              label={f === 'all' ? 'All' : f === 'trips' ? 'Trips' : f === 'alerts' ? 'Alerts' : 'Scheduled'}
               active={filter === f}
               styles={styles}
               onPress={() => {
@@ -295,10 +390,63 @@ export default function ActivityScreen() {
               }}
             />
           ))}
-        </View>
+        </GradientGlowBorder>
       </Entrance>
 
-      {isLoading && !refreshing ? (
+      {filter === 'scheduled' ? (
+        scheduledLoading && !refreshing ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <AnimatedList
+            style={{ flex: 1 }}
+            entranceAnimation="slideUp"
+            staggerDelay={30}
+            entranceDuration={200}
+            {...backgroundScrollPauseProps}
+            data={scheduledIntents}
+            keyExtractor={(item: any) => item.id}
+            renderItem={({ item }: { item: any }) => (
+              <ScheduledItem
+                intent={item}
+                colors={colors}
+                styles={styles}
+                onCancel={(id) => cancelScheduled.mutate(id)}
+                cancelling={cancelScheduled.isPending}
+              />
+            )}
+            ItemSeparatorComponent={ItemSeparator}
+            contentContainerStyle={{
+              paddingHorizontal: spacing.lg,
+              paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24,
+            }}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={refetchScheduled} tintColor={colors.primary} />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <Ionicons name="calendar-outline" size={48} color={colors.onSurfaceVariant} />
+                <Text style={styles.emptyText}>No scheduled rides</Text>
+                <Text style={styles.emptyHint}>Rides you schedule ahead of time will appear here</Text>
+                <Pressable
+                  style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.8 }, { marginTop: spacing.lg }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push('/ride/schedule' as any);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Schedule a ride"
+                >
+                  <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
+                  <Text style={styles.emptyCtaText}>Schedule a ride</Text>
+                </Pressable>
+              </View>
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )
+      ) : isLoading && !refreshing ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
@@ -453,6 +601,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   tripGlass: {
     borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.rimLight,
   },
   tripCardInner: {
     flexDirection: 'row',

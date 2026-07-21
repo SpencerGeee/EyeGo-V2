@@ -10,6 +10,7 @@ import {
   driverSocketEvents,
 } from '@eyego/api';
 import { useDriverStore } from '../stores/driver.store';
+import { useNotificationsStore } from '../stores/notifications.store';
 import { useColors } from '../utils/useColors';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -67,7 +68,7 @@ export function DriverTripStatusListener() {
   const bannerAnim = useRef(new Animated.Value(-120)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Where tapping the banner should navigate, with the route param.
-  const bannerDestRef = useRef<{ type: 'chat' | 'dispatch' | 'tracking'; tripId: string } | null>(null);
+  const bannerDestRef = useRef<{ type: 'chat' | 'dispatch' | 'tracking'; tripId: string; kind?: 'REQUEST' } | null>(null);
 
   // Refs so socket callbacks never read stale closure values
   const activeTripIdRef = useRef(activeTripId);
@@ -128,9 +129,16 @@ export function DriverTripStatusListener() {
       // The dispatch modal already presents the offer — don't double-fire.
       if (segs.some((s) => s === 'dispatch')) return;
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
-      bannerDestRef.current = { type: 'dispatch', tripId: tId };
+      const kind = safeRead(data, 'kind') as 'REQUEST' | undefined;
+      bannerDestRef.current = { type: 'dispatch', tripId: tId, kind };
       const route = safeRead(data, 'routeOrigin');
       const dest = safeRead(data, 'routeDestination');
+      useNotificationsStore.getState().addNotification({
+        type: 'TRIP_ASSIGNED',
+        title: kind === 'REQUEST' ? 'New ride request nearby' : 'New trip assigned',
+        body: route && dest ? `${route} → ${dest}` : '',
+        tripId: tId,
+      });
       showBanner(
         route && dest ? `New trip: ${route} → ${dest}` : 'New trip request — tap to view',
         'navigate-circle',
@@ -232,7 +240,7 @@ export function DriverTripStatusListener() {
     if (dest.type === 'chat') {
       router.push({ pathname: '/(trip)/chat/[id]', params: { id: dest.tripId } } as Href);
     } else if (dest.type === 'dispatch') {
-      router.push({ pathname: '/(trip)/dispatch/[id]', params: { id: dest.tripId } } as Href);
+      router.push({ pathname: '/(trip)/dispatch/[id]', params: { id: dest.tripId, kind: dest.kind } } as Href);
     } else {
       router.push({ pathname: '/(trip)/tracking/[id]', params: { id: dest.tripId } } as Href);
     }

@@ -13,7 +13,7 @@ import * as Location from 'expo-location';
 import Animated, { LinearTransition, FadeIn, FadeOut } from 'react-native-reanimated';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { userApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { haptic } from '../../../utils/haptics';
+import { consumePickedPlace } from '../../../utils/placePickerResult';
 
 type NominatimResult = {
   place_id: number;
@@ -149,6 +150,17 @@ function SearchStageImpl() {
     }, 300);
   }, [setSearchPlace]);
 
+  // Which field a map-picker navigation was launched for — the picker screen
+  // is a single shared route with a one-shot result slot, so this side stores
+  // which of origin/dest to apply the result to on return.
+  const pickingFieldRef = useRef<'origin' | 'dest' | null>(null);
+
+  const openMapPicker = useCallback((field: 'origin' | 'dest') => {
+    haptic.light();
+    pickingFieldRef.current = field;
+    router.push('/profile/place-picker' as any);
+  }, [router]);
+
   const commitPlace = useCallback((place: SearchPlace) => {
     setSearchPlace(place);
     setDestQuery(place.name);
@@ -235,6 +247,24 @@ function SearchStageImpl() {
     return () => sub.remove();
   }, [handleClose]);
 
+  // Consume a location confirmed on the map picker screen.
+  useFocusEffect(
+    useCallback(() => {
+      const field = pickingFieldRef.current;
+      if (!field) return;
+      const picked = consumePickedPlace();
+      if (!picked) return;
+      pickingFieldRef.current = null;
+      if (field === 'origin') {
+        setOrigin({ latitude: picked.latitude, longitude: picked.longitude, address: picked.fullAddress });
+        setOriginText(picked.name);
+      } else {
+        commitPlace({ name: picked.name, fullAddress: picked.fullAddress, latitude: picked.latitude, longitude: picked.longitude });
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+  );
+
   return (
     <View style={styles.overlay} pointerEvents="box-none">
       {/* Header */}
@@ -307,6 +337,14 @@ function SearchStageImpl() {
                         destRef.current?.focus();
                       }}
                     />
+                    <Pressable
+                      onPress={() => openMapPicker('origin')}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Pick pickup on map"
+                    >
+                      <Ionicons name="map-outline" size={16} color={colors.outline} />
+                    </Pressable>
                   </Pressable>
                 </GradientGlowBorder>
 
@@ -339,6 +377,14 @@ function SearchStageImpl() {
                         <Ionicons name="close-circle" size={16} color={colors.outline} />
                       </Pressable>
                     )}
+                    <Pressable
+                      onPress={() => openMapPicker('dest')}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Pick destination on map"
+                    >
+                      <Ionicons name="map-outline" size={16} color={colors.primary} />
+                    </Pressable>
                   </View>
                 </GradientGlowBorder>
               </View>

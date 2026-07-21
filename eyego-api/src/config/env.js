@@ -95,6 +95,8 @@ const envSchema = z.object({
   ECO_PER_KM_RATE: z.coerce.number().default(8.0),
   COMFORT_BASE_FARE: z.coerce.number().default(35.0),
   COMFORT_PER_KM_RATE: z.coerce.number().default(12.0),
+  PREMIUM_BASE_FARE: z.coerce.number().default(50.0),
+  PREMIUM_PER_KM_RATE: z.coerce.number().default(16.0),
   DOORSTEP_SURCHARGE: z.coerce.number().default(5.0),
   HEAVY_LOAD_SURCHARGE: z.coerce.number().default(8.0),
   PLATFORM_COMMISSION: z.coerce.number().default(0.15),

@@ -23,6 +23,7 @@ router.get('/', authenticate, tripsController.searchTrips);
 router.get('/active', authenticate, tripsController.getActiveTrip);
 router.get('/fare-estimate', authenticate, tripsController.getFareEstimate);
 router.get('/:id', authenticate, tripsController.getTrip);
+router.get('/:id/contact', authenticate, tripsController.getTripContact);
 router.get('/:id/seats', authenticate, tripsController.getSeatMap);
 router.get('/:id/receipt', authenticate, tripsController.getTripReceipt);
 

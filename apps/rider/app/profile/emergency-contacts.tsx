@@ -17,6 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userApi } from '@eyego/api';
 import { offlineQueue } from '../../utils/offlineQueue';
 import { useToastStore } from '../../stores/toast.store';
+import { useQueryClient } from '@tanstack/react-query';
 
 const STORAGE_KEY = 'eyego_emergency_contacts';
 const MAX_CONTACTS = 3;
@@ -31,6 +32,7 @@ export default function EmergencyContactsScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newName, setNewName] = useState('');
@@ -70,6 +72,11 @@ export default function EmergencyContactsScreen() {
       const saved: Contact[] = (res.data as any)?.data?.contacts ?? updated;
       setContacts(saved);
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+      // This screen manages its own local state instead of react-query, but the
+      // SOS/tracking safety screen reads contacts via a react-query cache keyed
+      // ['user','emergency-contacts'] — without this it never learned a contact
+      // was added and kept showing the stale (often empty) cached list.
+      queryClient.invalidateQueries({ queryKey: ['user', 'emergency-contacts'] });
     } catch {
       // Server sync failed — keep local state, cache what we have
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated)).catch(() => {});

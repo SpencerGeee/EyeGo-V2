@@ -63,4 +63,22 @@ async function reverseGeocode(lng, lat) {
   return data.features?.[0]?.place_name || `${lat}, ${lng}`;
 }
 
-module.exports = { getDirections, forwardGeocode, reverseGeocode, isWithinGhana };
+// Free fallback used whenever MAPBOX_SECRET_TOKEN is missing/placeholder — mirrors
+// apps/rider/utils/geocoding.ts so route creation still gets real coordinates
+// instead of silently defaulting every un-geocodable route to the same fake point.
+async function nominatimForwardGeocode(query) {
+  try {
+    const { data } = await axios.get('https://nominatim.openstreetmap.org/search', {
+      params: { q: query, format: 'json', countrycodes: 'gh', limit: 1 },
+      headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' },
+      timeout: 5000,
+    });
+    if (!Array.isArray(data) || !data.length) return null;
+    return { name: data[0].display_name, lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch (err) {
+    logger.warn(`Nominatim forwardGeocode failed for "${query}": ${err.message}`);
+    return null;
+  }
+}
+
+module.exports = { getDirections, forwardGeocode, reverseGeocode, nominatimForwardGeocode, isWithinGhana };

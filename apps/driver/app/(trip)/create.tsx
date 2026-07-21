@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi, routesApi } from '@eyego/api';
 import type { Route } from '@eyego/api';
@@ -24,13 +24,14 @@ import { StepIndicator } from '../../components/StepIndicator';
 const MAX_STEPS = 4;
 
 const TIER_OPTIONS: {
-  value: 'ECONOMY' | 'COMFORT';
+  value: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
   name: string;
   desc: string;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
   { value: 'ECONOMY', name: 'Economy', desc: 'Shared · best value', icon: 'car-outline' },
-  { value: 'COMFORT', name: 'Comfort', desc: 'Premium · higher fare', icon: 'car-sport-outline' },
+  { value: 'COMFORT', name: 'Comfort', desc: 'Higher fare', icon: 'car-sport-outline' },
+  { value: 'PREMIUM', name: 'Premium', desc: 'Top fare · best vehicles', icon: 'diamond-outline' },
 ];
 
 function formatCurrency(amount: number): string {
@@ -42,6 +43,7 @@ export default function CreateTripScreen() {
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { setActiveTripId } = useDriverStore();
 
   const [step, setStep] = useState(1);
@@ -53,7 +55,7 @@ export default function CreateTripScreen() {
   });
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [seats, setSeats] = useState(14);
-  const [tier, setTier] = useState<'ECONOMY' | 'COMFORT'>('ECONOMY');
+  const [tier, setTier] = useState<'ECONOMY' | 'COMFORT' | 'PREMIUM'>('ECONOMY');
   const [routeSearch, setRouteSearch] = useState('');
 
   const { data: fareEstimateData } = useQuery({
@@ -94,6 +96,11 @@ export default function CreateTripScreen() {
     onSuccess: (res) => {
       const tripId = res.data.data.trip.id;
       setActiveTripId(tripId);
+      // Without this, the Trips tab's ['driver','trips','all'] cache from
+      // before publishing could still be showing when the driver navigates
+      // there right after — the new trip wouldn't appear under Upcoming/Active.
+      queryClient.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
+      queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
       router.replace(`/(trip)/active/${tripId}`);
     },
     onError: (err) => {

@@ -4,6 +4,17 @@ const prisma = require('../config/database');
 const logger = require('../utils/logger');
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24h
+// How long a reservation (statusCode: 0 placeholder) can sit before we treat
+// it as abandoned rather than genuinely in-flight. A request that crashes,
+// times out, or hits a dev-server restart between reserving the key and
+// calling res.json() leaves the row stuck at statusCode 0 forever — and
+// since clients intentionally reuse a STABLE key per booking+method for
+// retries, every future attempt with that same key hit this stuck row and
+// got replayed as a broken response (res.status(0) is not a valid HTTP
+// status), permanently blocking that booking from ever paying. 2 minutes is
+// far longer than any real request should take, so it still catches true
+// concurrent double-submits while self-healing from crashes.
+const STALE_RESERVATION_MS = 2 * 60 * 1000;
 
 // Idempotency middleware for unsafe POST endpoints (e.g. payment initiation).
 //
@@ -31,7 +42,24 @@ function idempotency(req, res, next) {
     });
 
     if (existing) {
-      if (existing.expiresAt > new Date()) {
+      if (existing.statusCode === 0) {
+        // Still a reservation placeholder — the original request never got as
+        // far as res.json(). Genuinely in-flight (very recent) → reject as a
+        // duplicate concurrent submit. Older than the window → the original
+        // request crashed/restarted before responding; clear it and let this
+        // one run fresh instead of replaying an invalid statusCode-0 response.
+        const ageMs = Date.now() - existing.createdAt.getTime();
+        if (ageMs < STALE_RESERVATION_MS) {
+          return res.status(409).json({
+            success: false,
+            code: 'IDEMPOTENCY_IN_PROGRESS',
+            message: 'A request with this Idempotency-Key is already being processed.',
+          });
+        }
+        await prisma.idempotencyKey
+          .delete({ where: { userId_endpoint_key: { userId, endpoint, key } } })
+          .catch(() => {});
+      } else if (existing.expiresAt > new Date()) {
         let body;
         try {
           body = JSON.parse(existing.responseBody);
@@ -40,11 +68,12 @@ function idempotency(req, res, next) {
         }
         res.setHeader('Idempotent-Replay', 'true');
         return res.status(existing.statusCode).json(body);
+      } else {
+        // Expired — remove and let the handler run fresh.
+        await prisma.idempotencyKey
+          .delete({ where: { userId_endpoint_key: { userId, endpoint, key } } })
+          .catch(() => {});
       }
-      // Expired — remove and let the handler run fresh.
-      await prisma.idempotencyKey
-        .delete({ where: { userId_endpoint_key: { userId, endpoint, key } } })
-        .catch(() => {});
     }
 
     // 2) Reserve the key. A unique-violation here means a concurrent request is
