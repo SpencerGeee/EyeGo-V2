@@ -202,7 +202,7 @@
       "source": "openfreemap",
       "source-layer": "place",
       "filter": ["in", "class", "village", "hamlet"],
-      "minzoom": 10,
+      "minzoom": 14,
       "layout": {
         "text-field": "{name}",
         "text-font": ["Noto Sans Regular"],
@@ -281,7 +281,7 @@
       "type": "symbol",
       "source": "openfreemap",
       "source-layer": "poi",
-      "minzoom": 14,
+      "minzoom": 16,
       "filter": ["<=", ["get", "rank"], 15],
       "layout": {
         "text-field": "{name}",

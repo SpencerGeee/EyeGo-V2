@@ -34,7 +34,7 @@ uniform float uPillarHeight;
 uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
-uniform float uLightMode;
+uniform float3 uBaseColor;
 
 const float STEP_MULT = 1.35;
 const int MAX_ITER = 28;
@@ -106,14 +106,16 @@ half4 main(float2 C) {
   // Film grain noise
   col -= hash(C) / 15.0 * uNoiseIntensity;
 
-  // Dark mode: flat wash over the whole frame (alpha = uOpacity everywhere),
-  // which reads fine over a dark container. Light mode: alpha follows the
-  // glow's own post-tanh brightness (already normalized to [0,1] per
-  // channel) so empty background is fully transparent — the white container
-  // shows through as true white — while the pillar's green/blue glow stays
-  // opaque exactly where it's actually lit.
-  float bgAlpha = uLightMode > 0.5 ? clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0) : 1.0;
-  return half4(half3(col * uIntensity) * bgAlpha, bgAlpha) * uOpacity;
+  // Composite the glow over a theme-appropriate base color instead of
+  // varying alpha: uBaseColor is the app's own background color (near-
+  // black in dark mode, near-white in light mode), so unlit regions read as
+  // that theme's own surface -- not a flat mid-gray, and not fully
+  // transparent (which made light mode's effect nearly invisible). Lit
+  // regions (near the beam) blend toward the actual glow color, unchanged
+  // from the original dark-mode look.
+  float glowStrength = clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0);
+  float3 finalColor = mix(uBaseColor, col * uIntensity, glowStrength);
+  return half4(finalColor, 1.0) * uOpacity;
 }
 `;
 
@@ -130,7 +132,7 @@ uniform float uPillarHeight;
 uniform float uNoiseIntensity;
 uniform float uRotationSpeed;
 uniform float uOpacity;
-uniform float uLightMode;
+uniform float3 uBaseColor;
 
 const float STEP_MULT = 1.5;
 const int MAX_ITER = 24;
@@ -182,8 +184,9 @@ half4 main(float2 C) {
   float widthNorm = uPillarWidth / 3.0;
   col = tanhv(col * uGlowAmount / widthNorm);
 
-  float bgAlpha = uLightMode > 0.5 ? clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0) : 1.0;
-  return half4(half3(col * uIntensity) * bgAlpha, bgAlpha) * uOpacity;
+  float glowStrength = clamp(max(col.r, max(col.g, col.b)) * 1.6, 0.0, 1.0);
+  float3 finalColor = mix(uBaseColor, col * uIntensity, glowStrength);
+  return half4(finalColor, 1.0) * uOpacity;
 }
 `;
 
@@ -232,10 +235,11 @@ export interface LightPillarBackgroundProps {
   opacity?: number;
   /** false renders a single frozen frame (no per-frame work). */
   animated?: boolean;
-  /** When true, empty background renders fully transparent instead of a
-   *  flat black wash — lets a light container show through as true white
-   *  while the pillar's own glow color stays opaque. */
-  lightMode?: boolean;
+  /** Theme-aware floor color for unlit regions (hex) — pass the app's own
+   *  background color so the effect reads as "this theme's surface with a
+   *  glow on it" instead of always trending toward black. Defaults to
+   *  black, matching the original dark-only behavior. */
+  baseColor?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -250,7 +254,7 @@ export function LightPillarBackground({
   noiseIntensity = 0.5,
   opacity = 1,
   animated = true,
-  lightMode = false,
+  baseColor = '#000000',
   style,
 }: LightPillarBackgroundProps) {
   const tier = usePerformanceTier();
@@ -316,9 +320,9 @@ export function LightPillarBackground({
       uNoiseIntensity: tier === 'low' ? 0 : noiseIntensity,
       uRotationSpeed: rotationSpeed,
       uOpacity: opacity,
-      uLightMode: lightMode ? 1 : 0,
+      uBaseColor: hexToRgb(baseColor),
     };
-  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, lightMode, cw, ch, tier]);
+  }, [topColor, bottomColor, intensity, glowAmount, pillarWidth, pillarHeight, noiseIntensity, rotationSpeed, opacity, baseColor, cw, ch, tier]);
 
   const uniforms = useDerivedValue(
     () => ({
@@ -331,8 +335,9 @@ export function LightPillarBackground({
   );
 
   if (!EFFECT) {
-    // RuntimeEffect failed to compile — fallback tinted layer
-    return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#060607' }, style]} />;
+    // RuntimeEffect failed to compile — fallback tinted layer, theme-aware
+    // so it doesn't force a dark tile onto a light-theme screen.
+    return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: baseColor }, style]} />;
   }
 
   return (

@@ -22,7 +22,8 @@ import { Text, Button, Entrance, Skeleton, PulseRing, GlassSurface, GradientGlow
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
-import eyegoDarkStyle from '@eyego/map-styles';
+// Driver app uses the blue-highway dark variant, not rider's brand-green default export.
+import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
 

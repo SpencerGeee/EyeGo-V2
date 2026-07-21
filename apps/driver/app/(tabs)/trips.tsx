@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
+import { View, StyleSheet, Pressable, RefreshControl, Alert } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground } from '@eyego/ui';
@@ -24,8 +24,10 @@ const SEGMENTS: { key: Segment; label: string }[] = [
 export default function TripsScreen() {
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
+  const setActiveTripId = useDriverStore(s => s.setActiveTripId);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const qc = useQueryClient();
   const [segment, setSegment] = useState<Segment>('active');
 
   const { data: allTrips, isLoading, isError, refetch, isRefetching } = useQuery({
@@ -39,6 +41,31 @@ export default function TripsScreen() {
     queryFn: () => driverApi.getActiveTrip(),
     select: (r) => (r.data as any)?.data?.trip ?? null,
   });
+
+  // Quick-cancel from the list — reuses the same driverApi.cancelTrip call
+  // and query invalidations as the dedicated cancel/[id].tsx screen, just
+  // gated behind a lightweight confirm instead of the full reason-picker
+  // flow, so drivers don't have to leave the My Trips page.
+  const cancelMutation = useMutation({
+    mutationFn: (tripId: string) => driverApi.cancelTrip(tripId, 'Cancelled from trips list'),
+    onSuccess: () => {
+      setActiveTripId(null);
+      qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
+      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+    },
+    onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? (err as Error).message ?? 'Failed to cancel trip.'),
+  });
+
+  const confirmCancel = useCallback((tripId: string) => {
+    Alert.alert(
+      'Cancel Trip',
+      'Cancelling will affect your cancellation rate in performance stats, and passengers who already paid will be refunded. Continue?',
+      [
+        { text: 'Keep Trip', style: 'cancel' },
+        { text: 'Cancel Trip', style: 'destructive', onPress: () => cancelMutation.mutate(tripId) },
+      ],
+    );
+  }, [cancelMutation]);
 
   const filteredTrips = useMemo(() => {
     const all: any[] = allTrips ?? [];
@@ -94,8 +121,20 @@ export default function TripsScreen() {
           <Text variant="caption" color={colors.onSurfaceVariant}>Report passenger</Text>
         </Pressable>
       )}
+      {/* Quick-cancel — any trip that hasn't already finished/cancelled,
+          across active/upcoming/dispatch, not just upcoming/dispatch. */}
+      {segment !== 'history' && !['COMPLETED', 'CANCELLED'].includes(item.status) && (
+        <Pressable
+          style={styles.reportBtn}
+          onPress={() => confirmCancel(item.id)}
+          disabled={cancelMutation.isPending}
+        >
+          <Ionicons name="close-circle-outline" size={13} color={colors.error} />
+          <Text variant="caption" color={colors.error}>Cancel trip</Text>
+        </Pressable>
+      )}
     </>
-  ), [segment, router, styles, colors]);
+  ), [segment, router, styles, colors, confirmCancel, cancelMutation.isPending]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -153,6 +192,7 @@ export default function TripsScreen() {
         </Entrance>
       ) : (
         <AnimatedList
+          style={{ flex: 1 }}
           data={filteredTrips}
           keyExtractor={(item: any) => item.id}
           contentContainerStyle={styles.listContent}

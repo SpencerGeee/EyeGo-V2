@@ -180,6 +180,7 @@ export default function NotificationsScreen() {
         <AnimatedList
           data={filtered}
           keyExtractor={(item) => item.id}
+          style={{ flex: 1 }}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           renderItem={renderItem}

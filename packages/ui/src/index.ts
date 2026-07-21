@@ -53,7 +53,7 @@ export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
 export { setBackgroundBusy, subscribeBackgroundBusy, backgroundScrollPauseProps } from './effects/backgroundActivity';
 export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
-export type { MorphRect } from './morph';
+export type { MorphRect, MorphSourceHandle } from './morph';
 export { PulseRing } from './effects/PulseRing';
 
 // Animation Primitives

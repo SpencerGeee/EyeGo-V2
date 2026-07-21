@@ -172,15 +172,23 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   };
 
   const searchTrips = useMutation({
-    mutationFn: () =>
-      tripsApi.search({
-        originLat: origin?.latitude ?? 5.6037,
-        originLng: origin?.longitude ?? -0.187,
-        destinationLat: destination?.latitude ?? 5.65,
-        destinationLng: destination?.longitude ?? -0.19,
+    mutationFn: () => {
+      // Searching with a fabricated Accra-center coordinate whenever origin/
+      // destination lat-lng is missing would silently return trips near a
+      // fake point instead of the rider's real route — surface a real error
+      // (via the existing isError → "Search failed" EmptyState below) instead.
+      if (origin?.latitude == null || origin?.longitude == null || destination?.latitude == null || destination?.longitude == null) {
+        return Promise.reject(new Error('Missing pickup or destination location'));
+      }
+      return tripsApi.search({
+        originLat: origin.latitude,
+        originLng: origin.longitude,
+        destinationLat: destination.latitude,
+        destinationLng: destination.longitude,
         // null = "ALL TRIPS": omit tier so the backend returns every tier.
         tier: selectedTier ?? undefined,
-      }),
+      });
+    },
     onSuccess: ({ data }) => {
       const realTrips = (data?.data as any)?.trips ?? data?.data ?? [];
       // No mock fallback: an empty result is a genuine "no rides found" state,

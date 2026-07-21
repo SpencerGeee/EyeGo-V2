@@ -22,6 +22,15 @@ router.get('/join/:shareToken/data', tripsController.getJoinData);
 router.get('/', authenticate, tripsController.searchTrips);
 router.get('/active', authenticate, tripsController.getActiveTrip);
 router.get('/fare-estimate', authenticate, tripsController.getFareEstimate);
+// GET /v1/trips/scheduled — rider's own scheduled ride intents. MUST be
+// registered before the generic '/:id' route below: Express matches routes
+// in registration order, and '/:id' is a single dynamic segment that was
+// silently swallowing GET /trips/scheduled (id="scheduled") — the request
+// never reached getScheduledRides, it 404'd inside getTrip instead, and the
+// rider-side query silently fell back to an empty list ("no scheduled rides
+// yet") even though the POST /trips/schedule that created the ride had
+// already succeeded.
+router.get('/scheduled', authenticate, tripsController.getScheduledRides);
 router.get('/:id', authenticate, tripsController.getTrip);
 router.get('/:id/contact', authenticate, tripsController.getTripContact);
 router.get('/:id/seats', authenticate, tripsController.getSeatMap);
@@ -87,9 +96,6 @@ router.post(
   validate,
   tripsController.scheduleTrip
 );
-
-// GET /v1/trips/scheduled — rider's own scheduled ride intents
-router.get('/scheduled', authenticate, tripsController.getScheduledRides);
 
 // DELETE /v1/trips/scheduled/:id — cancel a pending scheduled ride
 router.delete('/scheduled/:id', authenticate, tripsController.cancelScheduledRide);

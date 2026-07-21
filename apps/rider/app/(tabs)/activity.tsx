@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
@@ -14,14 +15,20 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, GradientGlowBorder, Button } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
 
-type FilterTab = 'all' | 'trips' | 'alerts' | 'scheduled';
+type FilterTab = 'trips' | 'alerts' | 'scheduled';
+
+const TABS: { key: FilterTab; label: string }[] = [
+  { key: 'trips', label: 'Trips' },
+  { key: 'alerts', label: 'Alerts' },
+  { key: 'scheduled', label: 'Scheduled' },
+];
 
 const SCHEDULED_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Waiting for a match',
@@ -207,6 +214,32 @@ function getDateLabel(dateStr: string): string {
   return 'Earlier';
 }
 
+type FeedEntry = { type: 'trip' | 'notification'; data: any; date: string };
+type SectionedEntry = { type: 'section'; label: string; date: string } | FeedEntry;
+
+/** Groups a flat, date-sorted feed into Today / Yesterday / This Week / Earlier sections. */
+function withDateSections(items: FeedEntry[]): SectionedEntry[] {
+  if (items.length === 0) return [];
+
+  const groups = new Map<string, FeedEntry[]>();
+  for (const item of items) {
+    const label = getDateLabel(item.date);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label)!.push(item);
+  }
+
+  const order = ['Today', 'Yesterday', 'This Week', 'Earlier'];
+  const result: SectionedEntry[] = [];
+  for (const label of order) {
+    const bucket = groups.get(label);
+    if (bucket && bucket.length > 0) {
+      result.push({ type: 'section', label, date: bucket[0].date });
+      result.push(...bucket);
+    }
+  }
+  return result;
+}
+
 function SectionHeader({
   label,
   colors,
@@ -223,13 +256,43 @@ function SectionHeader({
   );
 }
 
-function FilterChip({ label, active, onPress, styles }: { label: string; active: boolean; onPress: () => void; styles: ReturnType<typeof makeStyles> }) {
+// Mirrors apps/driver/app/(tabs)/trips.tsx's AnimatedSegBtn — plain segmented
+// control, no glow/pill card behind it, just a subtle track with a filled
+// active pill.
+function AnimatedSegBtn({
+  label,
+  isActive,
+  onPress,
+  colors,
+  styles,
+}: {
+  label: string;
+  isActive: boolean;
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
     <Pressable
-      style={[styles.chip, active && styles.chipActive]}
       onPress={onPress}
+      onPressIn={() => { scale.value = withSpring(0.92, { stiffness: 700, damping: 15 }); }}
+      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 15 }); }}
+      style={styles.segmentBtn}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isActive }}
     >
-      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+      <Animated.View style={[isActive && styles.segmentActive, animStyle, styles.segmentPill]}>
+        <Text
+          style={[
+            styles.segmentText,
+            { color: isActive ? colors.inverseOnSurface : colors.onSurfaceVariant },
+          ]}
+        >
+          {label}
+        </Text>
+      </Animated.View>
     </Pressable>
   );
 }
@@ -239,34 +302,13 @@ export default function ActivityScreen() {
   const colors = useColors();
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-  const [filter, setFilter] = useState<FilterTab>('all');
-  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<FilterTab>('trips');
   const queryClient = useQueryClient();
-
-  const {
-    data: scheduledData,
-    isLoading: scheduledLoading,
-    refetch: refetchScheduled,
-  } = useQuery({
-    queryKey: ['trips', 'scheduled'],
-    queryFn: () => tripsApi.getScheduledRides(),
-    enabled: filter === 'scheduled',
-  });
-
-  const cancelScheduled = useMutation({
-    mutationFn: (id: string) => tripsApi.cancelScheduledRide(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] }),
-    onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
-  });
-
-  const scheduledIntents = React.useMemo(() => {
-    const list = (scheduledData as any)?.data?.data?.intents ?? [];
-    return [...list].sort((a: any, b: any) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
-  }, [scheduledData]);
 
   const {
     data: bookings,
     isLoading: bookingsLoading,
+    isRefetching: bookingsRefetching,
     refetch: refetchBookings,
   } = useQuery({
     queryKey: queryKeys.bookings.myHistory(),
@@ -278,6 +320,7 @@ export default function ActivityScreen() {
   const {
     data: notifications,
     isLoading: notifsLoading,
+    isRefetching: notifsRefetching,
     refetch: refetchNotifs,
   } = useQuery({
     queryKey: ['notifications', 'all'],
@@ -285,82 +328,80 @@ export default function ActivityScreen() {
     staleTime: 30_000,
   });
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([refetchBookings(), refetchNotifs()]);
-    setRefreshing(false);
-  }, [refetchBookings, refetchNotifs]);
+  const {
+    data: scheduledData,
+    isLoading: scheduledLoading,
+    isRefetching: scheduledRefetching,
+    refetch: refetchScheduled,
+  } = useQuery({
+    queryKey: ['trips', 'scheduled'],
+    queryFn: () => tripsApi.getScheduledRides(),
+  });
 
-  const isLoading = bookingsLoading || notifsLoading;
+  const cancelScheduled = useMutation({
+    mutationFn: (id: string) => tripsApi.cancelScheduledRide(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] }),
+    onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
+  });
 
-  const feedItems = React.useMemo(() => {
-    const items: Array<{ type: 'trip' | 'notification'; data: any; date: string }> = [];
+  const scheduledIntents = useMemo(() => {
+    const list = (scheduledData as any)?.data?.data?.intents ?? [];
+    return [...list].sort((a: any, b: any) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  }, [scheduledData]);
 
-    // apiClient.get() resolves to the raw axios response (pass-through
-    // interceptor) wrapping the backend's own {success,message,data:{...}}
-    // envelope — a two-level unwrap, same pattern as home.tsx. getHistory's
-    // real payload is data.data.bookings (see bookings.service.js
-    // getUserBookings return: {bookings,total,page,totalPages}); getAll's is
-    // data.data.notifications. Skipping a level left `rawBookings`/`rawNotifs`
-    // as the envelope object (no .forEach), crashing the moment the backend
-    // returned real data.
-    const bookingsBody = (bookings as any)?.data;
-    const rawBookings: any[] = Array.isArray(bookingsBody?.data?.bookings)
-      ? bookingsBody.data.bookings
-      : Array.isArray(bookingsBody?.data)
-      ? bookingsBody.data
+  // apiClient.get() resolves to the raw axios response (pass-through
+  // interceptor) wrapping the backend's own {success,message,data:{...}}
+  // envelope — a two-level unwrap, same pattern as home.tsx. getHistory's
+  // real payload is data.data.bookings (see bookings.service.js
+  // getUserBookings return: {bookings,total,page,totalPages}); getAll's is
+  // data.data.notifications. Skipping a level left `rawBookings`/`rawNotifs`
+  // as the envelope object (no .forEach), crashing the moment the backend
+  // returned real data.
+  const rawBookings: any[] = useMemo(() => {
+    const body = (bookings as any)?.data;
+    return Array.isArray(body?.data?.bookings)
+      ? body.data.bookings
+      : Array.isArray(body?.data)
+      ? body.data
       : [];
+  }, [bookings]);
 
-    const notifsBody = (notifications as any)?.data;
-    const rawNotifs: any[] = Array.isArray(notifsBody?.data?.notifications)
-      ? notifsBody.data.notifications
-      : Array.isArray(notifsBody?.data)
-      ? notifsBody.data
+  const rawNotifs: any[] = useMemo(() => {
+    const body = (notifications as any)?.data;
+    return Array.isArray(body?.data?.notifications)
+      ? body.data.notifications
+      : Array.isArray(body?.data)
+      ? body.data
       : [];
+  }, [notifications]);
 
-    if (filter !== 'alerts') {
-      rawBookings.forEach((b: any) => {
-        items.push({ type: 'trip', data: b, date: b.departureTime ?? b.createdAt });
-      });
-    }
+  const tripSections = useMemo(() => {
+    const items: FeedEntry[] = rawBookings
+      .map((b: any) => ({ type: 'trip' as const, data: b, date: b.departureTime ?? b.createdAt }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return withDateSections(items);
+  }, [rawBookings]);
 
-    if (filter !== 'trips') {
-      rawNotifs.forEach((n: any) => {
-        items.push({ type: 'notification', data: n, date: n.createdAt });
-      });
-    }
+  const alertSections = useMemo(() => {
+    const items: FeedEntry[] = rawNotifs
+      .map((n: any) => ({ type: 'notification' as const, data: n, date: n.createdAt }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return withDateSections(items);
+  }, [rawNotifs]);
 
-    return items.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [bookings, notifications, filter]);
-
-  /** Flat array with section headers interleaved, grouped by date period. */
-  const feedWithSections = React.useMemo(() => {
-    const flat = feedItems;
-    if (flat.length === 0) return [];
-
-    const groups = new Map<string, typeof feedItems>();
-    for (const item of flat) {
-      const label = getDateLabel(item.date);
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label)!.push(item);
-    }
-
-    const order = ['Today', 'Yesterday', 'This Week', 'Earlier'];
-    const result: Array<
-      | { type: 'section'; label: string; date: string }
-      | (typeof feedItems)[number]
-    > = [];
-    for (const label of order) {
-      const items = groups.get(label);
-      if (items && items.length > 0) {
-        result.push({ type: 'section', label, date: items[0].date });
-        result.push(...items);
-      }
-    }
-    return result;
-  }, [feedItems]);
+  const isLoading =
+    filter === 'trips' ? bookingsLoading :
+    filter === 'alerts' ? notifsLoading :
+    scheduledLoading;
+  const isRefreshing =
+    filter === 'trips' ? bookingsRefetching :
+    filter === 'alerts' ? notifsRefetching :
+    scheduledRefetching;
+  const onRefresh = useCallback(() => {
+    if (filter === 'trips') refetchBookings();
+    else if (filter === 'alerts') refetchNotifs();
+    else refetchScheduled();
+  }, [filter, refetchBookings, refetchNotifs, refetchScheduled]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -370,31 +411,28 @@ export default function ActivityScreen() {
         </View>
       </Entrance>
 
-      <Entrance animation="fadeIn" delay={100} duration={250}>
-        <GradientGlowBorder
-          palette="green"
-          fillColor="transparent"
-          borderRadius={radii.lg}
-          glow
-          style={styles.filterRow}
-        >
-          {(['all', 'trips', 'alerts', 'scheduled'] as FilterTab[]).map((f) => (
-            <FilterChip
-              key={f}
-              label={f === 'all' ? 'All' : f === 'trips' ? 'Trips' : f === 'alerts' ? 'Alerts' : 'Scheduled'}
-              active={filter === f}
-              styles={styles}
+      {/* Segmented control — plain track, no glow/card behind it, matching
+          apps/driver/app/(tabs)/trips.tsx. */}
+      <Entrance animation="fadeIn" delay={100} duration={250} style={styles.segmentWrapper}>
+        <View style={styles.segmentTrack}>
+          {TABS.map((t) => (
+            <AnimatedSegBtn
+              key={t.key}
+              label={t.label}
+              isActive={filter === t.key}
               onPress={() => {
                 Haptics.selectionAsync();
-                setFilter(f);
+                setFilter(t.key);
               }}
+              colors={colors}
+              styles={styles}
             />
           ))}
-        </GradientGlowBorder>
+        </View>
       </Entrance>
 
       {filter === 'scheduled' ? (
-        scheduledLoading && !refreshing ? (
+        scheduledLoading && !isRefreshing ? (
           <View style={styles.center}>
             <ActivityIndicator color={colors.primary} />
           </View>
@@ -422,7 +460,7 @@ export default function ActivityScreen() {
               paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24,
             }}
             refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={refetchScheduled} tintColor={colors.primary} />
+              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} tintColor={colors.primary} />
             }
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
@@ -446,7 +484,7 @@ export default function ActivityScreen() {
             showsVerticalScrollIndicator={false}
           />
         )
-      ) : isLoading && !refreshing ? (
+      ) : isLoading && !isRefreshing ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
         </View>
@@ -457,14 +495,14 @@ export default function ActivityScreen() {
           staggerDelay={30}
           entranceDuration={200}
           {...backgroundScrollPauseProps}
-          data={feedWithSections}
+          data={filter === 'trips' ? tripSections : alertSections}
           keyExtractor={(item, idx) =>
-            'label' in item && 'type' in item && item.type === 'section'
-              ? `section-${(item as any).label}`
-              : `${(item as any).type}-${(item as any).data?.id ?? idx}`
+            item.type === 'section'
+              ? `section-${item.label}`
+              : `${item.type}-${(item as FeedEntry).data?.id ?? idx}`
           }
           renderItem={({ item }) =>
-            'label' in item && item.type === 'section' ? (
+            item.type === 'section' ? (
               <SectionHeader label={item.label} colors={colors} styles={styles} />
             ) : item.type === 'trip' ? (
               <TripItem booking={item.data} colors={colors} styles={styles} />
@@ -479,17 +517,17 @@ export default function ActivityScreen() {
           }}
           refreshControl={
             <RefreshControl
-              refreshing={refreshing}
+              refreshing={isRefreshing}
               onRefresh={onRefresh}
               tintColor={colors.primary}
             />
           }
           ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Ionicons name="time-outline" size={48} color={colors.onSurfaceVariant} />
-              <Text style={styles.emptyText}>No activity yet</Text>
-              <Text style={styles.emptyHint}>Your rides and alerts will appear here</Text>
-              {filter !== 'alerts' && (
+            filter === 'trips' ? (
+              <View style={styles.emptyWrap}>
+                <Ionicons name="time-outline" size={48} color={colors.onSurfaceVariant} />
+                <Text style={styles.emptyText}>No trips yet</Text>
+                <Text style={styles.emptyHint}>Your rides will appear here</Text>
                 <View style={styles.emptyCtaRow}>
                   <Pressable
                     style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.8 }]}
@@ -516,8 +554,14 @@ export default function ActivityScreen() {
                     <Text style={styles.emptyCtaText}>Schedule</Text>
                   </Pressable>
                 </View>
-              )}
-            </View>
+              </View>
+            ) : (
+              <View style={styles.emptyWrap}>
+                <Ionicons name="notifications-outline" size={48} color={colors.onSurfaceVariant} />
+                <Text style={styles.emptyText}>No alerts yet</Text>
+                <Text style={styles.emptyHint}>Updates about your rides will appear here</Text>
+              </View>
+            )
           }
           showsVerticalScrollIndicator={false}
         />
@@ -543,32 +587,31 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurface,
     letterSpacing: -0.5,
   },
-  filterRow: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
+  segmentWrapper: {
+    paddingHorizontal: spacing.xl,
     paddingBottom: spacing.md,
-    gap: spacing.sm,
   },
-  chip: {
-    paddingHorizontal: spacing.base,
-    paddingVertical: 8,
+  segmentTrack: {
+    flexDirection: 'row',
+  },
+  segmentBtn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  segmentPill: {
     borderRadius: radii.lg,
-    backgroundColor: colors.rimLightSubtle,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    alignItems: 'center',
+    width: '100%',
   },
-  chipActive: {
+  segmentActive: {
     backgroundColor: colors.onSurface,
-    borderColor: colors.onSurface,
   },
-  chipText: {
+  segmentText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
-    lineHeight: fontSizes.bodyMedium * 1.3,
-    color: colors.onSurfaceVariant,
-  },
-  chipTextActive: {
-    color: colors.inverseOnSurface,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
   },
   sectionHeader: {
     paddingTop: spacing.lg,

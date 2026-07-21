@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,7 +7,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,7 +17,7 @@ import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText } from '@eyego/ui';
+import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
@@ -253,6 +253,25 @@ export default function HomeScreen() {
 
   const { morphTo } = useMorph();
 
+  // MorphSource hides its children while a morph flight is in the air and
+  // only un-hides via morphBack/the target-timeout fallback (see
+  // MorphSourceHandle doc in packages/ui/src/morph/MorphSource.tsx). The
+  // "Where to?" pill morphs into /trip's search stage, but that stage's
+  // "Schedule" CTA pushes /ride/schedule forward — a totally different
+  // screen, not the morph target's own back/close control — so morphBack
+  // never fires. After scheduling completes and the rider is routed to
+  // /scheduled-rides and back here, the pill was left invisible forever.
+  // Self-heal on every focus so it's back regardless of how the rider
+  // wandered away from the search stage.
+  const whereToSourceRef = useRef<MorphSourceHandle>(null);
+  const activeRideSourceRef = useRef<MorphSourceHandle>(null);
+  useFocusEffect(
+    useCallback(() => {
+      whereToSourceRef.current?.show();
+      activeRideSourceRef.current?.show();
+    }, [])
+  );
+
   const handleWhereTo = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // Container-transform: the pill flies into the trip surface's search card
@@ -314,6 +333,7 @@ export default function HomeScreen() {
         {/* Where To Search Bar */}
         <Animated.View entering={FadeIn.duration(250)}>
           <MorphSource
+            ref={whereToSourceRef}
             id="where-to-pill"
             borderRadius={24}
             backgroundColor={colors.surfaceCard}
@@ -350,7 +370,7 @@ export default function HomeScreen() {
             (container-transform, same engine as the where-to pill above)
             instead of a plain push, so it reads as one continuous surface. */}
         {activeBooking && (
-          <MorphSource id="home-active-ride" borderRadius={24} backgroundColor={colors.surfaceCard}>
+          <MorphSource ref={activeRideSourceRef} id="home-active-ride" borderRadius={24} backgroundColor={colors.surfaceCard}>
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

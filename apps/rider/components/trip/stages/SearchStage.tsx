@@ -120,8 +120,10 @@ function SearchStageImpl() {
           });
         }
       } catch {
-        // No GPS available — searchTrips' fallback coordinate is the last resort,
-        // not the default path.
+        // No GPS available — searchTrips (SelectStage.tsx) now throws and shows
+        // a "Search failed" retry state instead of silently searching from a
+        // fabricated Accra-center coordinate, so there's nothing to fall back
+        // to here; the rider will see a clear error if they proceed without origin.
       }
     })();
     return () => { cancelled = true; };

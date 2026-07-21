@@ -33,7 +33,10 @@ import mapStyles from '@eyego/map-styles';
 export default function HomeScreen() {
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
-  const mapStyle = theme === 'light' ? mapStyles.eyegoLightStyle : mapStyles.eyegoDarkStyle;
+  // Driver app uses blue highway accent (eyegoDriverDarkStyle) instead of
+  // rider's brand-green dark style; light mode's highway accent is already
+  // blue for both apps, so it's shared unchanged.
+  const mapStyle = theme === 'light' ? mapStyles.eyegoLightStyle : mapStyles.eyegoDriverDarkStyle;
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();

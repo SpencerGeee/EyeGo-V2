@@ -42,7 +42,7 @@ interface GlassSurfaceProps {
 // Colors in this design system are always #RRGGBB hex — cheap perceived-
 // luminance check to tell a light theme's near-white background apart from
 // a dark theme's near-black one, so GlassSurface can auto-tint correctly.
-function isLightColor(hex: string): boolean {
+export function isLightColor(hex: string): boolean {
   const c = hex.replace('#', '');
   if (c.length < 6) return false;
   const r = parseInt(c.slice(0, 2), 16);

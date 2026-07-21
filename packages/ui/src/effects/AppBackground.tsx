@@ -71,6 +71,16 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
   // no aesthetic. Using `colors.primary` in both modes keeps the same brand
   // wave color; only intensity/opacity drop for a lighter, white-appropriate
   // version of the same effect instead of disappearing.
+  //
+  // `baseColor` is the theme's own background — the shader composites its
+  // glow ON TOP of this instead of varying alpha, so the "empty" side of the
+  // composition renders as this theme's actual surface color (near-black in
+  // dark mode, matching the previous look exactly; near-white in light mode,
+  // instead of fading to a barely-visible transparent wash). `bottomColor`
+  // no longer needs a light-mode override (that was compensating for the old
+  // alpha-fade approach) — it stays the on-brand deep gradient color in both
+  // themes, so the glow itself is identical between modes; only the base it
+  // sits on changes.
   if (tier !== 'low') {
     return (
       <View
@@ -84,7 +94,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
       >
         <LightPillarBackground
           topColor={colors.primary}
-          bottomColor={isDark ? colors.onPrimaryFixedVariant : '#ffffff'}
+          bottomColor={colors.onPrimaryFixedVariant}
           animated={animated}
           intensity={isDark ? 1.0 : 0.55}
           rotationSpeed={tier === 'high' ? 0.4 : 0.25}
@@ -93,7 +103,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
           pillarHeight={0.4}
           noiseIntensity={isDark ? (tier === 'high' ? 0.5 : 0.3) : 0}
           opacity={ambientOpacity}
-          lightMode={!isDark}
+          baseColor={colors.backgroundDeep}
         />
       </View>
     );

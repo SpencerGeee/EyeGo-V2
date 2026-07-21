@@ -24,7 +24,8 @@ import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
 import { offlineQueue } from '../../../utils/offlineQueue';
-import eyegoDarkStyle from '@eyego/map-styles';
+// Driver app uses the blue-highway dark variant, not rider's brand-green default export.
+import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
 import MapboxGL from '../../../utils/mapbox';
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -223,6 +224,34 @@ export default function ActiveTripScreen() {
     onError: (err) => Alert.alert('Error', (err as Error).message),
   });
 
+  // Route coordinates for the road-following polyline. This MUST be computed
+  // (and useRoadRoute called) before the loading early-return below, not
+  // after it — useRoadRoute is a hook, and calling it only on renders where
+  // `trip` has already loaded (skipped entirely on the first, loading render)
+  // violates the Rules of Hooks: the hook count changes between renders,
+  // which throws "Rendered more hooks than during the previous render" the
+  // instant the query resolves. That uncaught render error is what the
+  // root _layout.tsx ErrorBoundary was catching and showing as "Something
+  // went wrong / Restart App" when resuming a trip from home (a fresh query,
+  // guaranteed to render once in the loading state first) — trips reached via
+  // the create-trip flow could avoid it if the data happened to already be
+  // cached, which is why it looked resume-specific.
+  const driverCoord: [number, number] = location
+    ? [location.longitude, location.latitude]
+    : [trip?.route?.originLng ?? -0.187, trip?.route?.originLat ?? 5.6037];
+  const pickupCoord: [number, number] = trip?.route?.originLat && trip?.route?.originLng
+    ? [trip.route.originLng, trip.route.originLat]
+    : driverCoord;
+  const destCoord: [number, number] = trip?.route?.destLat && trip?.route?.destLng
+    ? [trip.route.destLng, trip.route.destLat]
+    : pickupCoord;
+  // Navigate to pickup while en-route/arrived, then to destination once the
+  // trip is actually running — mirrors tracking/[id].tsx's target logic.
+  const routeTarget: [number, number] = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED'
+    ? destCoord
+    : pickupCoord;
+  const routeCoords = useRoadRoute(driverCoord, routeTarget);
+
   // ─── Loading skeleton ────────────────────────────────────────────────────
 
   if (isLoading || !trip) {
@@ -292,22 +321,9 @@ export default function ActiveTripScreen() {
     bookingId: b.id,
   }));
 
-  const driverCoord: [number, number] = location
-    ? [location.longitude, location.latitude]
-    : [trip.route?.originLng ?? -0.187, trip.route?.originLat ?? 5.6037];
-
-  const pickupCoord: [number, number] = trip.route?.originLat && trip.route?.originLng
-    ? [trip.route.originLng, trip.route.originLat]
-    : driverCoord;
-  const destCoord: [number, number] = trip.route?.destLat && trip.route?.destLng
-    ? [trip.route.destLng, trip.route.destLat]
-    : pickupCoord;
-  // Navigate to pickup while en-route/arrived, then to destination once the
-  // trip is actually running — mirrors tracking/[id].tsx's target logic.
-  const routeTarget: [number, number] = trip.status === 'IN_PROGRESS' || trip.status === 'COMPLETED'
-    ? destCoord
-    : pickupCoord;
-  const routeCoords = useRoadRoute(driverCoord, routeTarget);
+  // driverCoord/pickupCoord/destCoord/routeTarget/routeCoords are computed
+  // above (before the loading early-return) since routeCoords needs the
+  // useRoadRoute hook call to happen unconditionally on every render.
 
   const currentStepIndex = STATUS_STEPS.indexOf(trip.status);
 

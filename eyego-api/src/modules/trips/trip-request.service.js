@@ -11,7 +11,6 @@ const { calculateFare, haversineKm } = require('./fare.calculator');
 const DISPATCH_RADIUS_KM = 8;
 const GROUP_WINDOW_MINUTES = 60;
 const MAX_DRIVERS_TO_NOTIFY = 12;
-const ON_DEMAND_FALLBACK_DISTANCE_KM = 5;
 
 /**
  * Create a trip request for a free-text destination not served by existing routes.
@@ -111,13 +110,26 @@ async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, g
       }
     }
 
+    // BUGFIX: `fcmToken: { not: null }` used to be a hard filter on BOTH branches
+    // below, which meant the eligibility query itself excluded any driver who
+    // hadn't (yet) registered a push token — e.g. simulators/emulators, a fresh
+    // install before permission is granted, or a token registration that's still
+    // in flight. Because the socket emit loop only ever iterated over this same
+    // FCM-filtered list (and the function returned early when fcmTokens was
+    // empty), those drivers never received the real-time `trip:assigned` socket
+    // event either, even though the socket path has nothing to do with FCM.
+    // Online + active + in-radius is now the only real-time eligibility
+    // criterion; the FCM token is looked up for the *separate*, best-effort
+    // push notification only. Also added `isOnline: true` to the geo-radius
+    // branch — goOffline() never removes the driver from the `drivers:online`
+    // Redis geo-set, so a stale/offline driver could otherwise still surface.
     let eligibleDrivers;
     if (nearbyDriverIds.length > 0) {
       eligibleDrivers = await prisma.driver.findMany({
         where: {
           id:      { in: nearbyDriverIds },
           status:  'ACTIVE',
-          fcmToken: { not: null },
+          isOnline: true,
           trips:   { none: { status: { in: ['IN_PROGRESS', 'DRIVER_EN_ROUTE'] } } },
         },
         select:  { id: true, fcmToken: true },
@@ -129,33 +141,34 @@ async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, g
         where: {
           isOnline: true,
           status:   'ACTIVE',
-          fcmToken: { not: null },
         },
         select: { id: true, fcmToken: true },
         take:   MAX_DRIVERS_TO_NOTIFY,
       });
     }
 
-    const fcmTokens = eligibleDrivers.map((d) => d.fcmToken).filter(Boolean);
-    if (fcmTokens.length === 0) {
+    if (eligibleDrivers.length === 0) {
       logger.info('No drivers to notify for trip request', { requestId: tripRequest.id });
       return;
     }
 
-    await pushService.sendMulticastPush(
-      fcmTokens,
-      'Ride Request Nearby',
-      `${groupedCount} rider${groupedCount > 1 ? 's' : ''} need a trip to ${destination}`,
-      {
-        type:         'TRIP_REQUEST_DISPATCH',
-        requestId:    tripRequest.id,
-        destination,
-        scheduledAt:  scheduledAt.toISOString(),
-        groupedCount: String(groupedCount),
-        pickupLat:    tripRequest.pickupLat != null ? String(tripRequest.pickupLat) : '',
-        pickupLng:    tripRequest.pickupLng != null ? String(tripRequest.pickupLng) : '',
-      }
-    );
+    const fcmTokens = eligibleDrivers.map((d) => d.fcmToken).filter(Boolean);
+    if (fcmTokens.length > 0) {
+      await pushService.sendMulticastPush(
+        fcmTokens,
+        'Ride Request Nearby',
+        `${groupedCount} rider${groupedCount > 1 ? 's' : ''} need a trip to ${destination}`,
+        {
+          type:         'TRIP_REQUEST_DISPATCH',
+          requestId:    tripRequest.id,
+          destination,
+          scheduledAt:  scheduledAt.toISOString(),
+          groupedCount: String(groupedCount),
+          pickupLat:    tripRequest.pickupLat != null ? String(tripRequest.pickupLat) : '',
+          pickupLng:    tripRequest.pickupLng != null ? String(tripRequest.pickupLng) : '',
+        }
+      );
+    }
 
     // Also emit a live socket event, mirroring dispatch.service.js's pattern for
     // the pre-scheduled-trip path — without this, on-demand rider requests only
@@ -188,7 +201,8 @@ async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, g
     logger.info('Trip request dispatched', {
       requestId:   tripRequest.id,
       destination,
-      driverCount: fcmTokens.length,
+      driverCount: eligibleDrivers.length,
+      pushCount:   fcmTokens.length,
       groupedCount,
     });
   } catch (err) {
@@ -277,10 +291,19 @@ async function acceptTripRequest(driverId, tripRequestId) {
       if (geo) { destLat = geo.lat; destLng = geo.lng; }
     }
     const hasDestCoords = destLat != null && destLng != null;
-    const distanceKm = hasDestCoords
-      ? Math.max(haversineKm(originLat, originLng, destLat, destLng), 1)
-      : ON_DEMAND_FALLBACK_DISTANCE_KM;
-    if (!hasDestCoords) { destLat = originLat; destLng = originLng; }
+    // Geocoding (both Mapbox and the Nominatim fallback) failed to resolve the
+    // free-text destination. Collapsing destLat/destLng onto the pickup point
+    // here would silently create a trip whose route destination is a fabricated
+    // coordinate (same as pickup) instead of where the rider actually asked to
+    // go — block the accept and surface a real error instead.
+    if (!hasDestCoords) {
+      throw new AppError(
+        `Could not determine a location for "${tripRequest.destination}". Ask the rider to pick a destination on the map and try again.`,
+        400,
+        'MISSING_DEST_COORDS',
+      );
+    }
+    const distanceKm = Math.max(haversineKm(originLat, originLng, destLat, destLng), 1);
 
     const route = await tx.route.create({
       data: {

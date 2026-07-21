@@ -1,8 +1,8 @@
 {
   "version": 8,
-  "name": "EyeGo Dark",
+  "name": "EyeGo Dark (Driver)",
   "metadata": {
-    "description": "Premium dark map theme for EyeGo — desaturated ink base so roads/route/pins own the hierarchy, muted brand-green reserved for highways and boundaries. No API key required, works with OpenFreeMap free tiles.",
+    "description": "Driver-app variant of EyeGo Dark — identical base/landuse/building/label treatment, but highway accent recolored brand-blue (matching the driver app's blue theme) instead of the rider app's brand-green. No API key required, works with OpenFreeMap free tiles.",
     "attribution": "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a> · <a href=\"https://openmaptiles.org\" target=\"_blank\">OpenMapTiles</a> · <a href=\"https://openstreetmap.org\" target=\"_blank\">OpenStreetMap</a>"
   },
   "sources": {
@@ -158,7 +158,7 @@
       "minzoom": 6,
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": ["interpolate", ["linear"], ["zoom"], 6, "#4C5872", 11, "#3E9E68", 15, "#4BE277"],
+        "line-color": ["interpolate", ["linear"], ["zoom"], 6, "#4C5872", 11, "#2F6FED", 15, "#4C8CFF"],
         "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 16, 6],
         "line-opacity": 1
       }
@@ -298,5 +298,5 @@
       }
     }
   ],
-  "id": "eyego-dark"
+  "id": "eyego-dark-driver"
 }

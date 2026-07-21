@@ -5,11 +5,11 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
   Alert,
   RefreshControl,
 } from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -317,13 +317,35 @@ export default function EarningsScreen() {
       </ScrollView>
 
       {/* Withdraw sheet */}
-      <PanelSheet visible={sheetOpen} onDismiss={() => setSheetOpen(false)} maxHeightPct={0.5} sheetStyle={styles.sheetBg}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.sheetContent}>
+      {/* scrollable=false: content is short and doesn't need PanelSheet's own
+          gesture-arbitrated ScrollView. Amount input + confirm button are
+          wrapped in KeyboardStickyView (same pattern as dispute.tsx / rate-tip.tsx)
+          instead of KeyboardAvoidingView — KeyboardAvoidingView never reliably
+          resized content living inside PanelSheet's Modal, so the keyboard just
+          slid up over the fixed-position sheet and covered the amount input and
+          Confirm button. KeyboardStickyView tracks the real keyboard frame via
+          react-native-keyboard-controller's native listeners and translates the
+          group above it regardless of the Modal's layout quirks. */}
+      <PanelSheet visible={sheetOpen} onDismiss={() => setSheetOpen(false)} maxHeightPct={0.5} sheetStyle={styles.sheetBg} scrollable={false}>
+        <View style={styles.sheetContent}>
+          <View style={styles.sheetTitleRow}>
             <Text variant="titleLarge" style={styles.sheetTitle}>Withdraw Funds</Text>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.sheetSub}>
-              Balance: GHS {balance.toFixed(2)} · Min. GHS 20
-            </Text>
+            {/* decimal-pad has no built-in Done key on either platform, and there
+                was no other way to close the keyboard short of tapping the sheet's
+                backdrop — add an explicit dismiss affordance. */}
+            <Pressable
+              onPress={() => Keyboard.dismiss()}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss keyboard"
+            >
+              <Text variant="label" color={colors.primary}>Done</Text>
+            </Pressable>
+          </View>
+          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.sheetSub}>
+            Balance: GHS {balance.toFixed(2)} · Min. GHS 20
+          </Text>
+          <KeyboardStickyView style={styles.stickyGroup}>
             <View style={styles.amountInputWrapper}>
               <Text style={styles.ghsPrefix}>GHS</Text>
               <TextInput
@@ -343,8 +365,8 @@ export default function EarningsScreen() {
               loading={withdraw.isPending}
               style={styles.confirmBtn}
             />
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardStickyView>
+        </View>
       </PanelSheet>
     </SafeAreaView>
   );
@@ -463,8 +485,14 @@ const makeStyles = (colors: DriverColors) =>
     txAmount: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3) },
     sheetBg: { backgroundColor: colors.surfaceContainerHigh },
     sheetContent: { padding: spacing['2xl'], gap: spacing.lg },
+    sheetTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
     sheetTitle: { fontFamily: fonts.displayBold },
     sheetSub: { marginTop: -spacing.sm },
+    stickyGroup: { gap: spacing.lg },
     amountInputWrapper: {
       flexDirection: 'row',
       alignItems: 'center',
