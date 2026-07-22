@@ -66,9 +66,15 @@ export default function EarningsScreen() {
     staleTime: 30_000,
   });
 
+  // The chart derives its bars entirely from this list — a fixed limit of 20
+  // silently truncated the "week"/"month" views for any driver with more than
+  // 20 transactions in that window (trivial for a working driver), making
+  // older days/weeks in the period under-report or show as flat zero even
+  // though real earnings existed. Scale the fetch to the selected period.
+  const TX_LIMIT_FOR_PERIOD: Record<Period, number> = { today: 50, week: 150, month: 500 };
   const { data: txData } = useQuery({
-    queryKey: ['driver', 'wallet', 'transactions'],
-    queryFn: () => driverApi.getWalletTransactions({ limit: 20 }),
+    queryKey: ['driver', 'wallet', 'transactions', period],
+    queryFn: () => driverApi.getWalletTransactions({ limit: TX_LIMIT_FOR_PERIOD[period] }),
     select: (r) => {
       const d = (r.data as any)?.data;
       if (Array.isArray(d)) return d;
@@ -330,14 +336,19 @@ export default function EarningsScreen() {
         <View style={styles.sheetContent}>
           <View style={styles.sheetTitleRow}>
             <Text variant="titleLarge" style={styles.sheetTitle}>Withdraw Funds</Text>
-            {/* decimal-pad has no built-in Done key on either platform, and there
-                was no other way to close the keyboard short of tapping the sheet's
-                backdrop — add an explicit dismiss affordance. */}
+            {/* A header button labeled "Done" reads as "close this sheet" (the
+                standard iOS/Android sheet convention) — it previously only
+                called Keyboard.dismiss(), so tapping it left the sheet open
+                with no visible change, which looked like the button (and the
+                backdrop-tap fallback) simply didn't work. Close the sheet for
+                real; dismissing the keyboard first avoids the Android
+                stuck-keyboard issue the PanelSheet backdrop tap already guards
+                against (see PanelSheet.tsx's `dismiss`). */}
             <Pressable
-              onPress={() => Keyboard.dismiss()}
+              onPress={() => { Keyboard.dismiss(); setSheetOpen(false); }}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Dismiss keyboard"
+              accessibilityLabel="Done, close withdraw sheet"
             >
               <Text variant="label" color={colors.primary}>Done</Text>
             </Pressable>

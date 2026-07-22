@@ -843,8 +843,13 @@ async function cancelScheduledRide(userId, intentId) {
   const intent = await prisma.scheduledRideIntent.findUnique({ where: { id: intentId } });
   if (!intent) throw new NotFoundError('ScheduledRideIntent');
   if (intent.userId !== userId) throw new ForbiddenError();
-  if (intent.status !== 'PENDING') {
-    throw new AppError('Only a pending scheduled ride can be cancelled', 400, 'INVALID_STATUS');
+  // DISPATCHED (handed off to live on-demand dispatch, no driver matched yet)
+  // is still a live, cancellable intent — only MATCHED/CANCELLED/EXPIRED are
+  // terminal. Previously only PENDING was accepted, so a rider whose intent
+  // had already been dispatched (the common case once processScheduledRideIntents
+  // runs) got a hard 400 on the one action the list screen offers them.
+  if (intent.status !== 'PENDING' && intent.status !== 'DISPATCHED') {
+    throw new AppError('This scheduled ride can no longer be cancelled', 400, 'INVALID_STATUS');
   }
   return prisma.scheduledRideIntent.update({ where: { id: intentId }, data: { status: 'CANCELLED' } });
 }
@@ -944,8 +949,14 @@ async function processScheduledRideIntents() {
           destLat: intent.route.destLat,
           destLng: intent.route.destLng,
         });
-        // Mark as handed off so this worker doesn't keep re-dispatching it every tick.
-        await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { status: 'EXPIRED' } });
+        // Mark as handed off so this worker doesn't keep re-dispatching it every
+        // tick. This is NOT the same as EXPIRED — the intent is still actively
+        // trying to find a driver via live dispatch, just via a different
+        // mechanism now. Reusing EXPIRED here made every just-scheduled ride
+        // that didn't immediately match an existing trip (the common case)
+        // look identical to one that had genuinely timed out with no match —
+        // the rider's scheduled-rides list showed nothing BUT "expired" rows.
+        await prisma.scheduledRideIntent.update({ where: { id: intent.id }, data: { status: 'DISPATCHED' } });
         logger.info('Scheduled ride handed off to live dispatch (no matching trip)', { intentId: intent.id });
       }
     } catch (err) {

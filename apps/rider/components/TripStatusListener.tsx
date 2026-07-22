@@ -226,6 +226,13 @@ export function TripStatusListener() {
             'DRIVER_EN_ROUTE'
           );
         }
+      } else if (data.status === 'ARRIVED_AT_PICKUP') {
+        // Previously had no case at all — silently dropped, so the rider's
+        // only signal that the driver arrived was an easy-to-miss push
+        // notification, and the trip appeared to skip straight to "departed"
+        // on the driver's next tap. (Not reflected in the Live Activity —
+        // EyeGoTripStatus is a native enum that doesn't have this state.)
+        showBanner('Your driver has arrived', 'location');
       } else if (data.status === 'IN_PROGRESS') {
         showBanner('EyeGo has departed — enjoy the ride!', 'navigate-outline');
         updateTripLiveStatus(data.status);

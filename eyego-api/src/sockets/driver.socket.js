@@ -23,6 +23,7 @@ const ETA_FALLBACK_SPEED_KPH = parseInt(process.env.ETA_FALLBACK_SPEED_KPH) || 3
 // rider who denied the permission) simply have no token and are skipped.
 const LIVE_ACTIVITY_STATUS_TEXT = {
   DRIVER_EN_ROUTE: 'Driver is on the way',
+  ARRIVED_AT_PICKUP: 'Your driver has arrived',
   IN_PROGRESS: 'Trip in progress',
   COMPLETED: 'You have arrived',
   CANCELLED: 'Trip cancelled',
@@ -423,6 +424,41 @@ function emitSafetyCheck(io, tripId, reason) {
         updatedAt: new Date().toISOString(),
       });
       pushLiveActivityUpdate(tripId, { status: 'DRIVER_EN_ROUTE' });
+    });
+
+    // Driver arrived at the PICKUP stop — distinct from 'driver:arrived' below,
+    // which actually means arrived at the FINAL DESTINATION and completes the
+    // whole trip. This transition (DRIVER_EN_ROUTE -> ARRIVED_AT_PICKUP) never
+    // had a socket emit at all: arriveAtPickup() only updated the DB status and
+    // sent an FCM push, so a rider actively on the tracking screen got no
+    // real-time signal that the driver had arrived — the next thing they'd see
+    // was the driver's SUBSEQUENT "depart" transition, which looked like the
+    // trip had jumped straight from "en route" to "in progress" with the
+    // arrival silently skipped.
+    socket.on('driver:arrived_at_pickup', async ({ tripId }) => {
+      try {
+        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
+        if (!owns) {
+          logger.warn(`driver:arrived_at_pickup rejected — driver ${driverId} does not own trip ${tripId}`);
+          return;
+        }
+      } catch (err) {
+        logger.error('Failed to verify trip ownership for driver:arrived_at_pickup:', err);
+        return;
+      }
+
+      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
+        tripId,
+        status: 'ARRIVED_AT_PICKUP',
+      });
+      pubSub.publish(`TRIP_STATUS:${tripId}`, {
+        tripId,
+        status: 'ARRIVED_AT_PICKUP',
+        driverLat: null,
+        driverLng: null,
+        updatedAt: new Date().toISOString(),
+      });
+      pushLiveActivityUpdate(tripId, { status: 'ARRIVED_AT_PICKUP' });
     });
 
     socket.on('driver:trip_departed', async ({ tripId }) => {

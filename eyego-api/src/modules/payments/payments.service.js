@@ -20,11 +20,25 @@ const MOMO_METHODS = ['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO'];
 async function initiatePayment({ userId, bookingId, phone, savedCardId, method: requestedMethod }) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { trip: { include: { route: true } }, user: true },
+    include: { trip: { include: { route: true, group: true } }, user: true },
   });
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new AppError('Unauthorized', 403);
   if (booking.paymentStatus === 'PAID') throw new AppError('Already paid', 400);
+
+  // "Pay for everyone": the gateway charge must cover every other held seat
+  // on the trip too, not just this booking's own fare — confirmPayment marks
+  // all of them PAID once this charge succeeds, so undercharging here would
+  // let the host settle the whole group for the price of one seat.
+  const isGroupHost = !!(booking.trip.group?.isCoverAll && booking.trip.group.leadPassengerId === userId);
+  let chargeAmount = booking.fareAmount;
+  if (isGroupHost) {
+    const siblings = await prisma.booking.findMany({
+      where: { tripId: booking.tripId, id: { not: bookingId }, status: 'SEAT_HELD' },
+      select: { fareAmount: true },
+    });
+    chargeAmount = booking.fareAmount + siblings.reduce((sum, b) => sum + b.fareAmount, 0);
+  }
 
   // Honor the method the rider actually picked on the payment screen. Without
   // this, a booking created with a placeholder method (e.g. group-invite always
@@ -84,7 +98,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
     if (MOMO_METHODS.includes(method)) {
       result = await paystack.initiateMomoCharge({
         email,
-        amount: booking.fareAmount,
+        amount: chargeAmount,
         phone: phone || booking.user.phone,
         method: method === 'MOMO' ? 'MOMO_MTN' : method,
         reference,
@@ -99,7 +113,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
       }
       result = await paystack.initiateCardCharge({
         email,
-        amount: booking.fareAmount,
+        amount: chargeAmount,
         authorizationCode: savedCard.authorizationCode,
         reference,
         metadata,
@@ -107,7 +121,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
     } else if (method === 'CARD') {
       result = await paystack.initializeCheckout({
         email,
-        amount: booking.fareAmount,
+        amount: chargeAmount,
         reference,
         metadata,
       });
@@ -124,7 +138,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
       data: {
         bookingId,
         userId: booking.userId,
-        amount: booking.fareAmount,
+        amount: chargeAmount,
         status: 'INTENT',
         paystackRef: reference,
       },
@@ -224,22 +238,32 @@ async function verifyPayment(reference, requestingUserId) {
 }
 
 async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSync = false } = {}) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
-      include: { trip: { include: { route: true } } },
+      include: { trip: { include: { route: true, group: true } } },
     });
     if (!booking) throw new NotFoundError('Booking');
     if (booking.paymentStatus === 'PAID' || booking.paymentStatus === 'CASH_PENDING') return booking; // idempotent
 
     if (booking.status !== 'SEAT_HELD' || booking.trip.confirmedSeats >= booking.trip.maxSeats) {
+      const reason = booking.status !== 'SEAT_HELD' ? 'expired/cancelled booking' : 'trip full';
       if (isSync) {
-        throw new AppError('Booking expired or trip is full', 400);
+        // Distinct, actionable messages instead of one generic string — the
+        // client surfaces this verbatim in the "Payment Failed" alert, so a
+        // rider whose seat hold expired needs a different next step (rebook)
+        // than one who lost a genuine last-seat race (pick another trip).
+        throw new AppError(
+          reason === 'trip full'
+            ? 'This trip filled up while you were completing payment. Please choose another trip.'
+            : 'Your seat hold expired. Please select a seat again to rebook.',
+          400,
+          reason === 'trip full' ? 'TRIP_FULL' : 'SEAT_HOLD_EXPIRED',
+        );
       }
 
-      const reason = booking.status !== 'SEAT_HELD' ? 'expired/cancelled booking' : 'trip full';
       logger.info(`Booking failed (${reason}), triggering refund`, { bookingId, reference });
-      
+
       await tx.paymentTransaction.create({
         data: {
           bookingId,
@@ -258,51 +282,75 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
           data: { walletBalance: { increment: booking.fareAmount } },
         });
       }
-      
+
       return booking;
     }
 
-    // Optimistic concurrency control to prevent race conditions
-    const updatedBooking = await tx.booking.updateMany({
-      where: { id: bookingId, paymentStatus: booking.paymentStatus },
-      data: {
-        paymentStatus: cashOnBoard ? 'CASH_PENDING' : 'PAID',
-        status: 'CONFIRMED',
-        paystackRef: reference,
-      },
-    });
+    // "I'm paying for everyone": this booking's owner is the group's lead
+    // passenger and isCoverAll is set — their single payment must settle
+    // every other still-held seat on the trip too, not just their own.
+    // Previously nothing read isCoverAll at all, so the toggle had zero
+    // effect and every other member's seat stayed unpaid regardless of what
+    // the host chose here.
+    const isGroupHost = !!(booking.trip.group?.isCoverAll && booking.trip.group.leadPassengerId === booking.userId);
+    const siblingBookings = isGroupHost
+      ? await tx.booking.findMany({
+          where: { tripId: booking.tripId, id: { not: bookingId }, status: 'SEAT_HELD' },
+        })
+      : [];
+    const bookingsToSettle = [booking, ...siblingBookings];
+    const totalFare = bookingsToSettle.reduce((sum, b) => sum + b.fareAmount, 0);
 
-    if (updatedBooking.count === 0) {
-      // Another transaction beat us to it
-      return tx.booking.findUnique({ where: { id: bookingId } });
-    }
-
-    await tx.paymentTransaction.create({
-      data: {
-        bookingId,
-        userId: booking.userId,
-        amount: booking.fareAmount,
-        status: cashOnBoard ? 'PENDING' : 'SUCCESS',
-        paystackRef: reference,
-        gatewayResponse: cashOnBoard ? 'Cash — collect on boarding' : 'Payment confirmed',
-      }
-    });
-
-    // If user paid via wallet, deduct fare — guard prevents negative balance
+    // If paying by wallet, deduct the combined total up front — guard
+    // prevents negative balance. Must happen before any status flips so a
+    // shortfall aborts the whole settlement instead of partially confirming.
     if (booking.paymentMethod === 'WALLET') {
       const updated = await tx.user.updateMany({
-        where: { id: booking.userId, walletBalance: { gte: booking.fareAmount } },
-        data: { walletBalance: { decrement: booking.fareAmount } },
+        where: { id: booking.userId, walletBalance: { gte: totalFare } },
+        data: { walletBalance: { decrement: totalFare } },
       });
       if (updated.count === 0) {
         throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_BALANCE');
       }
     }
 
-    // Increment confirmed seats
+    let settledCount = 0;
+    for (const b of bookingsToSettle) {
+      // Optimistic concurrency control to prevent race conditions
+      const updatedBooking = await tx.booking.updateMany({
+        where: { id: b.id, paymentStatus: b.paymentStatus },
+        data: {
+          paymentStatus: cashOnBoard ? 'CASH_PENDING' : 'PAID',
+          status: 'CONFIRMED',
+          paystackRef: reference,
+        },
+      });
+      if (updatedBooking.count === 0) continue; // another transaction beat us to this one
+
+      settledCount += 1;
+      await tx.paymentTransaction.create({
+        data: {
+          bookingId: b.id,
+          userId: booking.userId, // group host is the payer of record for covered seats
+          amount: b.fareAmount,
+          status: cashOnBoard ? 'PENDING' : 'SUCCESS',
+          paystackRef: reference,
+          gatewayResponse: cashOnBoard
+            ? (b.id === bookingId ? 'Cash — collect on boarding' : 'Cash — covered by group host, collect on boarding')
+            : (b.id === bookingId ? 'Payment confirmed' : 'Covered by group host payment'),
+        }
+      });
+    }
+
+    if (settledCount === 0) {
+      // Someone else already settled this exact booking concurrently
+      return tx.booking.findUnique({ where: { id: bookingId } });
+    }
+
+    // Increment confirmed seats once per booking actually settled
     const updatedTrip = await tx.trip.update({
       where: { id: booking.tripId },
-      data: { confirmedSeats: { increment: 1 } },
+      data: { confirmedSeats: { increment: settledCount } },
     });
 
     // Check if minimum occupancy met → update trip status
@@ -314,16 +362,18 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     }
 
     // Send driver earnings to wallet (credited when trip completes, not now)
-    logger.info('Payment confirmed', { bookingId, reference });
+    logger.info('Payment confirmed', { bookingId, reference, settledCount, isGroupHost });
 
-    return { ...booking, _justConfirmed: true };
-  }).then((result) => {
-    if (result?._justConfirmed) {
-      notifyEmergencyContactIfShareTripEnabled(bookingId).catch(() => {});
-      notifyRideConfirmed(bookingId).catch(() => {});
-    }
-    return result;
+    return { ...booking, _justConfirmed: true, _settledBookingIds: bookingsToSettle.map((b) => b.id) };
   });
+
+  if (result?._justConfirmed) {
+    notifyEmergencyContactIfShareTripEnabled(bookingId).catch(() => {});
+    for (const id of result._settledBookingIds) {
+      notifyRideConfirmed(id).catch(() => {});
+    }
+  }
+  return result;
 }
 
 // notifications.rideConfirmed / notifications.passengerJoined were defined in

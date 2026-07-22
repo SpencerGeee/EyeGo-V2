@@ -60,6 +60,20 @@
       "expo-font",
       "@maplibre/maplibre-react-native",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "EyeGo needs camera access to update your profile photo and scan Send Money QR codes."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "EyeGo needs your location to show nearby rides.",
+          "locationAlwaysAndWhenInUsePermission": "EyeGo uses your location to track your ride.",
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/adaptive-icon.png",

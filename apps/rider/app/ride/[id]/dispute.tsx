@@ -16,7 +16,7 @@ import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { apiClient } from '@eyego/api';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const ISSUE_TYPES: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: 'Incorrect fare', icon: 'card-outline' },
@@ -35,6 +35,7 @@ export default function DisputeScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { selectedTrip } = useRideStore();
+  const queryClient = useQueryClient();
 
   const [selectedType, setSelectedType] = useState('');
   const [description, setDescription] = useState('');
@@ -48,6 +49,12 @@ export default function DisputeScreen() {
       }),
     onSuccess: () => {
       setSubmitted(true);
+      // A submitted dispute IS a support ticket on the backend (submitDispute
+      // creates a SupportTicket row) — without this, the ['support','tickets']
+      // cache help.tsx's "My Tickets" list reads from was never told to
+      // refetch, so a freshly-submitted dispute was invisible there until an
+      // unrelated stale-time refetch happened to occur.
+      queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
     },
     onError: (err: any) => {
       Alert.alert('Submission Failed', err?.message || 'Could not submit your report. Please try again.');

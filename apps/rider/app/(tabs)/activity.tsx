@@ -85,12 +85,35 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
       style={({ pressed }) => [styles.tripCardInner, styles.tripGlass, pressed && { opacity: 0.75 }]}
       onPress={() => {
         Haptics.selectionAsync();
+        const tripId = booking.tripId ?? booking.trip?.id;
+        // Every status used to push into /ride/[id] (the live booking/tracking
+        // flow) regardless of what actually happened to this booking:
+        //  - COMPLETED bookings landed on the live trip-tracking screen (meant
+        //    for an active ride), since /ride/[id] treats "I have a booking on
+        //    this trip" as "redirect to tracking" with no regard for status.
+        //  - CANCELLED bookings fell through to /ride/[id]'s "Book This Seat"
+        //    CTA, offering to book a trip that was never actually available —
+        //    the server excludes cancelled bookings from the trip payload, so
+        //    the client has no way to know it was ever booked at all.
+        // Route each status to what's actually true about it instead.
+        if (booking.status === 'COMPLETED') {
+          Haptics.selectionAsync();
+          router.push(`/ride/${tripId}/complete?bookingId=${booking.id}&viewOnly=1` as any);
+          return;
+        }
+        if (booking.status === 'CANCELLED') {
+          Alert.alert(
+            'Ride cancelled',
+            `${origin} → ${destination} — this ride was cancelled and can't be booked again from here.`,
+          );
+          return;
+        }
         // Card expands into the ride detail screen (route animates 'fade' —
         // the morph overlay carries the motion).
         // /ride/[id] looks up by TRIP id (tripsApi.getById), not booking id —
         // booking.tripId is the FK to the actual trip; booking.id is a
         // different entity and would 404 the detail screen.
-        morphTo(`ride-card-${booking.id}`, () => router.push(`/ride/${booking.tripId ?? booking.trip?.id}` as any));
+        morphTo(`ride-card-${booking.id}`, () => router.push(`/ride/${tripId}` as any));
       }}
     >
       <View style={[styles.itemIcon, { backgroundColor: withOpacity(statusColor, 0.1) }]}>

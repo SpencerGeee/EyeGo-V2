@@ -21,7 +21,8 @@ import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, PREMIUM_RING
 export default function TripCompleteScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id, bookingId: paramBookingId } = useLocalSearchParams<{ id: string; bookingId?: string }>();
+  const { id, bookingId: paramBookingId, viewOnly } = useLocalSearchParams<{ id: string; bookingId?: string; viewOnly?: string }>();
+  const isViewOnly = viewOnly === '1';
   const router = useRouter();
   const { activeBooking, selectedTrip } = useRideStore();
   const navigated = useRef(false);
@@ -48,9 +49,13 @@ export default function TripCompleteScreen() {
 
   const totalFare = fareBreakdown?.total ?? activeBooking?.fareAmount ?? activeBooking?.fare ?? selectedTrip?.farePerSeat ?? 0;
 
-  // Auto-navigate to rating after 4 s
+  // Auto-navigate to rating after 4 s — but not when this screen was opened
+  // to view an OLD completed trip's receipt from Activity (viewOnly=1). This
+  // screen is also the "just finished a ride" celebration/rating funnel, so
+  // without this guard, browsing a past receipt would forcibly kick the rider
+  // into "rate your driver" for a ride they may have already rated.
   useEffect(() => {
-    if (!id) return;
+    if (!id || isViewOnly) return;
     const timer = setTimeout(() => {
       if (!navigated.current) {
         navigated.current = true;

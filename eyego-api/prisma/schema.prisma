@@ -527,7 +527,7 @@ model ScheduledRideIntent {
   route       Route    @relation(fields: [routeId], references: [id])
   scheduledAt DateTime
   seatCount   Int      @default(1)
-  status      String   @default("PENDING") // PENDING | MATCHED | CANCELLED | EXPIRED
+  status      String   @default("PENDING") // PENDING | DISPATCHED | MATCHED | CANCELLED | EXPIRED
   matchedTripId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

@@ -17,6 +17,13 @@ export const tripsApi = {
   getSeats: (tripId: string) =>
     apiClient.get<ApiResponse<Seat[]>>(`/trips/${tripId}/seats`),
 
+  // Persists "I'm paying for everyone" — marks this rider as the group's lead
+  // passenger so their payment settles every held seat on the trip, not just
+  // their own. Previously nothing on the client ever called this endpoint,
+  // so the toggle had no backend effect at all.
+  createGroup: (tripId: string, isCoverAll: boolean) =>
+    apiClient.post<ApiResponse<{ group: unknown }>>(`/trips/${tripId}/group`, { isCoverAll }),
+
   getFareEstimate: (params: {
     originLat: number;
     originLng: number;

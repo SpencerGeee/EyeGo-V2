@@ -512,7 +512,9 @@ export default function DriverTrackingScreen() {
           <MapboxGL.LineLayer
             id="routeLineLayer"
             style={{
-              lineColor: colors.primary,
+              // Was colors.primary (blue) — matched the base map style's own
+              // road/highway blue, so the route line blended into main roads.
+              lineColor: '#A855F7',
               lineWidth: 4,
               lineOpacity: 0.9,
               lineCap: 'round',

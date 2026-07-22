@@ -9,8 +9,8 @@ const prisma = require('../../config/database');
 const { NotFoundError } = require('../../utils/errors');
 
 const getFareEstimate = async (req, res) => {
-  const { lat, lng, tier, distanceKm, doorstepPickup, heavyLoad } = req.query;
-  
+  const { lat, lng, tier, distanceKm, doorstepPickup, heavyLoad, availableSeats } = req.query;
+
   // Record demand
   if (lat && lng) {
     await surgeService.recordDemand(parseFloat(lat), parseFloat(lng), req.user.userId);
@@ -24,6 +24,7 @@ const getFareEstimate = async (req, res) => {
     doorstepPickup: doorstepPickup === 'true',
     heavyLoad: heavyLoad === 'true',
     surgeMultiplier,
+    ...(availableSeats ? { availableSeats: parseInt(availableSeats, 10) } : {}),
   });
 
   ok(res, { fareEstimate: fare, surgeMultiplier });

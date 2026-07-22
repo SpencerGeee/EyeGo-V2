@@ -230,11 +230,17 @@ async function getSavedPlaces(userId) {
   });
 }
 
+// Client passes this straight to a native Ionicons `name` prop with no
+// validation — an unrecognized glyph name is a hard native crash on the
+// device (font glyph lookup failure), not a catchable JS error. Only ever
+// persist a value this app's saved-places screen actually knows how to draw.
+const VALID_PLACE_ICONS = new Set(['home-outline', 'briefcase-outline', 'location-outline']);
+
 async function createSavedPlace(userId, { label, address, lat, lng, icon }) {
   const count = await prisma.savedPlace.count({ where: { userId } });
   if (count >= 20) throw new AppError('Maximum 20 saved places allowed', 400);
   return prisma.savedPlace.create({
-    data: { userId, label: label.trim(), address: address.trim(), lat, lng, icon: icon ?? null },
+    data: { userId, label: label.trim(), address: address.trim(), lat, lng, icon: VALID_PLACE_ICONS.has(icon) ? icon : null },
     select: { id: true, label: true, address: true, lat: true, lng: true, icon: true },
   });
 }

@@ -44,7 +44,11 @@ function calculateFare({
     COMFORT: [env.COMFORT_BASE_FARE, env.COMFORT_PER_KM_RATE],
     PREMIUM: [env.PREMIUM_BASE_FARE, env.PREMIUM_PER_KM_RATE],
   };
-  const [tierBaseFare, tierPerKmRate] = rates[tier] ?? rates.ECO;
+  // Normalize aliases (e.g. the driver app's 'ECONOMY' tier value) to the
+  // canonical rate-table keys instead of silently falling back to ECO for
+  // any unrecognized string, which masked tier mismatches.
+  const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
+  const [tierBaseFare, tierPerKmRate] = rates[normalizedTier];
   const baseFare = storedBaseFare != null ? storedBaseFare : tierBaseFare;
   const perKmRate = storedPerKmRate != null ? storedPerKmRate : tierPerKmRate;
 
@@ -56,10 +60,14 @@ function calculateFare({
 
   const farePerPerson = totalTripCost / seats;
 
-  // Minimum viable fare floor: never charge less than 5 GHS per seat.
-  // This prevents sub-economic pricing when env variables are misconfigured
-  // or when distance is extremely short.
-  const MIN_FARE_PER_PERSON = 5.0;
+  // Minimum viable fare floor: never charge less than a tier's own base fare
+  // per seat. This must be computed PER TIER (not a single flat constant) —
+  // a flat 5.0 GHS floor was clamping both ECO and COMFORT to the same
+  // ₵5.00 on most routes (their raw per-person fares both fall under ₵5
+  // once split across a shared minibus's seats), making the two tiers look
+  // identically priced. Tying the floor to each tier's base fare preserves
+  // ECO < COMFORT < PREMIUM ordering even when the floor kicks in.
+  const MIN_FARE_PER_PERSON = tierBaseFare;
   const finalFare = Math.max(farePerPerson, MIN_FARE_PER_PERSON);
 
   return {

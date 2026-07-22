@@ -381,6 +381,12 @@ export const driverSocketEvents = {
     getDriverSocket().emit('driver:trip_departed', { tripId });
   },
 
+  // Arrived at the PICKUP stop — distinct from emitArrived below, which means
+  // arrived at the final destination and completes the trip.
+  emitArrivedAtPickup: (tripId: string) => {
+    getDriverSocket().emit('driver:arrived_at_pickup', { tripId });
+  },
+
   emitArrived: (tripId: string) => {
     getDriverSocket().emit('driver:arrived', { tripId });
   },

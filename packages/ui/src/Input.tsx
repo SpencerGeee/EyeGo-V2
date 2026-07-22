@@ -14,6 +14,7 @@ import Animated, {
   withTiming,
   interpolate,
   interpolateColor,
+  runOnJS,
 } from 'react-native-reanimated';
 import { fonts, fontSizes, radii, spacing, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
@@ -41,15 +42,22 @@ export function Input({
 }: InputProps) {
   const colors = useThemedColors();
   const styles = getStyles(colors);
-  const [isFocused, setIsFocused] = useState(false);
+  // Gates the native placeholder separately from focus state — showing it the
+  // instant the field is tapped meant it appeared at the same time the
+  // floating label was still mid-spring on its way up from that exact spot,
+  // so label and placeholder visibly overlapped for the ~300ms of the
+  // animation. Only reveal the placeholder once the label has actually
+  // cleared out of the way.
+  const [showPlaceholder, setShowPlaceholder] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const labelAnim = useSharedValue(value ? 1 : 0);
   const focusAnim = useSharedValue(0);
 
   const handleFocus = useCallback(
     (e: Parameters<NonNullable<TextInputProps['onFocus']>>[0]) => {
-      setIsFocused(true);
-      labelAnim.value = withSpring(1, { stiffness: 300, damping: 20 });
+      labelAnim.value = withSpring(1, { stiffness: 300, damping: 20 }, (finished) => {
+        if (finished) runOnJS(setShowPlaceholder)(true);
+      });
       focusAnim.value = withTiming(1, { duration: 200 });
       onFocus?.(e);
     },
@@ -58,7 +66,7 @@ export function Input({
 
   const handleBlur = useCallback(
     (e: Parameters<NonNullable<TextInputProps['onBlur']>>[0]) => {
-      setIsFocused(false);
+      setShowPlaceholder(false);
       if (!value) {
         labelAnim.value = withSpring(0, { stiffness: 300, damping: 20 });
       }
@@ -105,7 +113,7 @@ export function Input({
             onFocus={handleFocus}
             onBlur={handleBlur}
             value={value}
-            placeholder={(!value && isFocused) ? props.placeholder : undefined}
+            placeholder={(!value && showPlaceholder) ? props.placeholder : undefined}
             placeholderTextColor={colors.onSurfaceVariant}
             selectionColor={colors.primary}
             {...props}

@@ -612,7 +612,11 @@ export default function RootLayout() {
             />
             <Stack.Screen
               name="ride/guest-selection"
-              options={detailPush}
+              // Edge-swipe-back was silently discarding typed guest name/phone
+              // (handleContinue never runs, no confirmation) — this is a form
+              // with its own header back button and Continue action, so the
+              // redundant swipe gesture is disabled rather than guarded.
+              options={{ ...detailPush, gestureEnabled: false }}
             />
             <Stack.Screen
               name="ride/[id]/rate-tip"

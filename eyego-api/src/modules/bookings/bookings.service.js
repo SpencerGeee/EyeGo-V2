@@ -450,33 +450,57 @@ async function tipDriver(userId, bookingId, { amount, phone }) {
 async function submitDispute(userId, bookingId, { type, description }) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { trip: { select: { shortId: true } } },
+    include: { trip: { select: { shortId: true, driverId: true, driver: { select: { fcmToken: true } } } } },
   });
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new ForbiddenError();
 
   const subject = `Dispute — ${type} — Booking #${bookingId.slice(0, 8)}`;
 
-  return prisma.$transaction(async (tx) => {
-    const ticket = await tx.supportTicket.create({
+  const ticket = await prisma.$transaction(async (tx) => {
+    const t = await tx.supportTicket.create({
       data: {
         userId,
+        // Was never set, despite the schema having a dedicated driverId
+        // column for exactly this — the driver-side ticket list had no real
+        // way to associate a dispute with the trip it was about (it fell
+        // back to matching on a shared phone number between accounts, which
+        // only works by coincidence). Priority/category also defaulted to
+        // MEDIUM/GENERAL, so a rider-safety dispute sorted identically to a
+        // routine "how does this work" question.
+        driverId: booking.trip?.driverId ?? null,
         subject,
         status: 'OPEN',
+        priority: 'HIGH',
+        category: 'TRIP',
       },
     });
 
     await tx.ticketMessage.create({
       data: {
-        ticketId: ticket.id,
+        ticketId: t.id,
         senderId: userId,
         senderRole: 'USER',
         text: `Issue type: ${type}\n\nDescription: ${description || 'No description provided.'}`,
       },
     });
 
-    return ticket;
+    return t;
   });
+
+  // Notify the driver so a dispute is impossible to miss, not just something
+  // that shows up if they happen to open their tickets list.
+  if (booking.trip?.driver?.fcmToken) {
+    const pushService = require('../../services/push.service');
+    pushService.sendPush(
+      booking.trip.driver.fcmToken,
+      'A rider filed a dispute about your trip',
+      `${type}${description ? ` — ${description.slice(0, 80)}` : ''}`,
+      { type: 'DISPUTE', ticketId: ticket.id },
+    ).catch(() => {});
+  }
+
+  return ticket;
 }
 
 async function generateInvite(bookingId, userId) {

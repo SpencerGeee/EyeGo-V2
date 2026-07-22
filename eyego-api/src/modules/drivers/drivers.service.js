@@ -27,7 +27,7 @@ function attachFarePerSeat(trip) {
   const fareInfo = calculateFare({
     tier: trip.tier ?? 'ECO',
     distanceKm,
-    confirmedSeats: occupancy,
+    seatCount: occupancy,
     doorstepPickup: trip.doorstepPickup ?? false,
     heavyLoad: trip.heavyLoad ?? false,
     surgeMultiplier: trip.surgeMultiplier ?? 1.0,
@@ -786,6 +786,45 @@ async function boardPassenger(driverId, tripId, bookingId) {
     include: { trip: { where: { driverId } } },
   });
   if (!booking) throw new NotFoundError('Booking');
+  if (!booking.trip) throw new ForbiddenError();
+
+  // In-app riders who chose CASH never trigger a payment webhook, so unlike
+  // card/MoMo bookings their commission is never deducted at confirmPayment
+  // time. Deduct it here at boarding — mirrors addCashNoPhone/verifyOfflineOtp,
+  // which do the same for driver-added offline passengers. Without this the
+  // driver's wallet never moves for a cash trip (no debit at boarding, no
+  // credit at completion since completeTrip intentionally skips cash bookings
+  // to avoid double-paying commission already collected here).
+  if (booking.paymentMethod === 'CASH' && booking.paymentStatus !== 'PAID') {
+    const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+    if (driver.walletBalance < booking.commissionAmount) throw new InsufficientWalletError();
+
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.booking.update({
+        where: { id: bookingId },
+        data: { status: 'BOARDED', paymentStatus: 'PAID' },
+      });
+
+      await tx.driver.update({
+        where: { id: driverId },
+        data: { walletBalance: { decrement: booking.commissionAmount } },
+      });
+
+      await tx.walletTransaction.create({
+        data: {
+          driverId, type: 'COMMISSION_DEDUCTION',
+          amount: booking.commissionAmount,
+          description: `Cash passenger commission — Seat ${booking.seatNumber}`,
+          balanceBefore: driver.walletBalance,
+          balanceAfter: driver.walletBalance - booking.commissionAmount,
+          tripId,
+        },
+      });
+
+      return updated;
+    });
+  }
+
   return prisma.booking.update({ where: { id: bookingId }, data: { status: 'BOARDED' } });
 }
 
@@ -1492,10 +1531,21 @@ async function getSupportTickets(driverId) {
   if (!driver) throw new NotFoundError('Driver');
 
   const user = await prisma.user.findUnique({ where: { phone: driver.phone } });
-  if (!user) return { tickets: [] };
 
+  // Two sources, combined: (1) the driver's own tickets, matched by a rider
+  // account sharing their phone number — the original (fragile) mechanism;
+  // (2) tickets actually filed by riders ABOUT this driver's trips, via the
+  // dedicated driverId column that submitDispute now populates. Previously
+  // only (1) was queried, so a rider's dispute about a driver's trip was
+  // invisible on the driver's side unless they coincidentally shared a phone
+  // number with that rider's account.
   const tickets = await prisma.supportTicket.findMany({
-    where: { userId: user.id },
+    where: {
+      OR: [
+        ...(user ? [{ userId: user.id }] : []),
+        { driverId },
+      ],
+    },
     include: {
       messages: {
         orderBy: { createdAt: 'asc' },

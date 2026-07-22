@@ -73,10 +73,14 @@ export default function InviteScreen() {
     },
   });
 
-  // If we already have an active booking, we're ready immediately.
-  // Otherwise, create one.
+  // If we already have an active booking FOR THIS TRIP, we're ready immediately.
+  // Otherwise, create one. Without the tripId check, a leftover activeBooking
+  // from an earlier abandoned/expired trip was reused blindly here — generateInvite
+  // would then look up that stale booking, hit an inconsistent (cancelled/expired)
+  // trip, throw, and retry kept resending the same stale bookingId forever
+  // ("Couldn't create link — Tap to retry" never recovering).
   useEffect(() => {
-    if (activeBooking?.id) {
+    if (activeBooking?.id && activeBooking?.tripId === id) {
       setBookingReady(true);
     } else {
       createBooking.mutate();
@@ -153,6 +157,14 @@ export default function InviteScreen() {
       payForEveryone: next,
       selectedSeatCount: members.length + 1,
     } as Trip & { payForEveryone?: boolean; selectedSeatCount?: number; heavyCargo?: boolean });
+    // Persist isCoverAll server-side — without this call the toggle was
+    // purely cosmetic and the host's payment only ever settled their own
+    // seat, never the rest of the group's held seats.
+    if (id) {
+      tripsApi.createGroup(id, next).catch((err: any) => {
+        console.warn('[Invite] Failed to update group cover-all flag:', err?.message ?? err);
+      });
+    }
   };
 
   const toggleHeavyCargo = () => {

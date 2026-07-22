@@ -11,6 +11,7 @@ import { useColors, Colors } from '../utils/useColors';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Waiting for a match',
+  DISPATCHED: 'Looking for a nearby driver',
   MATCHED: 'Confirmed',
   CANCELLED: 'Cancelled',
   EXPIRED: 'Expired',
@@ -70,7 +71,7 @@ export default function ScheduledRidesScreen() {
                 {STATUS_LABEL[item.status] ?? item.status}
               </Text>
             </View>
-            {item.status === 'PENDING' && (
+            {(item.status === 'PENDING' || item.status === 'DISPATCHED') && (
               <Button
                 label="Cancel"
                 variant="ghost"

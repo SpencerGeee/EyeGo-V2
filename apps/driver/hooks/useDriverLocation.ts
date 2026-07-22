@@ -136,6 +136,27 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       heading: pos.coords.heading,
       speed: pos.coords.speed,
     });
+    // This used to only update local state — the ONLY thing that ever
+    // reported a driver's position to the server was the background
+    // TaskManager task, which requires the "Always"/background location
+    // permission. A driver who granted just "While Using" (common — many
+    // decline "Always") never entered the `drivers:online` Redis geoset, so
+    // rider trip requests never found them: no dispatch, no "nearby rider
+    // requesting a trip" notification, ever, for that driver. Emitting here
+    // too means foreground reporting no longer depends on background
+    // permission at all — the backend's dispatch query already filters to
+    // status:'ACTIVE', isOnline:true downstream, so emitting whenever this
+    // (already app-open) foreground watch is running is safe.
+    try {
+      driverSocketEvents.emitLocation({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        heading: pos.coords.heading ?? 0,
+        speed: pos.coords.speed ?? 0,
+      });
+    } catch (e) {
+      console.warn('[DriverLocation] Foreground emitLocation failed:', e);
+    }
   }, []);
 
   const startWatch = useCallback(async () => {

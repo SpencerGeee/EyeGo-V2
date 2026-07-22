@@ -191,6 +191,12 @@ export default function ActiveTripScreen() {
         return;
       }
       if (toStatus === 'ARRIVED_AT_PICKUP') {
+        // Previously no socket emit fired here at all — a rider on the
+        // tracking screen got no real-time signal the driver had arrived,
+        // so the trip appeared to jump straight from "en route" to whatever
+        // the driver's NEXT tap (depart) produced, looking like a skipped
+        // step or a mixed-up status.
+        driverSocketEvents.emitArrivedAtPickup(id);
         addNotification({ type: 'ARRIVED_AT_PICKUP', title: 'Arrived at pickup', body: 'You have arrived at the pickup stop.', tripId: id });
       }
       if (toStatus === 'IN_PROGRESS') {
@@ -360,10 +366,18 @@ export default function ActiveTripScreen() {
           active={trip.status === 'DRIVER_EN_ROUTE' || trip.status === 'IN_PROGRESS'}
           fallbackCenter={driverCoord}
         />
-        {/* Driver position pulse */}
-        <MapboxGL.MarkerView coordinate={driverCoord}>
+        {/* Driver position pulse — bound to live GPS heading so the puck turns
+            with the vehicle (Apple Maps style) instead of staying stationary.
+            Previously a plain MarkerView with no rotation prop at all. */}
+        <MapboxGL.AnimatedMarkerView
+          coordinate={driverCoord}
+          // Ionicons "navigate" points north-east by default (like the
+          // pre-pickup tracking screen) — +45 rests it "up" when stationary.
+          rotation={((location?.heading ?? 0) + 45) % 360}
+          duration={1000}
+        >
           <DriverPulse color={statusCfg.color} />
-        </MapboxGL.MarkerView>
+        </MapboxGL.AnimatedMarkerView>
 
         {/* Pickup marker — hidden once the trip is actually running */}
         {trip.status !== 'IN_PROGRESS' && trip.status !== 'COMPLETED' && pickupCoord && (
@@ -699,9 +713,13 @@ export default function ActiveTripScreen() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function DriverPulse({ color }: { color: string }) {
+  // A rotated circle looks identical to an unrotated one — this must be a
+  // directional glyph for the AnimatedMarkerView's heading-bound rotation
+  // (added alongside this component) to be visible at all, matching the
+  // "navigate" chevron already used on the pre-pickup tracking screen.
   return (
     <PulseRing size={48} color={color} ringCount={2} duration={1600}>
-      <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: color, borderWidth: 2.5, borderColor: '#050508' }} />
+      <Ionicons name="navigate" size={20} color={color} />
     </PulseRing>
   );
 }

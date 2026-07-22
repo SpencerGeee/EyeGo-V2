@@ -14,7 +14,7 @@ import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi, u
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorphOptional } from '@eyego/ui';
 import { formatDuration } from '@eyego/utils';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../../stores/theme.store';
@@ -141,6 +141,7 @@ export default function TrackingScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const morph = useMorphOptional();
   const queryClient = useQueryClient();
   const { selectedTrip, activeBooking, driverLocation, tripEta, setDriverLocation, setTripEta } = useRideStore();
 
@@ -305,6 +306,9 @@ export default function TrackingScreen() {
   // Pre-trip: rider GPS → pickup  (so rider knows how to get there)
   // In-trip:  driver GPS → destination  (live trip tracking)
   const routeFetchedRef = useRef(false);
+  // Grace window before falling back to the straight-line polyline — see the
+  // effect below (after routeCoords is declared) for why this exists.
+  const [routeGrace, setRouteGrace] = useState(false);
   useEffect(() => {
     if (routeFetchedRef.current) return;
     // BUGFIX: origin used to default missing driver coords to `0 ?? 0`
@@ -354,6 +358,7 @@ export default function TrackingScreen() {
       prevInProgressRef.current = tripInProgress;
       routeFetchedRef.current = false;
       setRouteCoords([]);
+      setRouteGrace(false);
     }
   }, [tripInProgress]);
 
@@ -394,6 +399,18 @@ export default function TrackingScreen() {
   // Real route polyline from Mapbox Directions — [lng, lat][] pairs
   const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
   const revealedCoords = usePolylineReveal(routeCoords, routeCoords.length < 3);
+
+  // Grace window before falling back to the straight-line polyline. Without
+  // this, the map drew the straight-line fallback immediately on first mount
+  // (OSRM hadn't responded yet) then swapped to the real road-following
+  // polyline once it resolved — a visible "wrong line, then right line" flash.
+  // A cached/instant response on a later visit never showed the flash, which
+  // is why it looked like it "only happens the first time."
+  useEffect(() => {
+    if (routeCoords.length >= 2) return;
+    const t = setTimeout(() => setRouteGrace(true), 900);
+    return () => clearTimeout(t);
+  }, [routeCoords.length, tripInProgress]);
 
   // In-app status banner
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
@@ -730,7 +747,7 @@ export default function TrackingScreen() {
             BUGFIX: the straight-line fallback used to draw from/to whatever
             fabricated coordinates were in play; now it only renders once the
             real endpoints for this phase are actually known. */}
-        {(routeCoords.length >= 2 || (hasDriverPos && (tripInProgress ? hasDest : hasPickup))) && (
+        {(routeCoords.length >= 2 || (routeGrace && hasDriverPos && (tripInProgress ? hasDest : hasPickup))) && (
         <MapboxGL.ShapeSource
           id="routeLine"
           shape={{
@@ -760,7 +777,11 @@ export default function TrackingScreen() {
           <MapboxGL.LineLayer
             id="routeLineLayer"
             style={{
-              lineColor: colors.primary,
+              // Was colors.primary (green) — identical to the base map style's
+              // road/highway color, so the route line visually vanished on
+              // top of main roads. Violet reads distinctly against both the
+              // green CTA color and the map's road palette.
+              lineColor: '#A855F7',
               lineWidth: 4,
               lineOpacity: 0.9,
               lineCap: 'round',
@@ -779,7 +800,24 @@ export default function TrackingScreen() {
         transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
         style={[styles.homeFloating, { top: insets.top + 12 }]}
       >
-        <Pressable onPress={() => router.back()} style={styles.homeFloatingBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable
+          onPress={() => {
+            // Plain router.back() left the MorphProvider's flight state
+            // (flightRef/activeId/phase) populated forever after the first
+            // morph, since only morphBack() clears it — every subsequent tap
+            // on the home screen's live-ride card silently fell back to a
+            // plain cross-fade instead of morphing again. Route back through
+            // morphBack when this screen was actually reached via a morph.
+            if (morph?.activeId) {
+              morph.morphBack(() => router.back());
+            } else {
+              router.back();
+            }
+          }}
+          style={styles.homeFloatingBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
       </MotiView>

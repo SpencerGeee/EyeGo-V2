@@ -30,6 +30,17 @@ const ICON_FOR_LABEL = (label: string): string => {
   return 'location-outline';
 };
 
+// `place.icon` is a free-form, unvalidated string column (see
+// eyego-api users.service.js createSavedPlace) — any stale value from before
+// an icon-naming scheme change, or a bad manual write, becomes an invalid
+// Ionicons glyph name. That's a hard native crash (font glyph lookup failure),
+// not a catchable JS error, which is why this needed an app restart instead of
+// showing a red error screen. Only ever trust icons this screen itself knows
+// how to produce.
+const VALID_PLACE_ICONS = new Set(['home-outline', 'briefcase-outline', 'location-outline']);
+const safeIconFor = (icon?: string | null): string =>
+  icon && VALID_PLACE_ICONS.has(icon) ? icon : 'location-outline';
+
 export default function SavedPlacesScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
@@ -216,7 +227,7 @@ export default function SavedPlacesScreen() {
                 <View key={place.id}>
                   <View style={styles.placeRow}>
                     <View style={styles.placeIconContainer}>
-                      <Ionicons name={(place.icon ?? 'location-outline') as any} size={20} color={colors.primary} />
+                      <Ionicons name={safeIconFor(place.icon) as any} size={20} color={colors.primary} />
                     </View>
                     <View style={styles.placeInfo}>
                       <Text variant="bodyMedium" color={colors.onSurface}>{place.label}</Text>

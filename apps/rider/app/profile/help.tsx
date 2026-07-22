@@ -294,10 +294,25 @@ export default function HelpScreen() {
         backdropOpacity={0.7}
       >
         <View style={styles.sheetContent}>
-          <Text variant="titleMedium" style={{ marginBottom: spacing.md, color: colors.onSurface }}>
-            My Tickets
-          </Text>
-          
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
+            <Text variant="titleMedium" style={{ color: colors.onSurface }}>
+              My Tickets
+            </Text>
+            {/* At maxHeightPct=0.92 the sheet covers nearly the whole screen,
+                leaving only a sliver of tappable backdrop above it — "tap
+                away to dismiss" was technically wired but practically
+                undiscoverable/unreachable. An explicit close button is the
+                only reliable way to dismiss short of the drag gesture. */}
+            <Pressable
+              onPress={() => setShowTickets(false)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Ionicons name="close" size={22} color={colors.onSurfaceVariant} />
+            </Pressable>
+          </View>
+
           <View style={styles.newTicketCard}>
             <Text variant="label" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.sm }}>
               OPEN NEW RESOLUTION TICKET
