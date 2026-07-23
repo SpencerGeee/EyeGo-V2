@@ -35,6 +35,11 @@ export const tripsApi = {
   getActiveTrip: () =>
     apiClient.get<ApiResponse<Trip | null>>('/trips/active'),
 
+  // Group-hub joiner previewing the deviation surcharge for picking their own
+  // pickup point instead of the trip's main pickup.
+  getDeviationEstimate: (tripId: string, lat: number, lng: number) =>
+    apiClient.get<ApiResponse<{ extraKm: number; surcharge: number }>>(`/trips/${tripId}/deviation-estimate`, { params: { lat, lng } }),
+
   requestTrip: (params: {
     destination: string;
     scheduledAt: string;
@@ -62,7 +67,13 @@ export const tripsApi = {
       seatCount: number;
       status: string;
       matchedTripId: string | null;
-      route: { originName: string; destinationName: string };
+      route: { originName: string; destinationName: string; distanceKm: number };
+      matchedTrip: {
+        tier: string;
+        farePerSeat: number;
+        driverName: string | null;
+        vehicleLabel: string | null;
+      } | null;
     }> }>>('/trips/scheduled'),
 
   cancelScheduledRide: (id: string) =>

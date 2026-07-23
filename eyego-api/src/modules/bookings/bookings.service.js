@@ -2,7 +2,7 @@
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, calculateEnRouteFare } = require('../trips/fare.calculator');
+const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
@@ -20,7 +20,97 @@ function normalizePaymentMethod(method) {
   return method;
 }
 
-async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null) {
+// Deviation surcharge (own pickup point) + heavy-cargo surcharge, applied on top
+// of an already-computed per-person base fare (which may itself already be an
+// en-route-boarding-discounted fare). Shared by bookSeat and the two post-booking
+// update endpoints so there is exactly one place that combines these add-ons —
+// applying them independently in multiple spots is what let the old client-only
+// "heavy cargo" toggle drift out of sync with the actual charge.
+function applyFareAddons(baseFarePerPerson, { trip, pickupLat, pickupLng, heavyCargo }) {
+  let deviationSurcharge = 0;
+  if (pickupLat != null && pickupLng != null && Number.isFinite(pickupLat) && Number.isFinite(pickupLng) && trip.route) {
+    const extraKm = detourKm({
+      fromLat: trip.route.originLat, fromLng: trip.route.originLng,
+      viaLat: pickupLat, viaLng: pickupLng,
+      toLat: trip.route.destLat, toLng: trip.route.destLng,
+    });
+    deviationSurcharge = calculateDeviationSurcharge({ extraKm, perKmRate: trip.perKmRate });
+  }
+  const cargoSurcharge = heavyCargo ? env.HEAVY_LOAD_SURCHARGE : 0;
+  const fareAmount = Math.round((baseFarePerPerson + deviationSurcharge + cargoSurcharge) * 100) / 100;
+  const commissionAmount = Math.round(fareAmount * env.PLATFORM_COMMISSION * 100) / 100;
+  return { fareAmount, commissionAmount, deviationSurcharge, cargoSurcharge };
+}
+
+/**
+ * Recompute a SEAT_HELD booking's fare after the rider changes their pickup point
+ * and/or heavy-cargo flag post-booking (the booking is created immediately when the
+ * invite screen mounts, before the rider has had any chance to set either). Whichever
+ * add-on isn't passed in this call is preserved from the booking's current value —
+ * so setting pickup doesn't silently clear a previously-set cargo flag or vice versa.
+ * Runs the read-check-write as one atomic unit so a concurrent cancel/expiry between
+ * the read and the write can't leave a CANCELLED booking with a freshly-written fare.
+ */
+async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng, pickupAddress, heavyCargo } = {}) {
+  return prisma.$transaction(
+    async (tx) => {
+      const booking = await tx.booking.findUnique({
+        where: { id: bookingId },
+        include: { trip: { include: { route: true } } },
+      });
+      if (!booking) throw new NotFoundError('Booking');
+      if (booking.userId !== userId) throw new ForbiddenError();
+      if (booking.status !== 'SEAT_HELD') {
+        throw new AppError('This booking is already confirmed and can no longer be changed', 400, 'BOOKING_LOCKED');
+      }
+
+      const trip = booking.trip;
+      const baseFareData = calculateFare({
+        tier: trip.tier,
+        distanceKm: trip.route.distanceKm,
+        seatCount: trip.maxSeats,
+        doorstepPickup: trip.doorstepPickup,
+        heavyLoad: trip.heavyLoad,
+        surgeMultiplier: trip.surgeMultiplier,
+        storedBaseFare: trip.baseFare,
+        storedPerKmRate: trip.perKmRate,
+      });
+      // Preserve any existing en-route-boarding discount ratio this booking already had.
+      const baseFarePerPerson = booking.enRouteRatio != null
+        ? Math.round(baseFareData.farePerPerson * booking.enRouteRatio * 100) / 100
+        : baseFareData.farePerPerson;
+
+      const finalPickupLat = pickupLat !== undefined ? pickupLat : booking.pickupLat;
+      const finalPickupLng = pickupLng !== undefined ? pickupLng : booking.pickupLng;
+      const finalPickupAddress = pickupAddress !== undefined ? pickupAddress : booking.pickupAddress;
+      const finalHeavyCargo = heavyCargo !== undefined ? heavyCargo : booking.heavyCargo;
+
+      const addons = applyFareAddons(baseFarePerPerson, {
+        trip, pickupLat: finalPickupLat, pickupLng: finalPickupLng, heavyCargo: finalHeavyCargo,
+      });
+
+      const result = await tx.booking.updateMany({
+        where: { id: bookingId, status: 'SEAT_HELD' },
+        data: {
+          pickupLat: finalPickupLat ?? null,
+          pickupLng: finalPickupLng ?? null,
+          pickupAddress: finalPickupAddress ?? null,
+          heavyCargo: !!finalHeavyCargo,
+          deviationSurcharge: addons.deviationSurcharge,
+          fareAmount: addons.fareAmount,
+          commissionAmount: addons.commissionAmount,
+        },
+      });
+      if (result.count === 0) {
+        throw new AppError('This booking is already confirmed and can no longer be changed', 400, 'BOOKING_LOCKED');
+      }
+      return tx.booking.findUnique({ where: { id: bookingId } });
+    },
+    { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 },
+  );
+}
+
+async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null, joinerPickup = null) {
   // Use $transaction with Serializable isolation to prevent race conditions.
   // This ensures two riders can't book the same seat simultaneously and the
   // capacity check races are eliminated.
@@ -100,6 +190,16 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         resolvedPickupStopId = pickupStopId;
       }
 
+      // Group-hub joiner picking their own pickup point (not the trip's main
+      // pickup, e.g. a friend booked via invite link from a different part of
+      // town) — surcharge only the genuinely large detours, per fare.calculator.
+      const addons = applyFareAddons(finalFareAmount, {
+        trip, pickupLat: joinerPickup?.lat, pickupLng: joinerPickup?.lng, heavyCargo: false,
+      });
+      finalFareAmount = addons.fareAmount;
+      finalCommission = addons.commissionAmount;
+      const deviationSurcharge = addons.deviationSurcharge;
+
       const boardingQr = crypto.randomBytes(16).toString('hex');
       const holdExpiry = new Date(Date.now() + SEAT_HOLD_MS);
 
@@ -116,6 +216,12 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           guestName,
           guestPhone,
           ...(resolvedPickupStopId && { pickupStopId: resolvedPickupStopId, enRouteRatio }),
+          ...(joinerPickup?.lat != null && {
+            pickupLat: joinerPickup.lat,
+            pickupLng: joinerPickup.lng,
+            pickupAddress: joinerPickup.address ?? null,
+            deviationSurcharge,
+          }),
         },
       });
 
@@ -612,4 +718,4 @@ async function joinGroup(shareToken) {
   return { tripId: group.tripId, trip: group.trip };
 }
 
-module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, getActiveBooking, tipDriver, submitDispute };
+module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons };

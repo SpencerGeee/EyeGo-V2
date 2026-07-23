@@ -16,6 +16,11 @@ import { Text } from '@eyego/ui';
 // only ever carries a phone number, the same thing you'd read off a contact card.
 const QR_PREFIX = 'eyego:pay:';
 
+// A driver's in-trip "Scan to Pay" QR — eyego:trip:<tripId> — lets a boarding
+// rider jump straight to that trip instead of the driver having no way to hand
+// off a payable code at all (there was previously zero driver-side QR generation).
+const TRIP_QR_PREFIX = 'eyego:trip:';
+
 export default function ScanPayScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -33,6 +38,12 @@ export default function ScanPayScreen() {
   const handleScan = useCallback((result: BarcodeScanningResult) => {
     if (scanned) return;
     const raw = result.data ?? '';
+    if (raw.startsWith(TRIP_QR_PREFIX)) {
+      setScanned(true);
+      const tripId = raw.slice(TRIP_QR_PREFIX.length);
+      router.replace({ pathname: '/ride/[id]/tracking', params: { id: tripId } } as any);
+      return;
+    }
     if (!raw.startsWith(QR_PREFIX)) {
       Alert.alert('Not an EyeGo Pay Code', 'This QR code isn\'t an EyeGo payment code.');
       return;

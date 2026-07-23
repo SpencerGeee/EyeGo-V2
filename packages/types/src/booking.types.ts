@@ -29,6 +29,13 @@ export interface Booking {
   pickupStop?: { id: string; name: string };
   enRouteRatio?: number;
   commissionAmount?: number;
+  // A group-hub joiner's own pickup point when it differs from the trip's
+  // main pickup, and the resulting detour surcharge (0 for the common case).
+  pickupLat?: number;
+  pickupLng?: number;
+  pickupAddress?: string;
+  deviationSurcharge?: number;
+  heavyCargo?: boolean;
   createdAt: string;
   trip?: import('./trip.types').Trip;
 }
@@ -41,6 +48,12 @@ export interface CreateBookingRequest {
   pickupStopId?: string;
   guestName?: string;
   guestPhone?: string;
+  // Group-hub joiner's own pickup point when it differs from the trip's main
+  // pickup (e.g. friends booked via invite link scattered across town) — a
+  // large detour adds a deviation surcharge, computed server-side.
+  pickupLat?: number;
+  pickupLng?: number;
+  pickupAddress?: string;
 }
 
 export interface RatingRequest {

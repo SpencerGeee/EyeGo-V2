@@ -27,17 +27,6 @@ import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
 
-// Initial great-circle bearing from `a` to `b`, in degrees — feeds the 3D nav
-// camera's rotation so it faces the direction of travel (Uber/Bolt/Yango-style).
-function bearingBetween(a: [number, number], b: [number, number]): number {
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const toDeg = (r: number) => (r * 180) / Math.PI;
-  const [lng1, lat1] = a.map(toRad) as [number, number];
-  const [lng2, lat2] = b.map(toRad) as [number, number];
-  const y = Math.sin(lng2 - lng1) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1);
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
 
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
   SCHEDULED:          { label: 'Scheduled',          next: 'start',  action: 'Start Trip'    },
@@ -162,21 +151,22 @@ export default function DriverTrackingScreen() {
     return [driverLocation.longitude, driverLocation.latitude] as [number, number];
   }, [driverLocation?.latitude, driverLocation?.longitude]);
 
-  // Camera follows driver — tilted/rotated 3D nav view while actively driving
-  // to/with passengers (Uber/Bolt/Yango-style), flat overview otherwise.
+  // Camera follows driver — tilted 3D nav view while actively driving to/with
+  // passengers (Uber/Bolt/Yango-style), flat overview otherwise.
+  // BUGFIX: this used to also rotate the camera to face `bearingBetween(driverCoord, target)`
+  // (direction-to-destination, not the driver's actual heading). Combined with the map's own
+  // `rotateEnabled` gesture, that desynced the driver marker's screen-space rotation from true
+  // heading — the pin visually "turned" whenever the map rotated (auto or by hand), not when the
+  // phone/vehicle did. Camera now stays north-up (heading 0); marker rotation (below) is the only
+  // thing that reflects real GPS heading, so it always matches actual direction of travel.
   useEffect(() => {
     if (driverCoord && cameraRef.current) {
       const isDriving = trip?.status === 'DRIVER_EN_ROUTE' || trip?.status === 'IN_PROGRESS';
-      const target: [number, number] | null = !isDriving
-        ? null
-        : trip?.status === 'IN_PROGRESS'
-          ? (trip?.route?.destLat && trip?.route?.destLng ? [trip.route.destLng, trip.route.destLat] : null)
-          : (trip?.route?.originLat && trip?.route?.originLng ? [trip.route.originLng, trip.route.originLat] : null);
       cameraRef.current.setCamera({
         centerCoordinate: driverCoord,
         animationDuration: 1000,
         zoomLevel: isDriving ? 17.5 : 14,
-        heading: isDriving && target ? bearingBetween(driverCoord, target) : 0,
+        heading: 0,
         pitch: isDriving ? 55 : 0,
       });
     }
@@ -430,7 +420,7 @@ export default function DriverTrackingScreen() {
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={true}
-        rotateEnabled={true}
+        rotateEnabled={false}
         pitchEnabled={true}
         scaleBarEnabled={false}
       >
@@ -438,6 +428,7 @@ export default function DriverTrackingScreen() {
           ref={cameraRef}
           centerCoordinate={driverCoord ?? pickupCoord ?? CAMERA_FALLBACK}
           zoomLevel={14}
+          heading={0}
           animationMode="none"
           animationDuration={0}
         />

@@ -7,7 +7,11 @@ const paystack = require('../payments/paystack.client');
 const { AppError, NotFoundError } = require('../../utils/errors');
 const { toCedis } = require('../../utils/money');
 
-async function getWallet(driverId) {
+// `transactionLimit` defaults to 50 for callers that just want a quick recent
+// snapshot (getBalance), but getTransactions needs to fetch enough rows to
+// actually satisfy whatever page it's paginating to — a flat take:50 here
+// silently truncated any page/limit request beyond the first 50 transactions.
+async function getWallet(driverId, transactionLimit = 50) {
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
     select: { walletBalance: true },
@@ -17,7 +21,7 @@ async function getWallet(driverId) {
   const transactions = await prisma.walletTransaction.findMany({
     where: { driverId },
     orderBy: { createdAt: 'desc' },
-    take: 50,
+    take: Math.min(transactionLimit, 500),
   });
 
   return { balance: driver.walletBalance, transactions };

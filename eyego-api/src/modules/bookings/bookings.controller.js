@@ -4,14 +4,38 @@ const bookingsService = require('./bookings.service');
 const { ok, created } = require('../../utils/response');
 const { AppError } = require('../../utils/errors');
 
+const updatePickup = async (req, res) => {
+  const { lat, lng, address } = req.body;
+  // Validated (validate.js runs express-validator checks before this handler) — lat/lng must
+  // be finite numbers if present, so a malformed request 400s instead of writing NaN into
+  // the booking's fareAmount/commissionAmount.
+  const booking = await bookingsService.recomputeBookingAddons(req.params.bookingId, req.user.userId, {
+    pickupLat: lat != null ? Number(lat) : undefined,
+    pickupLng: lng != null ? Number(lng) : undefined,
+    pickupAddress: address,
+  });
+  ok(res, booking);
+};
+
+const updateHeavyCargo = async (req, res) => {
+  const { heavyCargo } = req.body;
+  const booking = await bookingsService.recomputeBookingAddons(req.params.bookingId, req.user.userId, {
+    heavyCargo: !!heavyCargo,
+  });
+  ok(res, booking);
+};
+
 const bookSeat = async (req, res) => {
   const tripId = req.params.tripId || req.params.id || req.body.tripId;
   let { seatNumber } = req.body;
   if (!seatNumber && req.body.seatId) {
     seatNumber = parseInt(req.body.seatId.toString().replace('seat-', ''), 10);
   }
-  const { pickupStopId, paymentMethod, guestName, guestPhone } = req.body;
-  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null);
+  const { pickupStopId, paymentMethod, guestName, guestPhone, pickupLat, pickupLng, pickupAddress } = req.body;
+  // A group-hub joiner's own pickup point (differs from the trip's main pickup) — null
+  // when boarding at the trip's own pickup, the common case.
+  const joinerPickup = pickupLat != null && pickupLng != null ? { lat: pickupLat, lng: pickupLng, address: pickupAddress ?? null } : null;
+  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null, joinerPickup);
 
   // Emit real-time seat update to passengers and driver
   try {
@@ -132,4 +156,4 @@ const joinGroup = async (req, res) => {
   ok(res, result);
 };
 
-module.exports = { bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, validatePromoCode, getActiveBooking, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup };
+module.exports = { bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, validatePromoCode, getActiveBooking, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

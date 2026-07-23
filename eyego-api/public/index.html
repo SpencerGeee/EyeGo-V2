@@ -962,24 +962,36 @@
             touchSession(); // any API activity keeps the session alive
             return { 'x-admin-secret': key, 'Content-Type': 'application/json' };
         }
+        // Surface the backend's real error message (e.g. "Could not determine
+        // coordinates for this route...") instead of a bare "HTTP 400" — every
+        // catch{} block in this console reads err.message, so this one change
+        // makes all of them show the actual reason instead of a generic status code.
+        async function apiErrorMessage(res) {
+            try {
+                const body = await res.json();
+                return body?.message || `HTTP ${res.status}`;
+            } catch {
+                return `HTTP ${res.status}`;
+            }
+        }
         async function apiGet(url) {
             const res = await fetch(url, { headers: apiHeaders() });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) throw new Error(await apiErrorMessage(res));
             return res.json();
         }
         async function apiPost(url, body = {}) {
             const res = await fetch(url, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(body) });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) throw new Error(await apiErrorMessage(res));
             return res.json();
         }
         async function apiPut(url, body = {}) {
             const res = await fetch(url, { method: 'PUT', headers: apiHeaders(), body: JSON.stringify(body) });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) throw new Error(await apiErrorMessage(res));
             return res.json();
         }
         async function apiDelete(url) {
             const res = await fetch(url, { method: 'DELETE', headers: apiHeaders() });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!res.ok) throw new Error(await apiErrorMessage(res));
             return res.json();
         }
 
@@ -1160,7 +1172,16 @@
 
             const tbody=document.getElementById('recentBookingsBody'); const recent=state.bookings.slice(0,10);
             if(recent.length===0){tbody.innerHTML='<tr><td colspan="6" class="text-center text-text-secondary py-8">No bookings yet.</td></tr>';return;}
-            tbody.innerHTML=recent.map(b=>`<tr><td class="text-xs font-mono text-primary font-semibold">${shortId(b.id)}</td><td class="font-medium">${escapeHtml(b.user?.name||b.offlinePhone||'Offline')}</td><td class="text-text-secondary text-sm">${escapeHtml(b.trip?.route?.name||'--')}</td><td class="font-mono font-semibold">GHS ${(b.fareAmount||0).toFixed(2)}</td><td>${getStatusBadge(b.status)}</td><td class="text-xs text-text-secondary">${formatDateTime(b.createdAt)}</td></tr>`).join('');
+            // Surface the group/on-demand pivot's per-booking add-ons (previously invisible to
+            // admins auditing revenue — a booking's fareAmount could differ from the trip's
+            // listed fare with no indication why: own pickup point detour, or heavy cargo).
+            tbody.innerHTML=recent.map(b=>{
+                const addOns=[];
+                if(b.deviationSurcharge>0) addOns.push(`+GHS ${b.deviationSurcharge.toFixed(2)} detour`);
+                if(b.heavyCargo) addOns.push('heavy cargo');
+                const addOnNote=addOns.length?`<div class="text-[10px] text-text-tertiary mt-0.5">${addOns.join(' · ')}</div>`:'';
+                return `<tr><td class="text-xs font-mono text-primary font-semibold">${shortId(b.id)}</td><td class="font-medium">${escapeHtml(b.user?.name||b.offlinePhone||'Offline')}</td><td class="text-text-secondary text-sm">${escapeHtml(b.trip?.route?.name||'--')}</td><td class="font-mono font-semibold">GHS ${(b.fareAmount||0).toFixed(2)}${addOnNote}</td><td>${getStatusBadge(b.status)}</td><td class="text-xs text-text-secondary">${formatDateTime(b.createdAt)}</td></tr>`;
+            }).join('');
         }
 
         // ── DRIVERS ────────────────────────────────────────────────
@@ -1466,7 +1487,15 @@
         // ── ROUTES ──────────────────────────────────────────────────
         function populateRouteSelects(){['stopsRouteSelect','schedRoute'].forEach(id=>{const sel=document.getElementById(id);if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Select route...</option>'+state.routes.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');if(cur)sel.value=cur;});}
 
-        async function createRoute(e){e.preventDefault();const name=document.getElementById('routeName').value.trim();const originName=document.getElementById('routeOrigin').value.trim();const destinationName=document.getElementById('routeDest').value.trim();if(!name||!originName||!destinationName)return toast('Fill all fields','error');try{await apiPost(`${API_BASE}/routes`,{name,originName,destinationName});toast('Route created');document.getElementById('routeForm').reset();await refreshData();}catch{state.routes.push({id:'local_'+Date.now(),name,originName,destinationName,distanceKm:15,virtualStops:[]});toast('Route created (offline)','info');document.getElementById('routeForm').reset();renderRoutes();populateRouteSelects();}}
+        async function createRoute(e){e.preventDefault();const name=document.getElementById('routeName').value.trim();const originName=document.getElementById('routeOrigin').value.trim();const destinationName=document.getElementById('routeDest').value.trim();if(!name||!originName||!destinationName)return toast('Fill all fields','error');try{await apiPost(`${API_BASE}/routes`,{name,originName,destinationName});toast('Route created');document.getElementById('routeForm').reset();await refreshData();}catch(err){
+            // BUGFIX: this used to swallow any failure (most commonly ROUTE_GEOCODE_FAILED —
+            // very likely here since this form only collects place names, not coordinates)
+            // and fabricate a fake client-only route with hardcoded distanceKm:15 and no real
+            // ID, showing "Route created (offline)" as if it succeeded. It hadn't — the fake
+            // row vanished on next refresh, and any schedule attached to it in the meantime
+            // referenced a route ID that never existed server-side. Show the real error instead.
+            toast(err?.message||'Failed to create route','error');
+        }}
 
         async function addStops(e){e.preventDefault();const routeId=document.getElementById('stopsRouteSelect').value;const stopsText=document.getElementById('stopsInput').value.trim();if(!routeId||!stopsText)return;try{await apiPost(`${API_BASE}/routes/${routeId}/stops`,{stops:stopsText.split(',').map(s=>({name:s.trim(),lat:5.6,lng:-0.18}))});toast('Stops added');document.getElementById('stopsForm').reset();await refreshData();}catch{toast('Failed to add stops','error');}}
 

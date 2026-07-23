@@ -1,5 +1,5 @@
 'use strict';
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,7 +7,9 @@ import {
   Alert,
   Linking,
   Platform,
+  Modal,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import * as KeepAwake from 'expo-keep-awake';
@@ -95,6 +97,7 @@ export default function ActiveTripScreen() {
   const qc = useQueryClient();
   const { setActiveTripId } = useDriverStore();
   const { addNotification } = useNotificationsStore();
+  const [showPaymentQr, setShowPaymentQr] = useState(false);
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
@@ -544,7 +547,18 @@ export default function ActiveTripScreen() {
             <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Seat Map</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>{passengers}/{total} booked</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>{passengers}/{total} booked</Text>
+                <Pressable
+                  onPress={() => setShowPaymentQr(true)}
+                  style={styles.qrBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show payment QR code"
+                  hitSlop={8}
+                >
+                  <Ionicons name="qr-code-outline" size={16} color={colors.primary} />
+                </Pressable>
+              </View>
             </View>
             <SeatMap
               seats={seats}
@@ -706,6 +720,25 @@ export default function ActiveTripScreen() {
           )}
         </View>
       </InlayPanel>
+
+      {/* Payment QR — lets a boarding rider scan straight into this trip's payment
+          screen instead of the driver having no way to hand off a payable code at all. */}
+      <Modal visible={showPaymentQr} transparent animationType="fade" onRequestClose={() => setShowPaymentQr(false)}>
+        <Pressable style={styles.qrModalBackdrop} onPress={() => setShowPaymentQr(false)}>
+          <Pressable style={styles.qrModalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.cardTitle}>Scan to Pay</Text>
+            <View style={styles.qrWrap}>
+              <QRCode value={`eyego:trip:${id}`} size={220} />
+            </View>
+            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
+              Passenger scans this in the EyeGo app to pay their fare for this trip.
+            </Text>
+            <Pressable style={styles.qrCloseBtn} onPress={() => setShowPaymentQr(false)}>
+              <Text variant="label" color={colors.onSurface}>Close</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -957,6 +990,44 @@ const makeStyles = (colors: DriverColors) =>
       fontSize: fontSizes.titleSmall,
       lineHeight: Math.round(fontSizes.titleSmall * 1.4),
       color: colors.onSurface,
+    },
+    qrBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary + '18',
+    },
+    qrModalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.6)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: spacing.xl,
+    },
+    qrModalCard: {
+      width: '100%',
+      maxWidth: 320,
+      backgroundColor: colors.surfaceContainer,
+      borderRadius: radii['2xl'],
+      padding: spacing.xl,
+      alignItems: 'center',
+      gap: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.outlineVariant,
+    },
+    qrWrap: {
+      backgroundColor: '#fff',
+      padding: spacing.lg,
+      borderRadius: radii.xl,
+    },
+    qrCloseBtn: {
+      marginTop: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.md,
+      borderRadius: radii.full,
+      backgroundColor: colors.surfaceContainerHigh,
     },
     legend: {
       flexDirection: 'row',

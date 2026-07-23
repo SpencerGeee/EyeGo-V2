@@ -68,11 +68,21 @@ export interface DriverDocument {
 }
 
 export interface CreateTripPayload {
-  routeId: string;
+  // Ad-hoc pickup/destination — the group/on-demand booking model: the driver sets an exact
+  // map pickup point and destination for this trip instead of choosing from a predefined route.
+  originLat: number;
+  originLng: number;
+  originName: string;
+  destLat: number;
+  destLng: number;
+  destinationName: string;
   departureTime: string;
   availableSeats: number;
   tier?: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
   vehicleId?: string;
+  // Legacy path — an admin-curated fixed route. Still accepted server-side for
+  // backward compatibility, but the create-trip screen no longer offers it.
+  routeId?: string;
 }
 
 export interface DriverTrip {

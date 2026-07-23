@@ -14,6 +14,16 @@ export const bookingsApi = {
   getById: (id: string) =>
     apiClient.get<ApiResponse<Booking>>(`/bookings/${id}`),
 
+  // Group-hub joiner setting/changing their own pickup point — only allowed
+  // pre-payment (SEAT_HELD); recomputes fare with any deviation surcharge.
+  updatePickup: (id: string, data: { lat: number; lng: number; address?: string }) =>
+    apiClient.patch<ApiResponse<Booking>>(`/bookings/${id}/pickup`, data),
+
+  // Heavy-cargo/luggage surcharge — was previously a client-only toggle that changed
+  // the displayed price but never actually charged anything. Only allowed pre-payment.
+  updateHeavyCargo: (id: string, heavyCargo: boolean) =>
+    apiClient.patch<ApiResponse<Booking>>(`/bookings/${id}/heavy-cargo`, { heavyCargo }),
+
   getActive: () =>
     apiClient.get<ApiResponse<Booking | null>>('/bookings/active'),
 

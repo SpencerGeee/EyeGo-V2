@@ -211,9 +211,14 @@ export default function TrackingScreen() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }, [activeBooking?.id, (apiActiveBooking as any)?.id]);
 
-  // Prefer fresh API data over potentially stale Zustand selectedTrip
+  // Prefer fresh API data over potentially stale Zustand selectedTrip.
+  // tripsApi.getById() unwraps to the Trip object directly at .data.data
+  // (no nested .trip field) — reading `.trip` here always resolved to
+  // undefined, so a freshly-opened/joined trip (e.g. tapping the home
+  // bento card for a driver-created trip never stored in selectedTrip)
+  // silently fell through to a stale or null trip instead of the fetch.
   const syncedTrip = useMemo(() => {
-    return (tripData?.data?.data as any)?.trip ?? selectedTrip;
+    return (tripData?.data?.data as any) ?? selectedTrip;
   }, [selectedTrip, tripData]);
 
   const trip = useMemo(() => {

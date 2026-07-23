@@ -97,12 +97,12 @@ async function dispatchToNearbyDrivers(trip, radiusKm = DISPATCH_RADIUS_KM) {
     await sendMulticastPush(
       fcmTokens,
       'New Trip Nearby',
-      `${trip.route?.origin ?? 'Origin'} → ${trip.route?.destination ?? 'Destination'}`,
+      `${trip.route?.originName ?? 'Origin'} → ${trip.route?.destinationName ?? 'Destination'}`,
       {
         type: 'DISPATCH_REQUEST',
         tripId: trip.id,
-        routeOrigin: trip.route?.origin ?? '',
-        routeDestination: trip.route?.destination ?? '',
+        routeOrigin: trip.route?.originName ?? '',
+        routeDestination: trip.route?.destinationName ?? '',
         departureTime: trip.departureTime?.toISOString() ?? '',
         farePerSeat: String(trip.farePerSeat ?? ''),
         totalSeats: String(trip.maxSeats ?? ''),
@@ -119,8 +119,8 @@ async function dispatchToNearbyDrivers(trip, radiusKm = DISPATCH_RADIUS_KM) {
       const assignedPayload = {
         tripId: trip.id,
         tripShortId: trip.shortId,
-        routeOrigin: trip.route?.origin ?? '',
-        routeDestination: trip.route?.destination ?? '',
+        routeOrigin: trip.route?.originName ?? '',
+        routeDestination: trip.route?.destinationName ?? '',
         departureTime: trip.departureTime?.toISOString() ?? '',
         estimatedEarnings: trip.farePerSeat ?? undefined,
         seatCount: trip.maxSeats ?? undefined,

@@ -116,15 +116,20 @@ export default function PaymentScreen() {
     0;
   const enRouteRatio: number | null = (activeBooking as { enRouteRatio?: number })?.enRouteRatio ?? null;
   const enRouteStopName: string | null = (activeBooking as { pickupStop?: { name?: string } })?.pickupStop?.name ?? null;
-  const cargoSurcharge = (selectedTrip as { heavyCargo?: boolean })?.heavyCargo ? 10.0 : 0.0;
+  // BUGFIX: this used to add a client-computed +GHS 10 on top of serverPerSeat when
+  // selectedTrip.heavyCargo was set — but that flag is now persisted server-side
+  // (bookings.service.js recomputeBookingAddons) and already baked into
+  // activeBooking.fareAmount (serverPerSeat above). Adding it again here charged
+  // the rider what they saw, but it was GHS 10 more than the actual server charge
+  // would have been before this fix — the display and the charge are now the same
+  // single number, with no client-side fare math at all.
   // "Paying for everyone" means this rider covers the *entire* trip cost — not perSeat × group size.
   // The server attaches `totalTripCost` to trip detail / group hub responses for this exact purpose.
   const payForEveryone = !!(selectedTrip as { payForEveryone?: boolean })?.payForEveryone;
   const totalTripCost = (selectedTrip as { totalTripCost?: number })?.totalTripCost ?? null;
-  const baseFare = serverPerSeat;
   const fareAmount = payForEveryone && totalTripCost
-    ? totalTripCost + cargoSurcharge
-    : serverPerSeat + cargoSurcharge;
+    ? totalTripCost
+    : serverPerSeat;
 
   // Free a SEAT_HELD booking immediately on a hard payment failure instead of
   // waiting up to ~15 min for the server seat-hold sweep. Best-effort and

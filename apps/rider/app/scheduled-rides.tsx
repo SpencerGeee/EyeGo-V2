@@ -66,7 +66,15 @@ export default function ScheduledRidesScreen() {
                   weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
                 })}
                 {'  ·  '}{item.seatCount} seat{item.seatCount > 1 ? 's' : ''}
+                {item.route?.distanceKm != null ? `  ·  ${item.route.distanceKm.toFixed(1)} km` : ''}
               </Text>
+              {item.matchedTrip ? (
+                <Text style={styles.meta}>
+                  {item.matchedTrip.driverName ?? 'Driver'}
+                  {item.matchedTrip.vehicleLabel ? ` · ${item.matchedTrip.vehicleLabel}` : ''}
+                  {'  ·  GHS '}{item.matchedTrip.farePerSeat.toFixed(2)}/seat
+                </Text>
+              ) : null}
               <Text style={[styles.status, { color: item.status === 'MATCHED' ? colors.statusSuccess : colors.onSurfaceVariant }]}>
                 {STATUS_LABEL[item.status] ?? item.status}
               </Text>

@@ -1,8 +1,10 @@
 'use strict';
 
 const { Router } = require('express');
+const { body } = require('express-validator');
 const controller = require('./bookings.controller');
 const authenticate = require('../../middleware/auth');
+const validate = require('../../middleware/validate');
 const { bookingCreateLimiter } = require('../../middleware/rateLimiter');
 
 const router = Router();
@@ -30,6 +32,23 @@ router.post('/:bookingId/rating', controller.rateBooking);
 router.post('/:bookingId/tip', controller.tipDriver);
 router.post('/:bookingId/apply-promo', controller.applyPromoCode);
 router.post('/:bookingId/dispute', controller.submitDispute);
+// Group-hub joiner setting/changing their own pickup point — pre-payment only.
+// Validated: a malformed/missing lat or lng must 400 here, not flow through as
+// NaN into the booking's recomputed fareAmount/commissionAmount.
+router.patch(
+  '/:bookingId/pickup',
+  body('lat').isFloat({ min: -90, max: 90 }),
+  body('lng').isFloat({ min: -180, max: 180 }),
+  body('address').optional().isString(),
+  validate,
+  controller.updatePickup,
+);
+router.patch(
+  '/:bookingId/heavy-cargo',
+  body('heavyCargo').isBoolean(),
+  validate,
+  controller.updateHeavyCargo,
+);
 
 // ── Group Hub ──────────────────────────────────────────────────────────────
 router.post('/:bookingId/invite', controller.generateInvite);

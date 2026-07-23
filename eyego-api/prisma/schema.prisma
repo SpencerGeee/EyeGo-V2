@@ -200,6 +200,11 @@ model Route {
   destLng         Float
   distanceKm      Float
   isActive        Boolean  @default(true)
+  // True for a Route auto-created behind a driver's ad-hoc "create trip from
+  // here" pickup or a rider's on-demand request — as opposed to the fixed,
+  // admin-curated routes the old trotro-style booking flow depended on.
+  // Keeps the admin route list from filling up with one-off, single-trip rows.
+  isAdHoc         Boolean  @default(false)
   createdAt       DateTime @default(now())
 
   virtualStops          VirtualStop[]
@@ -316,6 +321,22 @@ model Booking {
   pickupStopId        String?
   pickupStop          VirtualStop?  @relation(fields: [pickupStopId], references: [id])
   enRouteRatio        Float?
+  // A group-hub joiner's own precise pickup point when it differs from the
+  // trip's main pickup (e.g. friends booked via an invite link scattered
+  // across town). Null means "board at the trip's own pickup" — the common
+  // case, which is exactly the main booker's seat.
+  pickupLat           Float?
+  pickupLng           Float?
+  pickupAddress       String?
+  // Extra fare from the driver detouring to this passenger's own pickup
+  // point, computed once at booking time — see fare.calculator.js
+  // calculateDeviationSurcharge(). Zero for anyone boarding at the trip's
+  // main pickup.
+  deviationSurcharge  Float         @default(0)
+  // Group-wide heavy-cargo/luggage surcharge, toggled by any member post-booking
+  // (invite.tsx) — was previously a client-only UI toggle that changed the
+  // displayed price but never actually charged anything.
+  heavyCargo          Boolean       @default(false)
   // ── iOS Live Activity (ActivityKit) ──────────────────────────────────
   // Populated once the native Activity.pushTokenUpdates stream on the
   // rider's device yields a token — see POST /v1/trips/:id/live-activity-token.

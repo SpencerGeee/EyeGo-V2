@@ -131,8 +131,27 @@ function calculateEnRouteFare({ fullFarePerSeat, stopLat, stopLng, destLat, dest
   };
 }
 
+// Distance (km) a driver has to add to their route to divert through `viaLat/viaLng`
+// on the way from `fromLat/fromLng` to `toLat/toLng` — the standard "insert a waypoint"
+// detour cost: distance via the waypoint minus the direct distance.
+function detourKm({ fromLat, fromLng, viaLat, viaLng, toLat, toLng }) {
+  const viaDistance = haversineKm(fromLat, fromLng, viaLat, viaLng) + haversineKm(viaLat, viaLng, toLat, toLng);
+  const directDistance = haversineKm(fromLat, fromLng, toLat, toLng);
+  return Math.max(0, viaDistance - directDistance);
+}
+
+/**
+ * Surcharge for a group-hub joiner whose own pickup point isn't the trip's main
+ * pickup (e.g. friends booked via invite link scattered across town). Free for
+ * small, reasonable detours — only a genuinely large diversion adds to the fare.
+ */
+function calculateDeviationSurcharge({ extraKm, perKmRate, freeKm = env.FREE_DEVIATION_KM }) {
+  if (extraKm <= freeKm) return 0;
+  return round((extraKm - freeKm) * perKmRate);
+}
+
 function round(n) {
   return Math.round(n * 100) / 100;
 }
 
-module.exports = { calculateFare, estimateFare, calculateEnRouteFare, haversineKm };
+module.exports = { calculateFare, estimateFare, calculateEnRouteFare, haversineKm, detourKm, calculateDeviationSurcharge };

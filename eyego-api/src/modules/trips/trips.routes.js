@@ -35,6 +35,9 @@ router.get('/:id', authenticate, tripsController.getTrip);
 router.get('/:id/contact', authenticate, tripsController.getTripContact);
 router.get('/:id/seats', authenticate, tripsController.getSeatMap);
 router.get('/:id/receipt', authenticate, tripsController.getTripReceipt);
+// Group-hub joiner picking their own pickup point — preview the deviation
+// surcharge (if any) before they commit to booking at that spot.
+router.get('/:id/deviation-estimate', authenticate, tripsController.getDeviationEstimate);
 
 // POST /v1/trips/:id/book  — book a seat
 router.post(

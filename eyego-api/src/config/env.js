@@ -99,6 +99,11 @@ const envSchema = z.object({
   PREMIUM_PER_KM_RATE: z.coerce.number().default(16.0),
   DOORSTEP_SURCHARGE: z.coerce.number().default(5.0),
   HEAVY_LOAD_SURCHARGE: z.coerce.number().default(8.0),
+  // Group-hub joiners picking their own pickup point (not the trip's main pickup)
+  // detour the driver for free up to this many km — only a genuinely large
+  // diversion beyond it adds a per-km surcharge. Tune once real-world numbers
+  // come in from the client; this is a placeholder default, not a final figure.
+  FREE_DEVIATION_KM: z.coerce.number().default(1.5),
   PLATFORM_COMMISSION: z.coerce.number().default(0.15),
   MIN_OCCUPANCY_TO_DEPART: z.coerce.number().default(5),
   SEAT_HOLD_DURATION_MINUTES: z.coerce.number().default(10),

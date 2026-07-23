@@ -45,8 +45,17 @@ async function suspendDriver(driverId, reason) {
 // AD1: admin-gated route list. The admin console previously read the PUBLIC
 // /v1/routes endpoint (no admin secret), which only returns active routes; this
 // returns ALL routes (incl. inactive) with their virtual stops for management.
-async function getRoutes() {
+//
+// Excludes `isAdHoc` routes by default — those are auto-generated one-off rows
+// behind a driver's ad-hoc "create trip from here" pickup or a rider's on-demand
+// request (added with the group/on-demand pivot), not routes an admin curated.
+// Without this filter every ad-hoc trip permanently adds a throwaway row here,
+// burying the actual managed routes under a growing pile of "Pickup point →
+// Destination" entries sorted to the top by createdAt. Pass includeAdHoc=true
+// to see them anyway (e.g. investigating a specific trip's pricing).
+async function getRoutes({ includeAdHoc = false } = {}) {
   const routes = await prisma.route.findMany({
+    where: includeAdHoc ? undefined : { isAdHoc: false },
     orderBy: { createdAt: 'desc' },
     include: { virtualStops: { orderBy: { sequence: 'asc' } } },
   });

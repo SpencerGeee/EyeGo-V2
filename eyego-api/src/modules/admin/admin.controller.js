@@ -22,7 +22,7 @@ const suspendDriver = async (req, res) => {
 };
 
 const getRoutes = async (req, res) => {
-  const result = await adminService.getRoutes();
+  const result = await adminService.getRoutes({ includeAdHoc: req.query.includeAdHoc === 'true' });
   ok(res, result);
 };
 
@@ -73,12 +73,16 @@ const getPendingDrivers = async (req, res) => {
 
 const getAllDrivers = async (req, res) => {
   const result = await adminService.getAllDrivers(req.query);
-  ok(res, { drivers: result.data });
+  // BUGFIX: this dropped total/page/limit even though adminService already computes
+  // them — harmless only because the console always requests limit=500 with no
+  // pagination UI of its own; the moment driver count exceeds that, the remainder
+  // silently never appears with nothing on screen revealing the truncation.
+  ok(res, { drivers: result.data, total: result.total, page: result.page, limit: result.limit });
 };
 
 const getAllUsers = async (req, res) => {
   const result = await adminService.getAllUsers(req.query);
-  ok(res, { users: result.data });
+  ok(res, { users: result.data, total: result.total, page: result.page, limit: result.limit });
 };
 
 const getDriverDetail = async (req, res) => {

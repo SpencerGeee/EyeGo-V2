@@ -126,7 +126,9 @@ export default function HelpScreen() {
   });
 
   const tickets = useMemo(() => {
-    const raw = ticketsData?.data?.tickets ?? [];
+    // ApiResponse<T> wraps every payload as {success,message,data} — the tickets
+    // array lives at .data.data.tickets, not .data.tickets (that read always missed).
+    const raw = (ticketsData?.data as any)?.data?.tickets ?? [];
     return raw.map((t: any) => ({
       id: t.id,
       subject: t.subject,

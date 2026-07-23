@@ -17,9 +17,9 @@ const getBalance = async (req, res) => {
 
 const getTransactions = async (req, res) => {
   const driverId = req.user?.userId;
-  const wallet = await walletService.getWallet(driverId);
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 50;
+  const wallet = await walletService.getWallet(driverId, page * limit);
   const start = (page - 1) * limit;
   const items = wallet.transactions.slice(start, start + limit);
   ok(res, {

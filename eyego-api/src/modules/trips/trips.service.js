@@ -12,7 +12,12 @@ const pubSub = require('../../graphql/pubsub');
 const logger = require('../../utils/logger');
 
 async function createTrip(driverId, data) {
-  const { routeId, vehicleId: requestedVehicleId, departureTime, doorstepPickup, pickupLat, pickupLng, pickupAddress, heavyLoad, availableSeats } = data;
+  const {
+    routeId, vehicleId: requestedVehicleId, departureTime, doorstepPickup, pickupLat, pickupLng, pickupAddress, heavyLoad, availableSeats,
+    // Ad-hoc pickup/destination — the group/on-demand booking model: the driver sets an exact
+    // map pickup point and destination for THIS trip instead of picking from a predefined route.
+    originLat, originLng, originName, destLat, destLng, destinationName,
+  } = data;
   const tier = data.tier || 'ECONOMY';
 
   // Auto-select vehicle: use provided vehicleId or fall back to driver's first active vehicle
@@ -77,8 +82,13 @@ async function createTrip(driverId, data) {
 
   if (!vehicle) throw new AppError('No vehicle registered. Please add a vehicle in your profile before publishing a trip.', 400, 'NO_VEHICLE');
 
-  const route = await prisma.route.findUnique({ where: { id: routeId } });
-  if (!route) throw new NotFoundError('Route');
+  if (!routeId && (originLat == null || originLng == null || destLat == null || destLng == null)) {
+    throw new AppError('Pickup and destination locations are required.', 400, 'MISSING_LOCATION');
+  }
+  if (routeId) {
+    const existingRoute = await prisma.route.findUnique({ where: { id: routeId } });
+    if (!existingRoute) throw new NotFoundError('Route');
+  }
 
   const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
   const tierRates = {
@@ -88,30 +98,59 @@ async function createTrip(driverId, data) {
   };
   const [baseFare, perKmRate] = tierRates[normalizedTier];
 
-  // Record supply and get surge multiplier
+  // Record supply and get surge multiplier — use the trip's real origin (ad-hoc
+  // pickup point) when there's no separate doorstep-pickup override.
+  const surgeLat = pickupLat ?? originLat;
+  const surgeLng = pickupLng ?? originLng;
   let surgeMultiplier = 1.0;
-  if (pickupLat && pickupLng) {
-    await surgeService.recordSupply(pickupLat, pickupLng, driverId);
-    surgeMultiplier = await surgeService.getSurgeMultiplier(pickupLat, pickupLng);
+  if (surgeLat && surgeLng) {
+    await surgeService.recordSupply(surgeLat, surgeLng, driverId);
+    surgeMultiplier = await surgeService.getSurgeMultiplier(surgeLat, surgeLng);
   }
 
-  const trip = await prisma.trip.create({
-    data: {
-      driverId,
-      vehicleId: vehicle.id,
-      routeId,
-      tier: normalizedTier,
-      departureTime: new Date(departureTime),
-      doorstepPickup: doorstepPickup || false,
-      pickupLat, pickupLng, pickupAddress,
-      heavyLoad: heavyLoad || false,
-      baseFare,
-      perKmRate,
-      surgeMultiplier,
-      maxSeats: (availableSeats && availableSeats > 0 && availableSeats <= vehicle.seaterCount) ? availableSeats : vehicle.seaterCount,
-      status: 'SCHEDULED',
-    },
-    include: { route: true, vehicle: true, driver: { select: { name: true, profilePhoto: true } } },
+  // Ad-hoc route + Trip creation wrapped in one transaction: if Trip.create fails for any
+  // reason (bad departureTime, DB error), the just-created ad-hoc Route row rolls back with
+  // it instead of being left as a permanent orphan — Route.isAdHoc rows should exist 1:1 with
+  // a live Trip, since nothing else in the app (admin included) ever reads/reuses one.
+  const trip = await prisma.$transaction(async (tx) => {
+    let route;
+    if (routeId) {
+      route = await tx.route.findUnique({ where: { id: routeId } });
+    } else {
+      // Ad-hoc trip: driver set an exact pickup + destination on the map instead of choosing
+      // from a predefined route. Reuses the Route/Trip relation as-is (no Trip schema change) —
+      // same pattern trip-request.service.js already uses for rider-initiated on-demand requests.
+      const distanceKm = Math.max(haversineKm(originLat, originLng, destLat, destLng), 0.1);
+      route = await tx.route.create({
+        data: {
+          name: `${originName ?? 'Pickup'} → ${destinationName ?? 'Destination'}`,
+          originName: originName ?? 'Pickup point',
+          destinationName: destinationName ?? 'Destination',
+          originLat, originLng, destLat, destLng,
+          distanceKm,
+          isAdHoc: true,
+        },
+      });
+    }
+
+    return tx.trip.create({
+      data: {
+        driverId,
+        vehicleId: vehicle.id,
+        routeId: route.id,
+        tier: normalizedTier,
+        departureTime: new Date(departureTime),
+        doorstepPickup: doorstepPickup || false,
+        pickupLat, pickupLng, pickupAddress,
+        heavyLoad: heavyLoad || false,
+        baseFare,
+        perKmRate,
+        surgeMultiplier,
+        maxSeats: (availableSeats && availableSeats > 0 && availableSeats <= vehicle.seaterCount) ? availableSeats : vehicle.seaterCount,
+        status: 'SCHEDULED',
+      },
+      include: { route: true, vehicle: true, driver: { select: { name: true, profilePhoto: true } } },
+    });
   });
 
   // Attach farePerSeat + totalTripCost immediately so the driver app shows the
@@ -326,7 +365,15 @@ async function getPulseSchedules() {
 }
 
 async function searchTrips(query) {
-  const { destination, originLat, originLng, destLat, destLng, radius = 5, page = 1, limit = 50 } = query;
+  // BUGFIX: the client (SearchTripsParams / SelectStage.tsx) has only ever sent
+  // `destinationLat`/`destinationLng` — this destructured the wrong names
+  // (`destLat`/`destLng`), so the proximity filter below was silently a no-op
+  // on every real request and this returned EVERY upcoming trip regardless of
+  // how far it was from the rider's actual pickup/destination. Accept both
+  // names so any other caller using the legacy `destLat/destLng` still works.
+  const { destination, originLat, originLng, destinationLat, destinationLng, destLat, destLng, radius = 5, page = 1, limit = 50 } = query;
+  const finalDestLat = destinationLat ?? destLat;
+  const finalDestLng = destinationLng ?? destLng;
 
   const where = {
     status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'] },
@@ -342,44 +389,48 @@ async function searchTrips(query) {
     };
   }
 
-  const skip = (Math.max(1, Number(page)) - 1) * Math.min(Number(limit), 100);
+  const pageNum = Math.max(1, Number(page));
   const take = Math.min(Number(limit), 100);
+  const skip = (pageNum - 1) * take;
+  const hasGeoFilter = originLat && originLng && finalDestLat && finalDestLng;
 
-  let [totalCount, trips] = await Promise.all([
-    prisma.trip.count({ where }),
-    prisma.trip.findMany({
-      where,
-      include: {
-        route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
-        vehicle: true,
-        driver: { select: { id: true, name: true, profilePhoto: true, currentLat: true, currentLng: true } },
-        bookings: {
-          where: { status: { not: 'CANCELLED' } },
-          select: { id: true, seatNumber: true, status: true },
-        },
-      },
-      orderBy: { departureTime: 'asc' },
-      skip,
-      take,
-    }),
-  ]);
+  const include = {
+    route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
+    vehicle: true,
+    driver: { select: { id: true, name: true, profilePhoto: true, currentLat: true, currentLng: true } },
+    bookings: {
+      where: { status: { not: 'CANCELLED' } },
+      select: { id: true, seatNumber: true, status: true },
+    },
+  };
 
-  if (originLat && originLng && destLat && destLng) {
+  let trips, totalCount;
+
+  if (hasGeoFilter) {
+    // SQLite has no native geo query — pull a larger upcoming-trip candidate
+    // pool, filter by proximity in memory, THEN paginate. Filtering AFTER a
+    // DB-level skip/take (the old approach) could silently drop genuinely
+    // nearby trips that just weren't in that page's date-ordered slice.
     const oLat = parseFloat(originLat);
     const oLng = parseFloat(originLng);
-    const dLat = parseFloat(destLat);
-    const dLng = parseFloat(destLng);
+    const dLat = parseFloat(finalDestLat);
+    const dLng = parseFloat(finalDestLng);
     const rad = parseFloat(radius);
 
-    trips = trips.filter(trip => {
+    const candidates = await prisma.trip.findMany({
+      where,
+      include,
+      orderBy: { departureTime: 'asc' },
+      take: 500,
+    });
+
+    const filtered = candidates.filter(trip => {
       const route = trip.route;
-      // Check if origin is near route origin or any virtual stop
       let originNear = haversineKm(oLat, oLng, route.originLat, route.originLng) <= rad;
       if (!originNear) {
         originNear = route.virtualStops.some(stop => haversineKm(oLat, oLng, stop.lat, stop.lng) <= rad);
       }
 
-      // Check if destination is near route destination or any virtual stop
       let destNear = haversineKm(dLat, dLng, route.destLat, route.destLng) <= rad;
       if (!destNear) {
         destNear = route.virtualStops.some(stop => haversineKm(dLat, dLng, stop.lat, stop.lng) <= rad);
@@ -387,6 +438,14 @@ async function searchTrips(query) {
 
       return originNear && destNear;
     });
+
+    totalCount = filtered.length;
+    trips = filtered.slice(skip, skip + take);
+  } else {
+    [totalCount, trips] = await Promise.all([
+      prisma.trip.count({ where }),
+      prisma.trip.findMany({ where, include, orderBy: { departureTime: 'asc' }, skip, take }),
+    ]);
   }
 
   trips.forEach(trip => {
@@ -829,11 +888,62 @@ async function scheduleTrip(userId, { routeId, scheduledAt, seatCount = 1 }) {
  * List the calling rider's scheduled ride intents (upcoming + past), newest scheduledAt first.
  */
 async function getScheduledRides(userId) {
-  return prisma.scheduledRideIntent.findMany({
+  const intents = await prisma.scheduledRideIntent.findMany({
     where: { userId },
-    include: { route: { select: { originName: true, destinationName: true } } },
+    include: { route: { select: { originName: true, destinationName: true, distanceKm: true } } },
     orderBy: { scheduledAt: 'desc' },
   });
+
+  // The list screen only had a route name + seat count to show — once an intent is MATCHED
+  // there's a real Trip (driver, vehicle, fare) behind it that was never surfaced, so the card
+  // looked identical (and detail-less) whether it was still pending or already confirmed.
+  const matchedTripIds = intents.map((i) => i.matchedTripId).filter(Boolean);
+  const matchedTrips = matchedTripIds.length
+    ? await prisma.trip.findMany({
+        where: { id: { in: matchedTripIds } },
+        select: {
+          id: true,
+          tier: true,
+          maxSeats: true,
+          baseFare: true,
+          perKmRate: true,
+          surgeMultiplier: true,
+          doorstepPickup: true,
+          heavyLoad: true,
+          route: { select: { distanceKm: true } },
+          driver: {
+            select: {
+              name: true,
+              vehicles: { where: { isActive: true }, select: { make: true, model: true, plateNumber: true }, take: 1 },
+            },
+          },
+        },
+      })
+    : [];
+  const tripById = new Map(matchedTrips.map((t) => {
+    const fare = calculateFare({
+      tier: t.tier,
+      distanceKm: t.route?.distanceKm ?? 0,
+      seatCount: t.maxSeats,
+      doorstepPickup: t.doorstepPickup,
+      heavyLoad: t.heavyLoad,
+      surgeMultiplier: t.surgeMultiplier,
+      storedBaseFare: t.baseFare,
+      storedPerKmRate: t.perKmRate,
+    });
+    const vehicle = t.driver?.vehicles?.[0];
+    return [t.id, {
+      tier: t.tier,
+      farePerSeat: fare.farePerPerson,
+      driverName: t.driver?.name ?? null,
+      vehicleLabel: vehicle ? `${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}` : null,
+    }];
+  }));
+
+  return intents.map((intent) => ({
+    ...intent,
+    matchedTrip: intent.matchedTripId ? tripById.get(intent.matchedTripId) ?? null : null,
+  }));
 }
 
 /**
@@ -967,6 +1077,27 @@ async function processScheduledRideIntents() {
   return { processed: dueIntents.length };
 }
 
+/**
+ * Preview the deviation surcharge (if any) for a group-hub joiner picking their
+ * own pickup point instead of the trip's main pickup — lets the rider see the
+ * extra cost before committing to book at that spot.
+ */
+async function estimateDeviationSurcharge(tripId, lat, lng) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { perKmRate: true, route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } } },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+  const { detourKm, calculateDeviationSurcharge } = require('./fare.calculator');
+  const extraKm = detourKm({
+    fromLat: trip.route.originLat, fromLng: trip.route.originLng,
+    viaLat: lat, viaLng: lng,
+    toLat: trip.route.destLat, toLng: trip.route.destLng,
+  });
+  const surcharge = calculateDeviationSurcharge({ extraKm, perKmRate: trip.perKmRate });
+  return { extraKm: Math.round(extraKm * 100) / 100, surcharge };
+}
+
 async function getTrackingData(shortId) {
   const trip = await prisma.trip.findUnique({
     where: { shortId },
@@ -999,4 +1130,4 @@ async function getTrackingData(shortId) {
   };
 }
 
-module.exports = { createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken };
+module.exports = { createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };

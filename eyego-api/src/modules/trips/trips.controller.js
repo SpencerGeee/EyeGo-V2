@@ -30,6 +30,12 @@ const getFareEstimate = async (req, res) => {
   ok(res, { fareEstimate: fare, surgeMultiplier });
 };
 
+const getDeviationEstimate = async (req, res) => {
+  const { lat, lng } = req.query;
+  const result = await tripsService.estimateDeviationSurcharge(req.params.id, parseFloat(lat), parseFloat(lng));
+  ok(res, result);
+};
+
 const createTrip = async (req, res) => {
   const trip = await tripsService.createTrip(req.user.userId, req.body);
   ok(res, { trip }, 'Trip created', 201);
@@ -251,4 +257,4 @@ const saveLiveActivityToken = async (req, res) => {
   ok(res, result, 'Live Activity token saved');
 };
 
-module.exports = { createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };
+module.exports = { createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };

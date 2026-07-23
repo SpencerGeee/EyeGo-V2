@@ -27,6 +27,8 @@ function signTokens(userId, role) {
   return { accessToken, refreshToken, tokenId };
 }
 
+const REFRESH_GRACE_MS = 15000;
+
 async function storeRefreshToken(userId, driverId, role, tokenId) {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
   await prisma.refreshToken.create({
@@ -136,7 +138,13 @@ async function refreshPassengerToken(token) {
   if (decoded.type !== 'refresh' || decoded.role !== 'PASSENGER') throw new AuthError('Invalid refresh token');
 
   const stored = await prisma.refreshToken.findUnique({ where: { tokenId: decoded.tokenId } });
-  if (!stored || stored.revokedAt) throw new AuthError('Refresh token revoked');
+  if (!stored) throw new AuthError('Refresh token revoked');
+  // Grace window: two requests racing to refresh the same expiring access token can both
+  // present this same (now-rotated) refresh token. Reject only if it was revoked outside the
+  // race window — otherwise mint a fresh pair instead of forcing the whole app to log out.
+  if (stored.revokedAt && Date.now() - stored.revokedAt.getTime() > REFRESH_GRACE_MS) {
+    throw new AuthError('Refresh token revoked');
+  }
   if (stored.expiresAt < new Date()) throw new AuthError('Refresh token expired');
 
   // Rotate: revoke old, issue new
@@ -195,7 +203,13 @@ async function refreshDriverToken(token) {
   if (decoded.type !== 'refresh' || decoded.role !== 'DRIVER') throw new AuthError('Invalid refresh token');
 
   const stored = await prisma.refreshToken.findUnique({ where: { tokenId: decoded.tokenId } });
-  if (!stored || stored.revokedAt) throw new AuthError('Refresh token revoked');
+  if (!stored) throw new AuthError('Refresh token revoked');
+  // Grace window: the driver app polls far more (location/earnings/nearby-trips) than the rider
+  // app, so two screens racing to refresh the same expiring access token is common. Reject only
+  // if revoked outside the race window — otherwise mint a fresh pair instead of a forced logout.
+  if (stored.revokedAt && Date.now() - stored.revokedAt.getTime() > REFRESH_GRACE_MS) {
+    throw new AuthError('Refresh token revoked');
+  }
   if (stored.expiresAt < new Date()) throw new AuthError('Refresh token expired');
 
   await prisma.refreshToken.update({ where: { tokenId: decoded.tokenId }, data: { revokedAt: new Date() } });

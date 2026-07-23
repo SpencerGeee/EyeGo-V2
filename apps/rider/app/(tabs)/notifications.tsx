@@ -201,6 +201,7 @@ export default function NotificationsScreen() {
         </View>
       ) : (
         <AnimatedList
+          style={{ flex: 1 }}
           data={filteredNotifications}
           keyExtractor={(item) => item.id}
           entranceAnimation="slideUp"

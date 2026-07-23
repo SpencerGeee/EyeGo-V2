@@ -1,15 +1,15 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator, TextInput, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, spacing, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
-import { useColors, Colors } from '../../utils/useColors';
-import { haptic } from '../../utils/haptics';
+import { useColors, type DriverColors } from '../../utils/useColors';
+import * as Haptics from 'expo-haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
-import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
-import { useThemeStore } from '../../stores/theme.store';
+import { eyegoDriverDarkStyle as eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
+import { useDriverStore } from '../../stores/driver.store';
 import { reverseGeocode, type GeocodeResult } from '../../utils/geocoding';
 import { setPickedPlace } from '../../utils/placePickerResult';
 
@@ -23,15 +23,18 @@ type NominatimResult = {
 };
 
 /**
- * Fullscreen map with a fixed center pin: pan the map, the pin stays centered,
- * and each settle reverse-geocodes the coordinate so the user confirms an
- * exact location — not just a typed address.
+ * Fullscreen map with a fixed center pin — used for both the driver's ad-hoc
+ * "create trip from here" pickup point and its destination. Pan the map or
+ * search a place; each settle reverse-geocodes the coordinate so the driver
+ * confirms an exact location, not an estimate.
  */
-export default function PlacePickerScreen() {
+export default function DriverLocationPickerScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { isDark } = useThemeStore();
+  const { title } = useLocalSearchParams<{ title?: string }>();
+  const { theme } = useDriverStore();
+  const isDark = theme !== 'light';
 
   const [center, setCenter] = useState<[number, number] | null>(null);
   const [resolved, setResolved] = useState<GeocodeResult | null>(null);
@@ -83,14 +86,11 @@ export default function PlacePickerScreen() {
 
   const handleConfirm = useCallback(() => {
     if (!resolved) return;
-    haptic.medium();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPickedPlace(resolved);
     router.back();
   }, [resolved, router]);
 
-  // Search from within the picker so it's consistent with the where-to search —
-  // selecting a result snaps the map straight to that exact place instead of
-  // requiring the user to hand-drag the pin there.
   const handleSearch = useCallback((text: string) => {
     setQuery(text);
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -116,7 +116,7 @@ export default function PlacePickerScreen() {
     const lat = parseFloat(s.lat);
     const lng = parseFloat(s.lon);
     const name = s.address?.road ?? s.address?.suburb ?? s.address?.town ?? s.address?.city ?? s.display_name.split(',')[0];
-    haptic.select();
+    Haptics.selectionAsync();
     setQuery(name);
     setSuggestions([]);
     setCenter([lng, lat]);
@@ -157,7 +157,7 @@ export default function PlacePickerScreen() {
           >
             <Ionicons name="close" size={22} color={colors.onSurface} />
           </Pressable>
-          <Text style={styles.headerTitle}>Pick Location</Text>
+          <Text style={styles.headerTitle}>{title ?? 'Pick Location'}</Text>
           <View style={{ width: 44, height: 44 }} />
         </View>
 
@@ -226,7 +226,7 @@ export default function PlacePickerScreen() {
   );
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
+const makeStyles = (colors: DriverColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.backgroundDeep },
   overlay: {
     position: 'absolute',
@@ -321,7 +321,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: -2,
-    // Lift bubble+tail so the tail tip sits at the exact map center
     transform: [{ translateY: -26 }],
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },

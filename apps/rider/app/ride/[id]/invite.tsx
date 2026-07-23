@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Share, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,8 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, AnimatedFareText, Loader, AppBackground } from '@eyego/ui';
 import type { GroupMember, Trip } from '@eyego/types';
+import { consumePickedPlace } from '../../../utils/placePickerResult';
+import { haptic } from '../../../utils/haptics';
 
 function formatCurrency(amount: number): string {
   return `GHS ${amount.toFixed(2)}`;
@@ -31,8 +33,15 @@ export default function InviteScreen() {
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [payForEveryone, setPayForEveryone] = useState(false);
   const [heavyCargo, setHeavyCargo] = useState(false);
+  const [pickupOverride, setPickupOverride] = useState<{ name: string; deviationSurcharge: number } | null>(null);
   const [linkState, setLinkState] = useState<LinkState>('generating');
   const [bookingReady, setBookingReady] = useState(false);
+
+  // Reflect the booking's real server-side heavyCargo flag once it's loaded —
+  // this can already be true if the rider left and came back to this screen.
+  useEffect(() => {
+    if ((activeBooking as any)?.heavyCargo != null) setHeavyCargo(!!(activeBooking as any).heavyCargo);
+  }, [(activeBooking as any)?.heavyCargo]);
 
   // ── Step 1: Ensure a booking exists ───────────────────────────────────
   // If the user has an active booking, use it. Otherwise, create one so we
@@ -167,14 +176,74 @@ export default function InviteScreen() {
     }
   };
 
+  // BUGFIX: this used to only flip local state + a client-only Zustand flag that
+  // payment.tsx read to add a client-computed +GHS 10 to the displayed price —
+  // nothing was ever sent to the server, so the rider was shown (and confirmed) a
+  // price GHS 10 higher than what was actually charged. Now persists server-side
+  // and the fare shown comes from the booking's real, recomputed fareAmount.
+  const updateHeavyCargo = useMutation({
+    mutationFn: (next: boolean) => bookingsApi.updateHeavyCargo(bookingId, next),
+    onSuccess: (res, next) => {
+      setActiveBooking(res.data.data);
+      setHeavyCargo(next);
+    },
+    onError: (err: any) => {
+      Alert.alert("Couldn't update", err?.response?.data?.message ?? 'Please try again.');
+    },
+  });
   const toggleHeavyCargo = () => {
-    const next = !heavyCargo;
-    setHeavyCargo(next);
-    setSelectedTrip({
-      ...selectedTrip,
-      heavyCargo: next,
-    } as Trip & { payForEveryone?: boolean; selectedSeatCount?: number; heavyCargo?: boolean });
+    if (!bookingId || updateHeavyCargo.isPending) return;
+    updateHeavyCargo.mutate(!heavyCargo);
   };
+
+  // ── Group-hub joiner's own pickup point ────────────────────────────────
+  // Defaults to the trip's own pickup (free). Picking a different spot on
+  // the map previews any detour surcharge before committing to it.
+  const applyPickup = useMutation({
+    mutationFn: (place: { latitude: number; longitude: number; name: string }) =>
+      bookingsApi.updatePickup(bookingId, { lat: place.latitude, lng: place.longitude, address: place.name }),
+    onSuccess: (res, place) => {
+      const updated = res.data.data;
+      setActiveBooking(updated);
+      setPickupOverride({ name: place.name, deviationSurcharge: updated?.deviationSurcharge ?? 0 });
+    },
+    onError: (err: any) => {
+      Alert.alert('Couldn\'t update pickup', err?.response?.data?.message ?? 'Please try again.');
+    },
+  });
+
+  const pickingPickupRef = useRef(false);
+  const handleChangePickup = useCallback(() => {
+    haptic.light();
+    pickingPickupRef.current = true;
+    router.push('/profile/place-picker' as any);
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!pickingPickupRef.current) return;
+      const picked = consumePickedPlace();
+      if (!picked) return;
+      pickingPickupRef.current = false;
+      if (!id) return;
+      tripsApi.getDeviationEstimate(id, picked.latitude, picked.longitude)
+        .then(({ data }) => {
+          const surcharge = data?.data?.surcharge ?? 0;
+          const proceed = () => applyPickup.mutate({ latitude: picked.latitude, longitude: picked.longitude, name: picked.name });
+          if (surcharge > 0) {
+            Alert.alert(
+              'Pickup adds to your fare',
+              `This spot is far enough from the trip's pickup to add ${formatCurrency(surcharge)} for the detour. Use it anyway?`,
+              [{ text: 'Cancel', style: 'cancel' }, { text: 'Use this pickup', onPress: proceed }],
+            );
+          } else {
+            proceed();
+          }
+        })
+        .catch(() => applyPickup.mutate({ latitude: picked.latitude, longitude: picked.longitude, name: picked.name }));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id])
+  );
 
   const handleRetry = useCallback(() => {
     setLinkState('generating');
@@ -406,19 +475,43 @@ export default function InviteScreen() {
           <View style={styles.optionDivider} />
 
           {/* Heavy cargo in group */}
-          <Pressable style={styles.optionRow} onPress={toggleHeavyCargo}>
+          <Pressable style={styles.optionRow} onPress={toggleHeavyCargo} disabled={updateHeavyCargo.isPending}>
             <View style={styles.optionLeft}>
               <View style={[styles.optionIconContainer, { backgroundColor: colors.secondary + '18' }]}>
                 <Ionicons name="briefcase-outline" size={18} color={colors.secondary} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text variant="bodyMedium">Heavy cargo in group</Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>Add large luggage/surcharge (+GHS 10.00)</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant}>Add large luggage/surcharge</Text>
               </View>
             </View>
-            <View style={[styles.checkbox, heavyCargo && styles.checkboxSelected]}>
-              {heavyCargo && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
+            {updateHeavyCargo.isPending
+              ? <ActivityIndicator size="small" color={colors.primary} />
+              : <View style={[styles.checkbox, heavyCargo && styles.checkboxSelected]}>
+                  {heavyCargo && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
+                </View>}
+          </Pressable>
+
+          <View style={styles.optionDivider} />
+
+          {/* Your own pickup point — for a joiner boarding somewhere other than the trip's pickup */}
+          <Pressable style={styles.optionRow} onPress={handleChangePickup} disabled={applyPickup.isPending}>
+            <View style={styles.optionLeft}>
+              <View style={[styles.optionIconContainer, { backgroundColor: colors.primary + '18' }]}>
+                <Ionicons name="location-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="bodyMedium">Your pickup point</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {pickupOverride
+                    ? `${pickupOverride.name}${pickupOverride.deviationSurcharge > 0 ? ` · +${formatCurrency(pickupOverride.deviationSurcharge)} detour` : ''}`
+                    : "Default: trip's own pickup"}
+                </Text>
+              </View>
             </View>
+            {applyPickup.isPending
+              ? <ActivityIndicator size="small" color={colors.primary} />
+              : <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />}
           </Pressable>
         </MotiView>
 
@@ -434,16 +527,18 @@ export default function InviteScreen() {
             <Text variant="caption" color={colors.onSurfaceVariant}>Total Group Fare</Text>
             <Text variant="titleMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
               {formatCurrency(
-                ((selectedTrip as any)?.totalTripCost
-                  ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1))
-                + (heavyCargo ? 10 : 0)
+                (selectedTrip as any)?.totalTripCost
+                  ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1)
               )}
             </Text>
           </View>
 
           <View style={{ height: 1, backgroundColor: colors.outlineVariant, marginVertical: 4, opacity: 0.5 }} />
 
-          {/* Split / Your Share */}
+          {/* Split / Your Share — read from the booking's real, server-recomputed
+              fareAmount (already includes heavy-cargo + pickup-deviation surcharges)
+              instead of re-deriving them client-side, so what's shown always matches
+              what's actually charged. */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>
               {payForEveryone ? "Your Share (You pay for all)" : "Your Split Share"}
@@ -453,12 +548,18 @@ export default function InviteScreen() {
                 payForEveryone
                   ? ((selectedTrip as any)?.totalTripCost
                       ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1))
-                    + (heavyCargo ? 10 : 0)
-                  : (computedFare ?? selectedTrip?.fare ?? 8.5) + (heavyCargo ? 10 : 0)
+                    + (activeBooking?.deviationSurcharge ?? 0)
+                  : (activeBooking?.fareAmount ?? computedFare ?? selectedTrip?.fare ?? 8.5)
               }
               variant="fareMedium"
             />
           </View>
+          {((pickupOverride?.deviationSurcharge ?? 0) > 0 || heavyCargo) && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'right' }}>
+              includes{pickupOverride && pickupOverride.deviationSurcharge > 0 ? ` +${formatCurrency(pickupOverride.deviationSurcharge)} pickup detour` : ''}
+              {heavyCargo ? ' + heavy cargo surcharge' : ''}
+            </Text>
+          )}
         </MotiView>
 
         {/* Proceed to payment */}
