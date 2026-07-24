@@ -151,7 +151,17 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
       // env with NODE_ENV=development bypassed geofencing. Now uses dedicated env var.
       const geoValidationEnabled = env.GEO_VALIDATION_ENABLED !== 'false';
       if (geoValidationEnabled && !isWithinGhana(lat, lng)) {
-        socket.emit('error', { message: 'Location outside Ghana', code: 'INVALID_LOCATION' });
+        // Previously a silent drop — the driver never landed in the DB or the
+        // drivers:online geo-set (so never appeared on the admin live map and
+        // was never eligible for dispatch), with nothing in the server logs
+        // to explain why. Log it and tell the client explicitly so this is
+        // diagnosable instead of looking like dispatch is just "broken".
+        logger.warn(`[DriverSocket] Rejected out-of-Ghana location for driver ${driverId}: ${lat}, ${lng}`);
+        socket.emit('driver:location_rejected', {
+          message: 'Location outside Ghana — you will not appear online or receive trip requests until GPS reports a location inside Ghana.',
+          code: 'INVALID_LOCATION',
+          lat, lng,
+        });
         return;
       }
 

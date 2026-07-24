@@ -30,10 +30,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const insets = useSafeAreaInsets();
   const popStage = useTripFlow((s) => s.popStage);
   const queryClient = useQueryClient();
-  const { origin, destination: storeDestination } = useRideStore();
-  const { destination: paramDestination, scheduledAt } = useLocalSearchParams<{
+  const { origin, destination: storeDestination, setPendingTripRequest } = useRideStore();
+  const { destination: paramDestination, scheduledAt, resumeRequestId } = useLocalSearchParams<{
     destination?: string;
     scheduledAt?: string;
+    resumeRequestId?: string;
   }>();
 
   const destination = storeDestination?.address ?? paramDestination;
@@ -46,8 +47,41 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const sentRef = useRef(false);
 
   useEffect(() => {
-    if (sentRef.current || !destination) return;
+    if (sentRef.current) return;
     sentRef.current = true;
+
+    // Resuming a request already sent from elsewhere (e.g. the Activity tab's
+    // live card) — skip re-POSTing (which would create a second, duplicate
+    // request) and just pick the polling back up.
+    if (resumeRequestId) {
+      requestIdRef.current = resumeRequestId;
+      setStatus('searching');
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const check = await tripsApi.getTripRequest(requestIdRef.current!);
+          const req = check.data?.data;
+          if (req?.status === 'ACCEPTED' && req.matchedTripId) {
+            if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+            setPendingTripRequest(null);
+            setStatus('matched');
+            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+            router.dismissTo(`/ride/${req.matchedTripId}/tracking` as any);
+          } else if (req?.status === 'CANCELLED') {
+            if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+            setPendingTripRequest(null);
+            setStatus('timeout');
+          }
+        } catch {
+          // transient poll failure — try again on next tick
+        }
+      }, POLL_INTERVAL_MS);
+      return () => {
+        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      };
+    }
+
+    if (!destination) return;
 
     (async () => {
       try {
@@ -69,6 +103,10 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           return;
         }
 
+        // Persist so the Activity tab can show a live card and keep polling
+        // even if the rider navigates away from this screen.
+        setPendingTripRequest(requestIdRef.current, destination ?? null);
+
         setStatus('searching');
         pollTimerRef.current = setInterval(async () => {
           try {
@@ -77,6 +115,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             if (req?.status === 'ACCEPTED' && req.matchedTripId) {
               if (pollTimerRef.current) clearInterval(pollTimerRef.current);
               if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+              setPendingTripRequest(null);
               setStatus('matched');
               queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
               queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
@@ -104,6 +143,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 offlineQueue.enqueue('TRIP_REQUEST_CANCEL', `/trips/request/${reqId}`, 'DELETE', null);
               });
             }
+            setPendingTripRequest(null);
             return 'timeout';
           });
         }, SEARCH_TIMEOUT_MS);
@@ -132,6 +172,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     try {
       await tripsApi.cancelTripRequest(requestIdRef.current);
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      setPendingTripRequest(null);
       router.dismissTo('/(tabs)/home' as any);
     } catch (err: any) {
       const msg = err?.response?.data?.message;

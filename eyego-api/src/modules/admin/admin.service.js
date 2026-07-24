@@ -868,6 +868,291 @@ async function resolveSosEvent(id) {
   return prisma.sosEvent.update({ where: { id }, data: { resolvedAt: new Date() } });
 }
 
+// ─────────────────────────────────────────────────────────────────
+// ANALYTICS DASHBOARDS
+// All functions guard against empty tables (return zeros, never throw).
+// ─────────────────────────────────────────────────────────────────
+
+const ACTIVE_TRIP_STATUSES = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'];
+
+function startOfToday() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function daysAgo(n) {
+  const d = startOfToday();
+  d.setDate(d.getDate() - n);
+  return d;
+}
+
+// Build a 14-day (today + previous 13) array of { date: 'YYYY-MM-DD', value }.
+function bucketByDay(rows, dateField, valueFn) {
+  const buckets = {};
+  for (let i = 13; i >= 0; i--) {
+    const key = daysAgo(i).toISOString().slice(0, 10);
+    buckets[key] = 0;
+  }
+  for (const r of rows) {
+    const dt = r[dateField];
+    if (!dt) continue;
+    const key = new Date(dt).toISOString().slice(0, 10);
+    if (key in buckets) buckets[key] += valueFn(r);
+  }
+  return Object.entries(buckets).map(([date, value]) => ({ date, value }));
+}
+
+async function getAnalyticsOverview() {
+  const env = require('../../config/env');
+  const commissionRate = env.PLATFORM_COMMISSION;
+  const today = startOfToday();
+  const weekAgo = daysAgo(7);
+  const monthAgo = daysAgo(30);
+  const fourteenAgo = daysAgo(13);
+
+  const [
+    revenueAll,
+    revenueToday,
+    revenueWeek,
+    revenueMonth,
+    successfulPayments14d,
+    tripsGrouped,
+    trips14d,
+    completedCount,
+    cancelledCount,
+    totalBookings,
+    activeTripsNow,
+    driversOnlineNow,
+    totalDrivers,
+    activeDrivers,
+    pendingDriverApprovals,
+    suspendedDrivers,
+    totalRiders,
+    newRidersThisWeek,
+    fareAgg,
+    cashBookings,
+    cardBookings,
+  ] = await Promise.all([
+    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS' }, _sum: { amount: true } }),
+    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS', createdAt: { gte: today } }, _sum: { amount: true } }),
+    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS', createdAt: { gte: weekAgo } }, _sum: { amount: true } }),
+    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS', createdAt: { gte: monthAgo } }, _sum: { amount: true } }),
+    prisma.paymentTransaction.findMany({ where: { status: 'SUCCESS', createdAt: { gte: fourteenAgo } }, select: { amount: true, createdAt: true } }),
+    prisma.trip.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.trip.findMany({ where: { createdAt: { gte: fourteenAgo } }, select: { createdAt: true } }),
+    prisma.trip.count({ where: { status: 'COMPLETED' } }),
+    prisma.trip.count({ where: { status: 'CANCELLED' } }),
+    prisma.booking.count(),
+    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'IN_PROGRESS'] } } }),
+    prisma.driver.count({ where: { isOnline: true } }),
+    prisma.driver.count(),
+    prisma.driver.count({ where: { status: 'ACTIVE' } }),
+    prisma.driver.count({ where: { status: 'PENDING_REVIEW' } }),
+    prisma.driver.count({ where: { status: 'SUSPENDED' } }),
+    prisma.user.count(),
+    prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
+    prisma.booking.aggregate({ where: { status: { notIn: ['CANCELLED'] } }, _avg: { fareAmount: true } }),
+    prisma.booking.count({ where: { paymentMethod: 'CASH' } }),
+    prisma.booking.count({ where: { paymentMethod: 'CARD' } }),
+  ]);
+
+  const round2 = (n) => Math.round((n || 0) * 100) / 100;
+  const totalRevenue = round2(revenueAll._sum.amount);
+  const completedTripsCount = completedCount;
+  const cancelledTripsCount = cancelledCount;
+  const totalTerminal = completedTripsCount + cancelledTripsCount;
+
+  const tripsByStatus = {};
+  for (const g of tripsGrouped) tripsByStatus[g.status] = g._count._all;
+
+  return {
+    totalRevenue,
+    todayRevenue: round2(revenueToday._sum.amount),
+    weekRevenue: round2(revenueWeek._sum.amount),
+    monthRevenue: round2(revenueMonth._sum.amount),
+    totalCommission: round2(totalRevenue * commissionRate),
+    revenueByDay: bucketByDay(successfulPayments14d, 'createdAt', (r) => r.amount || 0)
+      .map((d) => ({ date: d.date, value: round2(d.value) })),
+    tripsByStatus,
+    tripsByDay: bucketByDay(trips14d, 'createdAt', () => 1),
+    completedTripsCount,
+    cancelledTripsCount,
+    cancellationRate: totalTerminal > 0 ? round2((cancelledTripsCount / totalTerminal) * 100) : 0,
+    activeTripsNow,
+    driversOnlineNow,
+    totalDrivers,
+    activeDrivers,
+    pendingDriverApprovals,
+    suspendedDrivers,
+    totalRiders,
+    newRidersThisWeek,
+    avgFare: round2(fareAgg._avg.fareAmount),
+    totalBookings,
+    paymentMethodBreakdown: { cash: cashBookings, card: cardBookings },
+  };
+}
+
+async function getAnalyticsDrivers() {
+  const round2 = (n) => Math.round((n || 0) * 100) / 100;
+
+  const [drivers, onlineCount, activeCount, suspendedCount, offlineCount] = await Promise.all([
+    prisma.driver.findMany({
+      select: {
+        id: true, name: true, status: true, isOnline: true,
+        _count: { select: { trips: { where: { status: 'COMPLETED' } } } },
+        ratings: { select: { stars: true } },
+        walletTxs: { where: { type: { in: ['EARNINGS_CREDIT', 'TIP'] } }, select: { amount: true } },
+      },
+    }),
+    prisma.driver.count({ where: { isOnline: true } }),
+    prisma.driver.count({ where: { status: 'ACTIVE' } }),
+    prisma.driver.count({ where: { status: 'SUSPENDED' } }),
+    prisma.driver.count({ where: { isOnline: false } }),
+  ]);
+
+  const enriched = drivers.map((d) => {
+    const trips = d._count.trips;
+    const earnings = round2(d.walletTxs.reduce((s, t) => s + (t.amount || 0), 0));
+    const ratingCount = d.ratings.length;
+    const avgRating = ratingCount > 0
+      ? round2(d.ratings.reduce((s, r) => s + (r.stars || 0), 0) / ratingCount)
+      : null;
+    return { id: d.id, name: d.name, status: d.status, isOnline: d.isOnline, trips, earnings, avgRating, ratingCount };
+  });
+
+  const topByTrips = [...enriched].sort((a, b) => b.trips - a.trips).slice(0, 10);
+  const topByEarnings = [...enriched].sort((a, b) => b.earnings - a.earnings).slice(0, 10);
+  const topByRating = [...enriched].filter((d) => d.avgRating !== null)
+    .sort((a, b) => b.avgRating - a.avgRating).slice(0, 10);
+
+  return {
+    counts: {
+      total: drivers.length,
+      online: onlineCount,
+      offline: offlineCount,
+      active: activeCount,
+      suspended: suspendedCount,
+    },
+    topByTrips,
+    topByEarnings,
+    topByRating,
+  };
+}
+
+async function getAnalyticsSafety() {
+  const round2 = (n) => Math.round((n || 0) * 100) / 100;
+  const thirtyAgo = daysAgo(29);
+
+  const [
+    totalSos,
+    unresolvedSos,
+    resolvedSos,
+    sos30d,
+    totalReports,
+    unresolvedReports,
+    reportsByType,
+  ] = await Promise.all([
+    prisma.sosEvent.count(),
+    prisma.sosEvent.count({ where: { resolvedAt: null } }),
+    prisma.sosEvent.findMany({ where: { resolvedAt: { not: null } }, select: { createdAt: true, resolvedAt: true } }),
+    prisma.sosEvent.findMany({ where: { createdAt: { gte: thirtyAgo } }, select: { createdAt: true } }),
+    prisma.tripReport.count(),
+    prisma.tripReport.count({ where: { status: { not: 'RESOLVED' } } }),
+    prisma.tripReport.groupBy({ by: ['type'], _count: { _all: true } }),
+  ]);
+
+  const avgResolutionMinutes = resolvedSos.length > 0
+    ? round2(resolvedSos.reduce((s, e) => s + (new Date(e.resolvedAt) - new Date(e.createdAt)), 0) / resolvedSos.length / 60000)
+    : 0;
+
+  // 30-day-by-day bucket (last 30 days incl today)
+  const buckets = {};
+  for (let i = 29; i >= 0; i--) buckets[daysAgo(i).toISOString().slice(0, 10)] = 0;
+  for (const e of sos30d) {
+    const key = new Date(e.createdAt).toISOString().slice(0, 10);
+    if (key in buckets) buckets[key] += 1;
+  }
+  const sosByDay = Object.entries(buckets).map(([date, value]) => ({ date, value }));
+
+  const reportBreakdown = {};
+  for (const r of reportsByType) reportBreakdown[r.type || 'UNKNOWN'] = r._count._all;
+
+  return {
+    totalSosEvents: totalSos,
+    unresolvedSosEvents: unresolvedSos,
+    avgResolutionMinutes,
+    sosByDay,
+    totalTripReports: totalReports,
+    unresolvedTripReports: unresolvedReports,
+    reportBreakdown,
+  };
+}
+
+async function getAnalyticsScheduled() {
+  const [pending, dispatched, matched, expired, cancelled, upcoming] = await Promise.all([
+    prisma.scheduledRideIntent.count({ where: { status: 'PENDING' } }),
+    prisma.scheduledRideIntent.count({ where: { status: 'DISPATCHED' } }),
+    prisma.scheduledRideIntent.count({ where: { status: 'MATCHED' } }),
+    prisma.scheduledRideIntent.count({ where: { status: 'EXPIRED' } }),
+    prisma.scheduledRideIntent.count({ where: { status: 'CANCELLED' } }),
+    prisma.scheduledRideIntent.findMany({
+      where: { status: { in: ['PENDING', 'DISPATCHED'] }, scheduledAt: { gte: new Date() } },
+      orderBy: { scheduledAt: 'asc' },
+      take: 100,
+      include: {
+        user: { select: { id: true, name: true, phone: true } },
+        route: { select: { originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
+      },
+    }),
+  ]);
+
+  return {
+    counts: { pending, dispatched, matched, expired, cancelled },
+    upcoming: upcoming.map((i) => ({
+      id: i.id,
+      status: i.status,
+      scheduledAt: i.scheduledAt,
+      seatCount: i.seatCount,
+      rider: i.user ? { id: i.user.id, name: i.user.name, phone: i.user.phone } : null,
+      pickup: i.route ? { name: i.route.originName, lat: i.route.originLat, lng: i.route.originLng } : null,
+      destination: i.route ? { name: i.route.destinationName, lat: i.route.destLat, lng: i.route.destLng } : null,
+    })),
+  };
+}
+
+// Live driver positions for admin map — trimmed shape (task 5).
+async function getLiveDriversMap() {
+  const drivers = await prisma.driver.findMany({
+    where: { isOnline: true, currentLat: { not: null }, currentLng: { not: null } },
+    select: {
+      id: true, name: true, currentLat: true, currentLng: true, currentHeading: true, status: true,
+      vehicles: { where: { isActive: true }, take: 1, select: { plateNumber: true } },
+    },
+  });
+
+  const driverIds = drivers.map((d) => d.id);
+  const activeTrips = driverIds.length
+    ? await prisma.trip.findMany({
+        where: { driverId: { in: driverIds }, status: { in: ACTIVE_TRIP_STATUSES } },
+        select: { id: true, driverId: true },
+      })
+    : [];
+  const tripByDriver = {};
+  for (const t of activeTrips) tripByDriver[t.driverId] = t.id;
+
+  return drivers.map((d) => ({
+    id: d.id,
+    name: d.name,
+    lat: d.currentLat,
+    lng: d.currentLng,
+    heading: d.currentHeading ?? null,
+    status: d.status,
+    activeTripId: tripByDriver[d.id] || null,
+    vehiclePlate: d.vehicles[0]?.plateNumber || null,
+  }));
+}
+
 module.exports = {
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
   getMetrics, getActiveTrips, setSurgeMultiplier, expireUnansweredDispatchOffers,
@@ -880,4 +1165,6 @@ module.exports = {
   getPromotions, createPromotion, togglePromotion,
   getLiveDrivers, assignDriverToTrip, getUnassignedTrips,
   getSosEvents, resolveSosEvent,
+  getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
+  getLiveDriversMap,
 };

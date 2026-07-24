@@ -68,6 +68,37 @@ export default function HomeScreen() {
   const { isOffline } = useNetworkStatus();
   const [showHeatmap, setShowHeatmap] = useState(false);
 
+  // Reliability backstop for the socket-pushed trip:assigned event — if the
+  // socket connection dropped/lagged/missed the push (the original, sole
+  // delivery path), a dispatch offer could sit unseen until it expired with
+  // nothing telling the driver a rider was waiting. Poll while online and
+  // idle; skip anything already surfaced via the socket or a previous tick.
+  const seenDispatchIdsRef = useRef<Set<string>>(new Set());
+  const { data: pendingRequestsData } = useQuery({
+    queryKey: ['driver', 'trip-requests', 'pending', location?.latitude, location?.longitude],
+    queryFn: () => driverApi.getPendingTripRequests(location?.latitude, location?.longitude),
+    select: (r) => (r.data as any)?.data?.requests ?? [],
+    enabled: isOnline && !activeTripId,
+    refetchInterval: isOnline && !activeTripId ? 20000 : false,
+  });
+
+  useEffect(() => {
+    if (!pendingRequestsData || pendingRequestsData.length === 0) return;
+    const fresh = pendingRequestsData.find((r: any) => !seenDispatchIdsRef.current.has(r.tripId));
+    if (!fresh || !isMountedRef.current) return;
+    seenDispatchIdsRef.current.add(fresh.tripId);
+    router.push({
+      pathname: '/(trip)/dispatch/[id]',
+      params: {
+        id: fresh.tripId,
+        kind: fresh.kind,
+        origin: fresh.routeOrigin,
+        destination: fresh.routeDestination,
+        departureTime: fresh.departureTime,
+      },
+    } as any);
+  }, [pendingRequestsData, router]);
+
   const { data: walletData } = useQuery({
     queryKey: ['driver', 'me'],
     queryFn: () => driverApi.getMe(),
@@ -153,7 +184,17 @@ export default function HomeScreen() {
     if (!isOnline) return;
     reconnectAttemptsRef.current = 0;
     connectDriverSocket();
+    // Surfaces the server's Ghana-geofence rejection instead of leaving the
+    // driver silently invisible to dispatch with no indication why — only
+    // alert once per online session so it doesn't spam on every ~3s update.
+    let warnedLocationRejected = false;
+    const cleanLocationRejected = driverSocketEvents.onLocationRejected((data) => {
+      if (warnedLocationRejected) return;
+      warnedLocationRejected = true;
+      Alert.alert('Location outside service area', data.message);
+    });
     const cleanDispatch = driverSocketEvents.onTripAssigned((data) => {
+      seenDispatchIdsRef.current.add(data.tripId);
       useNotificationsStore.getState().addNotification({
         type: 'TRIP_ASSIGNED',
         title: data.kind === 'REQUEST' ? 'New ride request nearby' : 'New trip assigned',
@@ -194,6 +235,7 @@ export default function HomeScreen() {
     return () => {
       cleanDispatch();
       cleanDisconnect();
+      cleanLocationRejected();
       // FIX2: cancel any pending reconnect timer on cleanup
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);

@@ -57,7 +57,16 @@ export const tripsApi = {
   cancelTripRequest: (requestId: string) =>
     apiClient.delete<ApiResponse<{ id: string; status: string }>>(`/trips/request/${requestId}`),
 
-  schedule: (params: { routeId: string; scheduledAt: string; seatCount?: number }) =>
+  schedule: (params: {
+    destination: string;
+    scheduledAt: string;
+    seatCount?: number;
+    pickupLat: number;
+    pickupLng: number;
+    destLat?: number;
+    destLng?: number;
+    pickupName?: string;
+  }) =>
     apiClient.post<ApiResponse<{ id: string; routeId: string; scheduledAt: string; seatCount: number }>>('/trips/schedule', params),
 
   getScheduledRides: () =>

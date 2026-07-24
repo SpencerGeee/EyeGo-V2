@@ -20,7 +20,9 @@ const logger = require('./utils/logger');
 // Routes
 const authRoutes = require('./modules/auth/auth.routes');
 const usersRoutes = require('./modules/users/users.routes');
-const routesRoutes = require('./modules/routes/routes.routes');
+// NOTE: client-facing route-discovery API (/v1/routes) removed in the
+// group/on-demand pivot. Routes are now an internal-only concept (trips reuse
+// the Prisma Route model as ad-hoc rows). Do NOT re-mount routes.routes here.
 const tripsRoutes = require('./modules/trips/trips.routes');
 const bookingsRoutes = require('./modules/bookings/bookings.routes');
 const paymentsRoutes = require('./modules/payments/payments.routes');
@@ -124,7 +126,6 @@ app.get('/health', (req, res) => {
 // ── API Routes ────────────────────────────────────────────────────
 app.use('/v1/auth', authRoutes);
 app.use('/v1/user', usersRoutes);
-app.use('/v1/routes', routesRoutes);
 app.use('/v1/trips', tripsRoutes);
 app.use('/v1/bookings', bookingsRoutes);
 app.use('/v1/payments', paymentsRoutes);

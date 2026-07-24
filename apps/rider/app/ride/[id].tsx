@@ -19,6 +19,16 @@ import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 
 
+// Fallback camera center (Accra) — same value used by the map-pin picker.
+// MapLibre's native camera sets its INITIAL position during the very first
+// layoutSubviews pass, before fitBounds()'s useEffect below ever runs. A
+// <Camera> with no centerCoordinate/defaultSettings at all left that first
+// native layout with no valid coordinate to seed from, and MapLibre threw an
+// uncaught C++ exception (SIGABRT, confirmed via on-device crash report —
+// -[MLRNCamera _setInitialCamera] -> -[CameraUpdateItem _moveCamera:...]),
+// killing the app the instant this screen mounted for ANY trip.
+const CAMERA_FALLBACK_CENTER: [number, number] = [-0.187, 5.6037];
+
 // Emoji tier marks replaced with Ionicons (vector) for consistent, crisp icons.
 const TIERS = [
   { key: 'ECONOMY', label: 'Economy', icon: 'leaf' },
@@ -184,7 +194,13 @@ export default function RideDetailScreen() {
         rotateEnabled={false}
         scaleBarEnabled={false}
       >
-        <MapboxGL.Camera ref={cameraRef} animationMode="none" animationDuration={0} />
+        <MapboxGL.Camera
+          ref={cameraRef}
+          centerCoordinate={CAMERA_FALLBACK_CENTER}
+          zoomLevel={12}
+          animationMode="none"
+          animationDuration={0}
+        />
         {/* BUGFIX: trip.origin/destination are always-truthy objects even when
             the route has no real coordinates (see the trip memo above) — guard
             on the actual lat/lng so a missing coordinate renders no pin instead

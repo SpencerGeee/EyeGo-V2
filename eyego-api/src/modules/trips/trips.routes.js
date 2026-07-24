@@ -93,9 +93,14 @@ router.delete('/request/:id', authenticate, tripsController.cancelTripRequest);
 router.post(
   '/schedule',
   authenticate,
-  body('routeId').notEmpty(),
+  body('destination').trim().notEmpty().withMessage('Destination is required'),
   body('scheduledAt').isISO8601().withMessage('scheduledAt must be an ISO 8601 datetime'),
   body('seatCount').optional().isInt({ min: 1, max: 4 }),
+  body('pickupLat').isFloat({ min: -90, max: 90 }).withMessage('pickupLat is required'),
+  body('pickupLng').isFloat({ min: -180, max: 180 }).withMessage('pickupLng is required'),
+  body('destLat').optional().isFloat({ min: -90, max: 90 }),
+  body('destLng').optional().isFloat({ min: -180, max: 180 }),
+  body('pickupName').optional().trim().isString(),
   validate,
   tripsController.scheduleTrip
 );

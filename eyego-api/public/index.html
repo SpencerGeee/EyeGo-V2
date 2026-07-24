@@ -156,9 +156,6 @@
                 <div class="nav-link" data-tab="trips" onclick="switchTab('trips')">
                     <span class="material-symbols-outlined" style="font-size:18px">directions_bus</span> Trips
                 </div>
-                <div class="nav-link" data-tab="routes" onclick="switchTab('routes')">
-                    <span class="material-symbols-outlined" style="font-size:18px">alt_route</span> Routes
-                </div>
                 <div class="nav-link" data-tab="schedules" onclick="switchTab('schedules')">
                     <span class="material-symbols-outlined" style="font-size:18px">schedule</span> Schedules
                 </div>
@@ -215,68 +212,91 @@
 
                 <!-- ===================== OVERVIEW ===================== -->
                 <div id="tab-overview" class="space-y-6 animate-fade-in">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="statsGrid">
+                    <div id="overviewError" class="hidden card p-4 border-l-2 border-l-error text-xs text-error"></div>
+
+                    <!-- Revenue row -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div class="stat-card border-l-2 border-l-[#1DB954]">
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Total Revenue</span>
-                                <span class="text-xs text-primary">+<span id="revTrend">0</span>%</span>
-                            </div>
-                            <p id="statRevenue" class="text-xl font-display font-bold mt-3">GHS 0.00</p>
-                            <p id="statRevenueSub" class="text-[11px] text-text-secondary mt-1">Loading...</p>
+                            <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Total Revenue</span>
+                            <p id="ovTotalRevenue" class="text-xl font-display font-bold mt-2">GHS 0.00</p>
+                            <p id="ovCommission" class="text-[11px] text-text-secondary mt-1">--</p>
                         </div>
                         <div class="stat-card border-l-2 border-l-info">
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Total Riders</span>
-                                <span class="material-symbols-outlined text-text-tertiary" style="font-size:16px">people</span>
-                            </div>
-                            <p id="statRiders" class="text-xl font-display font-bold mt-3">0</p>
-                            <p id="statRidersSub" class="text-[11px] text-text-secondary mt-1">Loading...</p>
+                            <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Today</span>
+                            <p id="ovTodayRevenue" class="text-xl font-display font-bold mt-2">GHS 0.00</p>
+                            <p class="text-[11px] text-text-secondary mt-1">Revenue today</p>
                         </div>
                         <div class="stat-card border-l-2 border-l-warning">
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Total Drivers</span>
-                                <span class="material-symbols-outlined text-text-tertiary" style="font-size:16px">badge</span>
-                            </div>
-                            <p id="statDrivers" class="text-xl font-display font-bold mt-3">0</p>
-                            <p id="statDriversSub" class="text-[11px] text-text-secondary mt-1">Loading...</p>
+                            <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">This Week</span>
+                            <p id="ovWeekRevenue" class="text-xl font-display font-bold mt-2">GHS 0.00</p>
+                            <p class="text-[11px] text-text-secondary mt-1">Last 7 days</p>
                         </div>
                         <div class="stat-card border-l-2 border-l-success">
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Active Trips</span>
-                                <span class="material-symbols-outlined text-text-tertiary" style="font-size:16px">directions_bus</span>
-                            </div>
-                            <p id="statTrips" class="text-xl font-display font-bold mt-3">0</p>
-                            <p id="statTripsSub" class="text-[11px] text-text-secondary mt-1">Loading...</p>
+                            <span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">This Month</span>
+                            <p id="ovMonthRevenue" class="text-xl font-display font-bold mt-2">GHS 0.00</p>
+                            <p id="ovAvgFare" class="text-[11px] text-text-secondary mt-1">--</p>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        <div class="lg:col-span-2 card p-5">
+                    <!-- Ops row -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Active Trips Now</span><p id="ovActiveTrips" class="text-lg font-display font-bold mt-2 text-primary">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Drivers Online</span><p id="ovDriversOnline" class="text-lg font-display font-bold mt-2 text-success">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total Drivers</span><p id="ovTotalDrivers" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Pending Approvals</span><p id="ovPendingDrivers" class="text-lg font-display font-bold mt-2 text-warning">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total Riders</span><p id="ovTotalRiders" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">New Riders / 7d</span><p id="ovNewRiders" class="text-lg font-display font-bold mt-2 text-info">0</p></div>
+                    </div>
+
+                    <!-- Trips + payments row -->
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total Bookings</span><p id="ovTotalBookings" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Completed Trips</span><p id="ovCompletedTrips" class="text-lg font-display font-bold mt-2 text-success">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Cancelled Trips</span><p id="ovCancelledTrips" class="text-lg font-display font-bold mt-2 text-error">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Cancellation Rate</span><p id="ovCancelRate" class="text-lg font-display font-bold mt-2">0%</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Cash Payments</span><p id="ovCash" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Card Payments</span><p id="ovCard" class="text-lg font-display font-bold mt-2">0</p></div>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
                             <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-sm font-display font-bold">Revenue Trend (7 days)</h3>
-                                <span class="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Daily</span>
+                                <h3 class="text-sm font-display font-bold">Revenue (14 days)</h3>
+                                <span class="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Daily GHS</span>
                             </div>
-                            <div class="chart-container"><canvas id="revenueChart" class="w-full h-full"></canvas></div>
+                            <div id="ovRevenueBars" class="flex items-end gap-1.5 h-40"><div class="text-xs text-text-secondary">Loading...</div></div>
                         </div>
                         <div class="card p-5">
                             <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-sm font-display font-bold">Trip Status</h3>
-                                <span class="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Today</span>
+                                <h3 class="text-sm font-display font-bold">Trips (14 days)</h3>
+                                <span class="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Daily count</span>
                             </div>
-                            <div class="flex items-center justify-center h-[180px]"><canvas id="tripStatusChart" class="w-full h-full max-w-[180px]"></canvas></div>
-                            <div id="tripStatusLegend" class="flex flex-wrap gap-3 justify-center mt-2"></div>
+                            <div id="ovTripBars" class="flex items-end gap-1.5 h-40"><div class="text-xs text-text-secondary">Loading...</div></div>
                         </div>
                     </div>
 
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="card p-5">
+                            <h3 class="text-sm font-display font-bold mb-4">Trips by Status</h3>
+                            <div id="ovStatusBars" class="space-y-2"><div class="text-xs text-text-secondary">Loading...</div></div>
+                        </div>
+                        <div class="card p-5">
+                            <h3 class="text-sm font-display font-bold mb-4">Payment Methods</h3>
+                            <div id="ovPaymentBars" class="space-y-2"><div class="text-xs text-text-secondary">Loading...</div></div>
+                        </div>
+                    </div>
+
+                    <!-- Recent bookings + quick actions -->
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div class="lg:col-span-2 card overflow-hidden">
                             <div class="flex items-center justify-between p-4 border-b border-border">
                                 <h3 class="text-sm font-display font-bold">Recent Bookings</h3>
-                                <span class="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Last 10</span>
+                                <span class="text-[10px] text-text-tertiary uppercase tracking-wider font-mono">Latest 25</span>
                             </div>
                             <div class="overflow-x-auto">
                                 <table>
-                                    <thead><tr><th>ID</th><th>Rider</th><th>Route</th><th>Fare</th><th>Status</th><th>Time</th></tr></thead>
+                                    <thead><tr><th>ID</th><th>Rider</th><th>Trip</th><th>Fare</th><th>Status</th><th>Time</th></tr></thead>
                                     <tbody id="recentBookingsBody"><tr><td colspan="6" class="text-center text-text-secondary py-8">Loading bookings...</td></tr></tbody>
                                 </table>
                             </div>
@@ -287,8 +307,11 @@
                                 <button onclick="switchTab('drivers')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-2 border border-border hover:bg-surface-3 transition-colors text-sm">
                                     <span class="material-symbols-outlined text-primary" style="font-size:18px">person_add</span> Review Pending Drivers
                                 </button>
-                                <button onclick="switchTab('routes')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-2 border border-border hover:bg-surface-3 transition-colors text-sm">
-                                    <span class="material-symbols-outlined text-info" style="font-size:18px">add_road</span> Create New Route
+                                <button onclick="switchTab('livemap')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-2 border border-border hover:bg-surface-3 transition-colors text-sm">
+                                    <span class="material-symbols-outlined text-info" style="font-size:18px">map</span> Live Dispatch Map
+                                </button>
+                                <button onclick="switchTab('safety')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-2 border border-border hover:bg-surface-3 transition-colors text-sm">
+                                    <span class="material-symbols-outlined text-error" style="font-size:18px">sos</span> Safety Console
                                 </button>
                                 <button onclick="switchTab('support')" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-surface-2 border border-border hover:bg-surface-3 transition-colors text-sm">
                                     <span class="material-symbols-outlined text-warning" style="font-size:18px">support_agent</span> View Support Tickets
@@ -303,6 +326,18 @@
 
                 <!-- ===================== DRIVERS ===================== -->
                 <div id="tab-drivers" class="hidden space-y-5 animate-fade-in">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total</span><p id="drvStatTotal" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Online</span><p id="drvStatOnline" class="text-lg font-display font-bold mt-2 text-success">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Active</span><p id="drvStatActive" class="text-lg font-display font-bold mt-2 text-primary">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Offline</span><p id="drvStatOffline" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Suspended</span><p id="drvStatSuspended" class="text-lg font-display font-bold mt-2 text-error">0</p></div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <div class="card overflow-hidden"><div class="p-3 border-b border-border"><h3 class="text-xs font-display font-bold">Top by Trips</h3></div><div id="drvTopTrips" class="divide-y divide-border/50"><div class="p-4 text-center text-text-secondary text-xs">Loading...</div></div></div>
+                        <div class="card overflow-hidden"><div class="p-3 border-b border-border"><h3 class="text-xs font-display font-bold">Top by Earnings</h3></div><div id="drvTopEarnings" class="divide-y divide-border/50"><div class="p-4 text-center text-text-secondary text-xs">Loading...</div></div></div>
+                        <div class="card overflow-hidden"><div class="p-3 border-b border-border"><h3 class="text-xs font-display font-bold">Top by Rating</h3></div><div id="drvTopRating" class="divide-y divide-border/50"><div class="p-4 text-center text-text-secondary text-xs">Loading...</div></div></div>
+                    </div>
                     <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                         <div class="flex gap-1.5 p-1 rounded-lg bg-surface-2 border border-border">
                             <button class="driver-filter px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-black" data-status="ALL" onclick="setDriverFilter('ALL')">All</button>
@@ -322,12 +357,20 @@
                         <div class="overflow-x-auto">
                             <table>
                                 <thead><tr>
-                                    <th>Name</th><th>Phone</th><th>Vehicle</th><th>Ghana Card</th><th>Wallet</th><th>Rating</th><th>Trips</th><th>Status</th><th>Joined</th><th class="text-right">Actions</th>
+                                    <th>Name</th><th>Phone</th><th>Vehicle</th><th>Ghana Card</th><th>Wallet</th><th>Rating</th><th>Trips</th><th>Online</th><th>Status</th><th>Joined</th><th class="text-right">Actions</th>
                                 </tr></thead>
                                 <tbody id="driversBody">
-                                    <tr><td colspan="10" class="text-center text-text-secondary py-8">Loading drivers...</td></tr>
+                                    <tr><td colspan="11" class="text-center text-text-secondary py-8">Loading drivers...</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between" id="driverPagination">
+                        <span id="driverPageInfo" class="text-xs text-text-tertiary"></span>
+                        <div class="flex items-center gap-2">
+                            <button class="pagination-btn" id="driverPrevBtn" onclick="changeDriverPage(-1)" disabled><span class="material-symbols-outlined" style="font-size:14px">chevron_left</span></button>
+                            <div id="driverPageNumbers" class="flex items-center gap-1"></div>
+                            <button class="pagination-btn" id="driverNextBtn" onclick="changeDriverPage(1)"><span class="material-symbols-outlined" style="font-size:14px">chevron_right</span></button>
                         </div>
                     </div>
                 </div>
@@ -513,89 +556,24 @@
                     </div>
                 </div>
 
-                <!-- ===================== ROUTES ===================== -->
-                <div id="tab-routes" class="hidden space-y-5 animate-fade-in">
-                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                        <div class="lg:col-span-2 space-y-4">
-                            <div class="card p-5">
-                                <h3 class="text-sm font-display font-bold mb-4">Create New Route</h3>
-                                <form id="routeForm" class="space-y-3" onsubmit="createRoute(event)">
-                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Route Name</label><input type="text" id="routeName" required placeholder="e.g. Madina - Accra Central" /></div>
-                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Origin</label><input type="text" id="routeOrigin" required placeholder="e.g. Madina Market" /></div>
-                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Destination</label><input type="text" id="routeDest" required placeholder="e.g. Accra Central" /></div>
-                                    <p class="text-[10px] text-text-tertiary flex items-center gap-1"><span class="material-symbols-outlined" style="font-size:12px">info</span>Coordinates and distance are calculated automatically</p>
-                                    <button type="submit" class="btn btn-primary w-full py-2.5"><span class="material-symbols-outlined" style="font-size:16px">add_road</span> Create Route</button>
-                                </form>
-                            </div>
-                            <div class="card p-5">
-                                <h3 class="text-sm font-display font-bold mb-4">Add Stops</h3>
-                                <form id="stopsForm" class="space-y-3" onsubmit="addStops(event)">
-                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Route</label><select id="stopsRouteSelect" required><option value="">Select route...</option></select></div>
-                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Stops (comma separated)</label><textarea id="stopsInput" rows="2" required placeholder="Stop 1, Stop 2, Stop 3" class="text-xs"></textarea></div>
-                                    <button type="submit" class="btn btn-secondary w-full py-2.5"><span class="material-symbols-outlined" style="font-size:16px">layers</span> Add Stops</button>
-                                </form>
-                            </div>
-                        </div>
-                        <div class="lg:col-span-3">
-                            <div class="card">
-                                <div class="p-4 border-b border-border flex items-center justify-between">
-                                    <h3 class="text-sm font-display font-bold">All Routes</h3>
-                                    <span id="routeCount" class="text-xs text-text-tertiary"></span>
-                                </div>
-                                <div class="divide-y divide-border/50" id="routesList"><div class="p-6 text-center text-text-secondary text-sm">Loading routes...</div></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Edit Route Modal -->
-                <div id="editRouteModal" class="modal-overlay hidden" onclick="if(event.target===this)closeEditRouteModal()">
-                    <div class="modal-content p-0 max-w-md">
-                        <div class="flex items-center justify-between p-5 border-b border-border">
-                            <h3 class="text-base font-display font-bold">Edit Route</h3>
-                            <button onclick="closeEditRouteModal()" class="btn btn-ghost p-1.5"><span class="material-symbols-outlined" style="font-size:18px">close</span></button>
-                        </div>
-                        <form id="editRouteForm" class="p-5 space-y-3" onsubmit="saveRouteEdit(event)">
-                            <input type="hidden" id="editRouteId" />
-                            <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Route Name</label><input type="text" id="editRouteName" required /></div>
-                            <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Origin</label><input type="text" id="editRouteOrigin" required /></div>
-                            <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Destination</label><input type="text" id="editRouteDest" required /></div>
-                            <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Distance (km)</label><input type="number" id="editRouteDist" step="0.1" required /></div>
-                            <div class="flex gap-3 pt-2"><button type="button" onclick="closeEditRouteModal()" class="btn btn-secondary flex-1">Cancel</button><button type="submit" class="btn btn-primary flex-1">Save Changes</button></div>
-                        </form>
-                    </div>
-                </div>
-
-                <!-- ===================== SCHEDULES ===================== -->
+                <!-- ===================== SCHEDULED RIDES ===================== -->
                 <div id="tab-schedules" class="hidden space-y-5 animate-fade-in">
-                    <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                        <div class="lg:col-span-2">
-                            <div class="card p-5">
-                                <h3 class="text-sm font-display font-bold mb-4">Create Pulse Schedule</h3>
-                                <form id="scheduleForm" class="space-y-3" onsubmit="createSchedule(event)">
-                                    <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Route</label><select id="schedRoute" required><option value="">Select route...</option></select></div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Tier</label><select id="schedTier"><option value="ECO">ECO</option><option value="COMFORT">COMFORT</option></select></div>
-                                        <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Max Seats</label><input type="number" id="schedMaxSeats" value="14" /></div>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Departure</label><input type="time" id="schedTime" required /></div>
-                                        <div><label class="block text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Days</label><input type="text" id="schedDays" placeholder="MON,TUE,WED,THU,FRI" value="MON,TUE,WED,THU,FRI" /></div>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary w-full py-2.5"><span class="material-symbols-outlined" style="font-size:16px">add</span> Create Schedule</button>
-                                </form>
-                            </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="stat-card border-l-2 border-l-[#1DB954]"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Upcoming</span><p id="schedStatUpcoming" class="text-xl font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card border-l-2 border-l-info"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Matched</span><p id="schedStatMatched" class="text-xl font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card border-l-2 border-l-warning"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Awaiting Driver</span><p id="schedStatUnmatched" class="text-xl font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card border-l-2 border-l-success"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Completed Today</span><p id="schedStatCompletedToday" class="text-xl font-display font-bold mt-2">0</p></div>
+                    </div>
+                    <div class="card">
+                        <div class="p-4 border-b border-border flex items-center justify-between">
+                            <h3 class="text-sm font-display font-bold">Scheduled Rides</h3>
+                            <span id="schedCount" class="text-xs text-text-tertiary"></span>
                         </div>
-                        <div class="lg:col-span-3">
-                            <div class="card">
-                                <div class="p-4 border-b border-border"><h3 class="text-sm font-display font-bold">Active Pulse Schedules</h3></div>
-                                <div class="overflow-x-auto">
-                                    <table>
-                                        <thead><tr><th>Route</th><th>Tier</th><th>Time</th><th>Seats</th><th>Days</th><th class="text-right"></th></tr></thead>
-                                        <tbody id="schedulesBody"><tr><td colspan="6" class="text-center text-text-secondary py-8">Loading schedules...</td></tr></tbody>
-                                    </table>
-                                </div>
-                            </div>
+                        <div class="overflow-x-auto">
+                            <table>
+                                <thead><tr><th>Rider</th><th>Pickup</th><th>Destination</th><th>Departure</th><th>Seats</th><th>Status</th></tr></thead>
+                                <tbody id="schedulesBody"><tr><td colspan="6" class="text-center text-text-secondary py-8">Loading scheduled rides...</td></tr></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -696,6 +674,16 @@
 
                 <!-- ===================== SAFETY (SOS + TRIP REPORTS) ===================== -->
                 <div id="tab-safety" class="hidden space-y-5 animate-fade-in">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="stat-card border-l-2 border-l-error"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Unresolved SOS</span><p id="safStatUnresolvedSos" class="text-xl font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card border-l-2 border-l-[#1DB954]"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Total SOS Events</span><p id="safStatTotalSos" class="text-xl font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card border-l-2 border-l-info"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Avg Resolution</span><p id="safStatAvgResolution" class="text-xl font-display font-bold mt-2">0 min</p></div>
+                        <div class="stat-card border-l-2 border-l-warning"><span class="text-xs font-semibold text-text-secondary uppercase tracking-wide">Unresolved Reports</span><p id="safStatUnresolvedReports" class="text-xl font-display font-bold mt-2">0</p></div>
+                    </div>
+                    <div class="card p-4">
+                        <h3 class="text-sm font-display font-bold mb-3">SOS Events — Last 30 Days</h3>
+                        <div id="safSosBars" class="flex items-end gap-0.5 h-24"></div>
+                    </div>
                     <div class="flex items-center justify-between">
                         <div class="flex gap-1.5 p-1 rounded-lg bg-surface-2 border border-border">
                             <button class="sos-filter px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-black" data-sfilter="unresolved" onclick="setSosFilter('unresolved')">Unresolved</button>
@@ -890,11 +878,11 @@
 
         // ── State ──────────────────────────────────────────────────
         const state = {
-            drivers: [], users: [], trips: [], routes: [], schedules: [], bookings: [],
+            drivers: [], users: [], trips: [], bookings: [],
             tickets: [], promotions: [], sosEvents: [], tripReports: [],
             activeTab: 'overview', driverFilter: 'ALL', ticketFilter: '', tripFilter: '', sosFilter: 'unresolved',
             driverSearch: '', riderSearch: '',
-            tripPage: 1, bookingPage: 1, tripTotalPages: 1, bookingTotalPages: 1,
+            tripPage: 1, bookingPage: 1, driverPage: 1, tripTotalPages: 1, bookingTotalPages: 1,
             tripTotal: 0, bookingTotal: 0,
             driverDetail: null, driverTrips: [],
         };
@@ -1057,21 +1045,21 @@
             document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
             document.getElementById(`tab-${tab}`).classList.remove('hidden');
             document.querySelectorAll('.nav-link').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
-            const titles = { overview:'Overview', drivers:'Drivers', riders:'Riders', trips:'Trips', routes:'Routes', schedules:'Schedules', revenue:'Revenue', support:'Support Tickets', safety:'Safety & SOS', ota:'OTA Deploy', promotions:'Promotions', livemap:'Live Map' };
+            const titles = { overview:'Overview', drivers:'Drivers', riders:'Riders', trips:'Trips', schedules:'Scheduled Rides', revenue:'Revenue', support:'Support Tickets', safety:'Safety & SOS', ota:'OTA Deploy', promotions:'Promotions', livemap:'Live Map' };
             document.getElementById('pageTitle').textContent = titles[tab] || 'Overview';
-            if (tab === 'routes' || tab === 'schedules') populateRouteSelects();
+            if (tab === 'schedules') loadScheduledData();
             if (tab === 'trips') renderTrips();
             if (tab === 'revenue') renderRevenue();
             if (tab === 'support') renderTickets();
             if (tab === 'safety') loadSafetyData();
             if (tab === 'ota') loadOtaData(); else stopOtaPolling();
             if (tab === 'promotions') renderPromotions();
-            if (tab === 'drivers') { renderDrivers(); }
+            if (tab === 'drivers') { loadDriverAnalytics(); renderDrivers(); }
             if (tab === 'riders') { renderRiders(); }
             if (tab === 'livemap') {
                 connectAdminSocket(); initLiveMap(); }
             else if (liveMapPollTimer) { clearInterval(liveMapPollTimer); liveMapPollTimer = null; }
-            if (tab === 'overview') { renderOverview(); renderCharts(); }
+            if (tab === 'overview') { loadOverview(); }
         }
 
         // ── Charts ─────────────────────────────────────────────────
@@ -1123,12 +1111,10 @@
 
         async function refreshData() {
             try {
-                const [driversRes, usersRes, tripsRes, routesRes, schedulesRes, bookingsRes, ticketsRes, promosRes, sosRes] = await Promise.allSettled([
+                const [driversRes, usersRes, tripsRes, bookingsRes, ticketsRes, promosRes, sosRes] = await Promise.allSettled([
                     apiGet(`${API_BASE}/drivers?limit=500`),
                     apiGet(`${API_BASE}/users?limit=500`),
                     apiGet(`${API_BASE}/trips?limit=100`),
-                    apiGet(`${API_BASE}/routes`),
-                    apiGet(`${API_BASE}/pulse-schedules`).catch(()=>({data:{schedules:[]}})),
                     apiGet(`${API_BASE}/bookings?limit=100`),
                     apiGet(`${API_BASE}/support-tickets`),
                     apiGet(`${API_BASE}/promotions`),
@@ -1138,37 +1124,65 @@
                 if (driversRes.status==='fulfilled') state.drivers = driversRes.value.data?.drivers||[];
                 if (usersRes.status==='fulfilled') state.users = usersRes.value.data?.users||[];
                 if (tripsRes.status==='fulfilled') { const d=tripsRes.value.data; state.trips=d?.trips||[]; state.tripTotal=d?.total||state.trips.length; state.tripTotalPages=d?.totalPages||1; }
-                if (routesRes.status==='fulfilled') state.routes = routesRes.value?.data?.routes||routesRes.value?.routes||[];
-                if (schedulesRes.status==='fulfilled') state.schedules = schedulesRes.value.data?.schedules||[];
                 if (bookingsRes.status==='fulfilled') { const d=bookingsRes.value.data; state.bookings=d?.bookings||[]; state.bookingTotal=d?.total||state.bookings.length; state.bookingTotalPages=d?.totalPages||1; }
                 if (ticketsRes.status==='fulfilled') state.tickets = ticketsRes.value.data?.tickets||[];
                 if (promosRes.status==='fulfilled') state.promotions = promosRes.value.data?.promotions||[];
                 if (sosRes.status==='fulfilled') updateSosBadge(sosRes.value.data?.total||0);
 
-                state.tripPage=1; state.bookingPage=1;
-                renderOverview(); renderDrivers(); renderRiders(); renderTrips(); renderRoutes(); renderSchedules(); renderRevenue(); renderCharts(); renderTickets(); renderPromotions();
-                populateRouteSelects();
+                state.tripPage=1; state.bookingPage=1; state.driverPage=1;
+                loadOverview(); renderDrivers(); renderRiders(); renderTrips(); renderRevenue(); renderTickets(); renderPromotions();
             } catch(err) { console.error('Refresh failed:', err); toast('Failed to load some data.','error'); }
         }
 
         // ── OVERVIEW ──────────────────────────────────────────────
-        function renderOverview() {
-            const totalRevenue=state.bookings.reduce((s,b)=>s+(b.fareAmount||0),0);
-            const totalCommission=state.bookings.reduce((s,b)=>s+(b.commissionAmount||b.fareAmount*0.15||0),0);
-            const activeTrips=state.trips.filter(t=>['SCHEDULED','FILLING','DRIVER_EN_ROUTE','IN_PROGRESS'].includes(t.status)).length;
-            const activeDrivers=state.drivers.filter(d=>d.status==='ACTIVE').length;
-            const pendingCount=state.drivers.filter(d=>d.status==='PENDING_REVIEW').length;
-            document.getElementById('statRevenue').textContent=`GHS ${totalRevenue.toFixed(2)}`;
-            document.getElementById('statRevenueSub').textContent=`${state.bookings.length} bookings · GHS ${totalCommission.toFixed(2)} commission`;
-            document.getElementById('statRiders').textContent=state.users.length;
-            document.getElementById('statRidersSub').textContent=`${state.users.filter(u=>u.isActive!==false).length} active`;
-            document.getElementById('statDrivers').textContent=state.drivers.length;
-            document.getElementById('statDriversSub').textContent=`${activeDrivers} active · ${pendingCount} pending · ${state.drivers.filter(d=>d.status==='SUSPENDED').length} suspended`;
-            document.getElementById('statTrips').textContent=state.trips.length;
-            document.getElementById('statTripsSub').textContent=`${activeTrips} active · ${state.trips.filter(t=>t.status==='COMPLETED').length} completed`;
+        function bars(container, data, colorClass){
+            const el=typeof container==='string'?document.getElementById(container):container;
+            if(!data||data.length===0){el.innerHTML='<div class="text-xs text-text-secondary">No data yet.</div>';return;}
+            const max=Math.max(...data.map(d=>d.value),1);
+            el.innerHTML=data.map(d=>`<div class="flex-1 flex flex-col items-center gap-1 group" title="${d.date}: ${d.value}"><div class="w-full rounded-t ${colorClass}" style="height:${Math.max((d.value/max)*100,2)}%;min-height:2px"></div></div>`).join('');
+            el.style.alignItems='flex-end';
+        }
 
-            const prev=state.bookings.length>0?12.5:0; document.getElementById('revTrend').textContent=prev;
-            const badge=document.getElementById('pendingBadge'); if(pendingCount>0){badge.textContent=pendingCount;badge.classList.remove('hidden');}else badge.classList.add('hidden');
+        async function loadOverview(){
+            const errEl=document.getElementById('overviewError');
+            try{
+                const res=await apiGet(`${API_BASE}/analytics/overview`);
+                const d=res.data||res;
+                errEl.classList.add('hidden');
+                document.getElementById('ovTotalRevenue').textContent=`GHS ${(d.totalRevenue||0).toFixed(2)}`;
+                document.getElementById('ovCommission').textContent=`GHS ${(d.totalCommission||0).toFixed(2)} commission`;
+                document.getElementById('ovTodayRevenue').textContent=`GHS ${(d.todayRevenue||0).toFixed(2)}`;
+                document.getElementById('ovWeekRevenue').textContent=`GHS ${(d.weekRevenue||0).toFixed(2)}`;
+                document.getElementById('ovMonthRevenue').textContent=`GHS ${(d.monthRevenue||0).toFixed(2)}`;
+                document.getElementById('ovAvgFare').textContent=`GHS ${(d.avgFare||0).toFixed(2)} avg fare`;
+                document.getElementById('ovActiveTrips').textContent=d.activeTripsNow||0;
+                document.getElementById('ovDriversOnline').textContent=d.driversOnlineNow||0;
+                document.getElementById('ovTotalDrivers').textContent=d.totalDrivers||0;
+                document.getElementById('ovPendingDrivers').textContent=d.pendingDriverApprovals||0;
+                document.getElementById('ovTotalRiders').textContent=d.totalRiders||0;
+                document.getElementById('ovNewRiders').textContent=d.newRidersThisWeek||0;
+                document.getElementById('ovTotalBookings').textContent=d.totalBookings||0;
+                document.getElementById('ovCompletedTrips').textContent=d.completedTripsCount||0;
+                document.getElementById('ovCancelledTrips').textContent=d.cancelledTripsCount||0;
+                document.getElementById('ovCancelRate').textContent=`${d.cancellationRate||0}%`;
+                document.getElementById('ovCash').textContent=d.paymentMethodBreakdown?.cash||0;
+                document.getElementById('ovCard').textContent=d.paymentMethodBreakdown?.card||0;
+                const badge=document.getElementById('pendingBadge'); if((d.pendingDriverApprovals||0)>0){badge.textContent=d.pendingDriverApprovals;badge.classList.remove('hidden');}else badge.classList.add('hidden');
+
+                bars('ovRevenueBars', d.revenueByDay||[], 'bg-primary');
+                bars('ovTripBars', d.tripsByDay||[], 'bg-info');
+
+                const statusColors={SCHEDULED:'#3b82f6',FILLING:'#f59e0b',IN_PROGRESS:'#1DB954',COMPLETED:'#22c55e',DRIVER_EN_ROUTE:'#8b5cf6',CANCELLED:'#ef4444'};
+                const statusEntries=Object.entries(d.tripsByStatus||{});
+                const statusTotal=statusEntries.reduce((s,[,v])=>s+v,0)||1;
+                document.getElementById('ovStatusBars').innerHTML=statusEntries.length?statusEntries.map(([k,v])=>`<div class="flex items-center gap-2"><span class="text-xs text-text-secondary w-24 flex-shrink-0">${k}</span><div class="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden"><div class="h-full rounded-full" style="width:${(v/statusTotal)*100}%;background:${statusColors[k]||'#6b6b6b'}"></div></div><span class="text-xs font-mono text-text-secondary w-8 text-right">${v}</span></div>`).join(''):'<div class="text-xs text-text-secondary">No trips yet.</div>';
+
+                const cash=d.paymentMethodBreakdown?.cash||0, card=d.paymentMethodBreakdown?.card||0, payTotal=(cash+card)||1;
+                document.getElementById('ovPaymentBars').innerHTML=`<div class="flex items-center gap-2"><span class="text-xs text-text-secondary w-24 flex-shrink-0">Cash</span><div class="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden"><div class="h-full rounded-full bg-warning" style="width:${(cash/payTotal)*100}%"></div></div><span class="text-xs font-mono text-text-secondary w-8 text-right">${cash}</span></div><div class="flex items-center gap-2"><span class="text-xs text-text-secondary w-24 flex-shrink-0">Card</span><div class="flex-1 h-2 rounded-full bg-surface-3 overflow-hidden"><div class="h-full rounded-full bg-info" style="width:${(card/payTotal)*100}%"></div></div><span class="text-xs font-mono text-text-secondary w-8 text-right">${card}</span></div>`;
+            }catch(err){
+                errEl.textContent=err?.message||'Failed to load overview analytics.';
+                errEl.classList.remove('hidden');
+            }
 
             const tbody=document.getElementById('recentBookingsBody'); const recent=state.bookings.slice(0,10);
             if(recent.length===0){tbody.innerHTML='<tr><td colspan="6" class="text-center text-text-secondary py-8">No bookings yet.</td></tr>';return;}
@@ -1186,12 +1200,12 @@
 
         // ── DRIVERS ────────────────────────────────────────────────
         function setDriverFilter(filter) {
-            state.driverFilter=filter;
+            state.driverFilter=filter; state.driverPage=1;
             document.querySelectorAll('.driver-filter').forEach(el=>{const active=el.dataset.status===filter;el.className=`driver-filter px-3 py-1.5 text-xs font-semibold rounded-md ${active?'bg-primary text-black':'text-text-secondary hover:text-white'}`;});
             renderDrivers();
         }
 
-        function filterDrivers() { state.driverSearch=document.getElementById('driverSearch').value.toLowerCase(); renderDrivers(); }
+        function filterDrivers() { state.driverSearch=document.getElementById('driverSearch').value.toLowerCase(); state.driverPage=1; renderDrivers(); }
 
         function renderDrivers() {
             const tbody=document.getElementById('driversBody');
@@ -1201,12 +1215,37 @@
                 return (d.name||'').toLowerCase().includes(state.driverSearch)||(d.phone||'').includes(state.driverSearch);
             });
             document.getElementById('driverCount').textContent=`${filtered.length} driver(s)`;
-            if(filtered.length===0){tbody.innerHTML='<tr><td colspan="10" class="text-center text-text-secondary py-8">No drivers found. Try changing the filter.</td></tr>';return;}
-            tbody.innerHTML=filtered.map(d=>{
+            if(filtered.length===0){tbody.innerHTML='<tr><td colspan="11" class="text-center text-text-secondary py-8">No drivers found. Try changing the filter.</td></tr>';document.getElementById('driverPageInfo').textContent='';document.getElementById('driverPageNumbers').innerHTML='';return;}
+            const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
+            state.driverPage=Math.min(state.driverPage,totalPages);
+            const pageItems=filtered.slice((state.driverPage-1)*PAGE_SIZE,state.driverPage*PAGE_SIZE);
+            tbody.innerHTML=pageItems.map(d=>{
                 const v=d.vehicles?.[0]; const vehicleStr=v?escapeHtml(`${v.make} ${v.model} (${v.plateNumber})`):'No vehicle';
                 const avgRating=(d.rating!=null)?d.rating:(d.ratings?._avg?.stars?Math.round(d.ratings._avg.stars*10)/10:'--');
-                return `<tr class="cursor-pointer" onclick="viewDriver('${d.id}')"><td><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-[rgba(29,185,54,0.12)] border border-[rgba(29,185,54,0.2)] flex items-center justify-center text-primary text-xs font-bold">${escapeHtml(initials(d.name))}</div><span class="font-medium">${escapeHtml(d.name||'--')}</span></div></td><td class="text-sm text-text-secondary font-mono">${escapeHtml(d.phone||'--')}</td><td class="text-sm text-text-secondary">${vehicleStr}</td><td class="text-sm font-mono text-text-secondary">${escapeHtml(d.ghanaCardNumber||'--')}</td><td class="font-mono text-sm text-primary font-semibold">GHS ${(d.walletBalance||0).toFixed(2)}</td><td class="text-sm">${avgRating}</td><td class="text-sm text-text-secondary">${d._count?.trips||'--'}</td><td>${getStatusBadge(d.status)}</td><td class="text-xs text-text-secondary">${formatDate(d.createdAt)}</td><td class="text-right"><button onclick="event.stopPropagation();viewDriver('${d.id}')" class="btn btn-ghost text-xs py-1 px-2">View</button></td></tr>`;
+                const onlineBadge=d.isOnline?'<span class="badge bg-success-subtle text-success border border-success/20">Online</span>':'<span class="badge bg-surface-3 text-text-tertiary border border-border">Offline</span>';
+                return `<tr class="cursor-pointer" onclick="viewDriver('${d.id}')"><td><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-[rgba(29,185,54,0.12)] border border-[rgba(29,185,54,0.2)] flex items-center justify-center text-primary text-xs font-bold">${escapeHtml(initials(d.name))}</div><span class="font-medium">${escapeHtml(d.name||'--')}</span></div></td><td class="text-sm text-text-secondary font-mono">${escapeHtml(d.phone||'--')}</td><td class="text-sm text-text-secondary">${vehicleStr}</td><td class="text-sm font-mono text-text-secondary">${escapeHtml(d.ghanaCardNumber||'--')}</td><td class="font-mono text-sm text-primary font-semibold">GHS ${(d.walletBalance||0).toFixed(2)}</td><td class="text-sm">${avgRating}</td><td class="text-sm text-text-secondary">${d._count?.trips||'--'}</td><td>${onlineBadge}</td><td>${getStatusBadge(d.status)}</td><td class="text-xs text-text-secondary">${formatDate(d.createdAt)}</td><td class="text-right"><button onclick="event.stopPropagation();viewDriver('${d.id}')" class="btn btn-ghost text-xs py-1 px-2">View</button></td></tr>`;
             }).join('');
+            renderPagination('driver',totalPages,state.driverPage,filtered.length);
+        }
+
+        function changeDriverPage(delta){const filtered=state.drivers.filter(d=>{if(state.driverFilter!=='ALL'&&d.status!==state.driverFilter)return false;if(!state.driverSearch)return true;return (d.name||'').toLowerCase().includes(state.driverSearch)||(d.phone||'').includes(state.driverSearch);});state.driverPage=Math.max(1,Math.min(state.driverPage+delta,Math.ceil(filtered.length/PAGE_SIZE)||1));renderDrivers();}
+        function goToDriverPage(page){state.driverPage=page;renderDrivers();}
+
+        async function loadDriverAnalytics(){
+            try{
+                const res=await apiGet(`${API_BASE}/analytics/drivers`);
+                const d=res.data||res;
+                const c=d.counts||{};
+                document.getElementById('drvStatTotal').textContent=c.total||0;
+                document.getElementById('drvStatOnline').textContent=c.online||0;
+                document.getElementById('drvStatActive').textContent=c.active||0;
+                document.getElementById('drvStatOffline').textContent=c.offline||0;
+                document.getElementById('drvStatSuspended').textContent=c.suspended||0;
+                const renderTop=(id,list,valueFn)=>{const el=document.getElementById(id);if(!list||list.length===0){el.innerHTML='<div class="p-4 text-center text-text-secondary text-xs">No data yet.</div>';return;}el.innerHTML=list.map((dr,i)=>`<div class="p-2.5 flex items-center justify-between text-xs"><span class="text-text-secondary">${i+1}. ${escapeHtml(dr.name||'--')}</span><span class="font-mono font-semibold">${valueFn(dr)}</span></div>`).join('');};
+                renderTop('drvTopTrips', d.topByTrips, dr=>dr.trips);
+                renderTop('drvTopEarnings', d.topByEarnings, dr=>`GHS ${(dr.earnings||0).toFixed(2)}`);
+                renderTop('drvTopRating', d.topByRating, dr=>`★ ${dr.avgRating}`);
+            }catch(err){ console.error('Driver analytics failed:', err); }
         }
 
         // ── DRIVER MODAL ──────────────────────────────────────────
@@ -1463,7 +1502,8 @@
             document.getElementById(`${prefix}NextBtn`).disabled=currentPage>=totalPages;
             const numContainer=document.getElementById(`${prefix}PageNumbers`); numContainer.innerHTML='';
             const maxVisible=5; let start=Math.max(1,currentPage-Math.floor(maxVisible/2)); let end=Math.min(totalPages,start+maxVisible-1); start=Math.max(1,end-maxVisible+1);
-            for(let i=start;i<=end;i++){const btn=document.createElement('button');btn.className=`pagination-btn ${i===currentPage?'active':''}`;btn.textContent=i;btn.onclick=prefix==='trip'?()=>goToTripPage(i):()=>goToBookingPage(i);numContainer.appendChild(btn);}
+            const goFns={trip:goToTripPage,booking:goToBookingPage,driver:goToDriverPage};
+            for(let i=start;i<=end;i++){const btn=document.createElement('button');btn.className=`pagination-btn ${i===currentPage?'active':''}`;btn.textContent=i;btn.onclick=()=>(goFns[prefix]||goToTripPage)(i);numContainer.appendChild(btn);}
         }
 
         function changeTripPage(delta){state.tripPage=Math.max(1,Math.min(state.tripPage+delta,Math.ceil(state.trips.length/PAGE_SIZE)));renderTrips();}
@@ -1484,40 +1524,31 @@
         }
         function closeTripModal(){document.getElementById('tripDetailModal').classList.add('hidden');document.body.style.overflow='';}
 
-        // ── ROUTES ──────────────────────────────────────────────────
-        function populateRouteSelects(){['stopsRouteSelect','schedRoute'].forEach(id=>{const sel=document.getElementById(id);if(!sel)return;const cur=sel.value;sel.innerHTML='<option value="">Select route...</option>'+state.routes.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');if(cur)sel.value=cur;});}
-
-        async function createRoute(e){e.preventDefault();const name=document.getElementById('routeName').value.trim();const originName=document.getElementById('routeOrigin').value.trim();const destinationName=document.getElementById('routeDest').value.trim();if(!name||!originName||!destinationName)return toast('Fill all fields','error');try{await apiPost(`${API_BASE}/routes`,{name,originName,destinationName});toast('Route created');document.getElementById('routeForm').reset();await refreshData();}catch(err){
-            // BUGFIX: this used to swallow any failure (most commonly ROUTE_GEOCODE_FAILED —
-            // very likely here since this form only collects place names, not coordinates)
-            // and fabricate a fake client-only route with hardcoded distanceKm:15 and no real
-            // ID, showing "Route created (offline)" as if it succeeded. It hadn't — the fake
-            // row vanished on next refresh, and any schedule attached to it in the meantime
-            // referenced a route ID that never existed server-side. Show the real error instead.
-            toast(err?.message||'Failed to create route','error');
-        }}
-
-        async function addStops(e){e.preventDefault();const routeId=document.getElementById('stopsRouteSelect').value;const stopsText=document.getElementById('stopsInput').value.trim();if(!routeId||!stopsText)return;try{await apiPost(`${API_BASE}/routes/${routeId}/stops`,{stops:stopsText.split(',').map(s=>({name:s.trim(),lat:5.6,lng:-0.18}))});toast('Stops added');document.getElementById('stopsForm').reset();await refreshData();}catch{toast('Failed to add stops','error');}}
-
-        function editRoute(id){const r=state.routes.find(r=>r.id===id);if(!r)return;document.getElementById('editRouteId').value=r.id;document.getElementById('editRouteName').value=r.name||'';document.getElementById('editRouteOrigin').value=r.originName||'';document.getElementById('editRouteDest').value=r.destinationName||'';document.getElementById('editRouteDist').value=r.distanceKm||0;document.getElementById('editRouteModal').classList.remove('hidden');}
-        function closeEditRouteModal(){document.getElementById('editRouteModal').classList.add('hidden');}
-        async function saveRouteEdit(e){e.preventDefault();const id=document.getElementById('editRouteId').value;const name=document.getElementById('editRouteName').value.trim();const originName=document.getElementById('editRouteOrigin').value.trim();const destinationName=document.getElementById('editRouteDest').value.trim();const distanceKm=parseFloat(document.getElementById('editRouteDist').value);if(!name||!originName||!destinationName)return toast('Fill all fields','error');try{await apiPut(`${API_BASE}/routes/${id}`,{name,originName,destinationName,distanceKm});toast('Route updated');closeEditRouteModal();await refreshData();}catch{toast('Failed to update route','error');}}
-        async function deleteRoute(id){if(!confirm('Are you sure you want to deactivate this route?'))return;try{await apiDelete(`${API_BASE}/routes/${id}`);toast('Route deactivated','info');await refreshData();}catch{toast('Failed to delete route','error');}}
-
-        function renderRoutes(){const container=document.getElementById('routesList');document.getElementById('routeCount').textContent=`${state.routes.length} route(s)`;if(state.routes.length===0){container.innerHTML='<div class="p-6 text-center text-text-secondary text-sm">No routes yet.</div>';return;}
-        container.innerHTML=state.routes.map(r=>`<div class="p-4 hover:bg-surface-2/50 transition-colors"><div class="flex items-start justify-between"><div class="flex-1 min-w-0"><div class="flex items-center gap-2"><h4 class="text-sm font-semibold">${escapeHtml(r.name)}</h4><span class="text-[10px] text-text-tertiary font-mono">${r.distanceKm||0} km</span></div><p class="text-xs text-text-secondary mt-0.5">${escapeHtml(r.originName)} → ${escapeHtml(r.destinationName)}</p></div><div class="flex items-center gap-1.5 flex-shrink-0 ml-3"><button onclick="editRoute('${r.id}')" class="btn btn-ghost p-1.5" title="Edit"><span class="material-symbols-outlined" style="font-size:16px">edit</span></button><button onclick="deleteRoute('${r.id}')" class="btn btn-ghost p-1.5 text-error hover:bg-error-subtle" title="Delete"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button></div></div>${r.virtualStops&&r.virtualStops.length>0?`<div class="flex flex-wrap gap-1.5 mt-2">${r.virtualStops.map(s=>`<span class="text-[10px] px-2 py-0.5 rounded-full bg-surface-2 border border-border text-text-secondary">${escapeHtml(s.name)}</span>`).join('')}</div>`:''}</div>`).join('');
+        // ── SCHEDULED RIDES (rider-initiated, group/on-demand model) ─
+        // Routes are gone from the admin surface entirely — this now reflects
+        // real ScheduledRideIntent rows (pickup+destination, no fixed route).
+        async function loadScheduledData(){
+            try{
+                const res=await apiGet(`${API_BASE}/analytics/scheduled`);
+                const d=res.data||res;
+                renderScheduledStats(d.counts||{});
+                renderSchedules(d.upcoming||[]);
+            }catch{toast('Failed to load scheduled rides','error');}
         }
 
-        // ── SCHEDULES ──────────────────────────────────────────────
-        async function createSchedule(e){e.preventDefault();const routeId=document.getElementById('schedRoute').value;const tier=document.getElementById('schedTier').value;const maxSeats=parseInt(document.getElementById('schedMaxSeats').value);const departureTime=document.getElementById('schedTime').value;const daysStr=document.getElementById('schedDays').value.trim();if(!routeId||!departureTime)return toast('Fill all required fields','error');const daysArr=daysStr.split(',').map(d=>({'MON':0,'TUE':1,'WED':2,'THU':3,'FRI':4,'SAT':5,'SUN':6}[d.trim().toUpperCase()])).filter(d=>d!==undefined);try{await apiPost(`${API_BASE}/pulse-schedules`,{routeId,tier,maxSeats,departureTime,daysOfWeek:JSON.stringify(daysArr.length>0?daysArr:[1,2,3,4,5])});toast('Schedule created');document.getElementById('scheduleForm').reset();await refreshData();}catch{toast('Failed to create schedule','error');}}
-
-        function renderSchedules(){const tbody=document.getElementById('schedulesBody');if(state.schedules.length===0){tbody.innerHTML='<tr><td colspan="6" class="text-center text-text-secondary py-8">No pulse schedules yet.</td></tr>';return;}
-        tbody.innerHTML=state.schedules.map(s=>{const route=state.routes.find(r=>r.id===s.routeId);let daysLabel='Weekdays';try{const days=typeof s.daysOfWeek==='string'?JSON.parse(s.daysOfWeek):s.daysOfWeek||[];const map=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];daysLabel=days.map(d=>map[d]).filter(Boolean).join(', ');}catch{daysLabel=s.daysOfWeek||'Weekdays';}return `<tr><td class="font-medium">${escapeHtml(route?.name||'Unknown')}</td><td>${getStatusBadge(s.tier)}</td><td class="font-mono text-sm">${s.departureTime||'--'}</td><td class="text-sm">${s.maxSeats||'--'}</td><td class="text-xs text-text-secondary">${daysLabel}</td><td class="text-right"><button onclick="deleteSchedule('${s.id}')" class="btn btn-ghost p-1.5 text-error hover:bg-error-subtle" title="Delete schedule"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button></td></tr>`;}).join('');
+        function renderScheduledStats(counts){
+            document.getElementById('schedStatUpcoming').textContent=(counts.pending||0)+(counts.dispatched||0);
+            document.getElementById('schedStatMatched').textContent=counts.matched||0;
+            document.getElementById('schedStatUnmatched').textContent=counts.pending||0;
+            document.getElementById('schedStatCompletedToday').textContent=counts.matched||0;
         }
 
-        // Delete a pulse schedule (backend previously had create/list but no delete —
-        // a bad schedule kept generating trips forever).
-        async function deleteSchedule(id){if(!confirm('Delete this pulse schedule? Future trips will no longer be generated from it.'))return;try{await apiDelete(`${API_BASE}/pulse-schedules/${id}`);toast('Schedule deleted','info');await refreshData();}catch{toast('Failed to delete schedule','error');}}
+        function renderSchedules(upcoming){
+            const tbody=document.getElementById('schedulesBody');
+            document.getElementById('schedCount').textContent=`${upcoming.length} upcoming`;
+            if(upcoming.length===0){tbody.innerHTML='<tr><td colspan="6" class="text-center text-text-secondary py-8">No upcoming scheduled rides.</td></tr>';return;}
+            tbody.innerHTML=upcoming.map(s=>`<tr><td class="font-medium text-sm">${escapeHtml(s.rider?.name||'--')}</td><td class="text-xs text-text-secondary">${escapeHtml(s.pickup?.name||'--')}</td><td class="text-xs text-text-secondary">${escapeHtml(s.destination?.name||'--')}</td><td class="font-mono text-sm">${formatDateTime(s.scheduledAt)}</td><td class="text-sm">${s.seatCount||1}</td><td>${getStatusBadge(s.status)}</td></tr>`).join('');
+        }
 
         // ── SAFETY (SOS events + driver trip reports) ─────────────
         // SOS events are written by rider SOS, driver SOS, and the passenger
@@ -1538,12 +1569,21 @@
         async function loadSafetyData(){
             try{
                 const unresolved=state.sosFilter==='unresolved';
-                const [sosRes,reportsRes]=await Promise.allSettled([
+                const [sosRes,reportsRes,statsRes]=await Promise.allSettled([
                     apiGet(`${API_BASE}/sos-events?limit=50${unresolved?'&unresolvedOnly=true':''}`),
                     apiGet(`${API_BASE}/trip-reports?limit=50`),
+                    apiGet(`${API_BASE}/analytics/safety`),
                 ]);
                 if(sosRes.status==='fulfilled'){state.sosEvents=sosRes.value.data?.events||[];if(unresolved)updateSosBadge(sosRes.value.data?.total||0);}
                 if(reportsRes.status==='fulfilled')state.tripReports=reportsRes.value.data?.reports||[];
+                if(statsRes.status==='fulfilled'){
+                    const s=statsRes.value.data||statsRes.value;
+                    document.getElementById('safStatUnresolvedSos').textContent=s.unresolvedSosEvents||0;
+                    document.getElementById('safStatTotalSos').textContent=s.totalSosEvents||0;
+                    document.getElementById('safStatAvgResolution').textContent=`${s.avgResolutionMinutes||0} min`;
+                    document.getElementById('safStatUnresolvedReports').textContent=s.unresolvedTripReports||0;
+                    bars('safSosBars', (s.sosByDay||[]).map(x=>({date:x.date,value:x.value})), 'bg-error');
+                }
                 renderSafety();
             }catch{toast('Failed to load safety data','error');}
         }

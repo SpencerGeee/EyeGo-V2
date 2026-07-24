@@ -830,10 +830,13 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
   });
 }
 
-async function scheduleTrip(userId, { routeId, scheduledAt, seatCount = 1 }) {
-  const route = await prisma.route.findUnique({ where: { id: routeId } });
-  if (!route) throw new NotFoundError('Route');
-
+// Group/on-demand pivot: riders no longer pick a fixed Route — they give a
+// pickup point + free-text (or map-picked) destination, same as the on-demand
+// request flow. ScheduledRideIntent.routeId is still a required FK (DB schema
+// kept internal-only per the pivot), so we transparently create an ad-hoc,
+// non-searchable Route row here — mirroring trip-request.service's
+// acceptTripRequest — instead of asking the rider to select one.
+async function scheduleTrip(userId, { destination, scheduledAt, seatCount = 1, pickupLat, pickupLng, destLat, destLng, pickupName }) {
   const departureTime = new Date(scheduledAt);
   if (isNaN(departureTime.getTime())) throw new AppError('Invalid scheduledAt date', 400);
   if (departureTime <= new Date()) throw new AppError('Scheduled time must be in the future', 400);
@@ -844,37 +847,55 @@ async function scheduleTrip(userId, { routeId, scheduledAt, seatCount = 1 }) {
     throw new AppError('Trips can only be scheduled up to 30 days in advance', 400, 'SCHEDULE_TOO_FAR_OUT');
   }
 
-  // Check user doesn't already have a scheduled booking OR a pending scheduled-ride
-  // intent for the same route/time window (±30 min). This flow only ever writes to
-  // ScheduledRideIntent, so both tables must be checked — a Booking-only check never
-  // actually blocks a repeat schedule attempt.
+  if (pickupLat == null || pickupLng == null) {
+    throw new AppError('A pickup location is required to schedule a ride', 400, 'MISSING_PICKUP_COORDS');
+  }
+
+  let resolvedDestLat = destLat;
+  let resolvedDestLng = destLng;
+  if (resolvedDestLat == null || resolvedDestLng == null) {
+    const mapboxService = require('../../services/mapbox.service');
+    const geo = await mapboxService.forwardGeocode(destination).catch(() => null)
+      ?? await mapboxService.nominatimForwardGeocode(destination).catch(() => null);
+    if (geo) { resolvedDestLat = geo.lat; resolvedDestLng = geo.lng; }
+  }
+  if (resolvedDestLat == null || resolvedDestLng == null) {
+    throw new AppError(
+      `Could not determine a location for "${destination}". Please pick a destination on the map and try again.`,
+      400,
+      'MISSING_DEST_COORDS',
+    );
+  }
+
+  // Check user doesn't already have a pending scheduled-ride intent in the same
+  // time window (±30 min). Each intent now owns its own ad-hoc route, so this can
+  // no longer be scoped by routeId — scope by rider + time instead.
   const windowStart = new Date(departureTime.getTime() - 30 * 60 * 1000);
   const windowEnd   = new Date(departureTime.getTime() + 30 * 60 * 1000);
-  const [existingBooking, existingIntent] = await Promise.all([
-    prisma.booking.findFirst({
-      where: {
-        userId,
-        status: { in: ['PENDING', 'CONFIRMED', 'SEAT_HELD'] },
-        trip: { routeId, departureTime: { gte: windowStart, lte: windowEnd } },
-      },
-    }),
-    prisma.scheduledRideIntent.findFirst({
-      where: {
-        userId,
-        routeId,
-        status: 'PENDING',
-        scheduledAt: { gte: windowStart, lte: windowEnd },
-      },
-    }),
-  ]);
-  if (existingBooking || existingIntent) {
-    throw new AppError('You already have a booking or scheduled ride on this route around that time', 409, 'DUPLICATE_SCHEDULE');
+  const existingIntent = await prisma.scheduledRideIntent.findFirst({
+    where: { userId, status: 'PENDING', scheduledAt: { gte: windowStart, lte: windowEnd } },
+  });
+  if (existingIntent) {
+    throw new AppError('You already have a scheduled ride around that time', 409, 'DUPLICATE_SCHEDULE');
   }
+
+  const distanceKm = Math.max(haversineKm(pickupLat, pickupLng, resolvedDestLat, resolvedDestLng), 1);
+  const route = await prisma.route.create({
+    data: {
+      name: `Scheduled: ${destination}`.slice(0, 120),
+      originName: (pickupName || 'Pickup location').slice(0, 120),
+      destinationName: destination,
+      originLat: pickupLat, originLng: pickupLng,
+      destLat: resolvedDestLat, destLng: resolvedDestLng,
+      distanceKm,
+      isActive: false, // ad-hoc route for this scheduled intent only, not publicly searchable
+    },
+  });
 
   const scheduledIntent = await prisma.scheduledRideIntent.create({
     data: {
       userId,
-      routeId,
+      routeId: route.id,
       scheduledAt: departureTime,
       seatCount,
       status: 'PENDING',
@@ -1044,6 +1065,42 @@ async function processScheduledRideIntents() {
             `A seat has been booked for your ${intent.route.destinationName} trip.`,
             { type: 'SCHEDULE_MATCHED', tripId: candidateTrip.id },
           ).catch(() => {});
+        }
+
+        // ── Ahead-of-time driver reminder ────────────────────────────
+        // Tell the matched trip's driver a scheduled rider is joining, with the
+        // departure time + pickup location, so they know to be there. Delivered
+        // both as a live socket event (trip:scheduled_reminder) and FCM, since
+        // the reminder may fire while the app is backgrounded.
+        try {
+          const driver = await prisma.driver.findUnique({
+            where: { id: candidateTrip.driverId },
+            select: { fcmToken: true },
+          });
+          const reminderPayload = {
+            tripId: candidateTrip.id,
+            kind: 'SCHEDULED',
+            routeOrigin: intent.route.originName,
+            routeDestination: intent.route.destinationName,
+            departureTime: candidateTrip.departureTime?.toISOString?.() ?? null,
+            seatCount: intent.seatCount,
+            pickupLat: intent.route.originLat,
+            pickupLng: intent.route.originLng,
+          };
+          try {
+            const io = require('../../app').get('io');
+            if (io) io.of('/driver').to(`driver:${candidateTrip.driverId}`).emit('trip:scheduled_reminder', reminderPayload);
+          } catch (_) { /* socket layer optional */ }
+          if (driver?.fcmToken) {
+            await pushService.sendPush(
+              driver.fcmToken,
+              'Scheduled rider joining',
+              `A rider joins your ${intent.route.destinationName} trip. Pickup at ${intent.route.originName}.`,
+              { type: 'SCHEDULED_REMINDER', tripId: candidateTrip.id },
+            ).catch(() => {});
+          }
+        } catch (remErr) {
+          logger.warn('Scheduled-ride driver reminder failed (non-blocking):', remErr.message);
         }
         logger.info('Scheduled ride matched to existing trip', { intentId: intent.id, tripId: candidateTrip.id });
       } else {

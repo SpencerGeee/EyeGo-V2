@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -15,12 +15,13 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
+import { useRideStore } from '../../stores/ride.store';
 
 type FilterTab = 'trips' | 'alerts' | 'scheduled';
 
@@ -138,6 +139,66 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
       )}
     </Pressable>
     </MorphSource>
+  );
+}
+
+// Live card for a pending/dispatched on-demand trip request — polls status
+// and clears itself from ride.store once matched or cancelled/expired
+// (mirrors home.tsx's "home-active-ride" bento card treatment, in the green
+// palette used for other in-flight-state surfaces).
+function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnType<typeof makeStyles> }) {
+  const router = useRouter();
+  const { pendingTripRequestId, pendingTripRequestDestination, setPendingTripRequest } = useRideStore();
+
+  const { data } = useQuery({
+    queryKey: ['trips', 'request-status', pendingTripRequestId],
+    queryFn: () => tripsApi.getTripRequest(pendingTripRequestId!),
+    enabled: !!pendingTripRequestId,
+    refetchInterval: 4000,
+  });
+
+  const req = (data as any)?.data?.data;
+
+  useEffect(() => {
+    if (!req) return;
+    if (req.status === 'ACCEPTED' && req.matchedTripId) {
+      setPendingTripRequest(null);
+      router.push(`/ride/${req.matchedTripId}/tracking` as any);
+    } else if (req.status === 'CANCELLED') {
+      setPendingTripRequest(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [req?.status, req?.matchedTripId]);
+
+  if (!pendingTripRequestId) return null;
+
+  return (
+    <GradientGlowBorder
+      palette="green"
+      fillColor={colors.surfaceCard}
+      borderRadius={radii.xl}
+      glow
+      style={styles.liveRequestCard}
+    >
+      <Pressable
+        onPress={() => {
+          Haptics.selectionAsync();
+          router.push({ pathname: '/trip', params: { stage: 'request', resumeRequestId: pendingTripRequestId } } as any);
+        }}
+      >
+        <View style={styles.liveDotWrap}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveLabel}>REQUESTING A TRIP</Text>
+        </View>
+        <View style={styles.liveDestRow}>
+          <Ionicons name="navigate-outline" size={16} color={colors.tierComfort} />
+          <Text style={styles.liveDestText} numberOfLines={1}>
+            {pendingTripRequestDestination ?? 'Your destination'}
+          </Text>
+        </View>
+        <Text style={styles.liveStatus}>Looking for a nearby driver — tap to view</Text>
+      </Pressable>
+    </GradientGlowBorder>
   );
 }
 
@@ -533,6 +594,7 @@ export default function ActivityScreen() {
               <NotificationItem notification={item.data} colors={colors} styles={styles} />
             )
           }
+          ListHeaderComponent={filter === 'trips' ? <LiveRequestCard colors={colors} styles={styles} /> : undefined}
           ItemSeparatorComponent={ItemSeparator}
           contentContainerStyle={{
             paddingHorizontal: spacing.lg,
@@ -721,6 +783,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurface,
     letterSpacing: -0.3,
   },
+  liveRequestCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  liveDotWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.primary },
+  liveLabel: { fontFamily: fonts.semiBold, fontSize: 10, letterSpacing: 0.8, color: colors.onSurfaceVariant },
+  liveDestRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  liveDestText: { flex: 1, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
+  liveStatus: { fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurfaceVariant },
   center: {
     flex: 1,
     alignItems: 'center',

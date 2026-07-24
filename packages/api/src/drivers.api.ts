@@ -128,6 +128,37 @@ export interface DriverTrip {
   createdAt: string;
 }
 
+// ── Dispatch reliability: poll fallback for missed socket/FCM dispatch ────────
+// A nearby on-demand rider request the driver can accept (first-come). Mirrors
+// the `trip:assigned` socket payload so the dispatch screen params are identical
+// whether the request arrived via socket, FCM, or this poll fallback.
+export interface PendingTripRequest {
+  tripId: string;
+  kind: 'REQUEST';
+  routeOrigin: string;
+  routeDestination: string;
+  departureTime: string;
+  seatCount: number;
+  pickupLat: number;
+  pickupLng: number;
+}
+
+// An upcoming scheduled ride already owned by this driver — surfaced so the
+// driver knows about rides ahead of time.
+export interface UpcomingScheduledTrip {
+  tripId: string;
+  kind: 'SCHEDULED';
+  status: string;
+  routeOrigin: string;
+  routeDestination: string;
+  departureTime: string;
+  seatCount: number;
+  confirmedSeats: number;
+  bookedSeats: number;
+  pickupLat: number;
+  pickupLng: number;
+}
+
 export const driverApi = {
   // Profile
   getMe: () =>
@@ -214,6 +245,17 @@ export const driverApi = {
   // On-demand trip requests — first driver to accept becomes the owning driver
   acceptTripRequest: (requestId: string) =>
     apiClient.post<ApiResponse<{ trip: DriverTrip }>>(`/driver/trip-requests/${requestId}/accept`),
+
+  // Dispatch reliability POLL fallback — PENDING/DISPATCHED requests <5min old
+  // within 8km of the driver, in case the live socket/FCM dispatch was missed.
+  getPendingTripRequests: (lat?: number, lng?: number) =>
+    apiClient.get<ApiResponse<{ requests: PendingTripRequest[] }>>('/driver/trip-requests/pending', {
+      params: lat != null && lng != null ? { lat, lng } : undefined,
+    }),
+
+  // Upcoming scheduled rides owned by this driver (scheduled awareness).
+  getUpcomingScheduled: () =>
+    apiClient.get<ApiResponse<{ scheduled: UpcomingScheduledTrip[] }>>('/driver/scheduled/upcoming'),
 
   // Push notifications — register/update FCM device token.
   // Backend validates body('fcmToken') (drivers.routes.js) — sending { token }

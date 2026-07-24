@@ -107,7 +107,13 @@ async function start() {
     // dispatch request) as their scheduled time approaches. Previously nothing
     // ever read this table after creation.
     const tripsService = require('./modules/trips/trips.service');
+    // Overlap guard: a slow sweep (many due intents, each dispatching to nearby
+    // drivers) must never be re-entered by the next tick, or the same intent
+    // could be double-dispatched.
+    let scheduledRideSweepRunning = false;
     const runScheduledRideDispatch = async () => {
+      if (scheduledRideSweepRunning) return;
+      scheduledRideSweepRunning = true;
       try {
         const { processed } = await tripsService.processScheduledRideIntents();
         if (processed > 0) {
@@ -115,10 +121,15 @@ async function start() {
         }
       } catch (err) {
         logger.warn('Scheduled ride dispatch sweep failed (non-blocking):', err.message);
+      } finally {
+        scheduledRideSweepRunning = false;
       }
     };
-    setImmediate(runScheduledRideDispatch);
-    setInterval(runScheduledRideDispatch, 2 * 60 * 1000);
+    // Skip the whole worker under test to avoid touching the DB / spawning timers.
+    if (env.NODE_ENV !== 'test') {
+      setImmediate(runScheduledRideDispatch);
+      setInterval(runScheduledRideDispatch, 60 * 1000);
+    }
 
     // ── Unanswered dispatch offer expiry ─────────────────────────────
     // Admin's assignDriverToTrip sets a trip to FILLING with a driver-facing

@@ -51,7 +51,7 @@ export default function ReserveScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { setScheduledTime, selectedTrip } = useRideStore();
+  const { setScheduledTime, selectedTrip, origin, destination } = useRideStore();
 
   const dates = useMemo(() => generateDates(), []);
   const timeSlots = useMemo(() => generateTimeSlots(), []);
@@ -59,17 +59,22 @@ export default function ReserveScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(dates[0]);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
-  // A route is known only when the rider already picked a trip. The schedule
-  // endpoint creates a ScheduledRideIntent which requires a routeId; without
-  // one (entry from pre-search) we can only store the time as a search filter.
-  const routeId: string | undefined = (selectedTrip as any)?.route?.id ?? (selectedTrip as any)?.routeId;
-
+  // Group/on-demand model: scheduling only needs a pickup point + destination,
+  // not a pre-existing route. Pull those from the search-flow origin/destination
+  // (set on the map/search screen), falling back to a previously selected trip's
+  // fields if the rider arrived here from a trip result instead.
   const trip = selectedTrip as any;
-  const pickup =
-    trip?.pickupLocation?.name ?? trip?.route?.originName ?? 'Your pickup point';
-  const dropoff =
-    trip?.dropoffLocation?.name ?? trip?.route?.destinationName ?? 'Your destination';
+  const pickupLat = origin?.latitude ?? trip?.pickupLat ?? trip?.route?.originLat;
+  const pickupLng = origin?.longitude ?? trip?.pickupLng ?? trip?.route?.originLng;
+  const destLat = destination?.latitude ?? trip?.destLat ?? trip?.route?.destLat;
+  const destLng = destination?.longitude ?? trip?.destLng ?? trip?.route?.destLng;
+  const destinationText =
+    destination?.address ?? trip?.dropoffLocation?.name ?? trip?.route?.destinationName ?? '';
+
+  const pickup = origin?.address ?? trip?.pickupLocation?.name ?? trip?.route?.originName ?? 'Your pickup point';
+  const dropoff = destinationText || 'Your destination';
   const fare = trip?.fareAmount ?? trip?.price ?? 0;
+  const canSchedule = pickupLat != null && pickupLng != null && !!destinationText;
 
   // Build the concrete pickup Date from the selected day + slot.
   const buildScheduledDate = (): Date | null => {
@@ -91,13 +96,22 @@ export default function ReserveScreen() {
 
   const scheduleMutation = useMutation({
     mutationFn: (scheduledAt: string) =>
-      tripsApi.schedule({ routeId: routeId as string, scheduledAt, seatCount: 1 }),
+      tripsApi.schedule({
+        destination: destinationText,
+        scheduledAt,
+        seatCount: 1,
+        pickupLat: pickupLat as number,
+        pickupLng: pickupLng as number,
+        destLat: destLat ?? undefined,
+        destLng: destLng ?? undefined,
+        pickupName: pickup,
+      }),
     onSuccess: (_res, scheduledAt) => {
       setScheduledTime(scheduledAt);
       router.replace('/scheduled-rides' as any);
     },
     onError: (err) => {
-      captureException(err, { screen: 'reserve', action: 'schedule', routeId });
+      captureException(err, { screen: 'reserve', action: 'schedule' });
       const msg = (err as any)?.response?.data?.message ?? 'Could not schedule your ride. Please try again.';
       Alert.alert('Scheduling failed', msg);
     },
@@ -112,14 +126,10 @@ export default function ReserveScreen() {
     }
     const iso = scheduledDate.toISOString();
 
-    if (routeId) {
-      // Route known → create a real scheduled-ride intent on the backend.
+    if (canSchedule) {
       scheduleMutation.mutate(iso);
     } else {
-      // Pre-search flow → store the time as a client-side search preference.
-      // select.tsx reads scheduledTime as a display label and search filter.
-      setScheduledTime(iso);
-      router.back();
+      Alert.alert('Missing pickup or destination', 'Please set a pickup point and destination before scheduling.');
     }
   };
 
@@ -264,10 +274,10 @@ export default function ReserveScreen() {
         </View>
         <Pressable
           onPress={handleSchedule}
-          disabled={!selectedTime || isScheduling}
+          disabled={!selectedTime || !canSchedule || isScheduling}
           style={({ pressed }) => [
             styles.confirmBtn,
-            (!selectedTime || isScheduling) && { opacity: 0.5 },
+            (!selectedTime || !canSchedule || isScheduling) && { opacity: 0.5 },
             pressed && { transform: [{ scale: 0.98 }] },
           ]}
         >

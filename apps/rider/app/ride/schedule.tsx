@@ -11,12 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text, GlassCard, Button, GlowSearchInput, AnimatedFareText } from '@eyego/ui';
+import { Text, GlassCard, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
-import { apiClient, routesApi, tripsApi } from '@eyego/api';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { tripsApi } from '@eyego/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 
@@ -24,16 +23,6 @@ interface PickedLocation {
   lat: number;
   lng: number;
   address: string;
-}
-
-// Route shape returned by routesApi.getAll (subset we render here).
-interface ScheduleRoute {
-  id: string;
-  name?: string;
-  originName?: string;
-  destinationName?: string;
-  price?: number;
-  estimatedMinutes?: number;
 }
 
 function getMinDate() {
@@ -57,22 +46,18 @@ export default function ScheduleRideScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
-  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [seatCount, setSeatCount] = useState(1);
   const [selectedDate, setSelectedDate] = useState<Date>(getMinDate());
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(getMinDate());
-  const [requestMode, setRequestMode] = useState(false);
   const [requestPickup, setRequestPickup] = useState<PickedLocation | null>(null);
   const [requestDest, setRequestDest] = useState<PickedLocation | null>(null);
-  const [search, setSearch] = useState('');
   const pickingFieldRef = useRef<'pickup' | 'dest' | null>(null);
 
-  // Default pickup to the device's current position (same default the main
-  // on-demand request flow uses) so the rider only has to actively pick a
-  // destination — pickup stays overridable via the same map picker.
+  // Default pickup to the device's current position so the rider only has to
+  // actively pick a destination — pickup stays overridable via the map picker.
   useEffect(() => {
-    if (!requestMode || requestPickup) return;
+    if (requestPickup) return;
     (async () => {
       try {
         const Location = await import('expo-location');
@@ -84,7 +69,7 @@ export default function ScheduleRideScreen() {
         // No GPS fix — pickup stays unset; rider can still set it manually via the map picker.
       }
     })();
-  }, [requestMode, requestPickup]);
+  }, [requestPickup]);
 
   // Consume a location confirmed on the map picker screen — pickingFieldRef
   // tracks which of the two fields (pickup/dest) triggered the navigation.
@@ -114,29 +99,22 @@ export default function ScheduleRideScreen() {
     };
   }, []);
 
-  // Load available routes
-  const { data: routes, isLoading: routesLoading } = useQuery({
-    queryKey: ['routes', 'all'],
-    queryFn: routesApi.getAll,
-    select: (r) => ((r.data as any)?.data?.routes ?? []) as ScheduleRoute[],
-  });
-
-  // Client-side filter for the search field
-  const filteredRoutes = useMemo(() => {
-    if (!routes) return [];
-    const q = search.trim().toLowerCase();
-    if (!q) return routes;
-    return routes.filter((r) =>
-      [r.name, r.originName, r.destinationName].filter(Boolean).join(' ').toLowerCase().includes(q)
-    );
-  }, [routes, search]);
-
+  // Group/on-demand model: scheduling only needs a pickup point + destination
+  // (both map-picked), no route selection. Writes a real ScheduledRideIntent
+  // so it shows up on /scheduled-rides and gets picked up by the backend's
+  // scheduled-ride matching sweep (which also reminds the matched driver
+  // ahead of the departure time).
   const scheduleMutation = useMutation({
     mutationFn: () =>
-      apiClient.post('/trips/schedule', {
-        routeId: selectedRouteId,
+      tripsApi.schedule({
+        destination: requestDest!.address,
         scheduledAt: selectedDate.toISOString(),
         seatCount,
+        pickupLat: requestPickup!.lat,
+        pickupLng: requestPickup!.lng,
+        destLat: requestDest!.lat,
+        destLng: requestDest!.lng,
+        pickupName: requestPickup!.address,
       }),
     onSuccess: () => {
       if (!mountedRef.current) return;
@@ -153,53 +131,18 @@ export default function ScheduleRideScreen() {
     },
   });
 
-  const requestMutation = useMutation({
-    mutationFn: () =>
-      tripsApi.requestTrip({
-        destination: requestDest!.address,
-        scheduledAt: selectedDate.toISOString(),
-        seatCount,
-        pickupLat: requestPickup?.lat,
-        pickupLng: requestPickup?.lng,
-        destLat: requestDest!.lat,
-        destLng: requestDest!.lng,
-      }),
-    onSuccess: () => {
-      if (!mountedRef.current) return;
-      router.replace({
-        pathname: '/ride/request',
-        params: { destination: requestDest!.address, scheduledAt: selectedDate.toISOString() },
-      } as any);
-    },
-    onError: (err: any) => {
-      Alert.alert('Request Failed', err?.response?.data?.message || err?.message || 'Could not submit your trip request. Please try again.');
-    },
-  });
-
   const handleSubmit = () => {
-    if (requestMode) {
-      if (!requestDest) {
-        Alert.alert('Choose a Destination', 'Please pick where you want to go on the map.');
-        return;
-      }
-      const minDate = getMinDate();
-      if (selectedDate < minDate) {
-        Alert.alert('Invalid Time', 'Scheduled time must be at least 30 minutes from now.');
-        return;
-      }
-      requestMutation.mutate();
+    if (!requestPickup) {
+      Alert.alert('Set a Pickup Point', 'Please set where you want to be picked up.');
       return;
     }
-    if (!selectedRouteId) {
-      Alert.alert('Select a Route', 'Please choose a route to schedule.');
+    if (!requestDest) {
+      Alert.alert('Choose a Destination', 'Please pick where you want to go on the map.');
       return;
     }
     const minDate = getMinDate();
     if (selectedDate < minDate) {
-      Alert.alert(
-        'Invalid Time',
-        'Scheduled time must be at least 30 minutes from now.',
-      );
+      Alert.alert('Invalid Time', 'Scheduled time must be at least 30 minutes from now.');
       return;
     }
     scheduleMutation.mutate();
@@ -222,7 +165,7 @@ export default function ScheduleRideScreen() {
     setShowPicker(false);
   };
 
-  const isPending = scheduleMutation.isPending || requestMutation.isPending;
+  const isPending = scheduleMutation.isPending;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -241,174 +184,44 @@ export default function ScheduleRideScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        {/* ── Mode toggle ── */}
-        <View style={styles.modeRow}>
-          <Text style={styles.sectionLabel}>{requestMode ? 'NEW DESTINATION' : 'CHOOSE A ROUTE'}</Text>
-          <Pressable onPress={() => setRequestMode((m) => !m)} hitSlop={8}>
-            <Text style={styles.modeToggle}>
-              {requestMode ? '← Pick a route' : 'Request new destination'}
+        {/* ── Pickup + destination — map-picked, no fixed routes ── */}
+        <Text style={[styles.sectionLabel, { marginBottom: spacing.sm }]}>PICKUP &amp; DESTINATION</Text>
+        <View style={{ gap: spacing.sm }}>
+          <Pressable
+            style={styles.searchBar}
+            onPress={() => {
+              pickingFieldRef.current = 'pickup';
+              router.push('/profile/place-picker' as any);
+            }}
+          >
+            <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
+            <Text
+              variant="bodyLarge"
+              numberOfLines={1}
+              style={{ flex: 1, color: requestPickup ? colors.onSurface : colors.outlineVariant }}
+            >
+              {requestPickup?.address ?? 'Locating pickup…'}
             </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+          </Pressable>
+          <Pressable
+            style={styles.searchBar}
+            onPress={() => {
+              pickingFieldRef.current = 'dest';
+              router.push('/profile/place-picker' as any);
+            }}
+          >
+            <Ionicons name="navigate-outline" size={18} color={colors.primary} />
+            <Text
+              variant="bodyLarge"
+              numberOfLines={1}
+              style={{ flex: 1, color: requestDest ? colors.onSurface : colors.outlineVariant }}
+            >
+              {requestDest?.address ?? 'Choose destination on map'}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
         </View>
-
-        {requestMode ? (
-          /* ── Map-picked pickup + destination — same fixed-center-pin picker
-              used by the main "where to" flow, instead of free-text (which
-              never sent coordinates and could collapse pickup/dropoff onto
-              the same point server-side). ── */
-          <View style={{ gap: spacing.sm }}>
-            <Pressable
-              style={styles.searchBar}
-              onPress={() => {
-                pickingFieldRef.current = 'pickup';
-                router.push('/profile/place-picker' as any);
-              }}
-            >
-              <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
-              <Text
-                variant="bodyLarge"
-                numberOfLines={1}
-                style={{ flex: 1, color: requestPickup ? colors.onSurface : colors.outlineVariant }}
-              >
-                {requestPickup?.address ?? 'Locating pickup…'}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-            </Pressable>
-            <Pressable
-              style={styles.searchBar}
-              onPress={() => {
-                pickingFieldRef.current = 'dest';
-                router.push('/profile/place-picker' as any);
-              }}
-            >
-              <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-              <Text
-                variant="bodyLarge"
-                numberOfLines={1}
-                style={{ flex: 1, color: requestDest ? colors.onSurface : colors.outlineVariant }}
-              >
-                {requestDest?.address ?? 'Choose destination on map'}
-              </Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-            </Pressable>
-          </View>
-        ) : (
-          <>
-            {/* ── GlowSearchInput ── */}
-            <GlowSearchInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Search routes (e.g. Accra Mall to Madina)"
-              leftIcon={<Ionicons name="search" size={18} color={colors.outline} />}
-              rightIcon={search.length > 0 ? (
-                <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear search">
-                  <Ionicons name="close-circle" size={18} color={colors.outline} />
-                </Pressable>
-              ) : undefined}
-              containerStyle={{ marginBottom: spacing.lg }}
-            />
-
-            {/* ── Popular Routes ── */}
-            <Text style={[styles.sectionLabel, { marginBottom: spacing.sm }]}>POPULAR ROUTES</Text>
-
-            {routesLoading ? (
-              <GlassCard style={styles.placeholderCard}>
-                <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>Loading routes…</Text>
-              </GlassCard>
-            ) : !routes || routes.length === 0 ? (
-              <Pressable onPress={() => setRequestMode(true)} style={styles.requestPromptCard}>
-                <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
-                <Text variant="bodySmall" style={{ color: colors.primary, flex: 1 }}>
-                  No routes available yet. Tap to request a trip to your destination — we'll find a driver.
-                </Text>
-                <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-              </Pressable>
-            ) : filteredRoutes.length === 0 ? (
-              <GlassCard style={styles.placeholderCard}>
-                <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant }}>
-                  No routes match "{search}".
-                </Text>
-              </GlassCard>
-            ) : (
-              <View style={{ gap: spacing.sm }}>
-                {filteredRoutes.map((route) => {
-                  const selected = route.id === selectedRouteId;
-                  const origin = route.originName ?? route.name ?? 'Origin';
-                  const dest = route.destinationName ?? 'Destination';
-                  return (
-                    <Pressable
-                      key={route.id}
-                      onPress={() => setSelectedRouteId(route.id)}
-                      accessibilityRole="radio"
-                      accessibilityState={{ selected }}
-                    >
-                      <GlassCard
-                        style={selected
-                          ? { ...styles.routeCard, ...styles.routeCardSelected }
-                          : styles.routeCard}
-                      >
-                        {/* Selected top gradient */}
-                        {selected && (
-                          <LinearGradient
-                            colors={[withOpacity(colors.primary, 0.06), 'transparent']}
-                            style={StyleSheet.absoluteFillObject}
-                            pointerEvents="none"
-                          />
-                        )}
-                        <View style={styles.routeBody}>
-                          {/* Origin */}
-                          <View style={styles.routeRow}>
-                            <View style={[styles.originDot, selected && styles.originDotActive]} />
-                            <Text
-                              variant="bodyLarge"
-                              numberOfLines={1}
-                              style={{ color: selected ? colors.onSurface : colors.onSurfaceVariant, flex: 1 }}
-                            >
-                              {origin}
-                            </Text>
-                          </View>
-                          <View style={styles.routeConnector} />
-                          {/* Destination */}
-                          <View style={styles.routeRow}>
-                            <Ionicons
-                              name="location"
-                              size={14}
-                              color={selected ? colors.tierComfort : colors.outline}
-                              style={selected ? { color: colors.tierComfort } : undefined}
-                            />
-                            <Text
-                              variant="bodyLarge"
-                              numberOfLines={1}
-                              style={{ color: selected ? colors.onSurface : colors.onSurfaceVariant, flex: 1 }}
-                            >
-                              {dest}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={styles.routeMeta}>
-                          {typeof route.price === 'number' ? (
-                            <AnimatedFareText
-                              value={route.price}
-                              prefix="₵"
-                              variant={selected ? 'fareMedium' : 'fareInline'}
-                              color={selected ? colors.primary : colors.onSurfaceVariant}
-                              shiny={selected}
-                            />
-                          ) : null}
-                          <View style={[styles.etaPill, selected && styles.etaPillSelected]}>
-                            <Text style={[styles.etaText, selected && styles.etaTextSelected]}>
-                              {route.estimatedMinutes ? `Est. ${route.estimatedMinutes} min` : 'Est. ride'}
-                            </Text>
-                          </View>
-                        </View>
-                      </GlassCard>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-          </>
-        )}
 
         {/* ── Seats ── */}
         <Text style={[styles.sectionLabel, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>SEATS</Text>
@@ -469,22 +282,12 @@ export default function ScheduleRideScreen() {
         <GlassCard sheet style={styles.footerSheet}>
           <View style={styles.footerSheetInner}>
             <Button
-              label={
-                requestMode
-                  ? (requestMutation.isPending ? 'Requesting…' : 'Request Trip')
-                  : (scheduleMutation.isPending ? 'Scheduling…' : 'Confirm Schedule')
-              }
+              label={scheduleMutation.isPending ? 'Scheduling…' : 'Confirm Schedule'}
               onPress={handleSubmit}
               disabled={isPending}
               loading={isPending}
               variant="glow"
-              icon={
-                <Ionicons
-                  name={requestMode ? 'navigate' : 'calendar'}
-                  size={20}
-                  color={colors.onSurface}
-                />
-              }
+              icon={<Ionicons name="calendar" size={20} color={colors.onSurface} />}
             />
           </View>
         </GlassCard>

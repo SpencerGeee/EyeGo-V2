@@ -975,6 +975,80 @@ async function getNotifications(driverId, limit = 30) {
   return { notifications: notifications.slice(0, take) };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// PENDING TRIP-REQUEST POLL FALLBACK
+// Socket/FCM dispatch is fire-and-forget and racy; this REST endpoint lets the
+// driver app reliably POLL for on-demand requests it may be eligible for.
+// ─────────────────────────────────────────────────────────────────
+async function getPendingTripRequests(driverId, { lat, lng } = {}) {
+  const { haversineKm } = require('../trips/fare.calculator');
+  const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 8;
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+  const requests = await prisma.tripRequest.findMany({
+    where: {
+      status: { in: ['PENDING', 'DISPATCHED'] },
+      createdAt: { gte: fiveMinAgo },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    include: { user: { select: { name: true } } },
+  });
+
+  const hasCoords = typeof lat === 'number' && typeof lng === 'number' && !Number.isNaN(lat) && !Number.isNaN(lng);
+
+  return requests
+    .filter((r) => {
+      if (!hasCoords) return true; // no driver coords → return all recent pending
+      if (r.pickupLat == null || r.pickupLng == null) return true; // can't filter → include
+      return haversineKm(lat, lng, r.pickupLat, r.pickupLng) <= DISPATCH_RADIUS_KM;
+    })
+    .map((r) => ({
+      tripId: r.id, // this is the tripRequest id — accept via /trip-requests/:id/accept
+      kind: 'REQUEST',
+      routeOrigin: r.user?.name ? `${r.user.name}'s pickup` : 'Rider pickup',
+      routeDestination: r.destination,
+      departureTime: r.scheduledAt,
+      seatCount: r.seatCount,
+      pickupLat: r.pickupLat,
+      pickupLng: r.pickupLng,
+    }));
+}
+
+// Upcoming scheduled trips this driver is matched to (their own SCHEDULED/FILLING
+// trips with a future departure). ScheduledRideIntent has no driver link until it
+// is matched onto a Trip, so driver-facing "scheduled awareness" is the trips the
+// driver owns that haven't departed yet.
+async function getUpcomingScheduledTrips(driverId) {
+  const trips = await prisma.trip.findMany({
+    where: {
+      driverId,
+      status: { in: ['SCHEDULED', 'FILLING'] },
+      departureTime: { gte: new Date() },
+    },
+    orderBy: { departureTime: 'asc' },
+    take: 50,
+    include: {
+      route: { select: { originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
+      _count: { select: { bookings: { where: { status: { notIn: ['CANCELLED'] } } } } },
+    },
+  });
+
+  return trips.map((t) => ({
+    tripId: t.id,
+    kind: 'SCHEDULED',
+    status: t.status,
+    routeOrigin: t.route?.originName ?? null,
+    routeDestination: t.route?.destinationName ?? null,
+    departureTime: t.departureTime,
+    seatCount: t.maxSeats,
+    confirmedSeats: t.confirmedSeats,
+    bookedSeats: t._count.bookings,
+    pickupLat: t.pickupLat ?? t.route?.originLat ?? null,
+    pickupLng: t.pickupLng ?? t.route?.originLng ?? null,
+  }));
+}
+
 module.exports = {
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
@@ -989,6 +1063,7 @@ module.exports = {
   getSupportTickets, createSupportTicket, replyToTicket,
   scheduleInspection, getInspections,
   deleteMe, reportTrip,
+  getPendingTripRequests, getUpcomingScheduledTrips,
 };
 
 // ── Rate passenger (driver rates rider after trip) ────────────────

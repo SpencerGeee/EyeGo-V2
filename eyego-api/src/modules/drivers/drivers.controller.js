@@ -410,6 +410,19 @@ const reportTrip = async (req, res) => {
   created(res, { report }, 'Trip report submitted');
 };
 
+// ── Pending trip-request poll fallback ────────────────────────────────
+const getPendingTripRequests = async (req, res) => {
+  const lat = req.query.lat != null ? parseFloat(req.query.lat) : undefined;
+  const lng = req.query.lng != null ? parseFloat(req.query.lng) : undefined;
+  const requests = await driversService.getPendingTripRequests(req.user.userId, { lat, lng });
+  ok(res, { requests });
+};
+
+const getUpcomingScheduled = async (req, res) => {
+  const scheduled = await driversService.getUpcomingScheduledTrips(req.user.userId);
+  ok(res, { scheduled });
+};
+
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getAllTrips, devActivate,
@@ -424,4 +437,5 @@ module.exports = {
   createSupportTicket, getSupportTickets, replyToTicket,
   scheduleInspection, getInspections,
   deleteMe, reportTrip, emergencyAlert,
+  getPendingTripRequests, getUpcomingScheduled,
 };

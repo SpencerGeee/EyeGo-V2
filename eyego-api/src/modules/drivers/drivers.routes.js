@@ -56,7 +56,14 @@ router.post('/trips/:id/accept', requireActiveDriver, controller.acceptDispatch)
 router.post('/trips/:id/decline', controller.declineDispatch);
 
 // On-demand trip requests (rider "Request a Trip" flow)
+// Reliable POLL fallback for pending on-demand requests (socket/FCM dispatch is
+// racy/fire-and-forget). Registered before /:id/accept so "pending" isn't
+// treated as a request id.
+router.get('/trip-requests/pending', controller.getPendingTripRequests);
 router.post('/trip-requests/:id/accept', requireActiveDriver, controller.acceptTripRequest);
+
+// Upcoming scheduled trips this driver is matched to (scheduled-ride awareness).
+router.get('/scheduled/upcoming', controller.getUpcomingScheduled);
 
 // Offline passenger flow
 router.post(

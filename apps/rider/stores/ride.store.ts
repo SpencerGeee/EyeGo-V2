@@ -31,6 +31,12 @@ interface RideState {
   // Scheduled Ride
   scheduledTime: string | null;
 
+  // On-demand trip request currently awaiting a driver match — persisted so
+  // the Activity tab can show a live card and resume polling even if the
+  // rider leaves the "Looking for a driver" screen or restarts the app.
+  pendingTripRequestId: string | null;
+  pendingTripRequestDestination: string | null;
+
   // Tier & computed fare
   selectedTier: 'ECONOMY' | 'COMFORT' | null;
   computedFare: number | null;
@@ -48,6 +54,7 @@ interface RideState {
   setTripEta: (eta: number | null) => void;
   setGuestInfo: (info: { name: string; phone: string } | null) => void;
   setScheduledTime: (time: string | null) => void;
+  setPendingTripRequest: (id: string | null, destination?: string | null) => void;
   setSelectedTier: (tier: 'ECONOMY' | 'COMFORT', fare: number) => void;
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
@@ -66,6 +73,8 @@ export const useRideStore = create<RideState>()(
       tripEta: null,
       guestInfo: null,
       scheduledTime: null,
+      pendingTripRequestId: null,
+      pendingTripRequestDestination: null,
       selectedTier: null,
       computedFare: null,
       pendingPromoCode: null,
@@ -79,6 +88,8 @@ export const useRideStore = create<RideState>()(
       setTripEta: (eta) => set({ tripEta: eta }),
       setGuestInfo: (info) => set({ guestInfo: info }),
       setScheduledTime: (time) => set({ scheduledTime: time }),
+      setPendingTripRequest: (id, destination) =>
+        set({ pendingTripRequestId: id, pendingTripRequestDestination: id ? (destination ?? null) : null }),
       setSelectedTier: (tier, fare) => set({ selectedTier: tier, computedFare: fare }),
       setComputedFare: (fare) => set({ computedFare: fare }),
       setPendingPromoCode: (code) => set({ pendingPromoCode: code }),
@@ -94,6 +105,8 @@ export const useRideStore = create<RideState>()(
           tripEta: null,
           guestInfo: null,
           scheduledTime: null,
+          pendingTripRequestId: null,
+          pendingTripRequestDestination: null,
           selectedTier: null,
           computedFare: null,
           pendingPromoCode: null,
@@ -117,6 +130,8 @@ export const useRideStore = create<RideState>()(
         selectedTier: state.selectedTier,
         computedFare: state.computedFare,
         pendingPromoCode: state.pendingPromoCode,
+        pendingTripRequestId: state.pendingTripRequestId,
+        pendingTripRequestDestination: state.pendingTripRequestDestination,
         // guestInfo intentionally omitted — PII should not persist in AsyncStorage
       }),
     }

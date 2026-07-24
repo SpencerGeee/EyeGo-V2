@@ -21,30 +21,9 @@ const suspendDriver = async (req, res) => {
   ok(res, { driver }, 'Driver suspended');
 };
 
-const getRoutes = async (req, res) => {
-  const result = await adminService.getRoutes({ includeAdHoc: req.query.includeAdHoc === 'true' });
-  ok(res, result);
-};
-
-const createRoute = async (req, res) => {
-  const route = await adminService.createRoute(req.body);
-  created(res, { route }, 'Route created');
-};
-
-const addStops = async (req, res) => {
-  await adminService.addVirtualStops(req.params.id, req.body.stops);
-  ok(res, null, 'Stops added');
-};
-
-const updateRoute = async (req, res) => {
-  const route = await adminService.updateRoute(req.params.id, req.body);
-  ok(res, { route }, 'Route updated');
-};
-
-const deleteRoute = async (req, res) => {
-  await adminService.deleteRoute(req.params.id);
-  ok(res, null, 'Route deactivated');
-};
+// Route CRUD handlers removed in group/on-demand pivot (admin no longer
+// manages fixed routes). The underlying adminService route helpers remain for
+// internal reuse but are no longer exposed via HTTP.
 
 const getPulseSchedules = async (req, res) => {
   const schedules = await adminService.getAllPulseSchedules();
@@ -258,20 +237,47 @@ const getOtaRuns = async (req, res) => {
   ok(res, { runs });
 };
 
+// ── Analytics dashboards ─────────────────────────────────────────
+const getAnalyticsOverview = async (req, res) => {
+  const overview = await adminService.getAnalyticsOverview();
+  ok(res, overview);
+};
+
+const getAnalyticsDrivers = async (req, res) => {
+  const analytics = await adminService.getAnalyticsDrivers();
+  ok(res, analytics);
+};
+
+const getAnalyticsSafety = async (req, res) => {
+  const analytics = await adminService.getAnalyticsSafety();
+  ok(res, analytics);
+};
+
+const getAnalyticsScheduled = async (req, res) => {
+  const analytics = await adminService.getAnalyticsScheduled();
+  ok(res, analytics);
+};
+
+// ── Live driver positions (admin map) ────────────────────────────
+const getLiveDriversMap = async (req, res) => {
+  const drivers = await adminService.getLiveDriversMap();
+  ok(res, { drivers });
+};
+
 module.exports = {
   reviewDriverDocument,
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
   getMetrics, getActiveTrips, setSurge,
-  createRoute, updateRoute, deleteRoute, addStops,
   getPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getTrips, getBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips,
   getUserDetail, getUserTrips,
   getSupportTickets, getTripReports, resolveTripReport, respondToTicket, closeTicket,
-  getRoutes,
   getPromotions, createPromotion, togglePromotion,
   registerAdminFcmToken,
   getLiveDrivers, assignDriver, getUnassignedTrips,
   getSosEvents, resolveSosEvent,
   getOtaOverview, publishOta, getOtaRuns,
+  getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
+  getLiveDriversMap,
 };

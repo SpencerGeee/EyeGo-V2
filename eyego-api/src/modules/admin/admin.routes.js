@@ -33,6 +33,9 @@ router.use(adminLimiter);
 router.use(authenticateAdmin);
 
 router.get('/drivers/pending', controller.getPendingDrivers);
+// Live map: online drivers with a known GPS fix. Registered before /:id so
+// "live" is not swallowed by the :id param route.
+router.get('/drivers/live', controller.getLiveDriversMap);
 router.get('/drivers', controller.getAllDrivers);
 router.get('/drivers/:id', controller.getDriverDetail);
 router.get('/drivers/:id/trips', controller.getDriverTrips);
@@ -40,6 +43,13 @@ router.get('/users', controller.getAllUsers);
 router.get('/users/:id', controller.getUserDetail);
 router.get('/users/:id/trips', controller.getUserTrips);
 router.get('/metrics', controller.getMetrics);
+
+// ── Analytics dashboards ────────────────────────────────────────
+router.get('/analytics/overview', controller.getAnalyticsOverview);
+router.get('/analytics/drivers', controller.getAnalyticsDrivers);
+router.get('/analytics/safety', controller.getAnalyticsSafety);
+router.get('/analytics/scheduled', controller.getAnalyticsScheduled);
+
 router.get('/trips/active', controller.getActiveTrips);
 router.post('/surge/:zoneId', controller.setSurge);
 
@@ -55,11 +65,9 @@ router.post('/drivers/:id/reject', adminActionLimiter, controller.rejectDriver);
 router.post('/users/:id/ban', adminActionLimiter, controller.banUser);
 router.post('/users/:id/unban', adminActionLimiter, controller.unbanUser);
 
-router.get('/routes', controller.getRoutes);
-router.post('/routes', controller.createRoute);
-router.put('/routes/:id', controller.updateRoute);
-router.delete('/routes/:id', controller.deleteRoute);
-router.post('/routes/:id/stops', controller.addStops);
+// Route CRUD removed in group/on-demand pivot — admin no longer manages fixed
+// routes. Routes are an internal-only concept (trips reuse the Prisma Route
+// model as ad-hoc rows created during dispatch/accept).
 
 router.get('/pulse-schedules', controller.getPulseSchedules);
 router.post('/pulse-schedules', controller.createPulseSchedule);

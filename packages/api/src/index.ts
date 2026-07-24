@@ -11,7 +11,7 @@ export type { Notification as AppNotification } from './notifications.api';
 export { routesApi } from './routes.api';
 export type { Route } from './routes.api';
 export { driverApi } from './drivers.api';
-export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverRatings, DriverDocument } from './drivers.api';
+export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverRatings, DriverDocument, PendingTripRequest, UpcomingScheduledTrip } from './drivers.api';
 export { walletApi } from './wallet.api';
 export type { WalletBalance, WalletTransaction, TopUpRequest } from './wallet.api';
 export { supportTicketsApi } from './support.api';

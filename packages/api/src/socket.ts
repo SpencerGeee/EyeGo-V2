@@ -373,6 +373,14 @@ export const driverSocketEvents = {
     getDriverSocket().emit('driver:location_update', data);
   },
 
+  // Server rejected a location update (e.g. outside Ghana's geofence) — the
+  // driver silently never lands in the dispatch geo-set until this is fixed,
+  // so surface it instead of leaving "why am I not getting trips" unanswered.
+  onLocationRejected: (cb: (data: { message: string; code: string; lat: number; lng: number }) => void) => {
+    getDriverSocket().on('driver:location_rejected', cb);
+    return () => getDriverSocket().off('driver:location_rejected', cb);
+  },
+
   emitTripStarted: (tripId: string) => {
     getDriverSocket().emit('driver:trip_started', { tripId });
   },
@@ -465,6 +473,21 @@ export const driverSocketEvents = {
   }) => void) => {
     getDriverSocket().on('trip:assigned', cb);
     return () => getDriverSocket().off('trip:assigned', cb);
+  },
+
+  // Upcoming scheduled ride reminder — fired by the backend on the driver:<id>
+  // room as departure approaches, so the driver gets a heads-up notification.
+  onScheduledReminder: (cb: (data: {
+    tripId: string;
+    routeOrigin?: string;
+    routeDestination?: string;
+    departureTime: string;
+    seatCount?: number;
+    confirmedSeats?: number;
+    minutesUntilDeparture?: number;
+  }) => void) => {
+    getDriverSocket().on('trip:scheduled_reminder', cb);
+    return () => getDriverSocket().off('trip:scheduled_reminder', cb);
   },
 
   onChatHistory: (cb: (messages: ChatHistoryPayload) => void) => {
