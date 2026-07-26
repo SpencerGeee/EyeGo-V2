@@ -2,6 +2,7 @@ const Redis = require('ioredis');
 const env = require('./env');
 const logger = require('../utils/logger');
 const EventEmitter = require('events');
+const { haversineMeters } = require('../utils/geo');
 
 // In-memory fallback database
 const memoryStore = new Map();
@@ -73,6 +74,85 @@ class InMemoryRedis {
       }
     }
     return count;
+  }
+  // BUGFIX: admin FCM token registration (SOS/safety alerts) uses sadd/smembers
+  // — same "undefined called as a function" crash as geoadd/geosearch below,
+  // just discovered on a different call path (registerAdminFcmToken, and the
+  // driver-SOS / trip-request FCM broadcast that reads this set back).
+  async sadd(key, ...members) {
+    if (!memoryStore.has(key)) memoryStore.set(key, new Set());
+    const set = memoryStore.get(key);
+    if (!(set instanceof Set)) return 0;
+    let added = 0;
+    for (const m of members) {
+      if (!set.has(m)) { set.add(m); added++; }
+    }
+    return added;
+  }
+  async smembers(key) {
+    const set = memoryStore.get(key);
+    return set instanceof Set ? Array.from(set) : [];
+  }
+  // BUGFIX: dispatch (driver online geoset + rider trip-request matching)
+  // calls redis.geoadd/geosearch/georadius. Without a real Redis running,
+  // this fallback previously had none of the three — every call threw
+  // "not a function" (undefined called as a function), and since that's a
+  // synchronous throw, the .catch() chained after it at every call site
+  // never even got a chance to run. Drivers never landed in 'drivers:online'
+  // and dispatch silently matched nobody, with no visible error anywhere.
+  async geoadd(key, ...args) {
+    if (!memoryStore.has(key)) memoryStore.set(key, new Map());
+    const geoset = memoryStore.get(key);
+    if (!(geoset instanceof Map)) return 0;
+    let added = 0;
+    for (let i = 0; i + 2 < args.length; i += 3) {
+      const [lng, lat, member] = [Number(args[i]), Number(args[i + 1]), args[i + 2]];
+      if (!geoset.has(member)) added++;
+      geoset.set(member, { lng, lat });
+    }
+    return added;
+  }
+  _geoNearby(key, lng, lat, radiusKm, { order = 'ASC', count, withCoord = false } = {}) {
+    const geoset = memoryStore.get(key);
+    if (!(geoset instanceof Map)) return [];
+    const results = [];
+    for (const [member, pos] of geoset.entries()) {
+      const distKm = haversineMeters(lat, lng, pos.lat, pos.lng) / 1000;
+      if (distKm <= radiusKm) results.push({ member, distKm, pos });
+    }
+    results.sort((a, b) => (order === 'DESC' ? b.distKm - a.distKm : a.distKm - b.distKm));
+    const limited = count != null ? results.slice(0, count) : results;
+    return limited.map((r) => (withCoord ? [r.member, [r.pos.lng, r.pos.lat]] : r.member));
+  }
+  // Parses Redis 6.2+ GEOSEARCH's keyword-argument form: FROMLONLAT lng lat
+  // BYRADIUS radius unit [ASC|DESC] [COUNT n] [WITHCOORD].
+  async geosearch(key, ...args) {
+    let lng, lat, radiusKm = 0, order, count, withCoord = false;
+    for (let i = 0; i < args.length; i++) {
+      const token = String(args[i]).toUpperCase();
+      if (token === 'FROMLONLAT') { lng = Number(args[i + 1]); lat = Number(args[i + 2]); i += 2; }
+      else if (token === 'BYRADIUS') {
+        const unit = String(args[i + 2]).toLowerCase();
+        radiusKm = unit === 'm' ? Number(args[i + 1]) / 1000 : Number(args[i + 1]);
+        i += 2;
+      } else if (token === 'ASC' || token === 'DESC') { order = token; }
+      else if (token === 'COUNT') { count = Number(args[i + 1]); i += 1; }
+      else if (token === 'WITHCOORD') { withCoord = true; }
+    }
+    return this._geoNearby(key, lng, lat, radiusKm, { order, count, withCoord });
+  }
+  // Parses the legacy GEORADIUS positional form: lng lat radius unit
+  // [ASC|DESC] [COUNT n] [WITHCOORD].
+  async georadius(key, lng, lat, radius, unit, ...rest) {
+    let order, count, withCoord = false;
+    for (let i = 0; i < rest.length; i++) {
+      const token = String(rest[i]).toUpperCase();
+      if (token === 'ASC' || token === 'DESC') order = token;
+      else if (token === 'COUNT') { count = Number(rest[i + 1]); i += 1; }
+      else if (token === 'WITHCOORD') withCoord = true;
+    }
+    const radiusKm = String(unit).toLowerCase() === 'm' ? Number(radius) / 1000 : Number(radius);
+    return this._geoNearby(key, Number(lng), Number(lat), radiusKm, { order, count, withCoord });
   }
   async publish(channel, message) {
     pubSubBus.emit(channel, channel, message);
