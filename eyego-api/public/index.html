@@ -456,6 +456,12 @@
 
                 <!-- ===================== RIDERS ===================== -->
                 <div id="tab-riders" class="hidden space-y-5 animate-fade-in">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total Riders</span><p id="riderStatTotal" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Active</span><p id="riderStatActive" class="text-lg font-display font-bold mt-2 text-success">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">New / 7d</span><p id="riderStatNew" class="text-lg font-display font-bold mt-2 text-info">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total Wallet Balance</span><p id="riderStatWallet" class="text-lg font-display font-bold mt-2 text-primary">GHS 0.00</p></div>
+                    </div>
                     <div class="flex items-center justify-between">
                         <h2 class="text-sm font-display font-bold text-text-secondary">All Registered Riders</h2>
                         <div class="flex items-center gap-3">
@@ -512,6 +518,13 @@
 
                 <!-- ===================== TRIPS ===================== -->
                 <div id="tab-trips" class="hidden space-y-5 animate-fade-in">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total</span><p id="tripStatTotal" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Active</span><p id="tripStatActive" class="text-lg font-display font-bold mt-2 text-primary">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Completed</span><p id="tripStatCompleted" class="text-lg font-display font-bold mt-2 text-success">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Cancelled</span><p id="tripStatCancelled" class="text-lg font-display font-bold mt-2 text-error">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Revenue (page)</span><p id="tripStatRevenue" class="text-lg font-display font-bold mt-2">GHS 0.00</p></div>
+                    </div>
                     <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                         <div class="flex gap-1.5 p-1 rounded-lg bg-surface-2 border border-border">
                             <button class="trip-filter px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-black" data-status="" onclick="setTripFilter('')">All</button>
@@ -610,6 +623,12 @@
 
                 <!-- ===================== SUPPORT TICKETS ===================== -->
                 <div id="tab-support" class="hidden space-y-5 animate-fade-in">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Total</span><p id="ticketStatTotal" class="text-lg font-display font-bold mt-2">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Open</span><p id="ticketStatOpen" class="text-lg font-display font-bold mt-2 text-warning">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">In Progress</span><p id="ticketStatProgress" class="text-lg font-display font-bold mt-2 text-info">0</p></div>
+                        <div class="stat-card"><span class="text-[10px] font-semibold text-text-secondary uppercase tracking-wide">Closed</span><p id="ticketStatClosed" class="text-lg font-display font-bold mt-2 text-success">0</p></div>
+                    </div>
                     <div class="flex items-center justify-between">
                         <div class="flex gap-1.5 p-1 rounded-lg bg-surface-2 border border-border">
                             <button class="ticket-filter px-3 py-1.5 text-xs font-semibold rounded-md bg-primary text-black" data-tstatus="" onclick="setTicketFilter('')">All</button>
@@ -1416,6 +1435,12 @@
         function filterRiders() { state.riderSearch=document.getElementById('riderSearch').value.toLowerCase(); renderRiders(); }
 
         function renderRiders() {
+            document.getElementById('riderStatTotal').textContent=state.users.length;
+            document.getElementById('riderStatActive').textContent=state.users.filter(u=>u.isActive!==false).length;
+            const weekAgo=Date.now()-7*24*60*60*1000;
+            document.getElementById('riderStatNew').textContent=state.users.filter(u=>u.createdAt&&new Date(u.createdAt).getTime()>=weekAgo).length;
+            const totalWallet=state.users.reduce((s,u)=>s+(u.walletBalance||0),0);
+            document.getElementById('riderStatWallet').textContent=`GHS ${totalWallet.toFixed(2)}`;
             const tbody=document.getElementById('ridersBody');
             const filtered=state.users.filter(u=>{
                 if(!state.riderSearch) return true;
@@ -1481,11 +1506,17 @@
         }
 
         function renderTrips() {
+            document.getElementById('tripStatTotal').textContent=state.trips.length;
+            document.getElementById('tripStatActive').textContent=state.trips.filter(t=>['SCHEDULED','FILLING','DRIVER_EN_ROUTE','IN_PROGRESS'].includes(t.status)).length;
+            document.getElementById('tripStatCompleted').textContent=state.trips.filter(t=>t.status==='COMPLETED').length;
+            document.getElementById('tripStatCancelled').textContent=state.trips.filter(t=>t.status==='CANCELLED').length;
             const tbody=document.getElementById('tripsBody');
             let filtered=state.trips; if(state.tripFilter) filtered=filtered.filter(t=>t.status===state.tripFilter);
             const totalFiltered=filtered.length; const totalPages=Math.max(1,Math.ceil(totalFiltered/PAGE_SIZE));
             const page=Math.min(state.tripPage,totalPages); const start=(page-1)*PAGE_SIZE; const pageItems=filtered.slice(start,start+PAGE_SIZE);
             document.getElementById('tripCount').textContent=`${totalFiltered} trip(s)`;
+            const pageRevenue=pageItems.reduce((s,t)=>s+(t.bookings||[]).reduce((s2,b)=>s2+(b.fareAmount||0),0),0);
+            document.getElementById('tripStatRevenue').textContent=`GHS ${pageRevenue.toFixed(2)}`;
             if(pageItems.length===0){tbody.innerHTML='<tr><td colspan="10" class="text-center text-text-secondary py-8">No trips found.</td></tr>';renderPagination('trip',totalPages,page,totalFiltered);return;}
             tbody.innerHTML=pageItems.map(t=>{
                 const riderNames=(t.bookings||[]).map(b=>b.user?.name).filter(Boolean).join(', ')||'--';
@@ -1790,6 +1821,10 @@
         }
 
         function renderTickets(){
+            document.getElementById('ticketStatTotal').textContent=state.tickets.length;
+            document.getElementById('ticketStatOpen').textContent=state.tickets.filter(t=>t.status==='OPEN').length;
+            document.getElementById('ticketStatProgress').textContent=state.tickets.filter(t=>t.status==='IN_PROGRESS').length;
+            document.getElementById('ticketStatClosed').textContent=state.tickets.filter(t=>t.status==='CLOSED').length;
             const container=document.getElementById('ticketsList');
             let filtered=state.tickets;
             if(state.ticketFilter) filtered=filtered.filter(t=>t.status===state.ticketFilter);
