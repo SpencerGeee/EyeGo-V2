@@ -168,6 +168,20 @@ const resolvers = {
           },
         });
 
+        // BUGFIX: this only checked the caller was authenticated, not that they
+        // had any relationship to THIS trip — any rider or driver could subscribe
+        // to any other trip's live status and driver GPS coordinates. Require
+        // either driver ownership or a booking on the trip.
+        const driverId = user.driverId;
+        const riderId = user.userId ?? user.id;
+        const isOwningDriver = driverId && current?.driverId === driverId;
+        const hasBooking = !isOwningDriver && riderId
+          ? await prisma.booking.findFirst({ where: { tripId, userId: riderId }, select: { id: true } })
+          : null;
+        if (current && !isOwningDriver && !hasBooking) {
+          throw new Error('Forbidden');
+        }
+
         if (current) {
           yield {
             tripStatus: {

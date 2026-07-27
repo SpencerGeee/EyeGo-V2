@@ -700,12 +700,22 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
   if (driver.walletBalance < commissionAmount) throw new InsufficientWalletError();
 
   // Deduct commission immediately — seat check + booking creation inside the tx
-  // to prevent concurrent overbooking from two driver taps
+  // to prevent concurrent overbooking from two driver taps. BUGFIX: the balance
+  // check above happens BEFORE this transaction, so two concurrent cash-boarding
+  // requests could both pass it and both decrement, pushing the wallet negative.
+  // updateMany + gte re-checks the balance atomically at decrement time, same
+  // pattern as wallet.service.js's withdraw().
   await prisma.$transaction(async (tx) => {
     const conflict = await tx.booking.findFirst({
       where: { tripId, seatNumber, status: { notIn: ['CANCELLED'] } },
     });
     if (conflict) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
+
+    const debited = await tx.driver.updateMany({
+      where: { id: driverId, walletBalance: { gte: commissionAmount } },
+      data: { walletBalance: { decrement: commissionAmount } },
+    });
+    if (debited.count === 0) throw new InsufficientWalletError();
 
     await tx.booking.create({
       data: {
@@ -718,11 +728,6 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
         offlineOtpVerified: true,
         status: 'BOARDED',
       },
-    });
-
-    await tx.driver.update({
-      where: { id: driverId },
-      data: { walletBalance: { decrement: commissionAmount } },
     });
 
     await tx.walletTransaction.create({
@@ -753,16 +758,21 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
   if (booking.offlineOtpExp < new Date()) throw new AppError('OTP expired', 400, 'OTP_EXPIRED');
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (driver.walletBalance < booking.commissionAmount) throw new InsufficientWalletError();
 
+  // BUGFIX: same TOCTOU race as addCashNoPhone above — decrement via
+  // updateMany + gte so a concurrent double-tap can't both pass a pre-tx
+  // balance check and push the wallet negative.
   return prisma.$transaction(async (tx) => {
+    const debited = await tx.driver.updateMany({
+      where: { id: driverId, walletBalance: { gte: booking.commissionAmount } },
+      data: { walletBalance: { decrement: booking.commissionAmount } },
+    });
+    if (debited.count === 0) throw new InsufficientWalletError();
+
     await tx.booking.update({
       where: { id: bookingId },
       data: { offlineOtpVerified: true, status: 'BOARDED', paymentStatus: 'PAID' },
-    });
-
-    await tx.driver.update({
-      where: { id: driverId },
-      data: { walletBalance: { decrement: booking.commissionAmount } },
     });
 
     await tx.walletTransaction.create({
