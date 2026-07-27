@@ -421,6 +421,22 @@ function emitSafetyCheck(io, tripId, reason) {
 
     // ── Trip events ─────────────────────────────────────────
     socket.on('driver:trip_started', async ({ tripId }) => {
+      // BUGFIX: unlike the sibling driver:arrived_at_pickup / driver:arrived handlers,
+      // this never verified the emitting driver actually owns tripId — any authenticated
+      // driver socket could spoof a DRIVER_EN_ROUTE status broadcast (+ Live Activity push)
+      // to a trip that isn't theirs. No DB write happens here, but it's a real-time
+      // spoofing gap on rider-facing trip state.
+      try {
+        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
+        if (!owns) {
+          logger.warn(`driver:trip_started rejected — driver ${driverId} does not own trip ${tripId}`);
+          return;
+        }
+      } catch (err) {
+        logger.error('Failed to verify trip ownership for driver:trip_started:', err);
+        return;
+      }
+
       socket.join(TRIP_ROOM(tripId));
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
         tripId,
@@ -472,6 +488,18 @@ function emitSafetyCheck(io, tripId, reason) {
     });
 
     socket.on('driver:trip_departed', async ({ tripId }) => {
+      // BUGFIX: same ownership-check gap as driver:trip_started above.
+      try {
+        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
+        if (!owns) {
+          logger.warn(`driver:trip_departed rejected — driver ${driverId} does not own trip ${tripId}`);
+          return;
+        }
+      } catch (err) {
+        logger.error('Failed to verify trip ownership for driver:trip_departed:', err);
+        return;
+      }
+
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
         tripId,
         status: 'IN_PROGRESS',

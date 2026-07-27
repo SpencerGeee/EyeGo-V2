@@ -110,6 +110,37 @@ class InMemoryRedis {
     const set = memoryStore.get(key);
     return set instanceof Set ? Array.from(set) : [];
   }
+  async eval(script, numKeys, ...rest) {
+    const keys = rest.slice(0, numKeys);
+    const argv = rest.slice(numKeys);
+    const isOtpVerifyScript = typeof script === "string" && script.includes("cjson.decode") && script.includes("LOCKED") && script.includes("EXPIRED");
+    if (!isOtpVerifyScript) { throw new Error("EVAL not supported by in-memory Redis fallback for this script"); }
+    const otpKey = keys[0]; const lockKey = keys[1];
+    const inputOtp = argv[0]; const maxAttempts = Number(argv[1]); const lockDuration = Number(argv[2]);
+    const raw = await this.get(otpKey);
+    if (!raw) return "EXPIRED";
+    const data = JSON.parse(raw);
+    if (data.attempts >= maxAttempts) {
+      await this.del(otpKey);
+      await this.set(lockKey, "1", "EX", lockDuration);
+      return "LOCKED";
+    }
+    if (data.otp !== inputOtp) {
+      data.attempts += 1;
+      var remaining = maxAttempts - data.attempts;
+      var ttl = await this.ttl(otpKey);
+      if (ttl > 0) await this.set(otpKey, JSON.stringify(data), "EX", ttl);
+      else await this.set(otpKey, JSON.stringify(data));
+      if (remaining <= 0) {
+        await this.del(otpKey);
+        await this.set(lockKey, "1", "EX", lockDuration);
+        return "LOCKED";
+      }
+      return "INVALID:" + remaining;
+    }
+    await this.del(otpKey);
+    return "OK";
+  }
   // BUGFIX: dispatch (driver online geoset + rider trip-request matching)
   // calls redis.geoadd/geosearch/georadius. Without a real Redis running,
   // this fallback previously had none of the three — every call threw

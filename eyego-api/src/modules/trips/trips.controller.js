@@ -102,7 +102,13 @@ const emergencyAlert = async (req, res) => {
       // Persist SOS event
       await prisma.sosEvent.create({
         data: { tripId, userId, lat, lng },
-      }).catch(() => {});
+      }).catch((err) => {
+        // BUGFIX: this swallowed DB failures on the actual SOS audit record with zero
+        // logging — if this write failed, there was no trace ANYWHERE that a rider
+        // SOS was ever triggered, even though the ticket/push notification below might
+        // still succeed independently.
+        logger.error("Failed to persist rider SOS event record", { tripId, userId, error: err.message });
+      });
 
       // Create urgent support ticket
       // URGENT is a valid `priority`, not a `status` — SupportTicket.status only
@@ -175,8 +181,13 @@ const emergencyAlert = async (req, res) => {
       }
 
       logger.warn('SOS emergency alert', { tripId, userId, lat, lng });
-    } catch (_) {
-      // Silent fail — never block the SOS response
+    } catch (err) {
+      // BUGFIX: the response is already sent above (setImmediate runs after), so
+      // catching here was never actually needed to "not block" anything — but
+      // swallowing it silently meant a failure anywhere in the SOS pipeline (ticket
+      // creation, push notification, etc.) left ZERO trace that an emergency alert
+      // was ever triggered. Log loudly instead — this is a life-safety path.
+      logger.error("SOS emergency alert pipeline failed", { tripId, userId, error: err.message, stack: err.stack });
     }
   });
 };

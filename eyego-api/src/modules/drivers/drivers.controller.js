@@ -339,7 +339,13 @@ const emergencyAlert = async (req, res) => {
 
       // SosEvent.userId has no FK constraint — it's a plain identifier column,
       // so it's safe to store the reporting driver's id here.
-      await prisma.sosEvent.create({ data: { tripId, userId: driverId, lat, lng } }).catch(() => {});
+      await prisma.sosEvent.create({ data: { tripId, userId: driverId, lat, lng } }).catch((err) => {
+        // BUGFIX: this swallowed DB failures on the actual SOS audit record with zero
+        // logging — if this write failed, there was no trace ANYWHERE that a driver
+        // SOS was ever triggered, even though the ticket/push notification below might
+        // still succeed independently.
+        logger.error("Failed to persist driver SOS event record", { tripId, driverId, error: err.message });
+      });
 
       const driver = await prisma.driver.findUnique({
         where: { id: driverId },
@@ -398,8 +404,13 @@ const emergencyAlert = async (req, res) => {
       }
 
       logger.warn('Driver SOS emergency alert', { tripId, driverId, lat, lng });
-    } catch (_) {
-      // Silent fail — never block the SOS response
+    } catch (err) {
+      // BUGFIX: the response is already sent above (setImmediate runs after), so
+      // catching here was never actually needed to not block anything — but
+      // swallowing it silently meant a failure anywhere in the SOS pipeline (ticket
+      // creation, push notification, etc.) left ZERO trace that an emergency alert
+      // was ever triggered. Log loudly instead — this is a life-safety path.
+      logger.error("Driver SOS emergency alert pipeline failed", { tripId, driverId, error: err.message, stack: err.stack });
     }
   });
 };
