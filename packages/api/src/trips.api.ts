@@ -44,6 +44,8 @@ export const tripsApi = {
     destination: string;
     scheduledAt: string;
     seatCount: number;
+    /** Only meaningful when seatCount > 1: true = pay for the whole party in one bundled charge, false = book just your own seat and let others join+pay via the group invite link. */
+    coverAll?: boolean;
     pickupLat?: number;
     pickupLng?: number;
     destLat?: number;

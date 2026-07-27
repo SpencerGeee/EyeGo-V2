@@ -89,6 +89,11 @@ const getSupportTickets = async (req, res) => {
   ok(res, result);
 };
 
+const getSupportTicketDetail = async (req, res) => {
+  const ticket = await adminService.getSupportTicketDetail(req.params.id);
+  ok(res, { ticket });
+};
+
 const getTripReports = async (req, res) => {
   const result = await adminService.getTripReports(req.query);
   ok(res, result);
@@ -272,7 +277,7 @@ module.exports = {
   getTrips, getBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips,
   getUserDetail, getUserTrips,
-  getSupportTickets, getTripReports, resolveTripReport, respondToTicket, closeTicket,
+  getSupportTickets, getSupportTicketDetail, getTripReports, resolveTripReport, respondToTicket, closeTicket,
   getPromotions, createPromotion, togglePromotion,
   registerAdminFcmToken,
   getLiveDrivers, assignDriver, getUnassignedTrips,

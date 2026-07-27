@@ -103,7 +103,9 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const { type: rideType } = useLocalSearchParams<{ type?: string }>();
   const isGroupFlow = (rideType ?? flowType) === 'group';
   const { morphTo } = useMorph();
-  const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime } = useRideStore();
+  const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime, setRequestSeats } = useRideStore();
+  const [requestSeats, setRequestSeatsLocal] = useState(1);
+  const [requestPayForAll, setRequestPayForAll] = useState(true);
   const [originText, setOriginText] = useState(origin?.address ?? '');
   const [destText, setDestText] = useState(destination?.address ?? '');
   const [selectedTier, setSelectedTier] = useState<TripTier | null>(null);
@@ -348,9 +350,58 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   No {selectedTier ? `${selectedTier.toLowerCase()} ` : ''}trips match this route. Try a different tier or destination.
                 </Text>
                 <View style={styles.noDriversCtas}>
+                  {/* How many seats — the bus/minibus fleet has room for a whole
+                      group; without this every request silently booked just 1
+                      seat regardless of how many people were actually traveling. */}
+                  <View style={styles.seatPickerRow}>
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>Seats needed</Text>
+                    <View style={styles.seatStepper}>
+                      <Pressable
+                        style={styles.seatStepperBtn}
+                        onPress={() => setRequestSeatsLocal((n) => Math.max(1, n - 1))}
+                        accessibilityRole="button"
+                        accessibilityLabel="Decrease seat count"
+                        hitSlop={8}
+                      >
+                        <Ionicons name="remove" size={16} color={colors.onSurface} />
+                      </Pressable>
+                      <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{requestSeats}</Text>
+                      <Pressable
+                        style={styles.seatStepperBtn}
+                        onPress={() => setRequestSeatsLocal((n) => Math.min(8, n + 1))}
+                        accessibilityRole="button"
+                        accessibilityLabel="Increase seat count"
+                        hitSlop={8}
+                      >
+                        <Ionicons name="add" size={16} color={colors.onSurface} />
+                      </Pressable>
+                    </View>
+                  </View>
+                  {requestSeats > 1 && (
+                    <Pressable
+                      style={styles.payForAllRow}
+                      onPress={() => setRequestPayForAll((v) => !v)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: requestPayForAll }}
+                    >
+                      <Ionicons
+                        name={requestPayForAll ? 'checkbox' : 'square-outline'}
+                        size={18}
+                        color={requestPayForAll ? colors.primary : colors.onSurfaceVariant}
+                      />
+                      <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                        {requestPayForAll
+                          ? "I'll pay for everyone — you'll get an invite link to share after"
+                          : 'Let others pay their own way — you\'ll get a link to send them once matched'}
+                      </Text>
+                    </Pressable>
+                  )}
                   <Pressable
                     style={[styles.noDriversCtaBtn, { backgroundColor: colors.primary }]}
-                    onPress={() => (mode === 'route' ? router.push('/ride/request' as any) : goStage('request'))}
+                    onPress={() => {
+                      setRequestSeats(requestSeats, requestPayForAll);
+                      mode === 'route' ? router.push('/ride/request' as any) : goStage('request');
+                    }}
                     accessibilityRole="button"
                     accessibilityLabel="Request a trip from a driver"
                   >
@@ -1091,6 +1142,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: '100%',
     gap: spacing.md,
     marginTop: spacing.xl,
+  },
+  seatPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+  },
+  seatStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  seatStepperBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+  },
+  payForAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
   },
   noDriversCtaBtn: {
     flexDirection: 'row',

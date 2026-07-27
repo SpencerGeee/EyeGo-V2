@@ -44,6 +44,12 @@ interface RideState {
   // Promo
   pendingPromoCode: string | null;
 
+  // Group on-demand request: how many seats to book, and whether the
+  // requester pays for the whole party upfront (coverAll) or books just
+  // their own seat and lets others join+pay via the group invite link.
+  requestSeatCount: number;
+  requestCoverAll: boolean;
+
   // Actions
   setOrigin: (loc: Location | null) => void;
   setDestination: (loc: Location | null) => void;
@@ -58,6 +64,7 @@ interface RideState {
   setSelectedTier: (tier: 'ECONOMY' | 'COMFORT', fare: number) => void;
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
+  setRequestSeats: (count: number, coverAll: boolean) => void;
   clearRideState: () => void;
 }
 
@@ -78,6 +85,8 @@ export const useRideStore = create<RideState>()(
       selectedTier: null,
       computedFare: null,
       pendingPromoCode: null,
+      requestSeatCount: 1,
+      requestCoverAll: true,
 
       setOrigin: (loc) => set({ origin: loc }),
       setDestination: (loc) => set({ destination: loc }),
@@ -93,6 +102,7 @@ export const useRideStore = create<RideState>()(
       setSelectedTier: (tier, fare) => set({ selectedTier: tier, computedFare: fare }),
       setComputedFare: (fare) => set({ computedFare: fare }),
       setPendingPromoCode: (code) => set({ pendingPromoCode: code }),
+      setRequestSeats: (count, coverAll) => set({ requestSeatCount: count, requestCoverAll: coverAll }),
 
       clearRideState: () =>
         set({
@@ -110,6 +120,8 @@ export const useRideStore = create<RideState>()(
           selectedTier: null,
           computedFare: null,
           pendingPromoCode: null,
+          requestSeatCount: 1,
+          requestCoverAll: true,
         }),
     }),
     {

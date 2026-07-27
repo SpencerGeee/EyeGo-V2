@@ -163,7 +163,11 @@ async function main() {
       phone: '+233244111001',
       name: 'Kwame Asante',
       status: 'ACTIVE',
-      isOnline: true,
+      // isOnline must reflect a real socket connection (see driver.socket.js
+      // disconnect handler), not seed data — a seeded driver hardcoded to
+      // "online" forever pollutes the admin live map with a marker that
+      // never moves and can never legitimately go offline.
+      isOnline: false,
       currentLat: 5.5580,
       currentLng: -0.2130,
       walletBalance: 45.00,
@@ -190,7 +194,7 @@ async function main() {
       phone: '+233244111002',
       name: 'Kofi Mensah',
       status: 'ACTIVE',
-      isOnline: true,
+      isOnline: false,
       currentLat: 5.6385,
       currentLng: -0.1352,
       walletBalance: 80.00,

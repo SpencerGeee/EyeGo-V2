@@ -33,6 +33,14 @@ import MapboxGL from '../../../utils/mapbox';
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
+  // CONFIRMED is the status a trip has the instant a driver accepts a
+  // dispatch/trip-request (drivers.service.js acceptDispatch, trip-request.service.js
+  // acceptTripRequest both set status: 'CONFIRMED'). Without an entry here this
+  // fell through to the STATUS_FLOW.FILLING fallback below, which still showed
+  // "Start Trip" — but VALID_ADVANCE_STATUSES in the mutation below didn't
+  // include CONFIRMED, so tapping it threw "Cannot advance from status: CONFIRMED"
+  // client-side on every fresh/resumed trip. Treat it the same as SCHEDULED/FILLING.
+  CONFIRMED:          { label: 'Confirmed',            next: 'start',  action: 'Start Trip'    },
   SCHEDULED:          { label: 'Scheduled',           next: 'start',  action: 'Start Trip'    },
   FILLING:            { label: 'Boarding Open',        next: 'start',  action: 'Start Trip'    },
   DRIVER_EN_ROUTE:    { label: 'En Route to Stop',     next: 'arrive', action: "I've Arrived"  },
@@ -43,6 +51,7 @@ const STATUS_FLOW: Record<string, { label: string; next: string | null; action: 
 };
 
 const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  CONFIRMED:          { label: 'Confirmed',         color: '#94A3B8' },
   SCHEDULED:          { label: 'Scheduled',        color: '#94A3B8' },
   FILLING:            { label: 'Boarding',          color: '#3B82F6' },
   DRIVER_EN_ROUTE:    { label: 'En Route',          color: '#F59E0B' },
@@ -162,7 +171,12 @@ export default function ActiveTripScreen() {
   });
 
   const pendingFromStatus = useRef<string | null>(null);
-  const VALID_ADVANCE_STATUSES = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
+  // CONFIRMED included: it's the status a trip has immediately after a driver
+  // accepts (acceptDispatch/acceptTripRequest both set status: 'CONFIRMED'),
+  // including on a resumed trip reopened from the home screen's "Resume Trip"
+  // banner. Without it, "Start Trip" on a CONFIRMED trip threw client-side
+  // instead of ever calling the backend.
+  const VALID_ADVANCE_STATUSES = ['CONFIRMED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
 
   const advanceStatus = useMutation({
     retry: 1,
@@ -170,7 +184,7 @@ export default function ActiveTripScreen() {
       const status = trip?.status;
       if (!status || !VALID_ADVANCE_STATUSES.includes(status)) throw new Error(`Cannot advance from status: ${status ?? 'unknown'}`);
       pendingFromStatus.current = status;
-      if (status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
+      if (status === 'CONFIRMED' || status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
       if (status === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(id);
       if (status === 'ARRIVED_AT_PICKUP') return driverApi.departTrip(id);
       if (status === 'IN_PROGRESS') return driverApi.arriveTrip(id);
@@ -179,7 +193,7 @@ export default function ActiveTripScreen() {
     onSuccess: (res) => {
       const fromStatus = pendingFromStatus.current;
       let toStatus: string | null = null;
-      if (fromStatus === 'SCHEDULED' || fromStatus === 'FILLING') toStatus = 'DRIVER_EN_ROUTE';
+      if (fromStatus === 'CONFIRMED' || fromStatus === 'SCHEDULED' || fromStatus === 'FILLING') toStatus = 'DRIVER_EN_ROUTE';
       else if (fromStatus === 'DRIVER_EN_ROUTE') toStatus = 'ARRIVED_AT_PICKUP';
       else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
       else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
@@ -359,12 +373,26 @@ export default function ActiveTripScreen() {
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={true}
-        rotateEnabled={true}
+        // BUGFIX: was `true` — user rotate gestures changed the map's bearing,
+        // but the driver marker's `rotation` prop below is an absolute compass
+        // heading applied as a screen-space transform (see AnimatedMarkerView
+        // in @eyego/maps). It isn't compensated for map bearing, so any map
+        // rotation (gesture, or NavCamera's old course-tracking — see that
+        // component) desynced the marker from true GPS heading, making the
+        // pin appear to turn only when the map was rotated by hand instead of
+        // when the phone/vehicle actually changed direction. Matches the same
+        // north-up-map + heading-driven-marker pattern already used on the
+        // tracking/[id].tsx screen.
+        rotateEnabled={false}
         pitchEnabled={true}
         scaleBarEnabled={false}
       >
         {/* 3D tilted follow camera while actively driving to/with passengers
-            (Uber/Bolt/Yango-style nav view); flat overview otherwise. */}
+            (Uber/Bolt/Yango-style nav view); flat overview otherwise.
+            NavCamera no longer rotates the camera bearing (see its BUGFIX
+            comment in @eyego/maps) — only pitch/zoom telescope for the
+            nav-view feel, so the map stays north-up like every other
+            tracking screen and the marker rotation below stays in sync. */}
         <MapboxGL.NavCamera
           active={trip.status === 'DRIVER_EN_ROUTE' || trip.status === 'IN_PROGRESS'}
           fallbackCenter={driverCoord}

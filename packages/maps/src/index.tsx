@@ -33,6 +33,13 @@ const NativeUserLocation = MapLibre.UserLocation;
 
 export type LngLat = [number, number];
 
+// Guards against handing MLRNCamera a NaN/Infinity coordinate — its native
+// `_setInitialCamera`/camera-stop code throws an uncaught exception (SIGABRT)
+// on non-finite input with no JS-catchable error. See BUGFIX comments below.
+function isFiniteLngLat(c: LngLat | undefined | null): c is LngLat {
+  return !!c && Number.isFinite(c[0]) && Number.isFinite(c[1]);
+}
+
 export interface MapViewProps {
   style?: any;
   /** URL string or a full MapLibre style-spec JSON object (e.g. @eyego/map-styles' default export) — the native Map component JSON.stringifies objects internally. */
@@ -240,6 +247,7 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
 
   useImperativeHandle(ref, () => ({
     setCamera: ({ centerCoordinate: coord, zoomLevel: zoom, heading: bearing, pitch: p, animationDuration: duration, padding }) => {
+      if (coord !== undefined && !isFiniteLngLat(coord)) return;
       nativeRef.current?.setStop?.({
         center: coord,
         zoom,
@@ -258,6 +266,8 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
     },
     fitBounds: (coords, edgePadding, animated = true) => {
       if (!coords?.length) return;
+      coords = coords.filter(isFiniteLngLat);
+      if (!coords.length) return;
       const lngs = coords.map((c) => c[0]);
       const lats = coords.map((c) => c[1]);
       const bounds: [number, number, number, number] = [
@@ -276,13 +286,23 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
     },
   }));
 
+  // BUGFIX: real on-device crash (EyeGo-2026-07-27-*.ips, both identical) —
+  // MLRNCamera's native `_setInitialCamera` throws an uncaught ObjC/C++
+  // exception (SIGABRT) when handed a non-finite coordinate (NaN/Infinity —
+  // e.g. from a haversine/geocode result computed before its inputs
+  // resolved). The crash reports had no JS stack, so the exact caller
+  // couldn't be pinned down — this is the single chokepoint every screen's
+  // Camera funnels through, so guarding here protects all of them at once
+  // rather than chasing one call site.
+  const safeCenter = isFiniteLngLat(centerCoordinate) ? centerCoordinate : undefined;
+
   return (
     <NativeCamera
       ref={nativeRef}
-      center={centerCoordinate}
-      zoom={zoomLevel}
-      bearing={heading}
-      pitch={pitch}
+      center={safeCenter}
+      zoom={Number.isFinite(zoomLevel) ? zoomLevel : undefined}
+      bearing={Number.isFinite(heading) ? heading : undefined}
+      pitch={Number.isFinite(pitch) ? pitch : undefined}
       duration={animationDuration}
       easing={animationMode ? EASING_MAP[animationMode] : undefined}
       trackUserLocation={trackUserLocation}
@@ -291,11 +311,23 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
 });
 
 // ── NavCamera — 3D active-trip follow camera (Uber/Bolt/Yango-style) ───────
-// Tilts + rotates to travel heading + tightens zoom while `active`, so the
-// road ahead is visible during navigation. Falls back to a flat overview
-// camera when inactive. `trackUserLocation="course"` derives heading from
-// consecutive GPS fixes (not the compass) — no separate sensor needed.
-
+// Tilts + tightens zoom while `active` (following the device's live GPS
+// position), so the road ahead is visible during navigation. Falls back to a
+// flat overview camera when inactive.
+// BUGFIX: this used to also pass `trackUserLocation="course"` while active,
+// which auto-rotates the camera BEARING to match GPS course-over-ground.
+// Every marker rendered via AnimatedMarkerView/MarkerView applies its
+// `rotation` prop as an absolute-compass screen-space transform (see below) —
+// it is never compensated for the map's own bearing. So whenever this
+// camera's course-tracking (or a user rotate gesture) changed the map's
+// bearing, the driver marker's heading-driven rotation instantly desynced
+// from the true GPS heading, making the pin look like it was spinning with
+// the map instead of with the vehicle. The camera now stays north-up
+// (`bearing: 0`, still following the device's live position via
+// `trackUserLocation="default"`) so marker rotation — driven purely by real
+// heading — is always correct on screen. Same trade-off already accepted on
+// the pre-pickup tracking screen: lost the tilted "faces direction of
+// travel" camera rotation, kept a marker that always points true.
 export interface NavCameraProps {
   active: boolean;
   pitch?: number;
@@ -307,12 +339,16 @@ export interface NavCameraProps {
 }
 
 export function NavCamera({ active, pitch = 55, zoom = 17.5, duration = 800, fallbackCenter, fallbackZoom = 14 }: NavCameraProps) {
+  // Same non-finite-coordinate guard as Camera above — this uses NativeCamera
+  // directly rather than the wrapped Camera component, so it needs its own.
+  const safeFallback = isFiniteLngLat(fallbackCenter) ? fallbackCenter : undefined;
   return (
     <NativeCamera
-      trackUserLocation={active ? 'course' : 'default'}
+      trackUserLocation="default"
+      bearing={0}
       pitch={active ? pitch : 0}
       zoom={active ? zoom : fallbackZoom}
-      center={active ? undefined : fallbackCenter}
+      center={active ? undefined : safeFallback}
       duration={duration}
       easing="ease"
     />

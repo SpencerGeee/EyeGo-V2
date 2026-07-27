@@ -77,6 +77,7 @@ router.get('/trips', controller.getTrips);
 router.get('/bookings', controller.getBookings);
 
 router.get('/support-tickets', controller.getSupportTickets);
+router.get('/support-tickets/:id', controller.getSupportTicketDetail);
 router.post('/support-tickets/:id/respond', controller.respondToTicket);
 router.post('/support-tickets/:id/close', controller.closeTicket);
 

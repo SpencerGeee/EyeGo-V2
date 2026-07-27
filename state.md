@@ -1,22 +1,22 @@
 # State
 
 ## Current Goal
-Verify rider→driver trip dispatch works end-to-end after rebuilding the apps.
+Admin dashboard sweep complete. Ready for user testing / commit.
 
 ## Decisions
-See session-log.md 2026-07-26 02:30 entry for full details.
+See session-log.md 2026-07-27 12:40 and 13:15 entries for full details.
 
 ## Plan Status
-- Camera crash (ride/[id].tsx): fixed, committed, pushed (9834b98).
-- Redis fallback (geoadd/geosearch/georadius/sadd/smembers): fixed, committed, pushed (6609ffa).
-- Backend running locally via `npm run dev` (eyego-api), port 5020, nodemon watching.
+- Live map fake drivers: fixed (seed.js + DB patch).
+- Cash-pending stuck bug + double wallet-credit money bug: fixed (trips.service.js, drivers.service.js, payments.service.js, admin index.html).
+- 2 historical stuck bookings: backfilled to PAID (user-approved).
+- Full admin tab audit (Riders/Trips/Support/Analytics/OTA/Promotions/Driver-approval): done via sub-agent, found + fixed ARRIVED_AT_PICKUP missing from all active-trip status sets (dispatch-safety bug — arrived driver showed as "Free" on live map) + missing NO_SHOW badge. Merged from agent worktree into main tree, worktree cleaned up.
 
 ## Evidence
-- Pulled on-device crash report (EyeGo-2026-07-24-124830.ips) confirmed MLRNCamera SIGABRT — not a Hermes/JS red herring.
-- Verified in-memory geosearch/georadius manually: near driver matched within radius, far driver correctly excluded.
-- Backend process that was running earlier had died independently (unrelated to any edit) — restarted, confirmed clean boot.
+- Confirmed via DB query: seed.js's 2 drivers had isOnline:true hardcoded forever — fixed in seed.js + live DB.
+- Confirmed via DB query: 2 real bookings were stuck COMPLETED + PENDING — now settled.
+- Sub-agent grepped every status/paymentStatus write across the backend to confirm ARRIVED_AT_PICKUP and NO_SHOW are real, actively-written enum values missing from admin's status handling.
 
 ## Open Issues
-- User needs to rebuild both apps (native rebuild required — Camera fix is JS but needs a fresh binary; also good time to pick up all other session fixes).
-- Not yet confirmed: does the installed app actually reach 192.168.1.38:5020? EXPO_PUBLIC_API_URL is unset in all EAS environments (production/preview/development) — unclear how current builds resolve their API host. Verify this BEFORE assuming dispatch is fixed.
-- Commit the redis.js fallback fix once rebuild testing confirms it works.
+- Nothing committed to git yet — all changes are in the working tree, awaiting user review/testing before commit.
+- Flagged but not built (needs product decision, not a bug): admin rider-wallet-adjustment feature doesn't exist; admin trip cancel/reassign action doesn't exist.

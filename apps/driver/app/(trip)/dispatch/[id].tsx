@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -99,7 +99,14 @@ export default function DispatchScreen() {
       // list and shows as the active trip instead of lingering as "ASSIGNED".
       qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-      router.replace(`/(trip)/active/${tripId}`);
+      // Object-form Href with the dynamic segment passed via `params` — matches
+      // every other navigation to this exact screen (root _layout.tsx's
+      // notification handler, active/[id].tsx's own advanceStatus success
+      // handler). The bare template-string form used here previously
+      // (`/(trip)/active/${tripId}`) is the one navigation to this route that
+      // didn't go through expo-router's typed href resolution, and drivers
+      // landed on the "Unmatched Route" screen right after accepting.
+      router.replace({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as Href);
     },
     onError: (err: any) => {
       const status = err?.response?.status;

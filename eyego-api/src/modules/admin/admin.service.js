@@ -451,6 +451,34 @@ async function getTripReports({ page = 1, limit = 20, status }) {
   return { reports: hydrated, total, page: p, totalPages: Math.ceil(total / l) };
 }
 
+// The ticket list only ever loads each ticket's LAST message (take: 1, for the
+// preview line), so the admin console's ticket modal had no way to show the
+// full conversation history, or the category/priority/linked-driver fields
+// that already exist on SupportTicket but were never fetched anywhere. This
+// gives the modal a real detail endpoint to fetch on open.
+async function getSupportTicketDetail(ticketId) {
+  const ticket = await prisma.supportTicket.findUnique({
+    where: { id: ticketId },
+    include: {
+      user: { select: { id: true, name: true, phone: true, email: true, walletBalance: true, isBanned: true } },
+      messages: { orderBy: { createdAt: 'asc' } },
+    },
+  });
+  if (!ticket) throw new NotFoundError('SupportTicket');
+
+  // SupportTicket.driverId is a bare id column (no Prisma relation), so hydrate
+  // it manually — same pattern as getTripReports/getSosEvents below.
+  let driver = null;
+  if (ticket.driverId) {
+    driver = await prisma.driver.findUnique({
+      where: { id: ticket.driverId },
+      select: { id: true, name: true, phone: true, status: true },
+    });
+  }
+
+  return { ...ticket, driver };
+}
+
 async function respondToTicket(ticketId, { text, senderId, senderRole }) {
   const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
   if (!ticket) throw new NotFoundError('SupportTicket');
@@ -576,7 +604,7 @@ async function getMetrics() {
     totalDrivers,
     pendingApprovals,
   ] = await Promise.all([
-    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'IN_PROGRESS'] } } }),
+    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } } }),
     prisma.driver.count({ where: { isOnline: true } }),
     prisma.paymentTransaction.aggregate({
       where: { status: 'SUCCESS', createdAt: { gte: today } },
@@ -653,7 +681,7 @@ async function getLiveDrivers() {
   const activeTrips = await prisma.trip.findMany({
     where: {
       driverId: { in: driverIds },
-      status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'] },
+      status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] },
     },
     select: {
       id: true, shortId: true, driverId: true, status: true,
@@ -676,29 +704,34 @@ async function getLiveDrivers() {
 }
 
 async function assignDriverToTrip(tripId, driverId, adminId) {
+  const { AppError } = require('../../utils/errors');
   const trip = await prisma.trip.findUnique({ where: { id: tripId } });
   if (!trip) throw new NotFoundError('Trip');
-  if (!['SCHEDULED', 'FILLING'].includes(trip.status)) {
-    throw new (require('../../utils/errors').AppError)('Trip cannot be assigned in its current state', 400, 'INVALID_STATUS');
+  if (['COMPLETED', 'CANCELLED'].includes(trip.status)) {
+    throw new AppError('Trip cannot be reassigned in its current state', 400, 'INVALID_STATUS');
   }
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
-  if (!driver.isOnline) throw new (require('../../utils/errors').AppError)('Driver is offline', 400, 'DRIVER_OFFLINE');
+  if (!driver.isOnline) throw new AppError('Driver is offline', 400, 'DRIVER_OFFLINE');
 
   // Atomic check-then-act: only assign if the trip's status hasn't changed since we
   // read it above. Prevents two admins (or a double-tap) racing to assign different
   // drivers to the same trip — the loser gets a clean 409 instead of silently
   // overwriting the winner's assignment.
+  //
+  // Unlike the old pre-departure-only flow, this does NOT reset status to
+  // FILLING — this panel's real use case is a driver going offline MID-trip
+  // (DRIVER_EN_ROUTE/ARRIVED_AT_PICKUP/IN_PROGRESS with riders already
+  // matched or aboard), where forcing the trip back into "gathering
+  // passengers via acceptDispatch" would be wrong. The new driver picks up
+  // the trip exactly where it was; only driverId changes.
   const claim = await prisma.trip.updateMany({
     where: { id: tripId, status: trip.status },
-    data: {
-      driverId,
-      status: 'FILLING', // Keep as FILLING so driver accepts via acceptDispatch
-    },
+    data: { driverId },
   });
   if (claim.count === 0) {
-    throw new (require('../../utils/errors').AppError)('Trip was already reassigned by another admin action', 409, 'ASSIGNMENT_CONFLICT');
+    throw new AppError('Trip was already reassigned by another admin action', 409, 'ASSIGNMENT_CONFLICT');
   }
 
   const updated = await prisma.trip.findUnique({
@@ -715,6 +748,17 @@ async function assignDriverToTrip(tripId, driverId, adminId) {
 
   // Audit log
   logger.info(`[ADMIN] Driver ${driverId} assigned to trip ${tripId} by admin ${adminId}`);
+
+  // Notify the newly-assigned driver — without this they'd have no idea
+  // dispatch just handed them a trip mid-route until they happened to check.
+  if (driver.fcmToken) {
+    pushService.sendPush(
+      driver.fcmToken,
+      'Trip assigned by dispatch',
+      `You've been assigned to a trip${updated?.route?.destinationName ? ` to ${updated.route.destinationName}` : ''}. Open the app to continue.`,
+      { type: 'ADMIN_TRIP_ASSIGNED', tripId },
+    ).catch(() => {});
+  }
 
   return updated;
 }
@@ -769,10 +813,20 @@ async function expireUnansweredDispatchOffers() {
 }
 
 async function getUnassignedTrips() {
-  // Trips that need a driver assigned (driver is offline or needs reassignment)
+  // Every trip's driverId is set at creation (drivers self-create their own
+  // trips in the current on-demand model) — a genuinely driverless Trip row
+  // never exists, so the old "SCHEDULED/FILLING + driver offline" definition
+  // here was almost always empty by construction, leaving this admin panel
+  // permanently blank with nothing to act on.
+  //
+  // Repurposed: "unassigned" now means any non-terminal trip whose assigned
+  // driver has gone offline — SCHEDULED/FILLING (offline before departure)
+  // through DRIVER_EN_ROUTE/ARRIVED_AT_PICKUP/IN_PROGRESS (offline mid-trip,
+  // with riders already matched or aboard) — the actual scenario an admin
+  // needs to intervene on and hand off to another online driver.
   return prisma.trip.findMany({
     where: {
-      status: { in: ['SCHEDULED', 'FILLING'] },
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
       driver: { isOnline: false },
     },
     include: {
@@ -873,7 +927,7 @@ async function resolveSosEvent(id) {
 // All functions guard against empty tables (return zeros, never throw).
 // ─────────────────────────────────────────────────────────────────
 
-const ACTIVE_TRIP_STATUSES = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'];
+const ACTIVE_TRIP_STATUSES = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
 
 function startOfToday() {
   const d = new Date();
@@ -934,17 +988,25 @@ async function getAnalyticsOverview() {
     cashBookings,
     cardBookings,
   ] = await Promise.all([
-    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS' }, _sum: { amount: true } }),
-    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS', createdAt: { gte: today } }, _sum: { amount: true } }),
-    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS', createdAt: { gte: weekAgo } }, _sum: { amount: true } }),
-    prisma.paymentTransaction.aggregate({ where: { status: 'SUCCESS', createdAt: { gte: monthAgo } }, _sum: { amount: true } }),
-    prisma.paymentTransaction.findMany({ where: { status: 'SUCCESS', createdAt: { gte: fourteenAgo } }, select: { amount: true, createdAt: true } }),
+    // Revenue must be read from Booking.paymentStatus (PAID), not
+    // PaymentTransaction.status (SUCCESS) — a CASH booking's PaymentTransaction
+    // row is created with status 'PENDING' and NEVER flips to 'SUCCESS' (cash
+    // has no gateway callback to do that); only Booking.paymentStatus reflects
+    // the real settlement, via boardPassenger/completeTrip. Since this platform
+    // is majority cash, the old PaymentTransaction-only query undercounted
+    // revenue down to ~0. Matches the pattern already used in getDriverDetail's
+    // earningsAgg (Booking.aggregate, not PaymentTransaction).
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID' }, _sum: { fareAmount: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: today } }, _sum: { fareAmount: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: weekAgo } }, _sum: { fareAmount: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: monthAgo } }, _sum: { fareAmount: true } }),
+    prisma.booking.findMany({ where: { paymentStatus: 'PAID', createdAt: { gte: fourteenAgo } }, select: { fareAmount: true, createdAt: true } }),
     prisma.trip.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.trip.findMany({ where: { createdAt: { gte: fourteenAgo } }, select: { createdAt: true } }),
     prisma.trip.count({ where: { status: 'COMPLETED' } }),
     prisma.trip.count({ where: { status: 'CANCELLED' } }),
     prisma.booking.count(),
-    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'IN_PROGRESS'] } } }),
+    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } } }),
     prisma.driver.count({ where: { isOnline: true } }),
     prisma.driver.count(),
     prisma.driver.count({ where: { status: 'ACTIVE' } }),
@@ -958,7 +1020,7 @@ async function getAnalyticsOverview() {
   ]);
 
   const round2 = (n) => Math.round((n || 0) * 100) / 100;
-  const totalRevenue = round2(revenueAll._sum.amount);
+  const totalRevenue = round2(revenueAll._sum.fareAmount);
   const completedTripsCount = completedCount;
   const cancelledTripsCount = cancelledCount;
   const totalTerminal = completedTripsCount + cancelledTripsCount;
@@ -968,11 +1030,11 @@ async function getAnalyticsOverview() {
 
   return {
     totalRevenue,
-    todayRevenue: round2(revenueToday._sum.amount),
-    weekRevenue: round2(revenueWeek._sum.amount),
-    monthRevenue: round2(revenueMonth._sum.amount),
+    todayRevenue: round2(revenueToday._sum.fareAmount),
+    weekRevenue: round2(revenueWeek._sum.fareAmount),
+    monthRevenue: round2(revenueMonth._sum.fareAmount),
     totalCommission: round2(totalRevenue * commissionRate),
-    revenueByDay: bucketByDay(successfulPayments14d, 'createdAt', (r) => r.amount || 0)
+    revenueByDay: bucketByDay(successfulPayments14d, 'createdAt', (r) => r.fareAmount || 0)
       .map((d) => ({ date: d.date, value: round2(d.value) })),
     tripsByStatus,
     tripsByDay: bucketByDay(trips14d, 'createdAt', () => 1),
@@ -1161,7 +1223,7 @@ module.exports = {
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips,
   getUserDetail, getUserTrips,
-  getSupportTickets, getTripReports, resolveTripReport, respondToTicket, closeTicket,
+  getSupportTickets, getSupportTicketDetail, getTripReports, resolveTripReport, respondToTicket, closeTicket,
   getPromotions, createPromotion, togglePromotion,
   getLiveDrivers, assignDriverToTrip, getUnassignedTrips,
   getSosEvents, resolveSosEvent,

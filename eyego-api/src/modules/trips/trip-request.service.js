@@ -17,7 +17,7 @@ const MAX_DRIVERS_TO_NOTIFY = 12;
  * Groups similar requests heading to the same area within a 60-min window, then
  * dispatches FCM push notifications to nearby online drivers.
  */
-async function createRequest(userId, { destination, scheduledAt, seatCount = 1, pickupLat, pickupLng, destLat, destLng }) {
+async function createRequest(userId, { destination, scheduledAt, seatCount = 1, coverAll = true, pickupLat, pickupLng, destLat, destLng }) {
   const scheduledTime = new Date(scheduledAt);
   const destNormalized = destination.trim();
 
@@ -28,6 +28,7 @@ async function createRequest(userId, { destination, scheduledAt, seatCount = 1, 
       destination: destNormalized,
       scheduledAt: scheduledTime,
       seatCount: parseInt(seatCount, 10) || 1,
+      coverAll: !!coverAll,
       pickupLat: pickupLat != null ? parseFloat(pickupLat) : null,
       pickupLng: pickupLng != null ? parseFloat(pickupLng) : null,
       destLat: destLat != null ? parseFloat(destLat) : null,
@@ -339,21 +340,54 @@ async function acceptTripRequest(driverId, tripRequestId) {
       include: { route: true, vehicle: true, driver: { select: { name: true, phone: true, profilePhoto: true } } },
     });
 
+    // A rider who asked for seatCount > 1 (booking for their own group, e.g.
+    // "me + 3 friends") is handled two ways, per their coverAll choice:
+    //  - coverAll=true: book ALL their seats now under their own userId (one
+    //    booking per seat — every other consumer in this codebase, from seat
+    //    maps to confirmedSeats counters, assumes 1 booking = 1 seat) and
+    //    auto-create a RideGroup so a single payment settles every one of
+    //    those sibling bookings together (existing isCoverAll settlement
+    //    logic in payments.service.js — no changes needed there).
+    //  - coverAll=false: book just their own seat; the remaining seats stay
+    //    open on the trip (maxSeats above already accounts for them via
+    //    totalSeatsNeeded) and a RideGroup is still created so they have an
+    //    invite link immediately, for friends to join and pay individually
+    //    via the existing invite/join flow (also unchanged).
     const bookings = [];
     for (const r of groupRequests) {
-      const booking = await tx.booking.create({
-        data: {
-          tripId: trip.id,
-          userId: r.userId,
-          seatNumber: null,
-          fareAmount: fare.farePerPerson,
-          commissionAmount: fare.commissionPerSeat,
-          paymentMethod: 'CASH',
-          paymentStatus: 'PENDING',
-          status: 'CONFIRMED',
-        },
-      });
-      bookings.push(booking);
+      const seatsRequested = Math.max(r.seatCount || 1, 1);
+      const seatsToBookNow = (seatsRequested > 1 && r.coverAll) ? seatsRequested : 1;
+      for (let i = 0; i < seatsToBookNow; i++) {
+        const booking = await tx.booking.create({
+          data: {
+            tripId: trip.id,
+            userId: r.userId,
+            seatNumber: null,
+            fareAmount: fare.farePerPerson,
+            commissionAmount: fare.commissionPerSeat,
+            paymentMethod: 'CASH',
+            paymentStatus: 'PENDING',
+            status: 'CONFIRMED',
+          },
+        });
+        bookings.push(booking);
+      }
+      if (seatsRequested > 1) {
+        // RideGroup.tripId is unique — if two different multi-seat requests
+        // landed on the same matched trip (rare), only the first can hold
+        // it; skip rather than fail the whole accept over an edge case.
+        const existingGroup = await tx.rideGroup.findUnique({ where: { tripId: trip.id } });
+        if (!existingGroup) {
+          await tx.rideGroup.create({
+            data: {
+              tripId: trip.id,
+              leadPassengerId: r.userId,
+              isCoverAll: !!r.coverAll,
+              expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            },
+          });
+        }
+      }
       await tx.tripRequest.update({ where: { id: r.id }, data: { matchedTripId: trip.id } });
     }
 

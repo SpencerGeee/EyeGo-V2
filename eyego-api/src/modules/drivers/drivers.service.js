@@ -530,6 +530,46 @@ async function arriveTrip(driverId, tripId) {
       data: { status: 'COMPLETED', arrivedAt: new Date() },
     });
 
+    // ── Auto-settle any still-unpaid CASH bookings ───────────────────────
+    // Mirrors the same fix in trips.service.js completeTrip — "Mark Boarded"
+    // is a manual per-seat driver action that's easy to skip, which would
+    // otherwise leave a cash booking's paymentStatus stuck at PENDING
+    // forever even though the trip is over and the rider paid in person.
+    const unsettledCash = await tx.booking.findMany({
+      where: {
+        tripId,
+        paymentMethod: 'CASH',
+        paymentStatus: { not: 'PAID' },
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      },
+      select: { id: true, commissionAmount: true },
+    });
+    if (unsettledCash.length > 0) {
+      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmount || 0), 0);
+      await tx.booking.updateMany({
+        where: { id: { in: unsettledCash.map((b) => b.id) } },
+        data: { paymentStatus: 'PAID' },
+      });
+      if (totalCommissionOwed > 0) {
+        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalance: true } });
+        await tx.driver.update({
+          where: { id: driverId },
+          data: { walletBalance: { decrement: totalCommissionOwed } },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            driverId,
+            type: 'COMMISSION_DEDUCTION',
+            amount: totalCommissionOwed,
+            description: `Cash commission auto-settled on arrival — ${unsettledCash.length} seat(s) not marked boarded`,
+            balanceBefore: driverBeforeSettle?.walletBalance ?? 0,
+            balanceAfter: (driverBeforeSettle?.walletBalance ?? 0) - totalCommissionOwed,
+            tripId,
+          },
+        });
+      }
+    }
+
     // Complete ALL active bookings (CONFIRMED, SEAT_HELD, PAID, BOARDED)
     // This ensures cash riders (SEAT_HELD) also show up in the rider's past trips
     await tx.booking.updateMany({

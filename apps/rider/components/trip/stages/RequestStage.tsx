@@ -30,7 +30,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const insets = useSafeAreaInsets();
   const popStage = useTripFlow((s) => s.popStage);
   const queryClient = useQueryClient();
-  const { origin, destination: storeDestination, setPendingTripRequest } = useRideStore();
+  const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll } = useRideStore();
   const { destination: paramDestination, scheduledAt, resumeRequestId } = useLocalSearchParams<{
     destination?: string;
     scheduledAt?: string;
@@ -62,6 +62,14 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           const req = check.data?.data;
           if (req?.status === 'ACCEPTED' && req.matchedTripId) {
             if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+            // Guard against the Activity tab's LiveRequestCard (a second,
+            // independent poller for this same request — see activity.tsx)
+            // detecting the same match and navigating first. Both effects
+            // watch the same pendingTripRequestId; whichever runs first wins
+            // by clearing it, and the other bails out here instead of firing
+            // a second, racing navigation into the same not-yet-existing
+            // tracking route, which crashed the app on return to this screen.
+            if (useRideStore.getState().pendingTripRequestId !== requestIdRef.current) return;
             setPendingTripRequest(null);
             setStatus('matched');
             queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
@@ -88,7 +96,8 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         const res = await tripsApi.requestTrip({
           destination,
           scheduledAt: scheduledAt ?? new Date().toISOString(),
-          seatCount: 1,
+          seatCount: requestSeatCount,
+          coverAll: requestCoverAll,
           pickupLat: origin?.latitude,
           pickupLng: origin?.longitude,
           destLat: storeDestination?.latitude,
@@ -115,6 +124,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             if (req?.status === 'ACCEPTED' && req.matchedTripId) {
               if (pollTimerRef.current) clearInterval(pollTimerRef.current);
               if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+              // See the resumeRequestId branch above — same double-navigation
+              // guard against the Activity tab's LiveRequestCard poller.
+              if (useRideStore.getState().pendingTripRequestId !== requestIdRef.current) return;
               setPendingTripRequest(null);
               setStatus('matched');
               queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });

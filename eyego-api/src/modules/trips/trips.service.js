@@ -564,6 +564,49 @@ async function completeTrip(tripId) {
       data: { status: 'COMPLETED' },
     });
 
+    // ── Auto-settle any still-unpaid CASH bookings ───────────────────────
+    // Boarding a cash passenger (which flips paymentStatus to PAID and
+    // deducts commission) is a manual per-seat driver action — easy to skip.
+    // Without this, a completed trip could leave a cash booking's
+    // paymentStatus stuck at PENDING forever even though the rider rode and
+    // paid the driver directly, making the admin dashboard show a finished,
+    // paid trip as permanently "pending" and letting the platform miss the
+    // commission entirely.
+    const unsettledCash = await tx.booking.findMany({
+      where: {
+        tripId,
+        paymentMethod: 'CASH',
+        paymentStatus: { not: 'PAID' },
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      },
+      select: { id: true, commissionAmount: true },
+    });
+    if (unsettledCash.length > 0) {
+      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmount || 0), 0);
+      await tx.booking.updateMany({
+        where: { id: { in: unsettledCash.map((b) => b.id) } },
+        data: { paymentStatus: 'PAID' },
+      });
+      if (totalCommissionOwed > 0) {
+        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: trip.driverId }, select: { walletBalance: true } });
+        await tx.driver.update({
+          where: { id: trip.driverId },
+          data: { walletBalance: { decrement: totalCommissionOwed } },
+        });
+        await tx.walletTransaction.create({
+          data: {
+            driverId: trip.driverId,
+            type: 'COMMISSION_DEDUCTION',
+            amount: totalCommissionOwed,
+            description: `Cash commission auto-settled at trip completion — ${unsettledCash.length} seat(s) not marked boarded`,
+            balanceBefore: driverBeforeSettle?.walletBalance ?? 0,
+            balanceAfter: (driverBeforeSettle?.walletBalance ?? 0) - totalCommissionOwed,
+            tripId,
+          },
+        });
+      }
+    }
+
     // Credit driver wallet: sum fareAmount from paid+confirmed bookings, minus 15% platform fee
     const paidBookings = await tx.booking.findMany({
       where: {
@@ -592,8 +635,14 @@ async function completeTrip(tripId) {
       for (const b of paidBookings) {
         const commission = b.commissionAmount != null ? b.commissionAmount : Math.round(b.fareAmount * 0.15 * 100) / 100;
         const driverEarnings = b.fareAmount - commission;
-        totalNetEarnings += driverEarnings;
-        totalCommission += commission;
+        // CASH bookings already had their commission deducted at boarding
+        // (or in the auto-settle step above) and the driver keeps the fare
+        // cash directly — crediting the wallet with driverEarnings again
+        // here would double-pay them. Still generate their receipt below.
+        if (b.paymentMethod !== 'CASH') {
+          totalNetEarnings += driverEarnings;
+          totalCommission += commission;
+        }
 
         const receiptNumber = `RCP-${Date.now()}-${b.id.slice(-6).toUpperCase()}`;
         await tx.receipt.create({

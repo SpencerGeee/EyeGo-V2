@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import MapboxGL from '../../utils/mapbox';
+import MapboxGL, { type CameraRef } from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
@@ -36,6 +36,26 @@ function TripMapImpl() {
     })();
   }, []);
 
+  // BUGFIX: MapLibre's native <Camera> only applies centerCoordinate/zoomLevel
+  // declaratively on its FIRST mount — the GPS fix almost always resolves
+  // before the rider finishes searching, so by the time they pick a result
+  // the Camera element is already mounted (centered on their location) and
+  // further prop changes are silently ignored by the native module. Every
+  // other camera-driven screen in this app works around this by re-centering
+  // imperatively via a ref once mounted (see ride/[id].tsx's fitBounds,
+  // ride/[id]/tracking.tsx's setCamera, profile/place-picker.tsx's
+  // handleSelectSuggestion) — do the same here so selecting a destination
+  // actually flies the map instead of leaving it wherever it first landed.
+  const cameraRef = useRef<CameraRef>(null);
+  useEffect(() => {
+    if (!searchPlace) return;
+    cameraRef.current?.setCamera({
+      centerCoordinate: [searchPlace.longitude, searchPlace.latitude],
+      zoomLevel: 14,
+      animationDuration: 700,
+    });
+  }, [searchPlace?.latitude, searchPlace?.longitude]);
+
   return (
     <MapboxGL.MapView
       style={StyleSheet.absoluteFill}
@@ -47,6 +67,7 @@ function TripMapImpl() {
     >
       {(userCoords || searchPlace) && (
         <MapboxGL.Camera
+          ref={cameraRef}
           centerCoordinate={
             searchPlace ? [searchPlace.longitude, searchPlace.latitude] : userCoords!
           }

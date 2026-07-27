@@ -320,7 +320,14 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
       const updatedBooking = await tx.booking.updateMany({
         where: { id: b.id, paymentStatus: b.paymentStatus },
         data: {
-          paymentStatus: cashOnBoard ? 'CASH_PENDING' : 'PAID',
+          // 'PENDING' (not a separate 'CASH_PENDING' value) — every other cash
+          // consumer in the codebase (admin dashboard badge map, arriveTrip's
+          // booking filter, the driver add-passenger flow) treats literal
+          // 'PENDING' as "cash owed, collect on boarding". 'CASH_PENDING' was
+          // an isolated value nothing downstream ever read, which made
+          // in-app cash bookings invisible to those consumers and rendered
+          // an unstyled badge in the admin console.
+          paymentStatus: cashOnBoard ? 'PENDING' : 'PAID',
           status: 'CONFIRMED',
           paystackRef: reference,
         },

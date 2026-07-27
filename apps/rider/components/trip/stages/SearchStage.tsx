@@ -178,11 +178,6 @@ function SearchStageImpl() {
     commitPlace({ name, fullAddress: s.display_name, latitude: parseFloat(s.lat), longitude: parseFloat(s.lon) });
   }, [commitPlace]);
 
-  const handleQuickDest = useCallback((dest: typeof QUICK_DESTINATIONS[0]) => {
-    haptic.light();
-    commitPlace({ name: dest.name, fullAddress: dest.address, latitude: dest.lat, longitude: dest.lon });
-  }, [commitPlace]);
-
   // Chips had no onPress at all before — tapping Home/Work/Accra Mall did
   // nothing. Home/Work resolve against the rider's saved places; if not yet
   // saved, send them to set one up rather than silently doing nothing.
@@ -473,31 +468,6 @@ function SearchStageImpl() {
                     </Pressable>
                   ))}
                 </ScrollView>
-
-                {/* Recent / popular places */}
-                <View style={styles.divider} />
-                {QUICK_DESTINATIONS.map((dest, i) => (
-                  <Pressable
-                    key={dest.id}
-                    style={({ pressed }) => [
-                      styles.placeRow,
-                      i > 0 && styles.placeRowBorder,
-                      pressed && { opacity: 0.75 },
-                    ]}
-                    onPress={() => handleQuickDest(dest)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Navigate to ${dest.name}`}
-                  >
-                    <View style={styles.placeIconWrap}>
-                      <Ionicons name={dest.icon} size={20} color={colors.onSurfaceVariant} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.placeName} numberOfLines={1}>{dest.name}</Text>
-                      <Text style={styles.placeAddr} numberOfLines={1}>{dest.address}</Text>
-                    </View>
-                    <Text style={styles.placeDist}>{dest.dist}</Text>
-                  </Pressable>
-                ))}
               </Animated.View>
             )}
 
@@ -701,49 +671,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 13,
     color: colors.onSurface,
-  },
-
-  // ─── Recent/Popular Places ────────────────────────────
-  placeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-  },
-  placeRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: colors.rimLightSubtle,
-  },
-  placeIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  placeName: {
-    fontFamily: fonts.semiBold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: colors.onSurface,
-  },
-  placeAddr: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    lineHeight: 15,
-    color: colors.onSurfaceVariant,
-    marginTop: 2,
-  },
-  placeDist: {
-    fontFamily: fonts.labelCaps,
-    fontSize: 10,
-    lineHeight: 14,
-    color: colors.onSurfaceVariant,
-    letterSpacing: 0.5,
-    flexShrink: 0,
   },
 
   // ─── Autocomplete ─────────────────────────────────────

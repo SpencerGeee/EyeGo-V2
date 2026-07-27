@@ -162,6 +162,14 @@ function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnTyp
   useEffect(() => {
     if (!req) return;
     if (req.status === 'ACCEPTED' && req.matchedTripId) {
+      // Guard against RequestStage (the full "looking for a driver" screen —
+      // reachable by tapping this very card) polling the same request in
+      // parallel and already having navigated. Both watch pendingTripRequestId;
+      // re-check it's still this card's id before claiming it, so only one
+      // side fires router navigation. Without this, returning to this card
+      // right as a driver accepted could fire two competing navigations
+      // (this push + RequestStage's dismissTo) and crash the app.
+      if (useRideStore.getState().pendingTripRequestId !== pendingTripRequestId) return;
       setPendingTripRequest(null);
       router.push(`/ride/${req.matchedTripId}/tracking` as any);
     } else if (req.status === 'CANCELLED') {

@@ -233,11 +233,12 @@ const riderNoShow = async (req, res) => {
 };
 
 const requestTrip = async (req, res) => {
-  const { destination, scheduledAt, seatCount, pickupLat, pickupLng, destLat, destLng } = req.body;
+  const { destination, scheduledAt, seatCount, coverAll, pickupLat, pickupLng, destLat, destLng } = req.body;
   const result = await tripRequestService.createRequest(req.user.userId, {
     destination,
     scheduledAt,
     seatCount,
+    coverAll,
     pickupLat,
     pickupLng,
     destLat,

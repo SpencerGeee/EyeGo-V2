@@ -525,6 +525,12 @@ model TripRequest {
   destination String
   scheduledAt DateTime
   seatCount   Int      @default(1)
+  // When seatCount > 1: true = requester pays for their whole party in one
+  // bundled charge (auto-creates a RideGroup + books all seatCount seats
+  // under them). false = requester books just their own seat and the
+  // remaining seatCount-1 stay open on the matched trip for others to claim
+  // via the RideGroup invite link (existing pay-individually flow).
+  coverAll    Boolean  @default(true)
   pickupLat   Float?
   pickupLng   Float?
   destLat     Float?
