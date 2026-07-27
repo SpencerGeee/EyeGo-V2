@@ -242,6 +242,11 @@ export const driverApi = {
   declineDispatch: (tripId: string, reason?: string) =>
     apiClient.post<ApiResponse<{ declined: boolean }>>(`/driver/trips/${tripId}/decline`, { reason }),
 
+  // A trip a previous driver bailed on pre-boarding — first online nearby
+  // driver to claim it takes over (see drivers.service.js redispatchTrip).
+  claimReassignment: (tripId: string) =>
+    apiClient.post<ApiResponse<{ trip: DriverTrip }>>(`/driver/trips/${tripId}/claim-reassignment`),
+
   // On-demand trip requests — first driver to accept becomes the owning driver
   acceptTripRequest: (requestId: string) =>
     apiClient.post<ApiResponse<{ trip: DriverTrip }>>(`/driver/trip-requests/${requestId}/accept`),

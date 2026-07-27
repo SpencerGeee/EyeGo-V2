@@ -53,6 +53,9 @@ router.post('/trips/:id/depart', requireActiveDriver, controller.departTrip);
 router.post('/trips/:id/arrive', requireActiveDriver, controller.arriveTrip);
 router.post('/trips/:id/emergency', controller.emergencyAlert);
 router.post('/trips/:id/accept', requireActiveDriver, controller.acceptDispatch);
+// A trip a previous driver bailed on pre-boarding (see drivers.service.js
+// redispatchTrip) — first online nearby driver to claim it takes over.
+router.post('/trips/:id/claim-reassignment', requireActiveDriver, controller.claimReassignedTrip);
 router.post('/trips/:id/decline', controller.declineDispatch);
 
 // On-demand trip requests (rider "Request a Trip" flow)

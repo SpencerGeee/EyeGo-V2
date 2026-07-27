@@ -33,6 +33,7 @@ const TABS: { key: FilterTab; label: string }[] = [
 
 const SCHEDULED_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Waiting for a match',
+  DISPATCHED: 'Looking for a nearby driver',
   MATCHED: 'Confirmed',
   CANCELLED: 'Cancelled',
   EXPIRED: 'Expired',
@@ -261,7 +262,7 @@ function ScheduledItem({
           </Text>
         </View>
       </View>
-      {intent.status === 'PENDING' && (
+      {(intent.status === 'PENDING' || intent.status === 'DISPATCHED') && (
         <Button
           label="Cancel"
           variant="ghost"

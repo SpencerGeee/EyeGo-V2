@@ -68,7 +68,7 @@ export function DriverTripStatusListener() {
   const bannerAnim = useRef(new Animated.Value(-120)).current;
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Where tapping the banner should navigate, with the route param.
-  const bannerDestRef = useRef<{ type: 'chat' | 'dispatch' | 'tracking'; tripId: string; kind?: 'REQUEST' } | null>(null);
+  const bannerDestRef = useRef<{ type: 'chat' | 'dispatch' | 'tracking'; tripId: string; kind?: 'REQUEST' | 'REASSIGNMENT' } | null>(null);
 
   // Refs so socket callbacks never read stale closure values
   const activeTripIdRef = useRef(activeTripId);
@@ -129,18 +129,19 @@ export function DriverTripStatusListener() {
       // The dispatch modal already presents the offer — don't double-fire.
       if (segs.some((s) => s === 'dispatch')) return;
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
-      const kind = safeRead(data, 'kind') as 'REQUEST' | undefined;
+      const kind = safeRead(data, 'kind') as 'REQUEST' | 'REASSIGNMENT' | undefined;
       bannerDestRef.current = { type: 'dispatch', tripId: tId, kind };
       const route = safeRead(data, 'routeOrigin');
       const dest = safeRead(data, 'routeDestination');
+      const title = kind === 'REQUEST' ? 'New ride request nearby' : kind === 'REASSIGNMENT' ? 'Trip needs a driver' : 'New trip assigned';
       useNotificationsStore.getState().addNotification({
         type: 'TRIP_ASSIGNED',
-        title: kind === 'REQUEST' ? 'New ride request nearby' : 'New trip assigned',
+        title,
         body: route && dest ? `${route} → ${dest}` : '',
         tripId: tId,
       });
       showBanner(
-        route && dest ? `New trip: ${route} → ${dest}` : 'New trip request — tap to view',
+        route && dest ? `${title}: ${route} → ${dest}` : `${title} — tap to view`,
         'navigate-circle',
       );
     });

@@ -32,6 +32,11 @@ export default function DispatchScreen() {
     kind?: string;
   }>();
   const isTripRequest = kind === 'REQUEST';
+  // A trip a previous driver bailed on pre-boarding (see drivers.service.js
+  // redispatchTrip) — `id` here is already a real Trip id, claimed via a
+  // dedicated first-claim-wins endpoint rather than acceptDispatch (which
+  // requires the trip's driverId to already match this driver).
+  const isReassignment = kind === 'REASSIGNMENT';
 
   const initialSeconds = useMemo(() => {
     if (expiresAt) {
@@ -79,7 +84,12 @@ export default function DispatchScreen() {
   }
 
   const accept = useMutation({
-    mutationFn: () => (isTripRequest ? driverApi.acceptTripRequest(id) : driverApi.acceptDispatch(id)),
+    mutationFn: () =>
+      isTripRequest
+        ? driverApi.acceptTripRequest(id)
+        : isReassignment
+        ? driverApi.claimReassignment(id)
+        : driverApi.acceptDispatch(id),
     onSuccess: (res: AcceptDispatchResponse) => {
       // DM5: haptic feedback on successful trip accept
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -125,9 +135,10 @@ export default function DispatchScreen() {
   });
 
   const decline = useMutation({
-    // There's no server-side "decline" concept for an on-demand trip request —
-    // ignoring it just leaves it available for another nearby driver to accept.
-    mutationFn: async () => { if (!isTripRequest) await driverApi.declineDispatch(id); },
+    // There's no server-side "decline" concept for an on-demand trip request
+    // or a redispatch offer — ignoring either just leaves it available for
+    // another nearby driver to accept/claim.
+    mutationFn: async () => { if (!isTripRequest && !isReassignment) await driverApi.declineDispatch(id); },
     onSuccess: () => router.back(),
     onError: () => router.back(), // navigate away regardless
   });

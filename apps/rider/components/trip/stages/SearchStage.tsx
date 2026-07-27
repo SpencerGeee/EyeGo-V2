@@ -59,12 +59,12 @@ function SearchStageImpl() {
   const quickChips = useMemo(() => getQuickChips(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { origin, setOrigin, setDestination } = useRideStore();
-  const tier = useTripFlow((s) => s.tier);
-  const type = useTripFlow((s) => s.type);
+  const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
   const setSearchPlace = useTripFlow((s) => s.setSearchPlace);
+  const goStage = useTripFlow((s) => s.go);
+  const [orderSeats, setOrderSeats] = useState(1);
   // The container-transform source that opened this surface. Home's search
   // pill uses 'where-to-pill'; services cards pass their own id so each
   // morphs from its own card. Falls back to the pill id for deep links.
@@ -216,13 +216,17 @@ function SearchStageImpl() {
     }
   }, [originText, destQuery, selectedPlace, setSearchPlace]);
 
-  const handleFindRides = useCallback(() => {
+  // BUGFIX: this used to route to /ride/select — a "browse existing routes"
+  // search screen the rider had to separately tap "Find Available Rides" on,
+  // which usually returned nothing (on-demand dispatch is the primary model
+  // now, not pre-scheduled fixed routes) and dead-ended in a "no rides, try
+  // requesting instead" error. Destination is already confirmed by this
+  // point — go straight to the driver-matching/dispatch stage, no extra tap.
+  const handleOrderRide = useCallback(() => {
     haptic.medium();
-    router.push({
-      pathname: '/ride/select',
-      params: { tier: tier ?? 'economy', ...(type ? { type } : {}) },
-    } as any);
-  }, [router, tier, type]);
+    setRequestSeats(orderSeats, true);
+    goStage('request');
+  }, [goStage, orderSeats, setRequestSeats]);
 
   // Quick destinations show only while the search is idle (empty query).
   const searchActive = destQuery.length > 0;
@@ -475,15 +479,39 @@ function SearchStageImpl() {
             {hasDestination && selectedPlace && (
               <>
                 <View style={[styles.divider, { marginTop: 12 }]} />
+                <View style={styles.seatPickerRow}>
+                  <Text variant="bodySmall" color={colors.onSurfaceVariant}>Seats</Text>
+                  <View style={styles.seatStepper}>
+                    <Pressable
+                      style={styles.seatStepperBtn}
+                      onPress={() => setOrderSeats((n) => Math.max(1, n - 1))}
+                      accessibilityRole="button"
+                      accessibilityLabel="Decrease seat count"
+                      hitSlop={8}
+                    >
+                      <Ionicons name="remove" size={16} color={colors.onSurface} />
+                    </Pressable>
+                    <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{orderSeats}</Text>
+                    <Pressable
+                      style={styles.seatStepperBtn}
+                      onPress={() => setOrderSeats((n) => Math.min(8, n + 1))}
+                      accessibilityRole="button"
+                      accessibilityLabel="Increase seat count"
+                      hitSlop={8}
+                    >
+                      <Ionicons name="add" size={16} color={colors.onSurface} />
+                    </Pressable>
+                  </View>
+                </View>
                 <View style={styles.ctaRow}>
                   <Pressable
                     style={styles.ctaPrimary}
-                    onPress={handleFindRides}
+                    onPress={handleOrderRide}
                     accessibilityRole="button"
-                    accessibilityLabel="Find rides"
+                    accessibilityLabel="Order ride"
                   >
-                    <Ionicons name="car-outline" size={18} color={colors.onPrimary} />
-                    <Text style={styles.ctaPrimaryText}>Find Rides</Text>
+                    <Ionicons name="flash" size={18} color={colors.onPrimary} />
+                    <Text style={styles.ctaPrimaryText}>Order Ride</Text>
                   </Pressable>
                   <Pressable
                     style={styles.ctaSecondary}
@@ -722,6 +750,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── CTAs ─────────────────────────────────────────────
+  seatPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingBottom: 10,
+  },
+  seatStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  seatStepperBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+  },
   ctaRow: {
     flexDirection: 'row',
     gap: 10,

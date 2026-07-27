@@ -11,7 +11,7 @@ const { isWithinGhana } = require('../../services/mapbox.service');
 const { generateTripReceipt, refundBookingForDriverCancellation } = require('../cancellation/cancellation.service');
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
-const { estimateFare, calculateFare } = require('../trips/fare.calculator');
+const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { toCedis } = require('../../utils/money');
 
 // Attach the same per-person estimate that the rider home screen shows,
@@ -878,11 +878,27 @@ async function boardPassenger(driverId, tripId, bookingId) {
   return prisma.booking.update({ where: { id: bookingId }, data: { status: 'BOARDED' } });
 }
 
+// Statuses where riders are matched/waiting but nobody has boarded yet — a
+// driver bailing here should hand the trip to another driver, not strand the
+// riders back at square one with a cancellation+refund. Once IN_PROGRESS
+// (someone's actually in the vehicle) a straight cancel is the right call —
+// redispatching mid-ride doesn't make sense.
+const REDISPATCHABLE_STATUSES = ['CONFIRMED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP'];
+
 async function cancelTrip(driverId, tripId, { reason, note } = {}) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
   if (['COMPLETED', 'CANCELLED'].includes(trip.status)) {
     throw new AppError('Trip cannot be cancelled in its current state', 400, 'INVALID_STATUS');
+  }
+
+  if (REDISPATCHABLE_STATUSES.includes(trip.status)) {
+    const activeBookingCount = await prisma.booking.count({
+      where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+    });
+    if (activeBookingCount > 0) {
+      return redispatchTrip(driverId, trip, { reason, note });
+    }
   }
 
   const updatedTrip = await prisma.$transaction(async (tx) => {
@@ -920,6 +936,155 @@ async function cancelTrip(driverId, tripId, { reason, note } = {}) {
   logger.info('Driver cancelled trip', { driverId, tripId, reason, note });
 
   return updatedTrip;
+}
+
+const REDISPATCH_RADIUS_KM = 8;
+const MAX_REDISPATCH_DRIVERS_TO_NOTIFY = 12;
+
+// Driver bailed on a trip riders are already matched/waiting on
+// (REDISPATCHABLE_STATUSES). Instead of cancelling+refunding, keep the
+// bookings intact, put the trip up for grabs to nearby online drivers, and
+// let the first one to claim it take over exactly where it was.
+async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
+  const updated = await prisma.trip.update({
+    where: { id: trip.id },
+    data: { status: 'REASSIGNING' },
+    include: { route: true, bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } } },
+  });
+
+  await prisma.dispatchAction.create({
+    data: { driverId: cancellingDriverId, tripId: trip.id, action: 'DECLINED' },
+  }).catch(() => {});
+
+  logger.info('Driver cancelled trip pre-boarding — redispatching', { cancellingDriverId, tripId: trip.id, reason, note });
+
+  // Tell the matched riders their driver changed (not that the trip died) —
+  // fire-and-forget, must not fail the cancel response.
+  setImmediate(async () => {
+    for (const b of updated.bookings) {
+      if (b.user?.fcmToken) {
+        pushService.sendPush(
+          b.user.fcmToken,
+          'Finding you a new driver',
+          'Your driver had to cancel — we\'re matching you with another driver nearby.',
+          { type: 'TRIP_REASSIGNING', tripId: trip.id },
+        ).catch(() => {});
+      }
+    }
+
+    // Broadcast to nearby online drivers (excluding the one who just bailed),
+    // reusing the same geo-radius eligibility as the initial dispatch.
+    try {
+      let nearbyDriverIds = [];
+      if (trip.pickupLat != null && trip.pickupLng != null) {
+        try {
+          nearbyDriverIds = await redis.geosearch(
+            'drivers:online',
+            'FROMLONLAT', trip.pickupLng, trip.pickupLat,
+            'BYRADIUS', REDISPATCH_RADIUS_KM, 'km',
+            'ASC', 'COUNT', 30,
+          );
+        } catch (_) {
+          nearbyDriverIds = await redis.georadius(
+            'drivers:online',
+            trip.pickupLng, trip.pickupLat,
+            REDISPATCH_RADIUS_KM, 'km',
+            'ASC', 'COUNT', 30,
+          ).catch(() => []);
+        }
+      }
+      nearbyDriverIds = nearbyDriverIds.filter((id) => id !== cancellingDriverId);
+
+      const eligibleDrivers = await prisma.driver.findMany({
+        where: {
+          id: nearbyDriverIds.length > 0 ? { in: nearbyDriverIds } : undefined,
+          status: 'ACTIVE',
+          isOnline: true,
+          NOT: { id: cancellingDriverId },
+          trips: { none: { status: { in: ['IN_PROGRESS', 'DRIVER_EN_ROUTE'] } } },
+        },
+        select: { id: true, fcmToken: true },
+        take: MAX_REDISPATCH_DRIVERS_TO_NOTIFY,
+      });
+
+      const fcmTokens = eligibleDrivers.map((d) => d.fcmToken).filter(Boolean);
+      if (fcmTokens.length > 0) {
+        await pushService.sendMulticastPush(
+          fcmTokens,
+          'Trip needs a driver',
+          `A trip to ${updated.route?.destinationName ?? 'a nearby destination'} needs a new driver.`,
+          { type: 'TRIP_REASSIGNMENT_AVAILABLE', tripId: trip.id },
+        ).catch(() => {});
+      }
+
+      const io = require('../../app').get('io');
+      if (io) {
+        const payload = {
+          tripId: trip.id,
+          kind: 'REASSIGNMENT',
+          routeOrigin: 'Pickup nearby',
+          routeDestination: updated.route?.destinationName ?? trip.route?.destinationName,
+          departureTime: trip.departureTime,
+          seatCount: updated.bookings.length,
+        };
+        for (const d of eligibleDrivers) {
+          io.of('/driver').to(`driver:${d.id}`).emit('trip:assigned', payload);
+        }
+      }
+    } catch (err) {
+      logger.error('Failed to broadcast trip redispatch', { tripId: trip.id, err: err?.message });
+    }
+  });
+
+  return updated;
+}
+
+// A nearby driver claims a trip that's up for redispatch (see
+// redispatchTrip above). Atomic first-claim-wins, same pattern as
+// acceptDispatch — resumes the trip exactly where it left off
+// (DRIVER_EN_ROUTE) under the new driver.
+async function claimReassignedTrip(driverId, tripId) {
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) throw new NotFoundError('Driver');
+  if (!driver.isOnline) throw new AppError('You must be online to accept trips', 400, 'DRIVER_OFFLINE');
+
+  const vehicle = await prisma.vehicle.findFirst({ where: { driverId, isActive: true } });
+  if (!vehicle) throw new AppError('No active vehicle registered. Add a vehicle before accepting trips.', 400, 'NO_VEHICLE');
+
+  const result = await prisma.$transaction(async (tx) => {
+    const claim = await tx.trip.updateMany({
+      where: { id: tripId, status: 'REASSIGNING' },
+      data: { driverId, vehicleId: vehicle.id, status: 'DRIVER_EN_ROUTE' },
+    });
+    if (claim.count === 0) {
+      throw new AppError('This trip has already been reassigned to another driver.', 409, 'REASSIGNMENT_UNAVAILABLE');
+    }
+
+    await tx.dispatchAction.create({ data: { driverId, tripId, action: 'ACCEPTED' } });
+
+    return tx.trip.findUnique({
+      where: { id: tripId },
+      include: {
+        route: true,
+        bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } },
+      },
+    });
+  });
+
+  setImmediate(async () => {
+    for (const b of result.bookings) {
+      if (b.user?.fcmToken) {
+        pushService.sendPush(
+          b.user.fcmToken,
+          'New driver on the way',
+          'A new driver has been matched to your trip and is heading your way.',
+          { type: 'TRIP_REASSIGNED', tripId },
+        ).catch(() => {});
+      }
+    }
+  });
+
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1047,7 +1212,7 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
 
   const hasCoords = typeof lat === 'number' && typeof lng === 'number' && !Number.isNaN(lat) && !Number.isNaN(lng);
 
-  return requests
+  const requestOffers = requests
     .filter((r) => {
       if (!hasCoords) return true; // no driver coords → return all recent pending
       if (r.pickupLat == null || r.pickupLng == null) return true; // can't filter → include
@@ -1063,6 +1228,34 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
       pickupLat: r.pickupLat,
       pickupLng: r.pickupLng,
     }));
+
+  // Trips a driver bailed on pre-boarding (see redispatchTrip) — reliability
+  // backstop for the socket-pushed 'trip:assigned' event, same reasoning as
+  // the REQUEST poll above. Excludes the driver who just cancelled it.
+  const reassignments = await prisma.trip.findMany({
+    where: { status: 'REASSIGNING', driverId: { not: driverId } },
+    orderBy: { updatedAt: 'desc' },
+    take: 20,
+    include: { route: true, bookings: { where: { status: { notIn: ['CANCELLED'] } }, select: { id: true } } },
+  });
+  const reassignmentOffers = reassignments
+    .filter((t) => {
+      if (!hasCoords) return true;
+      if (t.pickupLat == null || t.pickupLng == null) return true;
+      return haversineKm(lat, lng, t.pickupLat, t.pickupLng) <= DISPATCH_RADIUS_KM;
+    })
+    .map((t) => ({
+      tripId: t.id, // this is the trip id — accept via drivers/trips/:id/claim-reassignment
+      kind: 'REASSIGNMENT',
+      routeOrigin: 'Pickup nearby',
+      routeDestination: t.route?.destinationName,
+      departureTime: t.departureTime,
+      seatCount: t.bookings.length,
+      pickupLat: t.pickupLat,
+      pickupLng: t.pickupLng,
+    }));
+
+  return [...reassignmentOffers, ...requestOffers];
 }
 
 // Upcoming scheduled trips this driver is matched to (their own SCHEDULED/FILLING
@@ -1113,7 +1306,7 @@ module.exports = {
   getSupportTickets, createSupportTicket, replyToTicket,
   scheduleInspection, getInspections,
   deleteMe, reportTrip,
-  getPendingTripRequests, getUpcomingScheduledTrips,
+  getPendingTripRequests, getUpcomingScheduledTrips, claimReassignedTrip,
 };
 
 // ── Rate passenger (driver rates rider after trip) ────────────────

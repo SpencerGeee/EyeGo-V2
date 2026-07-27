@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, GlassSurface, GradientGlowBorder } from '@eyego/ui';
 import { tripsApi, queryKeys } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { offlineQueue } from '../../../utils/offlineQueue';
@@ -220,9 +220,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       </View>
 
       <View style={styles.body}>
-        {/* Pulsing ring animation */}
+        {/* Pulsing ring animation, glowing while actively searching */}
         <View style={styles.iconContainer}>
-          {[0, 1, 2].map((i) => (
+          {status === 'searching' && [0, 1, 2].map((i) => (
             <MotiView
               key={i}
               from={{ opacity: 0.4, scale: 0.8 }}
@@ -236,9 +236,19 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               style={[styles.ring, { position: 'absolute' }]}
             />
           ))}
-          <View style={styles.iconCircle}>
-            <Ionicons name="bus-outline" size={32} color={colors.primary} />
-          </View>
+          <GradientGlowBorder
+            palette={status === 'matched' ? 'green' : status === 'error' || status === 'timeout' ? undefined : 'green'}
+            fillColor={colors.surfaceCard}
+            borderRadius={36}
+            glow={status === 'searching' || status === 'matched'}
+            style={styles.iconGlowWrap}
+          >
+            <Ionicons
+              name={status === 'matched' ? 'checkmark-circle' : status === 'error' || status === 'timeout' ? 'alert-circle-outline' : 'bus-outline'}
+              size={32}
+              color={colors.primary}
+            />
+          </GradientGlowBorder>
         </View>
 
         <Text style={styles.title}>
@@ -271,6 +281,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
         {/* Info card */}
         <View style={styles.infoCard}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
           <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
           <Text style={styles.infoText}>
             Trip requests are grouped — other riders heading the same way will be added automatically.
@@ -388,13 +399,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderWidth: 2,
     borderColor: `${colors.primary}50`,
   },
-  iconCircle: {
+  iconGlowWrap: {
     width: 72,
     height: 72,
-    borderRadius: 36,
-    backgroundColor: `${colors.primary}15`,
-    borderWidth: 2,
-    borderColor: `${colors.primary}40`,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -427,12 +434,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.sm,
-    backgroundColor: colors.surfaceContainer,
     borderRadius: radii.lg,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.outlineVariant,
     marginTop: spacing.sm,
+    overflow: 'hidden',
   },
   infoText: {
     flex: 1,

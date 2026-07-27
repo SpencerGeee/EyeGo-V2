@@ -461,8 +461,10 @@ export const driverSocketEvents = {
     tripShortId?: string;
     // 'REQUEST' = an on-demand rider trip request, not yet a real Trip row —
     // the dispatch screen must call acceptTripRequest(id) instead of
-    // acceptDispatch(id). Absent/undefined = the normal pre-scheduled-trip path.
-    kind?: 'REQUEST';
+    // acceptDispatch(id). 'REASSIGNMENT' = an existing Trip a previous driver
+    // bailed on pre-boarding — call claimReassignment(id) instead. Absent/
+    // undefined = the normal pre-scheduled-trip path (acceptDispatch(id)).
+    kind?: 'REQUEST' | 'REASSIGNMENT';
     routeOrigin: string;
     routeDestination: string;
     departureTime: string;
