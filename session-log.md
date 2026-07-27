@@ -61,3 +61,24 @@ Decisions:
 Rejected: reconciling "Total Group Fare" (invite.tsx, an aggregate estimate across all group members) to also include other members' individual heavy-cargo/deviation surcharges — no aggregate-fare endpoint exists and each booking's addons are independent; left as the pre-existing approximation, only "Your Split Share" (the current viewer's own booking) was made authoritative since that's what's actually charged to them.
 Open: tsc clean on both apps, admin HTML script blocks parse clean (checked via `new Function()`), API dev server ran clean — but nothing tested on a live device/simulator/browser this session either. Committed and pushed at user's request without device testing; user is testing now.
 
+
+## 2026-07-26 02:30 [saved]
+Goal: Diagnose why rider trip requests never reach the driver app; verify dispatch end-to-end.
+Decisions:
+- Camera crash confirmed via pulled on-device crash report: MapboxGL.Camera with no initial coordinate throws SIGABRT on first layout. Fixed in ride/[id].tsx.
+- Redis not installed locally; InMemoryRedis fallback was missing geoadd/geosearch/georadius/sadd/smembers, so dispatch silently matched zero drivers. Implemented and verified all 5.
+- Audited all redis.* calls: eval/sendCommand already dev-bypassed, ping() already try/caught — no other gaps found.
+- Backend process had died independently of any code change; restarted via `npm run dev`, port 5020, nodemon confirmed picking up both redis.js fixes.
+Rejected: Ghana-geofence theory as sole dispatch root cause — real cause was the Redis fallback gap.
+Open: Confirm on phone post-rebuild that a rider request now reaches the driver app; confirm installed build's actual API host (EXPO_PUBLIC_API_URL unset in all EAS environments).
+
+## 2026-07-26 03:15 [saved]
+Goal: Deep silent-failure hunt across backend + both mobile apps (not typecheck — real logic bugs), per user request.
+Decisions:
+- InMemoryRedis.set() never implemented NX — payment double-charge lock + webhook dedup lock silently always succeeded when Redis down. Fixed, verified.
+- Audited all useMutation blocks in both apps (automated brace-matched scan): 0 missing onError; 9 flagged as "no visible feedback" all manually verified false positives (toast/setError/dedicated error UI exists, just didn't match regex).
+- Admin panel <-> backend route parity: 100% match, zero dead endpoint calls.
+- Backend cron jobs (6 setInterval loops): all try/caught, no unhandled-rejection risk.
+- JSON.parse audit across backend: all unguarded instances are safe-by-construction (parsing own just-written JSON) or already try/caught.
+Rejected: Treating tsc/typecheck as sufficient — user explicitly wants logic-level bug hunting, not compile checks.
+Open: Did not exhaustively read every backend module (e.g. quests, promotions, heatmap) line-by-line — checked highest-risk (money/dispatch/safety) areas only.

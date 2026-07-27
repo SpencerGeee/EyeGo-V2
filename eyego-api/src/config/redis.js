@@ -21,11 +21,28 @@ class InMemoryRedis {
     }
     return memoryStore.get(key) || null;
   }
-  async set(key, value, mode, duration) {
-    memoryStore.set(key, value);
-    if (mode === 'EX' && duration) {
-      memoryExpiry.set(key, Date.now() + duration * 1000);
+  // BUGFIX: never implemented NX (or PX) — every SET ... NX call (payment
+  // double-charge lock, webhook dedup lock in payments.service.js) silently
+  // always succeeded regardless of whether the key already existed, so those
+  // locks gave zero protection whenever Redis is down. Real Redis SET returns
+  // null on a failed NX/XX condition; callers check for that (`if (!acquired)`).
+  async set(key, value, ...args) {
+    let ttlSeconds = null;
+    let nx = false;
+    let xx = false;
+    for (let i = 0; i < args.length; i++) {
+      const token = String(args[i]).toUpperCase();
+      if (token === 'EX') { ttlSeconds = Number(args[i + 1]); i += 1; }
+      else if (token === 'PX') { ttlSeconds = Number(args[i + 1]) / 1000; i += 1; }
+      else if (token === 'NX') nx = true;
+      else if (token === 'XX') xx = true;
     }
+    const exists = memoryStore.has(key) && !(memoryExpiry.has(key) && memoryExpiry.get(key) < Date.now());
+    if (nx && exists) return null;
+    if (xx && !exists) return null;
+    memoryStore.set(key, value);
+    if (ttlSeconds != null) memoryExpiry.set(key, Date.now() + ttlSeconds * 1000);
+    else memoryExpiry.delete(key);
     return 'OK';
   }
   async del(key) {
