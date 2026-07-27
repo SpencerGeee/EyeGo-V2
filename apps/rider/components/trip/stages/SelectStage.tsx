@@ -16,10 +16,10 @@ import Animated, {
   withTiming,
   LinearTransition,
 } from 'react-native-reanimated';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { tripsApi, routesApi, queryKeys } from '@eyego/api';
+import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
@@ -146,11 +146,6 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const removeStop = (id: string) => {
     setStops(stops.filter(s => s.id !== id));
   };
-
-  useQuery({
-    queryKey: queryKeys.routes.all,
-    queryFn: routesApi.getAll,
-  });
 
   const swapRotation = useSharedValue(0);
 

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '@eyego/api';
+import { captureException } from '../lib/sentry';
 
 const QUEUE_KEY = '@eyego_offline_sync_queue';
 
@@ -97,6 +98,10 @@ export const offlineQueue = {
           const status = error?.response?.status;
           if (status && status >= 400 && status < 500) {
             console.warn(`[OfflineQueue] Discarding action ${action.id} due to 4xx response:`, status);
+            // A permanently-discarded critical action (SOS, trip cancel, etc.) is
+            // otherwise invisible beyond a console line nobody sees in production —
+            // report it so a rider-safety-relevant drop is actually noticed.
+            captureException(error, { scope: 'offlineQueue', actionType: action.type, reason: '4xx-discard', status });
             continue;
           }
           
@@ -106,6 +111,7 @@ export const offlineQueue = {
             remaining.push(action);
           } else {
             console.warn(`[OfflineQueue] Action ${action.id} exceeded max retries. Discarding.`);
+            captureException(error, { scope: 'offlineQueue', actionType: action.type, reason: 'max-retries-exceeded' });
           }
         }
       }

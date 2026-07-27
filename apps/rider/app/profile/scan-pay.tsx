@@ -29,7 +29,7 @@ export default function ScanPayScreen() {
   const [mode, setMode] = useState<'scan' | 'myCode'>('scan');
   const [scanned, setScanned] = useState(false);
 
-  const { data: myPhone } = useQuery({
+  const { data: myPhone, isError: profileError, refetch: refetchProfile } = useQuery({
     queryKey: ['user', 'profile', 'phone'],
     queryFn: () => userApi.getProfile(),
     select: (r) => r.data.data?.phone ?? '',
@@ -110,6 +110,15 @@ export default function ScanPayScreen() {
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, textAlign: 'center' }}>
                 Let another rider scan this to send you money instantly.
               </Text>
+            </>
+          ) : profileError ? (
+            <>
+              <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
+                Couldn't load your payment code.
+              </Text>
+              <Pressable style={styles.permBtn} onPress={() => refetchProfile()}>
+                <Text variant="label" color={colors.onPrimary}>Try Again</Text>
+              </Pressable>
             </>
           ) : (
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Loading your code…</Text>
