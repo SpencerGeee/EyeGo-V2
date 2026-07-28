@@ -3,6 +3,7 @@
 const redis = require('../config/redis');
 const prisma = require('../config/database');
 const { sendMulticastPush } = require('./push.service');
+const { availableDriverWhere } = require('./driver-availability');
 const logger = require('../utils/logger');
 
 const DISPATCH_RADIUS_KM = 5;
@@ -61,15 +62,23 @@ async function dispatchToNearbyDrivers(trip, radiusKm = DISPATCH_RADIUS_KM) {
       return;
     }
 
-    // Exclude the trip's own driver and find eligible drivers (ACTIVE, no IN_PROGRESS trip)
+    // Exclude the trip's own driver and find drivers who are genuinely FREE —
+    // see services/driver-availability.js for the full busy definition. This
+    // query used to check only IN_PROGRESS/DRIVER_EN_ROUTE and never checked
+    // isOnline, so busy and offline drivers both still got dispatch offers.
     // Driver has no `rating` scalar column — it's derived from the DriverRating relation,
     // so it can't be selected/ordered on directly in this query.
+    const candidateIds = nearbyDriverIds.filter((id) => id !== trip.driverId);
+    if (candidateIds.length === 0) {
+      // Only hit was the trip's own driver — never broadcast to everyone here.
+      logger.info('No eligible drivers found for dispatch', { tripId: trip.id });
+      return;
+    }
+
     let eligibleDrivers = await prisma.driver.findMany({
       where: {
-        id: { in: nearbyDriverIds.filter((id) => id !== trip.driverId) },
-        status: 'ACTIVE',
+        ...availableDriverWhere({ ids: candidateIds }),
         fcmToken: { not: null },
-        trips: { none: { status: { in: ['IN_PROGRESS', 'DRIVER_EN_ROUTE'] } } },
       },
       select: { id: true, fcmToken: true },
       take: MAX_DRIVERS_TO_NOTIFY * 3, // over-fetch so we can rank by rating before trimming to MAX_DRIVERS_TO_NOTIFY

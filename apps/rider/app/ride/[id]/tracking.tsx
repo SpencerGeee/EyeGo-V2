@@ -691,7 +691,11 @@ export default function TrackingScreen() {
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={false}
-        rotateEnabled={false}
+        // Rotate/tilt gestures restored — the driver marker's heading is now
+        // compensated for the live map bearing inside @eyego/maps, so rotating
+        // the map no longer makes the car pin appear to turn.
+        rotateEnabled={true}
+        pitchEnabled={true}
         scaleBarEnabled={false}
         onUserPan={() => {
           if (followingRef.current) {

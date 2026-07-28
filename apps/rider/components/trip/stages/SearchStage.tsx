@@ -1,40 +1,33 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  TextInput,
-  Pressable,
-  ActivityIndicator,
-  Keyboard,
-  BackHandler,
-} from 'react-native';
+import { View, StyleSheet, Pressable, BackHandler } from 'react-native';
 import * as Location from 'expo-location';
-import Animated, { LinearTransition, FadeIn, FadeOut } from 'react-native-reanimated';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, GradientGlowBorder, MorphTarget, useMorph, MorphBackSwipeDetector, backgroundScrollPauseProps, type GradientGlowBorderHandle } from '@eyego/ui';
+import { Text, MorphTarget, useMorph, MorphBackSwipeDetector } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 
-type NominatimResult = {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
-  address?: { road?: string; suburb?: string; city?: string; town?: string; county?: string };
-};
-
-
 /**
- * Search stage of the persistent trip surface — the where-to glass card,
- * ported verbatim from app/where-to.tsx minus the map (TripMap owns it; the
- * picked destination flows there through tripFlow.searchPlace).
+ * Search stage of the persistent trip surface — the where-to card.
+ *
+ * ARCHITECTURE NOTE (performance): this screen used to host two focused
+ * TextInputs, a debounced Nominatim autocomplete list, a KeyboardAwareScrollView
+ * and a `LinearTransition` layout animation on the card — all of which ran
+ * *during* the container-transform morph in from home. The keyboard raising,
+ * the list mounting/remeasuring, and two `GradientGlowBorder` rings (each an
+ * oversized LinearGradient rotating forever plus, with `glow`, four
+ * shadow-casting layers) meant the morph never had a spare frame. That is what
+ * "super laggy" was.
+ *
+ * It is now a static, keyboard-free surface: two rows that open the fullscreen
+ * map picker (which already owns search + reverse-geocode + confirm) — the
+ * Uber/Bolt/Yango model. Nothing on this screen animates except the morph
+ * itself, so the morph gets the whole frame budget.
  */
 function SearchStageImpl() {
   const colors = useColors();
@@ -52,30 +45,14 @@ function SearchStageImpl() {
   // morphs from its own card. Falls back to the pill id for deep links.
   const activeMorphId = morphId ?? 'where-to-pill';
 
-  const [destQuery, setDestQuery] = useState('');
-  const [originText, setOriginText] = useState('Current Location');
-  const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [, setActiveField] = useState<'origin' | 'dest'>('dest');
-
-  const destRef = useRef<TextInput>(null);
-  const originRef = useRef<TextInput>(null);
-  const originRingRef = useRef<GradientGlowBorderHandle>(null);
-  const destRingRef = useRef<GradientGlowBorderHandle>(null);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setTimeout(() => destRef.current?.focus(), 300);
-  }, []);
+  const [originText, setOriginText] = useState(origin?.address ?? 'Current Location');
 
   // BUGFIX: `origin` in the ride store was never populated from the device's
-  // real GPS location (or from this screen's own pickup field) — every trip
-  // search silently fell back to a hardcoded Accra-center coordinate
-  // (searchTrips: origin?.latitude ?? 5.6037) regardless of where the rider
-  // actually was. The "Current Location" placeholder text promised real GPS
-  // but nothing ever wired it to the store. Capture it once on mount.
+  // real GPS location — every trip search silently fell back to a hardcoded
+  // Accra-center coordinate regardless of where the rider actually was. The
+  // "Current Location" label promised real GPS but nothing wired it up.
   useEffect(() => {
-    if (origin) return; // already set (e.g. rider swapped origin/dest earlier)
+    if (origin) return; // already set (e.g. rider picked a pickup earlier)
     let cancelled = false;
     (async () => {
       try {
@@ -93,37 +70,13 @@ function SearchStageImpl() {
           });
         }
       } catch {
-        // No GPS available — searchTrips (SelectStage.tsx) now throws and shows
-        // a "Search failed" retry state instead of silently searching from a
-        // fabricated Accra-center coordinate, so there's nothing to fall back
-        // to here; the rider will see a clear error if they proceed without origin.
+        // No GPS — SelectStage/RequestStage surface a clear error rather than
+        // searching from a fabricated coordinate, so nothing to fall back to.
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleSearch = useCallback((text: string) => {
-    setDestQuery(text);
-    setSearchPlace(null);
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    if (text.length < 2) { setSuggestions([]); return; }
-    searchTimerRef.current = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=gh&limit=6&addressdetails=1`,
-          { headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' } },
-        );
-        const data = await res.json();
-        setSuggestions(Array.isArray(data) ? data : []);
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-  }, [setSearchPlace]);
 
   // Which field a map-picker navigation was launched for — the picker screen
   // is a single shared route with a one-shot result slot, so this side stores
@@ -133,65 +86,44 @@ function SearchStageImpl() {
   const openMapPicker = useCallback((field: 'origin' | 'dest') => {
     haptic.light();
     pickingFieldRef.current = field;
-    router.push('/profile/place-picker' as any);
+    router.push({
+      pathname: '/profile/place-picker',
+      params: { title: field === 'origin' ? 'Set pickup' : 'Where to?' },
+    } as any);
   }, [router]);
 
   const commitPlace = useCallback((place: SearchPlace) => {
     setSearchPlace(place);
-    setDestQuery(place.name);
-    setSuggestions([]);
     setDestination({ address: place.fullAddress, latitude: place.latitude, longitude: place.longitude });
     haptic.select();
-    Keyboard.dismiss();
   }, [setDestination, setSearchPlace]);
-
-  const handleSelectSuggestion = useCallback((s: NominatimResult) => {
-    const addr = s.address;
-    const name = addr?.road ?? addr?.suburb ?? addr?.town ?? addr?.city ?? s.display_name.split(',')[0];
-    commitPlace({ name, fullAddress: s.display_name, latitude: parseFloat(s.lat), longitude: parseFloat(s.lon) });
-  }, [commitPlace]);
-
-  const handleClearDest = useCallback(() => {
-    setDestQuery('');
-    setSuggestions([]);
-    setSearchPlace(null);
-    destRef.current?.focus();
-  }, [setSearchPlace]);
 
   const handleSwap = useCallback(() => {
     haptic.light();
-    const prev = originText;
-    if (selectedPlace) {
-      setOriginText(selectedPlace.name);
-      setDestQuery('');
-      setSearchPlace(null);
-    } else {
-      setOriginText(destQuery || prev);
-      setDestQuery('');
-    }
-  }, [originText, destQuery, selectedPlace, setSearchPlace]);
+    if (!selectedPlace || !origin) return;
+    const prevOrigin = { latitude: origin.latitude, longitude: origin.longitude, address: origin.address };
+    setOrigin({ latitude: selectedPlace.latitude, longitude: selectedPlace.longitude, address: selectedPlace.fullAddress });
+    setOriginText(selectedPlace.name);
+    commitPlace({
+      name: prevOrigin.address,
+      fullAddress: prevOrigin.address,
+      latitude: prevOrigin.latitude,
+      longitude: prevOrigin.longitude,
+    });
+  }, [selectedPlace, origin, setOrigin, commitPlace]);
 
-  // BUGFIX: this used to route to /ride/select — a "browse existing routes"
-  // search screen the rider had to separately tap "Find Available Rides" on,
-  // which usually returned nothing (on-demand dispatch is the primary model
-  // now, not pre-scheduled fixed routes) and dead-ended in a "no rides, try
-  // requesting instead" error. Destination is already confirmed by this
-  // point — go straight to the driver-matching/dispatch stage, no extra tap.
+  // Destination is confirmed by the picker, so there is no "find rides" browse
+  // step — go straight to the driver-matching/dispatch stage.
   const handleOrderRide = useCallback(() => {
     haptic.medium();
     setRequestSeats(orderSeats, true);
     goStage('request');
   }, [goStage, orderSeats, setRequestSeats]);
 
-  // Quick destinations show only while the search is idle (empty query).
-  const searchActive = destQuery.length > 0;
-  const hasDestination = !!selectedPlace || destQuery.length > 0;
-
   // Reverse the container-transform back into the home pill. The route uses
   // animation 'none', so morphBack owns the entire exit choreography.
   const { morphBack } = useMorph();
   const handleClose = useCallback(() => {
-    Keyboard.dismiss();
     morphBack(() => router.back());
   }, [morphBack, router]);
 
@@ -239,228 +171,117 @@ function SearchStageImpl() {
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* ── Floating glass card ─────────────────────── */}
       <MorphBackSwipeDetector style={{ flex: 1 }} onSwipeBack={handleClose}>
-      <KeyboardAwareScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        bottomOffset={24}
-        {...backgroundScrollPauseProps}
-      >
+        <View style={styles.cardWrap}>
           <MorphTarget id={activeMorphId} borderRadius={24}>
-          <Animated.View style={styles.floatingCard} layout={LinearTransition.springify().damping(20).stiffness(180)}>
+            <View style={styles.floatingCard}>
 
-            {/* ── Dual input + timeline ─────────────── */}
-            <View style={styles.inputsSection}>
-              {/* Timeline indicator */}
-              <View style={styles.timeline}>
-                <View style={[styles.timelineDot, styles.timelineDotOrigin]} />
-                <View style={styles.timelineLine} />
-                <View style={[styles.timelineDot, styles.timelineDotDest]} />
-              </View>
+              {/* ── Dual location rows + timeline ─────────────── */}
+              <View style={styles.inputsSection}>
+                <View style={styles.timeline}>
+                  <View style={[styles.timelineDot, styles.timelineDotOrigin]} />
+                  <View style={styles.timelineLine} />
+                  <View style={[styles.timelineDot, styles.timelineDotDest]} />
+                </View>
 
-              {/* Input columns */}
-              <View style={styles.inputsCol}>
-                {/* Origin */}
-                <GradientGlowBorder
-                  ref={originRingRef}
-                  colors={[colors.primary, colors.secondary]}
-                  fillColor={colors.surfaceInput}
-                  borderRadius={radii.lg}
-                  thickness="thin"
-                >
+                <View style={styles.inputsCol}>
+                  {/* Pickup — tapping the row opens the map picker directly.
+                      Previously the row focused a text field and you had to
+                      find the small map button to get here. */}
                   <Pressable
-                    style={styles.inputBoxInner}
-                    onPress={() => {
-                      setActiveField('origin');
-                      originRef.current?.focus();
-                    }}
+                    style={({ pressed }) => [styles.fieldRow, pressed && styles.fieldRowPressed]}
+                    onPress={() => openMapPicker('origin')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Set pickup location on map"
                   >
                     <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
-                    <TextInput
-                      ref={originRef}
-                      style={styles.inputText}
-                      value={originText}
-                      onChangeText={setOriginText}
-                      placeholder="Pickup location"
-                      placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
-                      onFocus={() => { setActiveField('origin'); originRingRef.current?.burst(); }}
-                      returnKeyType="next"
-                      onSubmitEditing={() => {
-                        setActiveField('dest');
-                        destRef.current?.focus();
-                      }}
-                    />
-                    <Pressable
-                      onPress={() => openMapPicker('origin')}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel="Pick pickup on map"
-                    >
-                      <Ionicons name="map-outline" size={16} color={colors.outline} />
-                    </Pressable>
+                    <Text style={styles.fieldValue} numberOfLines={1}>{originText}</Text>
+                    <Ionicons name="map-outline" size={16} color={colors.outline} />
                   </Pressable>
-                </GradientGlowBorder>
 
-                {/* Destination */}
-                <GradientGlowBorder
-                  ref={destRingRef}
-                  colors={[colors.primary, colors.secondary]}
-                  fillColor={colors.surfaceInput}
-                  borderRadius={radii.lg}
-                  thickness="thin"
-                  glow
-                >
-                  <View style={styles.inputBoxInner}>
+                  {/* Destination — same behaviour, so both fields are consistent. */}
+                  <Pressable
+                    style={({ pressed }) => [styles.fieldRow, styles.fieldRowDest, pressed && styles.fieldRowPressed]}
+                    onPress={() => openMapPicker('dest')}
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose destination on map"
+                  >
                     <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
-                    <TextInput
-                      ref={destRef}
-                      style={styles.inputText}
-                      value={destQuery}
-                      onChangeText={handleSearch}
-                      placeholder="Where are you going?"
-                      placeholderTextColor={withOpacity(colors.onSurfaceVariant, 0.45)}
-                      onFocus={() => { setActiveField('dest'); destRingRef.current?.burst(); }}
-                      returnKeyType="search"
-                      autoCorrect={false}
-                      autoCapitalize="words"
-                    />
-                    {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
-                    {destQuery.length > 0 && !isSearching && (
-                      <Pressable onPress={handleClearDest} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear">
-                        <Ionicons name="close-circle" size={16} color={colors.outline} />
-                      </Pressable>
-                    )}
-                    <Pressable
-                      onPress={() => openMapPicker('dest')}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel="Pick destination on map"
+                    <Text
+                      style={[styles.fieldValue, !selectedPlace && styles.fieldPlaceholder]}
+                      numberOfLines={1}
                     >
-                      <Ionicons name="map-outline" size={16} color={colors.primary} />
-                    </Pressable>
-                  </View>
-                </GradientGlowBorder>
+                      {selectedPlace?.name ?? 'Where are you going?'}
+                    </Text>
+                    <Ionicons name="map-outline" size={16} color={colors.primary} />
+                  </Pressable>
+                </View>
+
+                {/* Swap — only meaningful once both ends are known. */}
+                <Pressable
+                  style={[styles.swapBtn, (!selectedPlace || !origin) && styles.swapBtnDisabled]}
+                  onPress={handleSwap}
+                  disabled={!selectedPlace || !origin}
+                  accessibilityRole="button"
+                  accessibilityLabel="Swap pickup and destination"
+                >
+                  <Ionicons name="swap-vertical-outline" size={18} color={colors.onSurfaceVariant} />
+                </Pressable>
               </View>
 
-              {/* Swap button */}
-              <Pressable
-                style={styles.swapBtn}
-                onPress={handleSwap}
-                accessibilityRole="button"
-                accessibilityLabel="Swap origin and destination"
-              >
-                <Ionicons name="swap-vertical-outline" size={18} color={colors.onSurfaceVariant} />
-              </Pressable>
-            </View>
-
-            {/* Autocomplete results — the only thing this screen shows besides
-                the search fields, matching Uber/Bolt's bare where-to page.
-                Quick-destination chips (Home/Work/mall) removed per feedback
-                that they cluttered what should be a clean search screen. */}
-            {searchActive && (
-              <Animated.View style={styles.suggestList} entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}>
-                <View style={styles.divider} />
-                {isSearching && suggestions.length === 0 ? (
-                  <View style={styles.suggestLoadingRow}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.suggestDim}>Searching…</Text>
-                  </View>
-                ) : suggestions.length === 0 ? (
-                  !selectedPlace && destQuery.length >= 2 ? (
-                    <View style={styles.suggestLoadingRow}>
-                      <Ionicons name="search-outline" size={16} color={colors.onSurfaceVariant} />
-                      <Text style={styles.suggestDim}>No places found — keep typing</Text>
-                    </View>
-                  ) : null
-                ) : (
-                  suggestions.map((s, i) => {
-                    const addr = s.address;
-                    const primary = addr?.road ?? addr?.suburb ?? addr?.town ?? addr?.city ?? s.display_name.split(',')[0];
-                    const rest = s.display_name.split(',').slice(1, 3).join(',').trim();
-                    return (
+              {/* Seats + CTAs, once a destination is confirmed */}
+              {selectedPlace && (
+                <>
+                  <View style={[styles.divider, { marginTop: 12 }]} />
+                  <View style={styles.seatPickerRow}>
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>Seats</Text>
+                    <View style={styles.seatStepper}>
                       <Pressable
-                        key={s.place_id}
-                        style={({ pressed }) => [
-                          styles.suggestRow,
-                          i > 0 && styles.suggestRowBorder,
-                          pressed && { opacity: 0.72 },
-                        ]}
-                        onPress={() => handleSelectSuggestion(s)}
+                        style={styles.seatStepperBtn}
+                        onPress={() => setOrderSeats((n) => Math.max(1, n - 1))}
                         accessibilityRole="button"
-                        accessibilityLabel={`Select ${primary}`}
+                        accessibilityLabel="Decrease seat count"
+                        hitSlop={8}
                       >
-                        <View style={styles.suggestIcon}>
-                          <Ionicons name="location-outline" size={16} color={colors.primary} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.suggestPrimary} numberOfLines={1}>{primary}</Text>
-                          {rest.length > 0 && (
-                            <Text style={styles.suggestSecondary} numberOfLines={1}>{rest}</Text>
-                          )}
-                        </View>
+                        <Ionicons name="remove" size={16} color={colors.onSurface} />
                       </Pressable>
-                    );
-                  })
-                )}
-              </Animated.View>
-            )}
-
-            {/* CTA buttons (when destination is confirmed) */}
-            {hasDestination && selectedPlace && (
-              <>
-                <View style={[styles.divider, { marginTop: 12 }]} />
-                <View style={styles.seatPickerRow}>
-                  <Text variant="bodySmall" color={colors.onSurfaceVariant}>Seats</Text>
-                  <View style={styles.seatStepper}>
+                      <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{orderSeats}</Text>
+                      <Pressable
+                        style={styles.seatStepperBtn}
+                        onPress={() => setOrderSeats((n) => Math.min(8, n + 1))}
+                        accessibilityRole="button"
+                        accessibilityLabel="Increase seat count"
+                        hitSlop={8}
+                      >
+                        <Ionicons name="add" size={16} color={colors.onSurface} />
+                      </Pressable>
+                    </View>
+                  </View>
+                  <View style={styles.ctaRow}>
                     <Pressable
-                      style={styles.seatStepperBtn}
-                      onPress={() => setOrderSeats((n) => Math.max(1, n - 1))}
+                      style={styles.ctaPrimary}
+                      onPress={handleOrderRide}
                       accessibilityRole="button"
-                      accessibilityLabel="Decrease seat count"
-                      hitSlop={8}
+                      accessibilityLabel="Order ride"
                     >
-                      <Ionicons name="remove" size={16} color={colors.onSurface} />
+                      <Ionicons name="flash" size={18} color={colors.onPrimary} />
+                      <Text style={styles.ctaPrimaryText}>Order Ride</Text>
                     </Pressable>
-                    <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{orderSeats}</Text>
                     <Pressable
-                      style={styles.seatStepperBtn}
-                      onPress={() => setOrderSeats((n) => Math.min(8, n + 1))}
+                      style={styles.ctaSecondary}
+                      onPress={() => router.push('/ride/schedule' as any)}
                       accessibilityRole="button"
-                      accessibilityLabel="Increase seat count"
-                      hitSlop={8}
+                      accessibilityLabel="Schedule"
                     >
-                      <Ionicons name="add" size={16} color={colors.onSurface} />
+                      <Ionicons name="calendar-outline" size={18} color={colors.primary} />
+                      <Text style={styles.ctaSecondaryText}>Schedule</Text>
                     </Pressable>
                   </View>
-                </View>
-                <View style={styles.ctaRow}>
-                  <Pressable
-                    style={styles.ctaPrimary}
-                    onPress={handleOrderRide}
-                    accessibilityRole="button"
-                    accessibilityLabel="Order ride"
-                  >
-                    <Ionicons name="flash" size={18} color={colors.onPrimary} />
-                    <Text style={styles.ctaPrimaryText}>Order Ride</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.ctaSecondary}
-                    onPress={() => router.push('/ride/schedule' as any)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Schedule"
-                  >
-                    <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-                    <Text style={styles.ctaSecondaryText}>Schedule</Text>
-                  </Pressable>
-                </View>
-              </>
-            )}
-          </Animated.View>
+                </>
+              )}
+            </View>
           </MorphTarget>
-      </KeyboardAwareScrollView>
+        </View>
       </MorphBackSwipeDetector>
     </View>
   );
@@ -505,11 +326,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   headerSpacer: { width: 44, height: 44 },
 
-  // ─── Scroll ───────────────────────────────────────────
-  scrollContent: {
+  cardWrap: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 40,
   },
 
   // ─── Floating Card (glass panel) ─────────────────────
@@ -526,7 +345,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     elevation: 14,
   },
 
-  // ─── Dual Input + Timeline ────────────────────────────
+  // ─── Dual rows + timeline ────────────────────────────
   inputsSection: {
     flexDirection: 'row',
     alignItems: 'stretch',
@@ -553,10 +372,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   timelineDotDest: {
     backgroundColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
   },
   timelineLine: {
     width: 1.5,
@@ -568,21 +383,33 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     gap: 8,
   },
-  inputBoxInner: {
+  // Static rims instead of the rotating gradient rings that used to live here —
+  // see the performance note at the top of this file.
+  fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
     minHeight: 48,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    backgroundColor: colors.surfaceInput,
   },
+  fieldRowDest: {
+    borderColor: withOpacity(colors.primary, 0.55),
+  },
+  fieldRowPressed: { opacity: 0.72 },
   inputIcon: { flexShrink: 0 },
-  inputText: {
+  fieldValue: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
     color: colors.onSurface,
-    padding: 0,
+  },
+  fieldPlaceholder: {
+    color: withOpacity(colors.onSurfaceVariant, 0.65),
   },
   swapBtn: {
     width: 38,
@@ -596,90 +423,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignSelf: 'center',
     flexShrink: 0,
   },
+  swapBtnDisabled: { opacity: 0.4 },
 
-  // ─── Divider ──────────────────────────────────────────
   divider: {
     height: 1,
     backgroundColor: colors.rimLightSubtle,
     marginVertical: 14,
-  },
-
-  // ─── Quick Destination Chips ──────────────────────────
-  sectionLabel: {
-    fontFamily: fonts.labelCaps,
-    fontSize: 10,
-    color: colors.onSurfaceVariant,
-    letterSpacing: 0.9,
-    marginBottom: 10,
-    textTransform: 'uppercase',
-  },
-  chipsRow: {
-    gap: 8,
-    paddingBottom: 2,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceInput,
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-  },
-  chipLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: colors.onSurface,
-  },
-
-  // ─── Autocomplete ─────────────────────────────────────
-  suggestList: { marginTop: 0 },
-  suggestLoadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 2,
-  },
-  suggestDim: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: colors.onSurfaceVariant,
-  },
-  suggestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-  },
-  suggestRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: colors.rimLightSubtle,
-  },
-  suggestIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: withOpacity(colors.primary, 0.1),
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  suggestPrimary: {
-    fontFamily: fonts.semiBold,
-    fontSize: 14,
-    lineHeight: 19,
-    color: colors.onSurface,
-  },
-  suggestSecondary: {
-    fontFamily: fonts.regular,
-    fontSize: 11,
-    lineHeight: 15,
-    color: colors.onSurfaceVariant,
-    marginTop: 2,
   },
 
   // ─── CTAs ─────────────────────────────────────────────

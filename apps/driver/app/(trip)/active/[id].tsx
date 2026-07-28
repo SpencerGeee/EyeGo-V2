@@ -28,7 +28,7 @@ import { SeatMap } from '../../../components/SeatMap';
 import { offlineQueue } from '../../../utils/offlineQueue';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
 import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
-import MapboxGL from '../../../utils/mapbox';
+import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -107,6 +107,8 @@ export default function ActiveTripScreen() {
   const { setActiveTripId } = useDriverStore();
   const { addNotification } = useNotificationsStore();
   const [showPaymentQr, setShowPaymentQr] = useState(false);
+  // Physical handset orientation for the driver puck — see the marker below.
+  const deviceHeading = useDeviceHeading();
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
@@ -383,28 +385,32 @@ export default function ActiveTripScreen() {
         // when the phone/vehicle actually changed direction. Matches the same
         // north-up-map + heading-driven-marker pattern already used on the
         // tracking/[id].tsx screen.
-        rotateEnabled={false}
+        // 3D rotate/tilt gestures are on. They were briefly disabled to stop
+        // the driver pin spinning with the map; that desync is now fixed
+        // properly — @eyego/maps compensates marker rotation for the live map
+        // bearing — so the gesture is back without the side effect.
+        rotateEnabled={true}
         pitchEnabled={true}
         scaleBarEnabled={false}
       >
         {/* 3D tilted follow camera while actively driving to/with passengers
-            (Uber/Bolt/Yango-style nav view); flat overview otherwise.
-            NavCamera no longer rotates the camera bearing (see its BUGFIX
-            comment in @eyego/maps) — only pitch/zoom telescope for the
-            nav-view feel, so the map stays north-up like every other
-            tracking screen and the marker rotation below stays in sync. */}
+            (Uber/Bolt/Yango-style nav view); flat overview otherwise. */}
         <MapboxGL.NavCamera
           active={trip.status === 'DRIVER_EN_ROUTE' || trip.status === 'IN_PROGRESS'}
           fallbackCenter={driverCoord}
         />
-        {/* Driver position pulse — bound to live GPS heading so the puck turns
-            with the vehicle (Apple Maps style) instead of staying stationary.
-            Previously a plain MarkerView with no rotation prop at all. */}
+        {/* Driver puck — driven by the device COMPASS, not GPS course.
+            `location.heading` is course-over-ground: meaningless while stopped
+            or crawling, which is why physically turning the phone did nothing
+            to the pin. `deviceHeading` is tied to the handset's own
+            orientation, and @eyego/maps subtracts the map bearing, so the pin
+            turns when the phone turns and holds still when only the map is
+            rotated. Falls back to GPS course if the compass is unavailable. */}
         <MapboxGL.AnimatedMarkerView
           coordinate={driverCoord}
           // Ionicons "navigate" points north-east by default (like the
           // pre-pickup tracking screen) — +45 rests it "up" when stationary.
-          rotation={((location?.heading ?? 0) + 45) % 360}
+          rotation={((deviceHeading || location?.heading || 0) + 45) % 360}
           duration={1000}
         >
           <DriverPulse color={statusCfg.color} />

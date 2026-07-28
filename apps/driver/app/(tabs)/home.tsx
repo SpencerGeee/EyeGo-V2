@@ -194,6 +194,13 @@ export default function HomeScreen() {
       Alert.alert('Location outside service area', data.message);
     });
     const cleanDispatch = driverSocketEvents.onTripAssigned((data) => {
+      // BUSY-DRIVER GUARD (client half of services/driver-availability.js). The
+      // REST poll above is already gated on !activeTripId, but the socket path
+      // wasn't — so a driver running their own created trip still got yanked
+      // onto the dispatch screen for an unrelated rider. Read the store live
+      // rather than closing over `activeTripId`, since this effect only
+      // re-subscribes on isOnline changes.
+      if (useDriverStore.getState().activeTripId) return;
       seenDispatchIdsRef.current.add(data.tripId);
       useNotificationsStore.getState().addNotification({
         type: 'TRIP_ASSIGNED',

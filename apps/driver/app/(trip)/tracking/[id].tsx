@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import MapboxGL from '../../../utils/mapbox';
+import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,6 +47,8 @@ export default function DriverTrackingScreen() {
   const qc = useQueryClient();
   const { setActiveTripId, isOnline } = useDriverStore();
   const { addNotification } = useNotificationsStore();
+  // Physical handset orientation for the driver puck — see the marker below.
+  const deviceHeading = useDeviceHeading();
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'tracking', id],
@@ -166,7 +168,9 @@ export default function DriverTrackingScreen() {
         centerCoordinate: driverCoord,
         animationDuration: 1000,
         zoomLevel: isDriving ? 17.5 : 14,
-        heading: 0,
+        // Deliberately no `heading` — forcing 0 on every GPS tick snapped the
+        // map back to north and fought the rotate gesture. Marker rotation is
+        // bearing-compensated now, so the map may sit at any bearing.
         pitch: isDriving ? 55 : 0,
       });
     }
@@ -420,7 +424,10 @@ export default function DriverTrackingScreen() {
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={true}
-        rotateEnabled={false}
+        // Rotate/tilt gestures restored — marker rotation is now compensated
+        // for the live map bearing inside @eyego/maps, so turning the map no
+        // longer drags the driver pin's heading around with it.
+        rotateEnabled={true}
         pitchEnabled={true}
         scaleBarEnabled={false}
       >
@@ -446,9 +453,11 @@ export default function DriverTrackingScreen() {
             coordinate={(driverCoord ?? pickupCoord)!}
             // The Ionicons "navigate" glyph itself points north-east by default —
             // the old code's fixed rotate('45deg') was compensating for that so
-            // the icon rests "up" when stationary. Keep that same +45 offset and
-            // add the live GPS heading on top so the arrow actually turns with it.
-            rotation={((driverLocation?.heading ?? 0) + 45) % 360}
+            // the icon rests "up" when stationary. Keep that same +45 offset.
+            // Heading comes from the device COMPASS (physical phone orientation)
+            // rather than GPS course-over-ground, which is meaningless while
+            // stopped — falls back to GPS course if no compass is available.
+            rotation={((deviceHeading || driverLocation?.heading || 0) + 45) % 360}
             duration={1000}
           >
             <View style={styles.driverMarker}>

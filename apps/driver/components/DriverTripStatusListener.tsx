@@ -128,6 +128,11 @@ export function DriverTripStatusListener() {
       const segs = segmentsRef.current;
       // The dispatch modal already presents the offer — don't double-fire.
       if (segs.some((s) => s === 'dispatch')) return;
+      // BUSY-DRIVER GUARD — a driver already committed to a trip (their own
+      // created route or an accepted dispatch) must never be shown an offer
+      // for an unrelated rider. Backend filters these out now; this is the
+      // client backstop for an emit already in flight when they got busy.
+      if (activeTripIdRef.current && activeTripIdRef.current !== tId) return;
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
       const kind = safeRead(data, 'kind') as 'REQUEST' | 'REASSIGNMENT' | undefined;
       bannerDestRef.current = { type: 'dispatch', tripId: tId, kind };

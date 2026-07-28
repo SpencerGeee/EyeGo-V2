@@ -14,7 +14,7 @@
  * native (dev-client/EAS) build after this lands.
  */
 import React, { useEffect, useImperativeHandle, useRef, useState, useCallback } from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, Dimensions } from 'react-native';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MapLibreModule = require('@maplibre/maplibre-react-native');
@@ -38,6 +38,25 @@ export type LngLat = [number, number];
 // on non-finite input with no JS-catchable error. See BUGFIX comments below.
 function isFiniteLngLat(c: LngLat | undefined | null): c is LngLat {
   return !!c && Number.isFinite(c[0]) && Number.isFinite(c[1]);
+}
+
+// ── Map bearing ──────────────────────────────────────────────────────────
+// Marker rotation is applied as a plain screen-space transform, so a marker
+// whose `rotation` is a TRUE compass heading only points the right way while
+// the map happens to be north-up. Rotate the map (gesture or course-tracking
+// camera) and every heading marker silently desyncs from the world — the pin
+// looked like it was turning with the map instead of with the vehicle.
+//
+// Rather than disabling map rotation (which is what the first fix did, and it
+// cost the 3D tilt/rotate gesture), MapView now publishes its live bearing
+// here and the marker components subtract it. Rotation gestures are back, and
+// a marker fed a real compass heading stays locked to the world regardless of
+// how the map is oriented.
+const MapBearingContext = React.createContext(0);
+
+/** Current map bearing in degrees clockwise from north. 0 when outside a MapView. */
+export function useMapBearing(): number {
+  return React.useContext(MapBearingContext);
 }
 
 export interface MapViewProps {
@@ -136,6 +155,11 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
   // belt-and-suspenders fallbacks.
   const markLoaded = useCallback(() => setLoaded(true), []);
 
+  // Live map bearing, published to markers so heading-driven rotation can be
+  // compensated for map orientation (see MapBearingContext above). Only
+  // re-renders on a >1° change so a rotate gesture doesn't thrash React.
+  const [mapBearing, setMapBearing] = useState(0);
+
   const handleRetry = useCallback(() => {
     setLoadError(null);
     setLoaded(false);
@@ -143,6 +167,10 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
   }, []);
 
   return (
+    // Provider wraps (rather than sits inside) NativeMap so no non-host node
+    // is injected into the native map's children — v11 components walk their
+    // own children to inject source/layer props.
+    <MapBearingContext.Provider value={mapBearing}>
     <View style={style}>
       <NativeMap
         key={retryKey}
@@ -163,7 +191,12 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         // native view manager as-is). Verify the real event name before any
         // future consumer relies on this.
         onRegionDidChange={(e: any) => {
-          if (e?.nativeEvent?.properties?.isUserInteraction) onUserPan?.();
+          const props = e?.nativeEvent?.properties ?? e?.properties;
+          if (props?.isUserInteraction) onUserPan?.();
+          const b = props?.bearing ?? props?.heading;
+          if (Number.isFinite(b)) {
+            setMapBearing((prev) => (Math.abs(prev - b) > 1 ? b : prev));
+          }
           onRegionDidChange?.(e?.nativeEvent ?? e);
         }}
         onDidFinishLoadingMap={markLoaded}
@@ -227,6 +260,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         </View>
       )}
     </View>
+    </MapBearingContext.Provider>
   );
 });
 
@@ -264,23 +298,85 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
           : undefined,
       });
     },
+    // CRASH FIX (EyeGo-2026-07-28-111815.ips and the identical earlier reports):
+    // SIGABRT via __cxa_throw inside
+    //   -[CameraUpdateItem _moveCamera:animated:ease:] ← -[MLRNCamera _setInitialCamera]
+    //   ← -[MLRNCamera initialLayout] ← -[MLRNMapView layoutSubviews]
+    //
+    // Two ways this call produced a camera MapLibre refuses, both of which
+    // abort in C++ with no JS-catchable error:
+    //
+    //  1. DEGENERATE BOUNDS. Screens frame origin→destination with fitBounds.
+    //     For a driver-created ad-hoc trip whose origin and destination
+    //     coincide (or nearly do — a map-pin trip where the destination was
+    //     never separately geocoded), min==max on both axes. mbgl's
+    //     cameraForLatLngBounds then solves for a zoom of +Infinity and throws.
+    //     That is the "tap a suggested trip → instant crash" path.
+    //  2. PADDING ≥ VIEWPORT. Callers pass generous insets (e.g. bottom 380 to
+    //     clear a sheet). Once top+bottom exceeds the map's height the usable
+    //     viewport goes to zero/negative and mbgl throws the same way.
+    //
+    // The reason the stack points at _setInitialCamera rather than at this
+    // call is that screens invoke fitBounds from a mount effect — before the
+    // map's first layout — so MLRNCamera stashes it as the *initial* camera
+    // update and replays it during layoutSubviews. Guarding here fixes every
+    // screen at once, since they all go through this adapter.
     fitBounds: (coords, edgePadding, animated = true) => {
       if (!coords?.length) return;
       coords = coords.filter(isFiniteLngLat);
       if (!coords.length) return;
+
       const lngs = coords.map((c) => c[0]);
       const lats = coords.map((c) => c[1]);
-      const bounds: [number, number, number, number] = [
-        Math.min(...lngs),
-        Math.min(...lats),
-        Math.max(...lngs),
-        Math.max(...lats),
-      ];
+      let minLng = Math.min(...lngs);
+      let minLat = Math.min(...lats);
+      let maxLng = Math.max(...lngs);
+      let maxLat = Math.max(...lats);
+
+      // Clamp padding to the viewport so the usable area can never collapse.
+      // Cap each axis pair at 60% of that dimension, scaling both edges down
+      // proportionally so the framing stays visually centred.
+      const { width: winW, height: winH } = Dimensions.get('window');
+      const clampAxis = (a: number, b: number, extent: number) => {
+        const max = extent * 0.6;
+        const total = a + b;
+        if (total <= max || total <= 0) return [a, b] as const;
+        const k = max / total;
+        return [a * k, b * k] as const;
+      };
+      const [padTop, padBottom] = clampAxis(
+        Math.max(0, edgePadding?.top ?? 0),
+        Math.max(0, edgePadding?.bottom ?? 0),
+        winH,
+      );
+      const [padLeft, padRight] = clampAxis(
+        Math.max(0, edgePadding?.left ?? 0),
+        Math.max(0, edgePadding?.right ?? 0),
+        winW,
+      );
+
+      // A single point, or a box so thin it rounds to one, can't be framed —
+      // MIN_BOUNDS_SPAN_DEG (~55 m) is the smallest box mbgl will solve a
+      // finite zoom for at our max zoom levels. Inflate around the centre
+      // instead of handing over a zero-area rect.
+      const MIN_BOUNDS_SPAN_DEG = 0.0005;
+      if (maxLng - minLng < MIN_BOUNDS_SPAN_DEG) {
+        const cx = (minLng + maxLng) / 2;
+        minLng = cx - MIN_BOUNDS_SPAN_DEG / 2;
+        maxLng = cx + MIN_BOUNDS_SPAN_DEG / 2;
+      }
+      if (maxLat - minLat < MIN_BOUNDS_SPAN_DEG) {
+        const cy = (minLat + maxLat) / 2;
+        minLat = cy - MIN_BOUNDS_SPAN_DEG / 2;
+        maxLat = cy + MIN_BOUNDS_SPAN_DEG / 2;
+      }
+
+      const bounds: [number, number, number, number] = [minLng, minLat, maxLng, maxLat];
+      if (!bounds.every(Number.isFinite)) return;
+
       nativeRef.current?.setStop?.({
         bounds,
-        padding: edgePadding
-          ? { top: edgePadding.top ?? 0, right: edgePadding.right ?? 0, bottom: edgePadding.bottom ?? 0, left: edgePadding.left ?? 0 }
-          : undefined,
+        padding: { top: padTop, right: padRight, bottom: padBottom, left: padLeft },
         duration: animated ? 500 : 0,
       });
     },
@@ -314,20 +410,14 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
 // Tilts + tightens zoom while `active` (following the device's live GPS
 // position), so the road ahead is visible during navigation. Falls back to a
 // flat overview camera when inactive.
-// BUGFIX: this used to also pass `trackUserLocation="course"` while active,
-// which auto-rotates the camera BEARING to match GPS course-over-ground.
-// Every marker rendered via AnimatedMarkerView/MarkerView applies its
-// `rotation` prop as an absolute-compass screen-space transform (see below) —
-// it is never compensated for the map's own bearing. So whenever this
-// camera's course-tracking (or a user rotate gesture) changed the map's
-// bearing, the driver marker's heading-driven rotation instantly desynced
-// from the true GPS heading, making the pin look like it was spinning with
-// the map instead of with the vehicle. The camera now stays north-up
-// (`bearing: 0`, still following the device's live position via
-// `trackUserLocation="default"`) so marker rotation — driven purely by real
-// heading — is always correct on screen. Same trade-off already accepted on
-// the pre-pickup tracking screen: lost the tilted "faces direction of
-// travel" camera rotation, kept a marker that always points true.
+// HISTORY: an earlier fix for "the pin spins with the map" pinned this camera
+// north-up (`bearing={0}`, `trackUserLocation="default"`) and turned off the
+// rotate gesture on the trip screens. That removed the desync but also removed
+// the 3D tilt/rotate the map is supposed to have. The real defect was that
+// marker rotation was never compensated for map bearing — now fixed properly
+// in MapBearingContext/useAppliedRotation above. So the camera no longer
+// force-pins the bearing: gesture rotation persists, tilt is back, and a
+// marker fed a true compass heading stays locked to the world either way.
 export interface NavCameraProps {
   active: boolean;
   pitch?: number;
@@ -345,7 +435,6 @@ export function NavCamera({ active, pitch = 55, zoom = 17.5, duration = 800, fal
   return (
     <NativeCamera
       trackUserLocation="default"
-      bearing={0}
       pitch={active ? pitch : 0}
       zoom={active ? zoom : fallbackZoom}
       center={active ? undefined : safeFallback}
@@ -355,6 +444,61 @@ export function NavCamera({ active, pitch = 55, zoom = 17.5, duration = 800, fal
   );
 }
 
+// ── Device compass ───────────────────────────────────────────────────────
+/**
+ * Live TRUE heading from the device's magnetometer/compass, in degrees
+ * clockwise from north.
+ *
+ * Marker heading used to come from `location.heading` — GPS *course over
+ * ground*, which is only meaningful while actually moving and reads 0 (or
+ * garbage) when stopped or crawling in traffic. That is why turning the phone
+ * did nothing to the pin. The compass is tied to the physical orientation of
+ * the handset, so rotating the phone rotates the pin immediately, standing
+ * still or not.
+ *
+ * `expo-location` is imported lazily so this package stays dependency-free for
+ * any consumer that doesn't need heading. Returns `fallback` until the first
+ * compass reading lands (or forever, if permission is denied).
+ */
+export function useDeviceHeading(enabled = true, fallback = 0): number {
+  const [heading, setHeading] = useState(fallback);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let sub: { remove: () => void } | null = null;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Resolved from the host app (rider/driver both depend on it); this
+        // package deliberately doesn't declare expo-location itself.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const Location: any = require('expo-location');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        sub = await Location.watchHeadingAsync((h: any) => {
+          // trueHeading is -1 until the compass calibrates; magHeading is the
+          // usable fallback in that window.
+          const deg = h?.trueHeading >= 0 ? h.trueHeading : h?.magHeading;
+          if (!Number.isFinite(deg)) return;
+          // Ignore sub-degree jitter so the marker doesn't re-render at sensor rate.
+          setHeading((prev) => (Math.abs(prev - deg) > 1 ? deg : prev));
+        });
+        if (cancelled) { sub?.remove(); sub = null; }
+      } catch {
+        // No compass / permission denied — caller keeps the fallback heading.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
+  }, [enabled]);
+
+  return heading;
+}
+
 // ── Markers ──────────────────────────────────────────────────────────────
 
 export interface MarkerViewProps {
@@ -362,7 +506,12 @@ export interface MarkerViewProps {
   id?: string;
   coordinate: LngLat;
   children?: React.ReactNode;
+  /** TRUE compass bearing (deg clockwise from north). Rendered relative to the
+   * map's live orientation, so the marker keeps pointing the same way in the
+   * world when the map is rotated. */
   rotation?: number;
+  /** Opt out of map-bearing compensation and rotate in raw screen space. */
+  screenRotation?: boolean;
   flat?: boolean;
   /** v11's ViewAnnotation anchor is a string enum ('center'/'top'/'bottom-left'/etc), not an {x,y} fraction — passed through as-is. Omit to default to 'center'. */
   anchor?: string;
@@ -370,11 +519,26 @@ export interface MarkerViewProps {
   tracksViewChanges?: boolean;
 }
 
-export const MarkerView = ({ coordinate, children, rotation, anchor }: MarkerViewProps) => (
-  <NativeViewAnnotation lngLat={coordinate} anchor={anchor as any}>
-    {rotation ? <View style={{ transform: [{ rotate: `${rotation}deg` }] }}>{children}</View> : children}
-  </NativeViewAnnotation>
-);
+/**
+ * `rotation` is treated as a TRUE compass bearing (degrees clockwise from
+ * north), so it is rendered relative to the map's current orientation rather
+ * than to the screen. Pass `screenRotation` instead for a plain, uncompensated
+ * screen-space rotation (decorative icons).
+ */
+function useAppliedRotation(rotation: number | undefined, compensate: boolean) {
+  const mapBearing = useMapBearing();
+  if (rotation == null) return undefined;
+  return compensate ? rotation - mapBearing : rotation;
+}
+
+export const MarkerView = ({ coordinate, children, rotation, anchor, screenRotation }: MarkerViewProps) => {
+  const applied = useAppliedRotation(rotation, !screenRotation);
+  return (
+    <NativeViewAnnotation lngLat={coordinate} anchor={anchor as any}>
+      {applied != null ? <View style={{ transform: [{ rotate: `${applied}deg` }] }}>{children}</View> : children}
+    </NativeViewAnnotation>
+  );
+};
 
 export const PointAnnotation = MarkerView;
 
@@ -383,7 +547,7 @@ export const PointAnnotation = MarkerView;
 // natively animatable in v11, unlike react-native-maps' AnimatedRegion).
 // Re-renders per frame while animating — acceptable for the few markers
 // (driver position) that use this, not meant for many simultaneous markers.
-export function AnimatedMarkerView({ coordinate, duration = 3500, children, rotation, anchor }: MarkerViewProps & { duration?: number }) {
+export function AnimatedMarkerView({ coordinate, duration = 3500, children, rotation, anchor, screenRotation }: MarkerViewProps & { duration?: number }) {
   const [pos, setPos] = useState<LngLat>(coordinate);
   const fromRef = useRef<LngLat>(coordinate);
   const seededRef = useRef(false);
@@ -417,9 +581,11 @@ export function AnimatedMarkerView({ coordinate, duration = 3500, children, rota
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coordinate[0], coordinate[1], duration]);
 
+  const applied = useAppliedRotation(rotation, !screenRotation);
+
   return (
     <NativeViewAnnotation lngLat={pos} anchor={anchor as any}>
-      {rotation ? <View style={{ transform: [{ rotate: `${rotation}deg` }] }}>{children}</View> : children}
+      {applied != null ? <View style={{ transform: [{ rotate: `${applied}deg` }] }}>{children}</View> : children}
     </NativeViewAnnotation>
   );
 }

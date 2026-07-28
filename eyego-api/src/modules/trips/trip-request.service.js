@@ -4,6 +4,7 @@ const prisma = require('../../config/database');
 const redis = require('../../config/redis');
 const env = require('../../config/env');
 const pushService = require('../../services/push.service');
+const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const logger = require('../../utils/logger');
 const { AppError, NotFoundError } = require('../../utils/errors');
 const { calculateFare, haversineKm } = require('./fare.calculator');
@@ -124,29 +125,20 @@ async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, g
     // push notification only. Also added `isOnline: true` to the geo-radius
     // branch — goOffline() never removes the driver from the `drivers:online`
     // Redis geo-set, so a stale/offline driver could otherwise still surface.
-    let eligibleDrivers;
-    if (nearbyDriverIds.length > 0) {
-      eligibleDrivers = await prisma.driver.findMany({
-        where: {
-          id:      { in: nearbyDriverIds },
-          status:  'ACTIVE',
-          isOnline: true,
-          trips:   { none: { status: { in: ['IN_PROGRESS', 'DRIVER_EN_ROUTE'] } } },
-        },
-        select:  { id: true, fcmToken: true },
-        take:    MAX_DRIVERS_TO_NOTIFY,
-      });
-    } else {
-      // No coords or empty geo result — broadcast to all online active drivers
-      eligibleDrivers = await prisma.driver.findMany({
-        where: {
-          isOnline: true,
-          status:   'ACTIVE',
-        },
-        select: { id: true, fcmToken: true },
-        take:   MAX_DRIVERS_TO_NOTIFY,
-      });
-    }
+    //
+    // BUSY-DRIVER LEAK FIX: both branches now share the single availability
+    // rule in services/driver-availability.js. Previously the geo branch only
+    // excluded IN_PROGRESS/DRIVER_EN_ROUTE (so a driver who had just accepted a
+    // trip, or was running their own self-created bus route, still got offered
+    // unrelated riders) and the no-coords fallback branch had NO busy filter at
+    // all — it broadcast to every online driver in the system.
+    const eligibleDrivers = await prisma.driver.findMany({
+      where: availableDriverWhere(
+        nearbyDriverIds.length > 0 ? { ids: nearbyDriverIds } : {}
+      ),
+      select:  { id: true, fcmToken: true },
+      take:    MAX_DRIVERS_TO_NOTIFY,
+    });
 
     if (eligibleDrivers.length === 0) {
       logger.info('No drivers to notify for trip request', { requestId: tripRequest.id });
@@ -246,6 +238,13 @@ async function cancelRequest(userId, tripRequestId) {
 }
 
 async function acceptTripRequest(driverId, tripRequestId) {
+  // Server-side backstop for the busy-driver rule (services/driver-availability.js).
+  // The dispatch/poll paths already hide offers from engaged drivers, but a card
+  // left on screen from before they took another trip must not be claimable.
+  if (!(await isDriverAvailable(prisma, driverId))) {
+    throw new AppError('Finish your current trip before accepting another.', 409, 'DRIVER_BUSY');
+  }
+
   const result = await prisma.$transaction(async (tx) => {
     const claim = await tx.tripRequest.updateMany({
       where: { id: tripRequestId, status: { in: ['PENDING', 'DISPATCHED'] } },

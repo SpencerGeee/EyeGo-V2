@@ -112,7 +112,11 @@ export interface DriverTrip {
   commissionRate?: number;
   driverEarningsPerSeat?: number;
   baseFare: number;
-  status: 'SCHEDULED' | 'FILLING' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  // CONFIRMED (dispatch accepted, not yet departed) and REASSIGNING (driver
+  // bailed pre-boarding, awaiting another driver) exist in the Prisma schema
+  // and are returned by the API — they were just missing from this union, so
+  // screens comparing against them were flagged as impossible.
+  status: 'SCHEDULED' | 'FILLING' | 'CONFIRMED' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'REASSIGNING' | 'COMPLETED' | 'CANCELLED';
   totalEarnings?: number;
   bookings?: Array<{
     id: string;

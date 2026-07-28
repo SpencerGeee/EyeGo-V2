@@ -457,7 +457,7 @@ export default function HelpScreen() {
               </Text>
             </View>
           ) : (
-            tickets.map((ticket) => (
+            tickets.map((ticket: any) => (
               <View key={ticket.id} style={styles.ticketItem}>
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>

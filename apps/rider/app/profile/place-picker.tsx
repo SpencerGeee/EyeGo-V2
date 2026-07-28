@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator, TextInput, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
@@ -31,6 +31,10 @@ export default function PlacePickerScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  // Callers pass a title so the same screen reads correctly for whichever
+  // field opened it ("Set pickup" vs "Where to?") — the where-to page now
+  // opens this directly from either field instead of behind a map button.
+  const { title } = useLocalSearchParams<{ title?: string }>();
   const { isDark } = useThemeStore();
 
   const [center, setCenter] = useState<[number, number] | null>(null);
@@ -157,7 +161,7 @@ export default function PlacePickerScreen() {
           >
             <Ionicons name="close" size={22} color={colors.onSurface} />
           </Pressable>
-          <Text style={styles.headerTitle}>Pick Location</Text>
+          <Text style={styles.headerTitle}>{title ?? 'Pick Location'}</Text>
           <View style={{ width: 44, height: 44 }} />
         </View>
 

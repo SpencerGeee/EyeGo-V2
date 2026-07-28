@@ -12,6 +12,7 @@ const { generateTripReceipt, refundBookingForDriverCancellation } = require('../
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
+const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const { toCedis } = require('../../utils/money');
 
 // Attach the same per-person estimate that the rider home screen shows,
@@ -995,14 +996,14 @@ async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
       }
       nearbyDriverIds = nearbyDriverIds.filter((id) => id !== cancellingDriverId);
 
+      // Shared availability rule — see services/driver-availability.js. This
+      // used to exclude only IN_PROGRESS/DRIVER_EN_ROUTE, so a driver already
+      // committed to another trip was still offered the reassignment.
       const eligibleDrivers = await prisma.driver.findMany({
-        where: {
-          id: nearbyDriverIds.length > 0 ? { in: nearbyDriverIds } : undefined,
-          status: 'ACTIVE',
-          isOnline: true,
-          NOT: { id: cancellingDriverId },
-          trips: { none: { status: { in: ['IN_PROGRESS', 'DRIVER_EN_ROUTE'] } } },
-        },
+        where: availableDriverWhere({
+          ids: nearbyDriverIds.length > 0 ? nearbyDriverIds : null,
+          excludeId: cancellingDriverId,
+        }),
         select: { id: true, fcmToken: true },
         take: MAX_REDISPATCH_DRIVERS_TO_NOTIFY,
       });
@@ -1047,6 +1048,13 @@ async function claimReassignedTrip(driverId, tripId) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
   if (!driver.isOnline) throw new AppError('You must be online to accept trips', 400, 'DRIVER_OFFLINE');
+
+  // Server-side backstop for the busy-driver rule. Even if a stale dispatch
+  // card is still on screen from before the driver took another trip, they
+  // cannot claim a second one.
+  if (!(await isDriverAvailable(prisma, driverId))) {
+    throw new AppError('Finish your current trip before accepting another.', 409, 'DRIVER_BUSY');
+  }
 
   const vehicle = await prisma.vehicle.findFirst({ where: { driverId, isActive: true } });
   if (!vehicle) throw new AppError('No active vehicle registered. Add a vehicle before accepting trips.', 400, 'NO_VEHICLE');
@@ -1199,6 +1207,14 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
   const { haversineKm } = require('../trips/fare.calculator');
   const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 8;
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+  // BUSY-DRIVER LEAK FIX: this poll had no eligibility check at all, so even
+  // when the push/socket dispatch paths correctly skipped a busy driver, that
+  // driver's app polled this endpoint every few seconds and rendered the
+  // dispatch card anyway — which is exactly the "I'm on my own trip and it
+  // still shows me other riders" symptom. A driver who is offline, not
+  // approved, or already engaged now gets an empty list, full stop.
+  if (!(await isDriverAvailable(prisma, driverId))) return [];
 
   const requests = await prisma.tripRequest.findMany({
     where: {
