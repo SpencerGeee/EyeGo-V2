@@ -364,21 +364,60 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Overlay style — progress-driven interpolation ─────────────────────
 
-  const overlayStyle = useAnimatedStyle(() => ({
-    position: 'absolute' as const,
-    left: interpolate(morphProgress.value, [0, 1], [sourceX.value, targetX.value]),
-    top: interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]),
-    width: interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]),
-    height: interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]),
-    borderRadius: interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]),
-    opacity: cloneOpacity.value,
-    overflow: 'hidden' as const,
-  }));
+  // BUGFIX: this used to animate raw left/top/width/height every frame.
+  // Even though the values are computed on the UI thread (Reanimated
+  // worklet), *assigning* them to layout properties still forces a native
+  // layout pass every frame — width/height changes ripple through the
+  // native layout engine (and can cascade to children), which is far more
+  // expensive than a GPU-composited transform. That's what "technically
+  // smooth" morphs still look janky, especially for a card growing to
+  // full-screen (a large width/height delta re-laid-out ~60x/sec).
+  //
+  // Fix: give the overlay a FIXED layout frame (pinned at the target rect)
+  // and drive 100% of the position/size animation through `transform`
+  // (translateX/Y + scaleX/Y) instead — pure GPU compositing, zero layout
+  // recalculation per frame. The inner content gets the inverse scale so
+  // the cloned content itself isn't visually stretched/squished by the
+  // outer transform (standard "container transform" technique).
+  const overlayStyle = useAnimatedStyle(() => {
+    const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
+    const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
+    const x = interpolate(morphProgress.value, [0, 1], [sourceX.value, targetX.value]);
+    const y = interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]);
+    const baseW = targetW.value || 1;
+    const baseH = targetH.value || 1;
+    return {
+      position: 'absolute' as const,
+      left: targetX.value,
+      top: targetY.value,
+      width: baseW,
+      height: baseH,
+      borderRadius: interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]),
+      opacity: cloneOpacity.value,
+      overflow: 'hidden' as const,
+      transform: [
+        { translateX: x - targetX.value },
+        { translateY: y - targetY.value },
+        { scaleX: w / baseW },
+        { scaleY: h / baseH },
+      ],
+    };
+  });
 
-  const contentStyle = useAnimatedStyle(() => ({
-    width: interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]),
-    height: interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]),
-  }));
+  const contentStyle = useAnimatedStyle(() => {
+    const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
+    const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
+    const baseW = targetW.value || 1;
+    const baseH = targetH.value || 1;
+    return {
+      width: baseW,
+      height: baseH,
+      transform: [
+        { scaleX: baseW / (w || 1) },
+        { scaleY: baseH / (h || 1) },
+      ],
+    };
+  });
 
   // phaseRef for reading phase inside callbacks
   const phaseRef = useRef<MorphPhase>('idle');

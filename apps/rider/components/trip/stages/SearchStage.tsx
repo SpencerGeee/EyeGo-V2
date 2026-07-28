@@ -5,7 +5,6 @@ import {
   TextInput,
   Pressable,
   ActivityIndicator,
-  ScrollView,
   Keyboard,
   BackHandler,
 } from 'react-native';
@@ -14,8 +13,6 @@ import Animated, { LinearTransition, FadeIn, FadeOut } from 'react-native-reanim
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { userApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, GradientGlowBorder, MorphTarget, useMorph, MorphBackSwipeDetector, backgroundScrollPauseProps, type GradientGlowBorderHandle } from '@eyego/ui';
@@ -33,20 +30,6 @@ type NominatimResult = {
   address?: { road?: string; suburb?: string; city?: string; town?: string; county?: string };
 };
 
-function getQuickChips(colors: Colors) {
-  return [
-    { id: 'home', label: 'Home', icon: 'home-outline' as const, tint: colors.tierComfort },
-    { id: 'work', label: 'Work', icon: 'briefcase-outline' as const, tint: colors.tierComfort },
-    { id: 'mall', label: 'Accra Mall', icon: 'storefront-outline' as const, tint: colors.tierPremium },
-  ];
-}
-
-const QUICK_DESTINATIONS = [
-  { id: 'kotoka', name: 'Kotoka Airport',       address: 'Airport Bypass Rd, Accra',        dist: '4.2 km', icon: 'airplane-outline'   as const, lat: 5.6052, lon: -0.1668 },
-  { id: 'mall',   name: 'Accra Mall',           address: 'Tetteh Quarshie Interchange, Accra', dist: '3.8 km', icon: 'storefront-outline' as const, lat: 5.6167, lon: -0.1769 },
-  { id: 'circle', name: 'Kwame Nkrumah Circle', address: 'Ring Road Central, Accra',        dist: '6.1 km', icon: 'navigate-outline'   as const, lat: 5.5502, lon: -0.2174 },
-  { id: 'legon',  name: 'University of Ghana',  address: 'Legon, Accra',                    dist: '8.3 km', icon: 'school-outline'     as const, lat: 5.6502, lon: -0.1869 },
-];
 
 /**
  * Search stage of the persistent trip surface — the where-to glass card,
@@ -56,7 +39,6 @@ const QUICK_DESTINATIONS = [
 function SearchStageImpl() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const quickChips = useMemo(() => getQuickChips(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
@@ -75,15 +57,6 @@ function SearchStageImpl() {
   const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [, setActiveField] = useState<'origin' | 'dest'>('dest');
-
-  // Backing data for the Home/Work quick chips — previously these three chips
-  // had no onPress at all (dead buttons).
-  const { data: savedPlaces } = useQuery({
-    queryKey: ['user', 'saved-places'],
-    queryFn: () => userApi.getSavedPlaces(),
-    select: (r: any) => r.data?.data?.places ?? r.data?.data ?? [],
-    staleTime: 60_000,
-  });
 
   const destRef = useRef<TextInput>(null);
   const originRef = useRef<TextInput>(null);
@@ -177,24 +150,6 @@ function SearchStageImpl() {
     const name = addr?.road ?? addr?.suburb ?? addr?.town ?? addr?.city ?? s.display_name.split(',')[0];
     commitPlace({ name, fullAddress: s.display_name, latitude: parseFloat(s.lat), longitude: parseFloat(s.lon) });
   }, [commitPlace]);
-
-  // Chips had no onPress at all before — tapping Home/Work/Accra Mall did
-  // nothing. Home/Work resolve against the rider's saved places; if not yet
-  // saved, send them to set one up rather than silently doing nothing.
-  const handleQuickChip = useCallback((chipId: string) => {
-    haptic.light();
-    if (chipId === 'mall') {
-      const mall = QUICK_DESTINATIONS.find((d) => d.id === 'mall')!;
-      commitPlace({ name: mall.name, fullAddress: mall.address, latitude: mall.lat, longitude: mall.lon });
-      return;
-    }
-    const saved = (savedPlaces ?? []).find((p: { label: string }) => p.label?.toLowerCase() === chipId);
-    if (saved) {
-      commitPlace({ name: saved.label, fullAddress: saved.address, latitude: saved.lat, longitude: saved.lng });
-    } else {
-      router.push('/profile/saved-places' as any);
-    }
-  }, [savedPlaces, commitPlace, router]);
 
   const handleClearDest = useCallback(() => {
     setDestQuery('');
@@ -401,8 +356,11 @@ function SearchStageImpl() {
               </Pressable>
             </View>
 
-            {/* Autocomplete results (replaces sections below while typing) */}
-            {searchActive ? (
+            {/* Autocomplete results — the only thing this screen shows besides
+                the search fields, matching Uber/Bolt's bare where-to page.
+                Quick-destination chips (Home/Work/mall) removed per feedback
+                that they cluttered what should be a clean search screen. */}
+            {searchActive && (
               <Animated.View style={styles.suggestList} entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}>
                 <View style={styles.divider} />
                 {isSearching && suggestions.length === 0 ? (
@@ -447,31 +405,6 @@ function SearchStageImpl() {
                     );
                   })
                 )}
-              </Animated.View>
-            ) : (
-              <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)}>
-                {/* Quick Destinations chips */}
-                <View style={styles.divider} />
-                <Text style={styles.sectionLabel}>QUICK DESTINATIONS</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.chipsRow}
-                  {...backgroundScrollPauseProps}
-                >
-                  {quickChips.map((chip) => (
-                    <Pressable
-                      key={chip.id}
-                      style={({ pressed }) => [styles.chip, pressed && { opacity: 0.75 }]}
-                      onPress={() => handleQuickChip(chip.id)}
-                      accessibilityRole="button"
-                      accessibilityLabel={chip.label}
-                    >
-                      <Ionicons name={chip.icon} size={14} color={chip.tint} />
-                      <Text style={styles.chipLabel}>{chip.label}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
               </Animated.View>
             )}
 
