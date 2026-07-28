@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Pressable, BackHandler } from 'react-native';
+import { View, StyleSheet, Pressable, BackHandler, useWindowDimensions } from 'react-native';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -29,11 +29,25 @@ import { consumePickedPlace } from '../../../utils/placePickerResult';
  * Uber/Bolt/Yango model. Nothing on this screen animates except the morph
  * itself, so the morph gets the whole frame budget.
  */
+/** Horizontal inset of the floating card — must match `cardWrap`'s padding. */
+const CARD_H_MARGIN = 16;
+
 function SearchStageImpl() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // BUGFIX: the pickup/destination rows collapsed to just their two icons,
+  // hugged to the left of the card. Every view between here and the screen
+  // root is a stretch-width flex child *in theory*, but the card sits inside
+  // MorphTarget → MorphBackSwipeDetector's GestureDetector wrapper → the
+  // stage's absolutely-positioned overlay, and when that chain resolves to a
+  // content-driven width the `flex: 1` on the label Text measures to zero and
+  // the row shrink-wraps its icons — exactly the reported symptom. Pin the
+  // card to the real window width so the rows can never be content-sized,
+  // whatever the ancestors do.
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = Math.max(240, windowWidth - CARD_H_MARGIN * 2);
   const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
@@ -184,8 +198,8 @@ function SearchStageImpl() {
 
       <MorphBackSwipeDetector style={{ flex: 1 }} onSwipeBack={handleClose}>
         <View style={styles.cardWrap}>
-          <MorphTarget id={activeMorphId} borderRadius={24}>
-            <View style={styles.floatingCard}>
+          <MorphTarget id={activeMorphId} borderRadius={24} style={{ width: cardWidth }}>
+            <View style={[styles.floatingCard, { width: cardWidth }]}>
 
               {/* ── Dual location rows + timeline ─────────────── */}
               <View style={styles.inputsSection}>

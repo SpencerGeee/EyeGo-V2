@@ -147,3 +147,15 @@ Decisions:
 - Morph "not smooth" — found a real, well-known root cause: MorphProvider's overlay animated raw left/top/width/height every frame. Even UI-thread-driven (Reanimated worklet), assigning layout properties forces a native layout recalculation every frame — the classic reason a "technically smooth" animation still looks janky, especially significant here since a card can grow to full-screen (large width/height delta ~60x/sec). Rewrote to the standard container-transform technique: fixed layout frame pinned at target rect, 100% of position/size driven through `transform` (translateX/Y + scaleX/Y) — pure GPU compositing. Inner content gets inverse scale so it isn't visually stretched by the outer transform.
 Rejected: did not attempt to "fix" the tracking crash with speculative new code with no crash evidence pointing to a new location — reused the existing verified fix instead of guessing.
 Open: user needs to confirm a genuinely fresh native rebuild before the tracking/suggested-trip crash can be considered verified fixed on-device; morph transform rewrite needs on-device visual confirmation (cannot be verified from this environment).
+
+## 2026-07-28 19:40 [saved]
+Goal: Ten stress-test defects across rider, driver, backend.
+Decisions:
+- MLRNCamera SIGABRT root cause is upstream `_setInitialCamera` running on the map's first (zero-size) layout; fix = don't mount Camera until MapView reports a real size.
+- Camera must push its first stop imperatively — `-[MLRNCamera setMap:]` applies nothing, so a late-attached camera otherwise sits at world zoom.
+- maplibre v11 region events are flat `ViewState`, not legacy GeoJSON; adapter normalises so screens stay unchanged.
+- SCHEDULED/FILLING trips past departure are now EXPIRED — they were blocking dispatch forever and faking "Resume Trip".
+- `getTrip` is viewer-scoped and `searchTrips` lists only joinable public trips; both leaked live driver GPS and co-rider identities.
+Rejected: NaN-coordinate theory as the crash cause — guards were already in place and it still aborted.
+Rejected: Redis geo-set as the dispatch membership list — absence there silently excluded free drivers.
+Open: nothing device-verified; needs a fresh native build, not OTA.

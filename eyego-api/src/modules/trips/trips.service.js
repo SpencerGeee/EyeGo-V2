@@ -191,7 +191,30 @@ async function getTripDriverPhone(tripId, userId) {
   return trip.driver.phone;
 }
 
-async function getTrip(id) {
+/** Statuses at which a trip is still a public, joinable listing. */
+const PUBLICLY_VISIBLE_TRIP_STATUSES = ['SCHEDULED', 'FILLING'];
+
+/**
+ * Trip detail.
+ *
+ * PRIVACY FIX (item: "riders and drivers confined to their own environments"):
+ * this took only an id and returned everything to any authenticated caller.
+ * Because ids are the same cuids the client already holds, any rider could
+ * read ANY trip — including one already under way for somebody else — and the
+ * payload handed over the driver's live GPS coordinates plus every booking's
+ * `userId`, `guestName`, seat and payment status. Enumerating other people's
+ * rides and watching their driver move required nothing but a trip id.
+ *
+ * Access is now: the trip is a public listing anyone may browse, OR the caller
+ * is actually on it (has a live booking). Anything else 404s — deliberately
+ * "not found" rather than "forbidden", so the endpoint can't be used to probe
+ * which trip ids exist. Co-passenger identities and driver telemetry are only
+ * attached for callers who are genuinely on the trip.
+ *
+ * @param {string} id
+ * @param {string|null} viewerUserId authenticated rider's id (controller supplies it)
+ */
+async function getTrip(id, viewerUserId = null) {
   const trip = await prisma.trip.findUnique({
     where: { id },
     include: {
@@ -205,6 +228,26 @@ async function getTrip(id) {
     },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  const isOnTrip = !!viewerUserId && trip.bookings.some((b) => b.userId === viewerUserId);
+  const isPublicListing =
+    PUBLICLY_VISIBLE_TRIP_STATUSES.includes(trip.status) && trip.route?.isActive !== false;
+
+  if (!isOnTrip && !isPublicListing) throw new NotFoundError('Trip');
+
+  if (!isOnTrip) {
+    // Browsing a listing needs seat occupancy, not who is in those seats, and
+    // certainly not where the driver physically is right now.
+    trip.bookings = trip.bookings.map((b) => ({
+      id: b.id,
+      seatNumber: b.seatNumber,
+      status: b.status,
+      isOffline: b.isOffline,
+    }));
+    if (trip.driver) {
+      trip.driver = { ...trip.driver, currentLat: null, currentLng: null };
+    }
+  }
 
   // Divide by maxSeats — the fixed capacity the driver chose for this trip.
   // This keeps farePerSeat stable and identical to what the listing showed.
@@ -375,13 +418,30 @@ async function searchTrips(query) {
   const finalDestLat = destinationLat ?? destLat;
   const finalDestLng = destinationLng ?? destLng;
 
+  // PRIVACY FIX: this listed DRIVER_EN_ROUTE and IN_PROGRESS trips, which are
+  // by definition already serving a specific rider — including the private
+  // one-off trips created when a driver accepts an on-demand request
+  // (trip-request.service.js). Every rider's "Suggested for you" therefore
+  // showed other people's live rides, and each row carried the driver's real
+  // -time coordinates (see `include` below). A trip you cannot book a seat on
+  // has no business in a search result: only SCHEDULED/FILLING are joinable.
+  //
+  // `route.isActive` is the public-listing gate. Driver-created map-pin trips
+  // get an ad-hoc route that is active (and so stay listed — that is the
+  // group/on-demand product); routes minted for a specific rider's request are
+  // created with `isActive: false` precisely so they never surface here.
   const where = {
-    status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'] },
+    status: { in: ['SCHEDULED', 'FILLING'] },
     departureTime: { gte: new Date() },
+    route: { isActive: true },
   };
 
   if (destination) {
+    // Merge, don't overwrite — reassigning `where.route` here would have
+    // dropped the `isActive` public-listing gate set above and put private
+    // on-demand routes back into text searches.
     where.route = {
+      ...where.route,
       OR: [
         { destinationName: { contains: destination } }, // SQLite contains is case-insensitive by default in Prisma if configured, but let's just use contains
         { virtualStops: { some: { name: { contains: destination } } } }

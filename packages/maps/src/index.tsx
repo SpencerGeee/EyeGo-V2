@@ -59,6 +59,48 @@ export function useMapBearing(): number {
   return React.useContext(MapBearingContext);
 }
 
+// ── Map layout gate ──────────────────────────────────────────────────────
+//
+// ROOT-CAUSE CRASH FIX (EyeGo-2026-07-28-164400.ips and every earlier
+// -[MLRNCamera _setInitialCamera] SIGABRT).
+//
+// Read maplibre-react-native 11.3.6's native camera code end to end:
+//
+//  * MLRNCameraComponentView.updateProps ALWAYS builds a non-nil
+//    `initialViewState` on its first pass — even when JS passes none, it
+//    still writes a `padding` key. So `_initialViewState` is never nil and
+//    `-[MLRNCamera _setInitialCamera]`'s `if (!_initialViewState) return;`
+//    guard never fires.
+//  * That empty dictionary yields a CameraStop with an INVALID centre and
+//    INVALID bounds, so `-[CameraUpdateItem _makeCamera:]` falls through to
+//    `[mapView.camera copy]` and hands whatever that is straight to
+//    `-[MLNMapView setCamera:…]`.
+//  * `-[MLRNMapView layoutSubviews]` calls `initialLayout` on the FIRST
+//    layout pass — including the pass where the map's frame is still
+//    CGRectZero (a map inside a screen that mounts at zero size: a morph
+//    target, a stack card mid-transition, a collapsed flex parent). On a
+//    zero-size map `mapView.camera` is degenerate/NaN, mbgl rejects it, and
+//    the C++ exception aborts the process. That is the crash — not our
+//    coordinates, which is why guarding every call site never fixed it.
+//
+// The library gives JS no way to disarm `_setInitialCamera`, so the fix is
+// to make sure NO camera is attached when that first layout pass runs:
+// MapView publishes its measured size here and Camera/NavCamera render
+// nothing until the map has real pixels. `_pendingInitialLayout` is then
+// consumed with `_reactCamera == nil` and `_setInitialCamera` never runs.
+//
+// The trade-off is that `-[MLRNCamera setMap:]` does NOT apply a camera
+// (both calls in it are commented out upstream), so a late-attached camera
+// would otherwise sit at MapLibre's world-view default — the "map shows the
+// whole continent" bug. Camera below compensates by pushing its stop
+// imperatively once attached.
+const MapReadyContext = React.createContext(true);
+
+/** True once the enclosing MapView has been laid out with a real size. */
+export function useMapReady(): boolean {
+  return React.useContext(MapReadyContext);
+}
+
 export interface MapViewProps {
   style?: any;
   /** URL string or a full MapLibre style-spec JSON object (e.g. @eyego/map-styles' default export) — the native Map component JSON.stringifies objects internally. */
@@ -160,6 +202,14 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
   // re-renders on a >1° change so a rotate gesture doesn't thrash React.
   const [mapBearing, setMapBearing] = useState(0);
 
+  // See the MapReadyContext note above — the camera must not be attached
+  // during the native map's first layout pass, which can run at zero size.
+  const [hasSize, setHasSize] = useState(false);
+  const onMapLayout = useCallback((e: any) => {
+    const { width, height } = e?.nativeEvent?.layout ?? {};
+    if (width > 1 && height > 1) setHasSize(true);
+  }, []);
+
   const handleRetry = useCallback(() => {
     setLoadError(null);
     setLoaded(false);
@@ -171,7 +221,8 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     // is injected into the native map's children — v11 components walk their
     // own children to inject source/layer props.
     <MapBearingContext.Provider value={mapBearing}>
-    <View style={style}>
+    <MapReadyContext.Provider value={hasSize}>
+    <View style={style} onLayout={onMapLayout}>
       <NativeMap
         key={retryKey}
         ref={ref}
@@ -185,19 +236,36 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         touchZoom={zoomEnabled ?? true}
         dragPan={scrollEnabled ?? true}
         scaleBar={scaleBarEnabled ?? false}
-        // onRegionDidChange/onUserPan: neither current screen consumer passes
-        // these; the exact v11 viewport-change event name is unconfirmed
-        // (Map.js doesn't destructure it explicitly — it's forwarded to the
-        // native view manager as-is). Verify the real event name before any
-        // future consumer relies on this.
+        // BUGFIX ("the map-picker Confirm button stays greyed out until you
+        // type an address"): v11 replaced the old Mapbox-style GeoJSON region
+        // payload — `{ geometry: { coordinates }, properties: { zoomLevel,
+        // isUserInteraction } }` — with a flat ViewStateChangeEvent:
+        // `{ center, zoom, bearing, pitch, bounds, animated, userInteraction }`
+        // (see ViewState in the installed Map.tsx). Every screen still reads
+        // the old shape, so `feature.geometry.coordinates` was always
+        // undefined: the place picker never learned where its centre pin was,
+        // never reverse-geocoded, and so never enabled Confirm — the only way
+        // to populate it was the search field, which sets the place directly.
+        // The same miss meant `onUserPan` never fired and the published map
+        // bearing was stuck at 0, silently disabling marker-rotation
+        // compensation. Normalise back to the legacy shape here so the screens
+        // stay unchanged.
         onRegionDidChange={(e: any) => {
-          const props = e?.nativeEvent?.properties ?? e?.properties;
-          if (props?.isUserInteraction) onUserPan?.();
-          const b = props?.bearing ?? props?.heading;
-          if (Number.isFinite(b)) {
-            setMapBearing((prev) => (Math.abs(prev - b) > 1 ? b : prev));
+          const s = e?.nativeEvent ?? e;
+          const coordinates = s?.center ?? s?.geometry?.coordinates;
+          const zoomLevel = s?.zoom ?? s?.properties?.zoomLevel;
+          const bearing = s?.bearing ?? s?.properties?.bearing ?? s?.properties?.heading;
+          const isUserInteraction = s?.userInteraction ?? s?.properties?.isUserInteraction ?? false;
+
+          if (isUserInteraction) onUserPan?.();
+          if (Number.isFinite(bearing)) {
+            setMapBearing((prev) => (Math.abs(prev - bearing) > 1 ? bearing : prev));
           }
-          onRegionDidChange?.(e?.nativeEvent ?? e);
+          if (!Array.isArray(coordinates) || coordinates.length !== 2) return;
+          onRegionDidChange?.({
+            geometry: { type: 'Point', coordinates: coordinates as LngLat },
+            properties: { zoomLevel, isUserInteraction },
+          } as any);
         }}
         onDidFinishLoadingMap={markLoaded}
         onDidFinishLoadingStyle={markLoaded}
@@ -260,6 +328,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         </View>
       )}
     </View>
+    </MapReadyContext.Provider>
     </MapBearingContext.Provider>
   );
 });
@@ -273,16 +342,60 @@ const EASING_MAP: Record<string, string | undefined> = {
   none: undefined,
 };
 
+/**
+ * Pushes a camera stop imperatively, tolerating a native view that hasn't
+ * finished mounting yet.
+ *
+ * `Camera.setStop` in maplibre-react-native THROWS ("NativeCameraComponent ref
+ * is null") when `findNodeHandle` comes back empty, which it does for the
+ * first tick or two after mount because Fabric mounts the view on the main
+ * thread while React effects run on the JS thread. Retrying across a couple of
+ * frames covers that window; giving up quietly after that is correct, since by
+ * then a real prop update has taken over.
+ */
+function pushStop(nativeRef: React.MutableRefObject<any>, stop: Record<string, unknown>, attempt = 0) {
+  try {
+    const api = nativeRef.current;
+    if (api?.setStop) {
+      api.setStop(stop);
+      return;
+    }
+  } catch {
+    // fall through to retry
+  }
+  if (attempt < 5) requestAnimationFrame(() => pushStop(nativeRef, stop, attempt + 1));
+}
+
 export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
   { centerCoordinate, zoomLevel, heading, pitch, animationMode, animationDuration, trackUserLocation },
   ref,
 ) {
   const nativeRef = useRef<any>(null);
+  // See MapReadyContext — mounting before the map has a real size is what
+  // aborted the process in -[MLRNCamera _setInitialCamera].
+  const mapReady = useMapReady();
+
+  // Screens call fitBounds/setCamera from mount effects, which can land before
+  // the map has been laid out and therefore before this camera is attached.
+  // Those calls used to be silently swallowed by the `?.` guards below, which
+  // would leave the map framed on nothing. Hold the most recent one and replay
+  // it the moment the camera does attach.
+  const pendingStopRef = useRef<Record<string, unknown> | null>(null);
+  const mapReadyRef = useRef(mapReady);
+  mapReadyRef.current = mapReady;
+
+  const applyStop = useCallback((stop: Record<string, unknown>) => {
+    if (!mapReadyRef.current) {
+      pendingStopRef.current = stop;
+      return;
+    }
+    pushStop(nativeRef, stop);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     setCamera: ({ centerCoordinate: coord, zoomLevel: zoom, heading: bearing, pitch: p, animationDuration: duration, padding }) => {
       if (coord !== undefined && !isFiniteLngLat(coord)) return;
-      nativeRef.current?.setStop?.({
+      applyStop({
         center: coord,
         zoom,
         bearing,
@@ -374,7 +487,7 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
       const bounds: [number, number, number, number] = [minLng, minLat, maxLng, maxLat];
       if (!bounds.every(Number.isFinite)) return;
 
-      nativeRef.current?.setStop?.({
+      applyStop({
         bounds,
         padding: { top: padTop, right: padRight, bottom: padBottom, left: padLeft },
         duration: animated ? 500 : 0,
@@ -391,17 +504,61 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
   // Camera funnels through, so guarding here protects all of them at once
   // rather than chasing one call site.
   const safeCenter = isFiniteLngLat(centerCoordinate) ? centerCoordinate : undefined;
+  const safeZoom = Number.isFinite(zoomLevel) ? zoomLevel : undefined;
+  const safeBearing = Number.isFinite(heading) ? heading : undefined;
+  const safePitch = Number.isFinite(pitch) ? pitch : undefined;
+
+  // BUGFIX ("the map shows the whole continent instead of the street"):
+  // -[MLRNCamera setMap:] does NOT apply a camera — upstream has both the
+  // `_setInitialCamera` and `updateCamera` calls in it commented out — and
+  // MLRNCameraComponentView only calls `updateCamera` from `updateProps`,
+  // where `_map` is still nil on the first pass because Fabric mounts the
+  // child into the map AFTER its props land. So the declarative centre/zoom
+  // was only ever applied by `initialLayout`, which we now deliberately miss
+  // by mounting late. Push the first stop ourselves instead — this is also
+  // what makes the very first frame land on the right street rather than
+  // MapLibre's zoom-0 world view.
+  const firstStop = useRef({ center: safeCenter, zoom: safeZoom, bearing: safeBearing, pitch: safePitch });
+  firstStop.current = { center: safeCenter, zoom: safeZoom, bearing: safeBearing, pitch: safePitch };
+  useEffect(() => {
+    if (!mapReady) return;
+    // A stop a screen asked for while we were still detached wins over the
+    // declarative props — it is the newer intent (e.g. a fitBounds fired from
+    // a data-load effect).
+    const queued = pendingStopRef.current;
+    pendingStopRef.current = null;
+    if (queued) {
+      pushStop(nativeRef, queued);
+      return;
+    }
+    const { center, zoom, bearing, pitch: p } = firstStop.current;
+    if (!center && zoom == null) return;
+    pushStop(nativeRef, { center, zoom, bearing, pitch: p, duration: 0 });
+  }, [mapReady]);
+
+  // `trackUserLocation` has the same "applied only from updateCamera" problem,
+  // and the native side only reacts when the prop CHANGES. Mount with it unset
+  // and flip it on the next commit so there is always a real transition for
+  // MLRNCameraComponentView to notice, by which time `_map` is attached.
+  const [trackMode, setTrackMode] = useState<CameraProps['trackUserLocation']>(undefined);
+  useEffect(() => {
+    if (!mapReady) return;
+    const t = setTimeout(() => setTrackMode(trackUserLocation), 0);
+    return () => clearTimeout(t);
+  }, [mapReady, trackUserLocation]);
+
+  if (!mapReady) return null;
 
   return (
     <NativeCamera
       ref={nativeRef}
       center={safeCenter}
-      zoom={Number.isFinite(zoomLevel) ? zoomLevel : undefined}
-      bearing={Number.isFinite(heading) ? heading : undefined}
-      pitch={Number.isFinite(pitch) ? pitch : undefined}
+      zoom={safeZoom}
+      bearing={safeBearing}
+      pitch={safePitch}
       duration={animationDuration}
       easing={animationMode ? EASING_MAP[animationMode] : undefined}
-      trackUserLocation={trackUserLocation}
+      trackUserLocation={trackMode}
     />
   );
 });
@@ -432,9 +589,21 @@ export function NavCamera({ active, pitch = 55, zoom = 17.5, duration = 800, fal
   // Same non-finite-coordinate guard as Camera above — this uses NativeCamera
   // directly rather than the wrapped Camera component, so it needs its own.
   const safeFallback = isFiniteLngLat(fallbackCenter) ? fallbackCenter : undefined;
+  // Same late-mount + explicit-transition handling as Camera above; see the
+  // MapReadyContext note for why both are required.
+  const mapReady = useMapReady();
+  const [trackMode, setTrackMode] = useState<'default' | undefined>(undefined);
+  useEffect(() => {
+    if (!mapReady) return;
+    const t = setTimeout(() => setTrackMode('default'), 0);
+    return () => clearTimeout(t);
+  }, [mapReady]);
+
+  if (!mapReady) return null;
+
   return (
     <NativeCamera
-      trackUserLocation="default"
+      trackUserLocation={trackMode}
       pitch={active ? pitch : 0}
       zoom={active ? zoom : fallbackZoom}
       center={active ? undefined : safeFallback}

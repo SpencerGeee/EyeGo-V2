@@ -10,17 +10,10 @@ import { haptic } from '../../utils/haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
-import { reverseGeocode, type GeocodeResult } from '../../utils/geocoding';
+import { reverseGeocode, searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { setPickedPlace } from '../../utils/placePickerResult';
 
 const ACCRA: [number, number] = [-0.187, 5.6037];
-
-type NominatimResult = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  address?: { road?: string; suburb?: string; town?: string; city?: string };
-};
 
 /**
  * Fullscreen map with a fixed center pin: pan the map, the pin stays centered,
@@ -45,7 +38,7 @@ export default function PlacePickerScreen() {
   const cameraRef = useRef<CameraRef>(null);
 
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
+  const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -85,47 +78,71 @@ export default function PlacePickerScreen() {
     }, 500);
   }, []);
 
+  // Resolve the opening position immediately instead of waiting for the first
+  // pan. The pin is already sitting on a real place the moment the screen
+  // opens, so Confirm should be usable straight away — previously the rider
+  // had to nudge the map (or type) before the button came alive, which read as
+  // "Confirm is greyed out until you type the location in the field".
+  useEffect(() => {
+    if (!initialCoords || center || resolved) return;
+    handleRegionChange({ geometry: { coordinates: initialCoords } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCoords]);
+
+  // The pin — not the geocoder — is what the rider is confirming. If the
+  // reverse lookup hasn't landed (or failed), commit the coordinate under a
+  // "Dropped pin" label rather than blocking on a label the trip doesn't need.
   const handleConfirm = useCallback(() => {
-    if (!resolved) return;
+    const place =
+      resolved ??
+      (center
+        ? {
+            placeId: 0,
+            name: 'Dropped pin',
+            fullAddress: `${center[1].toFixed(5)}, ${center[0].toFixed(5)}`,
+            latitude: center[1],
+            longitude: center[0],
+          }
+        : null);
+    if (!place) return;
     haptic.medium();
-    setPickedPlace(resolved);
+    setPickedPlace(place);
     router.back();
-  }, [resolved, router]);
+  }, [resolved, center, router]);
 
   // Search from within the picker so it's consistent with the where-to search —
   // selecting a result snaps the map straight to that exact place instead of
   // requiring the user to hand-drag the pin there.
+  // Results are biased toward wherever the pin currently sits, so "station"
+  // surfaces the nearby one rather than an alphabetical national list.
   const handleSearch = useCallback((text: string) => {
     setQuery(text);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (text.length < 2) { setSuggestions([]); return; }
+    if (text.trim().length < 2) { setSuggestions([]); setIsSearching(false); return; }
     searchTimer.current = setTimeout(async () => {
       setIsSearching(true);
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=gh&limit=6&addressdetails=1`,
-          { headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' } },
-        );
-        const data = await res.json();
-        setSuggestions(Array.isArray(data) ? data : []);
-      } catch {
-        setSuggestions([]);
-      } finally {
-        setIsSearching(false);
-      }
+      const near = center ?? initialCoords;
+      const results = await searchPlaces(
+        text,
+        8,
+        near ? { longitude: near[0], latitude: near[1] } : null,
+      );
+      setSuggestions(results);
+      setIsSearching(false);
     }, 300);
-  }, []);
+  }, [center, initialCoords]);
 
-  const handleSelectSuggestion = useCallback((s: NominatimResult) => {
-    const lat = parseFloat(s.lat);
-    const lng = parseFloat(s.lon);
-    const name = s.address?.road ?? s.address?.suburb ?? s.address?.town ?? s.address?.city ?? s.display_name.split(',')[0];
+  const handleSelectSuggestion = useCallback((s: GeocodeResult) => {
     haptic.select();
-    setQuery(name);
+    setQuery(s.name);
     setSuggestions([]);
-    setCenter([lng, lat]);
-    setResolved({ placeId: 0, name, fullAddress: s.display_name, latitude: lat, longitude: lng });
-    cameraRef.current?.setCamera({ centerCoordinate: [lng, lat], zoomLevel: 16, animationDuration: 500 });
+    setCenter([s.longitude, s.latitude]);
+    setResolved(s);
+    cameraRef.current?.setCamera({
+      centerCoordinate: [s.longitude, s.latitude],
+      zoomLevel: 16,
+      animationDuration: 500,
+    });
   }, []);
 
   return (
@@ -185,12 +202,17 @@ export default function PlacePickerScreen() {
             <View style={styles.suggestionsBox}>
               <FlatList
                 data={suggestions}
-                keyExtractor={(item, i) => `${item.lat}-${item.lon}-${i}`}
+                keyExtractor={(item, i) => `${item.placeId}-${item.latitude}-${item.longitude}-${i}`}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => (
                   <Pressable style={styles.suggestionRow} onPress={() => handleSelectSuggestion(item)}>
                     <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
-                    <Text style={styles.suggestionText} numberOfLines={1}>{item.display_name}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionText} numberOfLines={1}>{item.name}</Text>
+                      {item.fullAddress !== item.name && (
+                        <Text style={styles.suggestionSub} numberOfLines={1}>{item.fullAddress}</Text>
+                      )}
+                    </View>
                   </Pressable>
                 )}
               />
@@ -225,7 +247,7 @@ export default function PlacePickerScreen() {
           <Button
             label="Confirm Location"
             onPress={handleConfirm}
-            disabled={!resolved || isResolving}
+            disabled={!resolved && !center}
           />
         </View>
       </SafeAreaView>
@@ -309,10 +331,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderBottomColor: colors.rimLight,
   },
   suggestionText: {
-    flex: 1,
     fontFamily: fonts.regular,
     fontSize: 13,
     color: colors.onSurface,
+  },
+  suggestionSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
   },
   pinWrap: {
     position: 'absolute',

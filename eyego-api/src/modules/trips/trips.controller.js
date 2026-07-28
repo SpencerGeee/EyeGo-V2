@@ -42,7 +42,9 @@ const createTrip = async (req, res) => {
 };
 
 const getTrip = async (req, res) => {
-  const trip = await tripsService.getTrip(req.params.id);
+  // Viewer identity drives visibility — see tripsService.getTrip. Without it
+  // any rider could read any trip, live driver coordinates included.
+  const trip = await tripsService.getTrip(req.params.id, req.user?.userId ?? null);
   ok(res, { trip });
 };
 

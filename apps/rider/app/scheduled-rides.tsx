@@ -39,12 +39,18 @@ export default function ScheduledRidesScreen() {
     onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
   });
 
-  const intents = data?.data?.data?.intents ?? [];
-  // Nearest upcoming ride still in play gets the live hero card; everything
-  // else (including it) stays in the full history list below.
-  const liveIntent = [...intents]
-    .filter((i) => LIVE_STATUSES.includes(i.status))
-    .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime())[0] ?? null;
+  const allIntents: any[] = data?.data?.data?.intents ?? [];
+  const byTime = (a: any, b: any) =>
+    new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+
+  // Nearest upcoming ride still in play gets the live hero card. It is then
+  // EXCLUDED from the list below — repeating it as a plain dark row with a
+  // lone Cancel button just made it look like a second, broken ride. Expired
+  // and cancelled history sorts last so it can't crowd out upcoming rides.
+  const liveIntents = allIntents.filter((i) => LIVE_STATUSES.includes(i.status)).sort(byTime);
+  const pastIntents = allIntents.filter((i) => !LIVE_STATUSES.includes(i.status)).sort(byTime).reverse();
+  const liveIntent = liveIntents[0] ?? null;
+  const intents = [...liveIntents.filter((i) => i.id !== liveIntent?.id), ...pastIntents];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -166,7 +172,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
   },
   title: { fontFamily: fonts.displayBold, fontSize: fontSizes.titleLarge, color: colors.onSurface },
-  list: { paddingHorizontal: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.md },
+  // paddingTop reserves room for the live card's glow bloom (a shadowRadius-36
+  // iOS shadow). Without it the scroll container clipped the top of the halo
+  // and the card read as cut off — same fix as the Activity tab's lists.
+  list: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing['3xl'],
+    gap: spacing.md,
+  },
   empty: { textAlign: 'center', marginTop: spacing['3xl'], color: colors.onSurfaceVariant, fontFamily: fonts.regular },
   card: {
     flexDirection: 'row', alignItems: 'center',

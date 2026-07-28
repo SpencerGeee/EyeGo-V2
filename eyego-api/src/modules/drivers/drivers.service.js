@@ -13,6 +13,7 @@ const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
+const { expireStaleTrips, liveUnstartedTripFilter } = require('../../services/stale-trips');
 const { toCedis } = require('../../utils/money');
 
 // ─── Trip status machine ─────────────────────────────────────────────────────
@@ -161,6 +162,12 @@ async function goOnline(driverId, lat, lng) {
   if (!driver) throw new NotFoundError('Driver');
   if (driver.status !== 'ACTIVE') throw new ForbiddenError('Your account must be approved before going online');
 
+  // Clear out trips this driver created but never ran before they start taking
+  // dispatch. Without this, one abandoned trip keeps them permanently "busy"
+  // in driver-availability's filter and no rider request ever reaches them —
+  // going online is exactly the moment that must be true again.
+  await expireStaleTrips(prisma, { driverId });
+
   // Document verification gating — previously goOnline() never checked this despite
   // the app's own copy claiming unverified documents block "full trip access."
   if (env.NODE_ENV !== 'development') {
@@ -255,10 +262,23 @@ async function goOffline(driverId) {
 }
 
 async function getActiveTrip(driverId) {
+  // BUGFIX (phantom "Resume Trip" on a fresh install): this matched SCHEDULED
+  // and FILLING with no time bound at all, so a trip the driver created and
+  // abandoned days ago was still offered as resumable — including after the
+  // app was deleted and sideloaded again, which is how it was reported. Sweep
+  // those to EXPIRED first, then only accept an unstarted trip whose departure
+  // is still within the grace window. Trips actually under way
+  // (CONFIRMED → IN_PROGRESS) are unaffected: they stay resumable forever,
+  // which is the whole point of the banner.
+  await expireStaleTrips(prisma, { driverId });
+
   const trip = await prisma.trip.findFirst({
     where: {
       driverId,
-      status: { in: ['SCHEDULED', 'CONFIRMED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'FILLING'] },
+      OR: [
+        { status: { in: ['CONFIRMED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } },
+        liveUnstartedTripFilter(),
+      ],
     },
     include: {
       route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },

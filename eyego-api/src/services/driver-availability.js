@@ -23,6 +23,8 @@
  * Every dispatch path now goes through here. Do not inline a new one.
  */
 
+const { staleCutoff } = require('./stale-trips');
+
 /**
  * Statuses that make a driver unconditionally unavailable — they are actively
  * engaged with a rider right now, whatever the departure time says.
@@ -58,7 +60,13 @@ function busyTripFilter(now = new Date()) {
       { status: { in: [...HARD_BUSY_STATUSES] } },
       {
         status: { in: [...PENDING_BUSY_STATUSES] },
-        departureTime: { lte: imminent },
+        // BUGFIX: the upper bound alone (`lte: imminent`) is satisfied by ANY
+        // past departure time, so one abandoned SCHEDULED/FILLING trip marked
+        // the driver busy forever and they silently stopped receiving every
+        // dispatch offer — reported as "the driver app is free but the request
+        // never shows up". A trip whose departure is long past was never
+        // started and is not blocking anyone; see services/stale-trips.js.
+        departureTime: { lte: imminent, gte: staleCutoff(now) },
       },
     ],
   };

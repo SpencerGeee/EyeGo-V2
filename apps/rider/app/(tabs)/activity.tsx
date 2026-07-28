@@ -227,6 +227,73 @@ function NotificationItem({ notification, colors, styles }: { notification: any;
   );
 }
 
+/** Statuses that mean the scheduled ride is still going to happen. */
+const LIVE_SCHEDULED_STATUSES = ['PENDING', 'DISPATCHED', 'MATCHED'];
+
+/**
+ * Vertical room a glowing card needs above it inside a scroll container.
+ * GradientGlowBorder's widest bloom is a shadowRadius-36 shadow, so anything
+ * less than this clips the top of the halo (and visually the card edge).
+ */
+const GLOW_BLEED = 20;
+
+/**
+ * The hero card for the next scheduled ride — the same one /scheduled-rides
+ * shows. It was missing here entirely, so the Scheduled tab led with expired
+ * rides and rendered the one live ride as a plain dark row with a Cancel
+ * button, which read as "a black card and a cancel option".
+ */
+function LiveScheduledCard({
+  intent,
+  colors,
+  styles,
+}: {
+  intent: any;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const router = useRouter();
+  const matched = intent.status === 'MATCHED';
+
+  return (
+    <GradientGlowBorder
+      palette="green"
+      fillColor={colors.surfaceCard}
+      borderRadius={radii.xl}
+      glow
+      style={styles.liveRequestCard}
+    >
+      <Pressable
+        onPress={() => {
+          if (!intent.matchedTripId) return;
+          Haptics.selectionAsync();
+          router.push(`/ride/${intent.matchedTripId}/tracking` as any);
+        }}
+      >
+        <View style={styles.liveDotWrap}>
+          <View style={[styles.liveDot, { backgroundColor: matched ? colors.statusSuccess : colors.primary }]} />
+          <Text style={styles.liveLabel}>
+            {matched ? 'DRIVER CONFIRMED' : 'NEXT SCHEDULED RIDE'}
+          </Text>
+        </View>
+        <View style={styles.liveDestRow}>
+          <Ionicons name="navigate-outline" size={16} color={colors.tierComfort} />
+          <Text style={styles.liveDestText} numberOfLines={1}>
+            {intent.route?.destinationName ?? 'Your destination'}
+          </Text>
+        </View>
+        <Text style={styles.liveStatus}>
+          {new Date(intent.scheduledAt).toLocaleString('en-GH', {
+            weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+          })}
+          {'  ·  '}
+          {SCHEDULED_STATUS_LABEL[intent.status] ?? intent.status}
+        </Text>
+      </Pressable>
+    </GradientGlowBorder>
+  );
+}
+
 function ScheduledItem({
   intent,
   colors,
@@ -437,9 +504,24 @@ export default function ActivityScreen() {
     onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
   });
 
-  const scheduledIntents = useMemo(() => {
-    const list = (scheduledData as any)?.data?.data?.intents ?? [];
-    return [...list].sort((a: any, b: any) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  // Nearest still-live ride becomes the hero card; everything else lists
+  // below it, live rides first so expired/cancelled history can never push
+  // an upcoming ride off the top of the screen.
+  const { liveScheduledIntent, scheduledIntents } = useMemo(() => {
+    const list: any[] = (scheduledData as any)?.data?.data?.intents ?? [];
+    const byTime = (a: any, b: any) =>
+      new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+
+    const live = list.filter((i) => LIVE_SCHEDULED_STATUSES.includes(i.status)).sort(byTime);
+    const past = list.filter((i) => !LIVE_SCHEDULED_STATUSES.includes(i.status)).sort(byTime).reverse();
+    const hero = live[0] ?? null;
+
+    return {
+      liveScheduledIntent: hero,
+      // The hero ride is not repeated in the list — that duplicate row was
+      // the confusing plain dark card with a lone Cancel button.
+      scheduledIntents: [...live.filter((i) => i.id !== hero?.id), ...past],
+    };
   }, [scheduledData]);
 
   // apiClient.get() resolves to the raw axios response (pass-through
@@ -548,8 +630,20 @@ export default function ActivityScreen() {
               />
             )}
             ItemSeparatorComponent={ItemSeparator}
+            ListHeaderComponent={
+              liveScheduledIntent ? (
+                <LiveScheduledCard intent={liveScheduledIntent} colors={colors} styles={styles} />
+              ) : undefined
+            }
             contentContainerStyle={{
               paddingHorizontal: spacing.lg,
+              // GLOW-CLIP FIX: GradientGlowBorder's bloom is an iOS shadow that
+              // spreads ~28-36px past the card's own bounds. With the list
+              // content starting at y=0 the whole upper half of that bloom —
+              // and with it the visual top edge of the card — was cut off by
+              // the scroll container, which read as "the card is clipped at
+              // the top". Reserve room for the bloom instead.
+              paddingTop: GLOW_BLEED,
               paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24,
             }}
             refreshControl={
@@ -607,6 +701,9 @@ export default function ActivityScreen() {
           ItemSeparatorComponent={ItemSeparator}
           contentContainerStyle={{
             paddingHorizontal: spacing.lg,
+            // See GLOW_BLEED — without this the "REQUESTING A TRIP" card's
+            // halo (and its top edge) is clipped by the scroll container.
+            paddingTop: GLOW_BLEED,
             paddingBottom: TAB_BAR_BASE_HEIGHT + insets.bottom + 24,
           }}
           refreshControl={

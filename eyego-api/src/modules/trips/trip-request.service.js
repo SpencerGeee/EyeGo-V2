@@ -132,13 +132,44 @@ async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, g
     // trip, or was running their own self-created bus route, still got offered
     // unrelated riders) and the no-coords fallback branch had NO busy filter at
     // all — it broadcast to every online driver in the system.
-    const eligibleDrivers = await prisma.driver.findMany({
-      where: availableDriverWhere(
-        nearbyDriverIds.length > 0 ? { ids: nearbyDriverIds } : {}
-      ),
-      select:  { id: true, fcmToken: true },
-      take:    MAX_DRIVERS_TO_NOTIFY,
+    // REDIS-GEO BLIND SPOT FIX ("I requested a trip, the driver app is free,
+    // and nothing showed up"): `drivers:online` is only populated by driver
+    // location pings. A driver who has just gone online, whose ping hasn't
+    // landed yet, or who is running against a Redis that was restarted, is
+    // simply absent from the geo-set. Because `ids` is an intersecting filter,
+    // ONE unrelated driver being present in the set was enough to switch this
+    // query into "geo mode" and silently exclude every driver Redis didn't
+    // know about — while the no-coords path happily notified all of them.
+    //
+    // The geo-set is now treated as a ranking hint, not as the membership
+    // list: drivers it returns are preferred, and any other available driver
+    // whose last known DB position is inside the same radius is included too.
+    const availableDrivers = await prisma.driver.findMany({
+      where: availableDriverWhere(),
+      select: { id: true, fcmToken: true, currentLat: true, currentLng: true },
     });
+
+    const nearbySet = new Set(nearbyDriverIds);
+    const hasPickup = tripRequest.pickupLat != null && tripRequest.pickupLng != null;
+
+    const eligibleDrivers = availableDrivers
+      .map((d) => {
+        const inGeoSet = nearbySet.has(d.id);
+        const distanceKm =
+          hasPickup && d.currentLat != null && d.currentLng != null
+            ? haversineKm(tripRequest.pickupLat, tripRequest.pickupLng, d.currentLat, d.currentLng)
+            : null;
+        return { ...d, inGeoSet, distanceKm };
+      })
+      // With no pickup coordinate there is nothing to filter on, so every
+      // available driver is a candidate (unchanged behaviour). With one, keep
+      // the geo-set hits plus anyone provably in range; a driver with no known
+      // position at all is still included rather than silently dropped —
+      // missing telemetry must not cost a rider their ride.
+      .filter((d) => !hasPickup || d.inGeoSet || d.distanceKm == null || d.distanceKm <= DISPATCH_RADIUS_KM)
+      // Closest first, geo-set hits ahead of position-less drivers.
+      .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER))
+      .slice(0, MAX_DRIVERS_TO_NOTIFY);
 
     if (eligibleDrivers.length === 0) {
       logger.info('No drivers to notify for trip request', { requestId: tripRequest.id });
