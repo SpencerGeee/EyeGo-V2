@@ -334,7 +334,15 @@ async function acceptTripRequest(driverId, tripRequestId) {
         perKmRate: fare.perKmRate,
         surgeMultiplier: fare.surgeMultiplier,
         maxSeats,
-        status: 'CONFIRMED',
+        // DRIVER_EN_ROUTE, not CONFIRMED. This trip only exists because a rider
+        // requested a ride *now* and this driver just accepted it — accepting IS
+        // setting off for the pickup. Parking it at CONFIRMED made the driver app
+        // show a "Start Trip" button they had to tap before anything progressed,
+        // while the rider sat watching a driver who appeared not to have moved.
+        // "Start Trip" is reserved for genuinely SCHEDULED trips (see
+        // TRIP_STATUS_CONFIG in apps/driver/app/(trip)/active/[id].tsx), which is
+        // also why claimReassignedTrip already lands on DRIVER_EN_ROUTE.
+        status: 'DRIVER_EN_ROUTE',
       },
       include: { route: true, vehicle: true, driver: { select: { name: true, phone: true, profilePhoto: true } } },
     });
@@ -405,7 +413,9 @@ async function acceptTripRequest(driverId, tripRequestId) {
           await pushService.sendPush(
             rider.fcmToken,
             'Driver Found!',
-            `A driver has accepted your trip request to ${result.trip.route.destinationName}.`,
+            // The trip is created at DRIVER_EN_ROUTE (see above) — the driver is
+            // already moving toward the pickup, so say so rather than "accepted".
+            `Your driver is on the way to pick you up for ${result.trip.route.destinationName}.`,
             { type: 'TRIP_REQUEST_MATCHED', tripId: result.trip.id },
           );
         }

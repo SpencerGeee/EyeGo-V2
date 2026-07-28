@@ -165,7 +165,11 @@ const acceptDispatch = async (req, res) => {
   const trip = await driversService.acceptDispatch(req.user.userId, req.params.id);
   try {
     const io = req.app.get('io');
-    if (io) io.of('/passenger').to(`trip:${trip.id}`).emit('trip:status_change', { tripId: trip.id, status: 'CONFIRMED' });
+    // Broadcast the status the trip actually landed on rather than a hardcoded
+    // 'CONFIRMED' — riders were being told CONFIRMED even when the service put
+    // the trip somewhere else, so their tracking screen showed a stale stage
+    // until the next poll.
+    if (io) io.of('/passenger').to(`trip:${trip.id}`).emit('trip:status_change', { tripId: trip.id, status: trip.status });
   } catch (_) {}
   ok(res, { trip }, 'Trip accepted');
 };

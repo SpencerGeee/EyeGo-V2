@@ -48,7 +48,7 @@ export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbien
 export { GlassSurface } from './effects/GlassSurface';
 export { LensSheen } from './effects/LensSheen';
 export { GlowSearchInput, GlowSearchPressable } from './effects/GlowSearchInput';
-export { usePerformanceTier, setLowPowerMode } from './effects/usePerformanceTier';
+export { usePerformanceTier } from './effects/usePerformanceTier';
 export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
 export { setBackgroundBusy, subscribeBackgroundBusy, backgroundScrollPauseProps } from './effects/backgroundActivity';

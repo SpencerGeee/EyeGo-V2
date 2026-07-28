@@ -153,8 +153,11 @@ export default function DriverTrackingScreen() {
     return [driverLocation.longitude, driverLocation.latitude] as [number, number];
   }, [driverLocation?.latitude, driverLocation?.longitude]);
 
-  // Camera follows driver — tilted 3D nav view while actively driving to/with
-  // passengers (Uber/Bolt/Yango-style), flat overview otherwise.
+  // Camera follows driver in a tilted 3D nav view (Uber/Bolt/Yango-style),
+  // constant for the life of the screen. It used to flatten to 2D outside
+  // DRIVER_EN_ROUTE/IN_PROGRESS, which meant the map visibly lurched between
+  // 2D and 3D as the trip advanced. Same constant-tilt rule as the rider's
+  // tracking map (TRACKING_PITCH there).
   // BUGFIX: this used to also rotate the camera to face `bearingBetween(driverCoord, target)`
   // (direction-to-destination, not the driver's actual heading). Combined with the map's own
   // `rotateEnabled` gesture, that desynced the driver marker's screen-space rotation from true
@@ -163,20 +166,19 @@ export default function DriverTrackingScreen() {
   // thing that reflects real GPS heading, so it always matches actual direction of travel.
   useEffect(() => {
     if (driverCoord && cameraRef.current) {
-      const isDriving = trip?.status === 'DRIVER_EN_ROUTE' || trip?.status === 'IN_PROGRESS';
       cameraRef.current.setCamera({
         centerCoordinate: driverCoord,
         animationDuration: 1000,
-        zoomLevel: isDriving ? 17.5 : 14,
+        zoomLevel: 17,
         // Deliberately no `heading` — forcing 0 on every GPS tick snapped the
         // map back to north and fought the rotate gesture. Marker rotation is
         // bearing-compensated now, so the map may sit at any bearing.
-        pitch: isDriving ? 55 : 0,
+        pitch: 55,
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // driverCoord is a tuple — index access is the stable primitive dep; cameraRef is a stable ref
-  }, [driverCoord?.[0], driverCoord?.[1], trip?.status]);
+  }, [driverCoord?.[0], driverCoord?.[1]]);
 
   // Destination + pickup coords — declared HERE so the OSRM effect below can
   // reference them. BUGFIX: these used to default a missing route coordinate
@@ -434,7 +436,10 @@ export default function DriverTrackingScreen() {
         <MapboxGL.Camera
           ref={cameraRef}
           centerCoordinate={driverCoord ?? pickupCoord ?? CAMERA_FALLBACK}
-          zoomLevel={14}
+          zoomLevel={16}
+          // Seed the first frame already tilted so the map never renders flat
+          // and then tip over once the first GPS fix lands.
+          pitch={55}
           heading={0}
           animationMode="none"
           animationDuration={0}
@@ -1103,10 +1108,13 @@ const makeStyles = (colors: DriverColors) =>
       justifyContent: 'center',
       borderWidth: 2,
       borderColor: '#3B82F6',
-      shadowColor: '#3B82F6',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.5,
-      shadowRadius: 8,
+      // Contact shadow, not a glow. The old wide half-opaque blue shadow
+      // rendered as a soft blue disc surrounding the puck — it read on device
+      // as "a blue circle with the driver pin inside it".
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 3,
       elevation: 8,
     },
     destMarker: {

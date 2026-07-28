@@ -73,6 +73,13 @@ function useDriverHeading(coord: { latitude: number; longitude: number; heading?
   }, [coord?.latitude, coord?.longitude, coord?.heading]);
 }
 
+/**
+ * Camera tilt for the whole tracking screen, in degrees. Constant by design —
+ * see the <Camera> and frameOnTarget comments below. ~50° is the same ballpark
+ * as the driver app's NavCamera so both sides of a trip look like one product.
+ */
+const TRACKING_PITCH = 50;
+
 // ── Polyline draw-in animation ───────────────────────────────────────────
 function usePolylineReveal(coords: [number, number][], skipAnimation?: boolean) {
   const [revealed, setRevealed] = useState<[number, number][]>([]);
@@ -381,7 +388,12 @@ export default function TrackingScreen() {
     (coord: [number, number], duration = 450) => {
       cameraRef.current?.setCamera({
         centerCoordinate: coord,
-        zoomLevel: 14,
+        zoomLevel: 15.5,
+        // Tilted nav view, applied on EVERY camera move. It has to be repeated
+        // here and not just on the declarative <Camera> seed below: setStop
+        // replaces the whole camera, so omitting pitch silently flattens the
+        // map back to 0° on the next GPS tick. See TRACKING_PITCH.
+        pitch: TRACKING_PITCH,
         animationDuration: duration,
         padding: { paddingTop: insets.top + 90, paddingBottom: sheetPadRef.current },
       });
@@ -709,7 +721,12 @@ export default function TrackingScreen() {
         <MapboxGL.Camera
           ref={cameraRef}
           centerCoordinate={passengerPickupCoord}
-          zoomLevel={13}
+          zoomLevel={15}
+          // Tracking is 3D from the first frame — deliberately NOT gated on
+          // trip status. Tying the tilt to "ride started" made the map snap
+          // between flat and tilted mid-trip; a constant pitch reads as one
+          // consistent nav view for the whole journey (Uber/Yango behaviour).
+          pitch={TRACKING_PITCH}
           animationMode="none"
           animationDuration={0}
         />

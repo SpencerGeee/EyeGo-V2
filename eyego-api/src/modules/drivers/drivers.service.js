@@ -15,6 +15,42 @@ const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calc
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const { toCedis } = require('../../utils/money');
 
+// ─── Trip status machine ─────────────────────────────────────────────────────
+// The four driver-driven transitions used to be unguarded `trip.update`s: any
+// of them would happily overwrite any status, so a stale client (offline queue
+// replay, double-tap, a screen resumed from the background) could walk a trip
+// backwards — e.g. push IN_PROGRESS back to DRIVER_EN_ROUTE and re-notify every
+// rider that the driver had "started the trip" again.
+//
+// Note there is no DISPATCHED→CONFIRMED→start hop for on-demand rides: those
+// trips are created at DRIVER_EN_ROUTE the moment the driver accepts (see
+// trip-request.service.js), so `startTrip` — the app's "Start Trip" button —
+// only ever applies to a trip that was genuinely scheduled ahead of time.
+const TRIP_TRANSITIONS = Object.freeze({
+  DRIVER_EN_ROUTE:   ['SCHEDULED', 'FILLING', 'CONFIRMED'],
+  ARRIVED_AT_PICKUP: ['DRIVER_EN_ROUTE'],
+  IN_PROGRESS:       ['ARRIVED_AT_PICKUP'],
+  COMPLETED:         ['IN_PROGRESS'],
+});
+
+/**
+ * Assert `trip` may move to `next`. Idempotent: re-issuing the transition a
+ * trip is already in is a no-op success (returns false, "nothing to do"), so
+ * retried requests don't 409 or fire duplicate push notifications.
+ */
+function assertTransition(trip, next) {
+  if (trip.status === next) return false;
+  const allowed = TRIP_TRANSITIONS[next] ?? [];
+  if (!allowed.includes(trip.status)) {
+    throw new AppError(
+      `Cannot move this trip from ${trip.status} to ${next}.`,
+      409,
+      'INVALID_TRIP_TRANSITION',
+    );
+  }
+  return true;
+}
+
 // Attach the same per-person estimate that the rider home screen shows,
 // so both apps display consistent pricing for the same trip.
 // Uses stored baseFare/perKmRate so pricing reflects the rates set at trip creation.
@@ -314,6 +350,7 @@ async function getTripHistory(driverId, page = 1, limit = 20) {
 async function arriveAtPickup(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
+  if (!assertTransition(trip, 'ARRIVED_AT_PICKUP')) return trip;
   const updated = await prisma.trip.update({ where: { id: tripId }, data: { status: 'ARRIVED_AT_PICKUP' } });
 
   setImmediate(async () => {
@@ -449,6 +486,7 @@ async function uploadDocument(driverId, file, type) {
 async function startTrip(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
+  if (!assertTransition(trip, 'DRIVER_EN_ROUTE')) return trip;
   const updated = await prisma.trip.update({ where: { id: tripId }, data: { status: 'DRIVER_EN_ROUTE' } });
 
   // Push notifications — non-blocking
@@ -479,6 +517,7 @@ async function startTrip(driverId, tripId) {
 async function departTrip(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
+  if (!assertTransition(trip, 'IN_PROGRESS')) return trip;
   const updated = await prisma.trip.update({
     where: { id: tripId },
     data: { status: 'IN_PROGRESS', departedAt: new Date() },
@@ -524,6 +563,11 @@ async function arriveTrip(driverId, tripId) {
     if (trip.status === 'COMPLETED') {
       return { trip, totalEarnings: 0, alreadyCompleted: true };
     }
+    // A trip can only be completed from IN_PROGRESS — nothing may jump the
+    // queue from e.g. ARRIVED_AT_PICKUP and settle fares for a ride that never
+    // departed. (The COMPLETED short-circuit above keeps retries idempotent,
+    // so this only ever rejects genuinely out-of-order calls.)
+    assertTransition(trip, 'COMPLETED');
 
     // Close trip
     await tx.trip.update({

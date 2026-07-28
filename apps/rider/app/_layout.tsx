@@ -30,8 +30,7 @@ import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, setLowPowerMode } from '@eyego/ui';
-import { useLowPowerMode } from 'expo-battery';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -186,10 +185,12 @@ export default function RootLayout() {
   const [splashDone, setSplashDone] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
 
-  // Low Power Mode detection — forces 'low' performance tier so the Skia
-  // raymarch shard drops to SVG blobs, conserving GPU for scroll compositing.
-  const isLowPower = useLowPowerMode();
-  useEffect(() => { setLowPowerMode(isLowPower); }, [isLowPower]);
+  // Low Power Mode is deliberately NOT wired to the performance tier any more.
+  // Forcing 'low' here killed the shader background, glow borders, glass blur
+  // and morph animations in one go, so the rider app went visibly flat below
+  // 20% battery while the driver app — which never had this hook — stayed
+  // rich on the same phone. iOS already throttles animation under Low Power
+  // Mode; see the note in packages/ui/src/effects/usePerformanceTier.ts.
 
   // Pause the Skia shader when a detailPush or opaque screen covers the root
   // background. All transparent-content screens (where-to, auth, join) sit at

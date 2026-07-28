@@ -6,20 +6,22 @@ export type PerformanceTier = 'high' | 'low';
 let cachedTier: PerformanceTier | null = null;
 
 /**
- * Module-level flag set externally from the app layout when iOS Low Power
- * Mode or Android Power Saver is active — forces the performance tier to
- * 'low' so every ambient effect, shader, and animation throttles down.
- * The rider app's _layout.tsx wires this via expo-battery's useLowPowerMode.
+ * NOTE — iOS Low Power Mode deliberately does NOT feed into this tier.
+ *
+ * The rider app used to force 'low' whenever expo-battery reported Low Power
+ * Mode, which is a much bigger hammer than it looks: 'low' disables the Skia
+ * background shader, GradientGlowBorder's rotation, GlassSurface blur, the
+ * Lightfall/LightPillar backgrounds and the morph animations all at once. The
+ * result was an app that went flat and lifeless the moment a phone dipped
+ * under 20% — while the driver app, which never wired this up, stayed smooth
+ * on the same handset. iOS already throttles animation and refresh rate under
+ * Low Power Mode on its own; doing it again in userland only cost fidelity.
+ *
+ * The tier is now purely a hardware-capability signal. If a battery-aware
+ * degradation ever comes back it should be a separate, narrower flag that
+ * gates only the full-screen GPU shader — not every visual affordance.
  */
-let _lowPowerOverride = false;
-export function setLowPowerMode(enabled: boolean) {
-  _lowPowerOverride = enabled;
-  // Bust the cached tier so next computeTier() picks up the change.
-  cachedTier = null;
-}
-
 function computeTier(): PerformanceTier {
-  if (_lowPowerOverride) return 'low';
   if (cachedTier) return cachedTier;
 
   let tier: PerformanceTier = 'high';
@@ -40,9 +42,8 @@ function computeTier(): PerformanceTier {
   return tier;
 }
 
-/** 'low' on older/likely-weaker Android devices OR when Low Power Mode is
- * active — consumers should drop ambient motion, glow intensity, and
- * chromatic hints on this tier. */
+/** 'low' on older/likely-weaker Android devices — consumers should drop
+ * ambient motion, glow intensity, and chromatic hints on this tier. */
 export function usePerformanceTier(): PerformanceTier {
   return useMemo(() => computeTier(), []);
 }

@@ -120,6 +120,17 @@ function SearchStageImpl() {
     goStage('request');
   }, [goStage, orderSeats, setRequestSeats]);
 
+  // Same choice, later departure. Everything the rider set up here — pickup,
+  // destination, seat count — already lives in the ride/tripFlow stores, and
+  // the schedule screen seeds itself from them, so the only thing to do before
+  // navigating is commit the seat stepper (Order Ride does this too; the
+  // Schedule button used to skip it and drop the rider on an empty form).
+  const handleSchedule = useCallback(() => {
+    haptic.light();
+    setRequestSeats(orderSeats, true);
+    router.push('/ride/schedule' as any);
+  }, [orderSeats, setRequestSeats, router]);
+
   // Reverse the container-transform back into the home pill. The route uses
   // animation 'none', so morphBack owns the entire exit choreography.
   const { morphBack } = useMorph();
@@ -269,7 +280,7 @@ function SearchStageImpl() {
                     </Pressable>
                     <Pressable
                       style={styles.ctaSecondary}
-                      onPress={() => router.push('/ride/schedule' as any)}
+                      onPress={handleSchedule}
                       accessibilityRole="button"
                       accessibilityLabel="Schedule"
                     >

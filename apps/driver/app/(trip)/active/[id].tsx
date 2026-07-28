@@ -17,7 +17,7 @@ import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Skeleton, PulseRing, Entrance, GlassSurface, GradientGlowBorder, InlayPanel } from '@eyego/ui';
+import { Text, Button, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -33,18 +33,25 @@ import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
-  // CONFIRMED is the status a trip has the instant a driver accepts a
-  // dispatch/trip-request (drivers.service.js acceptDispatch, trip-request.service.js
-  // acceptTripRequest both set status: 'CONFIRMED'). Without an entry here this
-  // fell through to the STATUS_FLOW.FILLING fallback below, which still showed
-  // "Start Trip" — but VALID_ADVANCE_STATUSES in the mutation below didn't
-  // include CONFIRMED, so tapping it threw "Cannot advance from status: CONFIRMED"
-  // client-side on every fresh/resumed trip. Treat it the same as SCHEDULED/FILLING.
+  // "Start Trip" is a SCHEDULED-ride concept only: the driver committed to a
+  // trip earlier and taps it when they actually set off. An on-demand ride is
+  // different — accepting the dispatch *is* setting off, so those trips are
+  // created straight at DRIVER_EN_ROUTE server-side (trip-request.service.js)
+  // and never surface a Start Trip button at all.
+  //
+  // CONFIRMED still reaches here for a scheduled trip whose bookings got paid
+  // (payments.service.js promotes SCHEDULED → CONFIRMED), so it keeps the same
+  // treatment as SCHEDULED/FILLING. Without an entry it fell through to a
+  // fallback whose action VALID_ADVANCE_STATUSES didn't accept, throwing
+  // "Cannot advance from status: CONFIRMED" client-side.
   CONFIRMED:          { label: 'Confirmed',            next: 'start',  action: 'Start Trip'    },
   SCHEDULED:          { label: 'Scheduled',           next: 'start',  action: 'Start Trip'    },
   FILLING:            { label: 'Boarding Open',        next: 'start',  action: 'Start Trip'    },
-  DRIVER_EN_ROUTE:    { label: 'En Route to Stop',     next: 'arrive', action: "I've Arrived"  },
-  ARRIVED_AT_PICKUP:  { label: 'Arrived at Pickup',    next: 'depart', action: 'Start Trip'    },
+  DRIVER_EN_ROUTE:    { label: 'Heading to Pickup',    next: 'arrive', action: "I've Arrived"  },
+  // Not "Start Trip" — the trip is long since started by this point; this is
+  // the passenger-is-aboard, pulling-off action. Two buttons reading "Start
+  // Trip" at different points in one flow is exactly what made this confusing.
+  ARRIVED_AT_PICKUP:  { label: 'Arrived at Pickup',    next: 'depart', action: 'Start Ride'    },
   IN_PROGRESS:        { label: 'In Progress',          next: 'arrive', action: 'Mark Arrived'  },
   COMPLETED:          { label: 'Completed',            next: null,     action: ''              },
   CANCELLED:          { label: 'Cancelled',            next: null,     action: ''              },
@@ -393,12 +400,12 @@ export default function ActiveTripScreen() {
         pitchEnabled={true}
         scaleBarEnabled={false}
       >
-        {/* 3D tilted follow camera while actively driving to/with passengers
-            (Uber/Bolt/Yango-style nav view); flat overview otherwise. */}
-        <MapboxGL.NavCamera
-          active={trip.status === 'DRIVER_EN_ROUTE' || trip.status === 'IN_PROGRESS'}
-          fallbackCenter={driverCoord}
-        />
+        {/* 3D tilted follow camera — always on for this screen, matching the
+            rider's tracking map. It used to flip to a flat overview outside
+            DRIVER_EN_ROUTE/IN_PROGRESS, so the map lurched between 2D and 3D
+            on every status change mid-trip. A trip screen is a nav screen for
+            its whole life; the tilt shouldn't be an event-triggered surprise. */}
+        <MapboxGL.NavCamera active fallbackCenter={driverCoord} />
         {/* Driver puck — driven by the device COMPASS, not GPS course.
             `location.heading` is course-over-ground: meaningless while stopped
             or crawling, which is why physically turning the phone did nothing
@@ -780,16 +787,43 @@ export default function ActiveTripScreen() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function DriverPulse({ color }: { color: string }) {
-  // A rotated circle looks identical to an unrotated one — this must be a
-  // directional glyph for the AnimatedMarkerView's heading-bound rotation
-  // (added alongside this component) to be visible at all, matching the
-  // "navigate" chevron already used on the pre-pickup tracking screen.
+  // Just the pin. This used to wrap the glyph in PulseRing (2 expanding,
+  // status-coloured rings), which read on-device as a big blue circle with the
+  // driver's arrow floating inside it — the driver's own position is not an
+  // event that needs a radar pulse; the pickup marker already uses one, and two
+  // pulsing things on one map is noise. Rings also forced tracksViewChanges to
+  // stay on for this marker, re-rasterising it every frame.
+  //
+  // A rotated circle looks identical to an unrotated one, so the puck keeps a
+  // directional glyph for the AnimatedMarkerView's heading-bound rotation to be
+  // visible at all — same "navigate" chevron as the pre-pickup tracking screen.
   return (
-    <PulseRing size={48} color={color} ringCount={2} duration={1600}>
+    <View style={[puckStyles.puck, { borderColor: color, shadowColor: color }]}>
       <Ionicons name="navigate" size={20} color={color} />
-    </PulseRing>
+    </View>
   );
 }
+
+// Module-level: DriverPulse renders outside the screen component, so it can't
+// reach makeStyles(colors). Matches tracking/[id].tsx's driverMarker puck.
+const puckStyles = StyleSheet.create({
+  puck: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    // Contact shadow only. A wide, half-opaque coloured shadow reads as a
+    // second glowing disc around the puck, which is the look being removed
+    // here — keep it tight enough to just lift the pin off the map.
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+});
 
 function QuickAction({
   icon,

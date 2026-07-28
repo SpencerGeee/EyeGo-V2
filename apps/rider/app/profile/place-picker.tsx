@@ -138,7 +138,10 @@ export default function PlacePickerScreen() {
           onRegionDidChange={handleRegionChange}
         >
           <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={15} />
-          <MapboxGL.UserLocation visible />
+          {/* No <UserLocation> — same reason as the driver app's
+              (trip)/location-picker: the native blue dot lands underneath the
+              fixed centre pin and makes it ambiguous which marker is the one
+              being confirmed. */}
         </MapboxGL.MapView>
       )}
 

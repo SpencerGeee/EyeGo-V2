@@ -134,7 +134,11 @@ export default function DriverLocationPickerScreen() {
           onRegionDidChange={handleRegionChange}
         >
           <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={15} />
-          <MapboxGL.UserLocation visible />
+          {/* No <UserLocation>: this screen opens centred on the driver, so the
+              native blue dot + accuracy circle rendered directly underneath the
+              fixed centre pin below — one pin sitting inside a blue circle,
+              with no way to tell which one was being picked. The centre pin is
+              the only thing that means anything here. */}
         </MapboxGL.MapView>
       )}
 

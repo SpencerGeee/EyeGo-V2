@@ -18,6 +18,8 @@ import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { consumePickedPlace } from '../../utils/placePickerResult';
+import { useRideStore } from '../../stores/ride.store';
+import { useTripFlow } from '../../stores/tripFlow.store';
 
 interface PickedLocation {
   lat: number;
@@ -46,12 +48,32 @@ export default function ScheduleRideScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
-  const [seatCount, setSeatCount] = useState(1);
+  const [seatCount, setSeatCount] = useState(() => useRideStore.getState().requestSeatCount || 1);
   const [selectedDate, setSelectedDate] = useState<Date>(getMinDate());
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(getMinDate());
-  const [requestPickup, setRequestPickup] = useState<PickedLocation | null>(null);
-  const [requestDest, setRequestDest] = useState<PickedLocation | null>(null);
+  // Carry over whatever the rider already chose on the where-to surface.
+  // Tapping "Schedule" there instead of "Order Ride" used to land on a blank
+  // form, forcing them to re-pick a destination they had just set on the map.
+  // Both stores are the same ones SearchStage writes to, so this works for any
+  // entry point into this screen — no route params to keep in sync.
+  const carriedDest = useTripFlow((s) => s.searchPlace);
+  const carriedOrigin = useRideStore((s) => s.origin);
+
+  const [requestPickup, setRequestPickup] = useState<PickedLocation | null>(() =>
+    carriedOrigin
+      ? { lat: carriedOrigin.latitude, lng: carriedOrigin.longitude, address: carriedOrigin.address }
+      : null
+  );
+  const [requestDest, setRequestDest] = useState<PickedLocation | null>(() =>
+    carriedDest
+      ? {
+          lat: carriedDest.latitude,
+          lng: carriedDest.longitude,
+          address: carriedDest.fullAddress || carriedDest.name,
+        }
+      : null
+  );
   const pickingFieldRef = useRef<'pickup' | 'dest' | null>(null);
 
   // Default pickup to the device's current position so the rider only has to
