@@ -13,9 +13,11 @@ import Animated, {
   withSpring,
   withTiming,
   interpolate,
+  Extrapolation,
   cancelAnimation,
   runOnJS,
   useReducedMotion,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { springs, durations } from '@eyego/config';
 import { useThemedColors } from '../ColorsContext';
@@ -58,6 +60,13 @@ interface MorphContextValue {
   startMorphBackGesture: (onCommit: () => void) => MorphBackGestureHandle;
   activeId: string | null;
   phase: MorphPhase;
+  /**
+   * 0 = clone sitting on the source, 1 = clone landed on the target. Exposed so
+   * MorphTarget can reveal the real destination content DURING the flight
+   * rather than after it — without this the destination only appeared once the
+   * spring had already settled, which is what made every morph read as a fade.
+   */
+  morphProgress: SharedValue<number>;
 }
 
 export interface MorphBackGestureHandle {
@@ -91,6 +100,16 @@ const GESTURE_FULL_REVERSE_DIST = 280;
 const GESTURE_COMMIT_THRESHOLD = 0.4;
 /** Release velocity (px/s) that forces commit regardless of progress. */
 const GESTURE_VELOCITY_THRESHOLD = 500;
+
+/**
+ * Fraction of the flight over which the cloned SOURCE content fades out, and
+ * the window over which the real DESTINATION content fades in (MorphTarget
+ * reads these too). They overlap deliberately — a hard handover at a single
+ * point reads as a cut, and no overlap at all reads as two separate fades.
+ */
+export const CONTENT_FADE_OUT_END = 0.32;
+export const CONTENT_FADE_IN_START = 0.28;
+export const CONTENT_FADE_IN_END = 0.78;
 
 /**
  * Container-transform ("morph") primitive — Yango-style.
@@ -404,6 +423,20 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     };
   });
 
+  // BUGFIX ("the where-to animation looks like a fast fade, not a morph"):
+  // the inner inverse-scale exactly cancels the container's scale, so the
+  // cloned content rendered at a constant size for the entire flight. Nothing
+  // about the content grew, moved or changed — the only thing animating was
+  // the clip rectangle, and since the destination content stayed hidden at
+  // opacity 0 until `settle()` fired, what a user actually saw was a 200ms
+  // crossfade bolted onto the end. That is why it read as a fade.
+  //
+  // The inverse scale is kept (it is what stops the source content from being
+  // stretched by the container transform), but the clone content now fades out
+  // over the first third of the flight while MorphTarget fades the real
+  // destination content in over the middle — the two halves of a proper
+  // container transform, overlapping the container's own growth instead of
+  // queueing behind it.
   const contentStyle = useAnimatedStyle(() => {
     const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
     const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
@@ -412,6 +445,12 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     return {
       width: baseW,
       height: baseH,
+      opacity: interpolate(
+        morphProgress.value,
+        [0, CONTENT_FADE_OUT_END],
+        [1, 0],
+        Extrapolation.CLAMP,
+      ),
       transform: [
         { scaleX: baseW / (w || 1) },
         { scaleY: baseH / (h || 1) },
@@ -450,8 +489,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       startMorphBackGesture,
       activeId,
       phase,
+      morphProgress,
     }),
-    [morphTo, morphBack, targetReady, startMorphBackGesture, activeId, phase]
+    [morphTo, morphBack, targetReady, startMorphBackGesture, activeId, phase, morphProgress]
   );
 
   return (

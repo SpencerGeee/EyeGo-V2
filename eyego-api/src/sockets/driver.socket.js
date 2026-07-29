@@ -385,6 +385,31 @@ function emitSafetyCheck(io, tripId, reason) {
     // ── Join trip room (for tracking screen socket reconnections) ──
     socket.on('driver:join_tracking', async ({ tripId }) => {
       if (tripId) {
+        // ISOLATION FIX: this had no ownership check at all, unlike its sibling
+        // driver:trip_started handler. Any authenticated driver socket could
+        // emit an arbitrary tripId and (a) join that trip's room, receiving the
+        // rider's live location and every status change for a ride they have
+        // nothing to do with, and (b) be handed 100 messages of that trip's
+        // chat history, private threads included, since `isPrivate: false`
+        // matches every public message on ANY trip. The passenger side already
+        // gated its equivalent join on having a booking; this is the same rule
+        // for the driver side.
+        try {
+          const owns = await prisma.trip.findFirst({
+            where: { id: tripId, driverId },
+            select: { id: true },
+          });
+          if (!owns) {
+            logger.warn(`driver:join_tracking rejected — driver ${driverId} does not own trip ${tripId}`);
+            socket.emit('error', { message: 'Not authorized for this trip room', code: 'FORBIDDEN' });
+            return;
+          }
+        } catch (err) {
+          logger.error('Failed to verify trip ownership for driver:join_tracking:', err);
+          socket.emit('error', { message: 'Server authorization error', code: 'INTERNAL_ERROR' });
+          return;
+        }
+
         socket.join(TRIP_ROOM(tripId));
         logger.debug(`Driver ${driverId} joined tracking room ${tripId}`);
 

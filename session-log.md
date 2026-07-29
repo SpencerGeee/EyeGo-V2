@@ -159,3 +159,14 @@ Decisions:
 Rejected: NaN-coordinate theory as the crash cause — guards were already in place and it still aborted.
 Rejected: Redis geo-set as the dispatch membership list — absence there silently excluded free drivers.
 Open: nothing device-verified; needs a fresh native build, not OTA.
+
+## 2026-07-29 01:20 [saved]
+Goal: Isolation audit, payment-path audit, Scan & Pay reality check, morph correctness.
+Decisions:
+- `include: { trip: { where } }` is invalid Prisma for a to-one relation — verified it throws; driver OTP-verify and board-passenger were 500ing on every call.
+- Socket rooms are a separate isolation surface from REST: driver:join_tracking had no ownership check and leaked chat history for any tripId.
+- Morphs read as fades because the clone's inverse scale cancels the container scale AND the target stayed hidden until settle; target now reveals from morph progress.
+- Morph ids must be keyed on the same entity both sides — activity used booking.id vs target's trip id, so every ride-card morph timed out.
+- QR codes must encode real URLs, not `eyego:pay:<phone>` — a bare custom-scheme string is not actionable by a phone's stock camera.
+Rejected: keeping Nominatim-only geocoding; keeping the pencil button as the avatar morph's trigger.
+Open: no gateway integration, so card/MoMo paths are unexercised end-to-end; nothing device-tested.

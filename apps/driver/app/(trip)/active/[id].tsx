@@ -769,10 +769,14 @@ export default function ActiveTripScreen() {
           <Pressable style={styles.qrModalCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.cardTitle}>Scan to Pay</Text>
             <View style={styles.qrWrap}>
-              <QRCode value={`eyego:trip:${id}`} size={220} />
+              {/* A real universal-link URL, not the old bare `eyego:trip:<id>`
+                  string — a phone's stock camera cannot act on a bare custom
+                  scheme, so that version only worked from inside the rider
+                  app's own scanner. */}
+              <QRCode value={`https://eyego.app/ride/${id}`} size={220} />
             </View>
             <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-              Passenger scans this in the EyeGo app to pay their fare for this trip.
+              Passenger scans this with their camera or in the EyeGo app to pay their fare for this trip.
             </Text>
             <Pressable style={styles.qrCloseBtn} onPress={() => setShowPaymentQr(false)}>
               <Text variant="label" color={colors.onSurface}>Close</Text>

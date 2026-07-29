@@ -851,12 +851,18 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
 }
 
 async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
+  // BUGFIX: this used `include: { trip: { where: { driverId } } }`. Prisma only
+  // accepts `where` inside an include for to-MANY relations — `Booking.trip` is
+  // to-one, so the client rejected the query with a PrismaClientValidationError
+  // before it ever reached the database. Every "Phone + OTP" verification the
+  // driver attempted returned a 500, which is why the flow never worked.
+  // Verified against the generated client on 2026-07-28. The ownership check
+  // belongs in the top-level `where` as a relation filter anyway.
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, tripId },
-    include: { trip: { where: { driverId } } },
+    where: { id: bookingId, tripId, trip: { driverId } },
+    include: { trip: true },
   });
   if (!booking) throw new NotFoundError('Booking');
-  if (!booking.trip) throw new ForbiddenError();
   if (!booking.offlineOtp || booking.offlineOtp !== otp) {
     throw new AppError('Invalid OTP', 400, 'OTP_INVALID');
   }
@@ -896,12 +902,14 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
 }
 
 async function boardPassenger(driverId, tripId, bookingId) {
+  // Same invalid `include: { trip: { where } }` as verifyOfflineOtp above —
+  // Prisma rejected it outright, so boarding any passenger 500'd. See the note
+  // there; ownership is expressed as a relation filter instead.
   const booking = await prisma.booking.findFirst({
-    where: { id: bookingId, tripId },
-    include: { trip: { where: { driverId } } },
+    where: { id: bookingId, tripId, trip: { driverId } },
+    include: { trip: true },
   });
   if (!booking) throw new NotFoundError('Booking');
-  if (!booking.trip) throw new ForbiddenError();
 
   // In-app riders who chose CASH never trigger a payment webhook, so unlike
   // card/MoMo bookings their commission is never deducted at confirmPayment

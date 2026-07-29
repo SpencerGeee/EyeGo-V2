@@ -11,15 +11,50 @@ import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 
-// QR payload format: eyego:pay:<phone> — parsed back into a phone number to
-// pre-fill Send Money. Kept intentionally simple (no signing/expiry) since it
-// only ever carries a phone number, the same thing you'd read off a contact card.
-const QR_PREFIX = 'eyego:pay:';
+/**
+ * Public web origin that also backs the universal/app links. The QR codes now
+ * encode real URLs on this host rather than the old bare `eyego:pay:<phone>`
+ * string, because a bare custom-scheme string is not something a phone's stock
+ * camera will act on — it only worked inside this screen's own scanner.
+ *
+ * A code scanned by the system camera opens `https://eyego.app/pay/<phone>`,
+ * which the OS hands to the app when the domain association is verified (see
+ * `associatedDomains` / `intentFilters` in app.json) and otherwise opens on the
+ * web. Either way the rider lands on Send Money with the recipient pre-filled;
+ * nothing is ever charged by a scan alone.
+ */
+const WEB_ORIGIN = 'https://eyego.app';
 
-// A driver's in-trip "Scan to Pay" QR — eyego:trip:<tripId> — lets a boarding
-// rider jump straight to that trip instead of the driver having no way to hand
-// off a payable code at all (there was previously zero driver-side QR generation).
-const TRIP_QR_PREFIX = 'eyego:trip:';
+/** Pay-a-rider code. */
+const PAY_PATH = '/pay/';
+/** A driver's in-trip "Scan to Pay" code — opens the trip so the rider can book + pay their seat. */
+const TRIP_PATH = '/ride/';
+
+/**
+ * Every payload shape this scanner accepts, newest first. The legacy
+ * `eyego:pay:` / `eyego:trip:` forms stay supported indefinitely — codes may
+ * already be printed or screenshotted, and dropping them would silently break
+ * them with a "not an EyeGo code" error.
+ */
+function parseScannedCode(raw: string): { kind: 'pay' | 'trip'; value: string } | null {
+  const text = (raw ?? '').trim();
+  if (!text) return null;
+
+  const after = (prefixes: string[]): string | null => {
+    for (const p of prefixes) {
+      if (text.toLowerCase().startsWith(p.toLowerCase())) return text.slice(p.length);
+    }
+    return null;
+  };
+
+  const pay = after([`${WEB_ORIGIN}${PAY_PATH}`, `http://eyego.app${PAY_PATH}`, `eyego:/${PAY_PATH}`, 'eyego:pay:']);
+  if (pay) return { kind: 'pay', value: pay.split(/[?#/]/)[0] };
+
+  const trip = after([`${WEB_ORIGIN}${TRIP_PATH}`, `http://eyego.app${TRIP_PATH}`, `eyego:/${TRIP_PATH}`, 'eyego:trip:']);
+  if (trip) return { kind: 'trip', value: trip.split(/[?#/]/)[0] };
+
+  return null;
+}
 
 export default function ScanPayScreen() {
   const colors = useColors();
@@ -37,20 +72,20 @@ export default function ScanPayScreen() {
 
   const handleScan = useCallback((result: BarcodeScanningResult) => {
     if (scanned) return;
-    const raw = result.data ?? '';
-    if (raw.startsWith(TRIP_QR_PREFIX)) {
-      setScanned(true);
-      const tripId = raw.slice(TRIP_QR_PREFIX.length);
-      router.replace({ pathname: '/ride/[id]/tracking', params: { id: tripId } } as any);
-      return;
-    }
-    if (!raw.startsWith(QR_PREFIX)) {
+    const parsed = parseScannedCode(result.data ?? '');
+    if (!parsed) {
       Alert.alert('Not an EyeGo Pay Code', 'This QR code isn\'t an EyeGo payment code.');
       return;
     }
     setScanned(true);
-    const phone = raw.slice(QR_PREFIX.length);
-    router.replace({ pathname: '/profile/send-money', params: { phone } } as any);
+    if (parsed.kind === 'trip') {
+      // The trip detail screen, not tracking: a rider scanning a driver's code
+      // has not booked yet, and tracking is only readable once they are on the
+      // trip. Detail is where they pick a seat and pay.
+      router.replace({ pathname: '/ride/[id]', params: { id: parsed.value } } as any);
+      return;
+    }
+    router.replace({ pathname: '/profile/send-money', params: { phone: parsed.value } } as any);
   }, [scanned, router]);
 
   return (
@@ -105,7 +140,7 @@ export default function ScanPayScreen() {
           {myPhone ? (
             <>
               <View style={styles.qrCard}>
-                <QRCode value={`${QR_PREFIX}${myPhone}`} size={220} />
+                <QRCode value={`${WEB_ORIGIN}${PAY_PATH}${encodeURIComponent(myPhone)}`} size={220} />
               </View>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, textAlign: 'center' }}>
                 Let another rider scan this to send you money instantly.

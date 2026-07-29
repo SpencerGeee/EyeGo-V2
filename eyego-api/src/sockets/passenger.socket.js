@@ -71,6 +71,11 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
     // ── Join a trip room (for seat + status updates) ──────
     socket.on('passenger:join_trip_room', async ({ tripId, driverId, lastMessageTimestamp }) => {
       // Security Validation: Ensure passenger has a booking OR the trip is publicly open for booking
+      // Hoisted out of the try block: the chat-history fetch below needs to
+      // know whether this rider is actually ON the trip, not merely browsing a
+      // bookable one. Without that distinction anyone could join a SCHEDULED
+      // trip room and be handed its public chat history.
+      let hasBooking = false;
       try {
         const prisma = require('../config/database');
         const trip = await prisma.trip.findUnique({
@@ -84,7 +89,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
         }
 
         const isPubliclyBooking = ['SCHEDULED', 'FILLING'].includes(trip.status);
-        const hasBooking = trip.bookings.some(
+        hasBooking = trip.bookings.some(
           b => b.userId === userId && b.status !== 'CANCELLED'
         );
 
@@ -103,7 +108,12 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       logger.debug(`Passenger ${userId} joined trip room ${tripId}`);
 
       // Fetch and send chat message history
-      // Includes all public messages + private messages addressed to this user
+      // Includes all public messages + private messages addressed to this user.
+      // Only for riders actually on the trip — a rider merely browsing an open
+      // trip is allowed in the room for seat/status updates, but the
+      // conversation between the driver and the people already riding is not
+      // theirs to read.
+      if (!hasBooking) return;
       try {
         const prisma = require('../config/database');
         const baseWhere = {

@@ -270,18 +270,32 @@ export default function ProfileScreen() {
         style={[styles.hero, { top: insets.top, height: HERO_HEIGHT }, heroStyle]}
       >
         <View style={styles.headerLeft}>
+          {/* MORPH FIX: the container transform's source is this avatar and its
+              target is the avatar on the edit screen — an avatar→avatar morph,
+              which is correct. What was wrong is that it used to be fired by
+              the pencil button on the far RIGHT of the header, so the
+              transform visibly launched out of an element the user had not
+              touched, half a screen away from their finger. The morph now
+              belongs to the thing that morphs: tap the avatar. */}
           <MorphSource id={PROFILE_MORPH_ID} borderRadius={32} backgroundColor={colors.surfaceContainerHigh}>
-            <Animated.View style={[styles.avatarRing, avatarStyle]}>
-              {user?.avatarUrl ? (
-                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={[styles.avatarInitials, { color: colors.primary }]}>
-                    {user?.name ? getInitials(user.name) : '?'}
-                  </Text>
-                </View>
-              )}
-            </Animated.View>
+            <Pressable
+              onPress={() => morphTo(PROFILE_MORPH_ID, () => router.push('/profile/edit' as any))}
+              haptic="light"
+              accessibilityLabel="Edit profile photo and details"
+              accessibilityRole="button"
+            >
+              <Animated.View style={[styles.avatarRing, avatarStyle]}>
+                {user?.avatarUrl ? (
+                  <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarFallback}>
+                    <Text style={[styles.avatarInitials, { color: colors.primary }]}>
+                      {user?.name ? getInitials(user.name) : '?'}
+                    </Text>
+                  </View>
+                )}
+              </Animated.View>
+            </Pressable>
           </MorphSource>
           <View style={{ flex: 1 }}>
             <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
@@ -300,8 +314,11 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
+        {/* Plain push — no morph. This button is nowhere near the avatar the
+            transform animates, so firing one from here read as the UI jumping
+            for no reason. The avatar above owns the morph. */}
         <Pressable
-          onPress={() => morphTo(PROFILE_MORPH_ID, () => router.push('/profile/edit' as any))}
+          onPress={() => router.push('/profile/edit' as any)}
           haptic="light"
           style={styles.editBtn}
           accessibilityLabel="Edit profile"

@@ -116,7 +116,14 @@ export default function TripScreen() {
   );
 
   return (
-    <Animated.View style={styles.root} entering={FadeIn.duration(250)}>
+    // The 250ms fade used to be the loudest thing on screen: it faded the map,
+    // the header AND the card in together, well before the morph clone had
+    // finished travelling, so the whole transition registered as "a quick fade"
+    // rather than a card growing. Stretched to roughly the morph's own travel
+    // time so it reads as the background settling in behind the morph instead
+    // of racing it. The card itself is no longer part of this story — its
+    // reveal is driven by morph progress in MorphTarget.
+    <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
       {/* One persistent map for every stage */}
       <TripMap />
       <View style={mapGradient} pointerEvents="none" />

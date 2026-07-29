@@ -1,7 +1,17 @@
 import React, { useEffect, useRef } from 'react';
 import { View, type ViewStyle } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
-import { useMorphOptional } from './MorphProvider';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolate,
+  Extrapolation,
+} from 'react-native-reanimated';
+import {
+  useMorphOptional,
+  CONTENT_FADE_IN_START,
+  CONTENT_FADE_IN_END,
+} from './MorphProvider';
 
 interface MorphTargetProps {
   /** Must match the MorphSource id that launched the morph. */
@@ -32,22 +42,48 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
   const ref = useRef<View>(null);
   const reported = useRef(false);
 
-  const isIncomingMorph = !!morph && morph.activeId === id && morph.phase === 'forward';
+  const isActiveMorph = !!morph && morph.activeId === id;
+  const isIncomingMorph = isActiveMorph && morph!.phase === 'forward';
   const contentOpacity = useSharedValue(isIncomingMorph ? 0 : 1);
+  const progress = morph?.morphProgress;
 
   useEffect(() => {
-    if (!morph || morph.activeId !== id) return;
-    if (morph.phase === 'forward') {
-      contentOpacity.value = 0;
-    } else {
-      // 'settled' (or any other phase once this id is active again) — reveal
-      // in lockstep with the clone's own fade-out in MorphProvider.settle().
+    if (!morph || morph.activeId !== id) {
+      // No morph in flight for this id (deep link, or the flight has been torn
+      // down). Content must be visible — an earlier version left it at 0 here,
+      // which could strand a screen permanently blank if the flight was
+      // cancelled by the target timeout.
+      contentOpacity.value = 1;
+      return;
+    }
+    if (morph.phase === 'settled') {
+      // Belt and braces: the progress-driven style below has normally already
+      // brought this to 1 by the time the spring settles.
       contentOpacity.value = withTiming(1, { duration: CROSSFADE_MS });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [morph?.activeId, morph?.phase, id]);
 
-  const animatedStyle = useAnimatedStyle(() => ({ opacity: contentOpacity.value }));
+  // BUGFIX (morphs "look like a fast fade"): the destination content used to
+  // sit at opacity 0 for the ENTIRE flight and only cross-fade in after the
+  // spring settled. So the growth and the content change never overlapped —
+  // the eye saw a container slide, then a separate fade. Driving opacity from
+  // the live morph progress instead means the destination resolves *while* the
+  // container is still travelling, which is what makes a container transform
+  // read as one continuous morph. It also makes the reverse gesture correct for
+  // free: drag back and the content dissolves progressively with your finger
+  // instead of snapping at the end.
+  const animatedStyle = useAnimatedStyle(() => {
+    if (!progress || !isActiveMorph) return { opacity: contentOpacity.value };
+    return {
+      opacity: interpolate(
+        progress.value,
+        [CONTENT_FADE_IN_START, CONTENT_FADE_IN_END],
+        [0, 1],
+        Extrapolation.CLAMP,
+      ),
+    };
+  });
 
   const onLayout = () => {
     if (!morph || reported.current || morph.activeId !== id || morph.phase !== 'forward') return;

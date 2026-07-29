@@ -24,6 +24,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.eyego.rider",
+      "associatedDomains": ["applinks:eyego.app"],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "EyeGo needs your location to show nearby rides.",
         "NSLocationAlwaysUsageDescription": "EyeGo uses your location to track your ride.",
@@ -44,6 +45,20 @@
       },
       "package": "com.eyego.rider",
       "edgeToEdgeEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "eyego.app", "pathPrefix": "/pay" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [{ "scheme": "https", "host": "eyego.app", "pathPrefix": "/ride" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",

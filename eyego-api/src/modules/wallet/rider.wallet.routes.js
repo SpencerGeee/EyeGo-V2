@@ -30,46 +30,75 @@ router.get('/transactions', async (req, res) => {
   const skip = (Math.max(1, Number(page)) - 1) * Math.min(Number(limit), 100);
   const take = Math.min(Number(limit), 100);
 
-  // Track wallet top-ups via PaymentTransaction records with gatewayResponse='WALLET_TOPUP'
+  // BUGFIX: this filtered to `gatewayResponse: 'WALLET_TOPUP'`, so the rider's
+  // wallet history showed top-ups and NOTHING else. Money sent to another
+  // rider, money received from one, and every fare paid out of the wallet all
+  // moved the balance with no corresponding line — the statement never
+  // reconciled with the number above it. It also mislabelled a FAILED top-up as
+  // a 'DEBIT', i.e. as if the rider had been charged for a payment that never
+  // went through.
+  //
+  // Direction is now derived from what the row actually is, not from its
+  // status: a top-up and an incoming P2P transfer credit the wallet, an
+  // outgoing transfer and a wallet-funded fare debit it, and anything not yet
+  // settled is PENDING and moves nothing.
+  const where = { userId: req.user.userId };
+
   const [txns, total] = await Promise.all([
     prisma.paymentTransaction.findMany({
-      where: {
-        userId: req.user.userId,
-        gatewayResponse: 'WALLET_TOPUP',
-      },
+      where,
       select: {
         id: true,
         amount: true,
         status: true,
         createdAt: true,
         paystackRef: true,
+        gatewayResponse: true,
+        bookingId: true,
+        booking: { select: { paymentMethod: true, trip: { select: { route: { select: { destinationName: true } } } } } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
       take,
     }),
-    prisma.paymentTransaction.count({
-      where: {
-        userId: req.user.userId,
-        gatewayResponse: 'WALLET_TOPUP',
-      },
-    }),
+    prisma.paymentTransaction.count({ where }),
   ]);
 
+  const describe = (t) => {
+    const gw = t.gatewayResponse ?? '';
+    if (gw === 'WALLET_TOPUP') {
+      return {
+        type: t.status === 'SUCCESS' ? 'CREDIT' : t.status === 'INTENT' ? 'PENDING' : 'FAILED',
+        description:
+          t.status === 'SUCCESS' ? 'Wallet top-up' : t.status === 'INTENT' ? 'Pending top-up' : 'Top-up failed',
+      };
+    }
+    if (gw.startsWith('P2P_SEND')) return { type: 'DEBIT', description: 'Money sent' };
+    if (gw.startsWith('P2P_RECEIVE')) return { type: 'CREDIT', description: 'Money received' };
+    if (t.status === 'REFUNDED') return { type: 'CREDIT', description: 'Refund to wallet' };
+
+    // A fare. Only wallet-funded fares actually move this balance; card/MoMo
+    // fares are shown for the record but marked so they don't read as a
+    // wallet debit that never happened.
+    const dest = t.booking?.trip?.route?.destinationName;
+    const label = dest ? `Trip to ${dest}` : 'Trip fare';
+    if (t.status === 'INTENT' || t.status === 'PENDING') return { type: 'PENDING', description: label };
+    if (t.booking?.paymentMethod === 'WALLET') return { type: 'DEBIT', description: label };
+    return { type: 'EXTERNAL', description: `${label} (paid by ${(t.booking?.paymentMethod ?? 'card').toLowerCase()})` };
+  };
+
   ok(res, {
-    transactions: txns.map((t) => ({
-      id: t.id,
-      type: t.status === 'SUCCESS' ? 'CREDIT' : t.status === 'FAILED' ? 'DEBIT' : 'PENDING',
-      amount: t.amount,
-      reference: t.paystackRef,
-      description:
-        t.status === 'SUCCESS'
-          ? 'Wallet top-up'
-          : t.status === 'FAILED'
-            ? 'Top-up failed'
-            : 'Pending top-up',
-      createdAt: t.createdAt.toISOString(),
-    })),
+    transactions: txns.map((t) => {
+      const { type, description } = describe(t);
+      return {
+        id: t.id,
+        type,
+        amount: t.amount,
+        reference: t.paystackRef,
+        description,
+        createdAt: t.createdAt.toISOString(),
+      };
+    }),
     total,
     page: Number(page),
     totalPages: Math.ceil(total / take),
@@ -88,8 +117,17 @@ router.post('/send', idempotency, async (req, res) => {
   if (!safeAmount || safeAmount <= 0) throw new AppError('Amount must be greater than 0', 400, 'INVALID_AMOUNT');
   if (safeAmount < 1) throw new AppError('Minimum transfer is GHS 1.00', 400, 'INVALID_AMOUNT');
 
-  const normalizedPhone = recipientPhone.trim();
-  const recipient = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+  // Ghana numbers are written four different ways for the same person:
+  // 0244123456, 233244123456, +233244123456, and 244123456. This looked the
+  // recipient up by exact string equality, so a scanned QR or a pasted contact
+  // whose format didn't byte-match what the recipient signed up with returned
+  // "No EyeGo user found with that phone number" for an account that plainly
+  // exists. Try every equivalent spelling of the same subscriber number.
+  const raw = String(recipientPhone).trim().replace(/[\s()-]/g, '');
+  const local = raw.replace(/^\+?233/, '').replace(/^0/, '');
+  const candidates = [...new Set([raw, `0${local}`, `233${local}`, `+233${local}`, local])].filter(Boolean);
+
+  const recipient = await prisma.user.findFirst({ where: { phone: { in: candidates } } });
   if (!recipient) throw new AppError('No EyeGo user found with that phone number', 404, 'RECIPIENT_NOT_FOUND');
   if (recipient.id === senderId) throw new AppError('You cannot send money to yourself', 400, 'SELF_TRANSFER');
 

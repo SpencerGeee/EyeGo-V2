@@ -75,9 +75,19 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
   const departureTime = booking.trip?.departureTime ?? booking.departureTime ?? booking.createdAt;
   const fare = booking.fareAmount ?? booking.totalFare;
 
+  // MORPH FIX: the source id was keyed on the BOOKING id while /ride/[id]'s
+  // MorphTarget is keyed on the TRIP id (`ride-card-${id}`, and `id` there is
+  // the trip route param). The two ids could never match, so `targetReady` was
+  // never called: every ride-card tap ran the clone out to the 700ms
+  // TARGET_TIMEOUT and dissolved it mid-air over a screen that had appeared
+  // underneath it by then. That is the "weird while in motion" morph. Key both
+  // sides off the trip id so the flight actually lands.
+  const morphTripId = booking.tripId ?? booking.trip?.id;
+  const cardMorphId = `ride-card-${morphTripId}`;
+
   return (
     <MorphSource
-      id={`ride-card-${booking.id}`}
+      id={cardMorphId}
       borderRadius={radii.lg}
       backgroundColor={colors.surfaceCard}
     >
@@ -115,7 +125,7 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         // /ride/[id] looks up by TRIP id (tripsApi.getById), not booking id —
         // booking.tripId is the FK to the actual trip; booking.id is a
         // different entity and would 404 the detail screen.
-        morphTo(`ride-card-${booking.id}`, () => router.push(`/ride/${tripId}` as any));
+        morphTo(cardMorphId, () => router.push(`/ride/${tripId}` as any));
       }}
     >
       <View style={[styles.itemIcon, { backgroundColor: withOpacity(statusColor, 0.1) }]}>
