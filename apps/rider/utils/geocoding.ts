@@ -20,6 +20,8 @@
  * Nominatim usage policy: identify the app via User-Agent, debounce callers.
  */
 
+import { apiClient } from '@eyego/api';
+
 export type GeocodeResult = {
   placeId: number;
   name: string;
@@ -130,6 +132,39 @@ function photonToResult(f: PhotonFeature): GeocodeResult | null {
   };
 }
 
+/**
+ * Backend geocoding proxy (`/v1/geo`). Returns [] on any failure so the OSM
+ * providers below still answer — a rider must never get an empty search box
+ * because our own API blipped.
+ */
+async function searchViaApi(
+  query: string,
+  limit: number,
+  bias: { lat: number; lon: number },
+): Promise<GeocodeResult[]> {
+  try {
+    const { data } = await apiClient.get('/geo/search', {
+      params: { q: query, limit, lat: bias.lat, lng: bias.lon },
+      timeout: REQUEST_TIMEOUT_MS,
+    });
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    return rows
+      .filter((r: any) => Number.isFinite(r?.latitude) && Number.isFinite(r?.longitude) && r?.name)
+      .map((r: any) => ({
+        // The proxy returns Mapbox's string ids; GeocodeResult has always typed
+        // placeId as a number, and callers only use it as a list key, so derive
+        // a stable numeric key from the coordinates rather than widening the type.
+        placeId: Math.round(r.latitude * 1e5) * 1e5 + Math.round(r.longitude * 1e5),
+        name: String(r.name),
+        fullAddress: String(r.fullAddress ?? r.name),
+        latitude: r.latitude,
+        longitude: r.longitude,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 /** Two results within ~11 m of each other are the same place to a rider. */
 function dedupeKey(r: GeocodeResult): string {
   return `${r.latitude.toFixed(4)},${r.longitude.toFixed(4)}`;
@@ -189,6 +224,14 @@ export async function searchPlaces(
       ? { lat: near.latitude, lon: near.longitude }
       : BIAS_CENTER;
 
+  // PREFERRED PATH: our own /geo/search, which fronts Mapbox. Photon and
+  // Nominatim below index OpenStreetMap only, and OSM's Ghanaian commercial-POI
+  // coverage is thin enough that ordinary searches ("IPMC showroom") return
+  // nothing at all. Mapbox carries that POI data. The token is a secret so the
+  // call has to be server-side; see eyego-api/src/modules/geo.
+  const proxied = await searchViaApi(trimmed, limit, bias);
+  if (proxied.length > 0) return proxied.slice(0, limit);
+
   const [photon, nominatim] = await Promise.all([
     searchPhoton(trimmed, limit, bias).catch(() => []),
     searchNominatim(trimmed, limit, bias).catch(() => []),
@@ -207,6 +250,29 @@ export async function searchPlaces(
 
 /** Reverse geocode: coordinates → nearest address (used by the map pin picker). */
 export async function reverseGeocode(latitude: number, longitude: number): Promise<GeocodeResult | null> {
+  // Same reasoning as searchPlaces: Mapbox first via our proxy, OSM as backup.
+  // This is also what stops a dropped map pin from being labelled with its own
+  // raw coordinates — Nominatim simply has no record for large parts of Accra,
+  // and every caller falls back to printing lat/lng when this returns null.
+  try {
+    const { data } = await apiClient.get('/geo/reverse', {
+      params: { lat: latitude, lng: longitude },
+      timeout: REQUEST_TIMEOUT_MS,
+    });
+    const hit = data?.data;
+    if (hit?.name) {
+      return {
+        placeId: Math.round(latitude * 1e5) * 1e5 + Math.round(longitude * 1e5),
+        name: String(hit.name),
+        fullAddress: String(hit.fullAddress ?? hit.name),
+        latitude,
+        longitude,
+      };
+    }
+  } catch {
+    // fall through to the OSM providers below
+  }
+
   const r = (await fetchJson(
     `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1&zoom=18`,
   )) as (NominatimResult & { error?: string }) | null;

@@ -200,15 +200,34 @@ export default function InviteScreen() {
   // Defaults to the trip's own pickup (free). Picking a different spot on
   // the map previews any detour surcharge before committing to it.
   const applyPickup = useMutation({
-    mutationFn: (place: { latitude: number; longitude: number; name: string }) =>
-      bookingsApi.updatePickup(bookingId, { lat: place.latitude, lng: place.longitude, address: place.name }),
+    mutationFn: (place: { latitude: number; longitude: number; name: string }) => {
+      // BUGFIX ("Couldn't update pickup — Route PATCH … not found"): bookingId
+      // is `activeBooking?.id ?? ''`, so before the booking resolved this sent
+      // PATCH /bookings//pickup. The double slash matches no Express route, so
+      // the server's generic 404 body ("Route PATCH … not found") was shown to
+      // the rider as if the pickup endpoint didn't exist. Say what is actually
+      // wrong instead.
+      if (!bookingId) {
+        return Promise.reject(
+          new Error("We're still setting up your booking — try again in a moment."),
+        );
+      }
+      return bookingsApi.updatePickup(bookingId, {
+        lat: place.latitude,
+        lng: place.longitude,
+        address: place.name,
+      });
+    },
     onSuccess: (res, place) => {
       const updated = res.data.data;
       setActiveBooking(updated);
       setPickupOverride({ name: place.name, deviationSurcharge: updated?.deviationSurcharge ?? 0 });
     },
     onError: (err: any) => {
-      Alert.alert('Couldn\'t update pickup', err?.response?.data?.message ?? 'Please try again.');
+      Alert.alert(
+        "Couldn't update pickup",
+        err?.response?.data?.message ?? err?.message ?? 'Please try again.',
+      );
     },
   });
 

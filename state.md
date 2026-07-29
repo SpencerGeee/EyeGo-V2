@@ -1,42 +1,58 @@
-# State — 2026-07-28 (stress-test fix pass #2)
+# State — 17-item stress-test sweep (2026-07-29)
 
 ## Current Goal
-Fix 10 stress-test defects across rider, driver and backend; commit + push.
+All 17 reported issues fixed. Awaiting device testing.
 
-## Plan Status
-All 10 items implemented. `tsc --noEmit` green for apps/rider and apps/driver;
-`node --check` green on every touched backend file. NOT device-tested — the
-map-adapter changes are native-behaviour changes and need a fresh build.
+## Decisions (user-confirmed this session)
+- Provider: **Mapbox Search + Directions**, proxied through the backend. `eyego-api/.env`
+  already holds a real `MAPBOX_SECRET_TOKEN`; the secret must never ship in an app bundle.
+- Item 3 dispatch map: **real driver positions, real polyline** to the currently-offered driver.
+- Dispatch debugging: inferred from code (no live server logs available).
 
-| # | Issue | Fix |
-|---|-------|-----|
-| 1 | Where-to pickup/destination rows collapsed to icons | Card pinned to `useWindowDimensions()` width in `SearchStage.tsx` |
-| 2 | Driver tracking map at world zoom | Camera now pushes its first stop imperatively once attached (`packages/maps`) |
-| 3 | Suggested-trip SIGABRT | Camera no longer mounted during the map's first (possibly zero-size) layout |
-| 4 | Map-picker Confirm greyed out | v11 region-event payload normalised; pin seeded on open; Confirm falls back to a dropped pin |
-| 5 | Weak/blank place search | `utils/geocoding.ts` now merges Photon (autocomplete) + Nominatim, bias-ranked |
-| 6 | Rider request never reached a free driver | Stale-trip sweep + Redis geo-set treated as a hint, not a membership list |
-| 7 | Activity "requesting a trip" card clipped | `paddingTop: GLOW_BLEED` on the list |
-| 8 | Cross-tenant snooping | `getTrip` is viewer-scoped; `searchTrips` lists only joinable public trips |
-| 9 | Scheduled card clipped / missing in Activity | Live hero card added to the Scheduled tab, hero de-duplicated, top padding |
-| 10 | Phantom "Resume Trip" | `getActiveTrip` excludes (and expires) abandoned SCHEDULED/FILLING trips |
+## Root causes worth remembering
 
-## Evidence
-- Crash log `ios crash logs/EyeGo-2026-07-28-164400.ips`: SIGABRT,
-  `-[MLRNCamera _setInitialCamera]` → `-[CameraUpdateItem _moveCamera:…]` →
-  MapLibre `__cxa_throw`.
-- Read maplibre-react-native 11.3.6 native sources: `MLRNCameraComponentView.mm`
-  always builds a non-nil `initialViewState`, so `_setInitialCamera`'s nil guard
-  never fires; `MLRNMapView.layoutSubviews` runs `initialLayout` on the first
-  layout pass even at zero size; `-[MLRNCamera setMap:]` has its camera-apply
-  calls commented out upstream.
-- `Map.tsx` in the same package: region events are a flat `ViewState`
-  (`{center, zoom, bearing, pitch, bounds, userInteraction}`), not the legacy
-  GeoJSON `{geometry, properties}` every screen was still reading.
+1. **`MorphTarget`'s inner `Animated.View` had no `flex: 1`.** Full-screen morph targets
+   collapsed to content height, so `absoluteFill` MapViews measured 0×0 and drew nothing.
+   This was the black tracking map, and would have hit any future full-screen morph target.
+
+2. **`SelectStage` painted an opaque `backgroundDeep` over the persistent TripMap.** The map
+   was never broken — just covered. Explains why the search stage looked fine.
+
+3. **Broadcast dispatch had no "driver being asked".** Replaced with a sequential cascade
+   (`services/dispatch-cascade.service.js`). The old `dispatch.service.js` also filtered
+   candidates by `fcmToken: { not: null }` and then emitted sockets over that same filtered
+   list, so a driver without an FCM token got nothing at all.
+
+4. **`getPendingTripRequests` handed every recent request to every polling driver.** This
+   silently re-created a broadcast behind the cascade's back. Now scoped to the offer holder.
+
+5. **Free-flow routing everywhere.** Clients called `router.project-osrm.org` directly and
+   `mapbox.service.getDirections` used the `driving` profile. Both return empty-road times —
+   the "8.3 km ≈ 12 min" figure. Now `driving-traffic` via `/v1/geo/route`.
+
+6. **Empty `bookingId` interpolated into API paths** produced `/bookings//pickup`, which
+   Express 404s as "Route PATCH … not found". One cause for BOTH the group-hub invite-link
+   failure and the pickup-update failure.
+
+7. **Cash bookings are `CONFIRMED` at creation with `paymentStatus: 'PENDING'`.** Pressing
+   "Pay in cash" then hit `confirmPayment`'s SEAT_HELD guard and threw "seat hold expired",
+   surfacing as "Payment failed" on a perfectly valid booking.
+
+8. **Marker `rotation` had a hardcoded `+ 45`** on both driver map screens. `rotation` is a
+   TRUE compass bearing that `@eyego/maps` compensates against map bearing; the glyph's
+   artwork tilt must live on the glyph, not folded into the bearing. That 45° error is why
+   the pin turned with the phone but pointed at the wrong thing.
+
+## Verification
+- `tsc --noEmit` green for `apps/rider` and `apps/driver`.
+- `node --check` green on all 16 touched/created backend files.
+- `prisma validate` green.
+- **Nothing device-tested.** Native map/morph changes need a fresh build (not OTA-safe).
 
 ## Open Issues
-- Nothing verified on a real device this session; items 1–4 and 9 are visual and
-  need a fresh EAS/sideload build (native map behaviour, not OTA-safe).
-- `Trip.status` now takes a new `'EXPIRED'` value. It is a plain string column so
-  no migration is needed, but any admin filter that enumerates statuses should be
-  checked against it.
+- The cascade keeps state in a module-level `Map` with real timers, so it is per-process.
+  Fine for the single API instance today; must move to Redis before horizontal scaling.
+- `legacyBroadcastRequestToDrivers` in `trip-request.service.js` is dead code kept only for
+  reference — safe to delete.
+- Item 2's trigger may have been leftover test trips: a driver-created `SCHEDULED`/`FILLING`
+  trip departing within 45 min marks that driver busy in `driver-availability.js`.

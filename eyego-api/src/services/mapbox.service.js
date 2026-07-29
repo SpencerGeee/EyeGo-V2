@@ -18,8 +18,12 @@ function isWithinGhana(lat, lng) {
 }
 
 async function getDirections(originLng, originLat, destLng, destLat) {
+  // `driving-traffic`, NOT `driving`. The plain profile returns FREE-FLOW
+  // duration — what the trip would take on an empty road at 3am — which is
+  // where the "8.3 km is about 12 minutes" ETA came from (≈41 km/h through
+  // Accra traffic). `driving-traffic` folds in live and historical congestion.
   const url =
-    `https://api.mapbox.com/directions/v5/mapbox/driving/` +
+    `https://api.mapbox.com/directions/v5/mapbox/driving-traffic/` +
     `${originLng},${originLat};${destLng},${destLat}` +
     `?geometries=geojson&overview=full&steps=false&access_token=${env.MAPBOX_SECRET_TOKEN}`;
 

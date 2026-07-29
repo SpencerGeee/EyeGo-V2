@@ -13,7 +13,11 @@ const env = require('../config/env');
 
 const LOCATION_UPDATE_CHANNEL = (driverId) => `driver:${driverId}:location`;
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
-const ETA_FALLBACK_SPEED_KPH = parseInt(process.env.ETA_FALLBACK_SPEED_KPH) || 30;
+// Congested Accra urban mean, not a free-flow figure. 30 km/h was optimistic
+// enough that fallback ETAs read like the roads were empty; the observed mean
+// once junctions, lights and congestion are counted sits in the low twenties.
+// Keep this in sync with FALLBACK_URBAN_KMH in modules/geo/geo.service.js.
+const ETA_FALLBACK_SPEED_KPH = parseInt(process.env.ETA_FALLBACK_SPEED_KPH) || 22;
 
 // ── iOS Live Activity (ActivityKit) push fan-out ─────────────────────────
 // Separate channel from the FCM-based pushNotifications above — these go
@@ -265,7 +269,11 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
               const meters = haversineMeters(lat, lng, destLat, destLng);
               const distanceKm = (meters / 1000) * 1.35; // 1.35x winding road multiplier
               // Use speed with traffic: 25 km/h for urban driving (more realistic than 30)
-              const trafficSpeed = ETA_FALLBACK_SPEED_KPH * 0.85;
+              // No extra discount here — ETA_FALLBACK_SPEED_KPH is already the
+              // congested urban mean (see the constant), matching the same
+              // figure in modules/geo/geo.service.js. The old `* 0.85` on top of
+              // a 30 km/h "free-flow-ish" base was a second, undocumented fudge.
+              const trafficSpeed = ETA_FALLBACK_SPEED_KPH;
               const durationMin = (distanceKm / Math.max(trafficSpeed, 5)) * 60.0;
               
               directions = {

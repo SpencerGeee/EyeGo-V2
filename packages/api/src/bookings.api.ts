@@ -7,6 +7,23 @@ import type {
   GroupBooking,
 } from '@eyego/types';
 
+/**
+ * Guard against an empty id being interpolated into a path.
+ *
+ * BUGFIX (group hub: "Couldn't create link — tap to retry", and "Couldn't
+ * update pickup — Route PATCH … not found"): callers pass
+ * `activeBooking?.id ?? ''`, and when the booking hadn't loaded yet that empty
+ * string produced `/bookings//pickup`. Express matches no route for the double
+ * slash and returns its generic 404 body, so the app reported a mysterious
+ * routing error for what is really "we don't have a booking yet". Failing here
+ * turns it into an explicit, debuggable error instead of a phantom 404.
+ */
+function requireId(id: string | undefined | null, op: string): string {
+  const trimmed = (id ?? '').trim();
+  if (!trimmed) throw new Error(`bookingsApi.${op}: called without a booking id`);
+  return trimmed;
+}
+
 export const bookingsApi = {
   create: (data: CreateBookingRequest) =>
     apiClient.post<ApiResponse<Booking>>('/bookings', data),
@@ -17,12 +34,12 @@ export const bookingsApi = {
   // Group-hub joiner setting/changing their own pickup point — only allowed
   // pre-payment (SEAT_HELD); recomputes fare with any deviation surcharge.
   updatePickup: (id: string, data: { lat: number; lng: number; address?: string }) =>
-    apiClient.patch<ApiResponse<Booking>>(`/bookings/${id}/pickup`, data),
+    apiClient.patch<ApiResponse<Booking>>(`/bookings/${requireId(id, 'updatePickup')}/pickup`, data),
 
   // Heavy-cargo/luggage surcharge — was previously a client-only toggle that changed
   // the displayed price but never actually charged anything. Only allowed pre-payment.
   updateHeavyCargo: (id: string, heavyCargo: boolean) =>
-    apiClient.patch<ApiResponse<Booking>>(`/bookings/${id}/heavy-cargo`, { heavyCargo }),
+    apiClient.patch<ApiResponse<Booking>>(`/bookings/${requireId(id, 'updateHeavyCargo')}/heavy-cargo`, { heavyCargo }),
 
   getActive: () =>
     apiClient.get<ApiResponse<Booking | null>>('/bookings/active'),
@@ -41,11 +58,11 @@ export const bookingsApi = {
 
   generateInvite: (id: string) =>
     apiClient.post<ApiResponse<{ inviteToken: string; inviteLink: string }>>(
-      `/bookings/${id}/invite`
+      `/bookings/${requireId(id, 'generateInvite')}/invite`
     ),
 
   getGroup: (id: string) =>
-    apiClient.get<ApiResponse<GroupBooking>>(`/bookings/${id}/group`),
+    apiClient.get<ApiResponse<GroupBooking>>(`/bookings/${requireId(id, 'getGroup')}/group`),
 
   joinGroup: (token: string) =>
     apiClient.post<ApiResponse<{ trip: import('@eyego/types').Trip }>>(

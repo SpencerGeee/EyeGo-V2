@@ -46,6 +46,28 @@ function TripMapImpl() {
   // ride/[id]/tracking.tsx's setCamera, profile/place-picker.tsx's
   // handleSelectSuggestion) — do the same here so selecting a destination
   // actually flies the map instead of leaving it wherever it first landed.
+  // Dispatch overlay state — populated by RequestStage from the cascade socket.
+  const nearbyDrivers = useTripFlow((s) => s.nearbyDrivers);
+  const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
+  const pickupCoord = useTripFlow((s) => s.pickupCoord);
+
+  // A straight pickup→driver line rather than a road route: the offer only
+  // lasts ~20 seconds and moves between drivers, so a per-offer Directions call
+  // would spend quota on a line that is about to be replaced. The road-following
+  // polyline starts once a driver actually accepts (tracking screen).
+  const dispatchLine = useMemo(() => {
+    if (!dispatchOffer || !pickupCoord) return null;
+    if (!Number.isFinite(dispatchOffer.longitude) || !Number.isFinite(dispatchOffer.latitude)) return null;
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: [pickupCoord, [dispatchOffer.longitude, dispatchOffer.latitude]],
+      },
+    };
+  }, [dispatchOffer, pickupCoord]);
+
   const cameraRef = useRef<CameraRef>(null);
   useEffect(() => {
     if (!searchPlace) return;
@@ -77,6 +99,35 @@ function TripMapImpl() {
         />
       )}
       {userCoords && <MapboxGL.UserLocation visible />}
+
+      {/* ── Dispatch overlay ────────────────────────────────────────────
+          While a request is being placed, show the real drivers around the
+          rider and a line to whichever one currently holds the offer. The line
+          jumps to the next driver as the cascade advances, so the rider can see
+          the search actually progressing instead of watching a bare spinner. */}
+      {dispatchLine && (
+        <MapboxGL.ShapeSource id="dispatch-line" shape={dispatchLine}>
+          <MapboxGL.LineLayer
+            id="dispatch-line-layer"
+            style={{ lineColor: colors.primary, lineWidth: 4, lineOpacity: 0.9, lineCap: 'round' }}
+          />
+        </MapboxGL.ShapeSource>
+      )}
+
+      {nearbyDrivers.map((d) => {
+        const isOffered = d.id === dispatchOffer?.driverId;
+        return (
+          <MapboxGL.MarkerView key={d.id} id={`driver-${d.id}`} coordinate={[d.longitude, d.latitude]}>
+            <View style={[styles.driverPuck, isOffered && styles.driverPuckActive]}>
+              <Ionicons
+                name="car-sport"
+                size={isOffered ? 16 : 13}
+                color={isOffered ? colors.onPrimary : colors.onSurfaceVariant}
+              />
+            </View>
+          </MapboxGL.MarkerView>
+        );
+      })}
       {searchPlace && (
         <MapboxGL.PointAnnotation
           id="destination-pin"
@@ -102,6 +153,23 @@ function TripMapImpl() {
 export const TripMap = React.memo(TripMapImpl);
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  // Idle nearby driver — deliberately quiet so the offered driver reads as the
+  // one thing happening on the map.
+  driverPuck: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1, borderColor: colors.rimLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  driverPuckActive: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7, shadowRadius: 8,
+    elevation: 8,
+  },
   destPin: { alignItems: 'center' },
   destPinBubble: {
     width: 36, height: 36, borderRadius: 18,

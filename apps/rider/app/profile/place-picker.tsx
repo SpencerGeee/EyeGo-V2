@@ -69,7 +69,7 @@ export default function PlacePickerScreen() {
       const place = await reverseGeocode(lat, lng);
       setResolved(place ?? {
         placeId: 0,
-        name: 'Dropped pin',
+        name: 'Pinned location',
         fullAddress: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
         latitude: lat,
         longitude: lng,
@@ -92,13 +92,26 @@ export default function PlacePickerScreen() {
   // The pin — not the geocoder — is what the rider is confirming. If the
   // reverse lookup hasn't landed (or failed), commit the coordinate under a
   // "Dropped pin" label rather than blocking on a label the trip doesn't need.
-  const handleConfirm = useCallback(() => {
-    const place =
-      resolved ??
+  const handleConfirm = useCallback(async () => {
+    // BUGFIX ("picking a location on the map shows just coordinates on the trip
+    // request page"): the reverse lookup is debounced 500 ms and then has a
+    // network round trip to make, so confirming promptly — which riders do,
+    // because the pin is already where they want it — committed the raw
+    // lat/lng fallback and carried it all the way through to the request
+    // screen. Resolve on demand here before committing, and only fall back to a
+    // coordinate label if that genuinely comes back empty.
+    let place = resolved;
+    if (!place && center) {
+      setIsResolving(true);
+      place = await reverseGeocode(center[1], center[0]);
+      setIsResolving(false);
+    }
+    place =
+      place ??
       (center
         ? {
             placeId: 0,
-            name: 'Dropped pin',
+            name: 'Pinned location',
             fullAddress: `${center[1].toFixed(5)}, ${center[0].toFixed(5)}`,
             latitude: center[1],
             longitude: center[0],

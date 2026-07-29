@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView, AnimatePresence } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -43,8 +44,14 @@ export default function GuestSelectionScreen() {
       }
       if (!valid) return;
       setGuestInfo({ name: name.trim(), phone });
+      // Saving used to be completely silent — the screen popped straight back to
+      // a booking page that looked identical, so a rider had no way to tell the
+      // guest had been recorded at all. The booking screen now shows "Booking
+      // for <name>"; this haptic is the immediate acknowledgement.
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else {
       setGuestInfo(null);
+      Haptics.selectionAsync();
     }
     router.back();
   }, [selection, name, phone, setGuestInfo, router]);

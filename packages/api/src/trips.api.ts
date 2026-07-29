@@ -56,6 +56,16 @@ export const tripsApi = {
   getTripRequest: (requestId: string) =>
     apiClient.get<ApiResponse<{ id: string; status: string; matchedTripId: string | null }>>(`/trips/request/${requestId}`),
 
+  /**
+   * Approximate positions of available drivers near a point, for the ambient
+   * pins on the "looking for a driver" map. Coarse by design — see the endpoint.
+   */
+  getNearbyDrivers: (latitude: number, longitude: number, radiusKm = 6) =>
+    apiClient.get<ApiResponse<Array<{ id: string; latitude: number; longitude: number }>>>(
+      '/trips/nearby-drivers',
+      { params: { lat: latitude, lng: longitude, radiusKm } },
+    ),
+
   cancelTripRequest: (requestId: string) =>
     apiClient.delete<ApiResponse<{ id: string; status: string }>>(`/trips/request/${requestId}`),
 

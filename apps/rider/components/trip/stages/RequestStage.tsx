@@ -5,8 +5,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, GradientGlowBorder } from '@eyego/ui';
+import { Text, Button, GlassSurface, GradientGlowBorder, MorphTarget } from '@eyego/ui';
 import { tripsApi, queryKeys, socketEvents } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { offlineQueue } from '../../../utils/offlineQueue';
@@ -29,6 +30,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const popStage = useTripFlow((s) => s.popStage);
+  const setDispatchOffer = useTripFlow((s) => s.setDispatchOffer);
+  const setNearbyDrivers = useTripFlow((s) => s.setNearbyDrivers);
+  const setPickupCoord = useTripFlow((s) => s.setPickupCoord);
+  const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
+  const [dispatchAttempt, setDispatchAttempt] = useState<{ attempt: number; total: number }>({ attempt: 0, total: 0 });
   const queryClient = useQueryClient();
   const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll } = useRideStore();
   const { destination: paramDestination, scheduledAt, resumeRequestId } = useLocalSearchParams<{
@@ -77,6 +83,85 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     });
     return () => { off(); };
   }, [finishMatch]);
+
+  // ── Live dispatch cascade → map overlay ──────────────────────────────
+  // Dispatch is sequential (one driver at a time), so there is always exactly
+  // one "driver being asked". Feeding that into the trip store is what lets the
+  // persistent map draw a polyline to them and move it along as the offer
+  // cascades — and it gives us a real, server-authoritative failure signal
+  // instead of only the 3-minute client timeout.
+  useEffect(() => {
+    const off = socketEvents.onDispatchProgress((event, data) => {
+      const id = requestIdRef.current;
+      // `rideId` is the TripRequest id the cascade is running for.
+      if (id && data.rideId && data.rideId !== id) return;
+
+      if (event === 'offer') {
+        setDispatchAttempt({ attempt: data.attempt ?? 0, total: data.totalCandidates ?? 0 });
+        if (Number.isFinite(data.driverLat) && Number.isFinite(data.driverLng)) {
+          setDispatchOffer({
+            driverId: String(data.driverId),
+            latitude: data.driverLat as number,
+            longitude: data.driverLng as number,
+            attempt: data.attempt ?? 0,
+            totalCandidates: data.totalCandidates ?? 0,
+          });
+        } else {
+          // Driver has never reported a position — keep them as the current
+          // offer for the counter, but draw no line to a place we don't know.
+          setDispatchOffer(null);
+        }
+      } else if (event === 'searching' || event === 'widening') {
+        setDispatchAttempt({ attempt: 0, total: data.totalCandidates ?? 0 });
+      } else if (event === 'exhausted') {
+        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+        setDispatchOffer(null);
+        setPendingTripRequest(null);
+        setStatus('timeout');
+      } else if (event === 'matched') {
+        setDispatchOffer(null);
+      }
+    });
+    return () => { off(); };
+  }, [setDispatchOffer, setPendingTripRequest]);
+
+  // Seed the map: the pickup anchors the polyline, and the surrounding drivers
+  // are the ambient context that makes the search legible.
+  useEffect(() => {
+    if (origin?.latitude != null && origin?.longitude != null) {
+      setPickupCoord([origin.longitude, origin.latitude]);
+    }
+    let cancelled = false;
+    (async () => {
+      if (origin?.latitude == null || origin?.longitude == null) return;
+      try {
+        const res = await tripsApi.getNearbyDrivers(origin.latitude, origin.longitude);
+        if (cancelled) return;
+        const rows = Array.isArray(res.data?.data) ? res.data.data : [];
+        setNearbyDrivers(
+          rows
+            .filter((d: any) => Number.isFinite(d?.latitude) && Number.isFinite(d?.longitude))
+            .map((d: any) => ({ id: String(d.id), latitude: d.latitude, longitude: d.longitude })),
+        );
+      } catch {
+        // Ambient pins only — a failure here must not disturb the request.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [origin?.latitude, origin?.longitude, setNearbyDrivers, setPickupCoord]);
+
+  // Leaving the stage must clear the overlay, or the next request opens with a
+  // stale line to a driver from the previous attempt.
+  useEffect(
+    () => () => {
+      setDispatchOffer(null);
+      setNearbyDrivers([]);
+    },
+    [setDispatchOffer, setNearbyDrivers],
+  );
 
   useEffect(() => {
     if (sentRef.current) return;
@@ -264,14 +349,14 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         <Text style={styles.title}>
           {status === 'matched' ? 'Driver found!'
             : status === 'error' ? "Couldn't send request"
-            : status === 'timeout' ? 'No drivers found'
+            : status === 'timeout' ? 'All our drivers are busy'
             : 'Looking for a driver'}
         </Text>
         <Text style={styles.subtitle}>
           {status === 'error' ? (
             "We couldn't reach the server to send your trip request. Check your connection and try again."
           ) : status === 'timeout' ? (
-            "No nearby drivers accepted your request in time. Please try again, or search for a scheduled route instead."
+            'All our drivers are busy right now. Please try again in a few minutes, or book a scheduled ride instead.'
           ) : (
             <>
               Your trip request to{' '}
@@ -285,8 +370,19 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             </>
           )}
         </Text>
+        {/* Cascade progress. Dispatch asks one driver at a time, so this is a
+            truthful count of where the search has got to, not a fake spinner. */}
+        {status === 'searching' && dispatchAttempt.total > 0 && (
+          <Text style={styles.hint}>
+            {dispatchOffer
+              ? `Asking driver ${dispatchAttempt.attempt} of ${dispatchAttempt.total}…`
+              : `${dispatchAttempt.total} driver${dispatchAttempt.total === 1 ? '' : 's'} nearby — contacting them in turn…`}
+          </Text>
+        )}
         <Text style={styles.hint}>
-          You'll be taken to live tracking automatically as soon as a driver accepts.
+          {status === 'timeout'
+            ? 'Nothing was charged for this request.'
+            : "You'll be taken to live tracking automatically as soon as a driver accepts."}
         </Text>
 
         {/* Info card */}
@@ -356,13 +452,26 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       </SafeAreaView>
     );
   }
-  // Stage mode: dimmed scrim over the persistent map so the pulse reads
-  // as part of the surface instead of a separate screen.
+  // Stage mode. This used to lay a 90%-opaque scrim over the whole surface,
+  // which hid the very thing the rider wants to see while waiting: where the
+  // drivers around them are, and which one is being asked right now. The map
+  // stays visible up top and the status content sits in a gradient-anchored
+  // panel below it — the Uber/Bolt arrangement.
   return (
+    // Landing target for the home screen's pending-request card, so tapping it
+    // grows into this surface instead of hard-pushing. Inert when the rider
+    // arrived any other way.
+    <MorphTarget id="home-pending-request" borderRadius={0} style={styles.safe}>
     <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: withOpacity(colors.backgroundDeep, 0.9) }]} />
+      <LinearGradient
+        colors={['transparent', withOpacity(colors.backgroundDeep, 0.72), colors.backgroundDeep]}
+        locations={[0, 0.38, 0.62]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
       {body}
     </View>
+    </MorphTarget>
   );
 }
 

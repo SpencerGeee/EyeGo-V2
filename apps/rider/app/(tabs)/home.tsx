@@ -23,6 +23,7 @@ import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
+import { useRideStore } from '../../stores/ride.store';
 
 // Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
 // when no coordinate is available.
@@ -265,6 +266,28 @@ export default function HomeScreen() {
   // wandered away from the search stage.
   const whereToSourceRef = useRef<MorphSourceHandle>(null);
   const activeRideSourceRef = useRef<MorphSourceHandle>(null);
+  const pendingRequestSourceRef = useRef<MorphSourceHandle>(null);
+
+  // A trip request the rider walked away from is still live on the server, so
+  // the home screen has to surface it — otherwise Back from the request screen
+  // looks like the request was abandoned.
+  const pendingRequestId = useRideStore((s) => s.pendingTripRequestId);
+  const pendingRequestDestination = useRideStore((s) => s.pendingTripRequestDestination);
+
+  const { data: scheduledData } = useQuery({
+    queryKey: ['trips', 'scheduled'],
+    queryFn: () => tripsApi.getScheduledRides(),
+    refetchInterval: 60000,
+  });
+  /** Soonest scheduled ride that is still going to happen. */
+  const nextScheduledIntent = useMemo(() => {
+    const list: any[] = (scheduledData as any)?.data?.data?.intents ?? [];
+    return (
+      list
+        .filter((i) => ['PENDING', 'DISPATCHED', 'MATCHED'].includes(i.status))
+        .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime())[0] ?? null
+    );
+  }, [scheduledData]);
   useFocusEffect(
     useCallback(() => {
       whereToSourceRef.current?.show();
@@ -446,6 +469,101 @@ export default function HomeScreen() {
           </MorphSource>
         )}
 
+        {/* Pending trip request — item 5. Backing out of the request screen used
+            to leave nothing behind, so a rider who tapped Back had no way to see
+            (or get back to) the request that was still running. Same
+            container-transform treatment as the active-ride card above, so it
+            morphs back into the request surface rather than hard-pushing. */}
+        {!activeBooking && pendingRequestId && (
+          <MorphSource
+            ref={pendingRequestSourceRef}
+            id="home-pending-request"
+            borderRadius={24}
+            backgroundColor={colors.surfaceCard}
+          >
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                morphTo('home-pending-request', () =>
+                  router.push(
+                    `/trip?stage=request&morphId=home-pending-request&resumeRequestId=${pendingRequestId}` as any,
+                  ),
+                );
+              }}
+            >
+              <Animated.View entering={FadeIn.duration(250)} style={styles.statusBentoCard}>
+                <GradientGlowBorder
+                  palette="green"
+                  fillColor={colors.surfaceCard}
+                  borderRadius={24}
+                  glow
+                  style={styles.statusBentoInner}
+                >
+                  <View style={styles.statusBentoRow}>
+                    <View style={[styles.statusBentoIcon, { backgroundColor: withOpacity(colors.primary, 0.12) }]}>
+                      <Ionicons name="search" size={20} color={colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.statusBentoLabelRow}>
+                        <View style={[styles.statusBentoDot, { backgroundColor: colors.primary }]} />
+                        <Text style={styles.statusBentoLabel}>FINDING YOUR DRIVER</Text>
+                      </View>
+                      <Text style={styles.statusBentoTitle} numberOfLines={1}>
+                        {pendingRequestDestination ?? 'Your destination'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+                  </View>
+                </GradientGlowBorder>
+              </Animated.View>
+            </Pressable>
+          </MorphSource>
+        )}
+
+        {/* Next scheduled ride — item 6. The rider had to go digging in Activity
+            to find out they had one booked at all. */}
+        {nextScheduledIntent && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push(`/scheduled/${nextScheduledIntent.id}` as any);
+            }}
+          >
+            <Animated.View entering={FadeIn.duration(250)} style={styles.statusBentoCard}>
+              <GradientGlowBorder
+                palette="green"
+                fillColor={colors.surfaceCard}
+                borderRadius={24}
+                glow={false}
+                style={styles.statusBentoInner}
+              >
+                <View style={styles.statusBentoRow}>
+                  <View style={[styles.statusBentoIcon, { backgroundColor: withOpacity(colors.tierComfort, 0.12) }]}>
+                    <Ionicons name="calendar" size={20} color={colors.tierComfort} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.statusBentoLabelRow}>
+                      <View style={[styles.statusBentoDot, { backgroundColor: colors.tierComfort }]} />
+                      <Text style={styles.statusBentoLabel}>
+                        {nextScheduledIntent.status === 'MATCHED' ? 'DRIVER CONFIRMED' : 'SCHEDULED RIDE'}
+                      </Text>
+                    </View>
+                    <Text style={styles.statusBentoTitle} numberOfLines={1}>
+                      {nextScheduledIntent.route?.destinationName ?? 'Your destination'}
+                    </Text>
+                    <Text style={styles.statusBentoMeta}>
+                      {new Date(nextScheduledIntent.scheduledAt).toLocaleString('en-GH', {
+                        weekday: 'short', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+                </View>
+              </GradientGlowBorder>
+            </Animated.View>
+          </Pressable>
+        )}
+
         {/* Suggested Rides */}
         <View style={styles.suggestedSection}>
           <ShinyText baseColor={colors.onSurface} textStyle={styles.sectionTitle}>Suggested for you</ShinyText>
@@ -624,6 +742,51 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── Active Ride Bento Card ───────────────────────────────
+  // Compact sibling of activeBentoCard, for states that have no live map to
+  // show yet (a request still searching, a ride scheduled for later).
+  statusBentoCard: {
+    marginTop: spacing.base,
+  },
+  statusBentoInner: {
+    padding: spacing.base,
+  },
+  statusBentoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.base,
+  },
+  statusBentoIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBentoLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 3,
+  },
+  statusBentoDot: { width: 6, height: 6, borderRadius: 3 },
+  statusBentoLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 9,
+    letterSpacing: 0.9,
+    color: colors.onSurfaceVariant,
+  },
+  statusBentoTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 15,
+    color: colors.onSurface,
+    letterSpacing: -0.2,
+  },
+  statusBentoMeta: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
   activeBentoCard: {
     backgroundColor: colors.surfaceCard,
     borderRadius: 24,

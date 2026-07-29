@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
+import { fetchRoute } from '../../../utils/routing';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -222,28 +223,22 @@ export default function DriverTrackingScreen() {
     if (isNaN(dLat) || isNaN(dLng) || isNaN(eLat) || isNaN(eLng)) return;
 
     routeFetchedRef.current = true;
-    const url =
-      `https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${eLng},${eLat}` +
-      `?overview=full&geometries=geojson`;
-
-    fetch(url)
-      .then((r) => r.json())
-      .then((data) => {
-        const route = data?.routes?.[0];
+    // Traffic-aware via /v1/geo/route. This used to call the public OSRM demo
+    // server directly, whose duration is FREE-FLOW — the reason an 8.3 km trip
+    // was quoted at ~12 minutes. See utils/routing.ts.
+    fetchRoute([dLng, dLat], [eLng, eLat])
+      .then((route) => {
         if (!route) return;
-        const coords: [number, number][] = route.geometry?.coordinates ?? [];
-        const durationSec: number = route.duration ?? 0;
-        const distanceM: number = route.distance ?? 0;
-        if (coords.length >= 2) setRouteCoords(coords);
-        const mins = Math.max(1, Math.ceil(durationSec / 60));
-        const km = parseFloat((distanceM / 1000).toFixed(1));
+        if (route.coordinates.length >= 2) setRouteCoords(route.coordinates);
+        const mins = Math.max(1, Math.round(route.durationMin));
+        const km = parseFloat(route.distanceKm.toFixed(1));
         // Only set if socket hasn't already provided a fresher value
         setEtaMinutes((prev) => prev ?? mins);
         setEtaDistanceKm((prev) => prev ?? km);
         setEtaMessage((prev) => prev ?? `${km} km via roads`);
       })
       .catch(() => {
-        // OSRM unavailable — route line stays as straight fallback, no crash
+        // Routing unavailable — route line stays as straight fallback, no crash
       });
   }, [driverCoord?.[0], driverCoord?.[1], driverRouteTarget?.[0], driverRouteTarget?.[1]]);
 
@@ -456,17 +451,24 @@ export default function DriverTrackingScreen() {
         {(driverCoord ?? pickupCoord) && (
           <MapboxGL.AnimatedMarkerView
             coordinate={(driverCoord ?? pickupCoord)!}
-            // The Ionicons "navigate" glyph itself points north-east by default —
-            // the old code's fixed rotate('45deg') was compensating for that so
-            // the icon rests "up" when stationary. Keep that same +45 offset.
+            // BUGFIX ("the pin turns with the phone but points at the wall, not
+            // the gate"): this passed `heading + 45`. `rotation` is a TRUE
+            // compass bearing that @eyego/maps compensates against the live map
+            // bearing, so adding the glyph's own artwork offset to it put the pin
+            // a constant 45° off the real direction — small enough to look like
+            // it was working, large enough to point at the wrong side of the
+            // street. The artwork offset belongs on the artwork: `rotation` is
+            // now the true heading, and the -45° counter-rotation below cancels
+            // the Ionicons "navigate" glyph's built-in north-east tilt.
+            //
             // Heading comes from the device COMPASS (physical phone orientation)
             // rather than GPS course-over-ground, which is meaningless while
             // stopped — falls back to GPS course if no compass is available.
-            rotation={((deviceHeading || driverLocation?.heading || 0) + 45) % 360}
+            rotation={(deviceHeading || driverLocation?.heading || 0) % 360}
             duration={1000}
           >
             <View style={styles.driverMarker}>
-              <Ionicons name="navigate" size={20} color="#3B82F6" />
+              <Ionicons name="navigate" size={20} color="#3B82F6" style={styles.driverMarkerGlyph} />
             </View>
           </MapboxGL.AnimatedMarkerView>
         )}
@@ -1098,6 +1100,13 @@ const makeStyles = (colors: DriverColors) =>
       borderWidth: 1,
       borderColor: colors.error + '55',
       paddingVertical: spacing.sm,
+    },
+    // Cancels the Ionicons "navigate" glyph's built-in north-east tilt so the
+    // arrow points at the marker's TRUE heading. This offset must live here, on
+    // the artwork — folding it into `rotation` corrupts the compass bearing that
+    // @eyego/maps compensates against the live map orientation.
+    driverMarkerGlyph: {
+      transform: [{ rotate: '-45deg' }],
     },
     driverMarker: {
       width: 40,

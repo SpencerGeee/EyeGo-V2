@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus,
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import MapboxGL from '../../../utils/mapbox';
+import { fetchRoute } from '../../../utils/routing';
 import { InlayPanel } from '@eyego/ui';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
@@ -339,17 +340,14 @@ export default function TrackingScreen() {
     if (!origin || !target || isNaN(origin[0]) || isNaN(origin[1])) return;
 
     routeFetchedRef.current = true;
-    fetch(
-      `https://router.project-osrm.org/route/v1/driving/${origin[0]},${origin[1]};${target[0]},${target[1]}?overview=full&geometries=geojson`
-    )
-      .then(r => r.json())
-      .then(data => {
-        const route = data?.routes?.[0];
+    // Traffic-aware via /v1/geo/route. This used to hit the public OSRM demo
+    // server directly, which returns free-flow duration — the source of ETAs
+    // that assumed an empty road. See utils/routing.ts.
+    fetchRoute(origin, target)
+      .then((route) => {
         if (!route) return;
-        const coords: [number, number][] = route.geometry?.coordinates ?? [];
-        const durationSec: number = route.duration ?? 0;
-        if (coords.length >= 2) setRouteCoords(coords);
-        if (durationSec > 0) setTripEta(Math.max(1, Math.ceil(durationSec / 60)));
+        if (route.coordinates.length >= 2) setRouteCoords(route.coordinates);
+        if (route.durationMin > 0) setTripEta(Math.max(1, Math.round(route.durationMin)));
       })
       .catch(() => {});
   }, [

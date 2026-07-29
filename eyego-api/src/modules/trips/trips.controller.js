@@ -271,4 +271,25 @@ const saveLiveActivityToken = async (req, res) => {
   ok(res, result, 'Live Activity token saved');
 };
 
-module.exports = { createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };
+/**
+ * GET /v1/trips/nearby-drivers?lat=&lng=&radiusKm=
+ *
+ * Ambient driver pins for the rider's "looking for a driver" map.
+ *
+ * PRIVACY: returns ids and coordinates ONLY — no name, phone, vehicle or
+ * rating. A rider who has not been matched with anyone has no business knowing
+ * who these drivers are; they exist on the map purely as context so the search
+ * does not look like it is happening in an empty city.
+ */
+const getNearbyDrivers = async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  const radiusKm = Math.min(parseFloat(req.query.radiusKm) || 6, 15);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return ok(res, []);
+  }
+  const drivers = await tripsService.getNearbyAvailableDrivers({ lat, lng, radiusKm });
+  return ok(res, drivers);
+};
+
+module.exports = { getNearbyDrivers, createTrip, getTrip, getTripContact, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, getFareEstimate, getDeviationEstimate, emergencyAlert, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getScheduledRides, cancelScheduledRide, getTrackingData, getJoinData, requestTrip, getTripRequestStatus, cancelTripRequest, saveLiveActivityToken };

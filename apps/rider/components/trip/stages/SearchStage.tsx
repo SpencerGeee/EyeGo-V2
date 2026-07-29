@@ -31,6 +31,12 @@ import { consumePickedPlace } from '../../../utils/placePickerResult';
  */
 /** Horizontal inset of the floating card — must match `cardWrap`'s padding. */
 const CARD_H_MARGIN = 16;
+/** Must stay in sync with `floatingCard.padding`, `timeline.width`, `swapBtn.width`
+ *  and `inputsSection.gap` — the field column's width is derived from them. */
+const CARD_PADDING = spacing.xl;
+const TIMELINE_W = 12;
+const SWAP_W = 38;
+const ROW_GAP = 12;
 
 function SearchStageImpl() {
   const colors = useColors();
@@ -48,6 +54,19 @@ function SearchStageImpl() {
   // whatever the ancestors do.
   const { width: windowWidth } = useWindowDimensions();
   const cardWidth = Math.max(240, windowWidth - CARD_H_MARGIN * 2);
+  // BUGFIX (reported twice — the previous attempt pinned only the CARD width and
+  // the rows still collapsed): the field column relied on `flex: 1` inside a row
+  // to claim the space left over by the timeline rail and the swap button. Flex
+  // distributes *free* space, so the moment any ancestor resolves to a
+  // content-driven width there is no free space to distribute, the column
+  // measures to its icons, and the rider sees two bare glyphs hugging the left
+  // edge with no visible field at all. Deriving the width arithmetically from
+  // the (already pinned) card width removes the dependency on the ancestor chain
+  // entirely — see CARD_PADDING/TIMELINE_W/SWAP_W below.
+  const fieldColWidth = Math.max(
+    120,
+    cardWidth - CARD_PADDING * 2 - TIMELINE_W - SWAP_W - ROW_GAP * 2,
+  );
   const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
@@ -209,10 +228,11 @@ function SearchStageImpl() {
                   <View style={[styles.timelineDot, styles.timelineDotDest]} />
                 </View>
 
-                <View style={styles.inputsCol}>
-                  {/* Pickup — tapping the row opens the map picker directly.
-                      Previously the row focused a text field and you had to
-                      find the small map button to get here. */}
+                <View style={[styles.inputsCol, { width: fieldColWidth }]}>
+                  {/* Pickup. The row opens the map picker, but it now LOOKS like
+                      a field again: a standing caption plus its value, so it is
+                      obvious which half is pickup and which is destination
+                      before you tap anything. */}
                   <Pressable
                     style={({ pressed }) => [styles.fieldRow, pressed && styles.fieldRowPressed]}
                     onPress={() => openMapPicker('origin')}
@@ -220,7 +240,15 @@ function SearchStageImpl() {
                     accessibilityLabel="Set pickup location on map"
                   >
                     <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
-                    <Text style={styles.fieldValue} numberOfLines={1}>{originText}</Text>
+                    <View style={styles.fieldTextCol}>
+                      <Text style={styles.fieldLabel} numberOfLines={1}>PICKUP POINT</Text>
+                      <Text
+                        style={[styles.fieldValue, !originText && styles.fieldPlaceholder]}
+                        numberOfLines={1}
+                      >
+                        {originText || 'Set your pickup point'}
+                      </Text>
+                    </View>
                     <Ionicons name="map-outline" size={16} color={colors.outline} />
                   </Pressable>
 
@@ -232,12 +260,15 @@ function SearchStageImpl() {
                     accessibilityLabel="Choose destination on map"
                   >
                     <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
-                    <Text
-                      style={[styles.fieldValue, !selectedPlace && styles.fieldPlaceholder]}
-                      numberOfLines={1}
-                    >
-                      {selectedPlace?.name ?? 'Where are you going?'}
-                    </Text>
+                    <View style={styles.fieldTextCol}>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>DESTINATION</Text>
+                      <Text
+                        style={[styles.fieldValue, !selectedPlace && styles.fieldPlaceholder]}
+                        numberOfLines={1}
+                      >
+                        {selectedPlace?.name ?? 'Where are you going?'}
+                      </Text>
+                    </View>
                     <Ionicons name="map-outline" size={16} color={colors.primary} />
                   </Pressable>
                 </View>
@@ -405,6 +436,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginVertical: 4,
   },
   inputsCol: {
+    // Width is supplied inline from `fieldColWidth`; `flex: 1` is kept only as a
+    // belt-and-braces fallback and must never be the sole source of width here
+    // (see the fieldColWidth note above).
     flex: 1,
     gap: 8,
   },
@@ -416,7 +450,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
-    minHeight: 48,
+    // Taller than the old 48 — the row now carries a caption above its value.
+    minHeight: 56,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.rimLight,
@@ -427,8 +462,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   fieldRowPressed: { opacity: 0.72 },
   inputIcon: { flexShrink: 0 },
-  fieldValue: {
+  fieldTextCol: {
     flex: 1,
+    // Without this a long address forces the column wider than its share and
+    // pushes the trailing map glyph off the row.
+    minWidth: 0,
+    gap: 1,
+  },
+  fieldLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 9,
+    letterSpacing: 0.8,
+    color: withOpacity(colors.onSurfaceVariant, 0.75),
+  },
+  fieldLabelDest: {
+    color: withOpacity(colors.primary, 0.9),
+  },
+  fieldValue: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
     color: colors.onSurface,

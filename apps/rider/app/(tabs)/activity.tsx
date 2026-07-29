@@ -257,13 +257,18 @@ function LiveScheduledCard({
   intent,
   colors,
   styles,
+  onCancel,
+  cancelling,
 }: {
   intent: any;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
+  onCancel: (id: string) => void;
+  cancelling: boolean;
 }) {
   const router = useRouter();
   const matched = intent.status === 'MATCHED';
+  const cancellable = intent.status === 'PENDING' || intent.status === 'DISPATCHED';
 
   return (
     <GradientGlowBorder
@@ -273,11 +278,19 @@ function LiveScheduledCard({
       glow
       style={styles.liveRequestCard}
     >
+      {/* BUGFIX (item 6, "tapping the scheduled card does nothing"): this only
+          navigated once a driver had been matched, so for the entire PENDING /
+          DISPATCHED life of a scheduled ride — which is most of it — the card
+          was inert. It now always opens the ride's own detail screen, and jumps
+          straight to live tracking once there is a trip to track. */}
       <Pressable
         onPress={() => {
-          if (!intent.matchedTripId) return;
           Haptics.selectionAsync();
-          router.push(`/ride/${intent.matchedTripId}/tracking` as any);
+          if (intent.matchedTripId) {
+            router.push(`/ride/${intent.matchedTripId}/tracking` as any);
+          } else {
+            router.push(`/scheduled/${intent.id}` as any);
+          }
         }}
       >
         <View style={styles.liveDotWrap}>
@@ -300,6 +313,25 @@ function LiveScheduledCard({
           {SCHEDULED_STATUS_LABEL[intent.status] ?? intent.status}
         </Text>
       </Pressable>
+
+      {/* BUGFIX (item 4, "I cancelled but the next-scheduled card stayed"): the
+          hero had no cancel of its own. The only Cancel on screen belonged to a
+          DIFFERENT ride in the list below, so cancelling it correctly left this
+          card in place — which read as the cancel having silently failed. */}
+      {cancellable && (
+        <Button
+          label="Cancel this ride"
+          variant="ghost"
+          onPress={() =>
+            Alert.alert('Cancel scheduled ride?', 'This cannot be undone.', [
+              { text: 'Keep it', style: 'cancel' },
+              { text: 'Cancel ride', style: 'destructive', onPress: () => onCancel(intent.id) },
+            ])
+          }
+          disabled={cancelling}
+          style={{ marginTop: spacing.sm, alignSelf: 'flex-start', paddingHorizontal: 0 }}
+        />
+      )}
     </GradientGlowBorder>
   );
 }
@@ -642,7 +674,13 @@ export default function ActivityScreen() {
             ItemSeparatorComponent={ItemSeparator}
             ListHeaderComponent={
               liveScheduledIntent ? (
-                <LiveScheduledCard intent={liveScheduledIntent} colors={colors} styles={styles} />
+                <LiveScheduledCard
+                  intent={liveScheduledIntent}
+                  colors={colors}
+                  styles={styles}
+                  onCancel={(id) => cancelScheduled.mutate(id)}
+                  cancelling={cancelScheduled.isPending}
+                />
               ) : undefined
             }
             contentContainerStyle={{

@@ -29,6 +29,7 @@ import { offlineQueue } from '../../../utils/offlineQueue';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
 import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
 import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
+import { fetchRoute } from '../../../utils/routing';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -85,16 +86,14 @@ function useRoadRoute(from: [number, number], to: [number, number]): [number, nu
     if (fetchedForRef.current === key) return;
     fetchedForRef.current = key;
 
-    const url = `https://router.project-osrm.org/route/v1/driving/${dLng},${dLat};${eLng},${eLat}?overview=full&geometries=geojson`;
-    fetch(url)
-      .then((r) => r.json())
-      .then((data) => {
-        const route = data?.routes?.[0];
-        const routeCoords: [number, number][] = route?.geometry?.coordinates ?? [];
-        if (routeCoords.length >= 2) setCoords(routeCoords);
+    // Traffic-aware via /v1/geo/route rather than the public OSRM demo server —
+    // see utils/routing.ts for why free-flow durations were wrong.
+    fetchRoute([dLng, dLat], [eLng, eLat])
+      .then((route) => {
+        if (route && route.coordinates.length >= 2) setCoords(route.coordinates);
       })
       .catch(() => {
-        // OSRM unavailable — straight fallback line stays, no crash
+        // Routing unavailable — straight fallback line stays, no crash
       });
   }, [from[0], from[1], to[0], to[1]]);
 
@@ -415,9 +414,13 @@ export default function ActiveTripScreen() {
             rotated. Falls back to GPS course if the compass is unavailable. */}
         <MapboxGL.AnimatedMarkerView
           coordinate={driverCoord}
-          // Ionicons "navigate" points north-east by default (like the
-          // pre-pickup tracking screen) — +45 rests it "up" when stationary.
-          rotation={((deviceHeading || location?.heading || 0) + 45) % 360}
+          // BUGFIX (same defect as tracking/[id].tsx): `rotation` is a TRUE
+          // compass bearing which @eyego/maps compensates against the live map
+          // bearing, so folding the glyph's own north-east artwork tilt into it
+          // left the pin a constant 45° off true north — it turned with the
+          // phone but pointed at the wrong thing. The artwork offset now lives
+          // on the artwork, inside DriverPulse.
+          rotation={(deviceHeading || location?.heading || 0) % 360}
           duration={1000}
         >
           <DriverPulse color={statusCfg.color} />
@@ -803,7 +806,10 @@ function DriverPulse({ color }: { color: string }) {
   // visible at all — same "navigate" chevron as the pre-pickup tracking screen.
   return (
     <View style={[puckStyles.puck, { borderColor: color, shadowColor: color }]}>
-      <Ionicons name="navigate" size={20} color={color} />
+      {/* -45° cancels the "navigate" glyph's built-in north-east tilt so the
+          arrow points at the marker's true heading. Must stay on the glyph, not
+          on the marker's `rotation` — see the AnimatedMarkerView note above. */}
+      <Ionicons name="navigate" size={20} color={color} style={puckStyles.glyph} />
     </View>
   );
 }
@@ -811,6 +817,7 @@ function DriverPulse({ color }: { color: string }) {
 // Module-level: DriverPulse renders outside the screen component, so it can't
 // reach makeStyles(colors). Matches tracking/[id].tsx's driverMarker puck.
 const puckStyles = StyleSheet.create({
+  glyph: { transform: [{ rotate: '-45deg' }] },
   puck: {
     width: 40,
     height: 40,

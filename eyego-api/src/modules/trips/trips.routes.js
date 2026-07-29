@@ -22,6 +22,8 @@ router.get('/join/:shareToken/data', tripsController.getJoinData);
 router.get('/', authenticate, tripsController.searchTrips);
 router.get('/active', authenticate, tripsController.getActiveTrip);
 router.get('/fare-estimate', authenticate, tripsController.getFareEstimate);
+// Coarse, id+coordinate-only driver pins for the request screen's map.
+router.get('/nearby-drivers', authenticate, tripsController.getNearbyDrivers);
 // GET /v1/trips/scheduled — rider's own scheduled ride intents. MUST be
 // registered before the generic '/:id' route below: Express matches routes
 // in registration order, and '/:id' is a single dynamic segment that was

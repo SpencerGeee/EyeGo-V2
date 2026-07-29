@@ -13,6 +13,7 @@ const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
+const dispatchCascade = require('../../services/dispatch-cascade.service');
 const { expireStaleTrips, liveUnstartedTripFilter } = require('../../services/stale-trips');
 const { toCedis } = require('../../utils/money');
 
@@ -1302,6 +1303,20 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
 
   const requestOffers = requests
     .filter((r) => {
+      // CASCADE SCOPING: dispatch is now sequential — exactly one driver holds a
+      // given request at a time (services/dispatch-cascade.service.js). This
+      // poll used to hand every recent PENDING/DISPATCHED request to every
+      // driver who asked, which re-created the old free-for-all broadcast behind
+      // the cascade's back: a driver the cascade had already passed over, or had
+      // not reached yet, could poll their way into an offer and steal it.
+      //
+      // While a cascade is live for a request, only its current holder sees it.
+      // A request with NO live cascade (server restarted mid-flight, or it was
+      // created before this shipped) falls through to the distance filter so it
+      // is still claimable rather than stranded.
+      const offer = dispatchCascade.getCascadeState(r.id);
+      if (offer) return offer.currentDriverId === driverId;
+
       if (!hasCoords) return true; // no driver coords → return all recent pending
       if (r.pickupLat == null || r.pickupLng == null) return true; // can't filter → include
       return haversineKm(lat, lng, r.pickupLat, r.pickupLng) <= DISPATCH_RADIUS_KM;

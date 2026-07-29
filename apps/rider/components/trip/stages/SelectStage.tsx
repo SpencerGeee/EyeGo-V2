@@ -202,11 +202,27 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
   return (
     <View style={[styles.safe, mode === 'stage' && { paddingTop: insets.top }]}>
-      {/* Stage mode sits on the persistent trip surface; the opaque layer
-          replaces the legacy static AppBackground without unmounting the map. */}
-      {mode === 'route'
-        ? <AppBackground variant="static" isDark={isDark} />
-        : <View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
+      {/* BUGFIX ("the map is pure black on the ride-select page"): stage mode
+          used to paint an OPAQUE `backgroundDeep` layer across the entire
+          surface, which sat directly on top of the persistent TripMap. The map
+          was mounted, loaded and correct the whole time — it was simply
+          covered, which is why the search stage (no such layer) looked fine and
+          this one looked like a dead black map.
+
+          Now the top of the screen stays transparent so the live map reads as
+          the route preview, with a legibility scrim under the header and a
+          gradient that dissolves into the solid results sheet — the Uber/Bolt
+          "map above, list below" arrangement, and the fix for the flat-black
+          top section as well. */}
+      {mode === 'route' ? (
+        <AppBackground variant="static" isDark={isDark} />
+      ) : (
+        <LinearGradient
+          colors={[withOpacity(colors.backgroundDeep, 0.92), withOpacity(colors.backgroundDeep, 0.4), 'transparent']}
+          style={styles.topScrim}
+          pointerEvents="none"
+        />
+      )}
       {/* Header */}
       <View style={styles.header}>
         <Pressable
@@ -823,8 +839,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurfaceVariant,
     maxWidth: 100,
   },
+  // Sits behind the header only — deep enough to keep the title/back button
+  // legible over map tiles, shallow enough that the map is unmistakably a map.
+  topScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 170,
+  },
   heroWrap: {
-    height: 140,
+    // Taller than the old 140 now that this is a real map window rather than a
+    // decorative gradient over black.
+    height: 190,
     marginTop: -32,
     zIndex: 0,
     overflow: 'hidden',
@@ -860,6 +887,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 90,
   },
   dockedContent: {
+    flex: 1,
     marginTop: -28,
     borderTopLeftRadius: radii['4xl'],
     borderTopRightRadius: radii['4xl'],
@@ -1066,6 +1094,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   scroll: {
     paddingBottom: spacing['3xl'],
+    // Lets `dockedContent` stretch to the bottom of the screen. Without it a
+    // short results list left the solid sheet floating with live map tiles
+    // showing underneath it.
+    flexGrow: 1,
   },
   searchCta: {},
   enRouteChip: {

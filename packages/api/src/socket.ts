@@ -275,6 +275,46 @@ export const socketEvents = {
   },
 
   /**
+   * Live dispatch-cascade progress for the "looking for a driver" screen.
+   *
+   * Dispatch is sequential: the backend offers the ride to one driver at a time
+   * (services/dispatch-cascade.service.js). These events are what let the rider
+   * see who is currently being asked — the map draws a polyline to that driver
+   * and re-draws it when the offer moves on, the way Uber and Bolt do.
+   *
+   *  - `dispatch:searching` — cascade started, `totalCandidates` drivers queued
+   *  - `dispatch:offer`     — this driver now holds the offer until `expiresAt`
+   *  - `dispatch:widening`  — nobody close accepted, search radius grew
+   *  - `dispatch:matched`   — a driver accepted
+   *  - `dispatch:exhausted` — nobody accepted; show the "all drivers busy" state
+   */
+  onDispatchProgress: (
+    cb: (
+      event: 'searching' | 'offer' | 'widening' | 'matched' | 'exhausted',
+      data: {
+        rideId?: string;
+        driverId?: string;
+        driverLat?: number | null;
+        driverLng?: number | null;
+        attempt?: number;
+        totalCandidates?: number;
+        expiresAt?: string;
+        tried?: number;
+      },
+    ) => void,
+  ) => {
+    const names = ['searching', 'offer', 'widening', 'matched', 'exhausted'] as const;
+    const handlers = names.map((name) => {
+      const h = (data: any) => cb(name, data ?? {});
+      getSocket().on(`dispatch:${name}`, h);
+      return [name, h] as const;
+    });
+    return () => {
+      for (const [name, h] of handlers) getSocket().off(`dispatch:${name}`, h);
+    };
+  },
+
+  /**
    * Server-side confirmation that a payment settled (gateway webhook landed).
    * Same dead-path story as above: emitted by payments.controller.js, listened
    * for by nobody, so payment screens could only discover success by polling

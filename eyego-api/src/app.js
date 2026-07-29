@@ -36,6 +36,7 @@ const questsRoutes = require('./modules/quests/quests.routes');
 const contactRoutes = require('./modules/contact/contact.routes');
 const cancellationRoutes = require('./modules/cancellation/cancellation.routes');
 const receiptsRoutes = require('./modules/receipts/receipts.routes');
+const geoRoutes = require('./modules/geo/geo.routes');
 const { yoga } = require('./graphql/index');
 
 const app = express();
@@ -139,6 +140,8 @@ app.use('/v1/quests', questsRoutes);
 app.use('/v1/contact', contactRoutes);
 app.use('/v1/cancellation', cancellationRoutes);
 app.use('/v1/receipts', receiptsRoutes);
+// Geocoding + routing proxy — keeps MAPBOX_SECRET_TOKEN off the clients.
+app.use('/v1/geo', geoRoutes);
 app.use('/v1/admin', adminRoutes);
 
 // ── GraphQL ───────────────────────────────────────────────────────

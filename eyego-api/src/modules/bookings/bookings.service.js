@@ -65,6 +65,18 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
       }
 
       const trip = booking.trip;
+      // Ad-hoc trips created by the group/on-demand pivot reuse the Route model
+      // as a throwaway row, and a trip whose Route was never created (or was
+      // cleaned up) reaches here with `route: null`. Reading `.distanceKm` off
+      // that threw a TypeError, which surfaced to the rider as an opaque 500 on
+      // an otherwise valid pickup change.
+      if (!trip.route) {
+        throw new AppError(
+          'This trip has no route information yet, so pickup changes are unavailable.',
+          409,
+          'TRIP_ROUTE_MISSING',
+        );
+      }
       const baseFareData = calculateFare({
         tier: trip.tier,
         distanceKm: trip.route.distanceKm,

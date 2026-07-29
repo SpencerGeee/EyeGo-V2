@@ -5,6 +5,7 @@ const redis = require('../../config/redis');
 const env = require('../../config/env');
 const pushService = require('../../services/push.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
+const dispatchCascade = require('../../services/dispatch-cascade.service');
 const logger = require('../../utils/logger');
 const { AppError, NotFoundError } = require('../../utils/errors');
 const { calculateFare, haversineKm } = require('./fare.calculator');
@@ -89,7 +90,77 @@ async function createRequest(userId, { destination, scheduledAt, seatCount = 1, 
   };
 }
 
+/**
+ * Hand an on-demand rider request to the sequential dispatch cascade.
+ *
+ * REPLACES a simultaneous broadcast to the five nearest drivers. See
+ * services/dispatch-cascade.service.js for why: with a broadcast there is no
+ * "the driver being asked", so the rider's screen has nobody to draw a polyline
+ * to, and an all-declined request ends in silence rather than a failure state.
+ */
 async function dispatchRequestToDrivers(tripRequest, destination, scheduledAt, groupedCount) {
+  try {
+    // Everyone grouped into this request needs the live dispatch feed, not just
+    // the rider who happened to trigger it.
+    const groupRiders = await prisma.tripRequest.findMany({
+      where: tripRequest.groupId
+        ? { groupId: tripRequest.groupId, status: 'DISPATCHED' }
+        : { id: tripRequest.id },
+      select: { userId: true },
+    });
+    const riderUserIds = [...new Set(groupRiders.map((r) => r.userId).filter(Boolean))];
+
+    await dispatchCascade.startCascade({
+      rideId: tripRequest.id,
+      kind: 'REQUEST',
+      pickupLat: tripRequest.pickupLat ?? undefined,
+      pickupLng: tripRequest.pickupLng ?? undefined,
+      riderUserIds,
+      driverPayload: {
+        // TripRequest stores pickup coordinates only, no place name.
+        routeOrigin: 'Pickup nearby',
+        routeDestination: destination,
+        departureTime: scheduledAt.toISOString(),
+        seatCount: groupedCount,
+        pickupLat: tripRequest.pickupLat ?? undefined,
+        pickupLng: tripRequest.pickupLng ?? undefined,
+      },
+      pushTitle: 'Ride Request Nearby',
+      pushBody: `${groupedCount} rider${groupedCount > 1 ? 's' : ''} need a trip to ${destination}`,
+      pushData: {
+        requestId: tripRequest.id,
+        destination,
+        scheduledAt: scheduledAt.toISOString(),
+        groupedCount: String(groupedCount),
+        pickupLat: tripRequest.pickupLat != null ? String(tripRequest.pickupLat) : '',
+        pickupLng: tripRequest.pickupLng != null ? String(tripRequest.pickupLng) : '',
+      },
+      // Stop walking the queue the moment the request stops needing a driver.
+      isStillOpen: async () => {
+        const current = await prisma.tripRequest.findUnique({
+          where: { id: tripRequest.id },
+          select: { status: true },
+        });
+        return current?.status === 'DISPATCHED' || current?.status === 'PENDING';
+      },
+      // Nobody took it. Mark the request so the rider's failure screen and the
+      // Activity list agree with what they were just told on the socket.
+      onExhausted: async () => {
+        await prisma.tripRequest
+          .updateMany({
+            where: { id: tripRequest.id, status: { in: ['PENDING', 'DISPATCHED'] } },
+            data: { status: 'EXPIRED' },
+          })
+          .catch(() => {});
+      },
+    });
+  } catch (err) {
+    logger.warn('Trip request dispatch failed (non-blocking):', err.message);
+  }
+}
+
+/** @deprecated superseded by the cascade above — kept only for reference. */
+async function legacyBroadcastRequestToDrivers(tripRequest, destination, scheduledAt, groupedCount) {
   try {
     let nearbyDriverIds = [];
 
@@ -253,6 +324,10 @@ async function cancelRequest(userId, tripRequestId) {
   if (!tripRequest) throw new NotFoundError('TripRequest');
   if (tripRequest.userId !== userId) throw new AppError('Not authorized', 403, 'FORBIDDEN');
 
+  // Kill the in-flight offer chain so no further driver is disturbed by a ride
+  // the rider has already walked away from.
+  dispatchCascade.cancelCascade(tripRequestId);
+
   const claim = await prisma.tripRequest.updateMany({
     where: { id: tripRequestId, status: { in: ['PENDING', 'DISPATCHED'] } },
     data: { status: 'CANCELLED' },
@@ -275,6 +350,10 @@ async function acceptTripRequest(driverId, tripRequestId) {
   if (!(await isDriverAvailable(prisma, driverId))) {
     throw new AppError('Finish your current trip before accepting another.', 409, 'DRIVER_BUSY');
   }
+
+  // Stop the cascade before the claim, not after: the next offer is on a timer
+  // and would otherwise fire at a second driver while this transaction runs.
+  dispatchCascade.acceptOffer(tripRequestId, driverId);
 
   const result = await prisma.$transaction(async (tx) => {
     const claim = await tx.tripRequest.updateMany({
@@ -467,4 +546,23 @@ async function acceptTripRequest(driverId, tripRequestId) {
   return result;
 }
 
-module.exports = { createRequest, cancelRequest, acceptTripRequest };
+/**
+ * Driver declines an on-demand request offer.
+ *
+ * Without this the cascade could only advance on the 20-second offer timeout, so
+ * a rider whose first three candidates all tapped "Decline" instantly still
+ * waited a full minute. Deliberately does NOT touch the TripRequest row — the
+ * request stays open, it is only this driver who passed on it.
+ */
+async function declineTripRequest(driverId, tripRequestId) {
+  const advanced = dispatchCascade.declineOffer(tripRequestId, driverId);
+  // DispatchAction.tripId is a plain string column (no FK), so a TripRequest id
+  // is a valid value for it — the audit trail covers both dispatch kinds. A
+  // logging failure must never fail the decline itself.
+  await prisma.dispatchAction
+    .create({ data: { driverId, tripId: tripRequestId, action: 'DECLINED' } })
+    .catch(() => {});
+  return { declined: true, advanced };
+}
+
+module.exports = { createRequest, cancelRequest, acceptTripRequest, declineTripRequest };

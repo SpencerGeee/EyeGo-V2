@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, type ViewStyle } from 'react-native';
+import { StyleSheet, View, type ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -25,6 +25,8 @@ interface MorphTargetProps {
 // Must match MorphProvider's CROSSFADE_MS — the clone overlay fades out over
 // this same window, so the real content needs to fade in in lockstep.
 const CROSSFADE_MS = 200;
+
+const styles = StyleSheet.create({ fill: { flex: 1 } });
 
 /**
  * Wraps the element a morph lands on. Reports its window frame to
@@ -105,7 +107,18 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
 
   return (
     <View ref={ref} collapsable={false} onLayout={onLayout} style={style}>
-      <Animated.View style={animatedStyle}>{children}</Animated.View>
+      {/* BUGFIX ("the map is pure black on the tracking page"): this wrapper
+          carried ONLY the animated opacity, so it had no flex — a full-screen
+          target like <MorphTarget style={{ flex: 1 }}> stretched the OUTER view
+          while this inner one collapsed to its content height. Anything the
+          screen positioned with `position: absolute` + absoluteFill (every
+          MapView in both apps) then filled a zero-height box, so the native map
+          measured 0×0, never reported a size, never attached its camera, and
+          rendered nothing — reading on-device as a black screen behind the
+          panel. `flex: 1` here is inert for content-sized targets (Yoga only
+          distributes free space, of which an auto-height parent has none) and
+          restores the full height for screen-sized ones. */}
+      <Animated.View style={[styles.fill, animatedStyle]}>{children}</Animated.View>
     </View>
   );
 }

@@ -50,7 +50,7 @@ export default function RideDetailScreen() {
     morphBack(() => router.back());
   }, [morphBack, router]);
   const { user } = useAuthStore();
-  const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare } = useRideStore();
+  const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare, guestInfo } = useRideStore();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selectedTier, setSelectedTier] = useState<TierKey>(
     (tierParam?.toUpperCase() as TierKey) ?? 'ECONOMY'
@@ -427,14 +427,31 @@ export default function RideDetailScreen() {
                   <Ionicons name="people-outline" size={18} color={colors.secondary} />
                   <Text variant="label" color={colors.secondary}>Book & invite my group</Text>
                 </Pressable>
+                {/* BUGFIX ("I enter the guest's name and phone and just get sent
+                    back with nothing showing it worked"): the guest details were
+                    being saved to the ride store correctly, but NOTHING in the
+                    booking flow ever rendered them — the screen this returns to
+                    looked byte-for-byte identical afterwards, so a successful
+                    save was indistinguishable from a silent failure. Reflect the
+                    stored guest here, and let it be changed or cleared. */}
                 <Pressable
-                  style={[styles.inviteButton, { borderColor: colors.outlineVariant }]}
+                  style={[
+                    styles.inviteButton,
+                    { borderColor: guestInfo ? colors.primary : colors.outlineVariant },
+                    guestInfo && { backgroundColor: withOpacity(colors.primary, 0.08) },
+                  ]}
                   onPress={() => router.push('/ride/guest-selection' as Href)}
                   accessibilityRole="button"
-                  accessibilityLabel="Book for someone else"
+                  accessibilityLabel={guestInfo ? `Booking for ${guestInfo.name}. Change passenger` : 'Book for someone else'}
                 >
-                  <Ionicons name="person-add-outline" size={18} color={colors.onSurfaceVariant} />
-                  <Text variant="label" color={colors.onSurfaceVariant}>Book for someone else</Text>
+                  <Ionicons
+                    name={guestInfo ? 'person-circle' : 'person-add-outline'}
+                    size={18}
+                    color={guestInfo ? colors.primary : colors.onSurfaceVariant}
+                  />
+                  <Text variant="label" color={guestInfo ? colors.primary : colors.onSurfaceVariant}>
+                    {guestInfo ? `Booking for ${guestInfo.name}` : 'Book for someone else'}
+                  </Text>
                 </Pressable>
               </MotiView>
             </>

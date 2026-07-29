@@ -193,6 +193,11 @@ const acceptTripRequest = async (req, res) => {
   ok(res, { trip, bookings }, 'Trip request accepted');
 };
 
+const declineTripRequest = async (req, res) => {
+  const result = await tripRequestService.declineTripRequest(req.user.userId, req.params.id);
+  ok(res, result, 'Trip request declined');
+};
+
 const uploadDocument = async (req, res) => {
   const result = await driversService.uploadDocument(req.user.userId, req.file, req.body.type);
   ok(res, result, 'Document uploaded');
@@ -451,7 +456,8 @@ module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getAllTrips, devActivate,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
-  getTripById, acceptDispatch, declineDispatch, claimReassignedTrip, acceptTripRequest, uploadDocument,
+  getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
+  acceptTripRequest, declineTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences,
   createTrip, ratePassenger, getFareEstimate,

@@ -64,6 +64,9 @@ router.post('/trips/:id/decline', controller.declineDispatch);
 // treated as a request id.
 router.get('/trip-requests/pending', controller.getPendingTripRequests);
 router.post('/trip-requests/:id/accept', requireActiveDriver, controller.acceptTripRequest);
+// Declining advances the dispatch cascade to the next driver immediately
+// instead of making the rider wait out this driver's offer timeout.
+router.post('/trip-requests/:id/decline', controller.declineTripRequest);
 
 // Upcoming scheduled trips this driver is matched to (scheduled-ride awareness).
 router.get('/scheduled/upcoming', controller.getUpcomingScheduled);

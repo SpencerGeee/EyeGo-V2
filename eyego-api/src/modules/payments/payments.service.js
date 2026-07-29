@@ -246,6 +246,23 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
     if (!booking) throw new NotFoundError('Booking');
     if (booking.paymentStatus === 'PAID' || booking.paymentStatus === 'CASH_PENDING') return booking; // idempotent
 
+    // BUGFIX ("Pay in cash → Payment failed", including the group host's
+    // pay-for-everyone flow): cash bookings are CONFIRMED at creation with
+    // paymentStatus 'PENDING' — cash is owed to the driver, not to us, so there
+    // is nothing to collect online. When the rider then pressed "Pay in cash",
+    // this fell through to the SEAT_HELD guard below, which saw a CONFIRMED
+    // booking, decided the seat hold had expired, and threw — surfacing as a
+    // flat "Payment failed" on a booking that was in fact perfectly fine.
+    //
+    // The 'PENDING' paymentStatus cannot carry this on its own: it is also the
+    // initial value for an unpaid card/MoMo booking, so it is the CONFIRMED
+    // status that distinguishes "already settled, cash owed on boarding".
+    const cashSettled =
+      booking.status === 'CONFIRMED' &&
+      booking.paymentStatus === 'PENDING' &&
+      (cashOnBoard || booking.paymentMethod === 'CASH');
+    if (cashSettled) return booking; // idempotent
+
     if (booking.status !== 'SEAT_HELD' || booking.trip.confirmedSeats >= booking.trip.maxSeats) {
       const reason = booking.status !== 'SEAT_HELD' ? 'expired/cancelled booking' : 'trip full';
       if (isSync) {

@@ -3,6 +3,7 @@
 const prisma = require('../../config/database');
 const env = require('../../config/env');
 const { calculateFare, estimateFare, haversineKm } = require('./fare.calculator');
+const { availableDriverWhere } = require('../../services/driver-availability');
 const { NotFoundError, ConflictError, ForbiddenError, AppError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
 const surgeService = require('./surge.service');
@@ -1296,4 +1297,39 @@ async function getTrackingData(shortId) {
   };
 }
 
-module.exports = { createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };
+/**
+ * Available drivers near a point, as bare id + position.
+ *
+ * Reuses the one availability rule (services/driver-availability.js) so the pins
+ * a rider sees match the drivers dispatch would actually offer to — showing a
+ * busy driver as an available car is worse than showing nothing.
+ *
+ * Positions are the drivers' last reported DB coordinates, rounded to ~11 m.
+ * That is precise enough to place a car on the right street and coarse enough
+ * that the endpoint cannot be used to follow an individual driver around.
+ */
+async function getNearbyAvailableDrivers({ lat, lng, radiusKm = 6 }) {
+  const drivers = await prisma.driver.findMany({
+    where: {
+      ...availableDriverWhere(),
+      currentLat: { not: null },
+      currentLng: { not: null },
+    },
+    select: { id: true, currentLat: true, currentLng: true },
+    take: 60,
+  });
+
+  return drivers
+    .map((d) => ({
+      id: d.id,
+      latitude: Math.round(d.currentLat * 1e4) / 1e4,
+      longitude: Math.round(d.currentLng * 1e4) / 1e4,
+      distanceKm: haversineKm(lat, lng, d.currentLat, d.currentLng),
+    }))
+    .filter((d) => Number.isFinite(d.distanceKm) && d.distanceKm <= radiusKm)
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, 20)
+    .map(({ id, latitude, longitude }) => ({ id, latitude, longitude }));
+}
+
+module.exports = { getNearbyAvailableDrivers, createTrip, getTrip, getTripDriverPhone, getTripByShareToken, getSeatMap, getPulseSchedules, searchTrips, getActiveTrip, completeTrip, getTripReceipt, driverNoShow, riderNoShow, scheduleTrip, getTrackingData, getScheduledRides, cancelScheduledRide, processScheduledRideIntents, saveLiveActivityToken, clearLiveActivityToken, estimateDeviationSurcharge };
