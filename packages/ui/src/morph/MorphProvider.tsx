@@ -140,6 +140,24 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const [cloneNode, setCloneNode] = useState<React.ReactNode>(null);
   const [cloneBg, setCloneBg] = useState<string | undefined>(undefined);
 
+  /**
+   * The clone's FIXED layout frame, held in React state rather than re-derived
+   * inside the animated style.
+   *
+   * SMOOTHNESS FIX: the animated style used to assign `left`, `top`, `width`
+   * and `height` on every single frame. Those are layout properties — even when
+   * the value written is identical frame to frame, Reanimated pushes the whole
+   * style object through the native layout path, so each of the ~60 frames of a
+   * morph dirtied the layout of a full-screen view and its subtree. That is a
+   * measure/layout pass per frame on top of the transform, and it is what kept
+   * the morph from ever feeling buttery no matter how the timing was tuned.
+   *
+   * These values only change twice per flight (when the clone mounts, and when
+   * the target reports its frame), so they belong in state. The animated style
+   * is now transform + opacity + borderRadius only — all compositor-side.
+   */
+  const [frame, setFrame] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
   // Source rect — set once when morphTo fires
   const sourceX = useSharedValue(0);
   const sourceY = useSharedValue(0);
@@ -184,6 +202,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     setCloneNode(null);
     setActiveId(null);
     setPhase('idle');
+    setFrame(null);
   }, []);
 
   // ─── Settle (crossfade clone → real content) ───────────────────────────
@@ -244,6 +263,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           }, TARGET_TIMEOUT_MS),
         };
 
+        // Clone starts pinned to the source frame; targetReady re-pins it to
+        // the target frame and the transform carries the delta from there.
+        setFrame({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
         setCloneBg(entry.backgroundColor);
         setCloneNode(entry.getClone());
         setActiveId(id);
@@ -275,6 +297,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       targetR.value = borderRadius;
       f.targetRect = rect;
       f.targetRadius = borderRadius;
+      // Re-pin the clone's static frame to the target. Everything from here on
+      // is pure transform, so the flight itself costs no layout work.
+      setFrame({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
 
       // Spring progress from 0 → 1 — the overlay flies from source to target
       morphProgress.value = withSpring(1, springs.morph, (finished) => {
@@ -405,15 +430,11 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     const y = interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]);
     const baseW = targetW.value || 1;
     const baseH = targetH.value || 1;
+    // Transform + opacity + borderRadius ONLY — see the `frame` state above for
+    // why left/top/width/height must not be written from here.
     return {
-      position: 'absolute' as const,
-      left: targetX.value,
-      top: targetY.value,
-      width: baseW,
-      height: baseH,
       borderRadius: interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]),
       opacity: cloneOpacity.value,
-      overflow: 'hidden' as const,
       transform: [
         { translateX: x - targetX.value },
         { translateY: y - targetY.value },
@@ -422,6 +443,24 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       ],
     };
   });
+
+  /** The non-animated half of the clone's style — written twice per flight, not 60 times a second. */
+  const overlayFrameStyle = useMemo(
+    () => ({
+      position: 'absolute' as const,
+      left: frame?.x ?? 0,
+      top: frame?.y ?? 0,
+      width: frame?.width ?? 1,
+      height: frame?.height ?? 1,
+      overflow: 'hidden' as const,
+    }),
+    [frame],
+  );
+
+  const contentFrameStyle = useMemo(
+    () => ({ width: frame?.width ?? 1, height: frame?.height ?? 1 }),
+    [frame],
+  );
 
   // BUGFIX ("the where-to animation looks like a fast fade, not a morph"):
   // the inner inverse-scale exactly cancels the container's scale, so the
@@ -442,9 +481,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
     const baseW = targetW.value || 1;
     const baseH = targetH.value || 1;
+    // width/height live in contentFrameStyle — same layout-thrash reason as the
+    // overlay above.
     return {
-      width: baseW,
-      height: baseH,
       opacity: interpolate(
         morphProgress.value,
         [0, CONTENT_FADE_OUT_END],
@@ -502,11 +541,12 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
             <Animated.View
               style={[
-                overlayStyle,
+                overlayFrameStyle,
                 { backgroundColor: cloneBg ?? colors.backgroundDeep },
+                overlayStyle,
               ]}
             >
-              <Animated.View style={contentStyle}>{cloneNode}</Animated.View>
+              <Animated.View style={[contentFrameStyle, contentStyle]}>{cloneNode}</Animated.View>
             </Animated.View>
           </View>
         )}

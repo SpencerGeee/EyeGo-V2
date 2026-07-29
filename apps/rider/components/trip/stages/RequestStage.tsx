@@ -7,7 +7,7 @@ import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button, GlassSurface, GradientGlowBorder } from '@eyego/ui';
-import { tripsApi, queryKeys } from '@eyego/api';
+import { tripsApi, queryKeys, socketEvents } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { useTripFlow } from '../../../stores/tripFlow.store';
@@ -46,6 +46,38 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sentRef = useRef(false);
 
+  // One place that owns "a driver took this request", so the 4s poll, the
+  // resumed poll and the (previously unwired) socket push all settle it
+  // identically. The double-navigation guard lives here too — the Activity
+  // tab's LiveRequestCard polls the same request independently, and two
+  // racing navigations into a not-yet-existing tracking route used to crash.
+  const finishMatch = React.useCallback((matchedTripId: string) => {
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (useRideStore.getState().pendingTripRequestId !== requestIdRef.current) return;
+    setPendingTripRequest(null);
+    setStatus('matched');
+    queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+    router.dismissTo(`/ride/${matchedTripId}/tracking` as any);
+  }, [queryClient, router, setPendingTripRequest]);
+
+  // DEAD-PATH FIX: the backend emits `trip:request_accepted` to this rider the
+  // instant a driver accepts, but nothing ever listened, so the only way this
+  // screen learned it had been matched was its own 4-second poll. The rider
+  // watched a spinner for up to four seconds after their driver was already on
+  // the way. The poll stays as the fallback for a dropped socket.
+  useEffect(() => {
+    const off = socketEvents.onTripRequestAccepted((data) => {
+      const id = requestIdRef.current;
+      if (!id) return;
+      if (data?.requestId && data.requestId !== id) return;
+      if (!data?.tripId) return;
+      finishMatch(data.tripId);
+    });
+    return () => { off(); };
+  }, [finishMatch]);
+
   useEffect(() => {
     if (sentRef.current) return;
     sentRef.current = true;
@@ -61,20 +93,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           const check = await tripsApi.getTripRequest(requestIdRef.current!);
           const req = check.data?.data;
           if (req?.status === 'ACCEPTED' && req.matchedTripId) {
-            if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-            // Guard against the Activity tab's LiveRequestCard (a second,
-            // independent poller for this same request — see activity.tsx)
-            // detecting the same match and navigating first. Both effects
-            // watch the same pendingTripRequestId; whichever runs first wins
-            // by clearing it, and the other bails out here instead of firing
-            // a second, racing navigation into the same not-yet-existing
-            // tracking route, which crashed the app on return to this screen.
-            if (useRideStore.getState().pendingTripRequestId !== requestIdRef.current) return;
-            setPendingTripRequest(null);
-            setStatus('matched');
-            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-            router.dismissTo(`/ride/${req.matchedTripId}/tracking` as any);
+            finishMatch(req.matchedTripId);
           } else if (req?.status === 'CANCELLED') {
             if (pollTimerRef.current) clearInterval(pollTimerRef.current);
             setPendingTripRequest(null);
@@ -122,16 +141,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             const check = await tripsApi.getTripRequest(requestIdRef.current!);
             const req = check.data?.data;
             if (req?.status === 'ACCEPTED' && req.matchedTripId) {
-              if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-              if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-              // See the resumeRequestId branch above — same double-navigation
-              // guard against the Activity tab's LiveRequestCard poller.
-              if (useRideStore.getState().pendingTripRequestId !== requestIdRef.current) return;
-              setPendingTripRequest(null);
-              setStatus('matched');
-              queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-              queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-              router.dismissTo(`/ride/${req.matchedTripId}/tracking` as any);
+              finishMatch(req.matchedTripId);
             }
           } catch {
             // transient poll failure — try again on next tick

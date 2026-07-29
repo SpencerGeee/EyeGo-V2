@@ -258,6 +258,33 @@ export const socketEvents = {
     return () => getSocket().off('trip:seat_update', cb);
   },
 
+  /**
+   * A driver accepted this rider's on-demand trip request.
+   *
+   * DEAD-PATH FIX: the backend has always emitted `trip:request_accepted` to
+   * `user:<id>` on the /passenger namespace (trip-request.service.js), but
+   * nothing in the rider app ever listened for it — the event was constructed,
+   * addressed and thrown away every single time. The "looking for a driver"
+   * screen only ever learned it had been matched from its own 4-second poll,
+   * so the rider sat watching a spinner for up to four seconds after a driver
+   * had already accepted and started driving to them.
+   */
+  onTripRequestAccepted: (cb: (data: { requestId?: string; tripId?: string; driverName?: string }) => void) => {
+    getSocket().on('trip:request_accepted', cb);
+    return () => getSocket().off('trip:request_accepted', cb);
+  },
+
+  /**
+   * Server-side confirmation that a payment settled (gateway webhook landed).
+   * Same dead-path story as above: emitted by payments.controller.js, listened
+   * for by nobody, so payment screens could only discover success by polling
+   * verify.
+   */
+  onPaymentConfirmed: (cb: (data: { bookingId?: string; tripId?: string; reference?: string }) => void) => {
+    getSocket().on('payment:confirmed', cb);
+    return () => getSocket().off('payment:confirmed', cb);
+  },
+
   joinTripRoom: (tripId: string, driverId?: string, lastMessageTimestamp?: string) => {
     getSocket().emit('passenger:join_trip_room', { tripId, driverId, lastMessageTimestamp });
   },

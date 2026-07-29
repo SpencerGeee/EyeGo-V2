@@ -170,3 +170,12 @@ Decisions:
 - QR codes must encode real URLs, not `eyego:pay:<phone>` — a bare custom-scheme string is not actionable by a phone's stock camera.
 Rejected: keeping Nominatim-only geocoding; keeping the pencil button as the avatar morph's trigger.
 Open: no gateway integration, so card/MoMo paths are unexercised end-to-end; nothing device-tested.
+
+## 2026-07-29 03:05 [saved]
+Goal: Hunt runtime-fatal bug class systematically; make morphs cheap per-frame.
+Decisions:
+- Wrote two throwaway analyzers (scratchpad) instead of eyeballing: a schema-aware Prisma arg-shape linter and a wiring linter (exports, api surface, socket event drift). Both found real bugs; both confirmed the rest is clean.
+- Prisma `select` + `include` at the same level throws — driver earnings GraphQL resolver was dead on every call.
+- Morph smoothness was never a timing problem: the animated style wrote left/top/width/height every frame, forcing a layout pass per frame. Static frame now lives in React state; animated style is transform/opacity/borderRadius only.
+Rejected: tuning spring constants to fix morph jank — the cost was layout, not easing.
+Open: socket `payment:confirmed` listener added to the API surface but not yet consumed by a screen; nothing device-tested.

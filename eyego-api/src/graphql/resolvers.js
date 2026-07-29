@@ -101,18 +101,23 @@ const resolvers = {
           status: 'COMPLETED',
           arrivedAt: { gte: from },
         },
-        include: {
-          bookings: {
-            where: { paymentStatus: 'PAID' },
-            select: { fareAmount: true, commissionAmount: true },
-          },
-        },
         orderBy: { arrivedAt: 'asc' },
+        // BUGFIX: this passed `include` AND `select` at the same level. Prisma
+        // rejects that outright (PrismaClientValidationError, verified against
+        // the generated client), so this earnings query threw on every call and
+        // the GraphQL resolver 500'd — the driver earnings chart could never
+        // have rendered real data. The `select` also re-declared `bookings:
+        // true`, which would have discarded the PAID-only filter even if the
+        // query had been accepted. One `select` now carries both the field list
+        // and the filtered relation.
         select: {
           id: true,
           arrivedAt: true,
           departureTime: true,
-          bookings: true,
+          bookings: {
+            where: { paymentStatus: 'PAID' },
+            select: { fareAmount: true, commissionAmount: true },
+          },
         },
       });
 
