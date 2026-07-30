@@ -168,7 +168,16 @@ export default function EditProfileScreen() {
         {/* MorphTarget hoisted outside KeyboardAwareScrollView so its
             measureInWindow fires from a stable layout position — no delay
             from scroll-view / GradientGlowBorder settling. */}
-        <MorphTarget id={morphId ?? 'profile-hero-avatar'} borderRadius={48}>
+        {/* BUGFIX (item 15 — "the profile picture sits behind the fields"):
+            this block and the scroll view below are siblings in the same column,
+            so with no z-order the LATER sibling paints on top. The avatar's
+            GradientGlowBorder `glow` casts shadow layers that extend past its
+            108×108 box, and the form's own surfaces were painting over them —
+            reading on-device as the photo sitting underneath the fields. Lifting
+            the whole avatar block (zIndex for iOS, elevation for Android) keeps
+            it above the form, and the extra bottom room stops the glow reaching
+            the first field at all. */}
+        <MorphTarget id={morphId ?? 'profile-hero-avatar'} borderRadius={48} style={styles.avatarMorph}>
           <View style={styles.avatarSection}>
             <Pressable onPress={pickImage} style={styles.avatarContainer}>
               <GradientGlowBorder
@@ -369,9 +378,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: spacing['2xl'],
     paddingBottom: 120,
   },
+  avatarMorph: {
+    zIndex: 2,
+    elevation: 2,
+  },
   avatarSection: {
     alignItems: 'center',
     marginBottom: spacing['2xl'],
+    // Clearance for the ring's glow, which paints outside the 108×108 box.
+    paddingBottom: spacing.md,
   },
   avatarContainer: { position: 'relative', width: 108, height: 108 },
   avatarRing: { width: 108, height: 108, alignItems: 'center', justifyContent: 'center' },

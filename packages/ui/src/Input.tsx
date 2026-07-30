@@ -107,16 +107,26 @@ export function Input({
           >
             {label}
           </AnimatedText>
+          {/* BUGFIX ("the placeholder overlaps the field label and reads as
+              gibberish", seen on the business-profile fields): `placeholder` is
+              NOT destructured out of props, so `{...props}` used to be spread
+              AFTER the gated `placeholder` below and put the raw one straight
+              back. The gate never took effect: every unfocused field rendered
+              its placeholder at exactly the resting position of the floating
+              label, printing two strings on top of each other.
+              The spread now goes FIRST so the controlled props below always win;
+              `style` gets the same protection (a caller's style is merged rather
+              than replacing the input's own). */}
           <TextInput
+            {...props}
             ref={inputRef}
-            style={[styles.input, leftIcon ? { paddingLeft: 0 } : undefined]}
+            style={[styles.input, leftIcon ? { paddingLeft: 0 } : undefined, props.style]}
             onFocus={handleFocus}
             onBlur={handleBlur}
             value={value}
             placeholder={(!value && showPlaceholder) ? props.placeholder : undefined}
             placeholderTextColor={colors.onSurfaceVariant}
             selectionColor={colors.primary}
-            {...props}
           />
         </View>
         {rightIcon && <View style={styles.rightIcon}>{rightIcon}</View>}

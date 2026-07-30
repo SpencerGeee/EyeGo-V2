@@ -21,6 +21,7 @@ import { StepIndicator } from '../../components/StepIndicator';
 import { haversineKm } from '../../utils/haversine';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import type { GeocodeResult } from '../../utils/geocoding';
+import { fetchRoute, type RouteResult } from '../../utils/routing';
 
 const MAX_STEPS = 4;
 
@@ -120,10 +121,46 @@ export default function CreateTripScreen() {
     }, [])
   );
 
-  const distanceKm = useMemo(() => {
+  /**
+   * Straight-line distance. Only a placeholder until the road route resolves —
+   * see `roadRoute` below. Never show this to a driver on its own: a crow-flies
+   * number is 25–40% short of the real drive in a city grid.
+   */
+  const straightKm = useMemo(() => {
     if (!origin || !destination) return 0;
     return Math.max(haversineKm(origin.latitude, origin.longitude, destination.latitude, destination.longitude), 0.1);
   }, [origin, destination]);
+
+  /**
+   * Real road route for the trip being created.
+   *
+   * BUGFIX (ETA ignored traffic): the summary read
+   * `Math.round(straightKm / 40 * 60)` — a 40 km/h free-flow assumption applied
+   * to a straight-line distance, so it was optimistic twice over and never moved
+   * with the time of day. `/v1/geo/route` answers with Mapbox `driving-traffic`
+   * (live + historical congestion), falling back to OSRM re-timed at the Accra
+   * urban average, so both the distance and the minutes here are real.
+   */
+  const [roadRoute, setRoadRoute] = useState<RouteResult | null>(null);
+  useEffect(() => {
+    if (!origin || !destination) {
+      setRoadRoute(null);
+      return;
+    }
+    let cancelled = false;
+    fetchRoute(
+      [origin.longitude, origin.latitude],
+      [destination.longitude, destination.latitude],
+    ).then((r) => {
+      if (!cancelled) setRoadRoute(r);
+    });
+    return () => { cancelled = true; };
+  }, [origin, destination]);
+
+  /** Road distance when known, straight-line while the route is in flight. */
+  const distanceKm = roadRoute?.distanceKm ?? straightKm;
+  /** Traffic-aware minutes; null until the route resolves. */
+  const etaMinutes = roadRoute ? Math.max(1, Math.round(roadRoute.durationMin)) : null;
 
   const { data: fareEstimateData } = useQuery({
     queryKey: ['driver', 'fare-estimate', distanceKm, seats, tier],
@@ -265,7 +302,7 @@ export default function CreateTripScreen() {
 
             {origin && destination && (
               <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.md, textAlign: 'center' }}>
-                {distanceKm.toFixed(1)} km · ~{Math.round(distanceKm / 40 * 60)} min
+                {distanceKm.toFixed(1)} km{etaMinutes ? ` · ~${etaMinutes} min in current traffic` : ' · calculating…'}
               </Text>
             )}
           </Entrance>
@@ -311,7 +348,13 @@ export default function CreateTripScreen() {
                     setDepartureTime(updated);
                   }
                 }}
-                style={{ backgroundColor: colors.surfaceContainer }}
+                // BUGFIX (item 2 — "the time step looks clipped and isn't full
+                // width"): a spinner DateTimePicker has an intrinsic content
+                // size, so with no width it laid out at that size inside this
+                // step's column and the wheel was cropped on the right. Stretch
+                // it to the step width and give it the height the iOS wheel
+                // actually needs, so it reads like the other steps' cards.
+                style={styles.timePicker}
               />
             )}
 
@@ -329,7 +372,13 @@ export default function CreateTripScreen() {
                     setDepartureTime(updated);
                   }
                 }}
-                style={{ backgroundColor: colors.surfaceContainer }}
+                // BUGFIX (item 2 — "the time step looks clipped and isn't full
+                // width"): a spinner DateTimePicker has an intrinsic content
+                // size, so with no width it laid out at that size inside this
+                // step's column and the wheel was cropped on the right. Stretch
+                // it to the step width and give it the height the iOS wheel
+                // actually needs, so it reads like the other steps' cards.
+                style={styles.timePicker}
               />
             )}
           </Entrance>
@@ -399,7 +448,7 @@ export default function CreateTripScreen() {
               <View style={styles.summaryDivider} />
               <SummaryRow icon="people" label="Seats" value={`${seats} available`} colors={colors} />
               <View style={styles.summaryDivider} />
-              <SummaryRow icon="speedometer" label="Distance" value={`${distanceKm.toFixed(1)} km · ~${Math.round(distanceKm / 40 * 60)} min`} colors={colors} />
+              <SummaryRow icon="speedometer" label="Distance" value={`${distanceKm.toFixed(1)} km${etaMinutes ? ` · ~${etaMinutes} min` : ''}`} colors={colors} />
             </GradientGlowBorder>
 
             {/* Service tier — sets pricing band; ECONOMY is the shared/pooled
@@ -606,6 +655,17 @@ const makeStyles = (colors: DriverColors) =>
       height: 16,
       marginLeft: spacing.base + 5,
       backgroundColor: colors.outline,
+    },
+    /** Departure-time wheel. Full width + explicit height, or the native
+     *  spinner lays out at its intrinsic content size and gets cropped. */
+    timePicker: {
+      width: '100%',
+      alignSelf: 'stretch',
+      height: 200,
+      marginTop: spacing.md,
+      borderRadius: radii.xl,
+      overflow: 'hidden',
+      backgroundColor: colors.surfaceContainer,
     },
     timeCard: {
       flexDirection: 'row',

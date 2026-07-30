@@ -63,13 +63,31 @@ const QuestCard: React.FC<QuestCardProps> = ({
       </View>
 
       <View style={styles.footer}>
-        <Text variant="caption" color={colors.onSurfaceVariant}>
+        <Text
+          variant="caption"
+          color={colors.onSurfaceVariant}
+          style={styles.footerProgress}
+          numberOfLines={1}
+        >
           {type === 'RIDES_COUNT'
             ? `${Math.floor(current)} / ${Math.floor(target)} rides`
             : `GHS ${current.toFixed(2)} / GHS ${target.toFixed(2)}`}
         </Text>
         {completed && !rewardedAt && (
-          <Button label="Claim Bonus" variant="primary" onPress={onClaim} loading={claiming} disabled={!onClaim || claiming} />
+          // BUGFIX (item 19 — "the claim bonus button is distorted"): `Button`
+          // defaults to `fullWidth`, so inside this row it claimed 100% of the
+          // footer, overlapping the progress caption and stretching itself past
+          // the card's padding. It has to size to its label here.
+          <View style={styles.footerAction}>
+            <Button
+              label="Claim Bonus"
+              variant="primary"
+              fullWidth={false}
+              onPress={onClaim}
+              loading={claiming}
+              disabled={!onClaim || claiming}
+            />
+          </View>
         )}
         {rewardedAt && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
@@ -115,7 +133,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.md,
+    marginTop: spacing.xs,
   },
+  /** Takes the leftover width so a long "GHS x / GHS y" line truncates instead
+   *  of pushing the claim button out of the card. */
+  footerProgress: { flex: 1, minWidth: 0 },
+  /** The claim button sizes to its label and never shrinks. */
+  footerAction: { flexShrink: 0 },
 });
 
 export default QuestCard;

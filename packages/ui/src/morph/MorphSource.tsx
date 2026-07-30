@@ -52,6 +52,9 @@ export const MorphSource = forwardRef<MorphSourceHandle, MorphSourceProps>(funct
   const childrenRef = useRef(children);
   childrenRef.current = children;
 
+  /** Last window frame this source reported — the fallback for `measureSync`. */
+  const lastRectRef = useRef<MorphRect | null>(null);
+
   const measure = useCallback(
     () =>
       new Promise<MorphRect | null>((resolve) => {
@@ -59,16 +62,45 @@ export const MorphSource = forwardRef<MorphSourceHandle, MorphSourceProps>(funct
         if (!node) return resolve(null);
         node.measureInWindow((mx, my, mw, mh) => {
           if (typeof mx !== 'number' || Number.isNaN(mx)) return resolve(null);
-          resolve({ x: mx, y: my, width: mw, height: mh });
+          const rect = { x: mx, y: my, width: mw, height: mh };
+          lastRectRef.current = rect;
+          resolve(rect);
         });
       }),
     []
   );
 
+  /**
+   * Synchronous frame for the reverse morph. Fabric exposes
+   * `unstable_getBoundingClientRect()` on host components, which is the only way
+   * to get a window-relative frame without awaiting a callback; when it is
+   * unavailable (or the node is gone) we fall back to the last frame measured on
+   * the way out, which is what `morphBack` used to use unconditionally.
+   */
+  const measureSync = useCallback((): MorphRect | null => {
+    const node = viewRef.current as unknown as
+      | { unstable_getBoundingClientRect?: () => { x: number; y: number; width: number; height: number } }
+      | null;
+    const rect = node?.unstable_getBoundingClientRect?.();
+    if (
+      rect &&
+      Number.isFinite(rect.x) &&
+      Number.isFinite(rect.y) &&
+      rect.width > 0 &&
+      rect.height > 0
+    ) {
+      const next = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      lastRectRef.current = next;
+      return next;
+    }
+    return lastRectRef.current;
+  }, []);
+
   useEffect(() => {
     if (!morph) return;
     return morph.registerSource(id, {
       measure,
+      measureSync,
       getClone: () => childrenRef.current,
       borderRadius,
       backgroundColor,

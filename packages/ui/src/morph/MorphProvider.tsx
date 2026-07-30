@@ -33,6 +33,15 @@ export interface MorphRect {
 /** What a MorphSource registers so the provider can fly a clone of it. */
 export interface MorphSourceEntry {
   measure: () => Promise<MorphRect | null>;
+  /**
+   * Best-effort synchronous re-measure, used by `morphBack` — the reverse flight
+   * has to know where the source sits NOW (the screen underneath stayed live and
+   * may have scrolled), and it cannot await a promise without dropping a frame
+   * between the clone appearing and the spring starting. Returns null when no
+   * fresh measurement is available, in which case the caller keeps the rect
+   * captured on the way out.
+   */
+  measureSync?: () => MorphRect | null;
   getClone: () => React.ReactNode;
   borderRadius: number;
   backgroundColor?: string;
@@ -190,15 +199,31 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     timeout: ReturnType<typeof setTimeout> | null;
   } | null>(null);
 
+  /**
+   * The last flight that LANDED. `flightRef` means "a morph is in the air right
+   * now"; once the clone has settled the flight moves here.
+   *
+   * BUGFIX: these used to be the same ref, and `settle()` never cleared it. So
+   * after the first successful morph `flightRef.current` stayed populated
+   * forever, and every later `morphTo` hit the `if (flightRef.current)` guard
+   * below and silently degraded to a plain `navigate()` — no clone, no morph,
+   * and a stale `activeId`/`phase` left behind for MorphTarget to interpret,
+   * which is how the where-to card ended up hidden underneath a stranded clone.
+   * Splitting them keeps reverse-morph data available (morphBack needs the
+   * target rect) without making the provider look permanently busy.
+   */
+  const settledRef = useRef<typeof flightRef.current>(null);
+
   const skipMorph = tier === 'low' || reducedMotion;
 
   // ─── Cleanup ───────────────────────────────────────────────────────────
 
   const cleanup = useCallback((restoreSource: boolean) => {
-    const f = flightRef.current;
-    if (f?.timeout) clearTimeout(f.timeout);
+    const f = flightRef.current ?? settledRef.current;
+    if (flightRef.current?.timeout) clearTimeout(flightRef.current.timeout);
     if (restoreSource && f) sources.current.get(f.id)?.show();
     flightRef.current = null;
+    settledRef.current = null;
     setCloneNode(null);
     setActiveId(null);
     setPhase('idle');
@@ -209,12 +234,17 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   const settle = useCallback(() => {
     setPhase('settled');
+    const f = flightRef.current;
+    if (f?.timeout) {
+      clearTimeout(f.timeout);
+      f.timeout = null;
+    }
+    // The flight has landed: it is no longer "in the air" (so the next morphTo
+    // is free to start) but its rects stay available for morphBack.
+    settledRef.current = f;
+    flightRef.current = null;
     cloneOpacity.value = withTiming(0, { duration: CROSSFADE_MS });
-    setTimeout(() => {
-      const f = flightRef.current;
-      if (f?.timeout) clearTimeout(f.timeout);
-      setCloneNode(null);
-    }, CROSSFADE_MS + 20);
+    setTimeout(() => setCloneNode(null), CROSSFADE_MS + 20);
   }, [cloneOpacity]);
 
   // ─── Forward morph ─────────────────────────────────────────────────────
@@ -222,10 +252,18 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const morphTo = useCallback(
     (id: string, navigate: () => void) => {
       const entry = sources.current.get(id);
-      if (!entry || skipMorph || flightRef.current) {
+      if (!entry || skipMorph) {
         navigate();
         return;
       }
+      // A flight still in the air means the previous morph never landed (its
+      // target screen was torn down mid-flight, say). Retire it and start clean
+      // rather than skipping this morph — skipping is what left `activeId`
+      // pointing at a dead flight while MorphTarget kept its content hidden.
+      if (flightRef.current) cleanup(true);
+      // A landed flight for a DIFFERENT id would otherwise leave that source
+      // hidden forever, since only its own morphBack un-hides it.
+      if (settledRef.current && settledRef.current.id !== id) cleanup(true);
       entry.measure().then((rect) => {
         if (!rect || rect.width <= 0 || rect.height <= 0) {
           navigate();
@@ -363,19 +401,34 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   const morphBack = useCallback(
     (navigateBack: () => void) => {
-      const f = flightRef.current;
+      // Normally the flight has already landed, so its data lives in
+      // `settledRef`; `flightRef` only wins if the rider dismissed mid-flight.
+      const f = flightRef.current ?? settledRef.current;
       const entry = f ? sources.current.get(f.id) : null;
       if (!f || !f.targetRect || !entry || skipMorph) {
         cleanup(true);
         navigateBack();
         return;
       }
+      // Reverse takes ownership of the flight data; keep it in `flightRef` for
+      // the duration so a second back-press can't start a competing reverse.
+      flightRef.current = f;
+      settledRef.current = null;
 
-      // Re-mount the clone at the target frame
-      sourceX.value = f.sourceRect.x;
-      sourceY.value = f.sourceRect.y;
-      sourceW.value = f.sourceRect.width;
-      sourceH.value = f.sourceRect.height;
+      // Re-mount the clone at the target frame.
+      //
+      // The source rect is RE-MEASURED here rather than reusing the one captured
+      // on the way out: the screen underneath stays mounted and live while the
+      // target is open, so the card can have moved (list scrolled, a banner
+      // appeared, the card re-rendered at a new height). Flying back to the old
+      // coordinates is what made the return trip land beside the card instead of
+      // on it. `measureSync` falls back to the captured rect if the source has
+      // since unmounted.
+      const back = entry.measureSync?.() ?? f.sourceRect;
+      sourceX.value = back.x;
+      sourceY.value = back.y;
+      sourceW.value = back.width;
+      sourceH.value = back.height;
       sourceR.value = f.sourceRadius;
 
       targetX.value = f.targetRect.x;
@@ -423,6 +476,19 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // recalculation per frame. The inner content gets the inverse scale so
   // the cloned content itself isn't visually stretched/squished by the
   // outer transform (standard "container transform" technique).
+  // BUGFIX ("the live-ride card morphs wrong coming back from tracking", and the
+  // where-to card landing visibly off its pill): scaleX/scaleY in React Native
+  // scale about the view's CENTRE, but the translate above was computed from the
+  // TOP-LEFT delta (`x - targetX`). Those two disagree by half of the size
+  // difference, so the clone was offset by `(targetW - sourceW)/2` horizontally
+  // and `(targetH - sourceH)/2` vertically at progress 0. For a card→card morph
+  // that reads as a small jump; for a card→FULL-SCREEN target (the tracking
+  // screen, `<MorphTarget style={{ flex: 1 }}>`) the offset is hundreds of
+  // pixels, so the reverse morph flew the card to the middle of the screen
+  // instead of back onto the home card — exactly the reported symptom.
+  //
+  // Correct mapping of the fixed frame (targetX/Y/W/H) onto the interpolated box
+  // (x/y/w/h) is: scale by w/targetW, then translate CENTRE to CENTRE.
   const overlayStyle = useAnimatedStyle(() => {
     const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
     const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
@@ -436,8 +502,8 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       borderRadius: interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]),
       opacity: cloneOpacity.value,
       transform: [
-        { translateX: x - targetX.value },
-        { translateY: y - targetY.value },
+        { translateX: x + w / 2 - (targetX.value + baseW / 2) },
+        { translateY: y + h / 2 - (targetY.value + baseH / 2) },
         { scaleX: w / baseW },
         { scaleY: h / baseH },
       ],

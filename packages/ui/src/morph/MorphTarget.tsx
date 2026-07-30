@@ -48,6 +48,13 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
   const isIncomingMorph = isActiveMorph && morph!.phase === 'forward';
   const contentOpacity = useSharedValue(isIncomingMorph ? 0 : 1);
   const progress = morph?.morphProgress;
+  // Only a LIVE flight is allowed to drive this screen's visibility. Once the
+  // flight has settled (or was never really in the air) the screen owns its own
+  // opacity — reading a stale `morphProgress` after the fact is how the where-to
+  // card ended up rendered at opacity 0 with nothing but the leftover clone
+  // visible, and no way for the rider to interact with it.
+  const flightOwnsOpacity =
+    isActiveMorph && (morph!.phase === 'forward' || morph!.phase === 'gesture' || morph!.phase === 'reverse');
 
   useEffect(() => {
     if (!morph || morph.activeId !== id) {
@@ -75,16 +82,33 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
   // read as one continuous morph. It also makes the reverse gesture correct for
   // free: drag back and the content dissolves progressively with your finger
   // instead of snapping at the end.
+  // FAIL-SAFE: a forward flight that never reports a usable target frame, or a
+  // target screen that outlives its flight, must not leave the screen blank.
+  // Whatever else happens, the content is visible this long after mount.
+  const REVEAL_DEADLINE_MS = 1200;
+  useEffect(() => {
+    if (!isIncomingMorph) return;
+    const t = setTimeout(() => {
+      contentOpacity.value = withTiming(1, { duration: CROSSFADE_MS });
+    }, REVEAL_DEADLINE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isIncomingMorph]);
+
   const animatedStyle = useAnimatedStyle(() => {
-    if (!progress || !isActiveMorph) return { opacity: contentOpacity.value };
-    return {
-      opacity: interpolate(
-        progress.value,
-        [CONTENT_FADE_IN_START, CONTENT_FADE_IN_END],
-        [0, 1],
-        Extrapolation.CLAMP,
-      ),
-    };
+    if (!progress || !flightOwnsOpacity) return { opacity: contentOpacity.value };
+    // Even while the flight owns the reveal, never go BELOW whatever the
+    // fail-safe has already raised the content to.
+    const fromProgress = interpolate(
+      progress.value,
+      [CONTENT_FADE_IN_START, CONTENT_FADE_IN_END],
+      [0, 1],
+      Extrapolation.CLAMP,
+    );
+    // The floor applies to the ENTRANCE only. During a reverse/gesture dismissal
+    // the content is supposed to dissolve back with the finger, so there it
+    // follows progress alone.
+    return { opacity: isIncomingMorph ? Math.max(contentOpacity.value, fromProgress) : fromProgress };
   });
 
   const onLayout = () => {

@@ -17,6 +17,7 @@ import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton
 
 import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
+import { fetchRoute, type RouteResult } from '../../utils/routing';
 
 
 // Fallback camera center (Accra) — same value used by the map-pin picker.
@@ -93,9 +94,48 @@ export default function RideDetailScreen() {
       availableSeats: rawTrip.maxSeats - (rawTrip.bookings?.length ?? 0),
       totalSeats: rawTrip.maxSeats,
       distanceKm: rawTrip.route?.distanceKm ?? 0,
-      durationMinutes: rawTrip.route?.distanceKm ? Math.round(rawTrip.route.distanceKm * 1.8) : 15,
+      // Duration comes from the traffic-aware route fetched below (see
+      // `roadRoute`). The old inline `distanceKm * 1.8` was a fixed 33 km/h
+      // free-flow guess that ignored congestion entirely, and it silently
+      // reported "15 min" for any trip whose distance was missing.
+      durationMinutes: rawTrip.route?.durationMin ?? null,
     };
   }, [data, id, origin, destination]);
+
+  /**
+   * Real road route between pickup and destination.
+   *
+   * The map used to draw a two-point LineString, i.e. a straight line across
+   * whatever lay between the pins — buildings, water, the wrong side of a
+   * motorway — which is not a route a rider can sanity-check. `fetchRoute` goes
+   * through `/v1/geo/route` (Mapbox `driving-traffic`, then OSRM, then a
+   * distance estimate), so we get road-following geometry AND a congestion-aware
+   * duration from the same call.
+   */
+  const [roadRoute, setRoadRoute] = useState<RouteResult | null>(null);
+  const originLng = trip?.origin?.longitude ?? null;
+  const originLat = trip?.origin?.latitude ?? null;
+  const destLng = trip?.destination?.longitude ?? null;
+  const destLat = trip?.destination?.latitude ?? null;
+
+  useEffect(() => {
+    if (originLng == null || originLat == null || destLng == null || destLat == null) {
+      setRoadRoute(null);
+      return;
+    }
+    let cancelled = false;
+    fetchRoute([originLng, originLat], [destLng, destLat]).then((r) => {
+      // A failed lookup leaves `roadRoute` null and the straight-line fallback
+      // below takes over, rather than blanking the route entirely.
+      if (!cancelled && r && r.coordinates.length >= 2) setRoadRoute(r);
+    });
+    return () => { cancelled = true; };
+  }, [originLng, originLat, destLng, destLat]);
+
+  /** Traffic-aware minutes, preferring the live route over the stored value. */
+  const durationMinutes = roadRoute
+    ? Math.max(1, Math.round(roadRoute.durationMin))
+    : (trip?.durationMinutes ?? null);
 
   const isAlreadyBooked = useMemo(() => {
     const rawTrip = (data?.data?.data as any)?.trip;
@@ -227,7 +267,10 @@ export default function RideDetailScreen() {
               type: 'Feature',
               geometry: {
                 type: 'LineString',
-                coordinates: [
+                // Road geometry when we have it; the straight line survives only
+                // as the "route service unreachable" fallback, and is drawn
+                // dashed (below) so it never passes for a real route.
+                coordinates: roadRoute?.coordinates ?? [
                   [trip.origin.longitude, trip.origin.latitude],
                   [trip.destination.longitude, trip.destination.latitude],
                 ],
@@ -235,9 +278,27 @@ export default function RideDetailScreen() {
               properties: {},
             }}
           >
+            {/* Casing under the route so it stays legible over any road colour —
+                the same treatment Uber/Bolt use. */}
+            <MapboxGL.LineLayer
+              id="routeLineCasing"
+              style={{
+                lineColor: colors.backgroundDeep,
+                lineWidth: roadRoute ? 11 : 5,
+                lineOpacity: roadRoute ? 0.9 : 0,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
             <MapboxGL.LineLayer
               id="routeLineLayer"
-              style={{ lineColor: colors.primary, lineWidth: 3, lineDasharray: [2, 1] }}
+              style={{
+                lineColor: colors.primary,
+                lineWidth: roadRoute ? 6 : 3,
+                lineCap: 'round',
+                lineJoin: 'round',
+                ...(roadRoute ? {} : { lineDasharray: [2, 1] }),
+              }}
             />
           </MapboxGL.ShapeSource>
         )}
@@ -336,7 +397,7 @@ export default function RideDetailScreen() {
                 <View style={styles.metaRow}>
                   <MetaPill icon="time-outline" label={trip?.departureTime ? new Date(trip.departureTime).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' }) : '—'} />
                   <MetaPill icon="map-outline" label={trip?.distanceKm ? formatDistance(trip.distanceKm) : '—'} />
-                  <MetaPill icon="speedometer-outline" label={trip?.durationMinutes ? formatDuration(trip.durationMinutes) : '—'} />
+                  <MetaPill icon="speedometer-outline" label={durationMinutes ? formatDuration(durationMinutes) : '—'} />
                 </View>
               </MotiView>
 

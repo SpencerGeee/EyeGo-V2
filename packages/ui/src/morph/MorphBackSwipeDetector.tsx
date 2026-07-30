@@ -1,17 +1,10 @@
-import React, { useCallback, useRef } from 'react';
-import { View, type ViewStyle, type StyleProp } from 'react-native';
+import React, { useCallback, useMemo, useRef } from 'react';
+import { type ViewStyle, type StyleProp } from 'react-native';
 import {
   Gesture,
   GestureDetector,
 } from 'react-native-gesture-handler';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  runOnJS,
-  cancelAnimation,
-} from 'react-native-reanimated';
-import { springs } from '@eyego/config';
+import Animated from 'react-native-reanimated';
 import { useMorphOptional } from './MorphProvider';
 
 /**
@@ -30,6 +23,27 @@ import { useMorphOptional } from './MorphProvider';
  *
  * Only activates when the provider has an active morph flight and the phase
  * is 'settled' (not during the forward flight itself).
+ *
+ * ── CRASH FIX (SIGABRT on any drag over a morph target) ──────────────────────
+ * The Pan callbacks below are plain JS closures: they read React context
+ * (`morph`), call `useCallback` handlers, mutate refs and reach into the
+ * provider, which calls `setState`. But `react-native-reanimated/plugin`
+ * AUTO-WORKLETIZES callbacks passed to `Gesture.Pan().onStart/onUpdate/onEnd/
+ * onFinalize`, so all of that was being executed on the UI runtime, where those
+ * JS-thread functions do not exist. The first drag threw inside the worklet and
+ * an uncaught JS error on the UI runtime aborts the process — the reported
+ * "the map crashes when I tap/move it" (the where-to surface wraps its whole
+ * body in this detector). Crash log `ios crash logs/EyeGo-2026-07-29-232912.ips`:
+ *   RNGestureHandlerManager sendEventForReanimated
+ *     -> REANodesManager dispatchEvent
+ *       -> worklets::WorkletEventHandler::process
+ *         -> HermesRuntimeImpl::throwPendingError -> abort()
+ *
+ * `.runOnJS(true)` pins the whole gesture to the JS thread, which is where this
+ * logic has to run (it drives React state and provider callbacks). The progress
+ * shared value is still written from JS, which Reanimated fully supports, so the
+ * overlay keeps animating on the UI thread. Any future callback added here must
+ * stay JS-thread-safe or the gesture must be split into a worklet half.
  */
 interface MorphBackSwipeDetectorProps {
   children: React.ReactNode;
@@ -76,30 +90,39 @@ export function MorphBackSwipeDetector({
     commitRef.current?.();
   }, []);
 
-  // Reanimated gesture — runs on the UI thread
-  const panGesture = Gesture.Pan()
-    .onStart(() => {
-      if (!canSwipeBack() || !morph) return;
-      isActiveRef.current = true;
-      const handle = morph.startMorphBackGesture(onCommit);
-      gestureHandleRef.current = handle;
-      handle.onStart();
-    })
-    .onUpdate((event) => {
-      if (!isActiveRef.current || !gestureHandleRef.current) return;
-      gestureHandleRef.current.onActive(event.translationY);
-    })
-    .onEnd((event) => {
-      if (!isActiveRef.current || !gestureHandleRef.current) return;
-      gestureHandleRef.current.onEnd(event.velocityY);
-    })
-    .onFinalize(() => {
-      // Cleanup if gesture was cancelled (e.g. by a system gesture)
-      isActiveRef.current = false;
-    })
-    .minDistance(10)
-    .activeOffsetY(10)
-    .failOffsetY(-10); // Only activate on downward swipe
+  // JS-thread gesture — see the crash note above for why `.runOnJS(true)` is
+  // load-bearing and not an optimisation choice.
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .onStart(() => {
+          if (!canSwipeBack() || !morph) return;
+          isActiveRef.current = true;
+          const handle = morph.startMorphBackGesture(onCommit);
+          gestureHandleRef.current = handle;
+          handle.onStart();
+        })
+        .onUpdate((event) => {
+          if (!isActiveRef.current || !gestureHandleRef.current) return;
+          gestureHandleRef.current.onActive(event.translationY);
+        })
+        .onEnd((event) => {
+          if (!isActiveRef.current || !gestureHandleRef.current) return;
+          gestureHandleRef.current.onEnd(event.velocityY);
+        })
+        .onFinalize(() => {
+          // Cleanup if gesture was cancelled (e.g. by a system gesture)
+          isActiveRef.current = false;
+        })
+        .minDistance(14)
+        .activeOffsetY(14)
+        .failOffsetY(-14) // Only activate on downward swipe
+        // A drag that starts horizontally is a map pan / carousel swipe, never a
+        // dismiss — without this the detector claimed those too.
+        .failOffsetX([-24, 24]),
+    [canSwipeBack, morph, onCommit],
+  );
 
   return (
     <GestureDetector gesture={panGesture}>

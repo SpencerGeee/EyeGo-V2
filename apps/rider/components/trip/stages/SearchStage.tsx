@@ -121,7 +121,13 @@ function SearchStageImpl() {
     pickingFieldRef.current = field;
     router.push({
       pathname: '/profile/place-picker',
-      params: { title: field === 'origin' ? 'Set pickup' : 'Where to?' },
+      params: {
+        title: field === 'origin' ? 'Set pickup' : 'Where to?',
+        // Land in the search box. The picker still offers the map pin, but a
+        // rider naming a business ("IPMC showroom") should be able to type it
+        // the moment the screen opens.
+        focusSearch: '1',
+      },
     } as any);
   }, [router]);
 
@@ -215,8 +221,12 @@ function SearchStageImpl() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <MorphBackSwipeDetector style={{ flex: 1 }} onSwipeBack={handleClose}>
-        <View style={styles.cardWrap}>
+      {/* The dismiss gesture is scoped to the CARD, not to `flex: 1`.
+          Wrapping the whole stage meant the detector also owned every pan over
+          the map behind it — so panning the map dismissed the surface (and,
+          before the runOnJS fix in MorphBackSwipeDetector, crashed the app). */}
+      <MorphBackSwipeDetector style={styles.swipeZone} onSwipeBack={handleClose}>
+        <View>
           <MorphTarget id={activeMorphId} borderRadius={24} style={{ width: cardWidth }}>
             <View style={[styles.floatingCard, { width: cardWidth }]}>
 
@@ -383,6 +393,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headerSpacer: { width: 44, height: 44 },
 
   cardWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+
+  /** Dismiss-gesture area: exactly the card's box. `flex: 0` is required —
+   *  MorphBackSwipeDetector defaults its wrapper to `flex: 1`, which would hand
+   *  the detector every pan over the map below the card. */
+  swipeZone: {
+    flex: 0,
     paddingHorizontal: 16,
     paddingTop: 8,
   },

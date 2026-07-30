@@ -39,9 +39,13 @@ async function getDirections(originLng, originLat, destLng, destLat) {
 }
 
 async function forwardGeocode(query) {
+  // `poi` is included on purpose: route endpoints are entered as names, and a
+  // driver naming a landmark or business ("IPMC showroom", "Accra Mall") was
+  // getting no match at all from the address-only type list, which silently
+  // pushed callers onto their fallback coordinate.
   const url =
     `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-    `?types=place,locality,neighborhood,address&country=GH&limit=1&access_token=${env.MAPBOX_SECRET_TOKEN}`;
+    `?types=poi,place,locality,neighborhood,address&country=GH&limit=1&access_token=${env.MAPBOX_SECRET_TOKEN}`;
 
   try {
     const { data } = await axios.get(url, { timeout: 5000 });

@@ -27,7 +27,11 @@ export default function PlacePickerScreen() {
   // Callers pass a title so the same screen reads correctly for whichever
   // field opened it ("Set pickup" vs "Where to?") — the where-to page now
   // opens this directly from either field instead of behind a map button.
-  const { title } = useLocalSearchParams<{ title?: string }>();
+  // `focusSearch=1` opens straight into typing. The where-to rows send it,
+  // because a rider tapping "Where are you going?" wants to type a place name,
+  // not to hunt for a pin on a map — searching was previously a second,
+  // undiscovered step behind the map view.
+  const { title, focusSearch } = useLocalSearchParams<{ title?: string; focusSearch?: string }>();
   const { isDark } = useThemeStore();
 
   const [center, setCenter] = useState<[number, number] | null>(null);
@@ -205,9 +209,10 @@ export default function PlacePickerScreen() {
               style={styles.searchInput}
               value={query}
               onChangeText={handleSearch}
-              placeholder="Search a place…"
+              placeholder="Search a place, business or landmark…"
               placeholderTextColor={colors.onSurfaceVariant}
               returnKeyType="search"
+              autoFocus={focusSearch === '1'}
             />
             {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
           </View>

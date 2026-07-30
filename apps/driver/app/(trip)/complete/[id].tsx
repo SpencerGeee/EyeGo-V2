@@ -21,6 +21,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 
+/**
+ * Whole minutes a finished trip actually took.
+ *
+ * Order of preference: measured (startedAt→completedAt) > the route's stored
+ * traffic-aware estimate > nothing. Never derive it from distance and an assumed
+ * speed — that is what made this screen under-report every trip.
+ */
+function formatTripMinutes(trip: any): number | null {
+  const start = trip?.startedAt ? new Date(trip.startedAt).getTime() : NaN;
+  const end = trip?.completedAt ? new Date(trip.completedAt).getTime() : NaN;
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    return Math.max(1, Math.round((end - start) / 60000));
+  }
+  const stored = trip?.route?.durationMin;
+  return Number.isFinite(stored) ? Math.max(1, Math.round(stored)) : null;
+}
+
 export default function TripCompleteScreen() {
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
@@ -131,7 +148,13 @@ export default function TripCompleteScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{completedTrip?.route?.distanceKm ? Math.round(completedTrip.route.distanceKm / 40 * 60) : '—'} min</Text>
+            {/* This is a FINISHED trip, so the honest number is how long it
+                actually took — startedAt→completedAt — not a distance/speed
+                guess. The old `distanceKm / 40 * 60` reported a 40 km/h
+                free-flow drive, so a 25-minute trip through traffic was
+                summarised back to the driver as 12 minutes. Falls back to the
+                route's stored traffic-aware estimate, then to nothing. */}
+            <Text style={styles.statValue}>{formatTripMinutes(completedTrip) ?? '—'} min</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Duration</Text>
           </View>
         </Entrance>

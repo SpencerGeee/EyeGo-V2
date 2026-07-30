@@ -26,15 +26,34 @@ const SEARCH_TIMEOUT_MS = 6000;
 const DIRECTIONS_TIMEOUT_MS = 8000;
 
 /**
- * Search Box `/suggest` needs a session token to bill a suggest+retrieve pair as
- * one transaction, and `/retrieve` only accepts coordinates for a suggestion
- * from the SAME session. Round-tripping that through two client calls doubles
- * latency for no benefit to us, so we use `/forward`, which returns coordinates
- * inline. It shares Search Box's POI index (the thing Geocoding v5 lacks) while
- * behaving like a one-shot geocode.
+ * POI SEARCH — read before changing these URLs.
+ *
+ * `https://api.mapbox.com/search/geocode/v6/forward` (what this used to call)
+ * is the GEOCODING API. Its feature types are country/region/postcode/district/
+ * place/locality/neighborhood/street/address — there is **no `poi` type at all**.
+ * A comment here previously claimed v6 forward "shares Search Box's POI index";
+ * it does not, which is why searching a business by name ("IPMC showroom")
+ * returned nothing however the query was phrased.
+ *
+ * Commercial POIs live in the **Search Box API**. Its `/suggest` endpoint needs a
+ * session token plus a second `/retrieve` call to get coordinates, which would
+ * double latency; `/forward` on the same index returns coordinates inline and
+ * behaves like a one-shot geocode, so that is what we use.
+ *
+ * Geocoding v6 is kept as a SECOND query, not a replacement: it is still the
+ * better answer for a plain street address, and merging both means neither kind
+ * of query comes back empty.
  */
+const SEARCHBOX_URL = 'https://api.mapbox.com/search/searchbox/v1/forward';
 const SEARCH_URL = 'https://api.mapbox.com/search/geocode/v6/forward';
 const REVERSE_URL = 'https://api.mapbox.com/search/geocode/v6/reverse';
+
+/**
+ * Search Box POI categories worth surfacing for a ride destination. Passing
+ * `types` keeps the response focused on things a rider would name out loud
+ * rather than administrative polygons.
+ */
+const SEARCHBOX_TYPES = 'poi,address,street,place,neighborhood,locality';
 
 function hasMapbox() {
   const t = env.MAPBOX_SECRET_TOKEN;
@@ -128,6 +147,7 @@ async function searchPlaces({ query, limit = 8, lat, lng, country = 'gh' }) {
   const tasks = [photonSearch(trimmed, limit, proximity)];
 
   if (hasMapbox()) {
+    // Geocoding v6 — precise for street addresses, blind to businesses.
     tasks.unshift(
       axios
         .get(SEARCH_URL, {
@@ -143,7 +163,31 @@ async function searchPlaces({ query, limit = 8, lat, lng, country = 'gh' }) {
         })
         .then(({ data }) => (Array.isArray(data?.features) ? data.features : []).map(mapboxToResult).filter(Boolean))
         .catch((err) => {
-          logger.warn(`Mapbox search failed for "${trimmed}": ${err.message}`);
+          logger.warn(`Mapbox geocode search failed for "${trimmed}": ${err.message}`);
+          return [];
+        }),
+    );
+
+    // Search Box — the ONLY source here that indexes businesses/landmarks.
+    // Queried first so a named POI outranks a same-named street.
+    tasks.unshift(
+      axios
+        .get(SEARCHBOX_URL, {
+          params: {
+            q: trimmed,
+            // Search Box caps `limit` at 10.
+            limit: Math.min(limit, 10),
+            country,
+            language: 'en',
+            types: SEARCHBOX_TYPES,
+            proximity: `${proximity.lng},${proximity.lat}`,
+            access_token: env.MAPBOX_SECRET_TOKEN,
+          },
+          timeout: SEARCH_TIMEOUT_MS,
+        })
+        .then(({ data }) => (Array.isArray(data?.features) ? data.features : []).map(mapboxToResult).filter(Boolean))
+        .catch((err) => {
+          logger.warn(`Mapbox Search Box failed for "${trimmed}": ${err.message}`);
           return [];
         }),
     );
