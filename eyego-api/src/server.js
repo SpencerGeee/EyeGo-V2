@@ -37,29 +37,24 @@ async function start() {
     // Covers:
     //   - SCHEDULED/FILLING — trips that never got filled (24h past departure)
     //   - DRIVER_EN_ROUTE/IN_PROGRESS — abandoned trips (>48h without completion)
+    // Delegated to services/trip-lifecycle.service.js — see the long note at the
+    // top of that file. The sweep that used to live inline here ran every SIX
+    // HOURS with 24 h/48 h windows and only touched `Trip.status`, which is why a
+    // midnight trip was still live (and still resumable by the driver) the next
+    // afternoon with its riders' seats never released. It now runs every five
+    // minutes, uses journey-realistic windows, marks trips EXPIRED rather than
+    // CANCELLED (so platform housekeeping stops counting against drivers'
+    // cancellation rates), releases the bookings, and tells any connected app.
+    const tripLifecycle = require('./services/trip-lifecycle.service');
     const runTripExpiry = async () => {
       try {
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
-
-        const stale = await prisma.trip.updateMany({
-          where: {
-            OR: [
-              { status: { in: ['SCHEDULED', 'FILLING'] }, departureTime: { lt: oneDayAgo } },
-              { status: { in: ['DRIVER_EN_ROUTE', 'IN_PROGRESS'] }, updatedAt: { lt: twoDaysAgo } },
-            ],
-          },
-          data: { status: 'CANCELLED' },
-        });
-        if (stale.count > 0) {
-          logger.info(`Trip expiry sweep: cancelled ${stale.count} stale trip(s)`);
-        }
+        await tripLifecycle.expireStaleTrips(app.get('io') ?? null);
       } catch (err) {
         logger.warn('Trip expiry sweep failed (non-blocking):', err.message);
       }
     };
     setImmediate(runTripExpiry);
-    setInterval(runTripExpiry, 6 * 60 * 60 * 1000);
+    setInterval(runTripExpiry, 5 * 60 * 1000);
 
     // ── Seat hold expiry sweep ─────────────────────────────────────────
     // Cancel bookings stuck in SEAT_HELD (payment window expired) every 2 min.

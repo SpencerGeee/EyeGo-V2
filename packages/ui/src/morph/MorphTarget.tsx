@@ -26,7 +26,21 @@ interface MorphTargetProps {
 // this same window, so the real content needs to fade in in lockstep.
 const CROSSFADE_MS = 200;
 
-const styles = StyleSheet.create({ fill: { flex: 1 } });
+// NOT `flex: 1`. In React Native the `flex` shorthand expands to
+// `flexGrow: n, flexShrink: 1, flexBasis: 0` — and a flexBasis of ZERO in a
+// column parent whose own height is indefinite (every content-sized morph
+// target: the where-to card, sheets, chips) contributes 0 to the parent's
+// content height and has no free space to grow back into. The wrapper measured
+// 0 tall, so the card below it was laid out against a zero-height box and its
+// `alignItems: 'stretch'` row collapsed every child to height 0 — the reported
+// "where-to page is showing the one line thing" (an empty 48pt pill with the
+// timeline dots spilling out underneath it).
+// `flexBasis: 'auto'` keeps the full-screen behaviour the flex was added for
+// (grow into the free space of a `flex: 1` parent — see the black-map note
+// below) while letting an auto-height parent measure real content.
+const styles = StyleSheet.create({
+  fill: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
+});
 
 /**
  * Wraps the element a morph lands on. Reports its window frame to

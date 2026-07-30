@@ -1,5 +1,5 @@
 'use strict';
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -17,7 +17,7 @@ import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel } from '@eyego/ui';
+import { Text, Button, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -26,6 +26,7 @@ import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
 import { offlineQueue } from '../../../utils/offlineQueue';
+import { openExternalNavigation } from '../../../utils/externalNav';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
 import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
 import MapboxGL, { useDeviceHeading, useVehicleHeading } from '../../../utils/mapbox';
@@ -70,6 +71,29 @@ const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 };
 
 const STATUS_STEPS = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'COMPLETED'];
+
+/**
+ * Active-route colours for the DRIVER app: bright core over a deep casing, the
+ * two-layer arrangement every navigation renderer uses (Mapbox's own Nav SDK
+ * ships #56A8FB over #2F7AC6).
+ *
+ * Two bugs are being fixed here at once, both reported from the road:
+ *  1. The core used to be `statusCfg.color` — the STATUS pill's colour. So the
+ *     line the driver has to follow was steel-grey while confirmed, blue while
+ *     boarding and violet after arriving at pickup ("it's looking like a purple
+ *     thing"), i.e. its most safety-critical property was a side effect of an
+ *     unrelated label. It is now fixed, and status lives only in the pill.
+ *  2. The driver map style paints its roads BLUE, so a blue-family route line
+ *     disappeared into them — "isn't prominent enough and can get easily blended
+ *     with the blue". Amber is the one hue that cannot collide with either the
+ *     blue roads or the green "in progress" accent, and it is what Mapbox uses
+ *     for the same reason in its traffic layers.
+ *
+ * The rider app deliberately uses the opposite pair (azure over navy) because
+ * ITS map style paints roads green — see apps/rider/.../tracking.tsx.
+ */
+const ROUTE_CORE = '#FFB020';
+const ROUTE_CASING = '#4A2B00';
 
 // Fetches a road-following route from OSRM between the driver and a moving
 // target (pickup, then destination), re-fetching whenever the target changes
@@ -305,6 +329,21 @@ export default function ActiveTripScreen() {
     : pickupCoord) ?? driverCoord;
   const routeCoords = useRoadRoute(driverCoord, routeTarget);
 
+  // What the external-navigation hand-off should aim at: the same phase rule as
+  // the route line above, so tapping Navigate never contradicts the line the
+  // driver is already following.
+  const externalNavTarget = useCallback(() => {
+    const inProgress = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED';
+    const coord = (inProgress ? destCoord : pickupCoord) ?? destCoord ?? pickupCoord;
+    return {
+      latitude: coord ? coord[1] : NaN,
+      longitude: coord ? coord[0] : NaN,
+      label: inProgress
+        ? (trip?.route?.destinationName ?? 'Destination')
+        : (trip?.route?.originName ?? 'Pickup'),
+    };
+  }, [trip?.status, trip?.route?.destinationName, trip?.route?.originName, destCoord, pickupCoord]);
+
   // ─── Loading skeleton ────────────────────────────────────────────────────
 
   if (isLoading || !trip) {
@@ -464,13 +503,23 @@ export default function ActiveTripScreen() {
             properties: {},
           }}
         >
+          {/* CASING + CORE, not a blurred shadow — see ROUTE_CORE. */}
           <MapboxGL.LineLayer
             id="activeRouteLineShadow"
-            style={{ lineColor: '#000000', lineWidth: 7, lineOpacity: 0.18, lineCap: 'round', lineJoin: 'round' }}
+            style={{ lineColor: ROUTE_CASING, lineWidth: 11, lineOpacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
           />
           <MapboxGL.LineLayer
             id="activeRouteLineLayer"
-            style={{ lineColor: statusCfg.color, lineWidth: 4, lineOpacity: 0.9, lineCap: 'round', lineJoin: 'round' }}
+            style={{
+              lineColor: ROUTE_CORE,
+              lineWidth: 6,
+              lineOpacity: 1,
+              lineCap: 'round',
+              lineJoin: 'round',
+              // Dashed while this is the straight-line stand-in, so the driver is
+              // never shown a fabricated "road" to follow.
+              ...(routeCoords.length >= 2 ? null : { lineDasharray: [1.6, 1.4] }),
+            }}
             aboveLayerID="activeRouteLineShadow"
           />
         </MapboxGL.ShapeSource>
@@ -697,19 +746,25 @@ export default function ActiveTripScreen() {
 
           {/* Quick-action row */}
           <Entrance animation="slideDown" delay={160} style={styles.actionRow}>
+            {/* Hand off to Google/Apple Maps/Waze — the driver's own app, with
+                the choice remembered (long-press to change it). See
+                utils/externalNav.
+                BUGFIX: this always navigated to the DESTINATION, even while the
+                status was DRIVER_EN_ROUTE — i.e. exactly when the driver needs
+                directions to the PICKUP. It also hard-coded Apple Maps on iOS
+                with no way to choose Google, and used `maps://?ll=` (drop a pin)
+                rather than a directions URL, so it didn't start navigation at
+                all. Target now follows the trip phase, same rule as the in-app
+                route line. */}
             <QuickAction
               icon="navigate-outline"
               label="Navigate"
               color={colors.primary}
               onPress={() => {
-                const destLat = trip.route?.destLat;
-                const destLng = trip.route?.destLng;
-                const label   = encodeURIComponent(trip.route?.destinationName ?? 'Destination');
-                if (!destLat || !destLng) { Alert.alert('No destination', 'Destination coordinates are not available.'); return; }
-                const url = Platform.OS === 'ios'
-                  ? `maps://?ll=${destLat},${destLng}&q=${label}`
-                  : `google.navigation:q=${destLat},${destLng}`;
-                Linking.openURL(url).catch(() => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`));
+                void openExternalNavigation(externalNavTarget(), { forceChooser: false });
+              }}
+              onLongPress={() => {
+                void openExternalNavigation(externalNavTarget(), { forceChooser: true });
               }}
               colors={colors}
             />
@@ -736,14 +791,24 @@ export default function ActiveTripScreen() {
             />
           </Entrance>
 
-          {/* Primary CTA */}
+          {/* Primary CTA — SWIPE, not tap.
+              Every action behind this control is irreversible (arriving at the
+              pickup, pulling off with passengers aboard, ending the trip and
+              settling the fares) and the phone lives in a cradle on a rough
+              road, where a single accidental tap is entirely plausible. Uber and
+              Bolt both moved these exact steps to a slide gesture for that
+              reason. See @eyego/ui SwipeToConfirm. */}
           {statusInfo.next && (
             <Entrance animation="slideDown" delay={200}>
-              <Button
-                label={statusInfo.action}
-                onPress={() => advanceStatus.mutate()}
+              <SwipeToConfirm
+                label={`Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`}
+                loadingLabel={`${statusInfo.action}…`}
+                onConfirm={() => advanceStatus.mutate()}
                 loading={advanceStatus.isPending}
-                disabled={advanceStatus.isPending}
+                color={colors.primary}
+                onColor={colors.onPrimary ?? '#0A0D14'}
+                trackColor={colors.surfaceContainer}
+                borderColor={colors.outline}
               />
             </Entrance>
           )}
@@ -857,12 +922,14 @@ function QuickAction({
   label,
   color,
   onPress,
+  onLongPress,
   colors,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   color: string;
   onPress: () => void;
+  onLongPress?: () => void;
   colors: DriverColors;
 }) {
   return (
@@ -879,6 +946,8 @@ function QuickAction({
         paddingVertical: spacing.base,
       }}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={450}
     >
       <Ionicons name={icon} size={20} color={color} />
       <Text style={{ fontFamily: fonts.medium, fontSize: 10, lineHeight: 13, color, letterSpacing: 0.2 }}>{label}</Text>

@@ -1,106 +1,109 @@
-# State — 12-item sideload sweep (2026-07-30)
+# State — 14-item stress-test sweep (2026-07-30, second pass)
 
 ## Current Goal
-All 11 reported defects fixed; `tsc` green both apps. Needs a NEW native build + API deploy, then device testing.
+All 14 reported items fixed. `tsc` green both apps, `node --check` green. NOT device-tested.
 
 ## Root causes worth remembering
 
-1. **Rider tracking read the response ENVELOPE, not the trip.** `/trips/:id` responds
-   `ok(res, { trip })`, so the payload is `res.data.data.trip`. `tracking.tsx` used
-   `res.data.data` — a truthy `{ trip: {...} }` with no `route`, `driver` or `status`.
-   That single expression caused the "random" camera (fell back to the Accra viewport
-   default), the permanent "Locating your driver…" pill, the missing markers AND the
-   missing ride details. `ride/[id].tsx` and `chat.tsx` were always correct.
+1. **Where-to card collapsed to one empty pill (#6).** `inputsSection` resolved to a
+   DEFINITE height of 0, and its `alignItems: 'stretch'` then forced all three
+   children to 0 — so the card shrank to its 24pt padding, both field rows
+   vanished, and the timeline's dots spilled below the card (a border-box height
+   of 0 makes padding overflow). Proof from the screenshot: card exactly 48pt,
+   dot 1 exactly `paddingTop: 16` below the collapsed line, swap button 38pt
+   centred on it. Cause: **React Native's `flex` shorthand sets `flexBasis: 0`**
+   (`flex: 1` AND `flex: 0`), and a basis-0 child of an auto-height column
+   contributes 0 to its parent's content height with no free space to grow back
+   into. Both `MorphTarget`'s inner wrapper (`flex: 1`) and the swipe zone
+   (`flex: 0`) were in that chain. Fixed at the source (`flexBasis: 'auto'`) and
+   belt-and-braces: every height in the card is now explicit.
 
-2. **`expo-camera` was pinned to `^57.0.1` on Expo SDK 54** (which ships 17.0.x).
-   Its native side is built against a newer expo-modules-core, so mounting the
-   scanner aborted the process. Same class of bug as the expo-updates 56-vs-29 crash.
-   Now `~17.0.10`.
+2. **Cash payment "validation failed" (#7) was an envelope-unwrap bug.**
+   `POST /bookings` answers `created(res, { booking, fareData, holdExpiry })`, but
+   `bookings.api.ts` typed it `ApiResponse<Booking>` and the payment screen read
+   `res.data.data.id` → `undefined` → it sent `bookingId: ''` → the route's
+   `body('bookingId').notEmpty()` rejected it. That is literally where
+   "Validation failed" / "Payment initialization failed" came from. It also stored
+   the WRAPPER as `activeBooking` (so `.id`/`.tripId` were undefined → the next
+   attempt held ANOTHER seat: the "seat held but payment failed" pair) and dropped
+   the server fare (which lives on `fareData`). Same class as last pass's tracking
+   bug — the API types were lying about the wire format.
 
-3. **Two different fare denominators.** `drivers.service.attachFarePerSeat` divided by
-   `clamp(trip.availableSeats ?? confirmedSeats ?? maxSeats, min 4, max maxSeats)`.
-   `availableSeats` is not a Trip column → undefined → `confirmedSeats` = 0 → the
-   `Math.max(_, 4)` made it **4**, while every rider path divides by `maxSeats`.
+3. **Trips never died (#1).** The sweep in server.js ran every SIX HOURS with
+   24h/48h windows and only flipped `Trip.status` — bookings stayed live and seats
+   stayed spent. `getActiveTrip` also matched in-flight statuses with NO time bound
+   at all, on the comment "a started trip stays resumable forever". That is why a
+   midnight trip was live and resumable at 13:00. Now
+   `services/trip-lifecycle.service.js`: 5-min sweep + a lazy `isPastDeadline`
+   guard, 3h pre-trip / 6h idle / 18h hard windows, status `EXPIRED` (NOT
+   `CANCELLED` — housekeeping must not count against drivers' cancellation rates),
+   bookings released, seat counter recomputed, sockets notified, idempotent.
 
-4. **Two different distances.** The driver's create-trip preview priced the ROAD
-   distance it had already fetched for the route line; `createTrip` stored the
-   HAVERSINE distance. Road ≈ 1.3–2× straight, so preview ≠ charge. `mapbox.service
-   .roadDistanceKm()` is now the single answer, used by createTrip, the on-demand
-   accept path, and the preview endpoint (which takes the endpoints, not a
-   client-supplied km — that would be a rider-editable fare).
+4. **Cancelled ride still live (#5).** Query invalidation was never enough: the
+   live surfaces also read the PERSISTED Zustand ride store, which survives a
+   cancel and an app restart. `clearRideState()` on cancel is the real fix; home
+   now also filters terminal statuses and tracking bounces out of a dead trip.
 
-5. **The rider fare breakdown was invented client-side** — a fabricated "base fare"
-   plus a "Platform fee (5%)" that exists nowhere. Commission is 15% and comes out of
-   the DRIVER's earnings, not the rider's fare.
+5. **Straight line to pickup (#2).** `routeFetchedRef` latched to `true` BEFORE the
+   request, so ONE failure was terminal for the life of the screen and the 900ms
+   grace timer drew the straight-line fallback permanently. Now retried
+   (2/4/8/15s), the pre-trip leg routes DRIVER→pickup (not rider→pickup, which on
+   a driver-created trip is a metres-long stub), and the fallback is DASHED so it
+   can never pass for road geometry.
 
-6. **Cash false failure:** the payment screen's `onError` read `activeBooking?.id`,
-   which is React state — a booking created inside the same mutation is invisible to
-   that closure, so the "did it actually go through?" re-read was skipped entirely and
-   the rider got "Payment Failed" over a live booking. Fixed with a ref written
-   synchronously in the mutation, plus success now means CONFIRMED/BOARDED/PAID (cash
-   settles as CONFIRMED + paymentStatus PENDING), and the server re-reads the booking
-   before letting a sync-method error escape.
+6. **Share link stuck on "Loading trip" (#14).** The page is one IIFE and
+   `new maplibregl.Map()` ran BEFORE the fetch. `maplibregl` comes from unpkg over
+   the recipient's connection — if that fails (or WebGL is absent), the
+   constructor threw, the IIFE aborted, and nothing below it ever ran: no fetch,
+   no error state, just the spinner. The map is now optional and guarded. Second
+   bug found: the tile URL was a hand-written `{z}/{x}/{y}.pbf` template that
+   returns **403** — verified with curl; OpenFreeMap publishes TileJSON at
+   `/planet` (200), which is what the native styles already use.
 
-7. **The driver puck rotated by the COMPASS** (`deviceHeading || location.heading`).
-   A handset in a metal cradle reads the cradle, not the road — that is the
-   over-rotation. `useVehicleHeading` (@eyego/maps) now prefers GPS course while
-   moving, derives a bearing from consecutive fixes otherwise, holds the last heading
-   when stopped, uses the compass only as a cold-start hint, then low-passes along the
-   shortest arc with a rate limit and a 2° deadband. Rider tracking uses the same hook.
+7. **Route line colours (#8, #10).** The driver app used `statusCfg.color` — the
+   STATUS PILL's colour — for the line the driver must follow, so it was grey,
+   then blue, then violet ("a purple thing") as the trip advanced, and blue
+   vanished into the driver style's blue roads. Now fixed per app, casing + core
+   (the two-layer arrangement every nav renderer uses; a blurred 18% black
+   underlay gives no edge): driver amber `#FFB020`/`#4A2B00`, rider azure
+   `#5BB0FF`/`#123A66` (its map's roads are green).
 
-8. **Glow cards need room for their own glow.** `GradientGlowBorder` draws its bloom as
-   a shadow OUTSIDE the box (deliberately un-clipped, or iOS erases it). As the first
-   child of a ScrollView with no `paddingTop` the halo was cut at y=0.
+8. **Map "capped to Accra" (#3).** Nothing was actually clamped — tiles are the
+   global OpenFreeMap planet set. The style has no low-zoom land layer, so outside
+   the metro area's z12+ road layers there was nothing to draw but the background
+   colour, which reads as missing tiles. Now explicitly capped to
+   `GHANA_BOUNDS` + `minZoom 6` in the shared adapter, so every map in both apps
+   is country-wide and deterministic.
 
-## Follow-up pass (same day, user feedback)
-
-9. **"IPMC showroom" returned nothing because the PHRASE finds nothing anywhere.**
-   Measured against the live APIs with the real token: Mapbox Search Box
-   `/forward` AND `/suggest`, Geocoding v5 `mapbox.places` and v6 `/forward` all
-   return **0 features** for "IPMC showroom" — and Search Box returns 0 for plain
-   "IPMC" and even "accra mall" in Ghana. Nominatim and Photon have both ("IPMC",
-   "IPMC Main Campus", "Accra Mall"). So: Nominatim is now a first-class server-side
-   source, and a query-relaxation ladder drops generic venue nouns
-   ("showroom/shop/branch/office/…", never "junction/circle/market/station") then
-   falls back to the longest distinctive token. Results are Ghana-bounded and
-   sorted nearest-first. Verified: "IPMC showroom" → 4 results (relaxed to "IPMC"),
-   "zzzqqq nonexistent place" → 0. The same relaxation is duplicated client-side so
-   it works against an un-redeployed API.
-10. **Where-to rows open the map picker on tap again** (both fields), per the user's
-    preference for that flow — the inline type-to-search experiment is reverted. The
-    picker now says "No places match X" instead of rendering nothing.
-11. **Fare = distance ÷ seats, and nothing else.** The floor was `tierBaseFare`,
-    which on a 14-seater outranked the distance term on almost every urban trip, so
-    trips of very different lengths cost the same. Now `MIN_FARE_PER_SEAT` (₵3)
-    scaled by the tier's position in the rate table (ECO ₵3 / COMFORT ₵4.80 /
-    PREMIUM ₵7.20) — tier order preserved, distance back in charge. 231 km over
-    8 seats = ₵87.25/seat, ₵698 total, on every screen.
-12. **"Platform fee (30%)"** on the driver's active-trip card was a hardcoded label
-    over a 15%-derived amount. Both the label and the create-trip "after X%
-    commission" line now read `commissionRate` from the server.
+9. **Reported heading was GPS course only (#9).** `pos.coords.heading` is course
+   over GROUND — -1/0 when stopped. A driver waiting AT the pickup reported "due
+   north" forever, so the rider's car sat frozen. Now course-while-moving → last
+   good course → compass (last, because a cradled handset reads the cradle).
 
 ## New surface area
-- `packages/ui/src/CarMarker.tsx` — top-down saloon/minibus SVG, nose-up, for map markers.
-- `packages/maps` → `useVehicleHeading`.
-- `eyego-api/src/services/rating-integrity.service.js` — excludes chronic low-raters
-  (≥5 ratings, own avg ≤2.2, ≥80% of their ratings ≤2 stars, ≥1.5 below platform avg)
-  from driver averages, the go-online rating gate and dispatch ranking. 15-min
-  in-process cache; must move to Redis before horizontal scaling.
-- `SearchStage` is now real type-to-search: two editable fields + inline suggestions,
-  keyboard/list deferred 380 ms so the morph keeps its frames; swipe-to-dismiss is
-  suspended while a field is focused.
+- `packages/ui/src/SwipeToConfirm.tsx` — slide-to-confirm; the driver's primary
+  CTA (arrive / start ride / end trip) is now a swipe, not a tap (#13).
+- `apps/driver/utils/externalNav.ts` — Google/Apple/Waze hand-off with a
+  remembered preference (long-press Navigate to change it); targets the PICKUP
+  while en-route, not always the destination (#12).
+- `eyego-api/src/services/trip-lifecycle.service.js` (#1).
+- `CarMarker` redesigned: shaded low-detail top-down model, light outline, tight
+  contact shadow, mirrors, head/tail lights (#4). Pickup marker is now a PIN, so
+  place / vehicle / self are three distinct shapes when they overlap.
+- Re-center now returns to the DEFAULT camera (north-up) on both apps (#11);
+  driver tracking gained a re-center FAB.
 
 ## Verification
-- `tsc --noEmit` green: apps/rider, apps/driver.
-- `node --check` green on all touched backend files.
-- **Nothing device-tested.** expo-camera and the marker/heading work are native — OTA
-  will not carry them; a fresh build is required, and the API must be redeployed.
+- `tsc --noEmit` green: apps/rider, apps/driver. `node --check` green on all
+  touched backend files. Share-page script parses. OpenFreeMap endpoints curl'd.
+- **Nothing device-tested.** Native rebuild needed (markers/gestures) + API redeploy.
 
 ## Open Issues
-- Item 2's exact original trigger was never reproduced from logs; the fix makes the
-  false-failure path impossible rather than pinning the one call that failed. If it
-  recurs, the alert now shows the server's own message — capture it verbatim.
-- A genuinely expired cash seat-hold still ends in "select a seat again to rebook"
-  (no auto-rebook).
-- Admin rating aggregates were deliberately left unfiltered (admins should see
-  everything); they will read slightly lower than the driver-facing average.
+- Item 3's "tiles stop at the outskirts" was diagnosed by elimination, not
+  reproduced: no code capped anything. If it persists inside Ghana after the
+  rebuild, suspect high camera pitch culling distant tiles, not the bounds.
+- Research (see scratchpad `marker-research.md`) says Uber uses a raster sprite in
+  a `SymbolLayer`, not a view marker; MLRN maintainers recommend the same. The
+  marker is still `MarkerView` + SVG. Worth migrating if drift/perf shows up.
+- `SwipeToConfirm` uses the deprecated `runOnJS` (as does the rest of this repo);
+  Reanimated 4 prefers `scheduleOnRN`. Cosmetic for now.

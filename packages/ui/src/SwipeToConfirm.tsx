@@ -1,0 +1,220 @@
+import React, { useCallback, useMemo } from 'react';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
+import { Text } from './Text';
+
+/**
+ * Slide-to-confirm control — the gesture Uber/Bolt/Lyft use for the irreversible
+ * steps of a trip ("Start trip", "I've arrived", "Complete trip") instead of a
+ * plain button.
+ *
+ * The point is not decoration: a tap is one accidental brush of a thumb against
+ * a phone in a cradle on a bumpy road, and the driver-side actions it guards
+ * (arriving, ending a trip, settling fares) cannot be undone. A deliberate
+ * ~65 %-of-the-track drag cannot be produced by accident, which is exactly why
+ * every ride-hailing app moved these actions to a swipe.
+ *
+ * Behaviour:
+ *  - drag the thumb right; the track fills and the label fades out behind it
+ *  - release past `threshold` (fraction of travel) → snaps to the end, fires
+ *    `onConfirm` once, and stays filled while `loading` is true
+ *  - release short → springs back, nothing fires
+ *
+ * ── Worklet safety ────────────────────────────────────────────────────────────
+ * `react-native-reanimated/plugin` AUTO-WORKLETIZES the callbacks passed to
+ * `Gesture.Pan().onUpdate/onEnd`, so they run on the UI runtime where JS-thread
+ * functions do not exist — calling one directly from there throws inside the
+ * worklet, and an uncaught error on the UI runtime *aborts the process* (that is
+ * the SIGABRT this codebase already hit once in MorphBackSwipeDetector). The
+ * callbacks below therefore touch nothing but shared values, and the one hop
+ * back to JS goes through `runOnJS`.
+ */
+export interface SwipeToConfirmProps {
+  label: string;
+  onConfirm: () => void;
+  /** Keeps the track filled and the gesture disabled while an action is in flight. */
+  loading?: boolean;
+  disabled?: boolean;
+  /** Fraction of the travel distance that counts as a commit. */
+  threshold?: number;
+  /** Filled-track / thumb colour. */
+  color?: string;
+  /** Colour of the text and glyph drawn ON the thumb. */
+  onColor?: string;
+  trackColor?: string;
+  borderColor?: string;
+  height?: number;
+  style?: StyleProp<ViewStyle>;
+  loadingLabel?: string;
+}
+
+const THUMB_INSET = 4;
+
+export function SwipeToConfirm({
+  label,
+  onConfirm,
+  loading = false,
+  disabled = false,
+  threshold = 0.65,
+  color = '#3AA0FF',
+  onColor = '#0A0D14',
+  trackColor = 'rgba(255,255,255,0.06)',
+  borderColor = 'rgba(255,255,255,0.14)',
+  height = 60,
+  style,
+  loadingLabel,
+}: SwipeToConfirmProps) {
+  const thumbSize = height - THUMB_INSET * 2;
+  // Travel is measured, not assumed: the control is full-width in a panel whose
+  // width depends on the device and the panel's padding.
+  const trackWidth = useSharedValue(0);
+  const x = useSharedValue(0);
+  const committed = useSharedValue(false);
+  const locked = disabled || loading;
+
+  const fire = useCallback(() => {
+    onConfirm();
+  }, [onConfirm]);
+
+  // Reset when the caller stops loading without unmounting us (e.g. the mutation
+  // failed and the driver must try again).
+  React.useEffect(() => {
+    if (!loading && committed.value) {
+      committed.value = false;
+      x.value = withSpring(0, { damping: 22, stiffness: 220 });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(!locked)
+        .activeOffsetX(6)
+        .failOffsetY([-14, 14])
+        .onUpdate((e) => {
+          if (committed.value) return;
+          const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
+          x.value = Math.min(Math.max(0, e.translationX), max);
+        })
+        .onEnd(() => {
+          if (committed.value) return;
+          const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
+          if (x.value >= max * threshold) {
+            committed.value = true;
+            x.value = withTiming(max, { duration: 140 });
+            runOnJS(fire)();
+          } else {
+            x.value = withSpring(0, { damping: 20, stiffness: 240 });
+          }
+        }),
+    [locked, threshold, thumbSize, fire, committed, x, trackWidth],
+  );
+
+  const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+
+  // The fill grows with the thumb so the control reads as "progress toward the
+  // action" rather than "a knob that moved".
+  const fillStyle = useAnimatedStyle(() => ({
+    width: x.value + thumbSize + THUMB_INSET * 2,
+  }));
+
+  const labelStyle = useAnimatedStyle(() => {
+    const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
+    return {
+      opacity: interpolate(x.value, [0, max * 0.55], [1, 0], Extrapolation.CLAMP),
+    };
+  });
+
+  return (
+    <View
+      style={[styles.track, { height, borderRadius: height / 2, backgroundColor: trackColor, borderColor }, style]}
+      onLayout={(e) => {
+        trackWidth.value = e.nativeEvent.layout.width;
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Swipe right to confirm"
+      accessibilityState={{ disabled: locked }}
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.fill, { borderRadius: height / 2, backgroundColor: color, opacity: 0.22 }, fillStyle]}
+      />
+
+      <Animated.View style={[styles.labelWrap, labelStyle]} pointerEvents="none">
+        <Text variant="labelLarge" style={{ color: locked ? 'rgba(255,255,255,0.5)' : '#FFFFFF' }}>
+          {loading ? (loadingLabel ?? 'Working…') : label}
+        </Text>
+        {!loading && (
+          <View style={styles.chevrons}>
+            <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.28)" />
+            <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.5)" />
+            <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.75)" />
+          </View>
+        )}
+      </Animated.View>
+
+      <GestureDetector gesture={pan}>
+        <Animated.View
+          style={[
+            styles.thumb,
+            {
+              width: thumbSize,
+              height: thumbSize,
+              borderRadius: thumbSize / 2,
+              left: THUMB_INSET,
+              top: THUMB_INSET,
+              backgroundColor: locked ? 'rgba(255,255,255,0.22)' : color,
+            },
+            thumbStyle,
+          ]}
+        >
+          <Ionicons
+            name={loading ? 'ellipsis-horizontal' : 'arrow-forward'}
+            size={20}
+            color={onColor}
+          />
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  track: {
+    width: '100%',
+    borderWidth: 1,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  fill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+  },
+  labelWrap: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  chevrons: { flexDirection: 'row', alignItems: 'center' },
+  thumb: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

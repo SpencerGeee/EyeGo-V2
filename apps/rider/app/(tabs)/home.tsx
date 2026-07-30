@@ -231,7 +231,23 @@ export default function HomeScreen() {
   const tripsBody = (tripsData as any)?.data;
   const realTrips = (tripsBody?.data as any)?.trips ?? tripsBody?.data ?? [];
 
-  const activeBooking = (activeBookings as any)?.data?.data?.booking ?? null;
+  // Defence in depth for "I cancelled the ride but the live trip card is still
+  // there". The server already excludes cancelled/completed bookings from
+  // /bookings/active, and the cancel screen now clears the persisted ride store —
+  // but this card is the one surface that can strand a rider in a dead ride (it
+  // navigates straight into tracking), and it can also be showing a 30s-stale
+  // cached response, or a ride the DRIVER cancelled while this screen sat in the
+  // background. So the terminal states are filtered here too, on both the
+  // booking and its trip.
+  const TERMINAL_BOOKING = ['CANCELLED', 'COMPLETED', 'NO_SHOW', 'REFUNDED'];
+  const TERMINAL_TRIP = ['CANCELLED', 'COMPLETED', 'EXPIRED', 'NO_SHOW'];
+  const activeBookingRaw = (activeBookings as any)?.data?.data?.booking ?? null;
+  const activeBooking =
+    activeBookingRaw &&
+    !TERMINAL_BOOKING.includes(String(activeBookingRaw.status ?? '').toUpperCase()) &&
+    !TERMINAL_TRIP.includes(String(activeBookingRaw.trip?.status ?? '').toUpperCase())
+      ? activeBookingRaw
+      : null;
 
   // searchTrips doesn't exclude trips the rider already booked, so without this
   // filter the trip they just booked (still OPEN/FILLING) could resurface here

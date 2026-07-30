@@ -289,7 +289,34 @@
   }
 
   // ── MapLibre GL JS setup (OpenFreeMap tiles, no API key needed) ──
-  const map = new maplibregl.Map({
+  //
+  // BUGFIX ("the share-trip link opens the page but it's stuck on Loading
+  // trip"): this whole file is ONE IIFE, and the map was constructed here —
+  // before `fetchAndRender()` at the bottom ever ran. `maplibregl` comes from
+  // unpkg over the recipient's own connection, so if that CDN was slow, blocked,
+  // or simply failed (entirely normal on mobile data), `maplibregl` was
+  // undefined, the constructor threw a ReferenceError, the IIFE aborted at this
+  // line, and NOTHING below it executed: no fetch, no render, no error state —
+  // just the spinner, forever. Any throw inside the Map constructor (bad style
+  // document, no WebGL — plenty of low-end and in-app browsers have none) did
+  // exactly the same thing.
+  //
+  // The trip details are the point of the page and they do not need a map. So
+  // the map is now strictly optional: if it can't be built, `map` stays null and
+  // every map-touching branch is guarded, while the fetch/render path — and the
+  // error state, if the fetch itself fails — carries on regardless.
+  let map = null;
+  const mapEl = document.getElementById('map');
+  try {
+    if (typeof maplibregl === 'undefined') throw new Error('maplibre-gl failed to load');
+    map = buildMap();
+  } catch (mapErr) {
+    console.warn('Map unavailable — showing trip details only', mapErr);
+    if (mapEl) mapEl.style.display = 'none';
+  }
+
+  function buildMap() {
+  const m = new maplibregl.Map({
     container: 'map',
     style: {
       version: 8,
@@ -297,8 +324,12 @@
       sources: {
         openfreemap: {
           type: 'vector',
-          tiles: ['https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.pbf'],
-          maxzoom: 14,
+          // TileJSON endpoint, NOT a {z}/{x}/{y} template. OpenFreeMap publishes
+          // `/planet` as TileJSON (that is what the native app styles in
+          // @eyego/map-styles use); the hand-written tile template that used to be
+          // here 404s on every tile, so even when the map DID initialise it drew
+          // nothing but the background colour.
+          url: 'https://tiles.openfreemap.org/planet',
           attribution: '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> · <a href="https://openstreetmap.org" target="_blank">OpenStreetMap</a>'
         }
       },
@@ -316,7 +347,9 @@
     zoom: 12,
     attributionControl: false,
   });
-  map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+  m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+  return m;
+  }
 
   // ── State ────────────────────────────────────────────────────
   let vanMarkerEl = null;
@@ -331,7 +364,13 @@
   // ── Fetch & render ───────────────────────────────────────────
   async function fetchAndRender() {
     try {
-      const res = await fetch(`${API_BASE}/v1/trips/track/${SHORT_ID}/data`);
+      // Hard timeout: a request that never settles used to leave the spinner up
+      // forever, because the `catch` below can only run if the promise rejects.
+      const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeout = ctrl ? setTimeout(() => ctrl.abort(), 12000) : null;
+      const res = await fetch(`${API_BASE}/v1/trips/track/${SHORT_ID}/data`, {
+        signal: ctrl ? ctrl.signal : undefined,
+      }).finally(() => { if (timeout) clearTimeout(timeout); });
       if (!res.ok) {
         if (res.status === 404) {
           showError('Trip not found or link has expired.');
@@ -446,6 +485,8 @@
     document.getElementById('app-link').href = `eyego://track/${SHORT_ID}`;
 
     // ── Map: markers + route ──────────────────────────────────
+    // Optional — see the map-init note above.
+    if (!map) return;
     if (!map.isStyleLoaded()) {
       map.once('styledata', () => updateMap(data));
     } else {
@@ -454,6 +495,7 @@
   }
 
   function updateMap(data) {
+    if (!map) return;
     const route = data.route;
     const driver = data.driver;
 

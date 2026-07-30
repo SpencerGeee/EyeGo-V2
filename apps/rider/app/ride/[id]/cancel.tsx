@@ -34,7 +34,7 @@ export default function CancelRideScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const { selectedTrip } = useRideStore();
+  const { selectedTrip, clearRideState } = useRideStore();
 
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [note, setNote] = useState('');
@@ -71,6 +71,15 @@ export default function CancelRideScreen() {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['trip', id] });
       queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
+      // BUGFIX ("I cancelled the trip but I'm still seeing the live trip card,
+      // and tapping it opens the tracking page"): invalidating the QUERIES was
+      // never enough, because the live-ride surfaces also read the PERSISTED
+      // Zustand ride state. `activeBooking`/`selectedTrip` survive a cancel — and
+      // survive an app restart, since the store is persisted — so the home card
+      // and the tracking screen kept rendering a ride that no longer exists on
+      // the server. Clearing the store is the actual fix; the invalidations
+      // above only refresh what the server owns.
+      clearRideState();
       if (fee > 0) {
         Alert.alert(
           'Ride Cancelled',

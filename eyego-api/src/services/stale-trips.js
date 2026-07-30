@@ -64,6 +64,42 @@ function liveUnstartedTripFilter(now = new Date()) {
   };
 }
 
+/** Statuses of a trip that is genuinely under way. */
+const IN_FLIGHT_STATUSES = Object.freeze([
+  'CONFIRMED',
+  'DRIVER_EN_ROUTE',
+  'ARRIVED_AT_PICKUP',
+  'IN_PROGRESS',
+]);
+
+/**
+ * Hours of total silence after which an already-started trip is written off.
+ * Mirrors TRIP_EXPIRY_ACTIVE_IDLE_HOURS in trip-lifecycle.service so both layers
+ * agree on when a trip is dead.
+ */
+const IN_FLIGHT_IDLE_HOURS =
+  Number.parseFloat(process.env.TRIP_EXPIRY_ACTIVE_IDLE_HOURS) > 0
+    ? Number.parseFloat(process.env.TRIP_EXPIRY_ACTIVE_IDLE_HOURS)
+    : 6;
+
+/**
+ * Prisma `where` fragment for an in-flight trip that is still RESUMABLE.
+ *
+ * BUGFIX: the driver's "Resume trip" banner used a bare
+ * `status: { in: IN_FLIGHT_STATUSES }`, on the stated assumption that a started
+ * trip "stays resumable forever, which is the whole point of the banner". That
+ * assumption is what let a trip taken at midnight still be resumable at lunchtime
+ * the next day — and, because the same trip was still non-terminal, still show as
+ * the rider's live trip. A started trip that nothing has said a word about for
+ * hours is not resumable; it is abandoned.
+ */
+function liveInFlightTripFilter(now = new Date()) {
+  return {
+    status: { in: [...IN_FLIGHT_STATUSES] },
+    updatedAt: { gte: new Date(now.getTime() - IN_FLIGHT_IDLE_HOURS * 60 * 60 * 1000) },
+  };
+}
+
 /**
  * Mark abandoned trips as EXPIRED. Safe to call opportunistically on read
  * paths — it only ever touches rows that already fail `staleTripFilter`, and
@@ -75,14 +111,37 @@ function liveUnstartedTripFilter(now = new Date()) {
  * @returns {Promise<number>} number of trips expired
  */
 async function expireStaleTrips(prisma, { driverId = null } = {}) {
-  const where = staleTripFilter();
+  const now = new Date();
+  const where = {
+    OR: [
+      staleTripFilter(now),
+      // Also sweep started-then-abandoned trips, not just never-started ones.
+      // Leaving these out is what kept a midnight trip alive and resumable the
+      // following afternoon.
+      {
+        status: { in: [...IN_FLIGHT_STATUSES] },
+        updatedAt: { lt: new Date(now.getTime() - IN_FLIGHT_IDLE_HOURS * 60 * 60 * 1000) },
+      },
+    ],
+  };
   if (driverId) where.driverId = driverId;
 
   try {
-    const { count } = await prisma.trip.updateMany({
+    // Delegated per-trip instead of one `updateMany`: expiring a trip has to
+    // release its bookings and zero its seat counter too, or the riders' seats
+    // stay spent and their bookings stay "live" from the bookings side — which is
+    // exactly the half this sweep used to miss. See trip-lifecycle.service.
+    const { expireTrip } = require('./trip-lifecycle.service');
+    const candidates = await prisma.trip.findMany({
       where,
-      data: { status: 'EXPIRED' },
+      select: { id: true },
+      orderBy: { departureTime: 'asc' },
+      take: 200,
     });
+    let count = 0;
+    for (const t of candidates) {
+      if (await expireTrip(t.id, 'READ_PATH')) count += 1;
+    }
     return count;
   } catch (err) {
     // Never let housekeeping break the request that triggered it — the
@@ -99,5 +158,8 @@ module.exports = {
   staleCutoff,
   staleTripFilter,
   liveUnstartedTripFilter,
+  liveInFlightTripFilter,
+  IN_FLIGHT_STATUSES,
+  IN_FLIGHT_IDLE_HOURS,
   expireStaleTrips,
 };

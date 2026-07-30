@@ -15,7 +15,11 @@ const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calc
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const dispatchCascade = require('../../services/dispatch-cascade.service');
-const { expireStaleTrips, liveUnstartedTripFilter } = require('../../services/stale-trips');
+const {
+  expireStaleTrips,
+  liveUnstartedTripFilter,
+  liveInFlightTripFilter,
+} = require('../../services/stale-trips');
 const { toCedis } = require('../../utils/money');
 
 // ─── Trip status machine ─────────────────────────────────────────────────────
@@ -315,7 +319,11 @@ async function getActiveTrip(driverId) {
     where: {
       driverId,
       OR: [
-        { status: { in: ['CONFIRMED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } },
+        // Time-bounded: a started trip nothing has reported on for hours is
+        // abandoned, not resumable. See liveInFlightTripFilter — the unbounded
+        // status list that used to be here is why a midnight trip was still
+        // offered as resumable the next afternoon.
+        liveInFlightTripFilter(),
         liveUnstartedTripFilter(),
       ],
     },

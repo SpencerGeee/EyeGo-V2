@@ -29,6 +29,10 @@ import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
 
 
+/** Must stay identical to (trip)/active/[id].tsx — one product, one route line. */
+const ROUTE_CORE = '#FFB020';
+const ROUTE_CASING = '#4A2B00';
+
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
   SCHEDULED:          { label: 'Scheduled',          next: 'start',  action: 'Start Trip'    },
   FILLING:            { label: 'Boarding Open',       next: 'start',  action: 'Start Trip'    },
@@ -173,17 +177,27 @@ export default function DriverTrackingScreen() {
   // heading — the pin visually "turned" whenever the map rotated (auto or by hand), not when the
   // phone/vehicle did. Camera now stays north-up (heading 0); marker rotation (below) is the only
   // thing that reflects real GPS heading, so it always matches actual direction of travel.
+  // The screen's DEFAULT camera. `resetBearing` is only ever true for the
+  // Re-center button: a GPS tick must never reset the bearing (that would yank
+  // the map north-up under a driver who deliberately rotated it), but pressing
+  // Re-center is a request for the default view back — north-up, default tilt
+  // and zoom, centred on the vehicle. Reported as: after rotating there was no
+  // way back to the default camera.
+  const recenterCamera = useCallback((resetBearing: boolean) => {
+    if (!driverCoord || !cameraRef.current) return;
+    cameraRef.current.setCamera({
+      centerCoordinate: driverCoord,
+      animationDuration: resetBearing ? 500 : 1000,
+      zoomLevel: 17,
+      ...(resetBearing ? { heading: 0 } : null),
+      pitch: 55,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driverCoord?.[0], driverCoord?.[1]]);
+
   useEffect(() => {
     if (driverCoord && cameraRef.current) {
-      cameraRef.current.setCamera({
-        centerCoordinate: driverCoord,
-        animationDuration: 1000,
-        zoomLevel: 17,
-        // Deliberately no `heading` — forcing 0 on every GPS tick snapped the
-        // map back to north and fought the rotate gesture. Marker rotation is
-        // bearing-compensated now, so the map may sit at any bearing.
-        pitch: 55,
-      });
+      recenterCamera(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   // driverCoord is a tuple — index access is the stable primitive dep; cameraRef is a stable ref
@@ -524,12 +538,15 @@ export default function DriverTrackingScreen() {
             properties: {},
           }}
         >
+          {/* Casing + core, matching the active-trip screen exactly — see
+              ROUTE_CORE in (trip)/active/[id].tsx for why amber and why two
+              layers instead of a blurred black underlay. */}
           <MapboxGL.LineLayer
             id="routeLineShadow"
             style={{
-              lineColor: '#000000',
-              lineWidth: 7,
-              lineOpacity: 0.18,
+              lineColor: ROUTE_CASING,
+              lineWidth: 11,
+              lineOpacity: 0.95,
               lineCap: 'round',
               lineJoin: 'round',
             }}
@@ -537,11 +554,12 @@ export default function DriverTrackingScreen() {
           <MapboxGL.LineLayer
             id="routeLineLayer"
             style={{
-              // Was colors.primary (blue) — matched the base map style's own
-              // road/highway blue, so the route line blended into main roads.
-              lineColor: '#A855F7',
-              lineWidth: 4,
-              lineOpacity: 0.9,
+              // History: colors.primary (blue — vanished into the map style's own
+              // blue roads), then violet (#A855F7, "a purple thing"). Amber is
+              // the one hue that can't collide with either.
+              lineColor: ROUTE_CORE,
+              lineWidth: 6,
+              lineOpacity: 1,
               lineCap: 'round',
               lineJoin: 'round',
             }}
@@ -550,6 +568,21 @@ export default function DriverTrackingScreen() {
         </MapboxGL.ShapeSource>
         )}
       </MapboxGL.MapView>
+
+      {/* Re-center → the screen's DEFAULT camera (north-up, default tilt/zoom,
+          on the vehicle), so a driver who rotated or tilted the map always has a
+          one-tap way back. Same control and same semantics as the rider app's
+          Re-center chip. */}
+      <Pressable
+        onPress={() => recenterCamera(true)}
+        style={styles.recenterFab}
+        accessibilityRole="button"
+        accessibilityLabel="Re-center map"
+        hitSlop={8}
+      >
+        <GlassSurface style={StyleSheet.absoluteFill} borderRadius={24} intensity="low" />
+        <Ionicons name="locate" size={20} color={colors.primary} />
+      </Pressable>
 
       {/* Floating header */}
       <View style={styles.headerOverlay}>
@@ -876,6 +909,22 @@ const makeStyles = (colors: DriverColors) =>
       paddingTop: 50,
       paddingHorizontal: spacing.xl,
       zIndex: 10,
+    },
+    // Sits above the bottom panel and clear of the header; 48pt is the minimum
+    // comfortable target for a thumb on a phone in a cradle.
+    recenterFab: {
+      position: 'absolute',
+      right: spacing.xl,
+      top: 130,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.outline,
+      overflow: 'hidden',
+      zIndex: 11,
     },
     headerRow: {
       flexDirection: 'row',

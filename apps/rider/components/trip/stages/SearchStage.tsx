@@ -37,6 +37,14 @@ const CARD_PADDING = spacing.xl;
 const TIMELINE_W = 12;
 const SWAP_W = 38;
 const ROW_GAP = 12;
+/** Field row height and the derived column height. Both are EXPLICIT, never
+ *  intrinsic: see the collapse note on `inputsSection`. */
+const ROW_H = 56;
+const ROW_STACK_GAP = 8;
+const COL_H = ROW_H * 2 + ROW_STACK_GAP;
+/** Icon + horizontal padding + gaps consumed by a field row's chrome, so the
+ *  text column can be given a real width instead of relying on `flex: 1`. */
+const FIELD_CHROME_W = 12 * 2 + 16 + 16 + 8 * 2;
 
 function SearchStageImpl() {
   const colors = useColors();
@@ -67,6 +75,7 @@ function SearchStageImpl() {
     120,
     cardWidth - CARD_PADDING * 2 - TIMELINE_W - SWAP_W - ROW_GAP * 2,
   );
+  const fieldTextWidth = Math.max(60, fieldColWidth - FIELD_CHROME_W);
   const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
@@ -241,7 +250,7 @@ function SearchStageImpl() {
                   <View style={[styles.timelineDot, styles.timelineDotDest]} />
                 </View>
 
-                <View style={[styles.inputsCol, { width: fieldColWidth }]}>
+                <View style={[styles.inputsCol, { width: fieldColWidth, height: COL_H }]}>
                   {/* Pickup. Tapping ANY part of the row opens the fullscreen map
                       picker — that screen already owns search, the draggable pin
                       and reverse-geocoding, and handing the whole job to it is
@@ -256,13 +265,13 @@ function SearchStageImpl() {
                     accessibilityLabel="Set pickup location"
                   >
                     <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
-                    <View style={styles.fieldTextCol}>
+                    <View style={[styles.fieldTextCol, { width: fieldTextWidth }]}>
                       <Text style={styles.fieldLabel} numberOfLines={1}>PICKUP POINT</Text>
                       <Text
                         style={[styles.fieldValue, !originText && styles.fieldPlaceholder]}
                         numberOfLines={1}
                       >
-                        {originText || 'Set your pickup point'}
+                        {originText || 'Pickup point'}
                       </Text>
                     </View>
                     <Ionicons name="map-outline" size={16} color={colors.outline} />
@@ -277,13 +286,13 @@ function SearchStageImpl() {
                     accessibilityLabel="Choose destination"
                   >
                     <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
-                    <View style={styles.fieldTextCol}>
+                    <View style={[styles.fieldTextCol, { width: fieldTextWidth }]}>
                       <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>WHERE TO</Text>
                       <Text
                         style={[styles.fieldValue, !destText && styles.fieldPlaceholder]}
                         numberOfLines={1}
                       >
-                        {destText || 'Where are you going?'}
+                        {destText || 'Destination'}
                       </Text>
                     </View>
                     <Ionicons name="map-outline" size={16} color={colors.primary} />
@@ -408,7 +417,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    *  MorphBackSwipeDetector defaults its wrapper to `flex: 1`, which would hand
    *  the detector every pan over the map below the card. */
   swipeZone: {
-    flex: 0,
+    // `flex: 0` (the previous value) is NOT "size to content" in React Native —
+    // it expands to `flexBasis: 0`, i.e. a definite main-axis size of zero, and
+    // this view is a column child of the full-screen overlay. Spelling the three
+    // longhands out keeps the detector from claiming the map (the reason it
+    // isn't `flex: 1`) without handing the card a zero height.
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
     paddingHorizontal: 16,
     paddingTop: 8,
   },
@@ -428,10 +444,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── Dual rows + timeline ────────────────────────────
+  // BUGFIX (reported three times — "the where-to page is showing the one line
+  // thing"): this row used `alignItems: 'stretch'` and derived its height from
+  // its children. When any ancestor handed it a zero/indefinite cross size
+  // (`flex: 1`/`flex: 0` both mean `flexBasis: 0` in RN — see MorphTarget), the
+  // stretch pushed EVERY child to height 0: the card shrank to its 24pt padding
+  // on each side, the two field rows vanished entirely, and the timeline's dots
+  // spilled out below the card because a border-box height of 0 makes padding
+  // overflow. The height is now stated outright and no child in this subtree
+  // takes its height from a flex or from measurement.
   inputsSection: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'flex-start',
     gap: 12,
+    height: COL_H,
   },
   timeline: {
     alignItems: 'center',
@@ -439,6 +465,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: 16,
     gap: 0,
     width: 12,
+    height: COL_H,
     flexShrink: 0,
   },
   timelineDot: {
@@ -457,16 +484,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   timelineLine: {
     width: 1.5,
-    flex: 1,
+    // Explicit, not `flex: 1` — a flex child cannot fill a parent whose height
+    // was itself indeterminate, which is how the rail used to collapse.
+    height: COL_H - 32 /* padding */ - 24 /* two dots */ - 8 /* margins */,
     backgroundColor: colors.outlineVariant,
     marginVertical: 4,
   },
   inputsCol: {
-    // Width is supplied inline from `fieldColWidth`; `flex: 1` is kept only as a
-    // belt-and-braces fallback and must never be the sole source of width here
-    // (see the fieldColWidth note above).
-    flex: 1,
-    gap: 8,
+    // Width and height are both supplied inline (`fieldColWidth` / `COL_H`).
+    // Deliberately NO `flex` here: `flex: 1` expands to `flexBasis: 0`, which is
+    // what let this column measure to nothing in the first place.
+    gap: ROW_STACK_GAP,
   },
   // Static rims instead of the rotating gradient rings that used to live here —
   // see the performance note at the top of this file.
@@ -476,8 +504,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
-    // Taller than the old 48 — the row now carries a caption above its value.
-    minHeight: 56,
+    // Explicit height, not minHeight: a `minHeight` is still a *minimum*, and a
+    // stretched-to-zero cross size beat it in the collapse described above.
+    height: ROW_H,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.rimLight,
@@ -489,9 +518,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fieldRowPressed: { opacity: 0.72 },
   inputIcon: { flexShrink: 0 },
   fieldTextCol: {
-    flex: 1,
-    // Without this a long address forces the column wider than its share and
-    // pushes the trailing map glyph off the row.
+    // Width comes in inline (`fieldTextWidth`). `flex: 1` used to live here and
+    // is the same trap as everywhere else in this card.
     minWidth: 0,
     gap: 1,
   },

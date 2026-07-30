@@ -178,12 +178,36 @@ export default function PaymentScreen() {
             ...(pickupStopId ? { pickupStopId } : {}),
             ...(guestInfo ? { guestName: guestInfo.name, guestPhone: guestInfo.phone } : {}),
           });
-          const newBooking = bookingData.data;
-          bookingId = newBooking.id ?? '';
+          // ROOT CAUSE of "pay in cash → validation failed / payment
+          // initialization failed", which survived several rounds of narrower
+          // fixes: POST /bookings answers `created(res, { booking, fareData,
+          // holdExpiry })`, but this read `bookingData.data` as if it were the
+          // booking itself (the API client's type said so, wrongly — now
+          // corrected to CreateBookingResult). So:
+          //   • `bookingId` was ALWAYS '' — POST /payments/initiate then failed
+          //     its own `body('bookingId').notEmpty()` check, which is literally
+          //     where "Validation failed" came from;
+          //   • the wrapper was stored as `activeBooking`, so `activeBooking.id`
+          //     and `.tripId` were undefined, meaning the next attempt didn't
+          //     recognise its own booking and held ANOTHER seat — the "seat is
+          //     held but payment failed" pair the rider kept seeing;
+          //   • `fareAmount` lives on `fareData`, not on the wrapper, so the
+          //     server-computed fare was silently dropped too.
+          // Unwrapped tolerantly (`?? payload`) so either shape works and a
+          // future server change can't strand the client again.
+          const payload = bookingData.data as any;
+          const newBooking = payload?.booking ?? payload;
+          bookingId = newBooking?.id ?? '';
+          if (!bookingId) {
+            throw new Error(
+              "We couldn't confirm your seat hold — the booking came back without an id. Please try again.",
+            );
+          }
           attemptBookingIdRef.current = bookingId;
           // Store booking and server-calculated fare in Zustand so tracking/rating screens have them
           setActiveBooking(newBooking);
-          if (newBooking.fareAmount) setComputedFare(newBooking.fareAmount);
+          const serverFare = payload?.fareData?.fareAmount ?? newBooking?.fareAmount;
+          if (serverFare) setComputedFare(serverFare);
         }
 
         if (bookingId && pendingPromoCode) {

@@ -187,7 +187,21 @@ Decisions:
 - One fare denominator: `trip.maxSeats` everywhere; driver side had silently been dividing by 4.
 - `useVehicleHeading` in @eyego/maps replaces compass-first rotation on all three vehicle markers — compass reads the cradle, not the road.
 - Chronic low-raters (services/rating-integrity.service.js) excluded from driver averages, the go-online gate and dispatch ranking; admin views stay unfiltered.
-- Where-to card became real type-to-search (inline dual inputs + suggestions), keyboard deferred 380ms so the morph keeps its frames.
+- Where-to card became real type-to-search (inline dual inputs + suggestions), keyboard deferred 380ms so the morph keeps its frames. [superseded by 2026-07-30 15:10 — reverted to picker-on-tap]
 Rejected: trusting a client-supplied distanceKm for the fare preview — a rider-editable fare.
 Rejected: reading `res.data.data` for `/trips/:id` — the controller wraps it as `{ trip }`.
-Open: cash false-failure trigger never reproduced from logs, only made impossible; native build + API deploy required before any of this is testable.
+Open: cash false-failure trigger never reproduced from logs, only made impossible; native build + API deploy required before any of this is testable. [resolved 2026-07-30 15:10 — real cause was `bookingId: ''`]
+
+## 2026-07-30 15:10 [saved]
+Goal: Fix 14 defects from stress-testing the sideloaded builds.
+Decisions:
+- RN's `flex` shorthand means `flexBasis: 0`; never use it in a height chain over an auto-height parent — that collapsed the where-to card to an empty pill.
+- API client types must match the wire envelope: `POST /bookings` returns `{ booking, fareData, holdExpiry }`, and mistyping it sent `bookingId: ''` — the cash "validation failed".
+- Trip expiry is two layers (5-min sweep + lazy deadline guard) and marks `EXPIRED`, not `CANCELLED`, so housekeeping never hits drivers' cancellation rates.
+- Route lines are casing+core, and the colour must differ per app because each map style paints its own roads that hue: driver amber, rider azure.
+- Irreversible driver actions (arrive/start/end) are swipe-to-confirm, not tap — a cradled phone on a rough road taps itself.
+Rejected: tying route-line colour to trip status — the driver's line must not change hue as the trip advances.
+Rejected: "a started trip stays resumable forever" — that is exactly what kept a midnight trip live at 13:00.
+Rejected: a hand-written `{z}/{x}/{y}.pbf` OpenFreeMap URL — returns 403; `/planet` is TileJSON.
+Open: "tiles stop outside Accra" diagnosed by elimination, not reproduced — recheck after rebuild.
+Open: vehicle marker still MarkerView+SVG; Uber/MLRN both favour a SymbolLayer raster sprite.

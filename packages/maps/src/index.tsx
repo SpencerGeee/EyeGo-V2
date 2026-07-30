@@ -131,6 +131,30 @@ export interface CameraRef {
   fitBounds: (coords: LngLat[], edgePadding?: { top?: number; bottom?: number; left?: number; right?: number }, animated?: boolean) => void;
 }
 
+/**
+ * Panning/zoom envelope for EVERY map in both apps: the Republic of Ghana plus a
+ * small margin, as `[west, south, east, north]` (MapLibre's `LngLatBounds`
+ * order — flat GeoJSON-RFC style, south-west corner first).
+ *
+ * Ghana's actual extent is roughly W -3.26, S 4.53, E 1.20, N 11.18; the margin
+ * keeps the border regions comfortably reachable and leaves room for the tilt.
+ *
+ * WHY: the map read as "capped to Accra" — pan or zoom out and the world simply
+ * stopped at the city's outskirts, which would have made the app unusable for a
+ * rider or driver in Kumasi, Tamale or Takoradi. Nothing was actually clamped;
+ * the tiles are the global OpenFreeMap planet set. The cause is that the style
+ * has no low-zoom land/landcover layer, so once you left the metro area (and its
+ * z12+ road layers) there was nothing left to draw but the background colour, and
+ * an empty dark canvas reads exactly like missing tiles. Two fixes, together:
+ * this envelope — which stops anyone from panning off into that void at all and
+ * is what the user asked for ("capped in ghana alone and not accra") — and the
+ * lowered `minzoom`s in @eyego/map-styles so the country keeps drawing roads,
+ * towns and labels when zoomed out to see it whole.
+ */
+export const GHANA_BOUNDS: [number, number, number, number] = [-3.75, 4.25, 1.65, 11.45];
+/** Zoomed all the way out, this frames Ghana end to end rather than the planet. */
+export const GHANA_MIN_ZOOM = 6;
+
 export interface CameraProps {
   centerCoordinate?: LngLat;
   zoomLevel?: number;
@@ -140,6 +164,10 @@ export interface CameraProps {
   animationDuration?: number;
   /** v11 `trackUserLocation` passthrough — 'course' rotates to travel heading (nav-style). Prefer <NavCamera> for the active-trip camera instead of setting this directly. */
   trackUserLocation?: 'default' | 'heading' | 'course';
+  /** `[west, south, east, north]`. Defaults to {@link GHANA_BOUNDS}; pass `null` to un-cap. */
+  maxBounds?: [number, number, number, number] | null;
+  /** Defaults to {@link GHANA_MIN_ZOOM}; pass `null` to un-cap. */
+  minZoom?: number | null;
 }
 
 // ── MapView ──────────────────────────────────────────────────────────────
@@ -392,7 +420,17 @@ function pushStop(nativeRef: React.MutableRefObject<any>, stop: Record<string, u
 }
 
 export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
-  { centerCoordinate, zoomLevel, heading, pitch, animationMode, animationDuration, trackUserLocation },
+  {
+    centerCoordinate,
+    zoomLevel,
+    heading,
+    pitch,
+    animationMode,
+    animationDuration,
+    trackUserLocation,
+    maxBounds = GHANA_BOUNDS,
+    minZoom = GHANA_MIN_ZOOM,
+  },
   ref,
 ) {
   const nativeRef = useRef<any>(null);
@@ -584,6 +622,10 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
       duration={animationDuration}
       easing={animationMode ? EASING_MAP[animationMode] : undefined}
       trackUserLocation={trackMode}
+      // Country envelope — see GHANA_BOUNDS. `undefined` (not null) is what the
+      // native side treats as "no cap".
+      maxBounds={maxBounds ?? undefined}
+      minZoom={minZoom ?? undefined}
     />
   );
 });
@@ -634,6 +676,9 @@ export function NavCamera({ active, pitch = 55, zoom = 17.5, duration = 800, fal
       center={active ? undefined : safeFallback}
       duration={duration}
       easing="ease"
+      // Same country envelope as <Camera> — see GHANA_BOUNDS.
+      maxBounds={GHANA_BOUNDS}
+      minZoom={GHANA_MIN_ZOOM}
     />
   );
 }

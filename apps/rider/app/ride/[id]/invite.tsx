@@ -71,7 +71,11 @@ export default function InviteScreen() {
         seatNumber,
         paymentMethod: 'CASH' as any,
       });
-      return data.data;
+      // POST /bookings answers `{ booking, fareData, holdExpiry }` — storing the
+      // wrapper as the booking left `activeBooking.id` undefined for every later
+      // screen. Same bug as the payment screen's; see the note there.
+      const payload = data.data as any;
+      return (payload?.booking ?? payload);
     },
     onSuccess: (bookingData) => {
       setActiveBooking(bookingData);

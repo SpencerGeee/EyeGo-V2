@@ -121,6 +121,65 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
   // condition that must NOT be cleared by a later plausible-speed fix.
   const osMockRef = useRef(false);
 
+  // ── Reported heading ──────────────────────────────────────────────────────
+  // What the RIDER's app draws the vehicle's rotation from, so it has to be the
+  // best available answer rather than a raw sensor value.
+  //
+  // BUGFIX ("the car on the rider app doesn't move even when I turn the phone"):
+  // this hook sent `pos.coords.heading ?? 0`. GPS `heading` is course over
+  // GROUND — it is only meaningful while actually moving, and reads -1 or 0 when
+  // stopped or crawling. So a stationary or slow-moving vehicle reported "due
+  // north" forever and the rider's car marker sat frozen pointing up, no matter
+  // which way the vehicle was really facing.
+  //
+  // Order of preference:
+  //   1. GPS course while genuinely moving — the only source that reflects the
+  //      direction of TRAVEL, and immune to a phone sitting askew in a cradle;
+  //   2. the last good course, while briefly stopped (at a light, in traffic) —
+  //      the vehicle is still pointing the way it was going;
+  //   3. the compass, when there has never been a course to hold (just went on
+  //      shift, parked at the pickup waiting for the rider). This is the case
+  //      that was reported: the driver was stopped AT the pickup, so no course
+  //      had ever existed.
+  // The compass is deliberately LAST: a handset in a metal cradle reads the
+  // cradle as much as the road, which is why it must never outrank real course
+  // data (see @eyego/maps useVehicleHeading — the same model, receiving end).
+  const MOVING_MPS = 1.4; // ~5 km/h — below this, GPS course is noise
+  const compassRef = useRef<number | null>(null);
+  const lastCourseRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let sub: { remove: () => void } | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        sub = await Location.watchHeadingAsync((h) => {
+          // trueHeading is -1 until the compass calibrates; magHeading covers it.
+          const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+          if (Number.isFinite(deg)) compassRef.current = deg;
+        });
+        if (cancelled) { sub?.remove(); sub = null; }
+      } catch {
+        // No compass / permission denied — headings fall back to GPS course only.
+      }
+    })();
+    return () => { cancelled = true; sub?.remove(); };
+  }, []);
+
+  const resolveHeading = useCallback((pos: Location.LocationObject): number => {
+    const course = pos.coords.heading;
+    const speed = pos.coords.speed ?? 0;
+    if (typeof course === 'number' && course >= 0 && speed >= MOVING_MPS) {
+      lastCourseRef.current = course;
+      return course;
+    }
+    if (lastCourseRef.current != null) return lastCourseRef.current;
+    if (compassRef.current != null) return compassRef.current;
+    return typeof course === 'number' && course >= 0 ? course : 0;
+  }, []);
+
   const applyPosition = useCallback((pos: Location.LocationObject) => {
     if (cancelledRef.current) return;
     const speedMs = pos.coords.speed ?? 0;
@@ -133,10 +192,11 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // clear the transient implausible-speed flag so the UI doesn't stay stuck.
       setIsMocked((prev) => (prev ? false : prev));
     }
+    const reportedHeading = resolveHeading(pos);
     setLocation({
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
-      heading: pos.coords.heading,
+      heading: reportedHeading,
       speed: pos.coords.speed,
     });
     // This used to only update local state — the ONLY thing that ever
@@ -154,13 +214,13 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       driverSocketEvents.emitLocation({
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
-        heading: pos.coords.heading ?? 0,
+        heading: reportedHeading,
         speed: pos.coords.speed ?? 0,
       });
     } catch (e) {
       console.warn('[DriverLocation] Foreground emitLocation failed:', e);
     }
-  }, []);
+  }, [resolveHeading]);
 
   const startWatch = useCallback(async () => {
     // Remove any existing watch before starting a new one

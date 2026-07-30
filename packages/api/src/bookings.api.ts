@@ -18,6 +18,18 @@ import type {
  * routing error for what is really "we don't have a booking yet". Failing here
  * turns it into an explicit, debuggable error instead of a phantom 404.
  */
+/** Exactly what POST /bookings returns inside the response envelope. */
+export interface CreateBookingResult {
+  booking: Booking;
+  fareData?: {
+    fareAmount?: number;
+    commissionAmount?: number;
+    deviationSurcharge?: number;
+    cargoSurcharge?: number;
+  };
+  holdExpiry?: string;
+}
+
 function requireId(id: string | undefined | null, op: string): string {
   const trimmed = (id ?? '').trim();
   if (!trimmed) throw new Error(`bookingsApi.${op}: called without a booking id`);
@@ -25,8 +37,21 @@ function requireId(id: string | undefined | null, op: string): string {
 }
 
 export const bookingsApi = {
+  /**
+   * Hold a seat. The server responds with a WRAPPER, not a bare Booking:
+   * `created(res, { booking, fareData, holdExpiry })`.
+   *
+   * This was typed `ApiResponse<Booking>` for a long time, which is why the cash
+   * flow kept "failing" while the seat was visibly held: the payment screen read
+   * `res.data.data.id`, got `undefined` from the wrapper, sent `bookingId: ''`
+   * to POST /payments/initiate, and the route's `body('bookingId').notEmpty()`
+   * rejected it — surfacing as "validation failed" / "Payment initialization
+   * failed, please try again" over a booking that had been created perfectly.
+   * The type now matches the wire format so no caller can make that mistake
+   * again silently.
+   */
   create: (data: CreateBookingRequest) =>
-    apiClient.post<ApiResponse<Booking>>('/bookings', data),
+    apiClient.post<ApiResponse<CreateBookingResult>>('/bookings', data),
 
   getById: (id: string) =>
     apiClient.get<ApiResponse<Booking>>(`/bookings/${id}`),

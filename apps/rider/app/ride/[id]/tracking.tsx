@@ -53,6 +53,15 @@ function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number):
  */
 const TRACKING_PITCH = 50;
 
+/**
+ * Route line colours for the RIDER app. Two layers: a deep casing under a bright
+ * core (see the LineLayer comments). The rider map style paints its roads green,
+ * so the core must not be green — and it must not be the violet it was, which
+ * read as "a purple thing". Azure over navy.
+ */
+const ROUTE_CORE = '#5BB0FF';
+const ROUTE_CASING = '#123A66';
+
 // ── Polyline draw-in animation ───────────────────────────────────────────
 function usePolylineReveal(coords: [number, number][], skipAnimation?: boolean) {
   const [revealed, setRevealed] = useState<[number, number][]>([]);
@@ -260,6 +269,29 @@ export default function TrackingScreen() {
   // Trip phase determines routing direction
   const tripInProgress = syncedTrip?.status === 'IN_PROGRESS';
 
+  // A dead trip must not be trackable. The AppState-resume handler further down
+  // already caught "cancelled while you were away", but nothing checked the
+  // status this screen was ALREADY holding — so opening tracking from a stale
+  // live-trip card (or from the persisted ride store) dropped the rider onto a
+  // live-looking map for a ride that had been cancelled or had expired. Reported
+  // as "I cancelled the trip but clicking the card still takes me to tracking".
+  const bouncedRef = useRef(false);
+  useEffect(() => {
+    const status = String(syncedTrip?.status ?? '').toUpperCase();
+    if (status !== 'CANCELLED' && status !== 'EXPIRED' && status !== 'NO_SHOW') return;
+    if (bouncedRef.current) return;
+    bouncedRef.current = true;
+    useRideStore.getState().clearRideState();
+    Alert.alert(
+      status === 'EXPIRED' ? 'Trip expired' : 'Trip cancelled',
+      status === 'EXPIRED'
+        ? 'This trip was closed automatically because it never finished. You have not been charged for the ride.'
+        : 'This trip is no longer active. You have not been charged for the ride.',
+      [{ text: 'OK', onPress: () => router.replace('/(tabs)/home' as Href) }],
+      { cancelable: false },
+    );
+  }, [syncedTrip?.status, router]);
+
   // Vehicle silhouette for the map marker. The shared ECONOMY/COMFORT fleet is
   // minibuses; PREMIUM is a saloon. Falls back to the minibus, which is what
   // most EyeGo trips actually are.
@@ -331,6 +363,27 @@ export default function TrackingScreen() {
   // Grace window before falling back to the straight-line polyline — see the
   // effect below (after routeCoords is declared) for why this exists.
   const [routeGrace, setRouteGrace] = useState(false);
+  // Retry ladder for the road-geometry fetch (see the fetch effect). Backs off
+  // 2s → 4s → 8s → 15s and then keeps trying every 15s: a rider staring at a
+  // straight line is looking at a bug, so it is worth one request per 15s to
+  // repair it, but not a tight loop against a down proxy.
+  const [routeRetryTick, setRouteRetryTick] = useState(0);
+  const routeRetryCountRef = useRef(0);
+  const routeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRouteRetry = useCallback(() => {
+    if (routeRetryTimerRef.current) return;
+    const n = routeRetryCountRef.current;
+    const delay = [2000, 4000, 8000][n] ?? 15000;
+    routeRetryCountRef.current = n + 1;
+    routeRetryTimerRef.current = setTimeout(() => {
+      routeRetryTimerRef.current = null;
+      routeFetchedRef.current = false;
+      setRouteRetryTick((t) => t + 1);
+    }, delay);
+  }, []);
+  useEffect(() => () => {
+    if (routeRetryTimerRef.current) clearTimeout(routeRetryTimerRef.current);
+  }, []);
   useEffect(() => {
     if (routeFetchedRef.current) return;
     // BUGFIX: origin used to default missing driver coords to `0 ?? 0`
@@ -338,11 +391,20 @@ export default function TrackingScreen() {
     // and display as a real ETA — a route from (0,0). Gate on hasDriverPos/
     // hasDest/hasPickup instead so a genuinely missing coordinate skips the
     // fetch entirely rather than fabricating one.
+    // Pre-trip the interesting line is DRIVER → pickup: that is the vehicle the
+    // rider is waiting for, and drawing it along the roads is how they can tell
+    // it is two streets away rather than "300 m as the crow flies". It used to
+    // start from the RIDER's GPS, which on a driver-created trip is often within
+    // metres of the pickup pin — a stub of a line that looked like a bug. The
+    // rider's own position is kept only as a fallback for the window before the
+    // driver's first fix lands.
     const origin: [number, number] | null = tripInProgress
       ? (hasDriverPos ? [currentDriverCoord!.longitude, currentDriverCoord!.latitude] : null)
-      : riderLocation
-        ? [riderLocation.longitude, riderLocation.latitude]
-        : null;
+      : hasDriverPos
+        ? [currentDriverCoord!.longitude, currentDriverCoord!.latitude]
+        : riderLocation
+          ? [riderLocation.longitude, riderLocation.latitude]
+          : null;
     const target: [number, number] | null = tripInProgress
       ? (hasDest ? destCoord : null)
       : (hasPickup ? passengerPickupCoord : null);
@@ -352,14 +414,28 @@ export default function TrackingScreen() {
     // Traffic-aware via /v1/geo/route. This used to hit the public OSRM demo
     // server directly, which returns free-flow duration — the source of ETAs
     // that assumed an empty road. See utils/routing.ts.
+    //
+    // BUGFIX ("during the trip it shows a straight line from where I am to the
+    // pickup point"): a single failed or empty response used to be terminal.
+    // The guard above was latched to `true` BEFORE the request, so one hiccup
+    // (cold API, a dropped packet, the proxy not yet redeployed) meant no road
+    // geometry would ever be fetched again for the life of the screen — and the
+    // 900 ms grace timer then drew the straight-line fallback permanently. Now a
+    // failure un-latches the guard and schedules a bounded retry, so the line
+    // heals itself instead of staying wrong.
     fetchRoute(origin, target)
       .then((route) => {
-        if (!route) return;
-        if (route.coordinates.length >= 2) setRouteCoords(route.coordinates);
-        if (route.durationMin > 0) setTripEta(Math.max(1, Math.round(route.durationMin)));
+        if (route && route.coordinates.length >= 2) {
+          setRouteCoords(route.coordinates);
+          if (route.durationMin > 0) setTripEta(Math.max(1, Math.round(route.durationMin)));
+          return;
+        }
+        scheduleRouteRetry();
       })
-      .catch(() => {});
+      .catch(() => scheduleRouteRetry());
   }, [
+    routeRetryTick,
+    scheduleRouteRetry,
     tripInProgress,
     riderLocation?.longitude,
     riderLocation?.latitude,
@@ -392,10 +468,17 @@ export default function TrackingScreen() {
   const [following, setFollowing] = useState(true);
   const [panelState, setPanelState] = useState<'collapsed' | 'expanded'>('collapsed');
   const frameOnTarget = useCallback(
-    (coord: [number, number], duration = 450) => {
+    // `resetBearing` is what the Re-center chip passes. Live GPS pings must NOT
+    // reset the bearing — that would yank the map north-up under a rider who had
+    // deliberately rotated it — but "Re-center" is a request to go back to the
+    // screen's DEFAULT camera, which means north-up and the standard tilt/zoom,
+    // not merely "re-centre on the same rotated frame". Reported as: after
+    // rotating the map there was no way back to the default view.
+    (coord: [number, number], duration = 450, resetBearing = false) => {
       cameraRef.current?.setCamera({
         centerCoordinate: coord,
         zoomLevel: 15.5,
+        ...(resetBearing ? { heading: 0 } : null),
         // Tilted nav view, applied on EVERY camera move. It has to be repeated
         // here and not just on the declarative <Camera> seed below: setStop
         // replaces the whole camera, so omitting pitch silently flattens the
@@ -871,13 +954,18 @@ export default function TrackingScreen() {
             properties: {},
           }}
         >
-          {/* Subtle shadow beneath the route for depth */}
+          {/* CASING, not a shadow. Every serious navigation renderer (Mapbox's
+              own Nav SDK, Google, Uber) draws the route as TWO stacked lines: a
+              wider dark "casing" underneath and a bright core on top. The casing
+              is what gives the line a hard edge against busy map tiles — a
+              blurred 18%-opacity black underlay (what used to be here) does not,
+              which is half of why the route read as weak. */}
           <MapboxGL.LineLayer
             id="routeLineShadow"
             style={{
-              lineColor: '#000000',
-              lineWidth: 7,
-              lineOpacity: 0.18,
+              lineColor: ROUTE_CASING,
+              lineWidth: 10,
+              lineOpacity: 0.95,
               lineCap: 'round',
               lineJoin: 'round',
             }}
@@ -885,15 +973,25 @@ export default function TrackingScreen() {
           <MapboxGL.LineLayer
             id="routeLineLayer"
             style={{
-              // Was colors.primary (green) — identical to the base map style's
-              // road/highway color, so the route line visually vanished on
-              // top of main roads. Violet reads distinctly against both the
-              // green CTA color and the map's road palette.
-              lineColor: '#A855F7',
-              lineWidth: 4,
-              lineOpacity: 0.9,
+              // History: green (vanished into the map style's own road color),
+              // then violet (#A855F7 — the "purple thing" the rider app was
+              // called out for). The rider map's roads are GREEN, so the route
+              // needs a hue that cannot collide with them: a bright azure over a
+              // deep-navy casing, which is the same figure/ground trick as
+              // Mapbox Nav's #56A8FB-over-#2F7AC6. The driver app deliberately
+              // uses a different pair (amber over brown) because ITS map style
+              // is blue — see apps/driver/.../active/[id].tsx.
+              lineColor: ROUTE_CORE,
+              lineWidth: 5.5,
+              lineOpacity: 1,
               lineCap: 'round',
               lineJoin: 'round',
+              // A straight-line fallback is DASHED so it can never be mistaken
+              // for a real road route. That confusion is the reported bug —
+              // "it's showing a straight line from where I am to the pickup
+              // point" was the fallback quietly standing in for road geometry
+              // that had failed to fetch (now retried; see scheduleRouteRetry).
+              ...(routeCoords.length >= 2 ? null : { lineDasharray: [1.6, 1.4] }),
             }}
             aboveLayerID="routeLineShadow"
           />
@@ -1038,7 +1136,8 @@ export default function TrackingScreen() {
                 tripInProgress
                   ? cameraDriverCoord
                   : (passengerPickupCoord as [number, number]),
-                600
+                600,
+                true, // back to the default north-up camera, not just re-centred
               );
             }}
             style={styles.recenterInner}
@@ -1210,35 +1309,60 @@ export default function TrackingScreen() {
   );
 }
 
+/**
+ * Pickup-point marker.
+ *
+ * Deliberately a PIN (a stalk with a ring head, planted on the spot) and not a
+ * plain disc. When the driver is waiting at the pickup — the normal case for a
+ * driver-created trip — the vehicle marker, this marker and the rider's own blue
+ * dot all land within a few metres of each other, and three interchangeable
+ * circles is what made it impossible to tell which was which; it was reported as
+ * "the silhouette is on the pickup location and the driver is a round circle".
+ * A pin reads as a PLACE, a puck reads as a VEHICLE, and the OS blue dot reads as
+ * "you" — the same three-way distinction Uber and Bolt rely on.
+ */
 function PulseMarker({ color }: { color?: string }) {
   const colors = useColors();
   const resolvedColor = color ?? colors.primary;
   return (
-    <View style={{ width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={pulseStyles.pinWrap}>
       <MotiView
         style={[pulseStyles.ring, { backgroundColor: resolvedColor }]}
         from={{ scale: 1, opacity: 0.7 }}
-        animate={{ scale: 1.8, opacity: 0 }}
+        animate={{ scale: 2.2, opacity: 0 }}
         transition={{ type: 'timing', duration: 1500, loop: true }}
       />
-      <View style={[pulseStyles.dot, { backgroundColor: resolvedColor, borderColor: colors.backgroundDeep }]} />
+      {/* Ring head — hollow, so it never reads as a solid vehicle puck. */}
+      <View style={[pulseStyles.pinHead, { borderColor: resolvedColor, backgroundColor: colors.backgroundDeep }]}>
+        <View style={[pulseStyles.pinCore, { backgroundColor: resolvedColor }]} />
+      </View>
+      {/* Stalk down to the exact coordinate. */}
+      <View style={[pulseStyles.pinStalk, { backgroundColor: resolvedColor }]} />
     </View>
   );
 }
 
 const pulseStyles = StyleSheet.create({
+  // Head + stalk stacked; the wrap is taller than it is wide so the pin's tip
+  // (the bottom of the stalk) is what sits over the coordinate.
+  pinWrap: { width: 24, height: 30, alignItems: 'center', justifyContent: 'flex-start' },
   ring: {
     position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    top: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
   },
-  dot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
+  pinHead: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  pinCore: { width: 6, height: 6, borderRadius: 3 },
+  pinStalk: { width: 2.5, height: 10, borderRadius: 1.25, marginTop: -1 },
 });
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
