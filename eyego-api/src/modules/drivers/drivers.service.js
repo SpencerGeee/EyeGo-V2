@@ -40,6 +40,23 @@ const TRIP_TRANSITIONS = Object.freeze({
  * trip is already in is a no-op success (returns false, "nothing to do"), so
  * retried requests don't 409 or fire duplicate push notifications.
  */
+/**
+ * Wallet-transaction types that represent money the driver EARNED.
+ *
+ * `EARNINGS_CREDIT` is credited to the wallet (online-paid fares).
+ * `CASH_EARNING` is a ledger-only record of cash handed over in person — it must
+ * never touch the balance, but it is real income and every earnings report has to
+ * include it. Reading `EARNINGS_CREDIT` alone is what made a cash-working
+ * driver's chart and totals read as zero. See the CASH_EARNING block in
+ * `arriveTrip`.
+ *
+ * `TRIP_EARNING` is what the OTHER completion path writes
+ * (trips.service.completeTrip, reached via the `driver:arrived` socket event), and
+ * it was never in this aggregation either — so which code path finished the trip
+ * silently decided whether it showed up in the driver's earnings at all.
+ */
+const EARNING_TYPES = ['EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING'];
+
 function assertTransition(trip, next) {
   if (trip.status === next) return false;
   const allowed = TRIP_TRANSITIONS[next] ?? [];
@@ -667,6 +684,43 @@ async function arriveTrip(driverId, tripId) {
           description: `Earnings from Trip #${trip.shortId}`,
           balanceBefore: driver.walletBalance,
           balanceAfter: toCedis(driver.walletBalance + safeEarnings),
+          tripId,
+        },
+      });
+    }
+
+    // ── Cash earnings: recorded for REPORTING only ───────────────────────
+    // BUGFIX ("the earnings page always has a blank chart even though sales have
+    // been made or a commission has been deducted"): every earnings surface —
+    // this app's chart, the /earnings summary, shift totals — reads wallet
+    // transactions of type EARNINGS_CREDIT. Cash trips deliberately never create
+    // one (the driver is handed the money directly; only commission is debited,
+    // which is why a COMMISSION_DEDUCTION row was visible while earnings showed
+    // zero). A cash-only driver therefore saw GHS 0, 0 trips and a flat chart
+    // forever, with no way to tell it apart from having done no work.
+    //
+    // This writes a DISTINCT type with balanceBefore === balanceAfter: it moves
+    // no money and is not part of the wallet balance, it exists so cash income is
+    // reportable. Every existing aggregate filters on an explicit type, so no
+    // balance or payout calculation can pick this up by accident — the reporting
+    // queries opt into it by name.
+    const cashBookings = trip.bookings.filter((b) => b.paymentMethod === 'CASH');
+    const cashEarnings = toCedis(
+      cashBookings.reduce((sum, b) => sum + toCedis(b.fareAmount * (1 - env.PLATFORM_COMMISSION)), 0),
+    );
+    if (cashEarnings > 0) {
+      const balanceNow = (await tx.driver.findUnique({
+        where: { id: driverId }, select: { walletBalance: true },
+      }))?.walletBalance ?? 0;
+      await tx.walletTransaction.create({
+        data: {
+          driverId,
+          type: 'CASH_EARNING',
+          amount: cashEarnings,
+          description: `Cash collected in person — Trip #${trip.shortId}`,
+          // Equal on purpose: no wallet movement, reporting only.
+          balanceBefore: balanceNow,
+          balanceAfter: balanceNow,
           tripId,
         },
       });
@@ -1483,7 +1537,8 @@ async function getPerformance(driverId) {
     prisma.trip.count({ where: { driverId, status: 'CANCELLED' } }),
     prisma.trip.count({ where: { driverId, createdAt: { gte: weekAgo } } }),
     prisma.walletTransaction.aggregate({
-      where: { driverId, type: 'EARNINGS_CREDIT', createdAt: { gte: weekAgo } },
+      // Cash fares included — see EARNING_TYPES.
+      where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: weekAgo } },
       _sum: { amount: true },
     }),
     // Real dispatch tracking
@@ -1721,7 +1776,8 @@ async function endShift(driverId) {
   const completedTrips = await prisma.walletTransaction.aggregate({
     where: {
       driverId,
-      type: 'EARNINGS_CREDIT',
+      // Cash fares count toward a shift's earnings too — see EARNING_TYPES.
+      type: { in: EARNING_TYPES },
       createdAt: { gte: shift.startTime },
     },
     _sum: { amount: true },
@@ -1751,7 +1807,8 @@ async function getCurrentShift(driverId) {
   const completedTrips = await prisma.walletTransaction.aggregate({
     where: {
       driverId,
-      type: 'EARNINGS_CREDIT',
+      // Cash fares count toward a shift's earnings too — see EARNING_TYPES.
+      type: { in: EARNING_TYPES },
       createdAt: { gte: shift.startTime },
     },
     _sum: { amount: true },
@@ -1816,8 +1873,12 @@ async function getEarningsBreakdown(driverId, period = 'week') {
   }
 
   const [earningsAgg, tipsAgg, deductionsAgg, tripsData, dailyBreakdown] = await Promise.all([
+    // EARNINGS_CREDIT (online-paid, wallet-credited) + CASH_EARNING (collected in
+    // person, ledger-only). Counting only the former reported zero earnings and
+    // zero trips for any driver working cash fares — see the CASH_EARNING note in
+    // arriveTrip for why cash cannot be a wallet credit.
     prisma.walletTransaction.aggregate({
-      where: { driverId, type: 'EARNINGS_CREDIT', createdAt: { gte: startDate } },
+      where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: startDate } },
       _sum: { amount: true },
       _count: true,
     }),
@@ -1839,7 +1900,7 @@ async function getEarningsBreakdown(driverId, period = 'week') {
       SELECT DATE(created_at) as date, SUM(amount) as earnings, COUNT(*) as trips
       FROM wallet_transactions
       WHERE driver_id = ${driverId}
-        AND type = 'EARNINGS_CREDIT'
+        AND type IN ('EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING')
         AND created_at >= ${startDate}
       GROUP BY DATE(created_at)
       ORDER BY date DESC

@@ -250,6 +250,31 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         // bearing was stuck at 0, silently disabling marker-rotation
         // compensation. Normalise back to the legacy shape here so the screens
         // stay unchanged.
+        // BUGFIX ("the pin turns with the map when you rotate/tilt, then snaps
+        // back in place"): the map bearing was published ONLY from
+        // onRegionDidChange, which fires once the gesture has ENDED. So for the
+        // whole duration of a rotate the compensation below was working off a
+        // stale bearing — the marker rotated along with the map — and the instant
+        // the finger lifted the real bearing arrived and the marker snapped to
+        // its correct world-locked angle. onRegionIsChanging fires continuously
+        // DURING the gesture, so the compensation now tracks the map frame by
+        // frame and the marker never visibly moves at all.
+        //
+        // Bearing only — no onUserPan and no onRegionDidChange forwarding from
+        // here: those are one-shot semantics ("the user moved the map", "settle
+        // and reverse-geocode the centre") and firing them per frame would spam
+        // the geocoder and fight the camera.
+        onRegionIsChanging={(e: any) => {
+          const s = e?.nativeEvent ?? e;
+          const bearing = s?.bearing ?? s?.properties?.bearing ?? s?.properties?.heading;
+          // 1.5° dead-band: this runs on every frame of a rotate gesture and each
+          // accepted value re-renders every marker consuming the context, so the
+          // threshold is what keeps a rotate from turning into a 60 fps React
+          // render storm. Below ~2° of marker rotation is imperceptible anyway.
+          if (Number.isFinite(bearing)) {
+            setMapBearing((prev) => (Math.abs(prev - bearing) > 1.5 ? bearing : prev));
+          }
+        }}
         onRegionDidChange={(e: any) => {
           const s = e?.nativeEvent ?? e;
           const coordinates = s?.center ?? s?.geometry?.coordinates;

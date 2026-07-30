@@ -25,8 +25,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.eyego.driver",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "EyeGo Driver needs your location to go online and track trips.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "EyeGo Driver uses your location to broadcast your position to passengers.",
+        "NSLocationWhenInUseUsageDescription": "EyeGo Driver uses your location while the app is open so you can go online, receive trip requests and navigate.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow location while EyeGo Driver is in the background so your passengers can keep seeing where you are during a trip, even with the app closed. This is only used while you are on a trip.",
         "NSCameraUsageDescription": "EyeGo Driver needs camera access to update your profile photo.",
         "NSPhotoLibraryUsageDescription": "EyeGo Driver needs photo library access to update your profile photo.",
         "NSContactsUsageDescription": "Allow EyeGo to access your contacts to add an emergency contact.",
@@ -58,7 +58,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow EyeGo Driver to use your location to broadcast your position to passengers."
+          "locationAlwaysAndWhenInUsePermission": "Allow background location so your passengers can see where you are during a trip even with the app closed. Only used while you are on a trip."
         }
       ],
       [

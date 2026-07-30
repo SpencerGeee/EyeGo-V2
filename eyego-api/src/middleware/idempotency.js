@@ -102,16 +102,39 @@ function idempotency(req, res, next) {
 
     // 3) Wrap res.json so we persist the real response once the handler finishes.
     const originalJson = res.json.bind(res);
+    let persisted = false;
     res.json = (body) => {
-      // Fire-and-forget: never block the response on the store write.
-      prisma.idempotencyKey
-        .update({
-          where: { userId_endpoint_key: { userId, endpoint, key } },
-          data: { statusCode: res.statusCode || 200, responseBody: JSON.stringify(body) },
-        })
-        .catch((e) => logger.warn('Failed to persist idempotent response', { error: e.message }));
+      // Only SUCCESSFUL responses are worth replaying. Caching a failure under a
+      // stable client key (the payment screen deliberately reuses
+      // `pay_<bookingId>_<method>` so a retry can't double-charge) meant the
+      // first transient error was replayed to every later attempt for 24h — the
+      // booking could never be paid again, however many times the rider tried.
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        persisted = true;
+        // Fire-and-forget: never block the response on the store write.
+        prisma.idempotencyKey
+          .update({
+            where: { userId_endpoint_key: { userId, endpoint, key } },
+            data: { statusCode: res.statusCode || 200, responseBody: JSON.stringify(body) },
+          })
+          .catch((e) => logger.warn('Failed to persist idempotent response', { error: e.message }));
+      }
       return originalJson(body);
     };
+
+    // 4) Always release the reservation if the handler did NOT produce a
+    //    cacheable success — an error response, a thrown handler, or a dropped
+    //    connection otherwise leaves the placeholder row behind and every retry
+    //    inside STALE_RESERVATION_MS is rejected with a 409 the rider reads as
+    //    "payment failed", even when the original attempt had in fact gone
+    //    through. Clearing it here means a retry re-runs against the real state
+    //    (and the service layer's own idempotency makes that safe).
+    res.on('finish', () => {
+      if (persisted) return;
+      prisma.idempotencyKey
+        .delete({ where: { userId_endpoint_key: { userId, endpoint, key } } })
+        .catch(() => {});
+    });
 
     return next();
   })().catch(next);

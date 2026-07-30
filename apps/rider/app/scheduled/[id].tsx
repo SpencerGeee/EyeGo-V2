@@ -295,6 +295,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   emptyText: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurfaceVariant,
     textAlign: 'center',
   },
@@ -315,6 +316,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headerTitle: {
     fontFamily: fonts.displayBold,
     fontSize: 17,
+    // A display face with negative letterSpacing and NO explicit lineHeight has
+    // its ascenders clipped by the default line box — the same top-clipping fixed
+    // app-wide in acdda37 ("clipped titles"). This screen was written afterwards
+    // and reintroduced it, which is the "top most part of the page is clipped"
+    // report. Every other fontSize style in this file gets the same treatment.
+    lineHeight: 23,
     color: colors.onSurface,
     letterSpacing: -0.3,
   },
@@ -324,7 +331,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statusCard: { padding: spacing.xl, gap: spacing.xs },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontFamily: fonts.medium, fontSize: 11, letterSpacing: 1 },
+  statusLabel: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 15, letterSpacing: 1 },
   statusDetail: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
@@ -343,6 +350,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   cardLabel: {
     fontFamily: fonts.medium,
     fontSize: 10,
+    lineHeight: 14,
     letterSpacing: 1,
     color: withOpacity(colors.onSurfaceVariant, 0.8),
     marginBottom: spacing.xs,
@@ -350,6 +358,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   cardValue: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurfaceVariant,
   },
   bigTime: {
@@ -370,7 +379,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.full ?? 999,
     backgroundColor: withOpacity(colors.primary, 0.12),
   },
-  relativeText: { fontFamily: fonts.medium, fontSize: 11, color: colors.primary },
+  relativeText: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 15, color: colors.primary },
 
   routeRow: { flexDirection: 'row', gap: spacing.base, marginTop: spacing.xs },
   routeRail: { alignItems: 'center', paddingTop: 16, paddingBottom: 6 },
@@ -381,12 +390,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   routeStopLabel: {
     fontFamily: fonts.medium,
     fontSize: 9,
+    lineHeight: 13,
     letterSpacing: 0.8,
     color: withOpacity(colors.onSurfaceVariant, 0.75),
   },
   routeStop: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
     marginTop: 2,
   },
@@ -403,11 +414,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     color: colors.onSurfaceVariant,
   },
   detailValue: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.4),
     color: colors.onSurface,
   },
 
@@ -415,6 +428,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   cancelText: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.statusError,
   },
 });

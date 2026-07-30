@@ -54,6 +54,64 @@ Verified statically. Do not re-derive; re-verify only if a path no longer exists
   `apps/rider/components/trip/TripMap.tsx:65`, `apps/driver/app/(trip)/active/[id].tsx:453`,
   `apps/driver/app/(trip)/tracking/[id].tsx:499`. Replace with `fetchRoute()` coordinates.
 
+## Root causes — second pass (items 4, 5, 7, 11, 12, 13, 14, 18)
+
+- **items 4 + 12 + 13, one shared cause**: `getActiveBooking` in
+  `eyego-api/src/modules/bookings/bookings.service.js` filtered trips to
+  `['SCHEDULED','FILLING','DRIVER_EN_ROUTE','IN_PROGRESS']` — omitting
+  **`ARRIVED_AT_PICKUP`** and **`CONFIRMED`** (the latter set by `confirmPayment` at
+  min occupancy). So from the instant the driver tapped "I've arrived", the rider had
+  "no active booking": the home live-trip card lost its data, and the rider's tracking
+  screen — which *inferred completion from a missing active booking* and hard-replaced
+  to the rate flow — pushed them into "arrived safely + rate" mid-ride. Now derived by
+  exclusion from `TERMINAL_TRIP_STATUSES` so a new mid-trip status can't fall out again.
+  Two supporting fixes: the tracking screen's foreground resync now reads the trip's own
+  status (COMPLETED / CANCELLED / still-live) and never ends a trip on an unverifiable
+  state; and `driver.socket.js` gained `authorizeStatusEvent`, so socket status
+  broadcasts (especially `driver:arrived`, which *completes* the trip) require a legal
+  predecessor status — previously they checked ownership only.
+
+- **item 4, second half**: `/payments/initiate` is wrapped in the `idempotency`
+  middleware and the payment screen deliberately sends a STABLE key
+  (`pay_<bookingId>_<method>`). A duplicate/in-flight submit returned
+  **409 IDEMPOTENCY_IN_PROGRESS**, which the client reported as "Payment Failed" and
+  then called `releaseHeldSeat()` — cancelling a booking the other request had already
+  confirmed. Middleware now caches only 2xx responses and releases its reservation row
+  on any non-success; the client re-reads the booking before declaring failure.
+
+- **item 14**: cash trips intentionally create **no** `EARNINGS_CREDIT` (driver keeps
+  the cash, only commission is debited) — but every earnings surface read that one type,
+  so a cash-working driver saw GHS 0 and a flat chart with a `COMMISSION_DEDUCTION`
+  sitting in the ledger. Also `trips.service.completeTrip` writes `TRIP_EARNING`, which
+  the summary never counted either — so *which completion path ran* decided whether a
+  trip appeared in earnings. Added a ledger-only `CASH_EARNING` row
+  (`balanceBefore === balanceAfter`, no wallet movement) plus `EARNING_TYPES =
+  ['EARNINGS_CREDIT','TRIP_EARNING','CASH_EARNING']` on every reporting query.
+
+- **item 11**: `packages/maps/src/index.tsx` published the map bearing only from
+  `onRegionDidChange`, which fires when the gesture ENDS. During a rotate the marker
+  compensation used a stale bearing (marker turned with the map) and snapped on release.
+  Now also handled in `onRegionIsChanging` (bearing only, 1.5° dead-band to avoid a
+  60 fps React render storm).
+
+- **item 7**: the live scheduled card's `onPress` was
+  `liveIntent.matchedTripId ? push(tracking) : null` — literally nothing before a driver
+  matched. Falls back to `/scheduled/[id]` like the home card. The detail screen's
+  clipping was a `fontSize` + negative `letterSpacing` with no `lineHeight` (the same
+  class fixed app-wide in acdda37; this screen was written after).
+
+- **item 5**: the vehicle marker was already gated on a real fix, but the trip payload
+  omitted `currentHeading`, so the car pointed due north until a second live fix let the
+  client derive a bearing. Added `currentHeading` to the rider-facing driver select and a
+  "Locating your driver…" pill for the genuinely-no-position case.
+
+- **item 18**: `apps/driver/hooks/useDriverLocation.ts` called
+  `requestBackgroundPermissionsAsync()` unconditionally on mount and started the
+  background task for any `enabled` session — including an idle online driver, which is
+  why the location indicator showed with the app closed. Background permission is now
+  requested only when `isOnTrip` (and never re-prompted once decided), the background
+  task only runs during a trip, and the permission strings say so.
+
 ## Key file map
 - rider trip surface: `app/trip.tsx` + `components/trip/{TripMap.tsx,useTripCamera.ts,stages/*}`
 - morph engine: `packages/ui/src/morph/{MorphProvider,MorphTarget,MorphSource,MorphBackSwipeDetector}.tsx`

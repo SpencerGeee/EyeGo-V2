@@ -481,12 +481,36 @@ async function applyPromoCode(userId, bookingId, code) {
   });
 }
 
+/**
+ * Trip statuses that still count as "the rider is on a live trip".
+ *
+ * BUGFIX — this list used to be
+ *   ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS']
+ * and it was missing BOTH:
+ *
+ *   * ARRIVED_AT_PICKUP — the driver has pulled up but nobody has moved yet.
+ *   * CONFIRMED — set by confirmPayment once a trip reaches MIN_OCCUPANCY_TO_DEPART.
+ *
+ * So from the instant the driver tapped "I've arrived", this endpoint reported
+ * that the rider had NO active booking. Downstream that read as "the trip is
+ * over": the home screen's live-trip card lost its data, and the rider's
+ * tracking screen (which inferred completion from a missing active booking)
+ * pushed them into the arrived + rate-your-trip flow mid-ride. Reported as three
+ * separate defects — the wrong live-trip card, "showed me an arrived safely page
+ * during a live trip", and "clicking I've arrived ended the ride" — all from this
+ * one array.
+ *
+ * Derive it by exclusion so a newly-added mid-trip status can never silently
+ * fall out of it again: everything that is not terminal is live.
+ */
+const TERMINAL_TRIP_STATUSES = ['COMPLETED', 'CANCELLED', 'EXPIRED'];
+
 async function getActiveBooking(userId) {
   const booking = await prisma.booking.findFirst({
     where: {
       userId,
       status: { notIn: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] },
-      trip: { status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'] } },
+      trip: { status: { notIn: TERMINAL_TRIP_STATUSES } },
     },
     include: {        trip: {
           include: {

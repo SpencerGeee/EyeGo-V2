@@ -68,8 +68,11 @@ async function startBackgroundLocationTracking(isOnTrip: boolean) {
       distanceInterval: 15,
       showsBackgroundLocationIndicator: true,
       foregroundService: {
-        notificationTitle: 'EyeGo Driver is online',
-        notificationBody: 'Sharing your location with passengers and dispatch.',
+        // This service now only runs during a trip (see the isOnTrip gate in the
+        // hook), so the copy says so — "EyeGo Driver is online" was misleading
+        // when it could appear with the app closed and no trip in progress.
+        notificationTitle: 'Trip in progress',
+        notificationBody: 'Sharing your location with your passengers until the trip ends.',
         notificationColor: '#3B82F6',
       },
       pausesUpdatesAutomatically: false,
@@ -210,13 +213,37 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       setHasPermission(true);
       permissionGranted.current = true;
 
-      // Request background permission on both platforms — iOS needs its own
-      // "Always" prompt (NSLocationAlwaysAndWhenInUseUsageDescription) just
-      // like Android does, or startBackgroundLocationTracking() below will
-      // silently fail to report positions once the app is backgrounded.
-      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus !== 'granted') {
-        console.warn('[DriverLocation] Background location denied — tracking may stop when backgrounded');
+      // ── Background ("Always") permission — ON-TRIP ONLY ───────────────
+      //
+      // BUGFIX (reported: "the driver app needs location set to Always before it
+      // works, and I can see in the Dynamic Island that my location is being used
+      // when the app isn't even open"): this used to request the Always
+      // permission unconditionally, the moment the hook mounted, and then start
+      // the background task for any `enabled` session — including a driver simply
+      // sitting online and idle. So the app held a background location session
+      // essentially all the time, and a driver who declined Always (many do, and
+      // it is a reasonable thing to decline) got a degraded app.
+      //
+      // Uber/Bolt ask for While-Using up front and escalate to Always only when
+      // there is a live trip to justify it. Foreground reporting already works
+      // without it (see the emitLocation in applyPosition above), so being online
+      // and idle needs nothing more than While-Using.
+      let bgStatus: Location.PermissionStatus | 'skipped' = 'skipped';
+      if (isOnTrip) {
+        // Don't re-prompt on every trip: if it was already decided, respect that.
+        const existing = await Location.getBackgroundPermissionsAsync();
+        if (existing.status === 'granted') {
+          bgStatus = existing.status;
+        } else if (existing.canAskAgain) {
+          bgStatus = (await Location.requestBackgroundPermissionsAsync()).status;
+        } else {
+          bgStatus = existing.status;
+        }
+        if (bgStatus !== 'granted') {
+          // Not fatal: the trip still tracks while the app is open. The driver has
+          // simply chosen not to be tracked with the app closed.
+          console.warn('[DriverLocation] Background location not granted — on-trip tracking is foreground-only');
+        }
       }
 
       // ── 2. Mock provider check ────────────────────────────────────────
@@ -242,11 +269,14 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // deliver a fresh high-accuracy fix within its first update.
       if (!cancelledRef.current) await startWatch();
 
-      // ── 4b. Start the background task too ─────────────────────────────
-      // watchPositionAsync above is foreground-only; this keeps location
-      // updates (and the socket emit in the task handler) flowing while the
-      // driver has the app backgrounded but is online/on a trip.
-      if (!cancelledRef.current && bgStatus === 'granted') {
+      // ── 4b. Start the background task — ONLY during a trip ────────────
+      // watchPositionAsync above is foreground-only; the background task keeps
+      // positions flowing while the app is backgrounded. Gated on `isOnTrip` so
+      // an idle online driver never holds a background location session (which
+      // is what put the location indicator in the Dynamic Island with the app
+      // closed). When the trip ends this effect re-runs with isOnTrip false and
+      // the cleanup below releases the tracking ref.
+      if (!cancelledRef.current && isOnTrip && bgStatus === 'granted') {
         bgTrackingRefs++;
         bgAcquiredRef.current = true;
         await startBackgroundLocationTracking(isOnTrip);

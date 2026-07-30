@@ -289,14 +289,23 @@ export default function TrackingScreen() {
   const driverDbLat = syncedTrip?.driver?.currentLat;
   const driverDbLng = syncedTrip?.driver?.currentLng;
   const hasDriverDbCoord = typeof driverDbLat === 'number' && typeof driverDbLng === 'number';
+  // Seed the marker's rotation from the driver's LAST STORED bearing rather than
+  // hard-coding 0. Heading 0 is due north, so before the second live fix arrived
+  // (the earliest point at which a bearing can be derived from movement) the
+  // vehicle sat on the map pointing north regardless of which way it faced.
+  const driverDbHeading = typeof syncedTrip?.driver?.currentHeading === 'number'
+    ? (syncedTrip!.driver!.currentHeading as number)
+    : 0;
   const fallbackCoordRef = useRef<{ latitude: number; longitude: number; heading: number } | null>(
-    hasDriverDbCoord ? { latitude: driverDbLat as number, longitude: driverDbLng as number, heading: 0 } : null
+    hasDriverDbCoord
+      ? { latitude: driverDbLat as number, longitude: driverDbLng as number, heading: driverDbHeading }
+      : null
   );
   useEffect(() => {
     fallbackCoordRef.current = hasDriverDbCoord
-      ? { latitude: driverDbLat as number, longitude: driverDbLng as number, heading: 0 }
+      ? { latitude: driverDbLat as number, longitude: driverDbLng as number, heading: driverDbHeading }
       : null;
-  }, [driverDbLat, driverDbLng, hasDriverDbCoord]);
+  }, [driverDbLat, driverDbLng, hasDriverDbCoord, driverDbHeading]);
   const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
   const hasDriverPos = currentDriverCoord != null;
   const driverHeading = useDriverHeading(currentDriverCoord);
@@ -498,23 +507,58 @@ export default function TrackingScreen() {
     const handleAppState = async (nextState: AppStateStatus) => {
       if (nextState !== 'active') return;
 
-      // 1. Stale booking detection
-      if (activeBookingRef.current?.id) {
+      // 1. Re-sync the trip's REAL status after a spell in the background.
+      //
+      // BUGFIX (reported: "the rider app was in a live trip the driver hadn't
+      // finished but it showed me an arrived-safely page and a page to rate"):
+      // this used to call `bookingsApi.getActive()` and treat *any* falsy result
+      // as "the trip ended", then hard-replace to the completion + rating flow.
+      // A missing active booking is not proof of completion — the endpoint
+      // returns nothing for a driver-side cancellation, for a booking the server
+      // no longer classes as active, and for any response whose shape differs
+      // from the one destructured here. So a rider who merely backgrounded the
+      // app mid-ride came back to a "You have arrived! Rate your trip" screen
+      // while the driver was still driving, and the live trip was torn down
+      // client-side.
+      //
+      // Completion is now taken ONLY from the trip's own status, which is the
+      // single source of truth the driver actually transitions. Anything that is
+      // not a terminal status leaves the rider on the tracking screen.
+      if (id) {
         try {
-          const { bookingsApi } = require('@eyego/api');
-          const response = await bookingsApi.getActive();
+          const res = await tripsApi.getById(id);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const fresh = (response.data as any)?.data?.booking;
-          if (!fresh) {
-            showBanner('Trip status changed while you were away');
+          const status: string | undefined = (res.data as any)?.data?.trip?.status;
+
+          if (status === 'COMPLETED') {
+            showBanner('Your trip has ended');
             setTimeout(() => {
               if (!mountedRef.current) return;
               disconnectSocket();
-              router.replace(`/ride/${id}/complete` as Href);
-            }, 2000);
+              const bid = capturedBookingIdRef.current || activeBookingRef.current?.id || '';
+              router.replace(`/ride/${id}/complete${bid ? `?bookingId=${bid}` : ''}` as Href);
+            }, 1200);
+          } else if (status === 'CANCELLED') {
+            // Cancelled is NOT completed: no arrival screen, no rating prompt.
+            if (!mountedRef.current) return;
+            disconnectSocket();
+            useRideStore.getState().clearRideState();
+            Alert.alert(
+              'Trip cancelled',
+              'This trip was cancelled while you were away. You have not been charged for the ride.',
+              [{ text: 'OK', onPress: () => router.replace('/(tabs)/home' as Href) }],
+              { cancelable: false },
+            );
+          } else {
+            // Still live. Pull fresh trip/booking data so the panel isn't
+            // showing whatever it had before the app was backgrounded.
+            queryClient.invalidateQueries({ queryKey: ['trips'] });
+            queryClient.invalidateQueries({ queryKey: ['bookings'] });
           }
         } catch (err) {
-          console.warn('[Tracking] AppState booking check failed:', err);
+          // A failed status check means we do not know — and "we do not know" must
+          // never end the rider's trip. Stay put.
+          console.warn('[Tracking] AppState trip status check failed:', err);
         }
       }
 
@@ -530,7 +574,7 @@ export default function TrackingScreen() {
 
     const subscription = AppState.addEventListener('change', handleAppState);
     return () => subscription.remove();
-  }, [id, router, showBanner]);
+  }, [id, router, showBanner, queryClient]);
 
   useEffect(() => {
     // connectSocket is idempotent — safe to call even if already connected
@@ -614,6 +658,15 @@ export default function TrackingScreen() {
         haptic: () => haptic.heavy(),
         statusLabel: 'Driver on the way',
         banner: 'Your driver has started the trip',
+      },
+      // Was missing entirely, so `if (!stage) return` swallowed the driver's
+      // arrival: the rider saw no label change and no banner between "on the way"
+      // and "in progress". Note there is deliberately no `navigate` here —
+      // arriving at the PICKUP is not the end of the trip.
+      ARRIVED_AT_PICKUP: {
+        haptic: () => haptic.heavy(),
+        statusLabel: 'Driver has arrived',
+        banner: 'Your driver is here — head to the pickup point',
       },
       IN_PROGRESS: {
         haptic: () => haptic.medium(),
@@ -816,6 +869,22 @@ export default function TrackingScreen() {
         </MapboxGL.ShapeSource>
         )}
       </MapboxGL.MapView>
+
+      {/* No driver position yet.
+          The vehicle marker is deliberately gated on a REAL fix (a fabricated
+          one is worse than none), but the rider was then left staring at an empty
+          map with no explanation of why they couldn't see their driver — reported
+          as "there's no bus shown for the user to know that the driver is coming".
+          Uber/Bolt say so explicitly rather than showing nothing, so this states
+          the actual state and disappears the moment a position lands. */}
+      {!hasDriverPos && !tripInProgress && (
+        <View style={[styles.locatingPill, { top: insets.top + 68 }]} pointerEvents="none">
+          <Ionicons name="navigate-circle-outline" size={15} color={colors.onSurfaceVariant} />
+          <Text variant="labelSmall" color={colors.onSurfaceVariant}>
+            Locating your driver…
+          </Text>
+        </View>
+      )}
 
       {/* Back button */}
       <MotiView
@@ -1168,6 +1237,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     position: 'absolute',
     left: spacing['2xl'],
     zIndex: 15,
+  },
+  /** "Locating your driver…" — sits under the back button, centred on the map. */
+  locatingPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.92),
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    zIndex: 14,
   },
   optionsFloating: {
     position: 'absolute',

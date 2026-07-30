@@ -221,7 +221,16 @@ async function getTrip(id, viewerUserId = null) {
     include: {
       route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
       vehicle: true,
-      driver: { select: { id: true, name: true, profilePhoto: true, currentLat: true, currentLng: true } },
+      // `currentHeading` matters as much as the coordinates: without it the
+      // rider's vehicle marker renders pointing due north until the SECOND live
+      // socket fix arrives (the client can only derive a bearing once it has two
+      // positions), so the car sat on the map facing the wrong way.
+      driver: {
+        select: {
+          id: true, name: true, profilePhoto: true,
+          currentLat: true, currentLng: true, currentHeading: true,
+        },
+      },
       bookings: {
         where: { status: { not: 'CANCELLED' } },
         select: { id: true, seatNumber: true, status: true, paymentStatus: true, userId: true, isOffline: true, guestName: true },
@@ -246,7 +255,7 @@ async function getTrip(id, viewerUserId = null) {
       isOffline: b.isOffline,
     }));
     if (trip.driver) {
-      trip.driver = { ...trip.driver, currentLat: null, currentLng: null };
+      trip.driver = { ...trip.driver, currentLat: null, currentLng: null, currentHeading: null };
     }
   }
 
@@ -739,6 +748,34 @@ async function completeTrip(tripId) {
             description: `Trip earnings — ${paidBookings.length} paid seat(s)`,
             balanceBefore: driverBefore?.walletBalance ?? 0,
             balanceAfter: (driverBefore?.walletBalance ?? 0) + totalNetEarnings,
+            tripId,
+          },
+        });
+      }
+
+      // Cash fares: reporting-only ledger row, no wallet movement.
+      // The loop above deliberately EXCLUDES cash from totalNetEarnings (the
+      // driver was handed the money and commission was already debited), but the
+      // driver app's earnings chart and the /earnings summary are built from
+      // wallet transactions — so with no row at all, a cash trip was invisible
+      // there and the chart stayed blank. `balanceBefore === balanceAfter` makes
+      // it explicit that this moves nothing; see EARNING_TYPES in
+      // drivers.service.js for which reports opt into it.
+      const cashEarningsTotal = paidBookings
+        .filter((b) => b.paymentMethod === 'CASH')
+        .reduce((sum, b) => sum + (b.fareAmount - (b.commissionAmount ?? 0)), 0);
+      if (cashEarningsTotal > 0) {
+        const balanceNow = (await tx.driver.findUnique({
+          where: { id: trip.driverId }, select: { walletBalance: true },
+        }))?.walletBalance ?? 0;
+        await tx.walletTransaction.create({
+          data: {
+            driverId: trip.driverId,
+            type: 'CASH_EARNING',
+            amount: cashEarningsTotal,
+            description: 'Cash collected in person',
+            balanceBefore: balanceNow,
+            balanceAfter: balanceNow,
             tripId,
           },
         });

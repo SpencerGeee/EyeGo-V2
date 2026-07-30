@@ -75,11 +75,24 @@ export default function ScheduledRidesScreen() {
               glow
               style={styles.liveCard}
             >
+              {/* BUGFIX (item 7 — "you tap the live scheduled card and nothing
+                  happens"): the fallback branch was literally `: null`, so before
+                  a driver is matched (status PENDING/DISPATCHED — i.e. most of the
+                  time this card is on screen) tapping did nothing at all. The home
+                  screen's copy of this card already pushed `/scheduled/[id]`;
+                  matching that here means the card always leads somewhere, and
+                  goes to live tracking only once there is a trip to track. */}
               <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  liveIntent.matchedTripId ? 'Track your scheduled ride' : 'View scheduled ride details'
+                }
                 onPress={() =>
-                  liveIntent.matchedTripId
-                    ? router.push(`/ride/${liveIntent.matchedTripId}/tracking` as any)
-                    : null
+                  router.push(
+                    (liveIntent.matchedTripId
+                      ? `/ride/${liveIntent.matchedTripId}/tracking`
+                      : `/scheduled/${liveIntent.id}`) as any,
+                  )
                 }
               >
                 <View style={styles.liveCardTopRow}>

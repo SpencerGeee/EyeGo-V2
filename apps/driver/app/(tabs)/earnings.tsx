@@ -36,7 +36,20 @@ type Period = 'today' | 'week' | 'month';
 // Driver earnings ledger uses several credit types — TRIP_EARNING (completeTrip),
 // EARNINGS_CREDIT (arriveTrip), QUEST_BONUS, and legacy CREDIT (seed). Anything
 // not in this set is treated as a debit (e.g. WITHDRAWAL).
-const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'QUEST_BONUS'];
+/**
+ * Every ledger type that represents money the driver earned.
+ *
+ * `CASH_EARNING` is the important addition: cash fares are handed over in person,
+ * so the backend deliberately never credits the wallet for them (only the
+ * commission is debited). With no earning row of any kind, a driver working cash
+ * saw a permanently flat chart and GHS 0 — the reported "blank chart even though
+ * sales have been made or a commission has been deducted". `CASH_EARNING` rows
+ * carry balanceBefore === balanceAfter, i.e. they are income for reporting and
+ * not part of the wallet balance.
+ *
+ * `TIP` counts too — a tip is earnings the driver actually keeps.
+ */
+const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'QUEST_BONUS', 'TIP'];
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },

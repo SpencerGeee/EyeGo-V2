@@ -304,6 +304,13 @@ export default function DriverTrackingScreen() {
         showBanner('Trip started — en route to pickup');
       }
       if (toStatus === 'ARRIVED_AT_PICKUP') {
+        // BUGFIX: this screen showed a local banner and emitted NOTHING, so a
+        // rider watching the tracking screen got no signal that the driver had
+        // pulled up — the arrival step was invisible to them, and the next thing
+        // they saw was whatever the driver's following tap produced. (The sibling
+        // `active/[id].tsx` screen already emitted this; only the tracking screen
+        // was missing it.)
+        driverSocketEvents.emitArrivedAtPickup(id);
         showBanner('Arrived at pickup — ready to depart');
       }
       if (toStatus === 'IN_PROGRESS') {

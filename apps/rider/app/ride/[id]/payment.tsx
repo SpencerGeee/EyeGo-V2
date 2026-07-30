@@ -288,12 +288,58 @@ export default function PaymentScreen() {
         );
       }
     },
-    onError: (err: any) => {
+    onError: async (err: any) => {
       if (!isMountedRef.current) return;
       isSubmittingRef.current = false;
+
+      // BUGFIX (reported: "cash payment gave me an error but the seat was
+      // booked, and the home live-trip card then showed the wrong details").
+      //
+      // Not every rejection here means the booking failed. The two that don't:
+      //   * 409 IDEMPOTENCY_IN_PROGRESS — a concurrent/duplicate submit of the
+      //     SAME stable Idempotency-Key. The other request is the one doing the
+      //     work and it usually succeeds.
+      //   * a request that timed out or lost its response after the server had
+      //     already confirmed the booking (cash confirms synchronously).
+      // In both cases the old code declared "Payment Failed" AND called
+      // releaseHeldSeat(), i.e. it tried to cancel a booking that was live —
+      // which is exactly how the rider ended up with a confirmed seat, an error
+      // alert, and a half-populated live-trip card on the home screen.
+      //
+      // So: ask the server what actually happened before deciding anything.
+      const bookingId = activeBooking?.id ?? '';
+      if (bookingId) {
+        try {
+          const { data } = await bookingsApi.getById(bookingId);
+          const fresh = (data as any)?.data?.booking ?? (data as any)?.data;
+          if (fresh?.status === 'CONFIRMED') {
+            // It went through. Treat it as the success it is.
+            setActiveBooking(fresh);
+            setStatus('success');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setGuestInfo(null);
+            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+            queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+            socketEvents.emitPaymentConfirmed(bookingId, id ?? '');
+            const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+            pendingTimeoutsRef.current.push(t);
+            return;
+          }
+        } catch {
+          // Couldn't verify — fall through and report the failure, but do NOT
+          // release the seat below on an unverifiable state.
+          setStatus('idle');
+          Alert.alert(
+            'Payment Status Unclear',
+            "We couldn't confirm whether your booking went through. Check My Trips before paying again.",
+          );
+          return;
+        }
+      }
+
       setStatus('idle');
-      // A genuine init failure created (or left) a SEAT_HELD booking — release it
-      // now so the seat is freed immediately rather than after the sweep.
+      // Confirmed NOT booked: release the held seat now so it frees immediately
+      // rather than waiting for the seat-hold sweep.
       void releaseHeldSeat();
       const errorMsg = err?.response?.data?.message || err?.message || 'Payment could not be processed. Please try again.';
       Alert.alert('Payment Failed', errorMsg);

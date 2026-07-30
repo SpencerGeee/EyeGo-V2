@@ -453,22 +453,65 @@ function emitSafetyCheck(io, tripId, reason) {
     });
 
     // ── Trip events ─────────────────────────────────────────
-    socket.on('driver:trip_started', async ({ tripId }) => {
-      // BUGFIX: unlike the sibling driver:arrived_at_pickup / driver:arrived handlers,
-      // this never verified the emitting driver actually owns tripId — any authenticated
-      // driver socket could spoof a DRIVER_EN_ROUTE status broadcast (+ Live Activity push)
-      // to a trip that isn't theirs. No DB write happens here, but it's a real-time
-      // spoofing gap on rider-facing trip state.
+
+    /**
+     * Which DB statuses may legally precede each socket-announced status.
+     * Mirrors TRIP_TRANSITIONS in drivers.service.js — the REST layer runs every
+     * transition through `assertTransition`, but these socket handlers used to
+     * check ownership ONLY and then broadcast whatever status their event name
+     * implied. So a stale, duplicated or out-of-order emit from a driver client
+     * could announce any status for a trip regardless of what the trip actually
+     * was, and `driver:arrived` went further and *completed* the trip outright.
+     * That is how a rider mid-ride could be shown "you have arrived, rate your
+     * trip" while the driver was still driving.
+     */
+    const SOCKET_STATUS_PRECONDITIONS = {
+      DRIVER_EN_ROUTE:   ['CONFIRMED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE'],
+      ARRIVED_AT_PICKUP: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP'],
+      IN_PROGRESS:       ['ARRIVED_AT_PICKUP', 'IN_PROGRESS'],
+      COMPLETED:         ['IN_PROGRESS', 'COMPLETED'],
+    };
+
+    /**
+     * Verifies the emitting driver owns `tripId` AND that the trip is in a state
+     * from which `nextStatus` is reachable. Returns the trip row on success,
+     * null when the event must be dropped.
+     *
+     * Announcing a status the trip cannot be in is worse than dropping the
+     * event: the rider's UI acts on these immediately (banners, Live Activity,
+     * and for COMPLETED a forced navigation into the rating flow), so a bogus
+     * announcement is not recoverable from the rider's side.
+     */
+    async function authorizeStatusEvent(event, tripId, nextStatus) {
+      if (!tripId) return null;
+      let trip;
       try {
-        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
-        if (!owns) {
-          logger.warn(`driver:trip_started rejected — driver ${driverId} does not own trip ${tripId}`);
-          return;
-        }
+        trip = await prisma.trip.findFirst({
+          where: { id: tripId, driverId },
+          select: { id: true, status: true },
+        });
       } catch (err) {
-        logger.error('Failed to verify trip ownership for driver:trip_started:', err);
-        return;
+        logger.error(`Failed to verify trip for ${event}:`, err);
+        return null;
       }
+      if (!trip) {
+        logger.warn(`${event} rejected — driver ${driverId} does not own trip ${tripId}`);
+        return null;
+      }
+      const allowed = SOCKET_STATUS_PRECONDITIONS[nextStatus] ?? [];
+      if (!allowed.includes(trip.status)) {
+        logger.warn(
+          `${event} rejected — trip ${tripId} is ${trip.status}, cannot announce ${nextStatus}`,
+        );
+        return null;
+      }
+      return trip;
+    }
+
+    socket.on('driver:trip_started', async ({ tripId }) => {
+      // Ownership + status precondition (see authorizeStatusEvent above): this
+      // used to check neither, then later only ownership.
+      if (!(await authorizeStatusEvent('driver:trip_started', tripId, 'DRIVER_EN_ROUTE'))) return;
 
       socket.join(TRIP_ROOM(tripId));
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
@@ -495,16 +538,7 @@ function emitSafetyCheck(io, tripId, reason) {
     // trip had jumped straight from "en route" to "in progress" with the
     // arrival silently skipped.
     socket.on('driver:arrived_at_pickup', async ({ tripId }) => {
-      try {
-        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
-        if (!owns) {
-          logger.warn(`driver:arrived_at_pickup rejected — driver ${driverId} does not own trip ${tripId}`);
-          return;
-        }
-      } catch (err) {
-        logger.error('Failed to verify trip ownership for driver:arrived_at_pickup:', err);
-        return;
-      }
+      if (!(await authorizeStatusEvent('driver:arrived_at_pickup', tripId, 'ARRIVED_AT_PICKUP'))) return;
 
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
         tripId,
@@ -521,17 +555,9 @@ function emitSafetyCheck(io, tripId, reason) {
     });
 
     socket.on('driver:trip_departed', async ({ tripId }) => {
-      // BUGFIX: same ownership-check gap as driver:trip_started above.
-      try {
-        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
-        if (!owns) {
-          logger.warn(`driver:trip_departed rejected — driver ${driverId} does not own trip ${tripId}`);
-          return;
-        }
-      } catch (err) {
-        logger.error('Failed to verify trip ownership for driver:trip_departed:', err);
-        return;
-      }
+      // IN_PROGRESS is only reachable from ARRIVED_AT_PICKUP: a rider must never
+      // be told the ride is underway before the driver has actually arrived.
+      if (!(await authorizeStatusEvent('driver:trip_departed', tripId, 'IN_PROGRESS'))) return;
 
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
         tripId,
@@ -548,18 +574,13 @@ function emitSafetyCheck(io, tripId, reason) {
     });
 
     socket.on('driver:arrived', async ({ tripId }) => {
-      // Ownership check — without this, any authenticated driver socket could complete
-      // ANY trip by id (wrong wallet credited, trip state corrupted for its real driver).
-      try {
-        const owns = await prisma.trip.findFirst({ where: { id: tripId, driverId }, select: { id: true } });
-        if (!owns) {
-          logger.warn(`driver:arrived rejected — driver ${driverId} does not own trip ${tripId}`);
-          return;
-        }
-      } catch (err) {
-        logger.error('Failed to verify trip ownership for driver:arrived:', err);
-        return;
-      }
+      // THE guard that matters most on this socket. Ownership alone (all this
+      // used to check) let a trip be completed from ANY state — including one the
+      // driver had not yet driven. `arrived` here means "arrived at the final
+      // destination", so it is only legal from IN_PROGRESS; a driver who has just
+      // tapped "I've arrived" at the PICKUP is in ARRIVED_AT_PICKUP and this
+      // event must be dropped rather than ending their passenger's ride.
+      if (!(await authorizeStatusEvent('driver:arrived', tripId, 'COMPLETED'))) return;
 
       // Persist trip + booking completion in DB so rider Past tab and trip count update
       try {
