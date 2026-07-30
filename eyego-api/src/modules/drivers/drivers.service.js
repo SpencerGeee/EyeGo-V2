@@ -12,6 +12,7 @@ const { generateTripReceipt, refundBookingForDriverCancellation } = require('../
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
+const ratingIntegrity = require('../../services/rating-integrity.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const dispatchCascade = require('../../services/dispatch-cascade.service');
 const { expireStaleTrips, liveUnstartedTripFilter } = require('../../services/stale-trips');
@@ -75,15 +76,22 @@ function assertTransition(trip, next) {
 // Uses stored baseFare/perKmRate so pricing reflects the rates set at trip creation.
 function attachFarePerSeat(trip) {
   const distanceKm = trip.route?.distanceKm ?? 0;
-  // Use the driver-set availableSeats (not confirmedSeats) for consistent per-person pricing.
-  const occupancy = Math.min(
-    Math.max(trip.availableSeats ?? trip.confirmedSeats ?? trip.maxSeats ?? 4, 4),
-    trip.maxSeats ?? 14,
-  );
+  // BUGFIX (reported as "the driver app said ₵80 per seat and the rider app said
+  // ₵40 for the same trip"): this used to divide the trip cost by
+  //   clamp(trip.availableSeats ?? confirmedSeats ?? maxSeats, min 4, max maxSeats)
+  // `availableSeats` is not a column on Trip, so it was always undefined; a fresh
+  // trip then fell through to `confirmedSeats` = 0, which the `Math.max(_, 4)`
+  // turned into 4. Every driver-facing per-seat price was therefore
+  // totalCost / 4, while riders (trips.service, bookings.service) all divide by
+  // `maxSeats` — a 2× discrepancy on an 8-seater, exactly as reported.
+  //
+  // `maxSeats` is the capacity the driver chose for the trip and is the ONLY
+  // denominator anywhere else in the system. There is now no second formula.
+  const seatCount = trip.maxSeats ?? 1;
   const fareInfo = calculateFare({
     tier: trip.tier ?? 'ECO',
     distanceKm,
-    seatCount: occupancy,
+    seatCount,
     doorstepPickup: trip.doorstepPickup ?? false,
     heavyLoad: trip.heavyLoad ?? false,
     surgeMultiplier: trip.surgeMultiplier ?? 1.0,
@@ -110,7 +118,13 @@ async function getMe(driverId) {
       },
     }),
     prisma.trip.count({ where: { driverId, status: 'COMPLETED' } }),
-    prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: { stars: true } }),
+    // Chronic low-raters are excluded from the average — see
+    // services/rating-integrity.service.js.
+    prisma.driverRating.aggregate({
+      where: await ratingIntegrity.ratingWhere({ driverId }),
+      _avg: { stars: true },
+      _count: { stars: true },
+    }),
   ]);
   if (!driver) throw new NotFoundError('Driver');
   // updatePreferences() writes navigationApp/theme into the preferences JSON
@@ -217,7 +231,14 @@ async function goOnline(driverId, lat, lng) {
   if (env.NODE_ENV !== 'development') {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const [ratingAgg, accepted, declined] = await Promise.all([
-      prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: { stars: true } }),
+      // The go-online rating gate must judge a driver on ratings that mean
+      // something: a rider who 1-stars every trip cannot be what pushes a driver
+      // below the threshold and off the platform.
+      prisma.driverRating.aggregate({
+        where: await ratingIntegrity.ratingWhere({ driverId }),
+        _avg: { stars: true },
+        _count: { stars: true },
+      }),
       prisma.dispatchAction.count({ where: { driverId, action: 'ACCEPTED', createdAt: { gte: thirtyDaysAgo } } }),
       prisma.dispatchAction.count({ where: { driverId, action: 'DECLINED', createdAt: { gte: thirtyDaysAgo } } }),
     ]);
@@ -1592,9 +1613,14 @@ const COMPLIMENT_TAGS = [
 
 // ── Ratings ────────────────────────────────────────────────────────
 async function getRatings(driverId) {
+  // The headline average and the star breakdown both exclude chronic low-raters
+  // so the two agree with each other and with what riders are shown. The recent
+  // list is unfiltered on purpose: a driver should still be able to read every
+  // comment left about them, including the ones that don't count.
+  const countableWhere = await ratingIntegrity.ratingWhere({ driverId });
   const [aggregate, allRatings, recent] = await Promise.all([
-    prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: true }),
-    prisma.driverRating.findMany({ where: { driverId }, select: { stars: true, comment: true } }),
+    prisma.driverRating.aggregate({ where: countableWhere, _avg: { stars: true }, _count: true }),
+    prisma.driverRating.findMany({ where: countableWhere, select: { stars: true, comment: true } }),
     prisma.driverRating.findMany({
       where: { driverId },
       orderBy: { createdAt: 'desc' },

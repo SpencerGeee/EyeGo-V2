@@ -195,6 +195,15 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
     if (!destination) return;
 
+    // A request with no pickup coordinate cannot be dispatched: driver matching is
+    // a proximity search around the pickup, and the accept path rejects it with
+    // MISSING_PICKUP_COORDS. Fail here, visibly, rather than leaving the rider
+    // watching a "finding your driver" spinner that can never resolve.
+    if (origin?.latitude == null || origin?.longitude == null) {
+      setStatus('error');
+      return;
+    }
+
     (async () => {
       try {
         const res = await tripsApi.requestTrip({

@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Alert, Animated, AppState, AppStateStatus, Platform, RefreshControl, Image, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
-import MapboxGL from '../../../utils/mapbox';
+import MapboxGL, { useVehicleHeading } from '../../../utils/mapbox';
 import { fetchRoute } from '../../../utils/routing';
 import { InlayPanel } from '@eyego/ui';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -15,7 +15,7 @@ import { socketEvents, connectSocket, disconnectSocket, tripsApi, bookingsApi, u
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorphOptional } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, PulseRing, RollingDigits, AnimatedFareText, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorphOptional, CarMarker } from '@eyego/ui';
 import { formatDuration } from '@eyego/utils';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../../stores/theme.store';
@@ -44,34 +44,6 @@ function bearingBetween(lat1: number, lng1: number, lat2: number, lng2: number):
     Math.cos(lat1 * toRad) * Math.sin(lat2 * toRad) -
     Math.sin(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.cos(dLng);
   return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
-/**
- * Driver-marker heading, derived once per (discrete) location update — no
- * per-frame JS work. Position gliding between updates is handled natively by
- * MapboxGL.AnimatedMarkerView; only the rotation prop changes here, once per
- * socket tick (~3.5s).
- */
-function useDriverHeading(coord: { latitude: number; longitude: number; heading?: number } | null): number {
-  const lastRef = useRef<{ latitude: number; longitude: number } | null>(null);
-  const headingRef = useRef(0);
-  return useMemo(() => {
-    if (!coord) return headingRef.current;
-    if (coord.heading) {
-      headingRef.current = coord.heading;
-    } else if (lastRef.current) {
-      // No compass heading from the driver device → derive bearing from
-      // movement (only when the hop is > ~2m, otherwise GPS jitter spins the car).
-      const last = lastRef.current;
-      const moved = Math.abs(coord.latitude - last.latitude) + Math.abs(coord.longitude - last.longitude);
-      if (moved > 0.00002) {
-        headingRef.current = bearingBetween(last.latitude, last.longitude, coord.latitude, coord.longitude);
-      }
-    }
-    lastRef.current = { latitude: coord.latitude, longitude: coord.longitude };
-    return headingRef.current;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coord?.latitude, coord?.longitude, coord?.heading]);
 }
 
 /**
@@ -220,13 +192,24 @@ export default function TrackingScreen() {
   }, [activeBooking?.id, (apiActiveBooking as any)?.id]);
 
   // Prefer fresh API data over potentially stale Zustand selectedTrip.
-  // tripsApi.getById() unwraps to the Trip object directly at .data.data
-  // (no nested .trip field) — reading `.trip` here always resolved to
-  // undefined, so a freshly-opened/joined trip (e.g. tapping the home
-  // bento card for a driver-created trip never stored in selectedTrip)
-  // silently fell through to a stale or null trip instead of the fetch.
+  //
+  // BUGFIX ("tracking shows no driver, no rider, camera parked at some random
+  // place, stuck on Locating driver…, and none of the ride's details"): the
+  // controller responds `ok(res, { trip })`, so the trip lives at
+  // `res.data.data.trip` — exactly how app/ride/[id].tsx reads it. This screen
+  // read `res.data.data`, i.e. the ENVELOPE `{ trip: {...} }`. That object is
+  // truthy, so every guard below passed, but it has no `route`, no `driver` and
+  // no `status`: origin/destination resolved to null (camera fell back to the
+  // Accra-centre VIEWPORT_FALLBACK — the "random location"), `driver` was
+  // undefined so `hasDriverPos` never became true (the permanent "Locating your
+  // driver…" pill), and the details panel had nothing to render.
+  //
+  // Unwrap `.trip` first and keep the bare-object read as a fallback so a future
+  // response shape change degrades instead of blanking the screen.
   const syncedTrip = useMemo(() => {
-    return (tripData?.data?.data as any) ?? selectedTrip;
+    const payload = tripData?.data?.data as any;
+    const fromApi = payload?.trip ?? (payload?.id ? payload : null);
+    return fromApi ?? selectedTrip;
   }, [selectedTrip, tripData]);
 
   const trip = useMemo(() => {
@@ -277,6 +260,12 @@ export default function TrackingScreen() {
   // Trip phase determines routing direction
   const tripInProgress = syncedTrip?.status === 'IN_PROGRESS';
 
+  // Vehicle silhouette for the map marker. The shared ECONOMY/COMFORT fleet is
+  // minibuses; PREMIUM is a saloon. Falls back to the minibus, which is what
+  // most EyeGo trips actually are.
+  const vehicleMarkerVariant: 'car' | 'van' =
+    (syncedTrip?.tier ?? '').toUpperCase() === 'PREMIUM' ? 'car' : 'van';
+
   // Driver location with interpolation — seed from DB coords so marker shows
   // immediately. BUGFIX: this used to default to a fixed Accra-ish point
   // (5.61, -0.187) whenever the driver hadn't reported a position yet, which
@@ -308,7 +297,18 @@ export default function TrackingScreen() {
   }, [driverDbLat, driverDbLng, hasDriverDbCoord, driverDbHeading]);
   const currentDriverCoord = driverLocation ?? fallbackCoordRef.current;
   const hasDriverPos = currentDriverCoord != null;
-  const driverHeading = useDriverHeading(currentDriverCoord);
+  // Same heading model as the driver app's own puck (@eyego/maps): GPS course
+  // while the vehicle is actually moving, a bearing derived from consecutive
+  // fixes otherwise, the last known heading while stopped, low-passed along the
+  // shortest arc so a turn sweeps instead of snapping. Replaces a local hook
+  // that trusted `heading` verbatim — a stopped driver reporting course 0 used
+  // to swing the car to due north.
+  const driverHeading = useVehicleHeading({
+    latitude: currentDriverCoord?.latitude,
+    longitude: currentDriverCoord?.longitude,
+    gpsCourse: currentDriverCoord?.heading,
+    speedMps: (currentDriverCoord as { speed?: number } | null)?.speed,
+  });
   // Camera-only convenience tuple — safe to fall back to the viewport default
   // since it only ever feeds MapboxGL.Camera/setCamera centering, never a
   // marker or a routing/ETA calculation.
@@ -408,6 +408,21 @@ export default function TrackingScreen() {
     [insets.top]
   );
   const cameraRef = useRef<any>(null);
+
+  // First real driver fix: pull the camera onto it. Live socket pings already
+  // do this (onDriverLocation → frameOnTarget), but a driver whose position was
+  // only known from the DB (`driver.currentLat/Lng`, i.e. the whole window
+  // between opening the screen and the next ping, which can be minutes if the
+  // driver's app is backgrounded) never triggered a camera move at all — the map
+  // stayed on the declarative seed and read as "parked at some random place".
+  const framedDriverOnceRef = useRef(false);
+  useEffect(() => {
+    if (framedDriverOnceRef.current) return;
+    if (!hasDriverPos || !followingRef.current) return;
+    framedDriverOnceRef.current = true;
+    frameOnTarget([currentDriverCoord!.longitude, currentDriverCoord!.latitude], 700);
+  }, [hasDriverPos, currentDriverCoord?.longitude, currentDriverCoord?.latitude, frameOnTarget]);
+
   // Guarded setters — only update if the value actually changed to prevent
   // unnecessary re-renders that could cascade into a "Maximum update depth exceeded" loop.
   const [tripStatus, setTripStatus] = useState('Boarding');
@@ -595,7 +610,14 @@ export default function TrackingScreen() {
     });
 
     const unsubLocation = socketEvents.onDriverLocation((data) => {
-      setDriverLocation({ latitude: data.latitude, longitude: data.longitude, heading: data.heading });
+      // `speed` is forwarded so useVehicleHeading can tell a real course from a
+      // parked driver's noise — without it a stationary fix rotates the car.
+      setDriverLocation({
+        latitude: data.latitude,
+        longitude: data.longitude,
+        heading: data.heading,
+        ...(typeof data.speed === 'number' ? { speed: data.speed } : {}),
+      });
       // Glide until the next ping (~3.5s) with sheet-aware framing; never
       // fight the user — a manual pan pauses following until re-centered.
       if (followingRef.current) frameOnTarget([data.longitude, data.latitude], 3400);
@@ -814,9 +836,18 @@ export default function TrackingScreen() {
             rotation={driverHeading}
             flat
           >
-            <View style={styles.driverMarker}>
-              <Ionicons name="car" size={18} color="#fff" />
-            </View>
+            {/* Top-down vehicle model rather than a car glyph in a circle: a
+                circle has no front, so its rotation told the rider nothing
+                about which way the driver was facing. Nose-up artwork + a TRUE
+                compass bearing (heading compensation lives in @eyego/maps) is
+                the Uber/Bolt arrangement. Minibus silhouette for the shared
+                tiers, saloon for PREMIUM. */}
+            <CarMarker
+              size={48}
+              variant={vehicleMarkerVariant}
+              accentColor={colors.primary}
+              bodyColor={isDark ? '#1F2430' : '#2B3242'}
+            />
           </MapboxGL.AnimatedMarkerView>
         )}
 

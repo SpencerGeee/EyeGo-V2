@@ -693,6 +693,128 @@ export function useDeviceHeading(enabled = true, fallback = 0): number {
   return heading;
 }
 
+/** Shortest signed angular delta from `a` to `b`, in (-180, 180]. */
+function angleDelta(a: number, b: number): number {
+  return ((((b - a) % 360) + 540) % 360) - 180;
+}
+
+export interface VehicleHeadingInput {
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Course over ground reported by GPS, degrees clockwise from north. */
+  gpsCourse?: number | null;
+  /** Ground speed in m/s (expo-location `coords.speed`). */
+  speedMps?: number | null;
+  /** Magnetometer heading — where the HANDSET points, not the vehicle. */
+  compassHeading?: number | null;
+}
+
+/**
+ * Vehicle heading for a map marker: accurate, and calm.
+ *
+ * Why this exists (reported as "it's now correctly moving as the phone moves but
+ * the direction may not be accurate, and if I turn, it turns too much"):
+ * both driver screens rotated the puck by `deviceHeading || location.heading`,
+ * i.e. the COMPASS first. In a car the magnetometer is the worst available
+ * source — the metal shell distorts it, a phone in a cradle reads the cradle's
+ * orientation rather than the car's, and every hand movement is reported as a
+ * turn. That is the over-rotation.
+ *
+ * The order of preference here is the one Google/Uber use:
+ *   1. GPS course over ground, but only while genuinely moving (a course
+ *      reading at walking pace is noise, and at 0 m/s it is meaningless).
+ *   2. Bearing derived from consecutive fixes, when the device gives no course
+ *      but has clearly moved (≥ ~8 m, i.e. beyond consumer-GPS scatter).
+ *   3. The last known good heading — a stopped car still faces where it was
+ *      going. Holding is always better than spinning.
+ *   4. The compass, and ONLY before any travel heading has ever been observed,
+ *      so the marker starts out roughly right instead of always facing north.
+ *
+ * The winning value is then low-passed along the shortest arc and rate-limited,
+ * so a real turn sweeps smoothly instead of snapping, and a jittery fix cannot
+ * throw the car sideways. Output changes are quantised to `deadbandDeg` to keep
+ * marker re-renders rare.
+ */
+export function useVehicleHeading(
+  input: VehicleHeadingInput | null | undefined,
+  {
+    /** Below this ground speed, GPS course is treated as noise. ~5 km/h. */
+    movingMps = 1.4,
+    /** Low-pass factor per update. Lower = smoother/slower. */
+    smoothing = 0.35,
+    /** Maximum degrees the marker may rotate per update. */
+    maxStepDeg = 45,
+    /** Suppress output changes smaller than this. */
+    deadbandDeg = 2,
+  }: { movingMps?: number; smoothing?: number; maxStepDeg?: number; deadbandDeg?: number } = {},
+): number {
+  const lastFixRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const smoothedRef = useRef<number | null>(null);
+  const hasTravelHeadingRef = useRef(false);
+  const [output, setOutput] = useState(0);
+
+  const lat = input?.latitude ?? null;
+  const lng = input?.longitude ?? null;
+  const course = input?.gpsCourse ?? null;
+  const speed = input?.speedMps ?? null;
+  const compass = input?.compassHeading ?? null;
+
+  useEffect(() => {
+    let target: number | null = null;
+
+    const moving = typeof speed === 'number' ? speed >= movingMps : null;
+    const courseUsable =
+      typeof course === 'number' && Number.isFinite(course) && course >= 0 && moving !== false;
+
+    if (courseUsable) {
+      target = course % 360;
+      hasTravelHeadingRef.current = true;
+    } else if (typeof lat === 'number' && typeof lng === 'number') {
+      const last = lastFixRef.current;
+      if (last) {
+        // ~8 m in degrees: 1° latitude ≈ 111 km, so 8 m ≈ 0.00007°. Longitude
+        // shrinks with latitude but Ghana is near the equator, so the same
+        // threshold is safe on both axes.
+        const dLat = Math.abs(lat - last.latitude);
+        const dLng = Math.abs(lng - last.longitude);
+        if (dLat + dLng > 0.00007) {
+          const toRad = Math.PI / 180;
+          const dLngRad = (lng - last.longitude) * toRad;
+          const y = Math.sin(dLngRad) * Math.cos(lat * toRad);
+          const x =
+            Math.cos(last.latitude * toRad) * Math.sin(lat * toRad) -
+            Math.sin(last.latitude * toRad) * Math.cos(lat * toRad) * Math.cos(dLngRad);
+          target = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+          hasTravelHeadingRef.current = true;
+        }
+      }
+    }
+
+    if (target == null && !hasTravelHeadingRef.current && typeof compass === 'number' && Number.isFinite(compass)) {
+      target = compass % 360;
+    }
+
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      lastFixRef.current = { latitude: lat, longitude: lng };
+    }
+
+    if (target == null) return; // hold the last heading
+
+    if (smoothedRef.current == null) {
+      smoothedRef.current = target;
+    } else {
+      const delta = angleDelta(smoothedRef.current, target);
+      const step = Math.max(-maxStepDeg, Math.min(maxStepDeg, delta * smoothing));
+      smoothedRef.current = (smoothedRef.current + step + 360) % 360;
+    }
+
+    const next = smoothedRef.current;
+    setOutput((prev) => (Math.abs(angleDelta(prev, next)) >= deadbandDeg ? next : prev));
+  }, [lat, lng, course, speed, compass, movingMps, smoothing, maxStepDeg, deadbandDeg]);
+
+  return output;
+}
+
 // ── Markers ──────────────────────────────────────────────────────────────
 
 export interface MarkerViewProps {

@@ -44,6 +44,9 @@ export default function PlacePickerScreen() {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  /** The last query a search actually completed for — null until one has. Drives
+   *  the "no matches" row, which must never show while the rider is still typing. */
+  const [searchedFor, setSearchedFor] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -135,7 +138,12 @@ export default function PlacePickerScreen() {
   const handleSearch = useCallback((text: string) => {
     setQuery(text);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (text.trim().length < 2) { setSuggestions([]); setIsSearching(false); return; }
+    if (text.trim().length < 2) {
+      setSuggestions([]);
+      setIsSearching(false);
+      setSearchedFor(null);
+      return;
+    }
     searchTimer.current = setTimeout(async () => {
       setIsSearching(true);
       const near = center ?? initialCoords;
@@ -145,6 +153,9 @@ export default function PlacePickerScreen() {
         near ? { longitude: near[0], latitude: near[1] } : null,
       );
       setSuggestions(results);
+      // Remember what the (settled) query was, so an empty result set can be
+      // reported as "no matches for X" rather than silently rendering nothing.
+      setSearchedFor(text.trim());
       setIsSearching(false);
     }, 300);
   }, [center, initialCoords]);
@@ -153,6 +164,9 @@ export default function PlacePickerScreen() {
     haptic.select();
     setQuery(s.name);
     setSuggestions([]);
+    // Picking a result ends the search — otherwise the "no matches" row would
+    // appear the moment the list clears.
+    setSearchedFor(null);
     setCenter([s.longitude, s.latitude]);
     setResolved(s);
     cameraRef.current?.setCamera({
@@ -216,6 +230,26 @@ export default function PlacePickerScreen() {
             />
             {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
           </View>
+          {/* A search that found nothing used to render NOTHING — reported as
+              "I search for IPMC showroom and nothing happens". Say so, and say
+              what to do instead. (`searchPlaces` also retries with the generic
+              words stripped before we get here, so this row means every provider
+              really has no such place.) */}
+          {!isSearching && searchedFor !== null && suggestions.length === 0 && (
+            <View style={styles.suggestionsBox}>
+              <View style={styles.suggestionRow}>
+                <Ionicons name="alert-circle-outline" size={16} color={colors.onSurfaceVariant} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.suggestionText} numberOfLines={2}>
+                    No places match “{searchedFor}”
+                  </Text>
+                  <Text style={styles.suggestionSub} numberOfLines={2}>
+                    Try just the name (e.g. “IPMC”), or drag the pin to the exact spot.
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
           {suggestions.length > 0 && (
             <View style={styles.suggestionsBox}>
               <FlatList

@@ -4,6 +4,7 @@ const redis = require('../config/redis');
 const prisma = require('../config/database');
 const { sendMulticastPush } = require('./push.service');
 const { availableDriverWhere } = require('./driver-availability');
+const ratingIntegrity = require('./rating-integrity.service');
 const logger = require('../utils/logger');
 
 const DISPATCH_RADIUS_KM = 5;
@@ -90,12 +91,12 @@ async function dispatchToNearbyDrivers(trip, radiusKm = DISPATCH_RADIUS_KM) {
     }
 
     // Rank by average rating (unrated drivers default to 5 so new drivers aren't starved of trips).
-    const avgRatings = await prisma.driverRating.groupBy({
-      by: ['driverId'],
-      where: { driverId: { in: eligibleDrivers.map((d) => d.id) } },
-      _avg: { stars: true },
-    });
-    const ratingByDriverId = new Map(avgRatings.map((r) => [r.driverId, r._avg.stars ?? 5]));
+    // Chronic low-raters are excluded from the average, so dispatch order can't be
+    // skewed by a rider who 1-stars everyone — see rating-integrity.service.js.
+    const ratingMap = await ratingIntegrity.getDriverRatings(eligibleDrivers.map((d) => d.id));
+    const ratingByDriverId = new Map(
+      [...ratingMap.entries()].map(([driverId, r]) => [driverId, r.rating ?? 5]),
+    );
     eligibleDrivers = eligibleDrivers
       .sort((a, b) => (ratingByDriverId.get(b.id) ?? 5) - (ratingByDriverId.get(a.id) ?? 5))
       .slice(0, MAX_DRIVERS_TO_NOTIFY);

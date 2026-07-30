@@ -742,27 +742,36 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             <View style={styles.modalHandle} />
             <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Fare Breakdown</Text>
             {fareModalTrip && (() => {
+              // BUGFIX: this used to invent the breakdown — it split the server's
+              // per-seat fare into a fabricated "base fare" and a "Platform fee
+              // (5%)" that exists nowhere in the pricing model. The platform
+              // commission is 15% and is deducted from the DRIVER's earnings, not
+              // added to the rider's fare, so showing it as a rider line item was
+              // both the wrong number and the wrong party. The breakdown now
+              // shows only what the rider is actually charged.
               const fare = fareModalTrip.farePerSeat ?? 0;
-              const platform = Math.round(fare * 0.05 * 100) / 100;
-              const base = Math.round((fare - platform) * 100) / 100;
               const heavySurcharge = heavyLoad ? 10 : 0;
               const total = fare + heavySurcharge;
               const distKm = fareModalTrip.route?.distanceKm;
+              const seats = fareModalTrip.maxSeats;
+              const tripTotal = (fareModalTrip as { totalTripCost?: number }).totalTripCost;
               return (
                 <View style={{ gap: spacing.sm }}>
                   {distKm ? (
                     <View style={styles.breakdownRow}>
-                      <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Distance</Text>
+                      <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Route distance</Text>
                       <Text variant="bodyMedium">{distKm.toFixed(1)} km</Text>
                     </View>
                   ) : null}
+                  {tripTotal && seats ? (
+                    <View style={styles.breakdownRow}>
+                      <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Whole trip ÷ {seats} seats</Text>
+                      <Text variant="bodyMedium">{formatCurrency(tripTotal)}</Text>
+                    </View>
+                  ) : null}
                   <View style={styles.breakdownRow}>
-                    <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Base fare</Text>
-                    <Text variant="bodyMedium">{formatCurrency(base)}</Text>
-                  </View>
-                  <View style={styles.breakdownRow}>
-                    <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Platform fee (5%)</Text>
-                    <Text variant="bodyMedium">{formatCurrency(platform)}</Text>
+                    <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Your seat</Text>
+                    <Text variant="bodyMedium">{formatCurrency(fare)}</Text>
                   </View>
                   {heavyLoad && (
                     <View style={styles.breakdownRow}>

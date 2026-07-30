@@ -190,8 +190,22 @@ export const driverApi = {
   goOffline: () =>
     apiClient.post<ApiResponse<{ isOnline: boolean }>>('/driver/go-offline'),
 
-  getFareEstimate: (params: { distanceKm: number; tier?: string; availableSeats?: number }) =>
-    apiClient.get<ApiResponse<{ fareEstimate: { farePerPerson: number; totalTripCost: number; driverEarningsPerSeat: number }; surgeMultiplier: number }>>('/driver/fare-estimate', { params }),
+  /**
+   * Fare preview for the create-trip flow. Pass the route endpoints whenever
+   * they are known: the server then measures the SAME road distance it will
+   * store on the trip, so the preview equals what riders are charged.
+   * `distanceKm` alone is only a fallback for callers with no coordinates.
+   */
+  getFareEstimate: (params: {
+    distanceKm: number;
+    tier?: string;
+    availableSeats?: number;
+    originLat?: number;
+    originLng?: number;
+    destLat?: number;
+    destLng?: number;
+  }) =>
+    apiClient.get<ApiResponse<{ fareEstimate: { farePerPerson: number; totalTripCost: number; driverEarningsPerSeat: number; commissionPerSeat: number; commissionRate: number }; surgeMultiplier: number; distanceKm: number }>>('/driver/fare-estimate', { params }),
 
   // Trip management
   createTrip: (data: CreateTripPayload) =>

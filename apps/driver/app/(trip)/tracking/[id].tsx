@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
+import MapboxGL, { useDeviceHeading, useVehicleHeading } from '../../../utils/mapbox';
 import { fetchRoute } from '../../../utils/routing';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
@@ -66,6 +66,14 @@ export default function DriverTrackingScreen() {
 
   // Live driver location
   const { location: driverLocation } = useDriverLocation({ enabled: isActiveTrip });
+  // Marker heading — see the puck marker below for why this isn't the compass.
+  const vehicleHeading = useVehicleHeading({
+    latitude: driverLocation?.latitude,
+    longitude: driverLocation?.longitude,
+    gpsCourse: driverLocation?.heading,
+    speedMps: driverLocation?.speed,
+    compassHeading: deviceHeading,
+  });
   const locationRef = useRef(driverLocation);
   useEffect(() => { locationRef.current = driverLocation; }, [driverLocation]);
 
@@ -468,10 +476,13 @@ export default function DriverTrackingScreen() {
             // now the true heading, and the -45° counter-rotation below cancels
             // the Ionicons "navigate" glyph's built-in north-east tilt.
             //
-            // Heading comes from the device COMPASS (physical phone orientation)
-            // rather than GPS course-over-ground, which is meaningless while
-            // stopped — falls back to GPS course if no compass is available.
-            rotation={(deviceHeading || driverLocation?.heading || 0) % 360}
+            // Heading comes from useVehicleHeading: GPS course while actually
+            // moving, a bearing derived from consecutive fixes when the device
+            // reports no course, the last known heading while stopped, and the
+            // compass only as a cold-start hint. Rotating by the compass first
+            // (what this did before) is why the pin over-rotated on every turn —
+            // a handset in a metal cradle reads the cradle, not the road.
+            rotation={vehicleHeading}
             duration={1000}
           >
             <View style={styles.driverMarker}>

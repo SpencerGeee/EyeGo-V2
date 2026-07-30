@@ -413,7 +413,15 @@ async function acceptTripRequest(driverId, tripRequestId) {
         'MISSING_DEST_COORDS',
       );
     }
-    const distanceKm = Math.max(haversineKm(originLat, originLng, destLat, destLng), 1);
+    // Road distance, not the crow-flies line: the fare is `base + perKm × km`, so
+    // pricing a straight line quotes roughly half the real journey in a city. The
+    // driver's create-trip flow resolves the same way (trips.service.createTrip),
+    // so an on-demand match and a driver-published trip over the same two points
+    // now cost the same. Falls back to haversine × 1.35 when routing is
+    // unavailable — see mapbox.service.roadDistanceKm.
+    const mapbox = require('../../services/mapbox.service');
+    const resolvedDistance = await mapbox.roadDistanceKm(originLat, originLng, destLat, destLng);
+    const distanceKm = Math.max(resolvedDistance.distanceKm, 1);
 
     const route = await tx.route.create({
       data: {

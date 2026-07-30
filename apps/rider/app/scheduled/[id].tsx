@@ -326,12 +326,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: -0.3,
   },
 
-  scroll: { paddingHorizontal: spacing.lg, paddingBottom: spacing['3xl'], gap: spacing.base },
+  // BUGFIX ("the top of the glow-border card is clipped off"): the status card is
+  // the FIRST child of this ScrollView and had no top padding, so it sat flush on
+  // y=0. GradientGlowBorder draws its bloom as a shadow OUTSIDE the card box
+  // (shadowRadius 28, deliberately un-clipped so iOS doesn't erase it), and the
+  // ScrollView clips its content at its own top edge — the halo, and the top of
+  // the ring, were cut in a straight line. The card needs room for its own glow.
+  scroll: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing['3xl'],
+    gap: spacing.base,
+  },
 
   statusCard: { padding: spacing.xl, gap: spacing.xs },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusLabel: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 15, letterSpacing: 1 },
+  // lineHeight was 15 on an 11px all-caps label with letterSpacing — under
+  // Android's ~1.4× ascent that shaves the tops off the capitals, which is the
+  // other half of the "clipped" report. 16 clears the ascent at this size.
+  statusLabel: { fontFamily: fonts.medium, fontSize: 11, lineHeight: 16, letterSpacing: 1 },
   statusDetail: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,

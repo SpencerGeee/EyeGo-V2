@@ -5,6 +5,7 @@ const tripsService = require('../trips/trips.service');
 const tripRequestService = require('../trips/trip-request.service');
 const { estimateFare } = require('../trips/fare.calculator');
 const surgeService = require('../trips/surge.service');
+const mapboxService = require('../../services/mapbox.service');
 const { ok, created } = require('../../utils/response');
 
 const getMe = async (req, res) => {
@@ -311,19 +312,37 @@ const getInspections = async (req, res) => {
 // Returns the same fare estimate the rider home screen will show for a given route,
 // so drivers see consistent pricing before creating a trip.
 const getFareEstimate = async (req, res) => {
-  const { distanceKm, tier = 'ECO', lat, lng, availableSeats } = req.query;
+  const {
+    distanceKm, tier = 'ECO', lat, lng, availableSeats,
+    originLat, originLng, destLat, destLng,
+  } = req.query;
   let surgeMultiplier = 1.0;
   if (lat && lng) {
     surgeMultiplier = await surgeService.getSurgeMultiplier(parseFloat(lat), parseFloat(lng));
   }
   const seats = parseInt(availableSeats, 10);
+
+  // BUGFIX (the preview quoted ~2× what the trip actually cost): this priced
+  // whatever `distanceKm` the client measured, but the trip that gets created
+  // prices `mapbox.roadDistanceKm` between the same two points. Two different
+  // distances meant two different fares for one ride. When the endpoints are
+  // supplied, resolve the distance here exactly as trip creation will — the
+  // preview is then a real quote rather than an approximation of one, and it
+  // cannot be inflated by editing the request either.
+  let resolvedDistanceKm = parseFloat(distanceKm) || 0;
+  const coords = [originLat, originLng, destLat, destLng].map((v) => parseFloat(v));
+  if (coords.every((v) => Number.isFinite(v))) {
+    const road = await mapboxService.roadDistanceKm(coords[0], coords[1], coords[2], coords[3]);
+    resolvedDistanceKm = road.distanceKm;
+  }
+
   const fare = estimateFare({
     tier,
-    distanceKm: parseFloat(distanceKm) || 0,
+    distanceKm: resolvedDistanceKm,
     surgeMultiplier,
     ...(seats > 0 && { availableSeats: seats }),
   });
-  ok(res, { fareEstimate: fare, surgeMultiplier });
+  ok(res, { fareEstimate: fare, surgeMultiplier, distanceKm: resolvedDistanceKm });
 };
 
 // ── Account Deletion ──────────────────────────────────────────────────

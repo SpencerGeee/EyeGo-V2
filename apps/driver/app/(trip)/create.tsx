@@ -162,9 +162,27 @@ export default function CreateTripScreen() {
   /** Traffic-aware minutes; null until the route resolves. */
   const etaMinutes = roadRoute ? Math.max(1, Math.round(roadRoute.durationMin)) : null;
 
+  // Endpoints go with the request so the server prices the same road distance it
+  // will store on the trip. Previously this sent only the locally-measured
+  // distance while trip creation measured its own — the preview and the real
+  // fare could differ by the road-vs-straight-line factor (~2×), which is what
+  // "the driver app said ₵700 and the rider paid half" was.
   const { data: fareEstimateData } = useQuery({
-    queryKey: ['driver', 'fare-estimate', distanceKm, seats, tier],
-    queryFn: () => driverApi.getFareEstimate({ distanceKm, tier, availableSeats: seats }),
+    queryKey: [
+      'driver', 'fare-estimate', distanceKm, seats, tier,
+      origin?.latitude, origin?.longitude, destination?.latitude, destination?.longitude,
+    ],
+    queryFn: () => driverApi.getFareEstimate({
+      distanceKm,
+      tier,
+      availableSeats: seats,
+      ...(origin && destination ? {
+        originLat: origin.latitude,
+        originLng: origin.longitude,
+        destLat: destination.latitude,
+        destLng: destination.longitude,
+      } : {}),
+    }),
     enabled: distanceKm > 0 && step === 4,
     select: (r) => r.data?.data?.fareEstimate,
   });
@@ -509,7 +527,9 @@ export default function CreateTripScreen() {
                 <FareRow
                   label="Your earnings per seat"
                   value={formatCurrency(fareEstimateData.driverEarningsPerSeat)}
-                  sub="after 15% commission"
+                  // Read from the estimate rather than hardcoded, so this can
+                  // never drift from what the server actually deducts.
+                  sub={`after ${Math.round(((fareEstimateData as { commissionRate?: number }).commissionRate ?? 0.15) * 100)}% commission`}
                   valueColor="#22C55E"
                   colors={colors}
                 />

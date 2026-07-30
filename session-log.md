@@ -179,3 +179,15 @@ Decisions:
 - Morph smoothness was never a timing problem: the animated style wrote left/top/width/height every frame, forcing a layout pass per frame. Static frame now lives in React state; animated style is transform/opacity/borderRadius only.
 Rejected: tuning spring constants to fix morph jank — the cost was layout, not easing.
 Open: socket `payment:confirmed` listener added to the API surface but not yet consumed by a screen; nothing device-tested.
+
+## 2026-07-30 12:40 [saved]
+Goal: Fix 11 defects found sideloading rider + driver builds.
+Decisions:
+- One distance authority: `mapbox.service.roadDistanceKm()` — preview priced road km while creation stored haversine km, ~2x apart.
+- One fare denominator: `trip.maxSeats` everywhere; driver side had silently been dividing by 4.
+- `useVehicleHeading` in @eyego/maps replaces compass-first rotation on all three vehicle markers — compass reads the cradle, not the road.
+- Chronic low-raters (services/rating-integrity.service.js) excluded from driver averages, the go-online gate and dispatch ranking; admin views stay unfiltered.
+- Where-to card became real type-to-search (inline dual inputs + suggestions), keyboard deferred 380ms so the morph keeps its frames.
+Rejected: trusting a client-supplied distanceKm for the fare preview — a rider-editable fare.
+Rejected: reading `res.data.data` for `/trips/:id` — the controller wraps it as `{ trip }`.
+Open: cash false-failure trigger never reproduced from logs, only made impossible; native build + API deploy required before any of this is testable.

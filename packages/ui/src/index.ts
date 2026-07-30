@@ -25,6 +25,8 @@ export { Loader } from './Loader';
 export { ShinyText } from './ShinyText';
 
 // Badges & Status
+export { CarMarker } from './CarMarker';
+export type { CarMarkerProps } from './CarMarker';
 export { TierBadge } from './TierBadge';
 export { StatusBadge } from './StatusBadge';
 export { SeatBadge } from './SeatBadge';

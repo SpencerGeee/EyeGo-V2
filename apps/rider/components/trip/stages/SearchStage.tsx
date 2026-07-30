@@ -79,6 +79,7 @@ function SearchStageImpl() {
   const activeMorphId = morphId ?? 'where-to-pill';
 
   const [originText, setOriginText] = useState(origin?.address ?? 'Current Location');
+  const [destText, setDestText] = useState(selectedPlace?.name ?? '');
 
   // BUGFIX: `origin` in the ride store was never populated from the device's
   // real GPS location — every trip search silently fell back to a hardcoded
@@ -134,8 +135,10 @@ function SearchStageImpl() {
   const commitPlace = useCallback((place: SearchPlace) => {
     setSearchPlace(place);
     setDestination({ address: place.fullAddress, latitude: place.latitude, longitude: place.longitude });
+    setDestText(place.name);
     haptic.select();
   }, [setDestination, setSearchPlace]);
+
 
   const handleSwap = useCallback(() => {
     haptic.light();
@@ -239,15 +242,18 @@ function SearchStageImpl() {
                 </View>
 
                 <View style={[styles.inputsCol, { width: fieldColWidth }]}>
-                  {/* Pickup. The row opens the map picker, but it now LOOKS like
-                      a field again: a standing caption plus its value, so it is
-                      obvious which half is pickup and which is destination
-                      before you tap anything. */}
+                  {/* Pickup. Tapping ANY part of the row opens the fullscreen map
+                      picker — that screen already owns search, the draggable pin
+                      and reverse-geocoding, and handing the whole job to it is
+                      both the nicer interaction and the reason this card can stay
+                      keyboard-free during the morph (see the note at the top of
+                      this file). The row still reads as a field: a standing
+                      caption above its current value. */}
                   <Pressable
                     style={({ pressed }) => [styles.fieldRow, pressed && styles.fieldRowPressed]}
                     onPress={() => openMapPicker('origin')}
                     accessibilityRole="button"
-                    accessibilityLabel="Set pickup location on map"
+                    accessibilityLabel="Set pickup location"
                   >
                     <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
                     <View style={styles.fieldTextCol}>
@@ -262,21 +268,22 @@ function SearchStageImpl() {
                     <Ionicons name="map-outline" size={16} color={colors.outline} />
                   </Pressable>
 
-                  {/* Destination — same behaviour, so both fields are consistent. */}
+                  {/* Destination — identical behaviour, so both halves of the card
+                      work the same way. */}
                   <Pressable
                     style={({ pressed }) => [styles.fieldRow, styles.fieldRowDest, pressed && styles.fieldRowPressed]}
                     onPress={() => openMapPicker('dest')}
                     accessibilityRole="button"
-                    accessibilityLabel="Choose destination on map"
+                    accessibilityLabel="Choose destination"
                   >
                     <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
                     <View style={styles.fieldTextCol}>
-                      <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>DESTINATION</Text>
+                      <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>WHERE TO</Text>
                       <Text
-                        style={[styles.fieldValue, !selectedPlace && styles.fieldPlaceholder]}
+                        style={[styles.fieldValue, !destText && styles.fieldPlaceholder]}
                         numberOfLines={1}
                       >
-                        {selectedPlace?.name ?? 'Where are you going?'}
+                        {destText || 'Where are you going?'}
                       </Text>
                     </View>
                     <Ionicons name="map-outline" size={16} color={colors.primary} />

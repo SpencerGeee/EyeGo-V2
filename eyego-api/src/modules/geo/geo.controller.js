@@ -1,6 +1,6 @@
 'use strict';
 
-const { ok, error } = require('../../utils/response');
+const { ok, error, paginated } = require('../../utils/response');
 const service = require('./geo.service');
 
 function num(v) {
@@ -10,13 +10,18 @@ function num(v) {
 
 /** GET /v1/geo/search?q=&lat=&lng=&limit= */
 async function search(req, res) {
-  const results = await service.searchPlaces({
+  const { results, meta } = await service.searchPlacesDetailed({
     query: req.query.q ?? req.query.query,
     limit: Math.min(parseInt(req.query.limit, 10) || 8, 15),
     lat: num(req.query.lat),
     lng: num(req.query.lng),
   });
-  return ok(res, results);
+  // `data` stays a plain array — every existing client reads it positionally.
+  // `meta` rides alongside so the UI can say "showing results for IPMC" after a
+  // relaxed match, and "search is unavailable" instead of "no such place" when
+  // every provider is down. Two very different messages for a rider standing on
+  // a street corner.
+  return paginated(res, results, meta);
 }
 
 /** GET /v1/geo/reverse?lat=&lng= */

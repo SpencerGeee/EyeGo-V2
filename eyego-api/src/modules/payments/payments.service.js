@@ -62,7 +62,31 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
     // confirmPayment is idempotent and, for WALLET, debits the balance atomically
     // with a guard that rejects insufficient funds. For CASH it simply confirms
     // the seat (the rider settles with the driver on boarding).
-    await confirmPayment(bookingId, reference, { cashOnBoard: method === 'CASH', isSync: true });
+    try {
+      await confirmPayment(bookingId, reference, { cashOnBoard: method === 'CASH', isSync: true });
+    } catch (err) {
+      // Last check before telling a rider their payment failed: re-read the
+      // booking. A confirm that raced with another request, a retry after a lost
+      // response, or a transaction that committed and then threw downstream all
+      // arrive here with the seat already settled — and "Payment failed" on a
+      // live, confirmed booking is the single worst thing this endpoint can say.
+      // Only a booking that genuinely is not settled surfaces the error.
+      const fresh = await prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: { status: true, paymentStatus: true },
+      });
+      const settled =
+        fresh &&
+        (fresh.paymentStatus === 'PAID' ||
+          (fresh.status === 'CONFIRMED' && method === 'CASH') ||
+          fresh.status === 'BOARDED');
+      if (!settled) throw err;
+      logger.warn('Sync payment reported an error on an already-settled booking; treating as success', {
+        bookingId,
+        method,
+        error: err.message,
+      });
+    }
     return {
       reference,
       status: 'SUCCESS',

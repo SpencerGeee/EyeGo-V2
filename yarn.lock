@@ -1366,6 +1366,7 @@
     react-native "0.81.5"
     react-native-gesture-handler "~2.28.0"
     react-native-keyboard-controller "^1.18.5"
+    react-native-qrcode-svg "^6.3.21"
     react-native-reanimated "~4.1.1"
     react-native-safe-area-context "~5.6.0"
     react-native-screens "~4.16.0"
@@ -1393,6 +1394,7 @@
     "@eyego/api" "*"
     "@eyego/config" "*"
     "@eyego/map-styles" "*"
+    "@eyego/maps" "*"
     "@eyego/types" "*"
     "@eyego/ui" "*"
     "@eyego/utils" "*"
@@ -1432,6 +1434,7 @@
     expo-sharing "~14.0.8"
     expo-splash-screen "~31.0.13"
     expo-status-bar "~3.0.9"
+    expo-updates "~29.0.17"
     expo-web-browser "~15.0.11"
     eyego-live-activity "file:./modules/eyego-live-activity"
     lottie-react-native "~7.3.1"
@@ -2568,11 +2571,6 @@
   dependencies:
     "@babel/types" "^7.28.2"
 
-"@types/emscripten@^1.41.5":
-  version "1.41.5"
-  resolved "https://registry.npmjs.org/@types/emscripten/-/emscripten-1.41.5.tgz"
-  integrity sha512-cMQm7pxu6BxtHyqJ7mQZ2kXWV5SLmugybFdHCBbJ5eHzOo6VhBckEgAT3//rP5FwPHNPeEiq4SmQ5ucBwsOo4Q==
-
 "@types/esrecurse@^4.3.1":
   version "4.3.1"
   resolved "https://registry.npmjs.org/@types/esrecurse/-/esrecurse-4.3.1.tgz"
@@ -3106,13 +3104,6 @@ balanced-match@^4.0.2:
   version "4.0.4"
   resolved "https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.4.tgz"
   integrity sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==
-
-barcode-detector@^3.0.0:
-  version "3.2.1"
-  resolved "https://registry.npmjs.org/barcode-detector/-/barcode-detector-3.2.1.tgz"
-  integrity sha512-zLL7AbT9uNJBUzYpKg9v5tUA4yQGReExSi60q0g660Mj0wjUhKmN0GrUF3qELo8ITW9THzyJXdZQkXLMnsieiw==
-  dependencies:
-    zxing-wasm "3.1.1"
 
 base64-js@^1.2.3, base64-js@^1.3.1, base64-js@^1.5.1:
   version "1.5.1"
@@ -4129,12 +4120,12 @@ expo-blur@*, expo-blur@~15.0.8:
   resolved "https://registry.npmjs.org/expo-blur/-/expo-blur-15.0.8.tgz"
   integrity sha512-rWyE1NBRZEu9WD+X+5l7gyPRszw7n12cW3IRNAb5i6KFzaBp8cxqT5oeaphJapqURvcqhkOZn2k5EtBSbsuU7w==
 
-expo-camera@^57.0.1:
-  version "57.0.1"
-  resolved "https://registry.npmjs.org/expo-camera/-/expo-camera-57.0.1.tgz"
-  integrity sha512-OtQOOFQ8djlB/UXlETa+Agu9m88P6d1go0VIO9b/a54AFUuowUqEH9vpzkq5iJ4jVhvJSblm/II7kLtwNnxW7Q==
+expo-camera@~17.0.10:
+  version "17.0.10"
+  resolved "https://registry.npmjs.org/expo-camera/-/expo-camera-17.0.10.tgz"
+  integrity sha512-w1RBw83mAGVk4BPPwNrCZyFop0VLiVSRE3c2V9onWbdFwonpRhzmB4drygG8YOUTl1H3wQvALJHyMPTbgsK1Jg==
   dependencies:
-    barcode-detector "^3.0.0"
+    invariant "^2.2.4"
 
 expo-clipboard@~8.0.8:
   version "8.0.8"
@@ -7860,13 +7851,6 @@ type-fest@^5.0.0:
   dependencies:
     tagged-tag "^1.0.0"
 
-type-fest@^5.8.0:
-  version "5.8.0"
-  resolved "https://registry.npmjs.org/type-fest/-/type-fest-5.8.0.tgz"
-  integrity sha512-YGYEVz3Fm5iy/AybuA0oyNFq7H4CgQNfRp/qfe8nurE1kuCeNm3/vfm9X4Mtl+qLyaKJUh5xrFZwogr41SMjYA==
-  dependencies:
-    tagged-tag "^1.0.0"
-
 "typescript@^5 || ^6", "typescript@^5.0.0 || ^5.0.0-0", typescript@^5.3.3, "typescript@>=5.0.4 <7", typescript@~5.9.2:
   version "5.9.3"
   resolved "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz"
@@ -8323,11 +8307,3 @@ zustand@^5.0.13:
   version "5.0.13"
   resolved "https://registry.npmjs.org/zustand/-/zustand-5.0.13.tgz"
   integrity sha512-efI2tVaVQPqtOh114loML/Z80Y4NP3yc+Ff0fYiZJPauNeWZeIp/bRFD7I9bfmCOYBh/PHxlglQ9+wvlwnPikQ==
-
-zxing-wasm@3.1.1:
-  version "3.1.1"
-  resolved "https://registry.npmjs.org/zxing-wasm/-/zxing-wasm-3.1.1.tgz"
-  integrity sha512-g0sPJBIubO6zLcJh1jftLPIN6xziaqLsvLgtpGKwDrEhyXXqla3E3yjFrznlr78UHIOMzbJPi0HDWKs/KgaB7A==
-  dependencies:
-    "@types/emscripten" "^1.41.5"
-    type-fest "^5.8.0"

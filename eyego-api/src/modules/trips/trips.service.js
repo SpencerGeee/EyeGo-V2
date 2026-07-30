@@ -11,6 +11,8 @@ const { dispatchToNearbyDrivers } = require('../../services/dispatch.service');
 const pushService = require('../../services/push.service');
 const pubSub = require('../../graphql/pubsub');
 const logger = require('../../utils/logger');
+const mapboxService = require('../../services/mapbox.service');
+const ratingIntegrity = require('../../services/rating-integrity.service');
 
 async function createTrip(driverId, data) {
   const {
@@ -109,6 +111,21 @@ async function createTrip(driverId, data) {
     surgeMultiplier = await surgeService.getSurgeMultiplier(surgeLat, surgeLng);
   }
 
+  // Ad-hoc distance is resolved BEFORE the transaction — it is an outbound HTTP
+  // call and must never run inside a serializable transaction.
+  //
+  // BUGFIX (the ₵700-vs-₵350 fare split between the two apps): this used to be a
+  // haversine straight line between the two pins, while the driver's create-trip
+  // preview priced the ROAD distance it had already fetched for the route line.
+  // Road distance is 1.3–2× the straight line, so the preview and the persisted
+  // trip disagreed by that factor and every downstream fare inherited it.
+  // `roadDistanceKm` is now the single answer to "how far is it".
+  let adHocDistanceKm = null;
+  if (!routeId) {
+    const resolved = await mapboxService.roadDistanceKm(originLat, originLng, destLat, destLng);
+    adHocDistanceKm = Math.max(resolved.distanceKm, 0.1);
+  }
+
   // Ad-hoc route + Trip creation wrapped in one transaction: if Trip.create fails for any
   // reason (bad departureTime, DB error), the just-created ad-hoc Route row rolls back with
   // it instead of being left as a permanent orphan — Route.isAdHoc rows should exist 1:1 with
@@ -121,7 +138,7 @@ async function createTrip(driverId, data) {
       // Ad-hoc trip: driver set an exact pickup + destination on the map instead of choosing
       // from a predefined route. Reuses the Route/Trip relation as-is (no Trip schema change) —
       // same pattern trip-request.service.js already uses for rider-initiated on-demand requests.
-      const distanceKm = Math.max(haversineKm(originLat, originLng, destLat, destLng), 0.1);
+      const distanceKm = adHocDistanceKm ?? Math.max(haversineKm(originLat, originLng, destLat, destLng), 0.1);
       route = await tx.route.create({
         data: {
           name: `${originName ?? 'Pickup'} → ${destinationName ?? 'Destination'}`,
@@ -278,13 +295,10 @@ async function getTrip(id, viewerUserId = null) {
 
   // Attach driver's average rating
   if (trip.driver) {
-    const ratingAgg = await prisma.driverRating.aggregate({
-      where: { driverId: trip.driverId },
-      _avg: { stars: true },
-      _count: { stars: true },
-    });
-    trip.driver.rating = ratingAgg._avg.stars ?? null;
-    trip.driver.ratingCount = ratingAgg._count.stars ?? 0;
+    // Chronic low-raters excluded — one rating model for both apps.
+    const { rating, ratingCount } = await ratingIntegrity.getDriverRating(trip.driverId);
+    trip.driver.rating = rating;
+    trip.driver.ratingCount = ratingCount;
   }
 
   return trip;

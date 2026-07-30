@@ -55,30 +55,47 @@ function calculateFare({
   const doorstepSurcharge = doorstepPickup ? env.DOORSTEP_SURCHARGE : 0;
   const heavyLoadSurcharge = heavyLoad ? env.HEAVY_LOAD_SURCHARGE : 0;
 
+  // ── The whole pricing model, in two lines ────────────────────────────────
+  // The TRIP costs what the distance says it costs; a SEAT costs that divided by
+  // the seats the driver put on sale. Nothing else varies it, which is what makes
+  // the same trip quote the same number in the driver app, the rider app, the
+  // booking charge and the receipt.
   const totalTripCost = (baseFare + perKmRate * distanceKm) * surgeMultiplier + doorstepSurcharge + heavyLoadSurcharge;
   const seats = Math.max(seatCount, 1);
-
   const farePerPerson = totalTripCost / seats;
 
-  // Minimum viable fare floor: never charge less than a tier's own base fare
-  // per seat. This must be computed PER TIER (not a single flat constant) —
-  // a flat 5.0 GHS floor was clamping both ECO and COMFORT to the same
-  // ₵5.00 on most routes (their raw per-person fares both fall under ₵5
-  // once split across a shared minibus's seats), making the two tiers look
-  // identically priced. Tying the floor to each tier's base fare preserves
-  // ECO < COMFORT < PREMIUM ordering even when the floor kicks in.
-  const MIN_FARE_PER_PERSON = tierBaseFare;
-  const finalFare = Math.max(farePerPerson, MIN_FARE_PER_PERSON);
+  // Floor: one small platform-wide minimum, NOT the tier's base fare.
+  //
+  // Tying the floor to `tierBaseFare` (the previous behaviour) quietly broke the
+  // model above: on a shared 14-seater almost every urban trip lands under the
+  // tier base once divided by the seats, so the floor — not the distance — set
+  // the price, and two trips of very different lengths cost exactly the same. It
+  // is also how a ~₵350 trip over 8 seats stopped reading as ₵43.75/seat.
+  // The floor is scaled by the tier's own position in the rate table (ECO's base
+  // fare is the unit), so ECO < COMFORT < PREMIUM still holds on the short trips
+  // where the floor binds — without the floor being large enough to flatten the
+  // distance component the way `tierBaseFare` did.
+  const tierFloorMultiplier = env.ECO_BASE_FARE > 0 ? tierBaseFare / env.ECO_BASE_FARE : 1;
+  const minFarePerSeat = round(env.MIN_FARE_PER_SEAT * tierFloorMultiplier);
+  const finalFare = Math.max(farePerPerson, minFarePerSeat);
 
   return {
-    totalTripCost: round(finalFare * seats), // re-derive from floor fare
+    // Re-derived from the (possibly floored) per-seat fare so the total shown to
+    // the driver is always exactly seats × what each rider pays.
+    totalTripCost: round(finalFare * seats),
     farePerPerson: round(finalFare),
     commissionPerSeat: round(finalFare * env.PLATFORM_COMMISSION),
     driverEarningsPerSeat: round(finalFare * (1 - env.PLATFORM_COMMISSION)),
+    // Echoed back so clients can show a breakdown without recomputing anything —
+    // a client that recomputes is a client that can disagree.
+    distanceKm: round(distanceKm),
+    seatCount: seats,
     baseFare,
     perKmRate,
     surgeMultiplier,
     commissionRate: env.PLATFORM_COMMISSION,
+    minFarePerSeat,
+    floorApplied: farePerPerson < minFarePerSeat,
   };
 }
 

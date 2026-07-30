@@ -10,6 +10,19 @@ const GHANA_BOUNDS = {
   minLng: -3.5, maxLng: 1.5,
 };
 
+/** Straight-line distance in km — local copy so this service has no cycle with
+ *  the fare calculator (which imports nothing from here). */
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLng = (lng2 - lng1) * toRad;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function isWithinGhana(lat, lng) {
   return (
     lat >= GHANA_BOUNDS.minLat && lat <= GHANA_BOUNDS.maxLat &&
@@ -35,6 +48,40 @@ async function getDirections(originLng, originLat, destLng, destLat) {
     distanceKm: route.distance / 1000,
     durationMin: route.duration / 60,
     geometry: route.geometry,
+  };
+}
+
+/**
+ * Road distance in km between two points, with a straight-line fallback.
+ *
+ * Why this exists: fares are `base + perKm × distanceKm`, so the distance is the
+ * price. The driver's create-trip preview measured the ROAD distance (it draws
+ * the route line, so it has it), while the trip that got persisted stored the
+ * HAVERSINE distance between the same two pins. Road distance runs ~1.3–2× the
+ * straight line, so the two apps quoted materially different fares for the same
+ * ride — reported as "the driver app said ₵700 for the trip and the rider app
+ * charged half that". This is the one place that answers "how far is it", so
+ * every fare downstream is derived from the same number.
+ *
+ * Server-side on purpose: a client-supplied distance is a fare the rider can
+ * edit. `fallbackMultiplier` keeps an unroutable pair (offline, no token,
+ * Mapbox 5xx) from silently pricing as the crow flies — 1.35 is the typical
+ * urban road-to-straight ratio.
+ */
+async function roadDistanceKm(originLat, originLng, destLat, destLng, { fallbackMultiplier = 1.35 } = {}) {
+  const straightKm = haversineKm(originLat, originLng, destLat, destLng);
+  try {
+    const route = await getDirections(originLng, originLat, destLng, destLat);
+    if (Number.isFinite(route?.distanceKm) && route.distanceKm > 0) {
+      return { distanceKm: route.distanceKm, durationMin: route.durationMin ?? null, source: 'mapbox' };
+    }
+  } catch (err) {
+    logger.warn('roadDistanceKm: routing failed, using straight-line estimate', { error: err.message });
+  }
+  return {
+    distanceKm: Math.max(straightKm * fallbackMultiplier, 0.1),
+    durationMin: null,
+    source: 'estimate',
   };
 }
 
@@ -89,4 +136,4 @@ async function nominatimForwardGeocode(query) {
   }
 }
 
-module.exports = { getDirections, forwardGeocode, reverseGeocode, nominatimForwardGeocode, isWithinGhana };
+module.exports = { getDirections, roadDistanceKm, forwardGeocode, reverseGeocode, nominatimForwardGeocode, isWithinGhana };

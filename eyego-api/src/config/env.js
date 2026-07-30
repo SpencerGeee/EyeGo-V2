@@ -105,6 +105,14 @@ const envSchema = z.object({
   // come in from the client; this is a placeholder default, not a final figure.
   FREE_DEVIATION_KM: z.coerce.number().default(1.5),
   PLATFORM_COMMISSION: z.coerce.number().default(0.15),
+  // The ONLY floor under a per-seat fare. A seat costs
+  // `(baseFare + perKmRate × km) × surge / maxSeats`, so on a 14-seater a short
+  // urban hop divides down to a few pesewas — this stops that, and nothing else
+  // does. Deliberately NOT the tier's base fare: tying the floor to the tier
+  // meant the floor, not the distance, set the price on most shared trips, so
+  // two trips of very different lengths cost the same. Tier separation comes
+  // from each tier's own baseFare AND perKmRate instead.
+  MIN_FARE_PER_SEAT: z.coerce.number().default(3.0),
   MIN_OCCUPANCY_TO_DEPART: z.coerce.number().default(5),
   SEAT_HOLD_DURATION_MINUTES: z.coerce.number().default(10),
   DRIVER_MIN_WALLET_BALANCE: z.coerce.number().default(5.0),

@@ -123,9 +123,68 @@ async function photonSearch(query, limit, proximity) {
       })
       .filter(Boolean);
   } catch (err) {
+    // null (not []) so searchOnce can tell "provider down" from "no such place".
     logger.warn(`Photon search failed for "${query}": ${err.message}`);
-    return [];
+    return null;
   }
+}
+
+/**
+ * Nominatim forward search. Slower and no prefix matching, but its Ghanaian
+ * business coverage is the best of the free providers — measured against the
+ * live APIs, "IPMC" and "Accra Mall" both resolve here and in Photon while
+ * Mapbox (Search Box /forward, /suggest AND Geocoding v5/v6) returns zero
+ * features for either. Mapbox is still queried first for street addresses, but
+ * it cannot be the only POI source for this market.
+ */
+async function nominatimSearch(query, limit, proximity, country) {
+  try {
+    const { data } = await axios.get('https://nominatim.openstreetmap.org/search', {
+      params: {
+        q: query,
+        format: 'json',
+        addressdetails: 1,
+        countrycodes: country,
+        limit,
+      },
+      headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' },
+      timeout: SEARCH_TIMEOUT_MS,
+    });
+    if (!Array.isArray(data)) return [];
+    return data
+      .map((r) => {
+        const latitude = parseFloat(r.lat);
+        const longitude = parseFloat(r.lon);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        const a = r.address ?? {};
+        const name =
+          r.name || a.road || a.neighbourhood || a.suburb || a.town || a.city ||
+          String(r.display_name || '').split(',')[0];
+        if (!name) return null;
+        return {
+          placeId: String(r.place_id),
+          name,
+          fullAddress: r.display_name || name,
+          latitude,
+          longitude,
+          kind: r.type || 'place',
+        };
+      })
+      .filter(Boolean);
+  } catch (err) {
+    logger.warn(`Nominatim search failed for "${query}": ${err.message}`);
+    return null;
+  }
+}
+
+/** Ghana's bounding box — the only region EyeGo operates in. */
+const GHANA_BOUNDS = { minLat: 4.5, maxLat: 11.5, minLng: -3.5, maxLng: 1.5 };
+function withinGhana(lat, lng) {
+  return (
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= GHANA_BOUNDS.minLat && lat <= GHANA_BOUNDS.maxLat &&
+    lng >= GHANA_BOUNDS.minLng && lng <= GHANA_BOUNDS.maxLng
+  );
 }
 
 /** Two hits within ~11 m are the same place to a rider. */
@@ -134,17 +193,99 @@ function dedupeKey(r) {
 }
 
 /**
- * Forward search. Mapbox first (commercial POIs), Photon merged in behind it
- * deduped, so a place that only exists in OSM still shows up.
+ * Generic venue nouns riders append to a business name. Every provider tested
+ * returns ZERO results for "IPMC showroom" and three for "IPMC" — the extra word
+ * is not in the place's name, and none of these geocoders tolerate that. So when
+ * the full phrase finds nothing, the query is relaxed rather than the rider being
+ * told their destination does not exist.
+ *
+ * Deliberately excludes words that are part of real Ghanaian place names
+ * ("junction", "circle", "market", "station", "roundabout") — dropping those
+ * would turn a findable place into an unfindable one.
  */
-async function searchPlaces({ query, limit = 8, lat, lng, country = 'gh' }) {
+const GENERIC_VENUE_WORDS = new Set([
+  'showroom', 'shop', 'store', 'outlet', 'branch', 'office', 'offices',
+  'building', 'block', 'centre', 'center', 'complex', 'plaza', 'shopping',
+  'head', 'hq', 'headquarters', 'main', 'ltd', 'limited', 'company', 'co',
+  'the', 'at', 'in', 'near', 'by',
+]);
+
+/**
+ * Progressively looser variants of a query, most specific first. Stops early:
+ * each variant is only tried if everything before it came back empty.
+ */
+function queryVariants(raw) {
+  const variants = [raw];
+  const tokens = raw.split(/\s+/).filter(Boolean);
+
+  // 1. Same query minus the generic venue nouns ("IPMC showroom" → "IPMC").
+  const significant = tokens.filter((t) => !GENERIC_VENUE_WORDS.has(t.toLowerCase()));
+  const withoutGeneric = significant.join(' ');
+  if (withoutGeneric && withoutGeneric !== raw) variants.push(withoutGeneric);
+
+  // 2. The distinctive head of the name — the longest remaining token, which for
+  //    "IPMC showroom east legon" is the brand rather than the district.
+  if (significant.length > 1) {
+    const longest = [...significant].sort((a, b) => b.length - a.length)[0];
+    if (longest && longest.length >= 3 && !variants.includes(longest)) variants.push(longest);
+  }
+
+  return variants;
+}
+
+/** Rank by closeness to the rider: three IPMC branches should list nearest first. */
+function sortByProximity(results, proximity) {
+  return [...results].sort(
+    (a, b) =>
+      haversineKm(proximity.lat, proximity.lng, a.latitude, a.longitude) -
+      haversineKm(proximity.lat, proximity.lng, b.latitude, b.longitude),
+  );
+}
+
+/**
+ * Forward search across every provider we have, with query relaxation.
+ *
+ * Returns `{ results, meta }`: `meta.providersFailed` lets the client say
+ * "search is unavailable, try again" instead of "no such place", which are very
+ * different things to a rider standing on a street corner.
+ */
+async function searchPlacesDetailed({ query, limit = 8, lat, lng, country = 'gh' }) {
   const trimmed = String(query || '').trim();
-  if (trimmed.length < 2) return [];
+  if (trimmed.length < 2) return { results: [], meta: { relaxedTo: null, providersFailed: false } };
 
   const proximity =
     Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : DEFAULT_PROXIMITY;
 
-  const tasks = [photonSearch(trimmed, limit, proximity)];
+  for (const variant of queryVariants(trimmed)) {
+    const { results, providersFailed } = await searchOnce({ query: variant, limit, proximity, country });
+    if (results.length) {
+      return {
+        results: sortByProximity(results, proximity).slice(0, limit),
+        meta: { relaxedTo: variant === trimmed ? null : variant, providersFailed },
+      };
+    }
+    // Every provider erroring is not the same as every provider agreeing there is
+    // no such place — stop and say so rather than relaxing into more failures.
+    if (providersFailed) {
+      return { results: [], meta: { relaxedTo: null, providersFailed: true } };
+    }
+  }
+
+  return { results: [], meta: { relaxedTo: null, providersFailed: false } };
+}
+
+/** Back-compat: callers that only want the rows. */
+async function searchPlaces(args) {
+  const { results } = await searchPlacesDetailed(args);
+  return results;
+}
+
+/** One pass over every provider for exactly one query string. */
+async function searchOnce({ query: trimmed, limit, proximity, country }) {
+  const tasks = [
+    photonSearch(trimmed, limit, proximity),
+    nominatimSearch(trimmed, limit, proximity, country),
+  ];
 
   if (hasMapbox()) {
     // Geocoding v6 — precise for street addresses, blind to businesses.
@@ -162,9 +303,12 @@ async function searchPlaces({ query, limit = 8, lat, lng, country = 'gh' }) {
           timeout: SEARCH_TIMEOUT_MS,
         })
         .then(({ data }) => (Array.isArray(data?.features) ? data.features : []).map(mapboxToResult).filter(Boolean))
+        // `null`, not `[]`: a provider that ERRORED has told us nothing, whereas
+        // one that answered with no features has told us this place isn't in its
+        // index. searchOnce needs to distinguish the two.
         .catch((err) => {
           logger.warn(`Mapbox geocode search failed for "${trimmed}": ${err.message}`);
-          return [];
+          return null;
         }),
     );
 
@@ -188,21 +332,31 @@ async function searchPlaces({ query, limit = 8, lat, lng, country = 'gh' }) {
         .then(({ data }) => (Array.isArray(data?.features) ? data.features : []).map(mapboxToResult).filter(Boolean))
         .catch((err) => {
           logger.warn(`Mapbox Search Box failed for "${trimmed}": ${err.message}`);
-          return [];
+          return null;
         }),
     );
   }
 
   const groups = await Promise.all(tasks);
+  const answered = groups.filter(Array.isArray);
   const seen = new Set();
   const merged = [];
-  for (const r of groups.flat()) {
+  for (const r of answered.flat()) {
+    // Photon takes a proximity bias but no country filter, and a relaxed query
+    // widens the net further — "zzzqqq nonexistent place" was matching a swamp
+    // trail on another continent. EyeGo operates in Ghana; anything outside it is
+    // never the place the rider meant.
+    if (!withinGhana(r.latitude, r.longitude)) continue;
     const key = dedupeKey(r);
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(r);
   }
-  return merged.slice(0, limit);
+  return {
+    results: merged.slice(0, limit),
+    // Not one provider managed to answer — the network or every upstream is down.
+    providersFailed: answered.length === 0,
+  };
 }
 
 /** Reverse geocode for the map-pin picker. Coordinates stay the caller's. */
@@ -380,6 +534,7 @@ async function getEtaMinutes({ originLat, originLng, destLat, destLng }) {
 
 module.exports = {
   searchPlaces,
+  searchPlacesDetailed,
   reverseGeocode,
   getRoute,
   getEtaMinutes,

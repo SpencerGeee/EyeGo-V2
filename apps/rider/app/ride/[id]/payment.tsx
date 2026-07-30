@@ -135,8 +135,17 @@ export default function PaymentScreen() {
   // waiting up to ~15 min for the server seat-hold sweep. Best-effort and
   // idempotent: the backend cancelBooking refuses PAID bookings and re-setting
   // CANCELLED is a no-op, so this is safe to race against the sweep.
+  // The booking id THIS attempt is working on. `activeBooking` is React state, so
+  // a booking created inside the mutation is not visible to the mutation's own
+  // onError closure — which is how a cash booking that had already been created
+  // (and often already confirmed) got reported as "Payment Failed": the error
+  // handler saw no booking id, skipped the "did it actually go through?" re-read
+  // entirely, and went straight to the failure alert. A ref is written
+  // synchronously and is therefore always current here.
+  const attemptBookingIdRef = useRef<string>('');
+
   const releaseHeldSeat = async () => {
-    const heldId = activeBooking?.id;
+    const heldId = attemptBookingIdRef.current || activeBooking?.id;
     if (!heldId) return;
     // Never release a booking that already succeeded.
     if (status === 'success') return;
@@ -158,6 +167,7 @@ export default function PaymentScreen() {
       // confirmPayment's SEAT_HELD guard rejected it and every payment attempt
       // failed with a generic "initialization failed" error.
       let bookingId = activeBooking?.tripId === id ? activeBooking?.id ?? '' : '';
+      attemptBookingIdRef.current = bookingId;
       try {
         if (!bookingId && id && selectedSeat) {
           const { data: bookingData } = await bookingsApi.create({
@@ -170,6 +180,7 @@ export default function PaymentScreen() {
           });
           const newBooking = bookingData.data;
           bookingId = newBooking.id ?? '';
+          attemptBookingIdRef.current = bookingId;
           // Store booking and server-calculated fare in Zustand so tracking/rating screens have them
           setActiveBooking(newBooking);
           if (newBooking.fareAmount) setComputedFare(newBooking.fareAmount);
@@ -307,12 +318,21 @@ export default function PaymentScreen() {
       // alert, and a half-populated live-trip card on the home screen.
       //
       // So: ask the server what actually happened before deciding anything.
-      const bookingId = activeBooking?.id ?? '';
+      const bookingId = attemptBookingIdRef.current || activeBooking?.id || '';
       if (bookingId) {
         try {
           const { data } = await bookingsApi.getById(bookingId);
           const fresh = (data as any)?.data?.booking ?? (data as any)?.data;
-          if (fresh?.status === 'CONFIRMED') {
+          // Any settled state counts, not just CONFIRMED: a cash booking lands on
+          // CONFIRMED + paymentStatus PENDING, wallet/card land on PAID, and a
+          // rider who reached the driver before the response came back can even be
+          // BOARDED. Treating only CONFIRMED as success meant the other three
+          // showed a failure alert on a booking that had gone through.
+          const settled =
+            fresh?.status === 'CONFIRMED' ||
+            fresh?.status === 'BOARDED' ||
+            fresh?.paymentStatus === 'PAID';
+          if (settled) {
             // It went through. Treat it as the success it is.
             setActiveBooking(fresh);
             setStatus('success');

@@ -22,7 +22,7 @@ interface RideState {
   activeBooking: Booking | null;
 
   // Live tracking
-  driverLocation: { latitude: number; longitude: number; heading: number } | null;
+  driverLocation: { latitude: number; longitude: number; heading: number; speed?: number } | null;
   tripEta: number | null; // minutes
 
   // Guest Info
@@ -56,7 +56,7 @@ interface RideState {
   setSelectedTrip: (trip: Trip | null) => void;
   setSelectedSeat: (seat: Seat | null) => void;
   setActiveBooking: (booking: Booking | null) => void;
-  setDriverLocation: (loc: { latitude: number; longitude: number; heading: number } | null) => void;
+  setDriverLocation: (loc: { latitude: number; longitude: number; heading: number; speed?: number } | null) => void;
   setTripEta: (eta: number | null) => void;
   setGuestInfo: (info: { name: string; phone: string } | null) => void;
   setScheduledTime: (time: string | null) => void;

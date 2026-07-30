@@ -205,11 +205,51 @@ async function searchNominatim(query: string, limit: number, bias: { lat: number
 }
 
 /**
- * Forward geocode: free-text query → places, ranked by relevance to `near`.
+ * Generic venue nouns riders tack onto a business name. NO geocoder — Mapbox
+ * Search Box, Mapbox Geocoding v5/v6, Photon or Nominatim — returns anything for
+ * "IPMC showroom", while all of them return the branch list for "IPMC". The word
+ * isn't part of the place's name, so the query has to give it up rather than the
+ * search coming back empty.
  *
- * Both providers are queried in parallel and merged; whichever answers first
- * in the result array wins on ties. Never throws — an unreachable provider
- * contributes nothing instead of blanking the list.
+ * Mirrors GENERIC_VENUE_WORDS in eyego-api/src/modules/geo/geo.service.js, which
+ * does the same relaxation server-side. Kept here too so the search still works
+ * against an API that hasn't been redeployed yet, or none at all.
+ *
+ * Words that are part of real Ghanaian place names ("junction", "circle",
+ * "market", "station") are deliberately NOT in this list.
+ */
+const GENERIC_VENUE_WORDS = new Set([
+  'showroom', 'shop', 'store', 'outlet', 'branch', 'office', 'offices',
+  'building', 'block', 'centre', 'center', 'complex', 'plaza', 'shopping',
+  'head', 'hq', 'headquarters', 'main', 'ltd', 'limited', 'company', 'co',
+  'the', 'at', 'in', 'near', 'by',
+]);
+
+/** Ghana's bounding box. A relaxed query widens the net; this keeps it in-country. */
+function withinGhana(r: GeocodeResult): boolean {
+  return r.latitude >= 4.5 && r.latitude <= 11.5 && r.longitude >= -3.5 && r.longitude <= 1.5;
+}
+
+function relaxQuery(raw: string): string | null {
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const significant = tokens.filter((t) => !GENERIC_VENUE_WORDS.has(t.toLowerCase()));
+  const relaxed = significant.join(' ');
+  return relaxed && relaxed !== raw ? relaxed : null;
+}
+
+/** Nearest first — three IPMC branches should list in the order a rider would want. */
+function byProximity(results: GeocodeResult[], bias: { lat: number; lon: number }): GeocodeResult[] {
+  const d2 = (r: GeocodeResult) => (r.latitude - bias.lat) ** 2 + (r.longitude - bias.lon) ** 2;
+  return [...results].sort((a, b) => d2(a) - d2(b));
+}
+
+/**
+ * Forward geocode: free-text query → places, ranked by distance from `near`.
+ *
+ * Every provider is queried in parallel and merged; whichever answers first in
+ * the result array wins on ties. Never throws — an unreachable provider
+ * contributes nothing instead of blanking the list. If the exact phrase finds
+ * nothing anywhere, the query is relaxed once and the whole chain re-run.
  */
 export async function searchPlaces(
   query: string,
@@ -224,28 +264,38 @@ export async function searchPlaces(
       ? { lat: near.latitude, lon: near.longitude }
       : BIAS_CENTER;
 
-  // PREFERRED PATH: our own /geo/search, which fronts Mapbox. Photon and
-  // Nominatim below index OpenStreetMap only, and OSM's Ghanaian commercial-POI
-  // coverage is thin enough that ordinary searches ("IPMC showroom") return
-  // nothing at all. Mapbox carries that POI data. The token is a secret so the
-  // call has to be server-side; see eyego-api/src/modules/geo.
-  const proxied = await searchViaApi(trimmed, limit, bias);
-  if (proxied.length > 0) return proxied.slice(0, limit);
+  const attempt = async (q: string): Promise<GeocodeResult[]> => {
+    // PREFERRED PATH: our own /geo/search, which fronts Mapbox Search Box AND the
+    // OSM providers, does its own relaxation, and filters to Ghana. The Mapbox
+    // token is a secret so that call has to be server-side; see
+    // eyego-api/src/modules/geo.
+    const proxied = await searchViaApi(q, limit, bias);
+    if (proxied.length > 0) return proxied;
 
-  const [photon, nominatim] = await Promise.all([
-    searchPhoton(trimmed, limit, bias).catch(() => []),
-    searchNominatim(trimmed, limit, bias).catch(() => []),
-  ]);
+    const [photon, nominatim] = await Promise.all([
+      searchPhoton(q, limit, bias).catch(() => []),
+      searchNominatim(q, limit, bias).catch(() => []),
+    ]);
 
-  const seen = new Set<string>();
-  const merged: GeocodeResult[] = [];
-  for (const r of [...photon, ...nominatim]) {
-    const key = dedupeKey(r);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(r);
-  }
-  return merged.slice(0, limit);
+    const seen = new Set<string>();
+    const merged: GeocodeResult[] = [];
+    for (const r of [...photon, ...nominatim]) {
+      if (!withinGhana(r)) continue;
+      const key = dedupeKey(r);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(r);
+    }
+    return merged;
+  };
+
+  const exact = await attempt(trimmed);
+  if (exact.length > 0) return byProximity(exact, bias).slice(0, limit);
+
+  const relaxed = relaxQuery(trimmed);
+  if (!relaxed) return [];
+  const loose = await attempt(relaxed);
+  return byProximity(loose, bias).slice(0, limit);
 }
 
 /** Reverse geocode: coordinates → nearest address (used by the map pin picker). */

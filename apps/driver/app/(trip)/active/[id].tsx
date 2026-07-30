@@ -28,7 +28,7 @@ import { SeatMap } from '../../../components/SeatMap';
 import { offlineQueue } from '../../../utils/offlineQueue';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
 import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
-import MapboxGL, { useDeviceHeading } from '../../../utils/mapbox';
+import MapboxGL, { useDeviceHeading, useVehicleHeading } from '../../../utils/mapbox';
 import { fetchRoute } from '../../../utils/routing';
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -140,6 +140,16 @@ export default function ActiveTripScreen() {
 
   useDriverSocket({ tripId: id, enabled: !!trip });
   const { location } = useDriverLocation({ enabled: isActiveTrip });
+
+  // Marker heading: GPS course while moving, last known heading while stopped,
+  // compass only as a cold-start hint. See the puck marker below.
+  const vehicleHeading = useVehicleHeading({
+    latitude: location?.latitude,
+    longitude: location?.longitude,
+    gpsCourse: location?.heading,
+    speedMps: location?.speed,
+    compassHeading: deviceHeading,
+  });
 
   useEffect(() => {
     if (!trip) return;
@@ -405,22 +415,20 @@ export default function ActiveTripScreen() {
             on every status change mid-trip. A trip screen is a nav screen for
             its whole life; the tilt shouldn't be an event-triggered surprise. */}
         <MapboxGL.NavCamera active fallbackCenter={driverCoord} />
-        {/* Driver puck — driven by the device COMPASS, not GPS course.
-            `location.heading` is course-over-ground: meaningless while stopped
-            or crawling, which is why physically turning the phone did nothing
-            to the pin. `deviceHeading` is tied to the handset's own
-            orientation, and @eyego/maps subtracts the map bearing, so the pin
-            turns when the phone turns and holds still when only the map is
-            rotated. Falls back to GPS course if the compass is unavailable. */}
+        {/* Driver puck — heading comes from useVehicleHeading, which prefers GPS
+            course over ground while moving, derives a bearing from consecutive
+            fixes when the device reports no course, holds the last heading when
+            stopped, and only ever consults the compass before any travel
+            heading has been seen.
+            Reported as "it moves as the phone moves, but the direction may be
+            wrong and it turns too much": rotating by the COMPASS first is what
+            caused that. A handset in a metal car cradle reads the cradle, not
+            the road. `rotation` here is still a TRUE compass bearing that
+            @eyego/maps compensates against the live map bearing — the artwork's
+            own tilt stays on the artwork, inside DriverPulse. */}
         <MapboxGL.AnimatedMarkerView
           coordinate={driverCoord}
-          // BUGFIX (same defect as tracking/[id].tsx): `rotation` is a TRUE
-          // compass bearing which @eyego/maps compensates against the live map
-          // bearing, so folding the glyph's own north-east artwork tilt into it
-          // left the pin a constant 45° off true north — it turned with the
-          // phone but pointed at the wrong thing. The artwork offset now lives
-          // on the artwork, inside DriverPulse.
-          rotation={(deviceHeading || location?.heading || 0) % 360}
+          rotation={vehicleHeading}
           duration={1000}
         >
           <DriverPulse color={statusCfg.color} />
@@ -669,7 +677,15 @@ export default function ActiveTripScreen() {
                 <Text variant="bodyMedium">GHS {grossEarnings.toFixed(2)}</Text>
               </View>
               <View style={styles.earningsRow}>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>Platform fee (30%)</Text>
+                {/* The percentage is READ from the same commissionRate the amount
+                    below is derived from. It was hardcoded to "30%" while the
+                    server has always charged 15% (env.PLATFORM_COMMISSION), so
+                    this screen told drivers they were losing twice what they
+                    actually lose — and disagreed with the create-trip screen and
+                    the trip-complete receipt on the same trip. */}
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  Platform fee ({Math.round(commissionRate * 100)}%)
+                </Text>
                 <Text variant="bodyMedium" color={colors.error}>− GHS {platformFee.toFixed(2)}</Text>
               </View>
               <View style={[styles.earningsRow, styles.earningsNet]}>
