@@ -37,6 +37,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── Disk headroom ────────────────────────────────────────────────────
+      # BUILD FAILURE THIS FIXES: `pod install` died in CocoaPods' downloader
+      # while copying the prebuilt React-Core pod into its cache:
+      #   rsync: _CodeSignature/.CodeResources.dyN5sNU27F: write: Input/output error
+      #   rsync: buf_copy / unexpected end of file
+      # That reads like a corrupt archive, but it is the disk filling up — a
+      # write past the end of the volume surfaces as EIO, not ENOSPC, through
+      # rsync's buffered copy.
+      #
+      # Why this build in particular is tight on space: React Native 0.81 pulls
+      # PREBUILT artifacts (reactnative-dependencies, reactnative-core and
+      # hermes-ios, each a few hundred MB of debug binaries), unpacks each one
+      # into a temp dir, and then CocoaPods rsyncs a SECOND copy of it into
+      # ~/Library/Caches/CocoaPods/Pods/External. Add node_modules for a
+      # monorepo, a full `expo prebuild`, and Release DerivedData for ~60 pods,
+      # and the ~14 GB free on a stock macOS runner is gone.
+      #
+      # The image ships several Xcode versions and every installed iOS simulator
+      # runtime — tens of GB that this job cannot use: it builds
+      # Release-iphoneos (a real device slice, unsigned), so no simulator
+      # runtime is ever loaded, and only the selected Xcode is invoked. Removing
+      # them is the standard remedy and costs about a minute.
+      - name: Free up disk space
+        run: |
+          echo "── before ──"; df -h /
+          KEEP="$(xcode-select -p | sed -E 's#(/Applications/Xcode[^/]*\.app).*#\1#')"
+          echo "Keeping $KEEP"
+          for app in /Applications/Xcode*.app; do
+            if [ "$app" != "$KEEP" ]; then
+              echo "Removing $app"
+              sudo rm -rf "$app" || true
+            fi
+          done
+          # Device builds never load a simulator runtime.
+          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/* || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator/Devices/* || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/* || true
+          sudo rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
+          sudo rm -rf ~/Library/Caches/CocoaPods || true
+          echo "── after ──"; df -h /
+
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -77,12 +118,27 @@ jobs:
       - name: Install CocoaPods dependencies
         working-directory: apps/${{ inputs.app }}/ios
         run: |
-          pod install --repo-update
+          set -o pipefail
+          df -h /
+          if ! pod install --repo-update; then
+            # A `pod install` that dies mid-copy (see the disk-space note at the
+            # top of this file) leaves a half-written entry in the External pod
+            # cache, and every retry then reuses that corrupt copy. Clear the
+            # cache and try exactly once more before failing the build, so a
+            # transient I/O error doesn't cost a whole re-run.
+            echo "::warning::pod install failed — clearing CocoaPods cache and retrying once"
+            df -h /
+            pod cache clean --all || true
+            rm -rf ~/Library/Caches/CocoaPods || true
+            pod install --repo-update
+          fi
+          df -h /
         env:
           # RN 0.81 generates a fresh Podfile each prebuild; New Architecture is
           # already disabled via app.json (newArchEnabled:false) → propagates to
           # RCT_NEW_ARCH_ENABLED here automatically.
           LANG: en_US.UTF-8
+          COCOAPODS_DISABLE_STATS: 'true'
 
       - name: Build unsigned .app with xcodebuild
         working-directory: apps/${{ inputs.app }}/ios
