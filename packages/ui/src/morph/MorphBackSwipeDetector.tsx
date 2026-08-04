@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef } from 'react';
-import { type ViewStyle, type StyleProp } from 'react-native';
+import { StyleSheet, type ViewStyle, type StyleProp } from 'react-native';
 import {
   Gesture,
   GestureDetector,
@@ -126,9 +126,45 @@ export function MorphBackSwipeDetector({
 
   return (
     <GestureDetector gesture={panGesture}>
-      <Animated.View style={[{ flex: 1 }, style]}>
+      <Animated.View style={[styles.fill, style]}>
         {children}
       </Animated.View>
     </GestureDetector>
   );
 }
+
+/**
+ * NOT `{ flex: 1 }`, and the difference is load-bearing — this is the bug behind
+ * "the where-to fields are malformed and tapping them does nothing".
+ *
+ * A caller cannot override a `flex` shorthand with longhands, because Yoga does
+ * not resolve them the way style-merging suggests. `YGNodeResolveFlexBasisPtr`
+ * is, in effect:
+ *
+ *     if (flexBasis is a DEFINITE value)  return flexBasis;   // auto fails this
+ *     if (flex is set && flex > 0)        return 0;
+ *     return auto;
+ *
+ * `flexBasis: 'auto'` has unit `Auto`, so it does NOT satisfy the first test and
+ * falls through to the second — where a `flex: 1` sitting underneath it in the
+ * merged style still forces the basis to ZERO. `flexGrow` resolves the other way
+ * round (an explicit longhand does win), so a caller spelling out
+ * `{ flexGrow: 0, flexShrink: 0, flexBasis: 'auto' }` to get a content-sized
+ * wrapper got the worst of both: basis 0 from our `flex`, and grow 0 from their
+ * own style, leaving a definite main-axis size of zero that could never grow
+ * back.
+ *
+ * `SearchStage` does exactly that (`swipeZone`, deliberately not `flex: 1` so the
+ * detector cannot claim every pan over the map). The result was a zero-height
+ * swipe zone, so the where-to card had no height, its two field rows collapsed,
+ * and a Pressable with no box has nothing to tap. Three previous fixes pinned
+ * widths and heights further down the tree; none of them could work, because the
+ * zero was being introduced above them here.
+ *
+ * The longhands below are inert for a caller that overrides them and identical
+ * to `flex: 1` for one that does not. `MorphTarget` already carries the same
+ * fix and the same reasoning.
+ */
+const styles = StyleSheet.create({
+  fill: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
+});

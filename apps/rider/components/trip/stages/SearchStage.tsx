@@ -413,15 +413,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: 8,
   },
 
-  /** Dismiss-gesture area: exactly the card's box. `flex: 0` is required —
-   *  MorphBackSwipeDetector defaults its wrapper to `flex: 1`, which would hand
-   *  the detector every pan over the map below the card. */
+  /** Dismiss-gesture area: exactly the card's box, never the whole screen —
+   *  otherwise the detector owns every pan over the map behind the card. */
   swipeZone: {
-    // `flex: 0` (the previous value) is NOT "size to content" in React Native —
-    // it expands to `flexBasis: 0`, i.e. a definite main-axis size of zero, and
-    // this view is a column child of the full-screen overlay. Spelling the three
-    // longhands out keeps the detector from claiming the map (the reason it
-    // isn't `flex: 1`) without handing the card a zero height.
+    // Content-sized, spelled out as three longhands. `flex: 0` is NOT "size to
+    // content" in React Native: it expands to `flexBasis: 0`, a definite
+    // main-axis size of zero, and this is a column child of the full-screen
+    // overlay.
+    //
+    // These longhands only actually take effect since the matching fix in
+    // MorphBackSwipeDetector. It used to merge `{ flex: 1 }` UNDER this style,
+    // and `flexBasis: 'auto'` cannot override a `flex` shorthand in Yoga — auto
+    // is not a definite value, so basis still resolved to 0 from the `flex`,
+    // while `flexGrow: 0` here won and left the zone unable to grow back. Height
+    // zero, card collapsed, field rows with no box to tap. That is why the two
+    // previous attempts (pinning the card width, then the field column width)
+    // could not fix it: the zero came from above, not from here.
     flexGrow: 0,
     flexShrink: 0,
     flexBasis: 'auto',
