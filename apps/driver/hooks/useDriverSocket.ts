@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { connectDriverSocket, disconnectDriverSocket, driverSocketEvents, getDriverSocket } from '@eyego/api';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDriverLocation } from './useDriverLocation';
+import { useDriverLocation, lastKnownReportedFix } from './useDriverLocation';
 import { useDriverStore } from '../stores/driver.store';
 
 interface Options {
@@ -34,14 +34,29 @@ export function useDriverSocket({ tripId, enabled = false }: Options) {
       if (tripId) {
         driverSocketEvents.emitJoinTracking(tripId);
       }
-      // DC2: re-emit current location immediately on reconnect so server isn't stale
-      if (tripId && useDriverStore.getState().isOnline && locationRef.current) {
-        driverSocketEvents.emitLocation({
+      /**
+       * Re-announce position the instant the socket is back.
+       *
+       * BUGFIX: this was gated on `tripId`, so it only ran for a driver already
+       * ON a trip — the one case where it barely matters, because a moving
+       * vehicle produces a fresh fix within seconds anyway. The case it skipped
+       * is the one that breaks: an online driver waiting for work, parked, whose
+       * socket dropped. Their server-side presence key expires after 90s, the
+       * watch fires only on 10m of movement, and a parked car never moves — so
+       * they silently left the dispatch pool and stayed out of it, with the app
+       * still showing "You're online".
+       *
+       * `lastKnownReportedFix()` rather than `locationRef` because the fix may
+       * have come from the background task, which never touches React state.
+       */
+      if (useDriverStore.getState().isOnline) {
+        const last = lastKnownReportedFix() ?? (locationRef.current && {
           lat: locationRef.current.latitude,
           lng: locationRef.current.longitude,
           heading: locationRef.current.heading ?? 0,
           speed: locationRef.current.speed ?? 0,
         });
+        if (last) driverSocketEvents.emitLocation(last);
       }
     });
     const cleanDisconnect = driverSocketEvents.onDisconnect(() => {

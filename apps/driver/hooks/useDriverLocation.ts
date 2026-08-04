@@ -45,13 +45,15 @@ if (!TaskManager.isTaskDefined(DRIVER_LOCATION_TASK)) {
     // (driverSocketEvents.emitLocation is a plain module export backed by a
     // lazily-created, already-connected socket — see useDriverSocket.ts and
     // app/(trip)/tracking/[id].tsx for the equivalent foreground emit).
+    const fix = {
+      lat: latest.coords.latitude,
+      lng: latest.coords.longitude,
+      heading: latest.coords.heading ?? 0,
+      speed: latest.coords.speed ?? 0,
+    };
+    lastReportedFix = fix;
     try {
-      driverSocketEvents.emitLocation({
-        lat: latest.coords.latitude,
-        lng: latest.coords.longitude,
-        heading: latest.coords.heading ?? 0,
-        speed: latest.coords.speed ?? 0,
-      });
+      driverSocketEvents.emitLocation(fix);
     } catch (e) {
       console.warn('[DriverLocation] Background emitLocation failed:', e);
     }
@@ -105,6 +107,57 @@ function releaseBackgroundTracking() {
     // fire-and-forget: React cleanup can't be async
     stopBackgroundLocationTracking();
   }
+}
+
+// ── Presence heartbeat ───────────────────────────────────────────────────
+//
+// THE BUG THIS EXISTS FOR: a parked driver disappears from dispatch.
+//
+// The server's supply index keeps a presence key with a 90-second TTL, and the
+// only thing that refreshes it is a location ping. But the watch below is
+// configured `distanceInterval: 10` — it fires when the vehicle MOVES. A driver
+// waiting at a rank, at the airport, or outside a mall produces no fixes at
+// all, so after ninety motionless seconds they age out of the pool and stop
+// being offered rides. That is the exact population most available to take one.
+//
+// So position is not the only thing being reported here; liveness is. Re-send
+// the last known fix on a timer whether or not it has changed. 25s against a
+// 90s TTL survives two dropped beats.
+//
+// One timer for the whole app: this hook mounts on home, active and tracking
+// at once, and three heartbeats is three times the radio for no extra
+// information. Refcounted like the background tracking above.
+const HEARTBEAT_MS = 25_000;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let heartbeatRefs = 0;
+/** The most recent fix from any instance — what the heartbeat re-sends. */
+let lastReportedFix: { lat: number; lng: number; heading: number; speed: number } | null = null;
+
+function acquireHeartbeat() {
+  heartbeatRefs++;
+  if (heartbeatTimer) return;
+  heartbeatTimer = setInterval(() => {
+    if (!lastReportedFix) return;
+    try {
+      driverSocketEvents.emitLocation(lastReportedFix);
+    } catch {
+      // Socket down. The next beat retries; there is nothing to queue, because
+      // a stale position delivered late is worse than none at all.
+    }
+  }, HEARTBEAT_MS);
+}
+
+function releaseHeartbeat() {
+  heartbeatRefs = Math.max(0, heartbeatRefs - 1);
+  if (heartbeatRefs === 0 && heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+/** The last fix this device reported, for the socket's reconnect re-emit. */
+export function lastKnownReportedFix() {
+  return lastReportedFix;
 }
 
 export function useDriverLocation({ enabled = true, isOnTrip = false }: Options = {}) {
@@ -210,13 +263,16 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
     // permission at all — the backend's dispatch query already filters to
     // status:'ACTIVE', isOnline:true downstream, so emitting whenever this
     // (already app-open) foreground watch is running is safe.
+    const fix = {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      heading: reportedHeading,
+      speed: pos.coords.speed ?? 0,
+    };
+    // Held for the heartbeat and the socket's reconnect re-emit — see above.
+    lastReportedFix = fix;
     try {
-      driverSocketEvents.emitLocation({
-        lat: pos.coords.latitude,
-        lng: pos.coords.longitude,
-        heading: reportedHeading,
-        speed: pos.coords.speed ?? 0,
-      });
+      driverSocketEvents.emitLocation(fix);
     } catch (e) {
       console.warn('[DriverLocation] Foreground emitLocation failed:', e);
     }
@@ -254,6 +310,11 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
     if (!enabled) return;
 
     cancelledRef.current = false;
+    // Start beating immediately — before the first fix, even. The timer no-ops
+    // until there is something to report, and starting it here means the
+    // acquire/release pairing is symmetric with the cleanup below regardless of
+    // which branch of the async setup runs.
+    acquireHeartbeat();
 
     (async () => {
       // ── 1. Permission ─────────────────────────────────────────────────
@@ -376,6 +437,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       watchRef.current?.remove();
       watchRef.current = null;
       appStateSub.remove();
+      releaseHeartbeat();
       // Release this instance's background-tracking ref. Tracking only actually
       // stops when the LAST consumer (home/active/tracking) releases — so
       // leaving one screen while still online elsewhere won't kill location.

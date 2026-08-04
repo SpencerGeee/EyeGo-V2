@@ -9,6 +9,7 @@ const pubSub = require('../graphql/pubsub');
 const { notifications: pushNotifications, sendMulticastPush, sendPush } = require('../services/push.service');
 const liveActivityPush = require('../services/live-activity-push.service');
 const { haversineMeters } = require('../utils/geo');
+const supply = require('../services/supply-index.service');
 const logger = require('../utils/logger');
 const env = require('../config/env');
 
@@ -108,11 +109,90 @@ const SAFETY_CHECK_COOLDOWN_MS = (env.SAFETY_CHECK_COOLDOWN_SEC ?? 300) * 1000;
 // Key used to flag that we already have a safety check pending for this trip.
 const SAFETY_PENDING = new Set();
 
+/**
+ * ── Presence: how many live sockets a driver has, and a grace period ────────
+ *
+ * BUG THIS FIXES. `disconnect` flipped `isOnline: false` on the driver row the
+ * instant a socket dropped. On a mobile network that happens constantly —
+ * a tunnel, a lift, a cell handover, iOS suspending the app for eight seconds
+ * while the driver reads a text — and `availableDriverWhere()` filters on
+ * `isOnline: true`, so each of those blips silently removed the driver from
+ * dispatch. Worse, nothing set it back: the reconnect handler joined rooms but
+ * never restored the flag, so a driver whose socket bounced once was invisible
+ * for the rest of the shift while their own app still said "You're online".
+ *
+ * Two sockets per driver is also normal here (the app opens one and the
+ * background location task rides the same namespace), so the LAST disconnect
+ * is the only one that means anything — hence a refcount rather than a boolean.
+ *
+ * The grace period is deliberately shorter than the supply index's 90s
+ * presence TTL: this is about the durable `isOnline` flag, and the index
+ * expires on its own.
+ */
+const OFFLINE_GRACE_MS = (env.DRIVER_OFFLINE_GRACE_SEC ?? 45) * 1000;
+const liveSockets = new Map();      // driverId -> count
+const pendingOffline = new Map();   // driverId -> timeout
+
+/** Set when the SERVER took a driver offline for silence, not the driver. */
+const PRESENCE_DROPPED_KEY = (driverId) => `driver:${driverId}:presence_dropped`;
+/** How long a dropped driver may resume simply by pinging again. */
+const PRESENCE_DROPPED_TTL_SEC = 30 * 60;
+
+function markDriverConnected(driverId) {
+  liveSockets.set(driverId, (liveSockets.get(driverId) ?? 0) + 1);
+  const timer = pendingOffline.get(driverId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingOffline.delete(driverId);
+    logger.debug(`[DriverSocket] ${driverId} reconnected inside the grace window — staying online`);
+  }
+}
+
+function markDriverDisconnected(driverId) {
+  const remaining = Math.max(0, (liveSockets.get(driverId) ?? 1) - 1);
+  if (remaining > 0) {
+    liveSockets.set(driverId, remaining);
+    return;
+  }
+  liveSockets.delete(driverId);
+  if (pendingOffline.has(driverId)) return;
+
+  const timer = setTimeout(async () => {
+    pendingOffline.delete(driverId);
+    // Reconnected while we waited — nothing to do.
+    if ((liveSockets.get(driverId) ?? 0) > 0) return;
+    try {
+      await prisma.driver.update({ where: { id: driverId }, data: { isOnline: false } });
+      // Close the hours-tracking session too. Leaving it open was how a driver
+      // whose app was killed accrued online hours overnight.
+      await prisma.onlineSession.updateMany({
+        where: { driverId, endTime: null },
+        data: { endTime: new Date() },
+      }).catch(() => {});
+      await supply.removeDriver(driverId);
+      await redis.zrem('drivers:online', driverId).catch(() => {});
+      // Mark that WE took them offline, they didn't. Read by the location
+      // handler to distinguish "lost the network for two minutes" (resume them
+      // on their next ping) from "tapped the toggle" (leave them alone — being
+      // resurrected by a stray background fix after deliberately going offline
+      // is how a driver ends up getting offers at midnight).
+      await redis.set(PRESENCE_DROPPED_KEY(driverId), '1', 'EX', PRESENCE_DROPPED_TTL_SEC).catch(() => {});
+      logger.info(`[DriverSocket] ${driverId} offline after ${OFFLINE_GRACE_MS}ms with no socket`);
+    } catch (err) {
+      logger.warn(`Failed to set driver ${driverId} offline after grace: ${err.message}`);
+    }
+  }, OFFLINE_GRACE_MS);
+  // Never let presence bookkeeping hold the process open on shutdown.
+  if (typeof timer.unref === 'function') timer.unref();
+  pendingOffline.set(driverId, timer);
+}
+
 
 module.exports = function registerDriverSocket(io, driverNamespace) {
   driverNamespace.on('connection', async (socket) => {
     const driverId = socket.userId;
     logger.info(`Driver connected: ${driverId}`);
+    markDriverConnected(driverId);
 
     // Join driver-specific room
     socket.join(`driver:${driverId}`);
@@ -209,7 +289,50 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
       });
       await redis.publish('admin:driver_locations', adminPayload).catch(() => {});
 
-      // Register driver in geo-set so dispatch can find nearby online drivers
+      /**
+       * ── The supply index — THE thing dispatch actually searches ──────────
+       *
+       * BUG THIS FIXES (severity: no ride ever gets a driver). `supply-index.
+       * service.js` is what `matcher.service.js` queries for candidates, and
+       * its presence key has a 90-SECOND TTL by design — a dead phone is meant
+       * to fall out of the pool on its own rather than rely on a `goOffline`
+       * that a force-quit app never sends. That design only works if something
+       * refreshes it, and nothing did: the only two writers in the codebase
+       * were `acceptRide` (which REMOVES the driver) and `completeTrip`. This
+       * handler — the one thing that fires every few seconds for every online
+       * driver — wrote to the legacy `drivers:online` set instead and never
+       * touched the index at all.
+       *
+       * So every driver aged out of the dispatch pool 90 seconds after their
+       * last completed trip and never returned, and a driver who had just come
+       * online was never in it in the first place. The pool was, in the steady
+       * state, empty.
+       *
+       * `upsertDriver` refreshes position AND presence in one pipeline, so
+       * putting it on the ping is the whole fix.
+       */
+      await supply.upsertDriver(driverId, lat, lng);
+
+      // Resume a driver the grace timer took offline while they were in a
+      // tunnel or on a dead cell. Only ever fires when the flag above is set,
+      // so a deliberate go-offline is never undone by a late ping.
+      const wasDropped = await redis.get(PRESENCE_DROPPED_KEY(driverId)).catch(() => null);
+      if (wasDropped) {
+        await redis.del(PRESENCE_DROPPED_KEY(driverId)).catch(() => {});
+        try {
+          await prisma.driver.update({ where: { id: driverId }, data: { isOnline: true } });
+          // A fresh session: the old one was closed when we gave up on them, so
+          // reopening it would bill the dead time as worked hours.
+          await prisma.onlineSession.create({ data: { driverId, startTime: new Date() } });
+          logger.info(`[DriverSocket] ${driverId} resumed online after a presence drop`);
+        } catch (err) {
+          logger.warn(`Failed to resume driver ${driverId} after presence drop: ${err.message}`);
+        }
+      }
+
+      // The legacy geo-set stays: the admin live map, the heatmap and the
+      // redispatch broadcast still read `drivers:online` directly. It has no
+      // presence TTL, which is exactly why it is not what dispatch searches.
       await redis.geoadd('drivers:online', lng, lat, driverId).catch(() => {});
 
       // ── Route + ETA (throttled) ──────────────────────────────────────────
@@ -821,11 +944,8 @@ function emitSafetyCheck(io, tripId, reason) {
       logger.info(`Driver disconnected: ${driverId}`);
       etaCache.delete(driverId);
       safetyState.delete(driverId); // clean up safety check state
-      try {
-        await prisma.driver.update({ where: { id: driverId }, data: { isOnline: false } });
-      } catch (err) {
-        logger.warn(`Failed to set driver ${driverId} offline on disconnect: ${err.message}`);
-      }
+      // Going offline is now deferred and refcounted — see markDriverDisconnected.
+      markDriverDisconnected(driverId);
     });
 
     socket.on('error', (err) => logger.error(`Driver socket error ${driverId}:`, err));

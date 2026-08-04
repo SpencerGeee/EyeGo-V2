@@ -14,6 +14,7 @@ const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
+const supply = require('../../services/supply-index.service');
 const {
   expireStaleTrips,
   liveUnstartedTripFilter,
@@ -289,6 +290,19 @@ async function goOnline(driverId, lat, lng) {
   // Publish location to Redis
   if (lat && lng) {
     await redis.set(`driver:${driverId}:location`, JSON.stringify({ lat, lng, heading: 0, speed: 0 }), 'EX', 3600);
+    /**
+     * Enter the dispatch pool NOW, not on the first location ping.
+     *
+     * `supply-index.service.js` documents this as intended behaviour — "a
+     * driver is in the index from the moment they are eligible, not from their
+     * first ping" — but nothing implemented it. The gap is a real one on a
+     * cold start: the driver app's first GPS fix can be several seconds after
+     * the toggle flips, and a rider requesting inside that window found no
+     * supply and got NO_DRIVERS_FOUND with drivers sitting right there.
+     */
+    await supply.upsertDriver(driverId, lat, lng);
+    // Legacy set, still read by the admin live map, heatmap and redispatch.
+    await redis.geoadd('drivers:online', lng, lat, driverId).catch(() => {});
   }
 
   return updated;
@@ -307,6 +321,12 @@ async function goOffline(driverId) {
     }),
   ]);
   await redis.del(`driver:${driverId}:location`);
+  // Leave the pool immediately rather than lingering for the presence TTL —
+  // going offline is an explicit "stop sending me work", and 90 seconds of
+  // offers after it is 90 seconds of offers the driver will decline, which
+  // counts against the acceptance rate that gates going online at all.
+  await supply.removeDriver(driverId);
+  await redis.zrem('drivers:online', driverId).catch(() => {});
   return updated;
 }
 
