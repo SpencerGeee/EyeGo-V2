@@ -12,7 +12,7 @@ import { useRideStore } from '../../stores/ride.store';
 import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Skeleton, EmptyState, StatusBadge, backgroundScrollPauseProps } from '@eyego/ui';
-import { formatCurrency, formatTripDate } from '@eyego/utils';
+import { formatGhs, formatTripDate } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import type { Booking } from '@eyego/types';
 
@@ -149,10 +149,10 @@ export default function TripsScreen() {
             </Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>
               Seat #{activeBooking.seatNumber ?? '—'} ·{' '}
-              {formatCurrency(
-                activeBooking.fareAmount ??
+              {formatGhs(
+                activeBooking.fareAmountPesewas ??
                 activeBooking.fare ??
-                activeBooking.trip?.farePerSeat ?? 0
+                activeBooking.trip?.farePerSeatPesewas ?? 0
               )}
             </Text>
           </View>
@@ -301,7 +301,7 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
           {trip?.departureTime ? formatTripDate(trip.departureTime) : '—'}
         </Text>
         <Text variant="fareSmall">
-          {formatCurrency(booking.fareAmount ?? booking.fare ?? 0)}
+          {formatGhs(booking.fareAmountPesewas ?? booking.fare ?? 0)}
         </Text>
       </View>
 

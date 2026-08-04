@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text } from '@eyego/ui';
@@ -37,7 +38,7 @@ export function TripCard({ trip, onPress }: Props) {
     ?? trip.confirmedSeats
     ?? 0;
   const total = trip.maxSeats;
-  const fare = trip.farePerSeat ?? trip.baseFare ?? 0;
+  const fare = trip.farePerSeatPesewas ?? trip.baseFarePesewas ?? 0;
 
   return (
     <Pressable onPress={onPress}style={styles.wrapper}>
@@ -77,7 +78,7 @@ export function TripCard({ trip, onPress }: Props) {
             />
             <MetaItem
               icon="cash-outline"
-              value={`GHS ${fare.toFixed(0)}`}
+              value={`${formatGhs(fare, { showDecimals: false })}`}
               color={colors.onSurfaceVariant}
             />
             <View style={styles.statusBadge}>

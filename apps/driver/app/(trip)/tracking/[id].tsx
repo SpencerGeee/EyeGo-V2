@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
+import { formatGhs } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -351,11 +352,11 @@ export default function DriverTrackingScreen() {
         qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const raw = (res as any)?.data;
-        const earningsThisTrip = raw?.data?.earningsThisTrip ?? raw?.data?.totalEarnings ?? 0;
+        const earningsThisTrip = raw?.data?.earningsThisTrip ?? raw?.data?.totalEarningsPesewas ?? 0;
         addNotification({
           type: 'COMPLETED',
           title: 'Trip completed!',
-          body: `You earned GHS ${Number(earningsThisTrip).toFixed(2)}`,
+          body: `You earned ${formatGhs(Number(earningsThisTrip))}`,
           tripId: id,
         });
         router.replace({ pathname: '/(trip)/complete/[id]', params: { id, earnings: String(earningsThisTrip) } } as Href);
@@ -421,7 +422,7 @@ export default function DriverTrackingScreen() {
   const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
   const passengers = activeBookings.length;
   const total = trip?.maxSeats ?? 14;
-  const fare = trip?.farePerSeat ?? 0;
+  const fare = trip?.farePerSeatPesewas ?? 0;
   const boarded = activeBookings.filter((b: any) => b.status === 'BOARDED').length;
 
   // ── Render ──

@@ -7,7 +7,7 @@ export interface DriverQuest {
   description: string;
   type: 'RIDES_COUNT' | 'EARNINGS';
   target: number;
-  rewardAmount: number;
+  rewardAmountPesewas: number;
   periodStart: string;
   periodEnd: string;
   isActive: boolean;
@@ -24,7 +24,7 @@ export interface QuestHistoryItem {
   description: string;
   type: string;
   target: number;
-  rewardAmount: number;
+  rewardAmountPesewas: number;
   current: number;
   rewardedAt: string;
 }
@@ -39,5 +39,5 @@ export const questsApi = {
     apiClient.get<ApiResponse<{ history: QuestHistoryItem[] }>>('/quests/history'),
 
   claim: (questId: string) =>
-    apiClient.post<ApiResponse<{ rewardAmount: number; title: string }>>(`/quests/${questId}/claim`),
+    apiClient.post<ApiResponse<{ rewardAmountPesewas: number; title: string }>>(`/quests/${questId}/claim`),
 };

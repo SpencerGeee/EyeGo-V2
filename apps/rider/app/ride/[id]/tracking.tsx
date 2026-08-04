@@ -592,7 +592,7 @@ export default function TrackingScreen() {
   };
   const tierColor = TIER_COLORS_MAP[tier] ?? colors.primary;
   const tierIcon = TIER_ICON_MAP[tier] ?? 'car-outline';
-  const fare = (syncedTrip as any)?.fare ?? (syncedTrip as any)?.baseFare ?? 0;
+  const fare = (syncedTrip as any)?.fare ?? (syncedTrip as any)?.baseFarePesewas ?? 0;
   const vehicleDisplay = [syncedTrip?.vehicle?.make, syncedTrip?.vehicle?.model].filter(Boolean).join(' ') || 'Your Vehicle';
 
   KeepAwake.useKeepAwake();

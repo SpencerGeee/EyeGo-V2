@@ -15,7 +15,7 @@ export interface DriverProfile {
   ratingCount: number;
   totalTrips: number;
   totalEarned: number;
-  walletBalance: number;
+  walletBalancePesewas: number;
   isOnline: boolean;
   isActive: boolean;
   profileComplete: boolean;
@@ -105,24 +105,24 @@ export interface DriverTrip {
   arrivedAt?: string;
   maxSeats: number;
   confirmedSeats: number;
-  // UI convenience alias — equals baseFare from backend
-  farePerSeat: number;
+  // UI convenience alias — equals baseFarePesewas from backend
+  farePerSeatPesewas: number;
   // Real per-seat commission split, computed server-side (attachFarePerSeat) —
   // use these instead of guessing a commission rate/split client-side.
   commissionRate?: number;
-  driverEarningsPerSeat?: number;
-  baseFare: number;
+  driverEarningsPerSeatPesewas?: number;
+  baseFarePesewas: number;
   // CONFIRMED (dispatch accepted, not yet departed) and REASSIGNING (driver
   // bailed pre-boarding, awaiting another driver) exist in the Prisma schema
   // and are returned by the API — they were just missing from this union, so
   // screens comparing against them were flagged as impossible.
   status: 'SCHEDULED' | 'FILLING' | 'CONFIRMED' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'REASSIGNING' | 'COMPLETED' | 'CANCELLED';
-  totalEarnings?: number;
+  totalEarningsPesewas?: number;
   bookings?: Array<{
     id: string;
     userId?: string;
     seatNumber?: number;
-    fareAmount: number;
+    fareAmountPesewas: number;
     paymentStatus: string;
     status: string;
     isOffline: boolean;
@@ -205,7 +205,7 @@ export const driverApi = {
     destLat?: number;
     destLng?: number;
   }) =>
-    apiClient.get<ApiResponse<{ fareEstimate: { farePerPerson: number; totalTripCost: number; driverEarningsPerSeat: number; commissionPerSeat: number; commissionRate: number }; surgeMultiplier: number; distanceKm: number }>>('/driver/fare-estimate', { params }),
+    apiClient.get<ApiResponse<{ fareEstimate: { farePerPersonPesewas: number; totalTripCostPesewas: number; driverEarningsPerSeatPesewas: number; commissionPerSeatPesewas: number; commissionRate: number }; surgeMultiplier: number; distanceKm: number }>>('/driver/fare-estimate', { params }),
 
   // Trip management
   createTrip: (data: CreateTripPayload) =>
@@ -330,7 +330,7 @@ export const driverApi = {
     apiClient.get<ApiResponse<{ balance: number }>>('/driver/wallet/balance'),
 
   getWalletTransactions: (params?: { page?: number; limit?: number }) =>
-    apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amount: number; description: string; createdAt: string }> }>>(
+    apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amountPesewas: number; description: string; createdAt: string }> }>>(
       '/driver/earnings/transactions',
       { params },
     ),
@@ -343,7 +343,7 @@ export const driverApi = {
       { params },
     ),
 
-  withdraw: (data: { amount: number }) =>
+  withdraw: (data: { amountPesewas: number }) =>
     apiClient.post<ApiResponse<{ reference: string; message: string }>>('/driver/wallet/withdraw', data),
 
   // Support tickets — backend already had /driver/support-tickets wired

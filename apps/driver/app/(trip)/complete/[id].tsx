@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
+import { formatGhs } from '@eyego/utils';
 import type { Trip, Booking } from '@eyego/types';
 import type { DriverTrip } from '@eyego/api';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
@@ -64,24 +65,24 @@ export default function TripCompleteScreen() {
   // Include all non-cancelled bookings regardless of payment status — cash bookings have PENDING payment
   // D24: guard the reduce with a safe bookings array
   const bookings = allActiveBookings;
-  const grossEarnings = bookings.reduce((sum: number, b: any) => sum + (parseFloat(b.fareAmount) || 0), 0);
+  const grossEarnings = bookings.reduce((sum: number, b: any) => sum + (parseFloat(b.fareAmountPesewas) || 0), 0);
   // commissionRate should come from backend — fallback to 15% if not provided
   const commissionRate = (completedTrip as any)?.commissionRate ?? 0.15;
-  const platformFee = grossEarnings * commissionRate;
-  const netEarnings = Math.max(0, grossEarnings - platformFee);
+  const platformFeePesewas = grossEarnings * commissionRate;
+  const netEarnings = Math.max(0, grossEarnings - platformFeePesewas);
   const earnings = earningsParam ? parseFloat(earningsParam) : netEarnings;
   const boarded = allActiveBookings.length;
   const total = completedTrip?.maxSeats ?? 14;
-  const farePerSeat = completedTrip?.farePerSeat ?? 0;
+  const farePerSeatPesewas = completedTrip?.farePerSeatPesewas ?? 0;
 
   // Receipt breakdown per passenger
   const paidBookings = allActiveBookings.filter((b: any) => b.paymentStatus === 'PAID');
   const cashBookings = allActiveBookings.filter((b: any) => b.paymentStatus !== 'PAID');
-  const totalPaid = paidBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmount) || 0), 0);
-  const totalCash = cashBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmount) || 0), 0);
+  const totalPaidPesewas = paidBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmountPesewas) || 0), 0);
+  const totalCash = cashBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmountPesewas) || 0), 0);
   const commissionTotal = allActiveBookings.reduce((s: number, b: any) => {
-    const c = parseFloat(b.commissionAmount);
-    return s + (isNaN(c) ? (parseFloat(b.fareAmount) || 0) * commissionRate : c);
+    const c = parseFloat(b.commissionAmountPesewas);
+    return s + (isNaN(c) ? (parseFloat(b.fareAmountPesewas) || 0) * commissionRate : c);
   }, 0);
   const driverNetTotal = grossEarnings - commissionTotal;
 
@@ -127,7 +128,7 @@ export default function TripCompleteScreen() {
             <View style={styles.metaItem}>
               <Ionicons name="cash" size={16} color={colors.onSurfaceVariant} />
               <Text variant="caption" color={colors.onSurfaceVariant}>
-                GHS {farePerSeat.toFixed(2)}/seat
+                {formatGhs(farePerSeatPesewas)}/seat
               </Text>
             </View>
           </View>
@@ -166,7 +167,7 @@ export default function TripCompleteScreen() {
 
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Gross fare × {boarded} seats</Text>
-            <Text variant="bodyMedium">GHS {grossEarnings.toFixed(2)}</Text>
+            <Text variant="bodyMedium">{formatGhs(grossEarnings)}</Text>
           </View>
 
           <View style={styles.passengerList}>
@@ -186,7 +187,7 @@ export default function TripCompleteScreen() {
                   </Text>
                 </View>
                 <Text variant="bodySmall" style={{ fontFamily: fonts.semiBold, color: colors.onSurface, marginLeft: spacing.sm }}>
-                  GHS {(parseFloat(b.fareAmount) || farePerSeat).toFixed(2)}
+                  {formatGhs((parseFloat(b.fareAmountPesewas) || farePerSeatPesewas))}
                 </Text>
               </View>
             ))}
@@ -196,27 +197,27 @@ export default function TripCompleteScreen() {
 
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Collected (Paid)</Text>
-            <Text variant="bodyMedium" color={colors.online}>GHS {totalPaid.toFixed(2)}</Text>
+            <Text variant="bodyMedium" color={colors.online}>{formatGhs(totalPaidPesewas)}</Text>
           </View>
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Pending (Cash)</Text>
-            <Text variant="bodyMedium" color={colors.warning}>GHS {totalCash.toFixed(2)}</Text>
+            <Text variant="bodyMedium" color={colors.warning}>{formatGhs(totalCash)}</Text>
           </View>
           <View style={styles.receiptRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>EyeGo Commission ({Math.round(commissionRate * 100)}%)</Text>
-            <Text variant="bodyMedium" color={colors.error}>− GHS {commissionTotal.toFixed(2)}</Text>
+            <Text variant="bodyMedium" color={colors.error}>− {formatGhs(commissionTotal)}</Text>
           </View>
 
           <View style={styles.divider} />
 
           <View style={styles.receiptRowTotal}>
             <Text variant="titleMedium">Your Net Earnings</Text>
-            <Text variant="titleMedium" color={colors.primary}>GHS {driverNetTotal.toFixed(2)}</Text>
+            <Text variant="titleMedium" color={colors.primary}>{formatGhs(driverNetTotal)}</Text>
           </View>
 
           {completedTrip?.route?.distanceKm && (
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm, textAlign: 'center' }}>
-              ~GHS {(driverNetTotal / completedTrip.route.distanceKm).toFixed(2)}/km average
+              ~{formatGhs((driverNetTotal / completedTrip.route.distanceKm))}/km average
             </Text>
           )}
         </Entrance>

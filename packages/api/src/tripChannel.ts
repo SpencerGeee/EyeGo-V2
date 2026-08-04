@@ -60,9 +60,13 @@ export interface TripSnapshot {
   vehicle: { plate: string; make: string; model: string; year: number; tier: string } | null;
   route: { id: string; name: string; distanceKm: number } | null;
   seats: { confirmed: number; max: number };
+  // Money is INTEGER PESEWAS (1 GH₵ = 100). Format with `formatGhs`; never do
+  // arithmetic on it — if a screen needs a total, the server sends the total.
+  // `surge` is the exception and carries no suffix because it is a
+  // dimensionless multiplier, not money.
   fare: {
-    base: number; perKm: number; surge: number;
-    amount: number | null; paymentMethod: string | null; paymentStatus: string | null;
+    basePesewas: number; perKmPesewas: number; surge: number;
+    amountPesewas: number | null; paymentMethod: string | null; paymentStatus: string | null;
   };
   booking: { id: string; status: string; seatNumber: number | null } | null;
   timestamps: Record<string, string | null>;

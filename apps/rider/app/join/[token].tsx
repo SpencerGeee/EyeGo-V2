@@ -10,7 +10,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button } from '@eyego/ui';
-import { formatCurrency, formatTripDate } from '@eyego/utils';
+import { formatGhs, formatTripDate } from '@eyego/utils';
 
 export default function JoinScreen() {
   const colors = useColors();
@@ -128,7 +128,7 @@ export default function JoinScreen() {
               icon="person-outline"
               label={`${Math.max(0, ((trip as any).maxSeats ?? 0) - ((trip as any).confirmedSeats ?? 0))} seats left`}
             />
-            <TripMetaItem icon="cash-outline" label={formatCurrency((trip as any).baseFare ?? (trip as any).fare ?? 0)} accent />
+            <TripMetaItem icon="cash-outline" label={formatGhs((trip as any).baseFarePesewas ?? (trip as any).fare ?? 0)} accent />
           </View>
         </MotiView>
 

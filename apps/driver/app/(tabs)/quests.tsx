@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -19,7 +20,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
     description: 'Complete 3 trips between 6am and 9am to earn a peak-hour bonus.',
     type: 'RIDES_COUNT',
     target: 3,
-    rewardAmount: 12.00,
+    rewardAmountPesewas: 12.00,
     periodStart: new Date().toISOString(),
     periodEnd: new Date(Date.now() + 86400000).toISOString(),
     isActive: true,
@@ -31,7 +32,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
     description: 'Complete 10 trips over the weekend to unlock a bonus reward.',
     type: 'RIDES_COUNT',
     target: 10,
-    rewardAmount: 25.00,
+    rewardAmountPesewas: 25.00,
     periodStart: new Date().toISOString(),
     periodEnd: new Date(Date.now() + 2 * 86400000).toISOString(),
     isActive: true,
@@ -43,7 +44,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
     description: 'Earn GHS 100 in a single day to receive a performance bonus.',
     type: 'EARNINGS',
     target: 100,
-    rewardAmount: 15.00,
+    rewardAmountPesewas: 15.00,
     periodStart: new Date().toISOString(),
     periodEnd: new Date(Date.now() + 86400000).toISOString(),
     isActive: true,
@@ -55,7 +56,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
     description: 'Complete 2 trips with all seats filled to earn a full-capacity bonus.',
     type: 'RIDES_COUNT',
     target: 2,
-    rewardAmount: 10.00,
+    rewardAmountPesewas: 10.00,
     periodStart: new Date().toISOString(),
     periodEnd: new Date(Date.now() + 3 * 86400000).toISOString(),
     isActive: true,
@@ -67,7 +68,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
     description: 'Earn GHS 500 this week to claim the weekly top-driver reward.',
     type: 'EARNINGS',
     target: 500,
-    rewardAmount: 50.00,
+    rewardAmountPesewas: 50.00,
     periodStart: new Date().toISOString(),
     periodEnd: new Date(Date.now() + 7 * 86400000).toISOString(),
     isActive: true,
@@ -79,7 +80,7 @@ const FALLBACK_QUESTS: DriverQuest[] = [
     description: 'Complete 5 trips between 8pm and midnight this week.',
     type: 'RIDES_COUNT',
     target: 5,
-    rewardAmount: 18.00,
+    rewardAmountPesewas: 18.00,
     periodStart: new Date().toISOString(),
     periodEnd: new Date(Date.now() + 7 * 86400000).toISOString(),
     isActive: true,
@@ -109,8 +110,8 @@ export default function QuestsScreen() {
       queryClient.invalidateQueries({ queryKey: ['driver', 'quests', 'history'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'me'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'wallet'] });
-      const amount = res?.data?.data?.rewardAmount;
-      Alert.alert('Bonus Claimed!', typeof amount === 'number' ? `GHS ${amount.toFixed(2)} added to your wallet.` : 'Your bonus has been added to your wallet.');
+      const amount = res?.data?.data?.rewardAmountPesewas;
+      Alert.alert('Bonus Claimed!', typeof amount === 'number' ? `${formatGhs(amount)} added to your wallet.` : 'Your bonus has been added to your wallet.');
     },
     onError: (err: any) => {
       const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;
@@ -181,7 +182,7 @@ export default function QuestsScreen() {
                   description={quest.description}
                   type={quest.type}
                   target={quest.target}
-                  rewardAmount={quest.rewardAmount}
+                  rewardAmountPesewas={quest.rewardAmountPesewas}
                   current={quest.progress?.current ?? 0}
                   completed={quest.progress?.completed ?? false}
                   rewardedAt={quest.progress?.rewardedAt ?? null}
@@ -205,7 +206,7 @@ export default function QuestsScreen() {
                   <View style={{ flex: 1 }}>
                     <Text variant="bodyMedium">{item.title}</Text>
                     <Text variant="caption" color={colors.onSurfaceVariant}>
-                      +GHS {item.rewardAmount.toFixed(2)} bonus
+                      +{formatGhs(item.rewardAmountPesewas)} bonus
                     </Text>
                   </View>
                   <Ionicons name="checkmark-circle" size={20} color={colors.primary} />

@@ -17,7 +17,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { cancellationApi } from '@eyego/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRideStore } from '../../../stores/ride.store';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs } from '@eyego/utils';
 
 const REASONS = [
   { key: 'changed_plans', label: 'Changed my plans', icon: 'calendar-outline' },
@@ -48,13 +48,13 @@ export default function CancelRideScreen() {
     staleTime: 30_000,
   });
 
-  const cancellationFee = cancelFeeData?.fee ?? 0;
+  const cancellationFeePesewas = cancelFeeData?.fee ?? 0;
   const isFeeEligible = cancelFeeData?.eligible ?? false;
   // BUGFIX: Only show fee banner after the query has loaded to avoid flashing
   // fee: 0 (no fee) while the API call is in-flight. If fee query fails silently,
   // we show a neutral message instead of hiding a real fee.
   const isFeeLoading = !cancelFeeData && id !== undefined;
-  const hasFee = isFeeEligible && cancellationFee > 0;
+  const hasFee = isFeeEligible && cancellationFeePesewas > 0;
 
   const cancelMutation = useMutation({
     mutationFn: () =>
@@ -64,7 +64,7 @@ export default function CancelRideScreen() {
       }),
     onSuccess: (res: any) => {
       const data = res.data?.data ?? res.data ?? res;
-      const fee = data?.cancellationFee ?? 0;
+      const fee = data?.cancellationFeePesewas ?? 0;
       // Invalidate every surface that could still show this ride as live:
       // booking lists/active queries, the tracking screen's ['trip', id] +
       // active-tracking query, and the scheduled-rides list.
@@ -83,7 +83,7 @@ export default function CancelRideScreen() {
       if (fee > 0) {
         Alert.alert(
           'Ride Cancelled',
-          `Your ride has been cancelled. A cancellation fee of ${formatCurrency(fee)} has been applied.`,
+          `Your ride has been cancelled. A cancellation fee of ${formatGhs(fee)} has been applied.`,
           [{ text: 'OK', onPress: () => router.replace('/(tabs)/home') }]
         );
       } else {
@@ -206,7 +206,7 @@ export default function CancelRideScreen() {
                   {isFeeLoading
                     ? 'Checking cancellation policy…'
                     : hasFee
-                    ? `A cancellation fee of ${formatCurrency(cancellationFee)} applies to this ride.`
+                    ? `A cancellation fee of ${formatGhs(cancellationFeePesewas)} applies to this ride.`
                     : 'Cancelling after the driver has been dispatched may incur a cancellation fee.'}
                 </Text>
                 {cancelFeeData?.reason ? (

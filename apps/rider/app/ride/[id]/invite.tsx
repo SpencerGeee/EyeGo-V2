@@ -15,10 +15,11 @@ import { Text, Button, AnimatedFareText, Loader, AppBackground } from '@eyego/ui
 import type { GroupMember, Trip } from '@eyego/types';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { haptic } from '../../../utils/haptics';
-
-function formatCurrency(amount: number): string {
-  return `GHS ${amount.toFixed(2)}`;
-}
+// Shared formatter. This file used to declare its own cedis-formatting
+// helper, which silently shadowed the real one — and the moment the values
+// underneath became pesewas it would have rendered a GH₵42.20 detour as
+// "GHS 4220.00" with the type-checker perfectly happy. There is one formatter.
+import { formatGhs } from '@eyego/utils';
 
 type LinkState = 'generating' | 'ready' | 'error';
 
@@ -33,7 +34,7 @@ export default function InviteScreen() {
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [payForEveryone, setPayForEveryone] = useState(false);
   const [heavyCargo, setHeavyCargo] = useState(false);
-  const [pickupOverride, setPickupOverride] = useState<{ name: string; deviationSurcharge: number } | null>(null);
+  const [pickupOverride, setPickupOverride] = useState<{ name: string; deviationSurchargePesewas: number } | null>(null);
   const [linkState, setLinkState] = useState<LinkState>('generating');
   const [bookingReady, setBookingReady] = useState(false);
 
@@ -184,7 +185,7 @@ export default function InviteScreen() {
   // payment.tsx read to add a client-computed +GHS 10 to the displayed price —
   // nothing was ever sent to the server, so the rider was shown (and confirmed) a
   // price GHS 10 higher than what was actually charged. Now persists server-side
-  // and the fare shown comes from the booking's real, recomputed fareAmount.
+  // and the fare shown comes from the booking's real, recomputed fareAmountPesewas.
   const updateHeavyCargo = useMutation({
     mutationFn: (next: boolean) => bookingsApi.updateHeavyCargo(bookingId, next),
     onSuccess: (res, next) => {
@@ -225,7 +226,7 @@ export default function InviteScreen() {
     onSuccess: (res, place) => {
       const updated = res.data.data;
       setActiveBooking(updated);
-      setPickupOverride({ name: place.name, deviationSurcharge: updated?.deviationSurcharge ?? 0 });
+      setPickupOverride({ name: place.name, deviationSurchargePesewas: updated?.deviationSurchargePesewas ?? 0 });
     },
     onError: (err: any) => {
       Alert.alert(
@@ -256,7 +257,7 @@ export default function InviteScreen() {
           if (surcharge > 0) {
             Alert.alert(
               'Pickup adds to your fare',
-              `This spot is far enough from the trip's pickup to add ${formatCurrency(surcharge)} for the detour. Use it anyway?`,
+              `This spot is far enough from the trip's pickup to add ${formatGhs(surcharge)} for the detour. Use it anyway?`,
               [{ text: 'Cancel', style: 'cancel' }, { text: 'Use this pickup', onPress: proceed }],
             );
           } else {
@@ -527,7 +528,7 @@ export default function InviteScreen() {
                 <Text variant="bodyMedium">Your pickup point</Text>
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   {pickupOverride
-                    ? `${pickupOverride.name}${pickupOverride.deviationSurcharge > 0 ? ` · +${formatCurrency(pickupOverride.deviationSurcharge)} detour` : ''}`
+                    ? `${pickupOverride.name}${pickupOverride.deviationSurchargePesewas > 0 ? ` · +${formatGhs(pickupOverride.deviationSurchargePesewas)} detour` : ''}`
                     : "Default: trip's own pickup"}
                 </Text>
               </View>
@@ -549,8 +550,8 @@ export default function InviteScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>Total Group Fare</Text>
             <Text variant="titleMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
-              {formatCurrency(
-                (selectedTrip as any)?.totalTripCost
+              {formatGhs(
+                (selectedTrip as any)?.totalTripCostPesewas
                   ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1)
               )}
             </Text>
@@ -559,7 +560,7 @@ export default function InviteScreen() {
           <View style={{ height: 1, backgroundColor: colors.outlineVariant, marginVertical: 4, opacity: 0.5 }} />
 
           {/* Split / Your Share — read from the booking's real, server-recomputed
-              fareAmount (already includes heavy-cargo + pickup-deviation surcharges)
+              fareAmountPesewas (already includes heavy-cargo + pickup-deviation surcharges)
               instead of re-deriving them client-side, so what's shown always matches
               what's actually charged. */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -569,17 +570,17 @@ export default function InviteScreen() {
             <AnimatedFareText
               value={
                 payForEveryone
-                  ? ((selectedTrip as any)?.totalTripCost
+                  ? ((selectedTrip as any)?.totalTripCostPesewas
                       ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1))
-                    + (activeBooking?.deviationSurcharge ?? 0)
-                  : (activeBooking?.fareAmount ?? computedFare ?? selectedTrip?.fare ?? 8.5)
+                    + (activeBooking?.deviationSurchargePesewas ?? 0)
+                  : (activeBooking?.fareAmountPesewas ?? computedFare ?? selectedTrip?.fare ?? 8.5)
               }
               variant="fareMedium"
             />
           </View>
-          {((pickupOverride?.deviationSurcharge ?? 0) > 0 || heavyCargo) && (
+          {((pickupOverride?.deviationSurchargePesewas ?? 0) > 0 || heavyCargo) && (
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'right' }}>
-              includes{pickupOverride && pickupOverride.deviationSurcharge > 0 ? ` +${formatCurrency(pickupOverride.deviationSurcharge)} pickup detour` : ''}
+              includes{pickupOverride && pickupOverride.deviationSurchargePesewas > 0 ? ` +${formatGhs(pickupOverride.deviationSurchargePesewas)} pickup detour` : ''}
               {heavyCargo ? ' + heavy cargo surcharge' : ''}
             </Text>
           )}

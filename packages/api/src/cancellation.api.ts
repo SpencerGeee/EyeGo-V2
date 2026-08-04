@@ -5,6 +5,6 @@ export const cancellationApi = {
     apiClient.get<{ fee: number; reason: string; eligible: boolean }>(`/cancellation/${bookingId}/fee`),
 
   cancelWithFee: (bookingId: string, data: { reason: string; note?: string }) =>
-    apiClient.post<{ cancellationFee?: number; status: string }>(`/cancellation/${bookingId}/cancel`, data),
+    apiClient.post<{ cancellationFeePesewas?: number; status: string }>(`/cancellation/${bookingId}/cancel`, data),
 
 };

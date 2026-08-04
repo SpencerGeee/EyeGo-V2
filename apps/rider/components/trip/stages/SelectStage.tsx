@@ -26,7 +26,7 @@ import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance } from '@eyego/ui';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
 
@@ -38,7 +38,7 @@ type TripWithRoute = Trip & {
   destination?: { address?: string };
   departureTime?: string;
   availableSeats?: number;
-  farePerSeat?: number;
+  farePerSeatPesewas?: number;
   fare?: number;
   maxSeats?: number;
   route?: {
@@ -70,7 +70,10 @@ function calcEnRouteFare(fullFare: number, stopLat: number, stopLng: number, des
   if (totalKm <= 0) return fullFare;
   const remaining = haversineKm(stopLat, stopLng, destLat, destLng);
   const ratio = Math.min(remaining / totalKm, 1.0);
-  return Math.round(fullFare * ratio * 100) / 100;
+  // Whole pesewas. The old `* 100 / 100` rounded to two decimal places, which
+  // was right for cedis and is meaningless now — a pesewa is already the
+  // smallest unit there is.
+  return Math.round(fullFare * ratio);
 }
 
 // Tier marks use Ionicons (vector) names rather than emoji for crisp, themeable icons.
@@ -126,7 +129,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     const list = (trips as TripWithRoute[]).filter(
       (t) => (t.availableSeats ?? 0) >= minSeats
     );
-    const fareOf = (t: TripWithRoute) => t.farePerSeat ?? t.fare ?? 0;
+    const fareOf = (t: TripWithRoute) => t.farePerSeatPesewas ?? t.fare ?? 0;
     const timeOf = (t: TripWithRoute) =>
       t.departureTime ? new Date(t.departureTime).getTime() : Number.MAX_SAFE_INTEGER;
     switch (sortBy) {
@@ -465,7 +468,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               {displayTrips.map((trip, i) => {
                 const tier = (trip.tier as TripTier) ?? 'ECONOMY';
                 const info = TIER_INFO[tier];
-                const fullFare = trip.farePerSeat ?? 0;
+                const fullFare = trip.farePerSeatPesewas ?? 0;
                 const selectedStop = selectedStopByTrip[trip.id ?? ''];
                 const displayFare = selectedStop ? selectedStop.fare : fullFare;
                 const seatsLeft = trip.availableSeats ?? 3;
@@ -529,9 +532,9 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                           </View>
                         </View>
                         <View style={styles.tripCardPriceCol}>
-                          <Text style={styles.tripCardPrice}>{formatCurrency(displayFare)}</Text>
+                          <Text style={styles.tripCardPrice}>{formatGhs(displayFare)}</Text>
                           {selectedStop && (
-                            <Text style={styles.tripCardPriceStrike}>{formatCurrency(fullFare)}</Text>
+                            <Text style={styles.tripCardPriceStrike}>{formatGhs(fullFare)}</Text>
                           )}
                         </View>
                       </View>
@@ -609,7 +612,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                           >
                             <Ionicons name="navigate-circle-outline" size={16} color={colors.onSurfaceVariant} />
                             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ flex: 1 }}>Full route (from origin)</Text>
-                            <Text variant="labelLarge">{formatCurrency(fullFare)}</Text>
+                            <Text variant="labelLarge">{formatGhs(fullFare)}</Text>
                           </Pressable>
                         )}
                         {activeStops.map(stop => {
@@ -634,7 +637,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                                 {stop.name}
                               </Text>
                               <Text variant="labelLarge" color={isSelected ? colors.primary : colors.onSurface}>
-                                {formatCurrency(stopFare)}
+                                {formatGhs(stopFare)}
                               </Text>
                             </Pressable>
                           );
@@ -749,12 +752,12 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               // added to the rider's fare, so showing it as a rider line item was
               // both the wrong number and the wrong party. The breakdown now
               // shows only what the rider is actually charged.
-              const fare = fareModalTrip.farePerSeat ?? 0;
+              const fare = fareModalTrip.farePerSeatPesewas ?? 0;
               const heavySurcharge = heavyLoad ? 10 : 0;
               const total = fare + heavySurcharge;
               const distKm = fareModalTrip.route?.distanceKm;
               const seats = fareModalTrip.maxSeats;
-              const tripTotal = (fareModalTrip as { totalTripCost?: number }).totalTripCost;
+              const tripTotal = (fareModalTrip as { totalTripCostPesewas?: number }).totalTripCostPesewas;
               return (
                 <View style={{ gap: spacing.sm }}>
                   {distKm ? (
@@ -766,22 +769,22 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   {tripTotal && seats ? (
                     <View style={styles.breakdownRow}>
                       <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Whole trip ÷ {seats} seats</Text>
-                      <Text variant="bodyMedium">{formatCurrency(tripTotal)}</Text>
+                      <Text variant="bodyMedium">{formatGhs(tripTotal)}</Text>
                     </View>
                   ) : null}
                   <View style={styles.breakdownRow}>
                     <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Your seat</Text>
-                    <Text variant="bodyMedium">{formatCurrency(fare)}</Text>
+                    <Text variant="bodyMedium">{formatGhs(fare)}</Text>
                   </View>
                   {heavyLoad && (
                     <View style={styles.breakdownRow}>
                       <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Heavy load surcharge</Text>
-                      <Text variant="bodyMedium">{formatCurrency(heavySurcharge)}</Text>
+                      <Text variant="bodyMedium">{formatGhs(heavySurcharge)}</Text>
                     </View>
                   )}
                   <View style={[styles.breakdownRow, styles.breakdownTotal]}>
                     <Text variant="titleSmall">Total per seat</Text>
-                    <Text variant="titleSmall" color={colors.primary}>{formatCurrency(total)}</Text>
+                    <Text variant="titleSmall" color={colors.primary}>{formatGhs(total)}</Text>
                   </View>
                   <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs, textAlign: 'center' }}>
                     Fares are per seat and may include a surge multiplier during peak hours.

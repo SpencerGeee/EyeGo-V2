@@ -15,7 +15,7 @@ import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel } from '@eyego/ui';
 
-import { formatCurrency, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
+import { formatGhs, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 import { fetchRoute, type RouteResult } from '../../utils/routing';
 
@@ -182,7 +182,7 @@ export default function RideDetailScreen() {
     if (tripTier && tripTier !== selectedTier) {
       setSelectedTier(tripTier);
     }
-    const serverFare = trip.farePerSeat ?? trip.fare ?? 0;
+    const serverFare = trip.farePerSeatPesewas ?? trip.fare ?? 0;
     setStoreTier(selectedTier, serverFare);
   }, [selectedTier, trip, tripTier, setStoreTier]);
 
@@ -436,14 +436,14 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', ...springs.snappy, delay: 80 }}
                 style={styles.fareSection}
               >
-                <AnimatedFareText value={computedFare ?? trip?.farePerSeat ?? 0} variant="fareLarge" shiny />
+                <AnimatedFareText value={computedFare ?? trip?.farePerSeatPesewas ?? 0} variant="fareLarge" shiny />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   per seat · drops as more join
                 </Text>
                 <View style={styles.fareBreakdown}>
-                  <FareRow label="Base fare" value={formatCurrency(computedFare ?? trip?.farePerSeat ?? 0)} />
+                  <FareRow label="Base fare" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? 0)} />
                   <View style={styles.fareDivider} />
-                  <FareRow label="Total" value={formatCurrency(computedFare ?? trip?.farePerSeat ?? 0)} bold />
+                  <FareRow label="Total" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? 0)} bold />
                 </View>
                 {/* Tappable link → full per-trip price breakdown sheet */}
                 <Pressable
@@ -466,10 +466,10 @@ export default function RideDetailScreen() {
                 style={styles.ctaSection}
               >
                 <Button
-                  label={`Book This Seat · ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : '...'}`}
+                  label={`Book This Seat · ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : '...'}`}
                   onPress={() => router.push(`/ride/${id}/seat` as Href)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Book this seat for ${computedFare != null ? formatCurrency(computedFare) : trip ? formatCurrency(trip.farePerSeat ?? 0) : 'loading'}`}
+                  accessibilityLabel={`Book this seat for ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : 'loading'}`}
                 />
                 {isGroupFlow && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
@@ -523,7 +523,7 @@ export default function RideDetailScreen() {
       <FareBreakdownSheet
         visible={showFareBreakdown}
         onClose={() => setShowFareBreakdown(false)}
-        fare={computedFare ?? trip?.farePerSeat ?? 0}
+        fare={computedFare ?? trip?.farePerSeatPesewas ?? 0}
         seats={trip?.maxSeats ?? 4}
         surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
       />
@@ -628,7 +628,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 3,
   },
   fareSection: { alignItems: 'center', paddingVertical: spacing.base },
-  fareAmount: { marginBottom: spacing.xs },
+  fareAmountPesewas: { marginBottom: spacing.xs },
   fareBreakdown: {
     width: '100%',
     marginTop: spacing.base,

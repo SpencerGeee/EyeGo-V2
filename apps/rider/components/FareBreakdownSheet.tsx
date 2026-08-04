@@ -27,7 +27,7 @@ export interface FareBreakdownSheetProps {
   /** presentational config — override per market/tier when backend exposes them */
   waitTimeRate?: number; // GH₵ per minute
   bookingFeePct?: number;
-  platformFee?: number; // fixed GH₵
+  platformFeePesewas?: number; // fixed GH₵
 }
 
 const gh = (n: number, dp = 2) => `GH₵${n.toFixed(dp)}`;
@@ -41,7 +41,7 @@ export function FareBreakdownSheet({
   promotionPct = 10,
   waitTimeRate = 0.98,
   bookingFeePct = 6.1,
-  platformFee = 1.0,
+  platformFeePesewas = 1.0,
 }: FareBreakdownSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -75,7 +75,7 @@ export function FareBreakdownSheet({
 
       <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
       <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
-      <DottedRow label="Platform Fee" value={gh(platformFee)} colors={colors} styles={styles} />
+      <DottedRow label="Platform Fee" value={gh(platformFeePesewas)} colors={colors} styles={styles} />
       <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
       <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
 

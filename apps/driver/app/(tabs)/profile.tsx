@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -250,7 +251,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>GHS {totalEarned.toFixed(0)}</Text>
+            <Text style={styles.statValue}>{formatGhs(totalEarned, { showDecimals: false })}</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>Total Earned</Text>
           </View>
           <View style={styles.statDivider} />

@@ -10,7 +10,7 @@ import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs } from '@eyego/utils';
 import { captureException } from '../../lib/sentry';
 
 // Parse a "6:30 PM" slot into 24h {hours, minutes}.
@@ -73,7 +73,7 @@ export default function ReserveScreen() {
 
   const pickup = origin?.address ?? trip?.pickupLocation?.name ?? trip?.route?.originName ?? 'Your pickup point';
   const dropoff = destinationText || 'Your destination';
-  const fare = trip?.fareAmount ?? trip?.price ?? 0;
+  const fare = trip?.fareAmountPesewas ?? trip?.price ?? 0;
   const canSchedule = pickupLat != null && pickupLng != null && !!destinationText;
 
   // Build the concrete pickup Date from the selected day + slot.
@@ -265,7 +265,7 @@ export default function ReserveScreen() {
         <View style={styles.fareRow}>
           <View>
             <Text style={styles.fareLabel}>ESTIMATED FARE</Text>
-            <Text style={styles.fareValue}>{fare > 0 ? formatCurrency(fare) : '—'}</Text>
+            <Text style={styles.fareValue}>{fare > 0 ? formatGhs(fare) : '—'}</Text>
           </View>
           <View style={styles.sharedPill}>
             <Ionicons name="people-outline" size={15} color={colors.primary} />

@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet } from 'react-native';
 import Svg, { Rect, Text as SvgText, Line } from 'react-native-svg';
 import { fonts, fontSizes, spacing } from '@eyego/config';
@@ -53,7 +54,7 @@ export function EarningsChart({ period, data: propData }: Props) {
         <Text variant="caption" color={colors.onSurfaceVariant}>
           {period === 'today' ? 'Today' : period === 'week' ? 'This Week' : 'This Month'}
         </Text>
-        <Text style={[styles.totalAmount, { color: colors.onSurface }]}>GHS {total.toFixed(2)}</Text>
+        <Text style={[styles.totalAmount, { color: colors.onSurface }]}>{formatGhs(total)}</Text>
       </View>
 
       <Svg width={chartWidth} height={chartHeight + labelHeight} style={styles.chart}>

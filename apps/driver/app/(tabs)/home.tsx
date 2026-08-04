@@ -1,4 +1,5 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react';
+import { formatGhs } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -105,7 +106,7 @@ export default function HomeScreen() {
     select: (r) => {
       const d = (r.data as any).data?.driver ?? (r.data as any).data;
       // Show the spendable wallet balance (matches earnings screen), not lifetime totalEarned.
-      return { balance: d?.walletBalance ?? d?.totalEarned ?? 0 };
+      return { balancePesewas: d?.walletBalancePesewas ?? d?.totalEarned ?? 0 };
     },
     staleTime: 30_000,
   });
@@ -324,11 +325,11 @@ export default function HomeScreen() {
       return;
     }
     // Guard: negative wallet balance = account suspended
-    const walletBalance = walletData?.balance ?? 0;
-    if (walletBalance < 0) {
+    const walletBalancePesewas = walletData?.balancePesewas ?? 0;
+    if (walletBalancePesewas < 0) {
       Alert.alert(
         'Account Suspended',
-        `Account suspended — GHS ${Math.abs(walletBalance).toFixed(2)} outstanding. Top up your wallet to go back online.`
+        `Account suspended — ${formatGhs(Math.abs(walletBalancePesewas))} outstanding. Top up your wallet to go back online.`
       );
       return;
     }
@@ -475,7 +476,7 @@ export default function HomeScreen() {
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Today</Text>
               <Text style={styles.statValue}>
-                GHS {todayEarnings.toFixed(2)}
+                {formatGhs(todayEarnings)}
               </Text>
             </View>
             <View style={styles.statDivider} />
@@ -487,7 +488,7 @@ export default function HomeScreen() {
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Balance</Text>
               <Text style={styles.statValue}>
-                GHS {walletData?.balance != null ? walletData.balance.toFixed(2) : '0.00'}
+                {formatGhs(walletData?.balancePesewas ?? 0)}
               </Text>
             </View>
           </Entrance>

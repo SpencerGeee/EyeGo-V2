@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -55,13 +56,13 @@ export default function TripDetailScreen() {
   const boardedCount = activeBookings.filter((b: any) => b.status === 'BOARDED').length;
   // D24: guard against trip being undefined before reduce
   // "Total Earned" is the driver's net cut, not the raw fare — subtract each
-  // booking's actual commissionAmount (falling back to trip.commissionRate
+  // booking's actual commissionAmountPesewas (falling back to trip.commissionRate
   // for legacy bookings that predate the column).
   const earnedTotal = trip
     ? activeBookings.reduce((s: number, b: any) => {
-        const gross = parseFloat(b.fareAmount) || trip.farePerSeat || 0;
-        const commission = b.commissionAmount != null
-          ? parseFloat(b.commissionAmount)
+        const gross = parseFloat(b.fareAmountPesewas) || trip.farePerSeatPesewas || 0;
+        const commission = b.commissionAmountPesewas != null
+          ? parseFloat(b.commissionAmountPesewas)
           : gross * (trip.commissionRate ?? 0.15);
         return s + (gross - commission);
       }, 0)
@@ -145,7 +146,7 @@ export default function TripDetailScreen() {
             <StatBox
               icon="cash-outline"
               label="Earned"
-              value={`GHS ${earnedTotal.toFixed(0)}`}
+              value={`${formatGhs(earnedTotal, { showDecimals: false })}`}
               color="#22C55E"
               colors={colors}
             />
@@ -161,7 +162,7 @@ export default function TripDetailScreen() {
             <StatBox
               icon="ticket-outline"
               label="Fare/Seat"
-              value={`GHS ${(trip?.farePerSeat ?? 0).toFixed(0)}`}
+              value={`${formatGhs(trip?.farePerSeatPesewas ?? 0, { showDecimals: false })}`}
               colors={colors}
             />
           </View>
@@ -235,13 +236,13 @@ export default function TripDetailScreen() {
           <View style={styles.earningsRow}>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Fare × passengers</Text>
             <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
-              GHS {(trip?.farePerSeat ?? 0).toFixed(2)} × {boardedCount}
+              {formatGhs((trip?.farePerSeatPesewas ?? 0))} × {boardedCount}
             </Text>
           </View>
           <View style={[styles.earningsRow, { paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.outlineVariant }]}>
             <Text style={{ fontFamily: fonts.displaySemiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>Total Earned</Text>
             <Text style={{ fontFamily: fonts.displayBold, fontSize: fontSizes.titleSmall, color: '#22C55E' }}>
-              GHS {earnedTotal.toFixed(2)}
+              {formatGhs(earnedTotal)}
             </Text>
           </View>
         </Entrance>

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
+import { formatGhs } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -172,7 +173,7 @@ function SuggestedTripCard({
         </View>
       </View>
       <Text style={[styles.tripFare, { color: colors.onSurface }]}>
-        GH₵{' '}{(trip.farePerSeat ?? 0).toFixed(2)}
+        {formatGhs(trip.farePerSeatPesewas ?? 0)}
       </Text>
       </View>
       </GradientGlowBorder>

@@ -15,7 +15,7 @@ export interface Booking {
   seatNumber: number;
   status: BookingStatus;
   fare: number;
-  fareAmount?: number;
+  fareAmountPesewas?: number;
   currency: string;
   paymentMethod: 'MOMO' | 'CARD' | 'CASH' | 'WALLET';
   paymentStatus: 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
@@ -28,13 +28,13 @@ export interface Booking {
   pickupStopId?: string;
   pickupStop?: { id: string; name: string };
   enRouteRatio?: number;
-  commissionAmount?: number;
+  commissionAmountPesewas?: number;
   // A group-hub joiner's own pickup point when it differs from the trip's
   // main pickup, and the resulting detour surcharge (0 for the common case).
   pickupLat?: number;
   pickupLng?: number;
   pickupAddress?: string;
-  deviationSurcharge?: number;
+  deviationSurchargePesewas?: number;
   heavyCargo?: boolean;
   createdAt: string;
   trip?: import('./trip.types').Trip;

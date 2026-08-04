@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -136,7 +137,7 @@ export default function PerformanceScreen() {
             {[
               { label: 'Trips',         value: String(perf?.tripsThisWeek ?? 0),              icon: 'car-outline' as const },
               { label: 'Online Hours',  value: `${(perf?.onlineHoursThisWeek ?? 0).toFixed(1)}h`,  icon: 'time-outline' as const },
-              { label: 'Earnings',      value: `GHS ${(perf?.earningsThisWeek ?? 0).toFixed(0)}`, icon: 'cash-outline' as const },
+              { label: 'Earnings',      value: `${formatGhs(perf?.earningsThisWeek ?? 0, { showDecimals: false })}`, icon: 'cash-outline' as const },
             ].map((stat) => (
               <View key={stat.label} style={styles.weekStat}>
                 <View style={styles.weekIconBg}>
@@ -163,10 +164,10 @@ export default function PerformanceScreen() {
             <ProgressBar value={perf.weeklyGoalProgress} max={perf.weeklyGoal} color={colors.primary} colors={colors} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm }}>
               <Text variant="caption" color={colors.onSurfaceVariant}>
-                GHS {perf.weeklyGoalProgress.toFixed(0)} earned
+                {formatGhs(perf.weeklyGoalProgress, { showDecimals: false })} earned
               </Text>
               <Text variant="caption" color={colors.onSurfaceVariant}>
-                Goal: GHS {perf.weeklyGoal.toFixed(0)}
+                Goal: {formatGhs(perf.weeklyGoal, { showDecimals: false })}
               </Text>
             </View>
           </MotiView>

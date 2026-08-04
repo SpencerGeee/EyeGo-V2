@@ -12,7 +12,7 @@ export interface User {
   dob?: string;
   emergencyContact?: { name: string; phone: string; relationship?: string };
   rating?: number;
-  walletBalance?: number;
+  walletBalancePesewas?: number;
   notificationPreferences?: {
     driverArriving?: boolean;
     tripStarted?: boolean;

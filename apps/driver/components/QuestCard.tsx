@@ -1,4 +1,5 @@
 import React from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text, Button } from '@eyego/ui';
@@ -10,7 +11,7 @@ interface QuestCardProps {
   description: string;
   type: 'RIDES_COUNT' | 'EARNINGS';
   target: number;
-  rewardAmount: number;
+  rewardAmountPesewas: number;
   current: number;
   completed: boolean;
   rewardedAt: string | null;
@@ -23,7 +24,7 @@ const QuestCard: React.FC<QuestCardProps> = ({
   description,
   type,
   target,
-  rewardAmount,
+  rewardAmountPesewas,
   current,
   completed,
   rewardedAt,
@@ -45,7 +46,7 @@ const QuestCard: React.FC<QuestCardProps> = ({
           <Text variant="caption" color={colors.onSurfaceVariant}>{description}</Text>
         </View>
         <Text variant="label" color={colors.primary}>
-          GHS {rewardAmount.toFixed(2)}
+          {formatGhs(rewardAmountPesewas)}
         </Text>
       </View>
 
@@ -71,7 +72,7 @@ const QuestCard: React.FC<QuestCardProps> = ({
         >
           {type === 'RIDES_COUNT'
             ? `${Math.floor(current)} / ${Math.floor(target)} rides`
-            : `GHS ${current.toFixed(2)} / GHS ${target.toFixed(2)}`}
+            : `${formatGhs(current)} / ${formatGhs(target)}`}
         </Text>
         {completed && !rewardedAt && (
           // BUGFIX (item 19 — "the claim bonus button is distorted"): `Button`

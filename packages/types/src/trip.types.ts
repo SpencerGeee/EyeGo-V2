@@ -37,7 +37,7 @@ export interface Trip {
   totalSeats: number;
   availableSeats: number;
   fare: number;
-  farePerSeat: number;
+  farePerSeatPesewas: number;
   currency: string;
   driver: TripDriver;
   vehicle: Vehicle;
@@ -112,8 +112,8 @@ export interface SearchTripsParams {
 
 export interface FareEstimate {
   tier: TripTier;
-  baseFare: number;
-  platformFee: number;
+  baseFarePesewas: number;
+  platformFeePesewas: number;
   total: number;
   currency: string;
   eta: number; // minutes

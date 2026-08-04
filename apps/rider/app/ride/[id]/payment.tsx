@@ -22,7 +22,7 @@ import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, AnimatedFareText } from '@eyego/ui';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs } from '@eyego/utils';
 import { captureException } from '../../../lib/sentry';
 
 type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
@@ -38,7 +38,7 @@ export default function PaymentScreen() {
 
   const [activeTab, setActiveTab] = useState<PaymentTab>('momo');
   const [momoPhone, setMomoPhone] = useState('');
-  const [walletBalance, setWalletBalance] = useState(0);
+  const [walletBalancePesewas, setWalletBalancePesewas] = useState(0);
   const [walletLoading, setWalletLoading] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [paymentRef, setPaymentRef] = useState<string | null>(null);
@@ -96,39 +96,39 @@ export default function PaymentScreen() {
   useEffect(() => {
     if (activeTab === 'wallet') {
       setWalletLoading(true);
-      walletApi.getBalance().then((res: { data?: { data?: { balance?: number }; balance?: number } }) => {
-        const bal = res?.data?.data?.balance ?? res?.data?.balance ?? 0;
-        setWalletBalance(bal);
+      walletApi.getBalance().then((res) => {
+        const bal = (res?.data as any)?.data?.balancePesewas ?? (res?.data as any)?.balancePesewas ?? 0;
+        setWalletBalancePesewas(bal);
       }).catch((err: any) => {
         console.warn('[Payment] Failed to fetch wallet balance:', err?.message ?? err);
       }).finally(() => setWalletLoading(false));
     }
   }, [activeTab]);
 
-  // Fare is server-calculated. Order: booking.fareAmount → Zustand computedFare →
-  // trip.farePerSeat. Never compute on the client — env-driven rates on the
-  // server are the only source of truth. booking.fareAmount already reflects any
+  // Fare is server-calculated. Order: booking.fareAmountPesewas → Zustand computedFare →
+  // trip.farePerSeatPesewas. Never compute on the client — env-driven rates on the
+  // server are the only source of truth. booking.fareAmountPesewas already reflects any
   // en-route discount, so we never need a client-side adjustment here.
   const serverPerSeat =
-    activeBooking?.fareAmount ??
+    activeBooking?.fareAmountPesewas ??
     computedFare ??
-    selectedTrip?.farePerSeat ??
+    selectedTrip?.farePerSeatPesewas ??
     0;
   const enRouteRatio: number | null = (activeBooking as { enRouteRatio?: number })?.enRouteRatio ?? null;
   const enRouteStopName: string | null = (activeBooking as { pickupStop?: { name?: string } })?.pickupStop?.name ?? null;
   // BUGFIX: this used to add a client-computed +GHS 10 on top of serverPerSeat when
   // selectedTrip.heavyCargo was set — but that flag is now persisted server-side
   // (bookings.service.js recomputeBookingAddons) and already baked into
-  // activeBooking.fareAmount (serverPerSeat above). Adding it again here charged
+  // activeBooking.fareAmountPesewas (serverPerSeat above). Adding it again here charged
   // the rider what they saw, but it was GHS 10 more than the actual server charge
   // would have been before this fix — the display and the charge are now the same
   // single number, with no client-side fare math at all.
   // "Paying for everyone" means this rider covers the *entire* trip cost — not perSeat × group size.
-  // The server attaches `totalTripCost` to trip detail / group hub responses for this exact purpose.
+  // The server attaches `totalTripCostPesewas` to trip detail / group hub responses for this exact purpose.
   const payForEveryone = !!(selectedTrip as { payForEveryone?: boolean })?.payForEveryone;
-  const totalTripCost = (selectedTrip as { totalTripCost?: number })?.totalTripCost ?? null;
-  const fareAmount = payForEveryone && totalTripCost
-    ? totalTripCost
+  const totalTripCostPesewas = (selectedTrip as { totalTripCostPesewas?: number })?.totalTripCostPesewas ?? null;
+  const fareAmountPesewas = payForEveryone && totalTripCostPesewas
+    ? totalTripCostPesewas
     : serverPerSeat;
 
   // Free a SEAT_HELD booking immediately on a hard payment failure instead of
@@ -191,7 +191,7 @@ export default function PaymentScreen() {
           //     and `.tripId` were undefined, meaning the next attempt didn't
           //     recognise its own booking and held ANOTHER seat — the "seat is
           //     held but payment failed" pair the rider kept seeing;
-          //   • `fareAmount` lives on `fareData`, not on the wrapper, so the
+          //   • `fareAmountPesewas` lives on `fareData`, not on the wrapper, so the
           //     server-computed fare was silently dropped too.
           // Unwrapped tolerantly (`?? payload`) so either shape works and a
           // future server change can't strand the client again.
@@ -206,7 +206,7 @@ export default function PaymentScreen() {
           attemptBookingIdRef.current = bookingId;
           // Store booking and server-calculated fare in Zustand so tracking/rating screens have them
           setActiveBooking(newBooking);
-          const serverFare = payload?.fareData?.fareAmount ?? newBooking?.fareAmount;
+          const serverFare = payload?.fareData?.fareAmountPesewas ?? newBooking?.fareAmountPesewas;
           if (serverFare) setComputedFare(serverFare);
         }
 
@@ -216,7 +216,7 @@ export default function PaymentScreen() {
             // Reflect the discounted fare the server just wrote so the rider
             // isn't shown the pre-discount price for the rest of the flow.
             const discounted = (promoData as any)?.data?.booking;
-            if (discounted?.fareAmount != null) setComputedFare(discounted.fareAmount);
+            if (discounted?.fareAmountPesewas != null) setComputedFare(discounted.fareAmountPesewas);
             if (discounted) setActiveBooking(discounted);
           } catch (promoErr: any) {
             // If a prior attempt applied it but the response was lost, the
@@ -549,7 +549,7 @@ export default function PaymentScreen() {
             style={styles.amountCard}
           >
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Amount to pay</Text>
-            <AnimatedFareText value={fareAmount} variant="fareLarge" />
+            <AnimatedFareText value={fareAmountPesewas} variant="fareLarge" />
             <Text variant="caption" color={colors.onSurfaceVariant}>
               Seat #{selectedSeat?.number ?? '—'} · {selectedTrip?.origin?.address?.split(',')[0] ?? ''} → {selectedTrip?.destination?.address?.split(',')[0] ?? ''}
             </Text>
@@ -673,7 +673,7 @@ export default function PaymentScreen() {
               >
                 <Ionicons name="cash-outline" size={16} color={colors.primary} />
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  You'll pay your driver {formatCurrency(fareAmount)} in cash upon boarding. Highly convenient!
+                  You'll pay your driver {formatGhs(fareAmountPesewas)} in cash upon boarding. Highly convenient!
                 </Text>
               </MotiView>
             )}
@@ -690,9 +690,9 @@ export default function PaymentScreen() {
                   <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                     {walletLoading
                       ? 'Checking wallet balance...'
-                      : walletBalance >= fareAmount
-                      ? `You have ${formatCurrency(walletBalance)} in your wallet. Sufficient balance!`
-                      : `Insufficient wallet balance (${formatCurrency(walletBalance)}). Please top up or use another method.`}
+                      : walletBalancePesewas >= fareAmountPesewas
+                      ? `You have ${formatGhs(walletBalancePesewas)} in your wallet. Sufficient balance!`
+                      : `Insufficient wallet balance (${formatGhs(walletBalancePesewas)}). Please top up or use another method.`}
                   </Text>
                 </View>
               </MotiView>
@@ -800,12 +800,12 @@ export default function PaymentScreen() {
             <Button
               label={
                 activeTab === 'momo'
-                  ? `Pay ${formatCurrency(fareAmount)} with MoMo`
+                  ? `Pay ${formatGhs(fareAmountPesewas)} with MoMo`
                   : activeTab === 'card'
-                  ? `Pay ${formatCurrency(fareAmount)} by Card`
+                  ? `Pay ${formatGhs(fareAmountPesewas)} by Card`
                   : activeTab === 'wallet'
-                  ? `Pay ${formatCurrency(fareAmount)} with Wallet`
-                  : `Confirm Cash Booking · ${formatCurrency(fareAmount)}`
+                  ? `Pay ${formatGhs(fareAmountPesewas)} with Wallet`
+                  : `Confirm Cash Booking · ${formatGhs(fareAmountPesewas)}`
               }
               onPress={() => {
                 // Card payments need a real email for the payment provider receipt.
@@ -826,7 +826,7 @@ export default function PaymentScreen() {
                 initPayment.mutate();
               }}
               loading={initPayment.isPending || isPolling}
-              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && walletBalance < fareAmount || (activeTab === 'card' && !user?.email)}
+              disabled={activeTab === 'momo' && (momoPhone.length < 8 || momoPhone.length > 12) || activeTab === 'wallet' && walletBalancePesewas < fareAmountPesewas || (activeTab === 'card' && !user?.email)}
             />
           </View>
 

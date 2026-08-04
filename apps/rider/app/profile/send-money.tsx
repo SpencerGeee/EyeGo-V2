@@ -9,7 +9,7 @@ import { walletApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Input } from '@eyego/ui';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs, pesewasFromCedis } from "@eyego/utils";
 
 export default function SendMoneyScreen() {
   const colors = useColors();
@@ -24,11 +24,11 @@ export default function SendMoneyScreen() {
   const { data: balance } = useQuery({
     queryKey: queryKeys.wallet.balance(),
     queryFn: () => walletApi.getBalance(),
-    select: (r: any) => r.data?.data?.balance ?? 0,
+    select: (r: any) => r.data?.data?.balancePesewas ?? 0,
   });
 
   const sendMutation = useMutation({
-    mutationFn: () => walletApi.sendMoney({ recipientPhone: phone.trim(), amount: parseFloat(amount) }),
+    mutationFn: () => walletApi.sendMoney({ recipientPhone: phone.trim(), amountPesewas: pesewasFromCedis(parseFloat(amount)) }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
       Alert.alert('Sent!', res?.data?.message ?? 'Money sent successfully.', [
@@ -48,7 +48,7 @@ export default function SendMoneyScreen() {
 
   const handleSend = () => {
     const trimmedPhone = phone.trim();
-    const amt = parseFloat(amount);
+    const amt = pesewasFromCedis(parseFloat(amount));
     if (trimmedPhone.length < 9) {
       Alert.alert('Invalid Phone', 'Please enter a valid recipient phone number.');
       return;
@@ -58,12 +58,12 @@ export default function SendMoneyScreen() {
       return;
     }
     if (typeof balance === 'number' && amt > balance) {
-      Alert.alert('Insufficient Balance', `You only have ${formatCurrency(balance)} in your wallet.`);
+      Alert.alert('Insufficient Balance', `You only have ${formatGhs(balance)} in your wallet.`);
       return;
     }
     Alert.alert(
       'Confirm Transfer',
-      `Send ${formatCurrency(amt)} to ${trimmedPhone}?`,
+      `Send ${formatGhs(amt)} to ${trimmedPhone}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Send', onPress: () => sendMutation.mutate() },
@@ -84,7 +84,7 @@ export default function SendMoneyScreen() {
       <KeyboardAwareScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         <View style={styles.balanceCard}>
           <Text variant="caption" color={colors.onSurfaceVariant}>Available Balance</Text>
-          <Text style={styles.balanceText}>{formatCurrency(typeof balance === 'number' ? balance : 0)}</Text>
+          <Text style={styles.balanceText}>{formatGhs(typeof balance === 'number' ? balance : 0)}</Text>
         </View>
 
         <View style={styles.form}>

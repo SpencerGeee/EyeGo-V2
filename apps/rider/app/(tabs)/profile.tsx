@@ -19,7 +19,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Pressable, MorphSource, useMorph, setBackgroundBusy, backgroundScrollPauseProps } from '@eyego/ui';
-import { getInitials, formatCurrency } from '@eyego/utils';
+import { getInitials, formatGhs } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
 interface MenuItem {
@@ -84,7 +84,7 @@ export default function ProfileScreen() {
     select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.total ?? 0,
   });
 
-  const { data: walletBalance } = useQuery({
+  const { data: walletBalancePesewas } = useQuery({
     queryKey: queryKeys.wallet.balance(),
     queryFn: () => walletApi.getBalance(),
     select: (r: any) => r.data?.data?.balance ?? r.data?.balance ?? 0,
@@ -203,7 +203,7 @@ export default function ProfileScreen() {
                 <Ionicons name="wallet-outline" size={16} color={colors.onSurfaceVariant} />
                 <Text style={styles.walletLabel}>EYEGO WALLET</Text>
               </View>
-              <Text style={styles.walletBalance}>{formatCurrency(walletBalance ?? 0)}</Text>
+              <Text style={styles.walletBalancePesewas}>{formatGhs(walletBalancePesewas ?? 0)}</Text>
             </View>
             <Pressable
               onPress={() => router.push('/profile/wallet' as any)}
@@ -508,7 +508,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     textTransform: 'uppercase',
     color: colors.onSurfaceVariant,
   },
-  walletBalance: {
+  walletBalancePesewas: {
     fontFamily: fonts.displayBold,
     fontSize: 28,
     lineHeight: 36,

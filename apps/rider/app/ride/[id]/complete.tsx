@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { formatCurrency, formatDistance, formatDuration } from '@eyego/utils';
+import { formatGhs, formatDistance, formatDuration } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi } from '@eyego/api';
 import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
@@ -38,16 +38,16 @@ export default function TripCompleteScreen() {
   });
 
   const receiptNumber = receiptData?.receiptNumber;
-  const fareBreakdown = receiptData?.fareBreakdown ?? (receiptData?.totalPaid != null ? {
-    total: receiptData.totalPaid,
-    platformFee: receiptData.platformFee ?? 0,
-    baseFare: (receiptData.totalPaid ?? 0) - (receiptData.platformFee ?? 0),
-    discount: receiptData.discountApplied ?? 0,
+  const fareBreakdown = receiptData?.fareBreakdown ?? (receiptData?.totalPaidPesewas != null ? {
+    total: receiptData.totalPaidPesewas,
+    platformFeePesewas: receiptData.platformFeePesewas ?? 0,
+    baseFarePesewas: (receiptData.totalPaidPesewas ?? 0) - (receiptData.platformFeePesewas ?? 0),
+    discount: receiptData.discountAppliedPesewas ?? 0,
     surcharges: 0,
     tip: 0,
   } : undefined);
 
-  const totalFare = fareBreakdown?.total ?? activeBooking?.fareAmount ?? activeBooking?.fare ?? selectedTrip?.farePerSeat ?? 0;
+  const totalFare = fareBreakdown?.total ?? activeBooking?.fareAmountPesewas ?? activeBooking?.fare ?? selectedTrip?.farePerSeatPesewas ?? 0;
 
   // Auto-navigate to rating after 4 s — but not when this screen was opened
   // to view an OLD completed trip's receipt from Activity (viewOnly=1). This
@@ -74,7 +74,7 @@ export default function TripCompleteScreen() {
     const shareText = [
       `EyeGo Trip Receipt${receiptNumber ? ` #${receiptNumber}` : ''}`,
       `Route: ${selectedTrip?.origin?.address?.split(',')[0] ?? 'Origin'} → ${selectedTrip?.destination?.address?.split(',')[0] ?? 'Destination'}`,
-      `Total: ${formatCurrency(totalFare)}`,
+      `Total: ${formatGhs(totalFare)}`,
       'Thank you for riding with EyeGo!',
     ].join('\n');
     Share.share({ message: shareText, title: 'EyeGo Receipt' }).catch(() => {});
@@ -138,7 +138,7 @@ export default function TripCompleteScreen() {
             <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={styles.glassInset} />
             <View style={styles.fareCardInner}>
           <Text style={styles.fareLabel}>Total Fare</Text>
-          <Text style={styles.fareAmount}>{formatCurrency(totalFare)}</Text>
+          <Text style={styles.fareAmountPesewas}>{formatGhs(totalFare)}</Text>
 
           {/* Route timeline */}
           <View style={styles.routeRow}>
@@ -261,7 +261,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.3,
   },
-  fareAmount: {
+  fareAmountPesewas: {
     fontFamily: fonts.displayBold,
     fontSize: 40,
     lineHeight: 48,

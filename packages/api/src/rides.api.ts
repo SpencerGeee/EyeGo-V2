@@ -13,7 +13,7 @@ import type { TripSnapshot } from './tripChannel';
 
 export interface FareQuote {
   quoteId: string;
-  amount: number;
+  amountPesewas: number;
   currency: string;
   distanceKm: number;
   surgeMultiplier: number;
@@ -41,7 +41,7 @@ export interface ActiveRideResponse {
 export interface DriverStateResponse {
   driver: {
     id: string; name: string; status: string; isOnline: boolean;
-    lat: number | null; lng: number | null; walletBalance: number;
+    lat: number | null; lng: number | null; walletBalancePesewas: number;
   };
   trip: TripSnapshot | null;
   serverNowMs: number;

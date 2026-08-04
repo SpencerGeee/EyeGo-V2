@@ -13,6 +13,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+// One formatter. This screen used to declare a local `₵${amount.toFixed(2)}`
+// that shadowed the shared one — harmless while money was cedis, a 100x
+// misquote to the driver the moment it became pesewas.
+import { formatGhs } from '@eyego/utils';
 import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -35,10 +39,6 @@ const TIER_OPTIONS: {
   { value: 'COMFORT', name: 'Comfort', desc: 'Higher fare', icon: 'car-sport-outline' },
   { value: 'PREMIUM', name: 'Premium', desc: 'Top fare · best vehicles', icon: 'diamond-outline' },
 ];
-
-function formatCurrency(amount: number): string {
-  return `₵${amount.toFixed(2)}`;
-}
 
 export default function CreateTripScreen() {
   const colors = useColors();
@@ -513,20 +513,20 @@ export default function CreateTripScreen() {
                 <View style={styles.fareDivider} />
                 <FareRow
                   label="Per passenger"
-                  value={formatCurrency(fareEstimateData.farePerPerson)}
+                  value={formatGhs(fareEstimateData.farePerPersonPesewas)}
                   sub={`at ~${seats} passengers`}
                   colors={colors}
                 />
                 <View style={styles.fareRowDivider} />
                 <FareRow
                   label="Total trip cost"
-                  value={formatCurrency(fareEstimateData.totalTripCost)}
+                  value={formatGhs(fareEstimateData.totalTripCostPesewas)}
                   colors={colors}
                 />
                 <View style={styles.fareRowDivider} />
                 <FareRow
                   label="Your earnings per seat"
-                  value={formatCurrency(fareEstimateData.driverEarningsPerSeat)}
+                  value={formatGhs(fareEstimateData.driverEarningsPerSeatPesewas)}
                   // Read from the estimate rather than hardcoded, so this can
                   // never drift from what the server actually deducts.
                   sub={`after ${Math.round(((fareEstimateData as { commissionRate?: number }).commissionRate ?? 0.15) * 100)}% commission`}

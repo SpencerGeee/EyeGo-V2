@@ -91,7 +91,7 @@ export const tripsApi = {
       route: { originName: string; destinationName: string; distanceKm: number };
       matchedTrip: {
         tier: string;
-        farePerSeat: number;
+        farePerSeatPesewas: number;
         driverName: string | null;
         vehicleLabel: string | null;
       } | null;

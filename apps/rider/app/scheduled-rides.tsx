@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, FlatList, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -146,7 +147,7 @@ export default function ScheduledRidesScreen() {
                 <Text style={styles.meta}>
                   {item.matchedTrip.driverName ?? 'Driver'}
                   {item.matchedTrip.vehicleLabel ? ` · ${item.matchedTrip.vehicleLabel}` : ''}
-                  {'  ·  GHS '}{item.matchedTrip.farePerSeat.toFixed(2)}/seat
+                  {'  ·  '}{formatGhs(item.matchedTrip.farePerSeatPesewas)}/seat
                 </Text>
               ) : null}
               <Text style={[styles.status, { color: item.status === 'MATCHED' ? colors.statusSuccess : colors.onSurfaceVariant }]}>

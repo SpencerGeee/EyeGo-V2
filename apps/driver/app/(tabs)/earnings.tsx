@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { formatGhs, pesewasFromCedis } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -44,12 +45,21 @@ type Period = 'today' | 'week' | 'month';
  * commission is debited). With no earning row of any kind, a driver working cash
  * saw a permanently flat chart and GHS 0 — the reported "blank chart even though
  * sales have been made or a commission has been deducted". `CASH_EARNING` rows
- * carry balanceBefore === balanceAfter, i.e. they are income for reporting and
+ * carry balanceBeforePesewas === balanceAfterPesewas, i.e. they are income for reporting and
  * not part of the wallet balance.
  *
  * `TIP` counts too — a tip is earnings the driver actually keeps.
  */
 const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'QUEST_BONUS', 'TIP'];
+
+/**
+ * Mirrors `DRIVER_MIN_WITHDRAWAL` on the server (GH₵20.00), in pesewas.
+ *
+ * The server is the authority — it rejects anything below this — but the screen
+ * needs the number to grey out the button, and a bare `20` sitting next to a
+ * pesewas balance was a comparison of two different units.
+ */
+const MIN_WITHDRAWAL_PESEWAS = 2000;
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -99,36 +109,42 @@ export default function EarningsScreen() {
   });
 
   const withdraw = useMutation({
-    mutationFn: () => driverApi.withdraw({ amount: parseFloat(withdrawAmount) }),
+    // The driver TYPES cedis ("50"), and every balance and limit on this screen
+    // is pesewas. This is the one direction the conversion has to run, and it
+    // runs exactly here — the parsed text never travels any further as cedis.
+    mutationFn: () => driverApi.withdraw({ amountPesewas: pesewasFromCedis(parseFloat(withdrawAmount)) }),
     onSuccess: () => {
       setSheetOpen(false);
       setWithdrawAmount('');
       qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
-      // Balance is derived from ['driver','me'] (walletBalance), so refresh that too.
+      // Balance is derived from ['driver','me'] (walletBalancePesewas), so refresh that too.
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
-      Alert.alert('Withdrawal Submitted', `GHS ${parseFloat(withdrawAmount).toFixed(2)} is being processed to your mobile money account.`);
+      Alert.alert('Withdrawal Submitted', `${formatGhs(pesewasFromCedis(parseFloat(withdrawAmount)))} is being processed to your mobile money account.`);
     },
     onError: (err) => Alert.alert('Withdrawal Failed', (err as Error).message),
   });
 
   const handleWithdraw = () => {
-    // D12: validate amount before submitting withdrawal
-    const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount <= 0) {
+    // D12: validate amount before submitting withdrawal.
+    // Converted to pesewas FIRST, so the comparisons below are pesewas-vs-
+    // pesewas. Comparing typed cedis against a pesewas balance would have let a
+    // driver "withdraw" GH₵50 against a GH₵0.50 balance.
+    const amountPesewas = pesewasFromCedis(parseFloat(withdrawAmount));
+    if (isNaN(amountPesewas) || amountPesewas <= 0) {
       Alert.alert('Invalid Amount', 'Enter a valid amount.');
       return;
     }
-    if (amount < 20) {
-      Alert.alert('Minimum Withdrawal', 'The minimum withdrawal amount is GHS 20.00.');
+    if (amountPesewas < MIN_WITHDRAWAL_PESEWAS) {
+      Alert.alert('Minimum Withdrawal', `The minimum withdrawal amount is ${formatGhs(MIN_WITHDRAWAL_PESEWAS)}.`);
       return;
     }
-    if (amount > balance) {
-      Alert.alert('Insufficient Balance', `You only have GHS ${balance.toFixed(2)} available.`);
+    if (amountPesewas > balance) {
+      Alert.alert('Insufficient Balance', `You only have ${formatGhs(balance)} available.`);
       return;
     }
     Alert.alert(
       'Confirm Withdrawal',
-      `Send GHS ${amount.toFixed(2)} to your mobile money account?`,
+      `Send ${formatGhs(amountPesewas)} to your mobile money account?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Confirm', onPress: () => withdraw.mutate() },
@@ -196,10 +212,13 @@ export default function EarningsScreen() {
   }, [txData, period]);
 
   // Withdrawable balance is the actual wallet balance, not lifetime totalEarned.
-  const balance = meData?.walletBalance != null ? meData.walletBalance : 0;
+  const balance = meData?.walletBalancePesewas != null ? meData.walletBalancePesewas : 0;
   const currency = meData?.currency ?? 'GHS';
-  const withdrawAmt = parseFloat(withdrawAmount);
-  const canWithdraw = !isNaN(withdrawAmt) && withdrawAmt >= 20 && withdrawAmt <= balance;
+  const withdrawAmtPesewas = pesewasFromCedis(parseFloat(withdrawAmount));
+  const canWithdraw =
+    !isNaN(withdrawAmtPesewas) &&
+    withdrawAmtPesewas >= MIN_WITHDRAWAL_PESEWAS &&
+    withdrawAmtPesewas <= balance;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -324,7 +343,7 @@ export default function EarningsScreen() {
                 styles.txAmount,
                 { color: isCredit ? colors.online : colors.error },
               ]}>
-                {isCredit ? '+' : '-'}GHS {tx.amount.toFixed(2)}
+                {isCredit ? '+' : '-'}{formatGhs(tx.amount)}
               </Text>
             </Entrance>
                   );
@@ -367,7 +386,7 @@ export default function EarningsScreen() {
             </Pressable>
           </View>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.sheetSub}>
-            Balance: GHS {balance.toFixed(2)} · Min. GHS 20
+            Balance: {formatGhs(balance)} · Min. GHS 20
           </Text>
           <KeyboardStickyView style={styles.stickyGroup}>
             <View style={styles.amountInputWrapper}>

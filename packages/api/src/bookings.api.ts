@@ -22,9 +22,9 @@ import type {
 export interface CreateBookingResult {
   booking: Booking;
   fareData?: {
-    fareAmount?: number;
-    commissionAmount?: number;
-    deviationSurcharge?: number;
+    fareAmountPesewas?: number;
+    commissionAmountPesewas?: number;
+    deviationSurchargePesewas?: number;
     cargoSurcharge?: number;
   };
   holdExpiry?: string;
@@ -97,7 +97,7 @@ export const bookingsApi = {
   applyPromo: (bookingId: string, code: string) =>
     apiClient.post<ApiResponse<any>>(`/bookings/${bookingId}/apply-promo`, { code }),
 
-  tip: (bookingId: string, data: { amount: number; phone?: string }) =>
+  tip: (bookingId: string, data: { amountPesewas: number; phone?: string }) =>
     apiClient.post<ApiResponse<{ reference: string }>>(`/bookings/${bookingId}/tip`, data),
 
   // ── Cancellation Fee ────────────────────────────────────────────────
@@ -105,7 +105,7 @@ export const bookingsApi = {
     apiClient.get<ApiResponse<{ fee: number; reason: string; eligible: boolean }>>(`/cancellation/${id}/fee`),
 
   cancelWithFee: (id: string, data: { reason: string; note?: string }) =>
-    apiClient.post<ApiResponse<Booking & { cancellationFee?: number }>>(`/cancellation/${id}/cancel`, data),
+    apiClient.post<ApiResponse<Booking & { cancellationFeePesewas?: number }>>(`/cancellation/${id}/cancel`, data),
 
   // ── Receipts ────────────────────────────────────────────────────────
   getReceipt: (id: string) =>
@@ -113,7 +113,7 @@ export const bookingsApi = {
       bookingId: string;
       tripId: string;
       routeName: string;
-      fareBreakdown: { baseFare: number; platformFee: number; surcharges: number; discount: number; tip: number; total: number };
+      fareBreakdown: { baseFarePesewas: number; platformFeePesewas: number; surcharges: number; discount: number; tip: number; total: number };
       paymentMethod: string;
       paidAt: string;
       receiptNumber: string;

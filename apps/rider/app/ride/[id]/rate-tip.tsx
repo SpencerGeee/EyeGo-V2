@@ -25,7 +25,7 @@ import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, Avatar, AppBackground } from '@eyego/ui';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs, pesewasFromCedis } from "@eyego/utils";
 
 const COMPLIMENTS = [
   { label: 'Punctual', icon: 'time-outline' },
@@ -36,12 +36,15 @@ const COMPLIMENTS = [
   { label: 'Smooth Ride', icon: 'car-sport-outline' },
 ];
 
+// Presets in PESEWAS. These were bare cedis literals (2, 5, 10) that were sent
+// straight to the tip endpoint; once the server started reading pesewas, a
+// "GHS 5" tap would have tipped the driver five pesewas.
 const TIP_OPTIONS = [
-  { amount: 0, label: 'No tip' },
-  { amount: 2, label: 'GHS 2' },
-  { amount: 5, label: 'GHS 5' },
-  { amount: 10, label: 'GHS 10' },
-  { amount: 0, label: 'Custom', isCustom: true },
+  { amountPesewas: 0, label: 'No tip' },
+  { amountPesewas: 200, label: 'GH₵2' },
+  { amountPesewas: 500, label: 'GH₵5' },
+  { amountPesewas: 1000, label: 'GH₵10' },
+  { amountPesewas: 0, label: 'Custom', isCustom: true },
 ];
 
 const STAR_MESSAGES = ['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent!'];
@@ -78,7 +81,7 @@ export default function RateTipScreen() {
   }
   const resolvedBookingId = resolvedBookingIdRef.current;
 
-  // Fetch the specific booking by ID to get its actual fareAmount (the real price paid)
+  // Fetch the specific booking by ID to get its actual fareAmountPesewas (the real price paid)
   // This prevents showing the estimate fare instead of the confirmed paid amount.
   // R20: The double .data unwrap is needed because axios wraps the response body in
   // { data: ... } and our API returns { data: { booking: ... } } — so it's axios.data.apiData.booking.
@@ -93,7 +96,7 @@ export default function RateTipScreen() {
       }
       return booking;
     },
-    enabled: !!resolvedBookingId && !activeBooking?.fareAmount,
+    enabled: !!resolvedBookingId && !activeBooking?.fareAmountPesewas,
     staleTime: 0,
   });
 
@@ -106,10 +109,11 @@ export default function RateTipScreen() {
 
   const displayRating = hoveredRating || rating;
   const isCustom = selectedTipIndex !== null && TIP_OPTIONS[selectedTipIndex]?.isCustom;
-  const finalTip = isCustom
-    ? parseFloat(customTip) || 0
+  // The custom field is typed by a human, so it is cedis and converts here.
+  const finalTipPesewas = isCustom
+    ? pesewasFromCedis(parseFloat(customTip) || 0)
     : selectedTipIndex !== null
-    ? TIP_OPTIONS[selectedTipIndex].amount
+    ? TIP_OPTIONS[selectedTipIndex].amountPesewas
     : 0;
 
   const toggleCompliment = useCallback((label: string) => {
@@ -130,8 +134,8 @@ export default function RateTipScreen() {
       if (rating > 0) {
         await bookingsApi.rate(resolvedBookingId, { rating, comment: commentText });
       }
-      if (finalTip > 0) {
-        await bookingsApi.tip(resolvedBookingId, { amount: finalTip, phone: user?.phone });
+      if (finalTipPesewas > 0) {
+        await bookingsApi.tip(resolvedBookingId, { amountPesewas: finalTipPesewas, phone: user?.phone });
       }
     },
     onSuccess: () => {
@@ -151,13 +155,13 @@ export default function RateTipScreen() {
   });
 
   const handleFinish = useCallback(() => {
-    if (rating > 0 || finalTip > 0) {
+    if (rating > 0 || finalTipPesewas > 0) {
       submitFeedback.mutate();
     } else {
       clearRideState();
       router.replace('/(tabs)/home' as Href);
     }
-  }, [rating, finalTip, submitFeedback, clearRideState, router]);
+  }, [rating, finalTipPesewas, submitFeedback, clearRideState, router]);
 
   const handleSkip = useCallback(() => {
     clearRideState();
@@ -166,7 +170,7 @@ export default function RateTipScreen() {
 
   const driverName = selectedTrip?.driver?.name ?? activeBooking?.trip?.driver?.name ?? 'Your Driver';
   const driverAvatar = (selectedTrip?.driver as any)?.profilePhoto ?? selectedTrip?.driver?.avatarUrl ?? null;
-  const tripFare = activeBooking?.fareAmount ?? resolvedBooking?.fareAmount ?? 0;
+  const tripFare = activeBooking?.fareAmountPesewas ?? resolvedBooking?.fareAmountPesewas ?? 0;
   const vehicle = selectedTrip?.vehicle as any;
   const vehicleLabel = vehicle
     ? [vehicle.model ?? vehicle.make, vehicle.plateNumber].filter(Boolean).join(' • ')
@@ -226,7 +230,7 @@ export default function RateTipScreen() {
             {tripFare > 0 && (
               <View style={styles.farePill}>
                 <Ionicons name="receipt-outline" size={12} color={colors.primary} />
-                <Text style={styles.farePillText}>{formatCurrency(tripFare)} paid</Text>
+                <Text style={styles.farePillText}>{formatGhs(tripFare)} paid</Text>
               </View>
             )}
           </MotiView>
@@ -398,8 +402,8 @@ export default function RateTipScreen() {
             label={
               submitFeedback.isPending
                 ? 'Submitting…'
-                : rating > 0 || finalTip > 0
-                ? `Submit${finalTip > 0 ? ` + Tip ${formatCurrency(finalTip)}` : ''}`
+                : rating > 0 || finalTipPesewas > 0
+                ? `Submit${finalTipPesewas > 0 ? ` + Tip ${formatGhs(finalTipPesewas)}` : ''}`
                 : 'Finish'
             }
             onPress={handleFinish}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -229,7 +230,7 @@ export default function DispatchScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>Estimated earnings</Text>
               <Text style={{ fontFamily: fonts.displayBold, fontSize: 18, color: colors.primary }}>
-                GHS {parseFloat(estimatedEarnings).toFixed(2)}
+                {formatGhs(parseFloat(estimatedEarnings))}
               </Text>
             </View>
             <View style={{ height: 1, backgroundColor: colors.outline, marginVertical: spacing.sm }} />

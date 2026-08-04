@@ -12,7 +12,7 @@ import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
-import { relativeTime } from '@eyego/utils';
+import { relativeTime, formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder } from '@eyego/ui';
@@ -68,12 +68,12 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
 
   // Raw Prisma booking includes trip: { route, driver, vehicle } — origin/
   // destination/departure live nested under trip.route, not flat on the
-  // booking (fareAmount is the real column name, not totalFare).
+  // booking (fareAmountPesewas is the real column name, not totalFare).
   const route = booking.trip?.route;
   const origin = route?.originName ?? booking.routeOrigin ?? 'Unknown';
   const destination = route?.destinationName ?? booking.routeDestination ?? 'Unknown';
   const departureTime = booking.trip?.departureTime ?? booking.departureTime ?? booking.createdAt;
-  const fare = booking.fareAmount ?? booking.totalFare;
+  const fare = booking.fareAmountPesewas ?? booking.totalFare;
 
   // MORPH FIX: the source id was keyed on the BOOKING id while /ride/[id]'s
   // MorphTarget is keyed on the TRIP id (`ride-card-${id}`, and `id` there is
@@ -144,8 +144,7 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
       </View>
       {fare != null && (
         <Text style={styles.itemFare}>
-          GH₵{' '}
-          {typeof fare === 'number' ? fare.toFixed(2) : fare}
+          {typeof fare === 'number' ? formatGhs(fare) : fare}
         </Text>
       )}
     </Pressable>

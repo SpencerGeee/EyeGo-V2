@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
 import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 
@@ -216,7 +216,7 @@ export default function ScheduledRideDetailScreen() {
                   icon="cash-outline"
                   colors={colors}
                   label="Estimated fare"
-                  value={formatCurrency(intent.estimatedFare)}
+                  value={formatGhs(intent.estimatedFare)}
                 />
               )}
               <DetailRow

@@ -8,7 +8,7 @@ import { walletApi, bookingsApi, paymentsApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
-import { formatCurrency } from '@eyego/utils';
+import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
 
 // Green-accent variant of the premium ring sweep — two narrow emerald arcs
 // (brand green core) orbiting a near-black ring, matching the house
@@ -56,14 +56,14 @@ export default function WalletScreen() {
   }
   const tier = getAccountTier(tripCount, colors.primary);
 
-  const balance = (balanceData as any)?.data?.data?.balance ?? (balanceData as any)?.data?.balance ?? 0;
+  const balance = (balanceData as any)?.data?.data?.balancePesewas ?? (balanceData as any)?.data?.balancePesewas ?? 0;
   const transactions = (txData as any)?.data?.data?.transactions ?? (txData as any)?.data?.transactions ?? [];
 
   const [isVerifyingTopUp, setIsVerifyingTopUp] = useState(false);
 
   const topUp = useMutation({
-    mutationFn: (amount: number) => walletApi.topUp({ amount, method: 'MOMO' }),
-    onSuccess: async (res, amount) => {
+    mutationFn: (amountPesewas: number) => walletApi.topUp({ amountPesewas, method: "MOMO" }),
+    onSuccess: async (res, amountPesewas) => {
       const reference = (res as any)?.data?.data?.reference;
       setModalVisible(false);
       setTopUpAmount('');
@@ -83,7 +83,7 @@ export default function WalletScreen() {
         await paymentsApi.pollWalletTopup(reference);
         queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
         queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
-        Alert.alert('Top Up Successful', `GHS ${amount.toFixed(2)} has been added to your EyeGo Wallet.`);
+        Alert.alert('Top Up Successful', `${formatGhs(amountPesewas)} has been added to your EyeGo Wallet.`);
       } catch {
         Alert.alert(
           'Top Up Not Confirmed',
@@ -98,12 +98,12 @@ export default function WalletScreen() {
     },
   });
 
-  const handleTopUp = (amount: number) => {
-    if (!amount || amount <= 0) {
+  const handleTopUp = (amountPesewas: number) => {
+    if (!amountPesewas || amountPesewas <= 0) {
       Alert.alert('Error', 'Please enter a valid amount');
       return;
     }
-    topUp.mutate(amount);
+    topUp.mutate(amountPesewas);
   };
 
   return (
@@ -146,7 +146,7 @@ export default function WalletScreen() {
               ) : (
                 <View style={styles.balanceRow}>
                   <Text style={styles.balanceCurrency}>GH₵</Text>
-                  <Text style={styles.balanceValue}>{Number(balance).toFixed(2)}</Text>
+                  <Text style={styles.balanceValue}>{pesewasToDecimalString(balance)}</Text>
                 </View>
               )}
 
@@ -223,7 +223,7 @@ export default function WalletScreen() {
                       </Text>
                     </View>
                     <Text style={[styles.txAmount, { color: isCredit ? colors.statusSuccess : colors.onSurface }]}>
-                      {isCredit ? '+' : '-'}{formatCurrency(tx.amount)}
+                      {isCredit ? '+' : '-'}{formatGhs(tx.amountPesewas)}
                     </Text>
                   </View>
                 );
@@ -260,16 +260,19 @@ export default function WalletScreen() {
             </Text>
 
             <View style={styles.quickAmountsRow}>
-              {[20, 50, 100].map((amt) => (
+              {/* Quick top-ups, in PESEWAS. These were `[20, 50, 100]` cedis
+                  passed straight to `handleTopUp`, which now takes pesewas —
+                  so "+GHS 100" would have topped the wallet up by one cedi. */}
+              {[2000, 5000, 10000].map((amt) => (
                 <Pressable
                   key={amt}
                   style={styles.quickAmtBtn}
                   onPress={() => handleTopUp(amt)}
                   disabled={topUp.isPending}
                   accessibilityRole="button"
-                  accessibilityLabel={`Top up GHS ${amt}`}
+                  accessibilityLabel={`Top up ${formatGhs(amt, { showDecimals: false })}`}
                 >
-                  <Text style={styles.quickAmtText}>+GHS {amt}</Text>
+                  <Text style={styles.quickAmtText}>+{formatGhs(amt, { showDecimals: false })}</Text>
                 </Pressable>
               ))}
             </View>
@@ -289,7 +292,7 @@ export default function WalletScreen() {
             <Button
               label={isVerifyingTopUp ? 'Confirming payment…' : 'Confirm Top Up'}
               onPress={() => {
-                const amt = parseFloat(topUpAmount);
+                const amt = pesewasFromCedis(parseFloat(topUpAmount));
                 handleTopUp(amt);
               }}
               loading={topUp.isPending || isVerifyingTopUp}

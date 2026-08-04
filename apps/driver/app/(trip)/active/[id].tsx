@@ -1,5 +1,6 @@
 'use strict';
 import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
+import { formatGhs } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -276,9 +277,9 @@ export default function ActiveTripScreen() {
         qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const raw = (res as any)?.data;
-        const earningsThisTrip = raw?.data?.earningsThisTrip ?? raw?.data?.totalEarnings ?? 0;
+        const earningsThisTrip = raw?.data?.earningsThisTrip ?? raw?.data?.totalEarningsPesewas ?? 0;
         const safeEarnings = (typeof earningsThisTrip === 'number' && !isNaN(earningsThisTrip)) ? earningsThisTrip : 0;
-        addNotification({ type: 'COMPLETED', title: 'Trip completed!', body: `You earned GHS ${safeEarnings.toFixed(2)} from this trip.`, tripId: id });
+        addNotification({ type: 'COMPLETED', title: 'Trip completed!', body: `You earned ${formatGhs(safeEarnings)} from this trip.`, tripId: id });
         router.replace({ pathname: '/(trip)/complete/[id]', params: { id, earnings: String(safeEarnings) } } as Href);
         return;
       }
@@ -387,16 +388,20 @@ export default function ActiveTripScreen() {
   const statusCfg = TRIP_STATUS_CONFIG[trip.status] ?? { label: trip.status, color: colors.onSurfaceVariant };
   const rawBookings = trip.bookings ?? [];
   const total = trip.maxSeats ?? 14;
-  // farePerSeat IS the full passenger-facing fare (same value as booking.fareAmount) —
+  // farePerSeatPesewas IS the full passenger-facing fare (same value as booking.fareAmountPesewas) —
   // it is NOT the driver's net cut. Use the backend-computed commissionRate/
-  // driverEarningsPerSeat directly instead of guessing a split client-side.
-  const fullFare      = trip.farePerSeat ?? 0;
+  // driverEarningsPerSeatPesewas directly instead of guessing a split client-side.
+  const fullFare      = trip.farePerSeatPesewas ?? 0;
   const commissionRate = trip.commissionRate ?? 0.15;
-  const fare          = trip.driverEarningsPerSeat ?? parseFloat((fullFare * (1 - commissionRate)).toFixed(2));
+  // Integer pesewas: take the commission and keep the REMAINDER, exactly as
+  // the server does, so the fallback can never disagree with the receipt by a
+  // pesewa. `parseFloat(x.toFixed(2))` was the cedis-era way of saying this and
+  // is now both wrong (the values are pesewas) and unnecessary.
+  const fare          = trip.driverEarningsPerSeatPesewas ?? fullFare - Math.round(fullFare * commissionRate);
   const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
   const passengers = activeBookings.length;
   const grossEarnings = passengers * fullFare;
-  const platformFee   = passengers * (fullFare - fare);
+  const platformFeePesewas   = passengers * (fullFare - fare);
   const netEarnings   = passengers * fare;
   const seats = activeBookings.map((b: any) => ({
     seatNumber: b.seatNumber,
@@ -723,7 +728,7 @@ export default function ActiveTripScreen() {
               <Text style={styles.earningsTitle}>Earnings Estimate</Text>
               <View style={styles.earningsRow}>
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>Gross ({passengers} seats)</Text>
-                <Text variant="bodyMedium">GHS {grossEarnings.toFixed(2)}</Text>
+                <Text variant="bodyMedium">{formatGhs(grossEarnings)}</Text>
               </View>
               <View style={styles.earningsRow}>
                 {/* The percentage is READ from the same commissionRate the amount
@@ -735,11 +740,11 @@ export default function ActiveTripScreen() {
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                   Platform fee ({Math.round(commissionRate * 100)}%)
                 </Text>
-                <Text variant="bodyMedium" color={colors.error}>− GHS {platformFee.toFixed(2)}</Text>
+                <Text variant="bodyMedium" color={colors.error}>− {formatGhs(platformFeePesewas)}</Text>
               </View>
               <View style={[styles.earningsRow, styles.earningsNet]}>
                 <Text variant="label">Your earnings</Text>
-                <Text style={styles.earningsNetValue}>GHS {netEarnings.toFixed(2)}</Text>
+                <Text style={styles.earningsNetValue}>{formatGhs(netEarnings)}</Text>
               </View>
             </GradientGlowBorder>
           </Entrance>

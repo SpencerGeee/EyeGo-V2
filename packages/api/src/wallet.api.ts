@@ -2,7 +2,7 @@ import { apiClient } from './client';
 import type { ApiResponse } from '@eyego/types';
 
 export interface WalletBalance {
-  balance: number;
+  balancePesewas: number;
   currency: string;
   lastUpdated: string;
 }
@@ -12,14 +12,14 @@ export interface WalletTransaction {
   // Matches the literal values actually written by drivers.service.js /
   // wallet.service.js walletTransaction.create calls — not a generic CREDIT/DEBIT.
   type: 'TRIP_EARNING' | 'EARNINGS_CREDIT' | 'QUEST_BONUS' | 'COMMISSION_DEDUCTION' | 'TOP_UP' | 'WITHDRAWAL' | 'WITHDRAWAL_REVERSAL';
-  amount: number;
+  amountPesewas: number;
   description: string;
   reference?: string;
   createdAt: string;
 }
 
 export interface TopUpRequest {
-  amount: number;
+  amountPesewas: number;
   method: 'MOMO' | 'CARD';
   momoPhone?: string;
   email?: string;
@@ -59,7 +59,7 @@ export const walletApi = {
     ),
 
   // Send Money / Scan & Pay — wallet-to-wallet transfer by recipient phone.
-  sendMoney: (data: { recipientPhone: string; amount: number }, idempotencyKey?: string) =>
+  sendMoney: (data: { recipientPhone: string; amountPesewas: number }, idempotencyKey?: string) =>
     apiClient.post<ApiResponse<{ reference: string; recipientName: string }>>(
       '/wallet/send',
       data,
