@@ -10,6 +10,9 @@ const fareQuote = require('../../services/fare-quote.service');
 const scheduledTasks = require('../../services/scheduled-task.service');
 const supply = require('../../services/supply-index.service');
 const { isDriverAvailable } = require('../../services/driver-availability');
+// Settlement lives here and only here — see completeTrip below for why this is
+// a delegation rather than a second implementation.
+const tripsService = require('../trips/trips.service');
 const {
   TRIP_INCLUDE,
   buildTripSnapshot,
@@ -376,21 +379,45 @@ const startEnRoute = (d, t) => driverAdvance(d, t, S.DRIVER_EN_ROUTE);
 const markArrived = (d, t) => driverAdvance(d, t, S.ARRIVED_AT_PICKUP);
 const startTrip = (d, t) => driverAdvance(d, t, S.IN_PROGRESS);
 
+/**
+ * Complete a trip — and settle it.
+ *
+ * BUG THIS FIXES: THE DRIVER WAS NOT PAID.
+ *
+ * This used to run its own `applyTransition` to COMPLETED plus a booking
+ * sweep, and stop there. All of the money — the commission decrement, the
+ * wallet credit, the cash auto-settle for seats never marked boarded, the
+ * `WalletTransaction` ledger rows, the rider Receipts and the DriverReceipt —
+ * lives in `trips.service.completeTrip`, which was only ever reached through
+ * the legacy `driver:arrived` SOCKET event. The rewired driver app completes
+ * over `POST /rides/:id/complete`, which lands here. So on the new path the
+ * ride ended, the rider was charged, and nothing was credited to anyone: no
+ * earnings, no commission taken, no receipt, and a cash booking left
+ * `paymentStatus: PENDING` forever.
+ *
+ * The fix is delegation, not duplication. Two implementations of settlement
+ * is how the numbers drift apart — and `trips.service.completeTrip` already
+ * does the whole thing inside ONE transaction (so completion and payment
+ * settle or fail together), applies the transition itself via
+ * `applyTransitionTx`, and guards its own idempotency on the trip status.
+ * That guard is also why the transition cannot happen here first: this
+ * function marking the trip COMPLETED would make the settlement bail out
+ * early and move no money at all — precisely the failure documented at
+ * drivers.service.js's boardPassenger.
+ */
 async function completeTrip(driverId, tripId) {
   const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { driverId: true } });
   if (!trip) throw new NotFoundError('Trip');
   if (trip.driverId !== driverId) throw new AppError('Not your trip', 403, 'FORBIDDEN');
 
-  const { trip: updated } = await tripState.applyTransition(tripId, S.COMPLETED, {
-    actor: ACTOR.DRIVER,
-    actorId: driverId,
-    sideEffects: async (tx) => {
-      await tx.booking.updateMany({
-        where: { tripId, status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] } },
-        data: { status: 'COMPLETED' },
-      });
-    },
+  // Transition + booking closure + full settlement, in one transaction.
+  await tripsService.completeTrip(tripId);
+
+  const updated = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { status: true, version: true },
   });
+
   // Back into the pool, immediately, without waiting for the next ping.
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
@@ -399,7 +426,7 @@ async function completeTrip(driverId, tripId) {
   if (driver?.isOnline && driver.currentLat != null) {
     await supply.upsertDriver(driverId, driver.currentLat, driver.currentLng);
   }
-  return { tripId, status: updated.status, version: updated.version };
+  return { tripId, status: updated?.status ?? S.COMPLETED, version: updated?.version ?? 0 };
 }
 
 /**
