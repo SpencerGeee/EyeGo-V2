@@ -106,12 +106,12 @@ const envSchema = z.object({
   FREE_DEVIATION_KM: z.coerce.number().default(1.5),
   PLATFORM_COMMISSION: z.coerce.number().default(0.15),
   // The ONLY floor under a per-seat fare. A seat costs
-  // `(baseFare + perKmRate × km) × surge / maxSeats`, so on a 14-seater a short
+  // `(baseFarePesewas + perKmRatePesewas × km) × surge / maxSeats`, so on a 14-seater a short
   // urban hop divides down to a few pesewas — this stops that, and nothing else
   // does. Deliberately NOT the tier's base fare: tying the floor to the tier
   // meant the floor, not the distance, set the price on most shared trips, so
   // two trips of very different lengths cost the same. Tier separation comes
-  // from each tier's own baseFare AND perKmRate instead.
+  // from each tier's own baseFarePesewas AND perKmRatePesewas instead.
   MIN_FARE_PER_SEAT: z.coerce.number().default(3.0),
   MIN_OCCUPANCY_TO_DEPART: z.coerce.number().default(5),
   SEAT_HOLD_DURATION_MINUTES: z.coerce.number().default(10),
@@ -128,4 +128,51 @@ if (!_parsed.success) {
   process.exit(1);
 }
 
-module.exports = _parsed.data;
+// ── Money knobs cross the cedis→pesewas boundary exactly once, here ─────────
+//
+// A `.env` file is written by a human, so it stays in cedis: `ECO_BASE_FARE=5.00`
+// reads correctly and `ECO_BASE_FARE=500` would not. But nothing downstream is
+// allowed to see that decimal, so the cedis keys are DELETED from the exported
+// object and re-published under `…_PESEWAS` names.
+//
+// Deleting rather than keeping both is the point. If `env.ECO_BASE_FARE` still
+// resolved to 5.0, every fare formula that was not converted would keep working
+// and quietly price rides at one hundredth of the intended amount. Now those
+// lines read `undefined` and blow up on the first request, which is the only
+// failure mode that gets noticed before a rider is charged.
+const { fromCedis } = require('../utils/money');
+
+const {
+  // Destructured out so they CANNOT appear on the exported object. Listed one
+  // by one rather than looped so both a reader and the type-checker can see
+  // exactly which knobs are money.
+  ECO_BASE_FARE,
+  ECO_PER_KM_RATE,
+  COMFORT_BASE_FARE,
+  COMFORT_PER_KM_RATE,
+  PREMIUM_BASE_FARE,
+  PREMIUM_PER_KM_RATE,
+  DOORSTEP_SURCHARGE,
+  HEAVY_LOAD_SURCHARGE,
+  MIN_FARE_PER_SEAT,
+  DRIVER_MIN_WALLET_BALANCE,
+  DRIVER_REQUIRED_WALLET_TO_GO_ONLINE,
+  DRIVER_MIN_WITHDRAWAL,
+  ...rest
+} = _parsed.data;
+
+module.exports = {
+  ...rest,
+  ECO_BASE_FARE_PESEWAS: fromCedis(ECO_BASE_FARE),
+  ECO_PER_KM_RATE_PESEWAS: fromCedis(ECO_PER_KM_RATE),
+  COMFORT_BASE_FARE_PESEWAS: fromCedis(COMFORT_BASE_FARE),
+  COMFORT_PER_KM_RATE_PESEWAS: fromCedis(COMFORT_PER_KM_RATE),
+  PREMIUM_BASE_FARE_PESEWAS: fromCedis(PREMIUM_BASE_FARE),
+  PREMIUM_PER_KM_RATE_PESEWAS: fromCedis(PREMIUM_PER_KM_RATE),
+  DOORSTEP_SURCHARGE_PESEWAS: fromCedis(DOORSTEP_SURCHARGE),
+  HEAVY_LOAD_SURCHARGE_PESEWAS: fromCedis(HEAVY_LOAD_SURCHARGE),
+  MIN_FARE_PER_SEAT_PESEWAS: fromCedis(MIN_FARE_PER_SEAT),
+  DRIVER_MIN_WALLET_BALANCE_PESEWAS: fromCedis(DRIVER_MIN_WALLET_BALANCE),
+  DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS: fromCedis(DRIVER_REQUIRED_WALLET_TO_GO_ONLINE),
+  DRIVER_MIN_WITHDRAWAL_PESEWAS: fromCedis(DRIVER_MIN_WITHDRAWAL),
+};

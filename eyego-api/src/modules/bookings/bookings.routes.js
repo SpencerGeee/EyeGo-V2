@@ -34,7 +34,7 @@ router.post('/:bookingId/apply-promo', controller.applyPromoCode);
 router.post('/:bookingId/dispute', controller.submitDispute);
 // Group-hub joiner setting/changing their own pickup point — pre-payment only.
 // Validated: a malformed/missing lat or lng must 400 here, not flow through as
-// NaN into the booking's recomputed fareAmount/commissionAmount.
+// NaN into the booking's recomputed fareAmountPesewas/commissionAmountPesewas.
 router.patch(
   '/:bookingId/pickup',
   body('lat').isFloat({ min: -90, max: 90 }),

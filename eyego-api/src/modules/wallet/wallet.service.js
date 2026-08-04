@@ -5,7 +5,17 @@ const prisma = require('../../config/database');
 const env = require('../../config/env');
 const paystack = require('../payments/paystack.client');
 const { AppError, NotFoundError } = require('../../utils/errors');
-const { toCedis } = require('../../utils/money');
+const { assertPesewas, formatGhs } = require('../../utils/money');
+
+/**
+ * Every amount crossing this module is an integer number of pesewas.
+ *
+ * `toCedis()` used to round each write to 2dp, which was the best that could be
+ * done while the balance was a float. It is gone: there is nothing to round.
+ * `balanceAfter = balanceBefore ± amount` is now an exact identity, which is
+ * what makes the ledger auditable — you can re-add every row and land on the
+ * balance, to the pesewa.
+ */
 
 // `transactionLimit` defaults to 50 for callers that just want a quick recent
 // snapshot (getBalance), but getTransactions needs to fetch enough rows to
@@ -14,7 +24,7 @@ const { toCedis } = require('../../utils/money');
 async function getWallet(driverId, transactionLimit = 50) {
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
-    select: { walletBalance: true },
+    select: { walletBalancePesewas: true },
   });
   if (!driver) throw new NotFoundError('Driver');
 
@@ -24,10 +34,11 @@ async function getWallet(driverId, transactionLimit = 50) {
     take: Math.min(transactionLimit, 500),
   });
 
-  return { balance: driver.walletBalance, transactions };
+  return { balancePesewas: driver.walletBalancePesewas, transactions };
 }
 
-async function topUp(driverId, amount) {
+async function topUp(driverId, amountPesewas) {
+  assertPesewas(amountPesewas, 'top-up amount');
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
 
@@ -36,7 +47,7 @@ async function topUp(driverId, amount) {
   // Initiate Paystack charge for the driver's wallet top-up
   const result = await paystack.initiateMomoCharge({
     email: `${driver.phone}@eyego.app`,
-    amount,
+    amountPesewas,
     phone: driver.phone,
     method: 'MOMO_MTN', // driver can choose on frontend
     reference,
@@ -46,8 +57,8 @@ async function topUp(driverId, amount) {
   return { reference, ...result };
 }
 
-async function confirmTopUp(driverId, reference, amount) {
-  const safeAmount = toCedis(amount);
+async function confirmTopUp(driverId, reference, amountPesewas) {
+  const safeAmount = assertPesewas(amountPesewas, 'top-up amount');
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
 
@@ -62,27 +73,32 @@ async function confirmTopUp(driverId, reference, amount) {
 
     await tx.driver.update({
       where: { id: driverId },
-      data: { walletBalance: { increment: safeAmount } },
+      data: { walletBalancePesewas: { increment: safeAmount } },
     });
 
     await tx.walletTransaction.create({
       data: {
         driverId,
         type: 'TOP_UP',
-        amount: safeAmount,
+        amountPesewas: safeAmount,
         description: 'Wallet top-up via MoMo',
-        balanceBefore: driver.walletBalance,
-        balanceAfter: toCedis(driver.walletBalance + safeAmount),
+        balanceBeforePesewas: driver.walletBalancePesewas,
+        balanceAfterPesewas: driver.walletBalancePesewas + safeAmount,
         paystackRef: reference,
       },
     });
   });
 }
 
-async function withdraw(driverId, amount) {
-  const safeAmount = toCedis(amount);
-  if (safeAmount < env.DRIVER_MIN_WITHDRAWAL) {
-    throw new AppError(`Minimum withdrawal is GHS ${env.DRIVER_MIN_WITHDRAWAL}`, 400);
+async function withdraw(driverId, amountPesewas) {
+  const safeAmount = assertPesewas(amountPesewas, 'withdrawal amount');
+  if (safeAmount < env.DRIVER_MIN_WITHDRAWAL_PESEWAS) {
+    // Formatted, not raw: the threshold is 2000 pesewas and a driver told
+    // "Minimum withdrawal is GHS 2000" would reasonably close the app.
+    throw new AppError(
+      `Minimum withdrawal is ${formatGhs(env.DRIVER_MIN_WITHDRAWAL_PESEWAS)}`,
+      400,
+    );
   }
 
   const reference = `withdrawal_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
@@ -93,12 +109,12 @@ async function withdraw(driverId, amount) {
   // inside a DB transaction hold locks and can leave the DB in an inconsistent state
   // if the network call hangs or fails partway through.
   const driver = await prisma.$transaction(async (tx) => {
-    const current = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalance: true, name: true, phone: true } });
+    const current = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true, name: true, phone: true } });
     if (!current) throw new NotFoundError('Driver');
 
     const updated = await tx.driver.updateMany({
-      where: { id: driverId, walletBalance: { gte: safeAmount } },
-      data: { walletBalance: { decrement: safeAmount } },
+      where: { id: driverId, walletBalancePesewas: { gte: safeAmount } },
+      data: { walletBalancePesewas: { decrement: safeAmount } },
     });
 
     if (updated.count === 0) {
@@ -109,10 +125,10 @@ async function withdraw(driverId, amount) {
       data: {
         driverId,
         type: 'WITHDRAWAL',
-        amount: safeAmount,
+        amountPesewas: safeAmount,
         description: 'Withdrawal to MoMo',
-        balanceBefore: current.walletBalance,
-        balanceAfter: toCedis(current.walletBalance - safeAmount),
+        balanceBeforePesewas: current.walletBalancePesewas,
+        balanceAfterPesewas: current.walletBalancePesewas - safeAmount,
         paystackRef: reference,
       },
     });
@@ -147,29 +163,31 @@ async function withdraw(driverId, amount) {
     const recipient = await paystack.createTransferRecipient(recipientParams);
 
     await paystack.initiateTransfer({
-      amount: safeAmount,
+      amountPesewas: safeAmount,
       recipient: recipient.data.recipient_code,
       reason: 'EyeGo Driver earnings withdrawal',
       reference,
     });
   } catch (paystackErr) {
     // Compensating transaction — credit wallet back and record the reversal.
-    // Must use safeAmount (the exact rounded figure that was debited in step 1),
-    // not the raw request `amount` — crediting back an unrounded value here would
-    // leave the driver's wallet permanently off by a fraction of a pesewa.
+    // Must use safeAmount, the exact integer that was debited in step 1. (When
+    // this was floating-point cedis the note here warned about crediting back
+    // an unrounded value and leaving the wallet off by a fraction of a pesewa;
+    // integers make that impossible, but the debit and the credit must still
+    // be literally the same number, not two computations of it.)
     await prisma.$transaction(async (tx) => {
       await tx.driver.update({
         where: { id: driverId },
-        data: { walletBalance: { increment: safeAmount } },
+        data: { walletBalancePesewas: { increment: safeAmount } },
       });
       await tx.walletTransaction.create({
         data: {
           driverId,
           type: 'WITHDRAWAL_REVERSAL',
-          amount: safeAmount,
+          amountPesewas: safeAmount,
           description: 'Withdrawal reversal — Paystack transfer failed',
-          balanceBefore: driver.walletBalance - safeAmount,
-          balanceAfter: driver.walletBalance,
+          balanceBeforePesewas: driver.walletBalancePesewas - safeAmount,
+          balanceAfterPesewas: driver.walletBalancePesewas,
           paystackRef: `${reference}_reversal`,
         },
       });
@@ -180,11 +198,11 @@ async function withdraw(driverId, amount) {
   // notifications.lowWallet was defined but never called — nudge the driver if this
   // withdrawal took them below the minimum required to go online.
   const pushService = require('../../services/push.service');
-  const remaining = driver.walletBalance - safeAmount;
-  const lowBalanceThreshold = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE ?? 20;
+  const remaining = driver.walletBalancePesewas - safeAmount;
+  const lowBalanceThreshold = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
   if (remaining < lowBalanceThreshold) {
     prisma.driver.findUnique({ where: { id: driverId }, select: { fcmToken: true } })
-      .then((d) => { if (d?.fcmToken) pushService.notifications.lowWallet(d.fcmToken, remaining.toFixed(2)); })
+      .then((d) => { if (d?.fcmToken) pushService.notifications.lowWallet(d.fcmToken, remaining); })
       .catch(() => {});
   }
 

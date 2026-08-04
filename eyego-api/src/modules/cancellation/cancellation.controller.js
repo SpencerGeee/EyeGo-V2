@@ -1,18 +1,20 @@
 'use strict';
 
+const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
+
 const cancellationService = require('./cancellation.service');
 const { ok } = require('../../utils/response');
 
 const getCancellationFee = async (req, res) => {
   const fee = await cancellationService.calculateCancellationFee(req.params.bookingId, req.user.userId);
-  ok(res, { cancellationFee: fee });
+  ok(res, { cancellationFeePesewas: fee });
 };
 
 const cancelBookingWithFee = async (req, res) => {
   const { reason, note } = req.body || {};
   const result = await cancellationService.cancelBookingWithFee(req.params.bookingId, req.user.userId, { reason, note });
-  ok(res, result, result.cancellationFee
-    ? `Booking cancelled. GHS ${result.cancellationFee.toFixed(2)} cancellation fee applied.`
+  ok(res, result, result.cancellationFeePesewas
+    ? `Booking cancelled. ${formatGhs(result.cancellationFeePesewas)} cancellation fee applied.`
     : 'Booking cancelled. Full refund processed.');
 };
 

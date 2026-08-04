@@ -147,8 +147,8 @@ async function requestRide(userId, body) {
           dropoffAddress,
           departureTime: new Date(),
           requestedAt: new Date(),
-          baseFare: quote.breakdown.baseFare,
-          perKmRate: quote.breakdown.perKmRate,
+          baseFarePesewas: quote.breakdown.baseFarePesewas,
+          perKmRatePesewas: quote.breakdown.perKmRatePesewas,
           surgeMultiplier: quote.surgeMultiplier,
           commissionRate: quote.breakdown.commissionRate,
           maxSeats: 1,
@@ -163,8 +163,8 @@ async function requestRide(userId, body) {
           tripId: created.id,
           userId,
           seatNumber: 1,
-          fareAmount: quote.amount,
-          commissionAmount: quote.breakdown.commissionPerSeat,
+          fareAmountPesewas: quote.amountPesewas,
+          commissionAmountPesewas: quote.breakdown.commissionPerSeatPesewas,
           paymentMethod,
           paymentStatus: 'PENDING',
           status: 'CONFIRMED',
@@ -183,7 +183,7 @@ async function requestRide(userId, body) {
           actorId: userId,
           payload: {
             quoteId,
-            amount: quote.amount,
+            amountPesewas: quote.amountPesewas,
             distanceKm: quote.distanceKm,
             surgeMultiplier: quote.surgeMultiplier,
           },
@@ -454,7 +454,7 @@ async function getDriverState(driverId) {
   const [driver, trip] = await Promise.all([
     prisma.driver.findUnique({
       where: { id: driverId },
-      select: { id: true, name: true, status: true, isOnline: true, currentLat: true, currentLng: true, walletBalance: true },
+      select: { id: true, name: true, status: true, isOnline: true, currentLat: true, currentLng: true, walletBalancePesewas: true },
     }),
     findActiveTripForDriver(driverId),
   ]);
@@ -468,7 +468,7 @@ async function getDriverState(driverId) {
       isOnline: driver.isOnline,
       lat: driver.currentLat,
       lng: driver.currentLng,
-      walletBalance: driver.walletBalance,
+      walletBalancePesewas: driver.walletBalancePesewas,
     },
     trip: trip ? buildTripSnapshot(trip, {}) : null,
     serverNowMs: Date.now(),

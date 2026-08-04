@@ -33,7 +33,28 @@ const { getSurgeMultiplier } = require('../modules/trips/surge.service');
  */
 
 const QUOTE_TTL_SECONDS = parseInt(process.env.FARE_QUOTE_TTL_SECONDS, 10) || 120;
-const SECRET = env.JWT_SECRET || process.env.JWT_SECRET;
+
+/**
+ * The HMAC key.
+ *
+ * This read `env.JWT_SECRET`, which IS NOT A KEY IN THE ENV SCHEMA — the
+ * schema defines `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`, and zod strips
+ * anything it does not define. So `SECRET` was `undefined`, and
+ * `crypto.createHmac('sha256', undefined)` throws a TypeError: EVERY call to
+ * `createQuote` failed with a 500 before it priced anything, which meant no
+ * rider could get as far as a fare on the request screen.
+ *
+ * Asserted at load rather than defaulted. A quote signed with a fallback
+ * secret is a quote anyone can mint, and this file exists specifically to stop
+ * a client naming its own price.
+ */
+const SECRET = env.JWT_ACCESS_SECRET;
+if (!SECRET) {
+  throw new Error(
+    'fare-quote.service: JWT_ACCESS_SECRET is required to sign fare quotes. ' +
+      'Without it a quote is unverifiable and a client could name its own price.',
+  );
+}
 const quoteKey = (id) => `fare:quote:${id}`;
 
 /** The exact fields the price depends on. Anything not here cannot change it. */
@@ -50,7 +71,11 @@ function canonicalInputs(q) {
     q.heavyLoad ? 1 : 0,
     q.distanceKm.toFixed(3),
     q.surgeMultiplier.toFixed(2),
-    q.amount,
+    // An integer number of pesewas, so it signs as itself. When this was a
+    // float the signed text was whatever `JSON.stringify` chose to print for
+    // it, and a value that re-derived as 25.500000000000004 on the redeem side
+    // would fail its own signature check for no visible reason.
+    q.amountPesewas,
   ]);
 }
 
@@ -97,10 +122,10 @@ async function createQuote({
   });
 
   // An on-demand ride is priced as one seat = the whole car, so per-person and
-  // total are the same number. Taking `farePerPerson` (not `totalTripCost`)
+  // total are the same number. Taking `farePerPersonPesewas` (not `totalTripCostPesewas`)
   // keeps this identical to the one fare formula every other surface uses.
-  const amount = fare.farePerPerson;
-  if (!Number.isFinite(amount) || amount <= 0) {
+  const amountPesewas = fare.farePerPersonPesewas;
+  if (!Number.isInteger(amountPesewas) || amountPesewas <= 0) {
     throw new AppError('Fare could not be calculated for this trip', 422, 'FARE_UNAVAILABLE');
   }
 
@@ -117,7 +142,7 @@ async function createQuote({
     heavyLoad,
     distanceKm,
     surgeMultiplier,
-    amount,
+    amountPesewas,
   };
   const quoteId = sign(canonicalInputs(priced));
 
@@ -130,7 +155,7 @@ async function createQuote({
 
   return {
     quoteId,
-    amount,
+    amountPesewas,
     currency: 'GHS',
     distanceKm,
     surgeMultiplier,

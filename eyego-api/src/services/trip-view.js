@@ -39,7 +39,7 @@ const TRIP_INCLUDE = Object.freeze({
       id: true,
       userId: true,
       seatNumber: true,
-      fareAmount: true,
+      fareAmountPesewas: true,
       paymentMethod: true,
       paymentStatus: true,
       status: true,
@@ -118,12 +118,17 @@ function buildTripSnapshot(trip, viewer = {}) {
 
     seats: { confirmed: trip.confirmedSeats, max: trip.maxSeats },
 
+    // Every number in here is an INTEGER NUMBER OF PESEWAS, hence the suffixes.
+    // The client formats with `formatGhs` and never does arithmetic on them —
+    // a client that adds up fares has to pick a rounding rule, and it will pick
+    // a different one from the server that issues the receipt.
     fare: {
-      base: trip.baseFare,
-      perKm: trip.perKmRate,
+      basePesewas: trip.baseFarePesewas,
+      perKmPesewas: trip.perKmRatePesewas,
+      // Not money: a dimensionless multiplier, so no suffix and no rounding.
       surge: trip.surgeMultiplier,
       // The rider's own money for this ride. Null for a driver viewing it.
-      amount: myBooking ? myBooking.fareAmount : null,
+      amountPesewas: myBooking ? myBooking.fareAmountPesewas : null,
       paymentMethod: myBooking ? myBooking.paymentMethod : null,
       paymentStatus: myBooking ? myBooking.paymentStatus : null,
     },

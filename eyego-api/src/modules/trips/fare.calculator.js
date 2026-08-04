@@ -1,6 +1,20 @@
 'use strict';
 
 const env = require('../../config/env');
+const { assertPesewas, percentOf } = require('../../utils/money');
+
+/**
+ * FARE IS COMPUTED IN INTEGER PESEWAS, END TO END.
+ *
+ * Every amount in and out of this file is an integer number of pesewas
+ * (1 GH₵ = 100). Nothing here rounds to two decimals, because there are no
+ * decimals: `Math.round` lands on a whole pesewa and that is the smallest unit
+ * that exists. See ../../utils/money.js.
+ *
+ * The output keys carry the `Pesewas` suffix for the same reason the columns
+ * do — a caller that was not updated gets `undefined` and fails loudly, rather
+ * than reading a number that is silently 100× off.
+ */
 
 /**
  * Haversine distance between two lat/lng points in kilometres.
@@ -25,9 +39,10 @@ function haversineKm(lat1, lng1, lat2, lng2) {
  * (trip.maxSeats).  Dividing by this fixed value keeps the per-person price
  * stable regardless of how many seats have been booked so far.
  *
- * Pass `storedBaseFare` and `storedPerKmRate` (from trip.baseFare / trip.perKmRate)
- * when computing the fare for an *existing* trip so that rates locked in at
- * creation time are used — not whatever the env currently says.
+ * Pass `storedBaseFarePesewas` and `storedPerKmRatePesewas` (from
+ * trip.baseFarePesewas / trip.perKmRatePesewas) when computing the fare for an
+ * *existing* trip so that rates locked in at creation time are used — not
+ * whatever the env currently says.
  */
 function calculateFare({
   tier,
@@ -36,33 +51,47 @@ function calculateFare({
   doorstepPickup = false,
   heavyLoad = false,
   surgeMultiplier = 1.0,
-  storedBaseFare,
-  storedPerKmRate,
+  storedBaseFarePesewas,
+  storedPerKmRatePesewas,
 }) {
   const rates = {
-    ECO: [env.ECO_BASE_FARE, env.ECO_PER_KM_RATE],
-    COMFORT: [env.COMFORT_BASE_FARE, env.COMFORT_PER_KM_RATE],
-    PREMIUM: [env.PREMIUM_BASE_FARE, env.PREMIUM_PER_KM_RATE],
+    ECO: [env.ECO_BASE_FARE_PESEWAS, env.ECO_PER_KM_RATE_PESEWAS],
+    COMFORT: [env.COMFORT_BASE_FARE_PESEWAS, env.COMFORT_PER_KM_RATE_PESEWAS],
+    PREMIUM: [env.PREMIUM_BASE_FARE_PESEWAS, env.PREMIUM_PER_KM_RATE_PESEWAS],
   };
   // Normalize aliases (e.g. the driver app's 'ECONOMY' tier value) to the
   // canonical rate-table keys instead of silently falling back to ECO for
   // any unrecognized string, which masked tier mismatches.
   const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
   const [tierBaseFare, tierPerKmRate] = rates[normalizedTier];
-  const baseFare = storedBaseFare != null ? storedBaseFare : tierBaseFare;
-  const perKmRate = storedPerKmRate != null ? storedPerKmRate : tierPerKmRate;
+  const baseFarePesewas = storedBaseFarePesewas != null ? storedBaseFarePesewas : tierBaseFare;
+  const perKmRatePesewas = storedPerKmRatePesewas != null ? storedPerKmRatePesewas : tierPerKmRate;
 
-  const doorstepSurcharge = doorstepPickup ? env.DOORSTEP_SURCHARGE : 0;
-  const heavyLoadSurcharge = heavyLoad ? env.HEAVY_LOAD_SURCHARGE : 0;
+  assertPesewas(baseFarePesewas, 'baseFarePesewas');
+  assertPesewas(perKmRatePesewas, 'perKmRatePesewas');
+  if (!Number.isFinite(distanceKm) || distanceKm < 0) {
+    throw new Error(`distanceKm must be a non-negative number, got ${distanceKm}`);
+  }
+
+  const doorstepSurcharge = doorstepPickup ? env.DOORSTEP_SURCHARGE_PESEWAS : 0;
+  const heavyLoadSurcharge = heavyLoad ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
 
   // ── The whole pricing model, in two lines ────────────────────────────────
   // The TRIP costs what the distance says it costs; a SEAT costs that divided by
   // the seats the driver put on sale. Nothing else varies it, which is what makes
   // the same trip quote the same number in the driver app, the rider app, the
   // booking charge and the receipt.
-  const totalTripCost = (baseFare + perKmRate * distanceKm) * surgeMultiplier + doorstepSurcharge + heavyLoadSurcharge;
-  const seats = Math.max(seatCount, 1);
-  const farePerPerson = totalTripCost / seats;
+  //
+  // `perKmRatePesewas * distanceKm` is the one genuinely fractional term — distance is
+  // a real measurement, not a currency — so it is rounded to the pesewa the
+  // moment it becomes money and stays integral from there on.
+  const distanceComponent = Math.round(perKmRatePesewas * distanceKm);
+  const totalTripCostPesewas =
+    Math.round((baseFarePesewas + distanceComponent) * surgeMultiplier) +
+    doorstepSurcharge +
+    heavyLoadSurcharge;
+  const seats = Math.max(Math.trunc(seatCount) || 1, 1);
+  const farePerPersonPesewas = Math.round(totalTripCostPesewas / seats);
 
   // Floor: one small platform-wide minimum, NOT the tier's base fare.
   //
@@ -75,27 +104,34 @@ function calculateFare({
   // fare is the unit), so ECO < COMFORT < PREMIUM still holds on the short trips
   // where the floor binds — without the floor being large enough to flatten the
   // distance component the way `tierBaseFare` did.
-  const tierFloorMultiplier = env.ECO_BASE_FARE > 0 ? tierBaseFare / env.ECO_BASE_FARE : 1;
-  const minFarePerSeat = round(env.MIN_FARE_PER_SEAT * tierFloorMultiplier);
-  const finalFare = Math.max(farePerPerson, minFarePerSeat);
+  const tierFloorMultiplier =
+    env.ECO_BASE_FARE_PESEWAS > 0 ? tierBaseFare / env.ECO_BASE_FARE_PESEWAS : 1;
+  const minFarePerSeatPesewas = Math.round(env.MIN_FARE_PER_SEAT_PESEWAS * tierFloorMultiplier);
+  const finalFare = Math.max(farePerPersonPesewas, minFarePerSeatPesewas);
+
+  // Commission is taken from the per-seat fare and the driver gets the
+  // REMAINDER, not an independently-rounded 85%. Rounding both sides
+  // separately can leave the two halves failing to add back up to the fare by
+  // a pesewa, which is precisely how a ledger stops balancing.
+  const commissionPerSeatPesewas = percentOf(finalFare, env.PLATFORM_COMMISSION);
 
   return {
     // Re-derived from the (possibly floored) per-seat fare so the total shown to
     // the driver is always exactly seats × what each rider pays.
-    totalTripCost: round(finalFare * seats),
-    farePerPerson: round(finalFare),
-    commissionPerSeat: round(finalFare * env.PLATFORM_COMMISSION),
-    driverEarningsPerSeat: round(finalFare * (1 - env.PLATFORM_COMMISSION)),
+    totalTripCostPesewas: finalFare * seats,
+    farePerPersonPesewas: finalFare,
+    commissionPerSeatPesewas,
+    driverEarningsPerSeatPesewas: finalFare - commissionPerSeatPesewas,
     // Echoed back so clients can show a breakdown without recomputing anything —
     // a client that recomputes is a client that can disagree.
-    distanceKm: round(distanceKm),
+    distanceKm: Math.round(distanceKm * 100) / 100,
     seatCount: seats,
-    baseFare,
-    perKmRate,
+    baseFarePesewas,
+    perKmRatePesewas,
     surgeMultiplier,
     commissionRate: env.PLATFORM_COMMISSION,
-    minFarePerSeat,
-    floorApplied: farePerPerson < minFarePerSeat,
+    minFarePerSeatPesewas,
+    floorApplied: farePerPersonPesewas < minFarePerSeatPesewas,
   };
 }
 
@@ -110,8 +146,8 @@ function estimateFare({
   doorstepPickup = false,
   heavyLoad = false,
   surgeMultiplier = 1.0,
-  storedBaseFare,
-  storedPerKmRate,
+  storedBaseFarePesewas,
+  storedPerKmRatePesewas,
   availableSeats = 4,
 }) {
   return calculateFare({
@@ -121,8 +157,8 @@ function estimateFare({
     doorstepPickup,
     heavyLoad,
     surgeMultiplier,
-    storedBaseFare,
-    storedPerKmRate,
+    storedBaseFarePesewas,
+    storedPerKmRatePesewas,
   });
 }
 
@@ -131,20 +167,30 @@ function estimateFare({
  * The discount is proportional to the remaining distance from the stop to the
  * route's destination.
  *
- * @param {number} fullFarePerSeat  - Full per-seat fare for the trip
+ * @param {number} fullFarePerSeatPesewas - Full per-seat fare for the trip
  * @param {number} stopLat          - Virtual stop latitude
  * @param {number} stopLng          - Virtual stop longitude
  * @param {number} destLat          - Route destination latitude
  * @param {number} destLng          - Route destination longitude
  * @param {number} totalRouteKm     - Total route distance in km
- * @returns {{ farePerSeat: number, ratio: number }}
+ * @returns {{ farePerSeatPesewas: number, ratio: number }}
  */
-function calculateEnRouteFare({ fullFarePerSeat, stopLat, stopLng, destLat, destLng, totalRouteKm }) {
+function calculateEnRouteFare({
+  fullFarePerSeatPesewas,
+  stopLat,
+  stopLng,
+  destLat,
+  destLng,
+  totalRouteKm,
+}) {
+  assertPesewas(fullFarePerSeatPesewas, 'fullFarePerSeatPesewas');
   const remainingKm = haversineKm(stopLat, stopLng, destLat, destLng);
   const ratio = totalRouteKm > 0 ? Math.min(remainingKm / totalRouteKm, 1.0) : 1.0;
   return {
-    farePerSeat: round(fullFarePerSeat * ratio),
-    ratio: round(ratio),
+    farePerSeatPesewas: Math.round(fullFarePerSeatPesewas * ratio),
+    // The ratio is stored alongside the fare so a receipt can explain the
+    // discount; it is a proportion, not money, so it keeps its decimals.
+    ratio: Math.round(ratio * 10000) / 10000,
   };
 }
 
@@ -162,13 +208,14 @@ function detourKm({ fromLat, fromLng, viaLat, viaLng, toLat, toLng }) {
  * pickup (e.g. friends booked via invite link scattered across town). Free for
  * small, reasonable detours — only a genuinely large diversion adds to the fare.
  */
-function calculateDeviationSurcharge({ extraKm, perKmRate, freeKm = env.FREE_DEVIATION_KM }) {
-  if (extraKm <= freeKm) return 0;
-  return round((extraKm - freeKm) * perKmRate);
-}
-
-function round(n) {
-  return Math.round(n * 100) / 100;
+function calculateDeviationSurcharge({
+  extraKm,
+  perKmRatePesewas,
+  freeKm = env.FREE_DEVIATION_KM,
+}) {
+  assertPesewas(perKmRatePesewas, 'perKmRatePesewas');
+  if (!(extraKm > freeKm)) return 0;
+  return Math.round((extraKm - freeKm) * perKmRatePesewas);
 }
 
 module.exports = { calculateFare, estimateFare, calculateEnRouteFare, haversineKm, detourKm, calculateDeviationSurcharge };

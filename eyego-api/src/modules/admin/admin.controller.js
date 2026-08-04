@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, percentOf, assertPesewas } = require('../../utils/money');
+
 const adminService = require('./admin.service');
 const driversService = require('../drivers/drivers.service');
 const env = require('../../config/env');
@@ -199,14 +201,14 @@ const assignDriver = async (req, res) => {
   try {
     const io = req.app.get('io');
     if (io) {
-      const earnings = trip.bookings?.reduce((s, b) => s + (b.fareAmount || 0), 0) || 0;
+      const earnings = trip.bookings?.reduce((s, b) => s + (b.fareAmountPesewas || 0), 0) || 0;
       io.of('/driver').to(`driver:${driverId}`).emit('trip:assigned', {
         tripId: trip.id,
         tripShortId: trip.shortId?.slice(0, 8) || trip.id.slice(0, 8),
         routeOrigin: trip.route?.originName || '—',
         routeDestination: trip.route?.destinationName || '—',
         departureTime: trip.departureTime,
-        estimatedEarnings: Math.round(earnings * (1 - env.PLATFORM_COMMISSION) * 100) / 100, // driver cut after platform commission
+        estimatedEarningsPesewas: earnings - percentOf(earnings, env.PLATFORM_COMMISSION), // driver cut after platform commission
         seatCount: trip.maxSeats || 0,
         bookedCount: (trip.bookings || []).length,
         expiresAt: new Date(Date.now() + 120 * 1000).toISOString(), // 2 min to accept

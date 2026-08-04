@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs } = require('../utils/money');
+
 const AfricasTalking = require('africastalking');
 const env = require('../config/env');
 const logger = require('../utils/logger');
@@ -38,13 +40,16 @@ async function sendOtp(phone, otp) {
   return sendSms(phone, message);
 }
 
-async function sendRideInvite(phone, tripShortId, destination, seatNumber, fare, shareUrl) {
-  const message = `You've been invited to an EyeGo ride!\nTo: ${destination}\nSeat: ${seatNumber}\nFare: GHS ${fare}\nJoin here: ${shareUrl}`;
+// Both take PESEWAS and format here — see the note in push.service.js. An SMS
+// that quotes the wrong fare is worse than most bugs: it is the number the
+// rider turns up with in cash.
+async function sendRideInvite(phone, tripShortId, destination, seatNumber, farePesewas, shareUrl) {
+  const message = `You've been invited to an EyeGo ride!\nTo: ${destination}\nSeat: ${seatNumber}\nFare: ${formatGhs(farePesewas)}\nJoin here: ${shareUrl}`;
   return sendSms(phone, message);
 }
 
-async function sendOfflinePassengerOtp(phone, tripShortId, destination, seatNumber, fareAmount, otp) {
-  const message = `EyeGo Ride #${tripShortId}\nTo: ${destination}\nSeat: ${seatNumber}\nFare: GHS ${fareAmount}\nCode: ${otp}\nShow this code to your driver.`;
+async function sendOfflinePassengerOtp(phone, tripShortId, destination, seatNumber, fareAmountPesewas, otp) {
+  const message = `EyeGo Ride #${tripShortId}\nTo: ${destination}\nSeat: ${seatNumber}\nFare: ${formatGhs(fareAmountPesewas)}\nCode: ${otp}\nShow this code to your driver.`;
   return sendSms(phone, message);
 }
 

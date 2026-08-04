@@ -21,7 +21,7 @@ const resolvers = {
           email: true,
           profilePhoto: true,
           preferredTier: true,
-          walletBalance: true,
+          walletBalancePesewas: true,
           createdAt: true,
         },
       });
@@ -46,7 +46,7 @@ const resolvers = {
             id: true,
             status: true,
             paymentStatus: true,
-            fareAmount: true,
+            fareAmountPesewas: true,
             paymentMethod: true,
             seatNumber: true,
             createdAt: true,
@@ -116,23 +116,23 @@ const resolvers = {
           departureTime: true,
           bookings: {
             where: { paymentStatus: 'PAID' },
-            select: { fareAmount: true, commissionAmount: true },
+            select: { fareAmountPesewas: true, commissionAmountPesewas: true },
           },
         },
       });
 
       const dayMap = new Map();
-      let totalEarnings = 0;
+      let totalEarningsPesewas = 0;
       let totalTrips = 0;
 
       for (const trip of trips) {
         const tripNet = trip.bookings.reduce(
-          (sum, b) => sum + (b.fareAmount - b.commissionAmount),
+          (sum, b) => sum + (b.fareAmountPesewas - b.commissionAmountPesewas),
           0
         );
         if (trip.bookings.length === 0) continue;
 
-        totalEarnings += tripNet;
+        totalEarningsPesewas += tripNet;
         totalTrips++;
 
         const dateKey = (trip.arrivedAt ?? trip.departureTime).toISOString().split('T')[0];
@@ -143,9 +143,9 @@ const resolvers = {
       }
 
       return {
-        total: totalEarnings,
+        total: totalEarningsPesewas,
         tripCount: totalTrips,
-        avgPerTrip: totalTrips > 0 ? totalEarnings / totalTrips : 0,
+        avgPerTrip: totalTrips > 0 ? totalEarningsPesewas / totalTrips : 0,
         period,
         breakdown: Array.from(dayMap.values()),
       };

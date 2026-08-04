@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs } = require('../utils/money');
+
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
@@ -146,16 +148,21 @@ const notifications = {
       ? sendPush(token, 'EyeGo is here!', `Your van is waiting at ${stopName}`, { type: 'DRIVER_ARRIVED', tripId: tripId || '', bookingId: bookingId || '' })
       : null,
 
-  rideComplete: (token, savedAmount, notificationPrefs, bookingId) =>
+  // Takes PESEWAS and formats here, rather than accepting a pre-formatted
+  // string from the caller. Callers were passing `x.toFixed(2)` into a template
+  // that already said "GHS", so the moment one of them started passing a
+  // formatted value the copy read "GHS GH₵15.00". One place decides how money
+  // looks.
+  rideComplete: (token, savedAmountPesewas, notificationPrefs, bookingId) =>
     prefAllows(notificationPrefs, 'tripCompleted')
-      ? sendPush(token, 'Ride complete', `Rate your trip. You saved GHS ${savedAmount} vs a private ride.`, { type: 'RIDE_COMPLETE', bookingId: bookingId || '' })
+      ? sendPush(token, 'Ride complete', `Rate your trip. You saved ${formatGhs(savedAmountPesewas)} vs a private ride.`, { type: 'RIDE_COMPLETE', bookingId: bookingId || '' })
       : null,
 
   passengerJoined: (token, passengerName, seatNumber, tripId) =>
     sendPush(token, 'Someone joined your EyeGo', `${passengerName} just booked seat #${seatNumber}`, { type: 'PASSENGER_JOINED', tripId: tripId || '' }),
 
-  lowWallet: (token, balance) =>
-    sendPush(token, 'Top up your wallet', `Your balance is GHS ${balance}. Top up to keep driving.`, { type: 'LOW_WALLET' }),
+  lowWallet: (token, balancePesewas) =>
+    sendPush(token, 'Top up your wallet', `Your balance is ${formatGhs(balancePesewas)}. Top up to keep driving.`, { type: 'LOW_WALLET' }),
 
   expressMode: (token, destination, tripId) =>
     sendPush(token, 'Express Mode!', `Van is full. Heading directly to ${destination}.`, { type: 'EXPRESS_MODE', tripId: tripId || '' }),

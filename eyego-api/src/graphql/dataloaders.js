@@ -19,7 +19,7 @@ function createDataLoaders() {
             select: { id: true, name: true, originName: true, destinationName: true },
           },
           driver: {
-            select: { id: true, name: true, phone: true, profilePhoto: true, walletBalance: true },
+            select: { id: true, name: true, phone: true, profilePhoto: true, walletBalancePesewas: true },
           },
         },
       });
@@ -38,7 +38,7 @@ function createDataLoaders() {
           route: trip.route,
           driver: trip.driver,
           availableSeats: Math.max(0, trip.maxSeats - trip.confirmedSeats),
-          baseFare: trip.baseFare,
+          baseFarePesewas: trip.baseFarePesewas,
           maxSeats: trip.maxSeats,
         };
       });
@@ -54,7 +54,7 @@ function createDataLoaders() {
           email: true,
           profilePhoto: true,
           preferredTier: true,
-          walletBalance: true,
+          walletBalancePesewas: true,
           createdAt: true,
         },
       });

@@ -1,18 +1,10 @@
-/**
- * Format a fare amount for display
- * e.g. formatCurrency(15.5, 'GHS') → 'GH₵ 15.50'
- */
-export function formatCurrency(amount: number | null | undefined, currency = 'GHS'): string {
-  if (amount == null || isNaN(amount)) return 'GH₵ —';
-  const symbols: Record<string, string> = {
-    GHS: 'GH₵',
-    NGN: '₦',
-    USD: '$',
-    KES: 'KSh',
-  };
-  const symbol = symbols[currency] ?? currency;
-  return `${symbol} ${amount.toFixed(2)}`;
-}
+// Money lives in ./money. `formatCurrency(cedis)` USED to live here and was
+// removed on purpose: every value it formatted is now an integer number of
+// pesewas, so leaving it in place would have rendered "GH₵ 2550.00" for a
+// GH₵25.50 ride at all ~38 call sites, all of them still compiling. Deleting
+// it turns each of those into a compiler error pointing at the exact line that
+// needs `formatGhs`.
+export * from './money';
 
 /**
  * Format a date string to human-readable form

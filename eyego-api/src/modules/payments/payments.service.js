@@ -10,6 +10,7 @@ const pushService = require('../../services/push.service');
 const { NotFoundError, PaymentError, AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
 const redis = require('../../config/redis');
+const { assertPesewas, percentOf, formatGhs } = require('../../utils/money');
 
 const MOMO_METHODS = ['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO'];
 
@@ -32,13 +33,13 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
   // all of them PAID once this charge succeeds, so undercharging here would
   // let the host settle the whole group for the price of one seat.
   const isGroupHost = !!(booking.trip.group?.isCoverAll && booking.trip.group.leadPassengerId === userId);
-  let chargeAmount = booking.fareAmount;
+  let chargeAmountPesewas = booking.fareAmountPesewas;
   if (isGroupHost) {
     const siblings = await prisma.booking.findMany({
       where: { tripId: booking.tripId, id: { not: bookingId }, status: 'SEAT_HELD' },
-      select: { fareAmount: true },
+      select: { fareAmountPesewas: true },
     });
-    chargeAmount = booking.fareAmount + siblings.reduce((sum, b) => sum + b.fareAmount, 0);
+    chargeAmountPesewas = booking.fareAmountPesewas + siblings.reduce((sum, b) => sum + b.fareAmountPesewas, 0);
   }
 
   // Honor the method the rider actually picked on the payment screen. Without
@@ -123,7 +124,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
     if (MOMO_METHODS.includes(method)) {
       result = await paystack.initiateMomoCharge({
         email,
-        amount: chargeAmount,
+        amountPesewas: chargeAmountPesewas,
         phone: phone || booking.user.phone,
         method: method === 'MOMO' ? 'MOMO_MTN' : method,
         reference,
@@ -138,7 +139,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
       }
       result = await paystack.initiateCardCharge({
         email,
-        amount: chargeAmount,
+        amountPesewas: chargeAmountPesewas,
         authorizationCode: savedCard.authorizationCode,
         reference,
         metadata,
@@ -146,7 +147,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
     } else if (method === 'CARD') {
       result = await paystack.initializeCheckout({
         email,
-        amount: chargeAmount,
+        amountPesewas: chargeAmountPesewas,
         reference,
         metadata,
       });
@@ -163,7 +164,7 @@ async function initiatePayment({ userId, bookingId, phone, savedCardId, method: 
       data: {
         bookingId,
         userId: booking.userId,
-        amount: chargeAmount,
+        amountPesewas: chargeAmountPesewas,
         status: 'INTENT',
         paystackRef: reference,
       },
@@ -208,7 +209,7 @@ async function verifyPayment(reference, requestingUserId) {
           if (updatedTxn.count > 0) {
             await tx.user.update({
               where: { id: metadata.userId },
-              data: { walletBalance: { increment: txn.amount } },
+              data: { walletBalancePesewas: { increment: txn.amountPesewas } },
             });
           }
         });
@@ -224,18 +225,23 @@ async function verifyPayment(reference, requestingUserId) {
             where: { paystackRef: reference, type: 'TOP_UP' }
           });
           if (!existing) {
+            // Paystack reports `data.amount` in the currency's SUBUNIT — pesewas
+            // for GHS. This used to be divided by 100 to reach the cedis the
+            // wallet was stored in; the wallet is pesewas now, so the gateway's
+            // number is already the right one and the division is gone.
+            const toppedUpPesewas = assertPesewas(result.data.amount, 'Paystack top-up amount');
             await tx.driver.update({
               where: { id: metadata.driverId },
-              data: { walletBalance: { increment: result.data.amount / 100 } },
+              data: { walletBalancePesewas: { increment: toppedUpPesewas } },
             });
             await tx.walletTransaction.create({
               data: {
                 driverId: metadata.driverId,
                 type: 'TOP_UP',
-                amount: result.data.amount / 100,
+                amountPesewas: toppedUpPesewas,
                 description: 'Wallet top-up via MoMo',
-                balanceBefore: driver.walletBalance,
-                balanceAfter: driver.walletBalance + (result.data.amount / 100),
+                balanceBeforePesewas: driver.walletBalancePesewas,
+                balanceAfterPesewas: driver.walletBalancePesewas + toppedUpPesewas,
                 paystackRef: reference,
               },
             });
@@ -312,7 +318,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
         data: {
           bookingId,
           userId: booking.userId,
-          amount: booking.fareAmount,
+          amountPesewas: booking.fareAmountPesewas,
           status: 'REFUNDED',
           paystackRef: reference,
           gatewayResponse: `Refunded to wallet due to ${reason}`,
@@ -323,7 +329,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
       if (['MOMO', 'MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO', 'CARD'].includes(booking.paymentMethod)) {
         await tx.user.update({
           where: { id: booking.userId },
-          data: { walletBalance: { increment: booking.fareAmount } },
+          data: { walletBalancePesewas: { increment: booking.fareAmountPesewas } },
         });
       }
 
@@ -343,15 +349,15 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
         })
       : [];
     const bookingsToSettle = [booking, ...siblingBookings];
-    const totalFare = bookingsToSettle.reduce((sum, b) => sum + b.fareAmount, 0);
+    const totalFare = bookingsToSettle.reduce((sum, b) => sum + b.fareAmountPesewas, 0);
 
     // If paying by wallet, deduct the combined total up front — guard
     // prevents negative balance. Must happen before any status flips so a
     // shortfall aborts the whole settlement instead of partially confirming.
     if (booking.paymentMethod === 'WALLET') {
       const updated = await tx.user.updateMany({
-        where: { id: booking.userId, walletBalance: { gte: totalFare } },
-        data: { walletBalance: { decrement: totalFare } },
+        where: { id: booking.userId, walletBalancePesewas: { gte: totalFare } },
+        data: { walletBalancePesewas: { decrement: totalFare } },
       });
       if (updated.count === 0) {
         throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_BALANCE');
@@ -383,7 +389,7 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
         data: {
           bookingId: b.id,
           userId: booking.userId, // group host is the payer of record for covered seats
-          amount: b.fareAmount,
+          amountPesewas: b.fareAmountPesewas,
           status: cashOnBoard ? 'PENDING' : 'SUCCESS',
           paystackRef: reference,
           gatewayResponse: cashOnBoard
@@ -563,7 +569,7 @@ async function handleWebhook(rawBody, signature) {
               if (updatedTxn.count > 0) {
                 await tx.user.update({
                   where: { id: metadata.userId },
-                  data: { walletBalance: { increment: txn.amount } },
+                  data: { walletBalancePesewas: { increment: txn.amountPesewas } },
                 });
               }
             });
@@ -578,18 +584,24 @@ async function handleWebhook(rawBody, signature) {
                 where: { paystackRef: reference, type: 'TOP_UP' }
               });
               if (!existing) {
+                // `event.data.amount` is already pesewas — see the matching
+                // note on the verify path above.
+                const toppedUpPesewas = assertPesewas(
+                  event.data.amount,
+                  'Paystack webhook top-up amount',
+                );
                 await tx.driver.update({
                   where: { id: metadata.driverId },
-                  data: { walletBalance: { increment: event.data.amount / 100 } }, // Paystack amount is in pesewas
+                  data: { walletBalancePesewas: { increment: toppedUpPesewas } },
                 });
                 await tx.walletTransaction.create({
                   data: {
                     driverId: metadata.driverId,
                     type: 'TOP_UP',
-                    amount: event.data.amount / 100,
+                    amountPesewas: toppedUpPesewas,
                     description: 'Wallet top-up via MoMo',
-                    balanceBefore: driver.walletBalance,
-                    balanceAfter: driver.walletBalance + (event.data.amount / 100),
+                    balanceBeforePesewas: driver.walletBalancePesewas,
+                    balanceAfterPesewas: driver.walletBalancePesewas + toppedUpPesewas,
                     paystackRef: reference,
                   },
                 });

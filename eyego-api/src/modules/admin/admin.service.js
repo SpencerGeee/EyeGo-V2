@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, percentOf, assertPesewas, wholePesewas } = require('../../utils/money');
+
 const prisma = require('../../config/database');
 const pushService = require('../../services/push.service');
 const mapboxService = require('../../services/mapbox.service');
@@ -183,11 +185,11 @@ async function getAllTrips({ page = 1, limit = 20, status }) {
       where,
       include: {
         route: true,
-        driver: { select: { name: true, phone: true, walletBalance: true } },
+        driver: { select: { name: true, phone: true, walletBalancePesewas: true } },
         vehicle: true,
         bookings: {
           where: { status: { notIn: ['CANCELLED'] } },
-          include: { user: { select: { name: true, phone: true, walletBalance: true } } },
+          include: { user: { select: { name: true, phone: true, walletBalancePesewas: true } } },
           orderBy: { seatNumber: 'asc' },
         },
       },
@@ -208,7 +210,7 @@ async function getAllBookings({ page = 1, limit = 20 }) {
     prisma.booking.findMany({
       include: {
         trip: { include: { route: true } },
-        user: { select: { name: true, phone: true, walletBalance: true } },
+        user: { select: { name: true, phone: true, walletBalancePesewas: true } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -299,7 +301,7 @@ async function getDriverDetail(driverId) {
     prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: { stars: true } }),
     prisma.booking.aggregate({
       where: { trip: { driverId }, status: { notIn: ['CANCELLED', 'PENDING'] } },
-      _sum: { fareAmount: true, commissionAmount: true },
+      _sum: { fareAmountPesewas: true, commissionAmountPesewas: true },
     }),
   ]);
 
@@ -319,9 +321,9 @@ async function getDriverDetail(driverId) {
       cancelledTrips,
       completionRate: totalTrips > 0 ? Math.round((completedTrips / totalTrips) * 100) : 0,
       cancellationRate: totalTrips > 0 ? Math.round((cancelledTrips / totalTrips) * 100) : 0,
-      totalRevenue: earningsAgg._sum.fareAmount || 0,
-      totalCommission: earningsAgg._sum.commissionAmount || 0,
-      netEarnings: (earningsAgg._sum.fareAmount || 0) - (earningsAgg._sum.commissionAmount || 0),
+      totalRevenue: earningsAgg._sum.fareAmountPesewas || 0,
+      totalCommission: earningsAgg._sum.commissionAmountPesewas || 0,
+      netEarnings: (earningsAgg._sum.fareAmountPesewas || 0) - (earningsAgg._sum.commissionAmountPesewas || 0),
     },
     ratings: {
       average: ratingAgg._avg.stars ? Math.round(ratingAgg._avg.stars * 10) / 10 : null,
@@ -460,7 +462,7 @@ async function getSupportTicketDetail(ticketId) {
   const ticket = await prisma.supportTicket.findUnique({
     where: { id: ticketId },
     include: {
-      user: { select: { id: true, name: true, phone: true, email: true, walletBalance: true, isBanned: true } },
+      user: { select: { id: true, name: true, phone: true, email: true, walletBalancePesewas: true, isBanned: true } },
       messages: { orderBy: { createdAt: 'asc' } },
     },
   });
@@ -514,21 +516,21 @@ async function getPromotions() {
 
 async function createPromotion(data) {
   const discountPercent = parseInt(data.discountPercent);
-  const maxDiscount = parseFloat(data.maxDiscount);
+  const maxDiscountPesewas = parseFloat(data.maxDiscountPesewas);
   const expiry = new Date(data.expiry);
   const { AppError } = require('../../utils/errors');
   if (!data.code || !data.code.trim()) throw new AppError('Promo code is required', 400);
   if (!Number.isFinite(discountPercent) || discountPercent < 1 || discountPercent > 100) {
     throw new AppError('discountPercent must be between 1 and 100', 400);
   }
-  if (!Number.isFinite(maxDiscount) || maxDiscount <= 0) throw new AppError('maxDiscount must be positive', 400);
+  if (!Number.isFinite(maxDiscountPesewas) || maxDiscountPesewas <= 0) throw new AppError('maxDiscountPesewas must be positive', 400);
   if (Number.isNaN(expiry.getTime())) throw new AppError('Invalid expiry date', 400);
   try {
     return await prisma.promotion.create({
       data: {
         code: data.code.trim().toUpperCase(),
         discountPercent,
-        maxDiscount,
+        maxDiscountPesewas,
         expiry,
         active: data.active !== false,
       },
@@ -608,22 +610,22 @@ async function getMetrics() {
     prisma.driver.count({ where: { isOnline: true } }),
     prisma.paymentTransaction.aggregate({
       where: { status: 'SUCCESS', createdAt: { gte: today } },
-      _sum: { amount: true },
+      _sum: { amountPesewas: true },
     }),
     prisma.user.count(),
     prisma.driver.count(),
     prisma.driver.count({ where: { status: 'PENDING_REVIEW' } }),
   ]);
 
-  const todayRevenue = todayPayments._sum.amount ?? 0;
+  const todayRevenuePesewas = todayPayments._sum.amountPesewas ?? 0;
   const env = require('../../config/env');
-  const todayCommission = Math.round(todayRevenue * env.PLATFORM_COMMISSION * 100) / 100;
+  const todayCommissionPesewas = percentOf(todayRevenuePesewas, env.PLATFORM_COMMISSION);
 
   return {
     activeTrips,
     driversOnline,
-    todayRevenue,
-    todayCommission,
+    todayRevenuePesewas,
+    todayCommissionPesewas,
     totalUsers,
     totalDrivers,
     pendingApprovals,
@@ -670,7 +672,7 @@ async function getLiveDrivers() {
     where: { isOnline: true },
     select: {
       id: true, name: true, phone: true, currentLat: true, currentLng: true,
-      currentHeading: true, status: true, walletBalance: true,
+      currentHeading: true, status: true, walletBalancePesewas: true,
       _count: { select: { trips: true } },
       vehicles: { where: { isActive: true }, take: 1, select: { make: true, model: true, plateNumber: true, seaterCount: true, tier: true } },
     },
@@ -695,7 +697,7 @@ async function getLiveDrivers() {
   return drivers.map(d => ({
     id: d.id, name: d.name, phone: d.phone,
     lat: d.currentLat, lng: d.currentLng, heading: d.currentHeading,
-    status: d.status, walletBalance: d.walletBalance,
+    status: d.status, walletBalancePesewas: d.walletBalancePesewas,
     totalTrips: d._count.trips,
     vehicle: d.vehicles[0] || null,
     activeTrip: tripMap[d.id] || null,
@@ -996,11 +998,11 @@ async function getAnalyticsOverview() {
     // is majority cash, the old PaymentTransaction-only query undercounted
     // revenue down to ~0. Matches the pattern already used in getDriverDetail's
     // earningsAgg (Booking.aggregate, not PaymentTransaction).
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID' }, _sum: { fareAmount: true } }),
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: today } }, _sum: { fareAmount: true } }),
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: weekAgo } }, _sum: { fareAmount: true } }),
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: monthAgo } }, _sum: { fareAmount: true } }),
-    prisma.booking.findMany({ where: { paymentStatus: 'PAID', createdAt: { gte: fourteenAgo } }, select: { fareAmount: true, createdAt: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID' }, _sum: { fareAmountPesewas: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: today } }, _sum: { fareAmountPesewas: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: weekAgo } }, _sum: { fareAmountPesewas: true } }),
+    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: monthAgo } }, _sum: { fareAmountPesewas: true } }),
+    prisma.booking.findMany({ where: { paymentStatus: 'PAID', createdAt: { gte: fourteenAgo } }, select: { fareAmountPesewas: true, createdAt: true } }),
     prisma.trip.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.trip.findMany({ where: { createdAt: { gte: fourteenAgo } }, select: { createdAt: true } }),
     prisma.trip.count({ where: { status: 'COMPLETED' } }),
@@ -1014,13 +1016,18 @@ async function getAnalyticsOverview() {
     prisma.driver.count({ where: { status: 'SUSPENDED' } }),
     prisma.user.count(),
     prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
-    prisma.booking.aggregate({ where: { status: { notIn: ['CANCELLED'] } }, _avg: { fareAmount: true } }),
+    prisma.booking.aggregate({ where: { status: { notIn: ['CANCELLED'] } }, _avg: { fareAmountPesewas: true } }),
     prisma.booking.count({ where: { paymentMethod: 'CASH' } }),
     prisma.booking.count({ where: { paymentMethod: 'CARD' } }),
   ]);
 
+  // `round2` is for the genuinely fractional things on this dashboard —
+  // percentages, average star ratings, average minutes. Money is integer
+  // pesewas and uses `wholePesewas`, because an average fare comes back from
+  // the database as a fraction of a pesewa and a fraction of a pesewa is not
+  // an amount of money.
   const round2 = (n) => Math.round((n || 0) * 100) / 100;
-  const totalRevenue = round2(revenueAll._sum.fareAmount);
+  const totalRevenuePesewas = wholePesewas(revenueAll._sum.fareAmountPesewas);
   const completedTripsCount = completedCount;
   const cancelledTripsCount = cancelledCount;
   const totalTerminal = completedTripsCount + cancelledTripsCount;
@@ -1029,13 +1036,13 @@ async function getAnalyticsOverview() {
   for (const g of tripsGrouped) tripsByStatus[g.status] = g._count._all;
 
   return {
-    totalRevenue,
-    todayRevenue: round2(revenueToday._sum.fareAmount),
-    weekRevenue: round2(revenueWeek._sum.fareAmount),
-    monthRevenue: round2(revenueMonth._sum.fareAmount),
-    totalCommission: round2(totalRevenue * commissionRate),
-    revenueByDay: bucketByDay(successfulPayments14d, 'createdAt', (r) => r.fareAmount || 0)
-      .map((d) => ({ date: d.date, value: round2(d.value) })),
+    totalRevenuePesewas,
+    todayRevenuePesewas: wholePesewas(revenueToday._sum.fareAmountPesewas),
+    weekRevenuePesewas: wholePesewas(revenueWeek._sum.fareAmountPesewas),
+    monthRevenuePesewas: wholePesewas(revenueMonth._sum.fareAmountPesewas),
+    totalCommissionPesewas: percentOf(totalRevenuePesewas, commissionRate),
+    revenueByDay: bucketByDay(successfulPayments14d, 'createdAt', (r) => r.fareAmountPesewas || 0)
+      .map((d) => ({ date: d.date, valuePesewas: wholePesewas(d.value) })),
     tripsByStatus,
     tripsByDay: bucketByDay(trips14d, 'createdAt', () => 1),
     completedTripsCount,
@@ -1049,7 +1056,7 @@ async function getAnalyticsOverview() {
     suspendedDrivers,
     totalRiders,
     newRidersThisWeek,
-    avgFare: round2(fareAgg._avg.fareAmount),
+    avgFarePesewas: wholePesewas(fareAgg._avg.fareAmountPesewas),
     totalBookings,
     paymentMethodBreakdown: { cash: cashBookings, card: cardBookings },
   };
@@ -1064,7 +1071,7 @@ async function getAnalyticsDrivers() {
         id: true, name: true, status: true, isOnline: true,
         _count: { select: { trips: { where: { status: 'COMPLETED' } } } },
         ratings: { select: { stars: true } },
-        walletTxs: { where: { type: { in: ['EARNINGS_CREDIT', 'TIP'] } }, select: { amount: true } },
+        walletTxs: { where: { type: { in: ['EARNINGS_CREDIT', 'TIP'] } }, select: { amountPesewas: true } },
       },
     }),
     prisma.driver.count({ where: { isOnline: true } }),
@@ -1075,16 +1082,16 @@ async function getAnalyticsDrivers() {
 
   const enriched = drivers.map((d) => {
     const trips = d._count.trips;
-    const earnings = round2(d.walletTxs.reduce((s, t) => s + (t.amount || 0), 0));
+    const earningsPesewas = wholePesewas(d.walletTxs.reduce((s, t) => s + (t.amountPesewas || 0), 0));
     const ratingCount = d.ratings.length;
     const avgRating = ratingCount > 0
       ? round2(d.ratings.reduce((s, r) => s + (r.stars || 0), 0) / ratingCount)
       : null;
-    return { id: d.id, name: d.name, status: d.status, isOnline: d.isOnline, trips, earnings, avgRating, ratingCount };
+    return { id: d.id, name: d.name, status: d.status, isOnline: d.isOnline, trips, earningsPesewas, avgRating, ratingCount };
   });
 
   const topByTrips = [...enriched].sort((a, b) => b.trips - a.trips).slice(0, 10);
-  const topByEarnings = [...enriched].sort((a, b) => b.earnings - a.earnings).slice(0, 10);
+  const topByEarnings = [...enriched].sort((a, b) => b.earningsPesewas - a.earningsPesewas).slice(0, 10);
   const topByRating = [...enriched].filter((d) => d.avgRating !== null)
     .sort((a, b) => b.avgRating - a.avgRating).slice(0, 10);
 

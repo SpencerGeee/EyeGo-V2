@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
+
 const prisma = require('../../config/database');
 const env = require('../../config/env');
 const { AppError, NotFoundError, ForbiddenError } = require('../../utils/errors');
@@ -48,11 +50,11 @@ async function calculateCancellationFee(bookingId, userId) {
 
   return {
     feePercentage,
-    feeAmount: Math.round((booking.fareAmount * feePercentage) / 100 * 100) / 100,
+    feeAmountPesewas: percentOf(booking.fareAmountPesewas, feePercentage / 100),
     freeCancelMinutes,
     minutesUntilDeparture: Math.round(minutesUntilDeparture),
     feeType,
-    fareAmount: booking.fareAmount,
+    fareAmountPesewas: booking.fareAmountPesewas,
   };
 }
 
@@ -91,7 +93,7 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     const minutesUntilDeparture = (departure - now) / (1000 * 60);
 
     let feePercentage = 0;
-    let cancellationFee = null;
+    let cancellationFeePesewas = null;
 
     if (minutesUntilDeparture <= 0) {
       feePercentage = noShowFeePct;
@@ -100,36 +102,36 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     }
 
     if (feePercentage > 0) {
-      cancellationFee = Math.round((booking.fareAmount * feePercentage) / 100 * 100) / 100;
+      cancellationFeePesewas = percentOf(booking.fareAmountPesewas, feePercentage / 100);
     }
 
     // If paid, process refund minus cancellation fee
-    let refundAmount = 0;
+    let refundAmountPesewas = 0;
     if (booking.paymentStatus === 'PAID') {
-      refundAmount = cancellationFee
-        ? Math.max(0, booking.fareAmount - cancellationFee)
-        : booking.fareAmount;
+      refundAmountPesewas = cancellationFeePesewas
+        ? Math.max(0, booking.fareAmountPesewas - cancellationFeePesewas)
+        : booking.fareAmountPesewas;
 
       // Record refund transaction
       await tx.paymentTransaction.create({
         data: {
           bookingId,
           userId: booking.userId,
-          amount: refundAmount,
-          status: cancellationFee ? 'PARTIAL_REFUND' : 'REFUNDED',
+          amountPesewas: refundAmountPesewas,
+          status: cancellationFeePesewas ? 'PARTIAL_REFUND' : 'REFUNDED',
           paystackRef: booking.paystackRef,
-          gatewayResponse: cancellationFee
-            ? `Refunded GHS ${refundAmount.toFixed(2)} (fee: GHS ${cancellationFee.toFixed(2)})`
+          gatewayResponse: cancellationFeePesewas
+            ? `Refunded ${formatGhs(refundAmountPesewas)} (fee: ${formatGhs(cancellationFeePesewas)})`
             : 'Full refund processed',
         },
       });
 
       // Credit the refund to the rider's wallet — the PaymentTransaction row above
       // is just a ledger record and does not itself move money.
-      if (refundAmount > 0) {
+      if (refundAmountPesewas > 0) {
         await tx.user.update({
           where: { id: booking.userId },
-          data: { walletBalance: { increment: refundAmount } },
+          data: { walletBalancePesewas: { increment: refundAmountPesewas } },
         });
       }
     }
@@ -144,7 +146,7 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
         // Booking has no separate free-text column — fold the rider's "Other"
         // note into the reason string so it isn't silently dropped.
         cancellationReason: note ? `${reason || 'other'}: ${note}` : (reason || null),
-        cancellationFee: cancellationFee,
+        cancellationFeePesewas: cancellationFeePesewas,
       },
     });
 
@@ -159,7 +161,7 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     // Generate receipt if there was any payment
     let receipt = null;
     if (booking.paymentStatus === 'PAID') {
-      receipt = await generateReceipt(tx, booking, refundAmount, cancellationFee);
+      receipt = await generateReceipt(tx, booking, refundAmountPesewas, cancellationFeePesewas);
     }
 
     // Check if trip should revert to SCHEDULED
@@ -180,7 +182,7 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       });
     }
 
-    return { booking: updated, refundAmount, cancellationFee, receipt, transition };
+    return { booking: updated, refundAmountPesewas, cancellationFeePesewas, receipt, transition };
   });
 
   // Post-commit: tell both apps the trip went back on sale.
@@ -204,25 +206,25 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
 /**
  * Generate a receipt for a completed booking.
  */
-async function generateReceipt(tx, booking, refundAmount = 0, cancellationFee = null) {
+async function generateReceipt(tx, booking, refundAmountPesewas = 0, cancellationFeePesewas = null) {
   const receiptNumber = `RCT-${Date.now().toString(36).toUpperCase()}-${booking.id.slice(0, 4).toUpperCase()}`;
 
   // Calculate breakdown
-  const platformFee = booking.commissionAmount || 0;
-  const driverEarnings = booking.fareAmount - platformFee;
+  const platformFeePesewas = booking.commissionAmountPesewas || 0;
+  const driverEarningsPesewas = booking.fareAmountPesewas - platformFeePesewas;
 
   const receipt = await tx.receipt.create({
     data: {
       bookingId: booking.id,
       userId: booking.userId,
       receiptNumber,
-      totalPaid: refundAmount > 0 ? refundAmount : booking.fareAmount,
-      platformFee: cancellationFee ? Math.min(platformFee, booking.fareAmount - refundAmount) : platformFee,
-      driverEarnings: cancellationFee ? Math.max(0, driverEarnings - cancellationFee) : driverEarnings,
-      discountApplied: 0,
-      cancellationFee: cancellationFee,
+      totalPaidPesewas: refundAmountPesewas > 0 ? refundAmountPesewas : booking.fareAmountPesewas,
+      platformFeePesewas: cancellationFeePesewas ? Math.min(platformFeePesewas, booking.fareAmountPesewas - refundAmountPesewas) : platformFeePesewas,
+      driverEarningsPesewas: cancellationFeePesewas ? Math.max(0, driverEarningsPesewas - cancellationFeePesewas) : driverEarningsPesewas,
+      discountAppliedPesewas: 0,
+      cancellationFeePesewas: cancellationFeePesewas,
       paymentMethod: booking.paymentMethod,
-      paidAt: refundAmount > 0 ? new Date() : booking.updatedAt,
+      paidAt: refundAmountPesewas > 0 ? new Date() : booking.updatedAt,
     },
   });
 
@@ -241,7 +243,7 @@ async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Dr
     data: {
       bookingId: booking.id,
       userId: booking.userId,
-      amount: booking.fareAmount,
+      amountPesewas: booking.fareAmountPesewas,
       status: 'REFUNDED',
       paystackRef: booking.paystackRef,
       gatewayResponse: `Refunded: ${reasonLabel}`,
@@ -251,11 +253,11 @@ async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Dr
   if (booking.userId) {
     await tx.user.update({
       where: { id: booking.userId },
-      data: { walletBalance: { increment: booking.fareAmount } },
+      data: { walletBalancePesewas: { increment: booking.fareAmountPesewas } },
     });
   }
 
-  return generateReceipt(tx, booking, booking.fareAmount, null);
+  return generateReceipt(tx, booking, booking.fareAmountPesewas, null);
 }
 
 /**

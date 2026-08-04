@@ -59,7 +59,7 @@ async function deactivateAccount(userId) {
 async function getWalletAndPromos(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { walletBalance: true }
+    select: { walletBalancePesewas: true }
   });
   if (!user) throw new NotFoundError('User');
 
@@ -72,7 +72,7 @@ async function getWalletAndPromos(userId) {
     include: { invitee: { select: { name: true, createdAt: true } } }
   });
 
-  return { walletBalance: user.walletBalance, promos, referrals };
+  return { walletBalancePesewas: user.walletBalancePesewas, promos, referrals };
 }
 
 async function createSupportTicket(userId, subject, message) {

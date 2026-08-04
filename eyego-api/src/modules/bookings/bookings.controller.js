@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
+
 const bookingsService = require('./bookings.service');
 const { ok, created } = require('../../utils/response');
 const { AppError } = require('../../utils/errors');
@@ -8,7 +10,7 @@ const updatePickup = async (req, res) => {
   const { lat, lng, address } = req.body;
   // Validated (validate.js runs express-validator checks before this handler) — lat/lng must
   // be finite numbers if present, so a malformed request 400s instead of writing NaN into
-  // the booking's fareAmount/commissionAmount.
+  // the booking's fareAmountPesewas/commissionAmountPesewas.
   const booking = await bookingsService.recomputeBookingAddons(req.params.bookingId, req.user.userId, {
     pickupLat: lat != null ? Number(lat) : undefined,
     pickupLng: lng != null ? Number(lng) : undefined,
@@ -122,8 +124,8 @@ const validatePromoCode = async (req, res) => {
       valid: true,
       code: promo.code,
       discountPercent: promo.discountPercent,
-      maxDiscount: promo.maxDiscount,
-      message: `${promo.discountPercent}% off (up to GHS ${promo.maxDiscount.toFixed(2)})`,
+      maxDiscountPesewas: promo.maxDiscountPesewas,
+      message: `${promo.discountPercent}% off (up to ${formatGhs(promo.maxDiscountPesewas)})`,
     });
   } finally {
     await prisma.$disconnect();

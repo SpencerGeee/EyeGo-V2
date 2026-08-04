@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
+
 const { Router } = require('express');
 const authenticate = require('../../middleware/auth');
 const { ok } = require('../../utils/response');
@@ -50,7 +52,7 @@ router.get('/', async (req, res) => {
           id: `${b.id}:paid`,
           type: 'payment',
           title: 'Payment confirmed',
-          body: `GHS ${b.fareAmount?.toFixed(2) ?? '—'} paid. Seat #${b.seatNumber} on your trip to ${dest}.`,
+          body: `${formatGhs(b.fareAmountPesewas)} paid. Seat #${b.seatNumber} on your trip to ${dest}.`,
           read: false,
           createdAt: b.updatedAt || b.createdAt,
           bookingId: b.id,

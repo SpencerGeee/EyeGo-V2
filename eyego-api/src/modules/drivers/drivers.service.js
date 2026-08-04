@@ -19,7 +19,7 @@ const {
   liveUnstartedTripFilter,
   liveInFlightTripFilter,
 } = require('../../services/stale-trips');
-const { toCedis } = require('../../utils/money');
+const { percentOf, formatGhs, assertPesewas, wholePesewas } = require("../../utils/money");
 
 // ─── Trip status machine ─────────────────────────────────────────────────────
 // The four driver-driven transitions used to be unguarded `trip.update`s: any
@@ -83,7 +83,7 @@ function needsTransition(trip, next) {
 
 // Attach the same per-person estimate that the rider home screen shows,
 // so both apps display consistent pricing for the same trip.
-// Uses stored baseFare/perKmRate so pricing reflects the rates set at trip creation.
+// Uses stored baseFarePesewas/perKmRatePesewas so pricing reflects the rates set at trip creation.
 function attachFarePerSeat(trip) {
   const distanceKm = trip.route?.distanceKm ?? 0;
   // BUGFIX (reported as "the driver app said ₵80 per seat and the rider app said
@@ -105,14 +105,14 @@ function attachFarePerSeat(trip) {
     doorstepPickup: trip.doorstepPickup ?? false,
     heavyLoad: trip.heavyLoad ?? false,
     surgeMultiplier: trip.surgeMultiplier ?? 1.0,
-    storedBaseFare: trip.baseFare,
-    storedPerKmRate: trip.perKmRate,
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
   });
   return {
     ...trip,
-    farePerSeat: fareInfo.farePerPerson,
+    farePerSeatPesewas: fareInfo.farePerPersonPesewas,
     commissionRate: fareInfo.commissionRate,
-    driverEarningsPerSeat: fareInfo.driverEarningsPerSeat,
+    driverEarningsPerSeatPesewas: fareInfo.driverEarningsPerSeatPesewas,
   };
 }
 
@@ -122,7 +122,7 @@ async function getMe(driverId) {
       where: { id: driverId },
       select: {
         id: true, phone: true, name: true, profilePhoto: true, dateOfBirth: true,
-        status: true, isOnline: true, walletBalance: true,
+        status: true, isOnline: true, walletBalancePesewas: true,
         ghanaCardNumber: true, createdAt: true, preferences: true,
         vehicles: { where: { isActive: true } },
       },
@@ -151,7 +151,7 @@ async function getMe(driverId) {
     // null when no ratings yet — frontend shows "New" instead of a number
     rating: ratingAgg._avg.stars ?? null,
     ratingCount: ratingAgg._count.stars ?? 0,
-    totalEarned: driver.walletBalance,
+    totalEarned: driver.walletBalancePesewas,
     isActive: driver.status === 'ACTIVE',
     profileComplete: !!(driver.name && driver.profilePhoto),
   };
@@ -225,9 +225,9 @@ async function goOnline(driverId, lat, lng) {
     }
   }
 
-  if (driver.walletBalance < 0) {
+  if (driver.walletBalancePesewas < 0) {
     throw new AppError(
-      `Account suspended — GHS ${Math.abs(driver.walletBalance).toFixed(2)} outstanding. Top up your wallet to go back online.`,
+      `Account suspended — ${formatGhs(Math.abs(driver.walletBalancePesewas))} outstanding. Top up your wallet to go back online.`,
       402,
       'NEGATIVE_WALLET_BALANCE'
     );
@@ -354,12 +354,12 @@ async function getAllTrips(driverId) {
       vehicle: true,
       bookings: {
         where: { status: { notIn: ['CANCELLED'] } },
-        select: { id: true, seatNumber: true, fareAmount: true, commissionAmount: true, paymentStatus: true, status: true, isOffline: true },
+        select: { id: true, seatNumber: true, fareAmountPesewas: true, commissionAmountPesewas: true, paymentStatus: true, status: true, isOffline: true },
       },
     },
     orderBy: { departureTime: 'asc' },
   });
-  // Compute farePerSeat using the same estimateFare formula the rider home screen uses
+  // Compute farePerSeatPesewas using the same estimateFare formula the rider home screen uses
   return trips.map(attachFarePerSeat);
 }
 
@@ -369,14 +369,14 @@ async function devActivate(driverId) {
     throw new ForbiddenError('This endpoint is only available in development');
   }
 
-  const minBalance = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE ?? 20;
+  const minBalance = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
   const driver = await prisma.driver.findUnique({
     where: { id: driverId },
-    select: { id: true, walletBalance: true },
+    select: { id: true, walletBalancePesewas: true },
   });
   if (!driver) throw new NotFoundError('Driver');
 
-  const currentBalance = driver.walletBalance ?? 0;
+  const currentBalance = driver.walletBalancePesewas ?? 0;
   const topUp = currentBalance < minBalance ? minBalance - currentBalance : 0;
 
   // Atomically update status + wallet, and record the transaction
@@ -385,7 +385,7 @@ async function devActivate(driverId) {
       where: { id: driverId },
       data: {
         status: 'ACTIVE',
-        ...(topUp > 0 && { walletBalance: { increment: topUp } }),
+        ...(topUp > 0 && { walletBalancePesewas: { increment: topUp } }),
       },
     });
 
@@ -394,10 +394,10 @@ async function devActivate(driverId) {
         data: {
           driverId,
           type: 'TOP_UP',
-          amount: topUp,
+          amountPesewas: topUp,
           description: 'Dev-activate wallet top-up',
-          balanceBefore: currentBalance,
-          balanceAfter: currentBalance + topUp,
+          balanceBeforePesewas: currentBalance,
+          balanceAfterPesewas: currentBalance + topUp,
         },
       });
     }
@@ -410,7 +410,7 @@ async function getTripHistory(driverId, page = 1, limit = 20) {
   const [trips, total] = await Promise.all([
     prisma.trip.findMany({
       where: { driverId, status: { in: ['COMPLETED', 'CANCELLED'] } },
-      include: { route: true, bookings: { select: { id: true, fareAmount: true, paymentStatus: true } } },
+      include: { route: true, bookings: { select: { id: true, fareAmountPesewas: true, paymentStatus: true } } },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
@@ -673,7 +673,7 @@ async function arriveTrip(driverId, tripId) {
     // Without this, the active-screen `retry: 1` mutation could double-credit
     // the driver's wallet.
     if (trip.status === 'COMPLETED') {
-      return { trip, totalEarnings: 0, alreadyCompleted: true, transition: null };
+      return { trip, totalEarningsPesewas: 0, alreadyCompleted: true, transition: null };
     }
     // A trip can only be completed from IN_PROGRESS — nothing may jump the
     // queue from e.g. ARRIVED_AT_PICKUP and settle fares for a ride that never
@@ -700,28 +700,28 @@ async function arriveTrip(driverId, tripId) {
         paymentStatus: { not: 'PAID' },
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       },
-      select: { id: true, commissionAmount: true },
+      select: { id: true, commissionAmountPesewas: true },
     });
     if (unsettledCash.length > 0) {
-      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmount || 0), 0);
+      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmountPesewas || 0), 0);
       await tx.booking.updateMany({
         where: { id: { in: unsettledCash.map((b) => b.id) } },
         data: { paymentStatus: 'PAID' },
       });
       if (totalCommissionOwed > 0) {
-        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalance: true } });
+        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true } });
         await tx.driver.update({
           where: { id: driverId },
-          data: { walletBalance: { decrement: totalCommissionOwed } },
+          data: { walletBalancePesewas: { decrement: totalCommissionOwed } },
         });
         await tx.walletTransaction.create({
           data: {
             driverId,
             type: 'COMMISSION_DEDUCTION',
-            amount: totalCommissionOwed,
+            amountPesewas: totalCommissionOwed,
             description: `Cash commission auto-settled on arrival — ${unsettledCash.length} seat(s) not marked boarded`,
-            balanceBefore: driverBeforeSettle?.walletBalance ?? 0,
-            balanceAfter: (driverBeforeSettle?.walletBalance ?? 0) - totalCommissionOwed,
+            balanceBeforePesewas: driverBeforeSettle?.walletBalancePesewas ?? 0,
+            balanceAfterPesewas: (driverBeforeSettle?.walletBalancePesewas ?? 0) - totalCommissionOwed,
             tripId,
           },
         });
@@ -743,22 +743,28 @@ async function arriveTrip(driverId, tripId) {
     const onlinePaidBookings = trip.bookings.filter(
       (b) => b.paymentStatus === 'PAID' && ONLINE_METHODS.includes(b.paymentMethod),
     );
-    const totalEarnings = onlinePaidBookings.reduce((sum, b) => sum + toCedis(b.fareAmount * (1 - env.PLATFORM_COMMISSION)), 0);
-    const safeEarnings = toCedis(totalEarnings);
+    // Per booking: take the commission, the driver keeps the remainder. Doing
+    // it as `fare - commission` rather than `fare * 0.85` means the two halves
+    // provably add back to the fare, which is what makes the platform's revenue
+    // and the driver's earnings reconcile against the same rides.
+    const safeEarnings = onlinePaidBookings.reduce(
+      (acc, b) => acc + (b.fareAmountPesewas - percentOf(b.fareAmountPesewas, env.PLATFORM_COMMISSION)),
+      0,
+    );
     if (safeEarnings > 0) {
       const driver = await tx.driver.findUnique({ where: { id: driverId } });
       await tx.driver.update({
         where: { id: driverId },
-        data: { walletBalance: { increment: safeEarnings } },
+        data: { walletBalancePesewas: { increment: safeEarnings } },
       });
       await tx.walletTransaction.create({
         data: {
           driverId,
           type: 'EARNINGS_CREDIT',
-          amount: safeEarnings,
+          amountPesewas: safeEarnings,
           description: `Earnings from Trip #${trip.shortId}`,
-          balanceBefore: driver.walletBalance,
-          balanceAfter: toCedis(driver.walletBalance + safeEarnings),
+          balanceBeforePesewas: driver.walletBalancePesewas,
+          balanceAfterPesewas: driver.walletBalancePesewas + safeEarnings,
           tripId,
         },
       });
@@ -774,28 +780,29 @@ async function arriveTrip(driverId, tripId) {
     // zero). A cash-only driver therefore saw GHS 0, 0 trips and a flat chart
     // forever, with no way to tell it apart from having done no work.
     //
-    // This writes a DISTINCT type with balanceBefore === balanceAfter: it moves
+    // This writes a DISTINCT type with balanceBeforePesewas === balanceAfterPesewas: it moves
     // no money and is not part of the wallet balance, it exists so cash income is
     // reportable. Every existing aggregate filters on an explicit type, so no
     // balance or payout calculation can pick this up by accident — the reporting
     // queries opt into it by name.
     const cashBookings = trip.bookings.filter((b) => b.paymentMethod === 'CASH');
-    const cashEarnings = toCedis(
-      cashBookings.reduce((sum, b) => sum + toCedis(b.fareAmount * (1 - env.PLATFORM_COMMISSION)), 0),
+    const cashEarnings = cashBookings.reduce(
+      (acc, b) => acc + (b.fareAmountPesewas - percentOf(b.fareAmountPesewas, env.PLATFORM_COMMISSION)),
+      0,
     );
     if (cashEarnings > 0) {
       const balanceNow = (await tx.driver.findUnique({
-        where: { id: driverId }, select: { walletBalance: true },
-      }))?.walletBalance ?? 0;
+        where: { id: driverId }, select: { walletBalancePesewas: true },
+      }))?.walletBalancePesewas ?? 0;
       await tx.walletTransaction.create({
         data: {
           driverId,
           type: 'CASH_EARNING',
-          amount: cashEarnings,
+          amountPesewas: cashEarnings,
           description: `Cash collected in person — Trip #${trip.shortId}`,
           // Equal on purpose: no wallet movement, reporting only.
-          balanceBefore: balanceNow,
-          balanceAfter: balanceNow,
+          balanceBeforePesewas: balanceNow,
+          balanceAfterPesewas: balanceNow,
           tripId,
         },
       });
@@ -812,7 +819,7 @@ async function arriveTrip(driverId, tripId) {
       await incrementProgress(driverId, 'EARNINGS', safeEarnings, tx);
     }
 
-    return { trip, totalEarnings: safeEarnings, transition };
+    return { trip, totalEarningsPesewas: safeEarnings, transition };
   });
 
   // Post-commit fan-out. Both apps learn the trip is over from the same event,
@@ -827,7 +834,7 @@ async function arriveTrip(driverId, tripId) {
     await Promise.all(paidBookings.map(b => generateTripReceipt(b.id).catch(() => {})));
   });
 
-  // Push notifications — non-blocking (result is { trip, totalEarnings })
+  // Push notifications — non-blocking (result is { trip, totalEarningsPesewas })
   setImmediate(async () => {
     try {
       const completedTrip = result.trip;
@@ -860,14 +867,14 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
     tier: trip.tier ?? 'ECO',
     distanceKm: trip.route?.distanceKm ?? 0,
     seatCount: trip.maxSeats,
-    storedBaseFare: trip.baseFare,
-    storedPerKmRate: trip.perKmRate,
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
   });
-  const seatFare = fareInfo.farePerPerson;
-  const commissionAmount = seatFare * env.PLATFORM_COMMISSION;
+  const seatFare = fareInfo.farePerPersonPesewas;
+  const commissionAmountPesewas = percentOf(seatFare, env.PLATFORM_COMMISSION);
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-  if (driver.walletBalance < commissionAmount) throw new InsufficientWalletError();
+  if (driver.walletBalancePesewas < commissionAmountPesewas) throw new InsufficientWalletError();
 
   // Atomically check seat contention + create booking inside a transaction
   // to prevent overbooking when two drivers add offline passengers concurrently
@@ -890,8 +897,8 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
       data: {
         tripId,
         seatNumber,
-        fareAmount: seatFare, // correct per-seat fare
-        commissionAmount,
+        fareAmountPesewas: seatFare, // correct per-seat fare
+        commissionAmountPesewas,
         paymentMethod: 'CASH',
         paymentStatus: 'PENDING',
         isOffline: true,
@@ -931,14 +938,14 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     tier: trip.tier ?? 'ECO',
     distanceKm: trip.route?.distanceKm ?? 0,
     seatCount: trip.maxSeats,
-    storedBaseFare: trip.baseFare,
-    storedPerKmRate: trip.perKmRate,
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
   });
-  const seatFare = fareInfo.farePerPerson;
-  const commissionAmount = seatFare * env.PLATFORM_COMMISSION;
+  const seatFare = fareInfo.farePerPersonPesewas;
+  const commissionAmountPesewas = percentOf(seatFare, env.PLATFORM_COMMISSION);
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-  if (driver.walletBalance < commissionAmount) throw new InsufficientWalletError();
+  if (driver.walletBalancePesewas < commissionAmountPesewas) throw new InsufficientWalletError();
 
   // Deduct commission immediately — seat check + booking creation inside the tx
   // to prevent concurrent overbooking from two driver taps. BUGFIX: the balance
@@ -953,16 +960,16 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     if (conflict) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
 
     const debited = await tx.driver.updateMany({
-      where: { id: driverId, walletBalance: { gte: commissionAmount } },
-      data: { walletBalance: { decrement: commissionAmount } },
+      where: { id: driverId, walletBalancePesewas: { gte: commissionAmountPesewas } },
+      data: { walletBalancePesewas: { decrement: commissionAmountPesewas } },
     });
     if (debited.count === 0) throw new InsufficientWalletError();
 
     await tx.booking.create({
       data: {
         tripId, seatNumber,
-        fareAmount: seatFare, // correct per-seat fare, not raw base fare
-        commissionAmount,
+        fareAmountPesewas: seatFare, // correct per-seat fare, not raw base fare
+        commissionAmountPesewas,
         paymentMethod: 'CASH',
         paymentStatus: 'PAID',
         isOffline: true,
@@ -974,10 +981,10 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     await tx.walletTransaction.create({
       data: {
         driverId, type: 'COMMISSION_DEDUCTION',
-        amount: commissionAmount,
+        amountPesewas: commissionAmountPesewas,
         description: `Cash passenger commission — Seat ${seatNumber} Trip #${trip.shortId}`,
-        balanceBefore: driver.walletBalance,
-        balanceAfter: driver.walletBalance - commissionAmount,
+        balanceBeforePesewas: driver.walletBalancePesewas,
+        balanceAfterPesewas: driver.walletBalancePesewas - commissionAmountPesewas,
         tripId,
       },
     });
@@ -1005,15 +1012,15 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
   if (booking.offlineOtpExp < new Date()) throw new AppError('OTP expired', 400, 'OTP_EXPIRED');
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-  if (driver.walletBalance < booking.commissionAmount) throw new InsufficientWalletError();
+  if (driver.walletBalancePesewas < booking.commissionAmountPesewas) throw new InsufficientWalletError();
 
   // BUGFIX: same TOCTOU race as addCashNoPhone above — decrement via
   // updateMany + gte so a concurrent double-tap can't both pass a pre-tx
   // balance check and push the wallet negative.
   return prisma.$transaction(async (tx) => {
     const debited = await tx.driver.updateMany({
-      where: { id: driverId, walletBalance: { gte: booking.commissionAmount } },
-      data: { walletBalance: { decrement: booking.commissionAmount } },
+      where: { id: driverId, walletBalancePesewas: { gte: booking.commissionAmountPesewas } },
+      data: { walletBalancePesewas: { decrement: booking.commissionAmountPesewas } },
     });
     if (debited.count === 0) throw new InsufficientWalletError();
 
@@ -1025,10 +1032,10 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
     await tx.walletTransaction.create({
       data: {
         driverId, type: 'COMMISSION_DEDUCTION',
-        amount: booking.commissionAmount,
+        amountPesewas: booking.commissionAmountPesewas,
         description: `Offline passenger commission — Seat ${booking.seatNumber}`,
-        balanceBefore: driver.walletBalance,
-        balanceAfter: driver.walletBalance - booking.commissionAmount,
+        balanceBeforePesewas: driver.walletBalancePesewas,
+        balanceAfterPesewas: driver.walletBalancePesewas - booking.commissionAmountPesewas,
         tripId,
       },
     });
@@ -1056,7 +1063,7 @@ async function boardPassenger(driverId, tripId, bookingId) {
   // to avoid double-paying commission already collected here).
   if (booking.paymentMethod === 'CASH' && booking.paymentStatus !== 'PAID') {
     const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-    if (driver.walletBalance < booking.commissionAmount) throw new InsufficientWalletError();
+    if (driver.walletBalancePesewas < booking.commissionAmountPesewas) throw new InsufficientWalletError();
 
     return prisma.$transaction(async (tx) => {
       const updated = await tx.booking.update({
@@ -1066,16 +1073,16 @@ async function boardPassenger(driverId, tripId, bookingId) {
 
       await tx.driver.update({
         where: { id: driverId },
-        data: { walletBalance: { decrement: booking.commissionAmount } },
+        data: { walletBalancePesewas: { decrement: booking.commissionAmountPesewas } },
       });
 
       await tx.walletTransaction.create({
         data: {
           driverId, type: 'COMMISSION_DEDUCTION',
-          amount: booking.commissionAmount,
+          amountPesewas: booking.commissionAmountPesewas,
           description: `Cash passenger commission — Seat ${booking.seatNumber}`,
-          balanceBefore: driver.walletBalance,
-          balanceAfter: driver.walletBalance - booking.commissionAmount,
+          balanceBeforePesewas: driver.walletBalancePesewas,
+          balanceAfterPesewas: driver.walletBalancePesewas - booking.commissionAmountPesewas,
           tripId,
         },
       });
@@ -1392,7 +1399,7 @@ async function getNotifications(driverId, limit = 30) {
     where: { driverId, status: { in: ['COMPLETED', 'CANCELLED'] } },
     include: {
       route: { select: { originName: true, destinationName: true } },
-      bookings: { where: { paymentStatus: 'PAID' }, select: { id: true, fareAmount: true, seatNumber: true, updatedAt: true } },
+      bookings: { where: { paymentStatus: 'PAID' }, select: { id: true, fareAmountPesewas: true, seatNumber: true, updatedAt: true } },
     },
     orderBy: { updatedAt: 'desc' },
     take,
@@ -1427,7 +1434,7 @@ async function getNotifications(driverId, limit = 30) {
         id: `${b.id}:paid`,
         type: 'PAYMENT_CONFIRMED',
         title: 'Payment confirmed',
-        body: `GHS ${b.fareAmount?.toFixed(2) ?? '—'} paid for Seat #${b.seatNumber} on your trip to ${dest}.`,
+        body: `${formatGhs(b.fareAmountPesewas)} paid for Seat #${b.seatNumber} on your trip to ${dest}.`,
         tripId: trip.id,
         createdAt: b.updatedAt.toISOString(),
       });
@@ -1656,7 +1663,7 @@ async function getPerformance(driverId) {
     prisma.walletTransaction.aggregate({
       // Cash fares included — see EARNING_TYPES.
       where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: weekAgo } },
-      _sum: { amount: true },
+      _sum: { amountPesewas: true },
     }),
     // Real dispatch tracking
     prisma.dispatchAction.count({ where: { driverId, action: 'ACCEPTED', createdAt: { gte: weekAgo } } }),
@@ -1687,7 +1694,7 @@ async function getPerformance(driverId) {
     cancellationRate: totalTrips > 0 ? Math.round((cancelledTrips / totalTrips) * 100) : 0,
     onlineHoursThisWeek: Math.round(onlineHoursThisWeek * 10) / 10,
     tripsThisWeek: weekTrips,
-    earningsThisWeek: weekEarnings._sum.amount ?? 0,
+    earningsThisWeek: weekEarnings._sum.amountPesewas ?? 0,
     level: completedTrips >= 100 ? 'PLATINUM' : completedTrips >= 50 ? 'GOLD' : completedTrips >= 20 ? 'SILVER' : 'BRONZE',
     weeklyGoal: 20,
     weeklyGoalProgress: weekTrips,
@@ -1902,8 +1909,8 @@ async function endShift(driverId) {
       type: { in: EARNING_TYPES },
       createdAt: { gte: shift.startTime },
     },
-    _sum: { amount: true },
-    _count: { amount: true },
+    _sum: { amountPesewas: true },
+    _count: { amountPesewas: true },
   });
 
   const updated = await prisma.driverShift.update({
@@ -1911,8 +1918,8 @@ async function endShift(driverId) {
     data: {
       status: 'ENDED',
       endTime: new Date(),
-      earnings: completedTrips._sum.amount ?? 0,
-      tripsCount: completedTrips._count.amount ?? 0,
+      earningsPesewas: completedTrips._sum.amountPesewas ?? 0,
+      tripsCount: completedTrips._count.amountPesewas ?? 0,
     },
   });
   return updated;
@@ -1933,19 +1940,19 @@ async function getCurrentShift(driverId) {
       type: { in: EARNING_TYPES },
       createdAt: { gte: shift.startTime },
     },
-    _sum: { amount: true },
-    _count: { amount: true },
+    _sum: { amountPesewas: true },
+    _count: { amountPesewas: true },
   });
 
   const hoursElapsed = (Date.now() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
 
   return {
     ...shift,
-    earnings: completedTrips._sum.amount ?? 0,
-    tripsCount: completedTrips._count.amount ?? 0,
+    earningsPesewas: completedTrips._sum.amountPesewas ?? 0,
+    tripsCount: completedTrips._count.amountPesewas ?? 0,
     hoursElapsed: Math.round(hoursElapsed * 10) / 10,
-    hourlyRate: hoursElapsed > 0
-      ? Math.round(((completedTrips._sum.amount ?? 0) / hoursElapsed) * 100) / 100
+    hourlyRatePesewas: hoursElapsed > 0
+      ? wholePesewas((completedTrips._sum.amountPesewas ?? 0) / hoursElapsed)
       : 0,
   };
 }
@@ -2001,20 +2008,20 @@ async function getEarningsBreakdown(driverId, period = 'week') {
     // arriveTrip for why cash cannot be a wallet credit.
     prisma.walletTransaction.aggregate({
       where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: startDate } },
-      _sum: { amount: true },
+      _sum: { amountPesewas: true },
       _count: true,
     }),
     prisma.walletTransaction.aggregate({
       where: { driverId, type: 'TIP', createdAt: { gte: startDate } },
-      _sum: { amount: true },
+      _sum: { amountPesewas: true },
     }),
     prisma.walletTransaction.aggregate({
       where: { driverId, type: { in: ['COMMISSION_DEDUCTION', 'WITHDRAWAL'] }, createdAt: { gte: startDate } },
-      _sum: { amount: true },
+      _sum: { amountPesewas: true },
     }),
     prisma.trip.findMany({
       where: { driverId, status: 'COMPLETED', createdAt: { gte: startDate } },
-      select: { id: true, shortId: true, createdAt: true, baseFare: true },
+      select: { id: true, shortId: true, createdAt: true, baseFarePesewas: true },
       orderBy: { createdAt: 'desc' },
     }),
     // Daily breakdown
@@ -2030,13 +2037,13 @@ async function getEarningsBreakdown(driverId, period = 'week') {
   ]);
 
   return {
-    totalEarnings: earningsAgg._sum.amount ?? 0,
+    totalEarningsPesewas: earningsAgg._sum.amountPesewas ?? 0,
     totalTrips: earningsAgg._count ?? 0,
-    totalTips: tipsAgg._sum.amount ?? 0,
-    totalDeductions: deductionsAgg._sum.amount ?? 0,
-    netEarnings: (earningsAgg._sum.amount ?? 0) - (deductionsAgg._sum.amount ?? 0),
-    averagePerTrip: earningsAgg._count > 0
-      ? Math.round(((earningsAgg._sum.amount ?? 0) / earningsAgg._count) * 100) / 100
+    totalTips: tipsAgg._sum.amountPesewas ?? 0,
+    totalDeductions: deductionsAgg._sum.amountPesewas ?? 0,
+    netEarnings: (earningsAgg._sum.amountPesewas ?? 0) - (deductionsAgg._sum.amountPesewas ?? 0),
+    averagePerTripPesewas: earningsAgg._count > 0
+      ? wholePesewas((earningsAgg._sum.amountPesewas ?? 0) / earningsAgg._count)
       : 0,
     dailyBreakdown: Array.isArray(dailyBreakdown) ? dailyBreakdown : [],
     recentTrips: tripsData.slice(0, 10),
@@ -2068,10 +2075,10 @@ async function getWalletTransactions(driverId, page = 1, limit = 20) {
     transactions: transactions.map((tx) => ({
       id: tx.id,
       type: tx.type,
-      amount: tx.amount,
+      amountPesewas: tx.amountPesewas,
       description: tx.description,
-      balanceBefore: tx.balanceBefore,
-      balanceAfter: tx.balanceAfter,
+      balanceBeforePesewas: tx.balanceBeforePesewas,
+      balanceAfterPesewas: tx.balanceAfterPesewas,
       tripShortId: tx.tripId ? (shortIdByTripId.get(tx.tripId) ?? null) : null,
       createdAt: tx.createdAt.toISOString(),
     })),

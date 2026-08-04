@@ -5,6 +5,7 @@ const env = require('../../config/env');
 const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
+const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
@@ -28,19 +29,21 @@ function normalizePaymentMethod(method) {
 // applying them independently in multiple spots is what let the old client-only
 // "heavy cargo" toggle drift out of sync with the actual charge.
 function applyFareAddons(baseFarePerPerson, { trip, pickupLat, pickupLng, heavyCargo }) {
-  let deviationSurcharge = 0;
+  let deviationSurchargePesewas = 0;
   if (pickupLat != null && pickupLng != null && Number.isFinite(pickupLat) && Number.isFinite(pickupLng) && trip.route) {
     const extraKm = detourKm({
       fromLat: trip.route.originLat, fromLng: trip.route.originLng,
       viaLat: pickupLat, viaLng: pickupLng,
       toLat: trip.route.destLat, toLng: trip.route.destLng,
     });
-    deviationSurcharge = calculateDeviationSurcharge({ extraKm, perKmRate: trip.perKmRate });
+    deviationSurchargePesewas = calculateDeviationSurcharge({ extraKm, perKmRatePesewas: trip.perKmRatePesewas });
   }
-  const cargoSurcharge = heavyCargo ? env.HEAVY_LOAD_SURCHARGE : 0;
-  const fareAmount = Math.round((baseFarePerPerson + deviationSurcharge + cargoSurcharge) * 100) / 100;
-  const commissionAmount = Math.round(fareAmount * env.PLATFORM_COMMISSION * 100) / 100;
-  return { fareAmount, commissionAmount, deviationSurcharge, cargoSurcharge };
+  const cargoSurcharge = heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
+  // All three terms are already whole pesewas, so the sum is exact — no
+  // rounding step, and therefore no place for a rounding disagreement.
+  const fareAmountPesewas = sum(baseFarePerPerson, deviationSurchargePesewas, cargoSurcharge);
+  const commissionAmountPesewas = percentOf(fareAmountPesewas, env.PLATFORM_COMMISSION);
+  return { fareAmountPesewas, commissionAmountPesewas, deviationSurchargePesewas, cargoSurcharge };
 }
 
 /**
@@ -85,13 +88,13 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
         doorstepPickup: trip.doorstepPickup,
         heavyLoad: trip.heavyLoad,
         surgeMultiplier: trip.surgeMultiplier,
-        storedBaseFare: trip.baseFare,
-        storedPerKmRate: trip.perKmRate,
+        storedBaseFarePesewas: trip.baseFarePesewas,
+        storedPerKmRatePesewas: trip.perKmRatePesewas,
       });
       // Preserve any existing en-route-boarding discount ratio this booking already had.
       const baseFarePerPerson = booking.enRouteRatio != null
-        ? Math.round(baseFareData.farePerPerson * booking.enRouteRatio * 100) / 100
-        : baseFareData.farePerPerson;
+        ? Math.round(baseFareData.farePerPersonPesewas * booking.enRouteRatio)
+        : baseFareData.farePerPersonPesewas;
 
       const finalPickupLat = pickupLat !== undefined ? pickupLat : booking.pickupLat;
       const finalPickupLng = pickupLng !== undefined ? pickupLng : booking.pickupLng;
@@ -109,9 +112,9 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
           pickupLng: finalPickupLng ?? null,
           pickupAddress: finalPickupAddress ?? null,
           heavyCargo: !!finalHeavyCargo,
-          deviationSurcharge: addons.deviationSurcharge,
-          fareAmount: addons.fareAmount,
-          commissionAmount: addons.commissionAmount,
+          deviationSurchargePesewas: addons.deviationSurchargePesewas,
+          fareAmountPesewas: addons.fareAmountPesewas,
+          commissionAmountPesewas: addons.commissionAmountPesewas,
         },
       });
       if (result.count === 0) {
@@ -173,14 +176,14 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         doorstepPickup: trip.doorstepPickup,
         heavyLoad: trip.heavyLoad,
         surgeMultiplier: trip.surgeMultiplier,
-        storedBaseFare: trip.baseFare,
-        storedPerKmRate: trip.perKmRate,
+        storedBaseFarePesewas: trip.baseFarePesewas,
+        storedPerKmRatePesewas: trip.perKmRatePesewas,
       });
 
       // En-route boarding: if a virtual stop was selected, apply a distance-
       // proportional discount (rider travels less of the route → pays less).
-      let finalFareAmount = fareData.farePerPerson;
-      let finalCommission = fareData.commissionPerSeat;
+      let finalFareAmount = fareData.farePerPersonPesewas;
+      let finalCommission = fareData.commissionPerSeatPesewas;
       let enRouteRatio = null;
       let resolvedPickupStopId = null;
 
@@ -189,7 +192,7 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         if (!stop) throw new AppError('Invalid pickup stop for this route', 400, 'INVALID_STOP');
 
         const enRoute = calculateEnRouteFare({
-          fullFarePerSeat: fareData.farePerPerson,
+          fullFarePerSeatPesewas: fareData.farePerPersonPesewas,
           stopLat: stop.lat,
           stopLng: stop.lng,
           destLat: trip.route.destLat,
@@ -197,8 +200,8 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           totalRouteKm: trip.route.distanceKm,
         });
 
-        finalFareAmount = enRoute.farePerSeat;
-        finalCommission = Math.round(finalFareAmount * env.PLATFORM_COMMISSION * 100) / 100;
+        finalFareAmount = enRoute.farePerSeatPesewas;
+        finalCommission = percentOf(finalFareAmount, env.PLATFORM_COMMISSION);
         enRouteRatio = enRoute.ratio;
         resolvedPickupStopId = pickupStopId;
       }
@@ -209,9 +212,9 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       const addons = applyFareAddons(finalFareAmount, {
         trip, pickupLat: joinerPickup?.lat, pickupLng: joinerPickup?.lng, heavyCargo: false,
       });
-      finalFareAmount = addons.fareAmount;
-      finalCommission = addons.commissionAmount;
-      const deviationSurcharge = addons.deviationSurcharge;
+      finalFareAmount = addons.fareAmountPesewas;
+      finalCommission = addons.commissionAmountPesewas;
+      const deviationSurchargePesewas = addons.deviationSurchargePesewas;
 
       const boardingQr = crypto.randomBytes(16).toString('hex');
       const holdExpiry = new Date(Date.now() + SEAT_HOLD_MS);
@@ -221,8 +224,8 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           tripId,
           userId,
           seatNumber,
-          fareAmount: finalFareAmount,
-          commissionAmount: finalCommission,
+          fareAmountPesewas: finalFareAmount,
+          commissionAmountPesewas: finalCommission,
           paymentMethod: normalizePaymentMethod(paymentMethod),
           status: 'SEAT_HELD',
           boardingQr,
@@ -233,7 +236,7 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
             pickupLat: joinerPickup.lat,
             pickupLng: joinerPickup.lng,
             pickupAddress: joinerPickup.address ?? null,
-            deviationSurcharge,
+            deviationSurchargePesewas,
           }),
         },
       });
@@ -472,17 +475,17 @@ async function applyPromoCode(userId, bookingId, code) {
     }
 
     // Calculate discount
-    let discount = (booking.fareAmount * promo.discountPercent) / 100;
-    if (discount > promo.maxDiscount) {
-      discount = promo.maxDiscount;
+    let discount = (booking.fareAmountPesewas * promo.discountPercent) / 100;
+    if (discount > promo.maxDiscountPesewas) {
+      discount = promo.maxDiscountPesewas;
     }
 
-    const newFare = Math.max(0, booking.fareAmount - discount);
+    const newFare = Math.max(0, booking.fareAmountPesewas - discount);
 
     const [updatedBooking] = await Promise.all([
       tx.booking.update({
         where: { id: bookingId },
-        data: { promotionId: promo.id, fareAmount: newFare },
+        data: { promotionId: promo.id, fareAmountPesewas: newFare },
       }),
       tx.promotion.update({
         where: { id: promo.id },
@@ -490,7 +493,7 @@ async function applyPromoCode(userId, bookingId, code) {
       }),
     ]);
 
-    return { booking: updatedBooking, discountApplied: discount };
+    return { booking: updatedBooking, discountAppliedPesewas: discount };
   });
 }
 
@@ -538,11 +541,15 @@ async function getActiveBooking(userId) {
     return booking ?? null;
 }
 
-async function tipDriver(userId, bookingId, { amount, phone }) {
+async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
   const { v4: uuidv4 } = require('uuid');
   const paystack = require('../payments/paystack.client');
 
-  if (!amount || amount <= 0) throw new AppError('Tip amount must be greater than 0', 400);
+  // A tip arrives from the client, so it is guarded rather than trusted:
+  // `assertPesewas` rejects NaN, negatives, fractions (which would mean the
+  // app is still sending cedis) and absurd amounts.
+  assertPesewas(amountPesewas, 'tip amount');
+  if (amountPesewas <= 0) throw new AppError('Tip amount must be greater than 0', 400);
 
   return prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
@@ -558,7 +565,7 @@ async function tipDriver(userId, bookingId, { amount, phone }) {
 
     const result = await paystack.initiateMomoCharge({
       email,
-      amount,
+      amountPesewas,
       phone: payPhone,
       method: booking.paymentMethod || 'MOMO_MTN',
       reference,
@@ -569,7 +576,7 @@ async function tipDriver(userId, bookingId, { amount, phone }) {
       data: {
         bookingId,
         userId: booking.userId,
-        amount,
+        amountPesewas,
         status: 'INTENT',
         paystackRef: reference,
         gatewayResponse: 'TIP',
@@ -589,8 +596,8 @@ async function tipDriver(userId, bookingId, { amount, phone }) {
           await pushService.sendPush(
             booking.trip.driver.fcmToken,
             `💰 ${riderName} sent you a tip!`,
-            `GHS ${Number(amount).toFixed(2)} tip received for trip #${booking.tripId.slice(0, 8)}`,
-            { type: 'TIP', bookingId, amount: String(amount) },
+            `${formatGhs(amountPesewas)} tip received for trip #${booking.tripId.slice(0, 8)}`,
+            { type: 'TIP', bookingId, amountPesewas: String(amountPesewas) },
           );
         }
       } catch (err) {
@@ -754,7 +761,7 @@ async function joinGroup(shareToken) {
     // BUGFIX: the Route model field is `destinationName`, not `destName`. The old
     // select referenced a non-existent field, so Prisma threw on every call and
     // EVERY joiner saw "Invalid Link" — the join flow was fully broken. We also
-    // include the coords + baseFare/seat fields the join screen renders.
+    // include the coords + baseFarePesewas/seat fields the join screen renders.
     include: {
       trip: {
         include: { route: { select: { id: true, name: true, originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } } },

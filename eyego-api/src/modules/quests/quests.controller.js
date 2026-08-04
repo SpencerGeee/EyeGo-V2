@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
+
 const questsService = require('./quests.service');
 const { ok } = require('../../utils/response');
 
@@ -18,7 +20,7 @@ const listQuestHistory = async (req, res) => {
 const claimQuest = async (req, res) => {
   const driverId = req.user?.userId;
   const result = await questsService.claimQuestReward(driverId, req.params.questId);
-  ok(res, result, `GHS ${result.rewardAmount.toFixed(2)} claimed for ${result.title}`);
+  ok(res, result, `${formatGhs(result.rewardAmountPesewas)} claimed for ${result.title}`);
 };
 
 module.exports = { listActiveQuests, listQuestHistory, claimQuest };

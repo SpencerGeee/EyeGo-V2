@@ -18,11 +18,33 @@ const MOBILE_MONEY_PROVIDERS = {
   MOMO_AIRTELTIGO: 'atl',
 };
 
-async function initiateMomoCharge({ email, amount, phone, method, reference, metadata = {} }) {
+/**
+ * EVERY FUNCTION HERE TAKES `amountPesewas` AND SENDS IT UNCHANGED.
+ *
+ * Paystack's `amount` field has always been in the currency's subunit —
+ * pesewas for GHS — so this module used to end each call with
+ * `Math.round(amount * 100)` to convert from the cedis the rest of the server
+ * spoke. The server now speaks pesewas everywhere (see utils/money.js), so
+ * those conversions are DELETED, not adjusted. Leaving one in would multiply a
+ * real charge by a hundred.
+ *
+ * That is also why every parameter was renamed: a caller still passing
+ * `{ amount }` now sends `amount: undefined`, which Paystack rejects outright.
+ * The alternative — accepting both names — is how a 100× charge ships.
+ */
+const assertGatewayAmount = (amountPesewas, fn) => {
+  if (!Number.isInteger(amountPesewas) || amountPesewas <= 0) {
+    throw new Error(
+      `${fn}: amountPesewas must be a positive integer number of pesewas, got ${amountPesewas}`,
+    );
+  }
+};
+
+async function initiateMomoCharge({ email, amountPesewas, phone, method, reference, metadata = {} }) {
+  assertGatewayAmount(amountPesewas, 'initiateMomoCharge');
   const provider = MOBILE_MONEY_PROVIDERS[method];
   if (!provider) throw new Error(`Unsupported MoMo method: ${method}`);
 
-  const amountPesewas = Math.round(amount * 100); // Paystack uses pesewas
 
   const { data } = await paystackHttp.post('/charge', {
     email,
@@ -36,8 +58,8 @@ async function initiateMomoCharge({ email, amount, phone, method, reference, met
   return data;
 }
 
-async function initiateCardCharge({ email, amount, authorizationCode, reference, metadata = {} }) {
-  const amountPesewas = Math.round(amount * 100);
+async function initiateCardCharge({ email, amountPesewas, authorizationCode, reference, metadata = {} }) {
+  assertGatewayAmount(amountPesewas, 'initiateCardCharge');
 
   const { data } = await paystackHttp.post('/transaction/charge_authorization', {
     email,
@@ -53,8 +75,8 @@ async function initiateCardCharge({ email, amount, authorizationCode, reference,
 
 // Initialize a hosted Paystack checkout (used for first-time card payments —
 // returns an authorization_url the client opens in a WebView).
-async function initializeCheckout({ email, amount, reference, metadata = {} }) {
-  const amountPesewas = Math.round(amount * 100);
+async function initializeCheckout({ email, amountPesewas, reference, metadata = {} }) {
+  assertGatewayAmount(amountPesewas, 'initializeCheckout');
 
   const { data } = await paystackHttp.post('/transaction/initialize', {
     email,
@@ -72,8 +94,8 @@ async function verifyTransaction(reference) {
   return data;
 }
 
-async function initiateTransfer({ amount, recipient, reason, reference }) {
-  const amountPesewas = Math.round(amount * 100);
+async function initiateTransfer({ amountPesewas, recipient, reason, reference }) {
+  assertGatewayAmount(amountPesewas, 'initiateTransfer');
 
   const { data } = await paystackHttp.post('/transfer', {
     source: 'balance',

@@ -8,18 +8,30 @@ const { ok } = require('../../utils/response');
 const prisma = require('../../config/database');
 const paystack = require('../payments/paystack.client');
 const { AppError } = require('../../utils/errors');
+const { assertPesewas, formatGhs, fromCedis } = require('../../utils/money');
 
 const router = Router();
+
+/** Floor on a rider-to-rider transfer. GH₵1.00. */
+const MIN_P2P_TRANSFER_PESEWAS = 100;
+/**
+ * Paystack will not tokenize a card without charging something, so saving a
+ * card costs a token 50 pesewas. Written as a named constant in the unit the
+ * gateway speaks rather than the bare `0.5` that used to sit inline — that
+ * literal was cedis, and post-migration it would have been read as half a
+ * pesewa and rejected.
+ */
+const CARD_TOKENIZATION_CHARGE_PESEWAS = fromCedis(0.5);
 
 router.use(authenticate);
 
 router.get('/balance', async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user.userId },
-    select: { walletBalance: true },
+    select: { walletBalancePesewas: true },
   });
   ok(res, {
-    balance: user?.walletBalance ?? 0,
+    balancePesewas: user?.walletBalancePesewas ?? 0,
     currency: 'GHS',
     lastUpdated: new Date().toISOString(),
   });
@@ -49,7 +61,7 @@ router.get('/transactions', async (req, res) => {
       where,
       select: {
         id: true,
-        amount: true,
+        amountPesewas: true,
         status: true,
         createdAt: true,
         paystackRef: true,
@@ -93,7 +105,7 @@ router.get('/transactions', async (req, res) => {
       return {
         id: t.id,
         type,
-        amount: t.amount,
+        amountPesewas: t.amountPesewas,
         reference: t.paystackRef,
         description,
         createdAt: t.createdAt.toISOString(),
@@ -110,12 +122,21 @@ router.get('/transactions', async (req, res) => {
 // recipientPhone client-side and calls this same endpoint.
 router.post('/send', idempotency, async (req, res) => {
   const senderId = req.user.userId;
-  const { recipientPhone, amount } = req.body;
+  const { recipientPhone, amountPesewas } = req.body;
 
   if (!recipientPhone) throw new AppError('recipientPhone is required', 400);
-  const safeAmount = Math.round(Number(amount) * 100) / 100;
-  if (!safeAmount || safeAmount <= 0) throw new AppError('Amount must be greater than 0', 400, 'INVALID_AMOUNT');
-  if (safeAmount < 1) throw new AppError('Minimum transfer is GHS 1.00', 400, 'INVALID_AMOUNT');
+  // Guarded, not coerced: this is a client-supplied amount that is about to
+  // move real money between two wallets. A fractional value here means the app
+  // is still sending cedis, and `assertPesewas` says so instead of quietly
+  // transferring a hundredth of the intended amount.
+  const safeAmount = assertPesewas(amountPesewas, 'transfer amount');
+  if (safeAmount < MIN_P2P_TRANSFER_PESEWAS) {
+    throw new AppError(
+      `Minimum transfer is ${formatGhs(MIN_P2P_TRANSFER_PESEWAS)}`,
+      400,
+      'INVALID_AMOUNT',
+    );
+  }
 
   // Ghana numbers are written four different ways for the same person:
   // 0244123456, 233244123456, +233244123456, and 244123456. This looked the
@@ -136,8 +157,8 @@ router.post('/send', idempotency, async (req, res) => {
     // UPDATE itself (not a separate read-then-write), so concurrent sends
     // can never overdraw the sender's wallet. Same pattern as driver withdraw.
     const debited = await tx.user.updateMany({
-      where: { id: senderId, walletBalance: { gte: safeAmount } },
-      data: { walletBalance: { decrement: safeAmount } },
+      where: { id: senderId, walletBalancePesewas: { gte: safeAmount } },
+      data: { walletBalancePesewas: { decrement: safeAmount } },
     });
     if (debited.count === 0) {
       throw new AppError('Insufficient wallet balance', 402, 'INSUFFICIENT_WALLET');
@@ -145,25 +166,25 @@ router.post('/send', idempotency, async (req, res) => {
 
     await tx.user.update({
       where: { id: recipient.id },
-      data: { walletBalance: { increment: safeAmount } },
+      data: { walletBalancePesewas: { increment: safeAmount } },
     });
 
     const reference = `p2p_${uuidv4().replace(/-/g, '').slice(0, 20)}`;
     await tx.paymentTransaction.create({
-      data: { userId: senderId, amount: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_SEND:${recipient.id}` },
+      data: { userId: senderId, amountPesewas: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_SEND:${recipient.id}` },
     });
     await tx.paymentTransaction.create({
-      data: { userId: recipient.id, amount: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_RECEIVE:${senderId}` },
+      data: { userId: recipient.id, amountPesewas: safeAmount, status: 'SUCCESS', paystackRef: reference, gatewayResponse: `P2P_RECEIVE:${senderId}` },
     });
 
     return { reference, recipientName: recipient.name };
   });
 
-  ok(res, result, `GHS ${safeAmount.toFixed(2)} sent to ${result.recipientName}`);
+  ok(res, result, `${formatGhs(safeAmount)} sent to ${result.recipientName}`);
 });
 
 router.post('/topup', idempotency, async (req, res) => {
-  const { amount, method, momoPhone, email } = req.body;
+  const { amountPesewas, method, momoPhone, email } = req.body;
 
   if (!amount || amount <= 0) {
     throw new AppError('Amount must be greater than 0', 400, 'INVALID_AMOUNT');
@@ -181,7 +202,7 @@ router.post('/topup', idempotency, async (req, res) => {
     data: {
       bookingId: null,
       userId: req.user.userId,
-      amount: Number(amount),
+      amountPesewas: assertPesewas(amountPesewas, "top-up amount"),
       status: 'INTENT',
       paystackRef: reference,
       gatewayResponse: 'WALLET_TOPUP',
@@ -191,7 +212,7 @@ router.post('/topup', idempotency, async (req, res) => {
   try {
     const result = await paystack.initiateMomoCharge({
       email: userEmail,
-      amount: Number(amount),
+      amountPesewas: assertPesewas(amountPesewas, "top-up amount"),
       phone: momoPhone || user.phone,
       method: payMethod,
       reference,
@@ -250,7 +271,7 @@ router.post('/payment-methods/initialize', async (req, res) => {
 
   const result = await paystack.initializeCheckout({
     email,
-    amount: 0.5, // ₵0.50 tokenization charge
+    amountPesewas: CARD_TOKENIZATION_CHARGE_PESEWAS,
     reference,
     metadata: { userId: req.user.userId, type: 'CARD_SAVE' },
   });

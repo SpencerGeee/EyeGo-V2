@@ -8,7 +8,7 @@ const typeDefs = /* GraphQL */ `
     email: String
     profilePhoto: String
     preferredTier: String!
-    walletBalance: Float!
+    walletBalancePesewas: Int!
     createdAt: String!
   }
 
@@ -17,7 +17,7 @@ const typeDefs = /* GraphQL */ `
     name: String!
     phone: String!
     profilePhoto: String
-    walletBalance: Float!
+    walletBalancePesewas: Int!
   }
 
   type Route {
@@ -36,7 +36,7 @@ const typeDefs = /* GraphQL */ `
     route: Route
     driver: Driver
     availableSeats: Int!
-    baseFare: Float!
+    baseFarePesewas: Int!
     maxSeats: Int!
   }
 
@@ -44,7 +44,7 @@ const typeDefs = /* GraphQL */ `
     id: ID!
     status: String!
     paymentStatus: String!
-    fareAmount: Float!
+    fareAmountPesewas: Int!
     paymentMethod: String!
     seatNumber: Int
     createdAt: String!
@@ -60,7 +60,7 @@ const typeDefs = /* GraphQL */ `
 
   type EarningsDay {
     date: String!
-    amount: Float!
+    amountPesewas: Int!
     trips: Int!
   }
 

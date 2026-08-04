@@ -1,5 +1,20 @@
 'use strict';
 
+const { formatGhs, fromCedis } = require('../../utils/money');
+
+/**
+ * What unit is this quest's `target`/`current` counted in?
+ *
+ * One table serves two kinds of goal, so the unit is data, not a constant. Any
+ * screen or log line that renders a quest's numbers must ask this first —
+ * rendering an EARNINGS target as a bare number prints "20000" for GH₵200.
+ *
+ * @returns {'PESEWAS'|'COUNT'}
+ */
+function questUnit(questType) {
+  return questType === 'EARNINGS' ? 'PESEWAS' : 'COUNT';
+}
+
 const prisma = require('../../config/database');
 const { NotFoundError, AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
@@ -33,6 +48,10 @@ async function listActiveQuestsForDriver(driverId) {
     const prog = progressMap.get(quest.id);
     return {
       ...quest,
+      // The client cannot know whether `target`/`current` are rides or pesewas
+      // from the numbers alone, so the unit ships with them. Without this the
+      // Quests tab renders a GH₵200 earnings goal as "20000".
+      unit: questUnit(quest.type),
       progress: prog
         ? { current: prog.current, completed: prog.completed, rewardedAt: prog.rewardedAt }
         : { current: 0, completed: false, rewardedAt: null },
@@ -56,8 +75,9 @@ async function listQuestHistoryForDriver(driverId) {
     title: p.quest.title,
     description: p.quest.description,
     type: p.quest.type,
+    unit: questUnit(p.quest.type),
     target: p.quest.target,
-    rewardAmount: p.quest.rewardAmount,
+    rewardAmountPesewas: p.quest.rewardAmountPesewas,
     current: p.current,
     rewardedAt: p.rewardedAt,
   }));
@@ -136,27 +156,27 @@ async function claimQuestReward(driverId, questId) {
       throw new AppError('Reward already claimed', 400, 'ALREADY_CLAIMED');
     }
 
-    const driver = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalance: true } });
-    const balanceBefore = driver?.walletBalance ?? 0;
+    const driver = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true } });
+    const balanceBeforePesewas = driver?.walletBalancePesewas ?? 0;
 
     await tx.driver.update({
       where: { id: driverId },
-      data: { walletBalance: { increment: quest.rewardAmount } },
+      data: { walletBalancePesewas: { increment: quest.rewardAmountPesewas } },
     });
 
     await tx.walletTransaction.create({
       data: {
         driverId,
         type: 'QUEST_BONUS',
-        amount: quest.rewardAmount,
+        amountPesewas: quest.rewardAmountPesewas,
         description: `Quest bonus: ${quest.title}`,
-        balanceBefore,
-        balanceAfter: balanceBefore + quest.rewardAmount,
+        balanceBeforePesewas,
+        balanceAfterPesewas: balanceBeforePesewas + quest.rewardAmountPesewas,
       },
     });
 
-    logger.info(`Quest ${questId} reward claimed by driver ${driverId}: GHS ${quest.rewardAmount}`);
-    return { rewardAmount: quest.rewardAmount, title: quest.title };
+    logger.info(`Quest ${questId} reward claimed by driver ${driverId}: ${formatGhs(quest.rewardAmountPesewas)}`);
+    return { rewardAmountPesewas: quest.rewardAmountPesewas, title: quest.title };
   });
 }
 
@@ -172,17 +192,22 @@ async function regenerateStandardQuests() {
   const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
   const endOfWeek = new Date(now); endOfWeek.setDate(endOfWeek.getDate() + 7);
 
+  // `target`'s unit follows `type`: a COUNT of rides for RIDES_COUNT, PESEWAS
+  // for EARNINGS. Written through `fromCedis` rather than as literal pesewas so
+  // the numbers here still read as the amounts a human means — and so nobody
+  // "tidies up" `fromCedis(100)` into `100` and turns a GH₵100 target into a
+  // one-cedi one.
   const questData = [
-    { id: 'q-rides-daily-3', title: 'Daily Driver', description: 'Complete 3 trips today to earn a bonus.', type: 'RIDES_COUNT', target: 3, rewardAmount: 12.0, periodStart: startOfToday, periodEnd: endOfToday },
-    { id: 'q-earn-daily-100', title: 'Earnings Sprint', description: 'Earn GHS 100 in net fares today for a bonus.', type: 'EARNINGS', target: 100, rewardAmount: 15.0, periodStart: startOfToday, periodEnd: endOfToday },
-    { id: 'q-rides-week-25', title: 'Weekly Warrior', description: 'Complete 25 trips this week to unlock a reward.', type: 'RIDES_COUNT', target: 25, rewardAmount: 40.0, periodStart: startOfToday, periodEnd: endOfWeek },
-    { id: 'q-earn-week-500', title: 'Weekly Champion', description: 'Earn GHS 500 in net fares this week.', type: 'EARNINGS', target: 500, rewardAmount: 60.0, periodStart: startOfToday, periodEnd: endOfWeek },
+    { id: 'q-rides-daily-3', title: 'Daily Driver', description: 'Complete 3 trips today to earn a bonus.', type: 'RIDES_COUNT', target: 3, rewardAmountPesewas: fromCedis(12), periodStart: startOfToday, periodEnd: endOfToday },
+    { id: 'q-earn-daily-100', title: 'Earnings Sprint', description: 'Earn GHS 100 in net fares today for a bonus.', type: 'EARNINGS', target: fromCedis(100), rewardAmountPesewas: fromCedis(15), periodStart: startOfToday, periodEnd: endOfToday },
+    { id: 'q-rides-week-25', title: 'Weekly Warrior', description: 'Complete 25 trips this week to unlock a reward.', type: 'RIDES_COUNT', target: 25, rewardAmountPesewas: fromCedis(40), periodStart: startOfToday, periodEnd: endOfWeek },
+    { id: 'q-earn-week-500', title: 'Weekly Champion', description: 'Earn GHS 500 in net fares this week.', type: 'EARNINGS', target: fromCedis(500), rewardAmountPesewas: fromCedis(60), periodStart: startOfToday, periodEnd: endOfWeek },
   ];
 
   for (const q of questData) {
     await prisma.driverQuest.upsert({
       where: { id: q.id },
-      update: { title: q.title, description: q.description, type: q.type, target: q.target, rewardAmount: q.rewardAmount, periodStart: q.periodStart, periodEnd: q.periodEnd, isActive: true },
+      update: { title: q.title, description: q.description, type: q.type, target: q.target, rewardAmountPesewas: q.rewardAmountPesewas, periodStart: q.periodStart, periodEnd: q.periodEnd, isActive: true },
       create: { ...q, isActive: true },
     });
   }
@@ -191,4 +216,4 @@ async function regenerateStandardQuests() {
   return questData.length;
 }
 
-module.exports = { listActiveQuestsForDriver, listQuestHistoryForDriver, incrementProgress, regenerateStandardQuests, claimQuestReward };
+module.exports = { listActiveQuestsForDriver, listQuestHistoryForDriver, incrementProgress, regenerateStandardQuests, claimQuestReward, questUnit };

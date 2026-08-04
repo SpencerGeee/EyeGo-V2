@@ -1,5 +1,7 @@
 'use strict';
 
+const { formatGhs, percentOf, assertPesewas } = require('../../utils/money');
+
 const prisma = require('../../config/database');
 const env = require('../../config/env');
 const { calculateFare, estimateFare, haversineKm } = require('./fare.calculator');
@@ -36,14 +38,14 @@ async function createTrip(driverId, data) {
     const devPlate = `DEV-${driverId.slice(0, 8).toUpperCase()}`;
     const [devVehicle] = await prisma.$transaction(async (tx) => {
       // Activate driver + top up wallet to minimum
-      const minBalance = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE ?? 20;
-      const driver = await tx.driver.findUnique({ where: { id: driverId }, select: { id: true, walletBalance: true, status: true } });
+      const minBalance = env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS ?? 20;
+      const driver = await tx.driver.findUnique({ where: { id: driverId }, select: { id: true, walletBalancePesewas: true, status: true } });
       if (driver) {
-        const currentBalance = driver.walletBalance ?? 0;
+        const currentBalance = driver.walletBalancePesewas ?? 0;
         const topUp = currentBalance < minBalance ? minBalance - currentBalance : 0;
         const updates = { status: 'ACTIVE' };
         if (topUp > 0) {
-          updates.walletBalance = { increment: topUp };
+          updates.walletBalancePesewas = { increment: topUp };
         }
         await tx.driver.update({ where: { id: driverId }, data: updates });
         if (topUp > 0) {
@@ -51,10 +53,10 @@ async function createTrip(driverId, data) {
             data: {
               driverId,
               type: 'TOP_UP',
-              amount: topUp,
+              amountPesewas: topUp,
               description: 'Dev-createTrip wallet top-up',
-              balanceBefore: currentBalance,
-              balanceAfter: currentBalance + topUp,
+              balanceBeforePesewas: currentBalance,
+              balanceAfterPesewas: currentBalance + topUp,
             },
           });
         }
@@ -95,11 +97,11 @@ async function createTrip(driverId, data) {
 
   const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
   const tierRates = {
-    ECO: [env.ECO_BASE_FARE, env.ECO_PER_KM_RATE],
-    COMFORT: [env.COMFORT_BASE_FARE, env.COMFORT_PER_KM_RATE],
-    PREMIUM: [env.PREMIUM_BASE_FARE, env.PREMIUM_PER_KM_RATE],
+    ECO: [env.ECO_BASE_FARE_PESEWAS, env.ECO_PER_KM_RATE_PESEWAS],
+    COMFORT: [env.COMFORT_BASE_FARE_PESEWAS, env.COMFORT_PER_KM_RATE_PESEWAS],
+    PREMIUM: [env.PREMIUM_BASE_FARE_PESEWAS, env.PREMIUM_PER_KM_RATE_PESEWAS],
   };
-  const [baseFare, perKmRate] = tierRates[normalizedTier];
+  const [baseFarePesewas, perKmRatePesewas] = tierRates[normalizedTier];
 
   // Record supply and get surge multiplier — use the trip's real origin (ad-hoc
   // pickup point) when there's no separate doorstep-pickup override.
@@ -161,8 +163,8 @@ async function createTrip(driverId, data) {
         doorstepPickup: doorstepPickup || false,
         pickupLat, pickupLng, pickupAddress,
         heavyLoad: heavyLoad || false,
-        baseFare,
-        perKmRate,
+        baseFarePesewas,
+        perKmRatePesewas,
         surgeMultiplier,
         maxSeats: (availableSeats && availableSeats > 0 && availableSeats <= vehicle.seaterCount) ? availableSeats : vehicle.seaterCount,
         status: 'SCHEDULED',
@@ -171,7 +173,7 @@ async function createTrip(driverId, data) {
     });
   });
 
-  // Attach farePerSeat + totalTripCost immediately so the driver app shows the
+  // Attach farePerSeatPesewas + totalTripCostPesewas immediately so the driver app shows the
   // same per-seat price the rider will see — no waiting for the next refetch.
   // Always use maxSeats as the denominator: that is the capacity the driver
   // chose for this trip and must match what riders see on the listing.
@@ -181,12 +183,12 @@ async function createTrip(driverId, data) {
     doorstepPickup: trip.doorstepPickup,
     heavyLoad: trip.heavyLoad,
     surgeMultiplier: trip.surgeMultiplier,
-    storedBaseFare: trip.baseFare,
-    storedPerKmRate: trip.perKmRate,
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
     availableSeats: trip.maxSeats,
   });
-  trip.farePerSeat = fareInfo.farePerPerson;
-  trip.totalTripCost = fareInfo.totalTripCost;
+  trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
+  trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
 
   // NO DISPATCH HERE. This creates a driver-owned group/bus trip — the driver
   // is already attached, so there is nobody to dispatch to.
@@ -284,7 +286,7 @@ async function getTrip(id, viewerUserId = null) {
   }
 
   // Divide by maxSeats — the fixed capacity the driver chose for this trip.
-  // This keeps farePerSeat stable and identical to what the listing showed.
+  // This keeps farePerSeatPesewas stable and identical to what the listing showed.
   const fareInfo = calculateFare({
     tier: trip.tier,
     distanceKm: trip.route.distanceKm,
@@ -292,13 +294,13 @@ async function getTrip(id, viewerUserId = null) {
     doorstepPickup: trip.doorstepPickup,
     heavyLoad: trip.heavyLoad,
     surgeMultiplier: trip.surgeMultiplier,
-    storedBaseFare: trip.baseFare,
-    storedPerKmRate: trip.perKmRate,
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
   });
-  trip.farePerSeat = fareInfo.farePerPerson;
-  trip.fare = fareInfo.farePerPerson; // kept for backwards-compat with older clients
+  trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
+  trip.fare = fareInfo.farePerPersonPesewas; // kept for backwards-compat with older clients
   // Full trip cost — what a rider pays when they choose "I'm paying for everyone".
-  trip.totalTripCost = fareInfo.totalTripCost;
+  trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
 
   // Attach driver's average rating
   if (trip.driver) {
@@ -344,16 +346,16 @@ async function getTripByShareToken(shareToken) {
     doorstepPickup: group.trip.doorstepPickup,
     heavyLoad: group.trip.heavyLoad,
     surgeMultiplier: group.trip.surgeMultiplier,
-    storedBaseFare: group.trip.baseFare,
-    storedPerKmRate: group.trip.perKmRate,
+    storedBaseFarePesewas: group.trip.baseFarePesewas,
+    storedPerKmRatePesewas: group.trip.perKmRatePesewas,
     availableSeats: group.trip.maxSeats,
   });
 
-  // Flatten so the rider's group hub can read `trip.fare` / `trip.totalTripCost`
+  // Flatten so the rider's group hub can read `trip.fare` / `trip.totalTripCostPesewas`
   // the same way every other rider screen does — single source of truth.
-  group.trip.fare = fare.farePerPerson;
-  group.trip.farePerSeat = fare.farePerPerson;
-  group.trip.totalTripCost = fare.totalTripCost;
+  group.trip.fare = fare.farePerPersonPesewas;
+  group.trip.farePerSeatPesewas = fare.farePerPersonPesewas;
+  group.trip.totalTripCostPesewas = fare.totalTripCostPesewas;
 
   return { group, trip: group.trip, fareEstimate: fare };
 }
@@ -548,13 +550,13 @@ async function searchTrips(query) {
       doorstepPickup: trip.doorstepPickup,
       heavyLoad: trip.heavyLoad,
       surgeMultiplier: trip.surgeMultiplier,
-      storedBaseFare: trip.baseFare,
-      storedPerKmRate: trip.perKmRate,
+      storedBaseFarePesewas: trip.baseFarePesewas,
+      storedPerKmRatePesewas: trip.perKmRatePesewas,
       availableSeats: trip.maxSeats,
     });
-    trip.farePerSeat = fareInfo.farePerPerson;
-    trip.fare = fareInfo.farePerPerson; // backwards-compat
-    trip.totalTripCost = fareInfo.totalTripCost;
+    trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
+    trip.fare = fareInfo.farePerPersonPesewas; // backwards-compat
+    trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
   });
 
   return { trips, total: totalCount, page: Number(page), totalPages: Math.ceil(totalCount / take) };
@@ -674,35 +676,35 @@ async function completeTrip(tripId) {
         paymentStatus: { not: 'PAID' },
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
       },
-      select: { id: true, commissionAmount: true },
+      select: { id: true, commissionAmountPesewas: true },
     });
     if (unsettledCash.length > 0) {
-      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmount || 0), 0);
+      const totalCommissionOwed = unsettledCash.reduce((sum, b) => sum + (b.commissionAmountPesewas || 0), 0);
       await tx.booking.updateMany({
         where: { id: { in: unsettledCash.map((b) => b.id) } },
         data: { paymentStatus: 'PAID' },
       });
       if (totalCommissionOwed > 0) {
-        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: trip.driverId }, select: { walletBalance: true } });
+        const driverBeforeSettle = await tx.driver.findUnique({ where: { id: trip.driverId }, select: { walletBalancePesewas: true } });
         await tx.driver.update({
           where: { id: trip.driverId },
-          data: { walletBalance: { decrement: totalCommissionOwed } },
+          data: { walletBalancePesewas: { decrement: totalCommissionOwed } },
         });
         await tx.walletTransaction.create({
           data: {
             driverId: trip.driverId,
             type: 'COMMISSION_DEDUCTION',
-            amount: totalCommissionOwed,
+            amountPesewas: totalCommissionOwed,
             description: `Cash commission auto-settled at trip completion — ${unsettledCash.length} seat(s) not marked boarded`,
-            balanceBefore: driverBeforeSettle?.walletBalance ?? 0,
-            balanceAfter: (driverBeforeSettle?.walletBalance ?? 0) - totalCommissionOwed,
+            balanceBeforePesewas: driverBeforeSettle?.walletBalancePesewas ?? 0,
+            balanceAfterPesewas: (driverBeforeSettle?.walletBalancePesewas ?? 0) - totalCommissionOwed,
             tripId,
           },
         });
       }
     }
 
-    // Credit driver wallet: sum fareAmount from paid+confirmed bookings, minus 15% platform fee
+    // Credit driver wallet: sum fareAmountPesewas from paid+confirmed bookings, minus 15% platform fee
     const paidBookings = await tx.booking.findMany({
       where: {
         tripId,
@@ -710,7 +712,7 @@ async function completeTrip(tripId) {
         paymentStatus: 'PAID',
       },
       select: {
-        id: true, userId: true, fareAmount: true, commissionAmount: true, paymentMethod: true, updatedAt: true,
+        id: true, userId: true, fareAmountPesewas: true, commissionAmountPesewas: true, paymentMethod: true, updatedAt: true,
         paymentTxs: { where: { status: 'SUCCESS' }, select: { createdAt: true }, take: 1, orderBy: { createdAt: 'desc' } },
         user: { select: { fcmToken: true, notificationPrefs: true } },
       },
@@ -718,7 +720,7 @@ async function completeTrip(tripId) {
 
     for (const b of paidBookings) {
       if (b.user?.fcmToken) {
-        completedRiderTokens.push({ token: b.user.fcmToken, fareAmount: b.fareAmount, notificationPrefs: b.user.notificationPrefs, bookingId: b.id });
+        completedRiderTokens.push({ token: b.user.fcmToken, fareAmountPesewas: b.fareAmountPesewas, notificationPrefs: b.user.notificationPrefs, bookingId: b.id });
       }
     }
 
@@ -728,14 +730,21 @@ async function completeTrip(tripId) {
     if (paidBookings.length > 0) {
       // Generate per-rider Receipt records
       for (const b of paidBookings) {
-        const commission = b.commissionAmount != null ? b.commissionAmount : Math.round(b.fareAmount * 0.15 * 100) / 100;
-        const driverEarnings = b.fareAmount - commission;
+        // The fallback used a hardcoded 0.15 while the rest of the platform
+        // read `PLATFORM_COMMISSION` — so changing the commission rate moved
+        // every figure except the one on a receipt whose booking predated the
+        // commission column. One knob.
+        const commission =
+          b.commissionAmountPesewas != null
+            ? b.commissionAmountPesewas
+            : percentOf(b.fareAmountPesewas, env.PLATFORM_COMMISSION);
+        const driverEarningsPesewas = b.fareAmountPesewas - commission;
         // CASH bookings already had their commission deducted at boarding
         // (or in the auto-settle step above) and the driver keeps the fare
-        // cash directly — crediting the wallet with driverEarnings again
+        // cash directly — crediting the wallet with driverEarningsPesewas again
         // here would double-pay them. Still generate their receipt below.
         if (b.paymentMethod !== 'CASH') {
-          totalNetEarnings += driverEarnings;
+          totalNetEarnings += driverEarningsPesewas;
           totalCommission += commission;
         }
 
@@ -745,10 +754,10 @@ async function completeTrip(tripId) {
             bookingId: b.id,
             userId: b.userId,
             receiptNumber,
-            totalPaid: b.fareAmount,
-            platformFee: commission,
-            driverEarnings,
-            discountApplied: 0,
+            totalPaidPesewas: b.fareAmountPesewas,
+            platformFeePesewas: commission,
+            driverEarningsPesewas,
+            discountAppliedPesewas: 0,
             paymentMethod: b.paymentMethod ?? 'MOMO',
             paidAt: b.paymentTxs?.[0]?.createdAt ?? b.updatedAt,
           },
@@ -759,20 +768,20 @@ async function completeTrip(tripId) {
         // Credit driver wallet — tx.wallet does not exist; the balance is a scalar on Driver
         const driverBefore = await tx.driver.findUnique({
           where: { id: trip.driverId },
-          select: { walletBalance: true },
+          select: { walletBalancePesewas: true },
         });
         await tx.driver.update({
           where: { id: trip.driverId },
-          data: { walletBalance: { increment: totalNetEarnings } },
+          data: { walletBalancePesewas: { increment: totalNetEarnings } },
         });
         await tx.walletTransaction.create({
           data: {
             driverId: trip.driverId,
             type: 'TRIP_EARNING',
-            amount: totalNetEarnings,
+            amountPesewas: totalNetEarnings,
             description: `Trip earnings — ${paidBookings.length} paid seat(s)`,
-            balanceBefore: driverBefore?.walletBalance ?? 0,
-            balanceAfter: (driverBefore?.walletBalance ?? 0) + totalNetEarnings,
+            balanceBeforePesewas: driverBefore?.walletBalancePesewas ?? 0,
+            balanceAfterPesewas: (driverBefore?.walletBalancePesewas ?? 0) + totalNetEarnings,
             tripId,
           },
         });
@@ -783,24 +792,24 @@ async function completeTrip(tripId) {
       // driver was handed the money and commission was already debited), but the
       // driver app's earnings chart and the /earnings summary are built from
       // wallet transactions — so with no row at all, a cash trip was invisible
-      // there and the chart stayed blank. `balanceBefore === balanceAfter` makes
+      // there and the chart stayed blank. `balanceBeforePesewas === balanceAfterPesewas` makes
       // it explicit that this moves nothing; see EARNING_TYPES in
       // drivers.service.js for which reports opt into it.
       const cashEarningsTotal = paidBookings
         .filter((b) => b.paymentMethod === 'CASH')
-        .reduce((sum, b) => sum + (b.fareAmount - (b.commissionAmount ?? 0)), 0);
+        .reduce((sum, b) => sum + (b.fareAmountPesewas - (b.commissionAmountPesewas ?? 0)), 0);
       if (cashEarningsTotal > 0) {
         const balanceNow = (await tx.driver.findUnique({
-          where: { id: trip.driverId }, select: { walletBalance: true },
-        }))?.walletBalance ?? 0;
+          where: { id: trip.driverId }, select: { walletBalancePesewas: true },
+        }))?.walletBalancePesewas ?? 0;
         await tx.walletTransaction.create({
           data: {
             driverId: trip.driverId,
             type: 'CASH_EARNING',
-            amount: cashEarningsTotal,
+            amountPesewas: cashEarningsTotal,
             description: 'Cash collected in person',
-            balanceBefore: balanceNow,
-            balanceAfter: balanceNow,
+            balanceBeforePesewas: balanceNow,
+            balanceAfterPesewas: balanceNow,
             tripId,
           },
         });
@@ -813,8 +822,8 @@ async function completeTrip(tripId) {
           driverId: trip.driverId,
           tripId,
           receiptNumber: driverReceiptNumber,
-          totalEarnings: totalNetEarnings,
-          commissionDeducted: totalCommission,
+          totalEarningsPesewas: totalNetEarnings,
+          commissionDeductedPesewas: totalCommission,
           periodStart: trip.departureTime,
           periodEnd: completedAt,
           status: 'PAID',
@@ -845,9 +854,10 @@ async function completeTrip(tripId) {
   // (no live socket connection) never got a "trip complete, rate your ride" push.
   // savedAmount is a rough shared-vs-private-ride estimate for the notification copy,
   // not a precise financial figure.
-  for (const { token, fareAmount, notificationPrefs, bookingId } of completedRiderTokens) {
-    const savedAmount = Math.round(fareAmount);
-    pushService.notifications.rideComplete(token, savedAmount, notificationPrefs, bookingId).catch(() => {});
+  for (const { token, fareAmountPesewas, notificationPrefs, bookingId } of completedRiderTokens) {
+    pushService.notifications
+      .rideComplete(token, fareAmountPesewas, notificationPrefs, bookingId)
+      .catch(() => {});
   }
 
   // Notify GraphQL subscribers of trip completion (fire-and-forget)
@@ -884,10 +894,10 @@ async function getTripReceipt(tripId, userId) {
   const trip = receipt.booking.trip;
   return {
     receiptNumber: receipt.receiptNumber,
-    fare: receipt.totalPaid,
-    platformFee: receipt.platformFee,
-    driverEarnings: receipt.driverEarnings,
-    discountApplied: receipt.discountApplied,
+    farePesewas: receipt.totalPaidPesewas,
+    platformFeePesewas: receipt.platformFeePesewas,
+    driverEarningsPesewas: receipt.driverEarningsPesewas,
+    discountAppliedPesewas: receipt.discountAppliedPesewas,
     paymentMethod: receipt.paymentMethod,
     paidAt: receipt.paidAt,
     seatNumber: receipt.booking.seatNumber,
@@ -952,7 +962,7 @@ async function driverNoShow(tripId, reportingUserId) {
           data: {
             bookingId: booking.id,
             userId: booking.userId,
-            amount: booking.fareAmount,
+            amountPesewas: booking.fareAmountPesewas,
             status: 'REFUNDED',
             paystackRef: booking.paystackRef ?? `noshow_refund_${booking.id}`,
             gatewayResponse: 'Refunded: driver no-show',
@@ -1111,8 +1121,8 @@ async function getScheduledRides(userId) {
           id: true,
           tier: true,
           maxSeats: true,
-          baseFare: true,
-          perKmRate: true,
+          baseFarePesewas: true,
+          perKmRatePesewas: true,
           surgeMultiplier: true,
           doorstepPickup: true,
           heavyLoad: true,
@@ -1134,13 +1144,13 @@ async function getScheduledRides(userId) {
       doorstepPickup: t.doorstepPickup,
       heavyLoad: t.heavyLoad,
       surgeMultiplier: t.surgeMultiplier,
-      storedBaseFare: t.baseFare,
-      storedPerKmRate: t.perKmRate,
+      storedBaseFarePesewas: t.baseFarePesewas,
+      storedPerKmRatePesewas: t.perKmRatePesewas,
     });
     const vehicle = t.driver?.vehicles?.[0];
     return [t.id, {
       tier: t.tier,
-      farePerSeat: fare.farePerPerson,
+      farePerSeatPesewas: fare.farePerPersonPesewas,
       driverName: t.driver?.name ?? null,
       vehicleLabel: vehicle ? `${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber}` : null,
     }];
@@ -1215,8 +1225,8 @@ async function processScheduledRideIntents() {
           tier: candidateTrip.tier,
           distanceKm: intent.route.distanceKm,
           seatCount: candidateTrip.maxSeats,
-          storedBaseFare: candidateTrip.baseFare,
-          storedPerKmRate: candidateTrip.perKmRate,
+          storedBaseFarePesewas: candidateTrip.baseFarePesewas,
+          storedPerKmRatePesewas: candidateTrip.perKmRatePesewas,
           surgeMultiplier: candidateTrip.surgeMultiplier,
         });
 
@@ -1225,8 +1235,8 @@ async function processScheduledRideIntents() {
             data: {
               tripId: candidateTrip.id,
               userId: intent.userId,
-              fareAmount: fare.farePerPerson,
-              commissionAmount: fare.commissionPerSeat,
+              fareAmountPesewas: fare.farePerPersonPesewas,
+              commissionAmountPesewas: fare.commissionPerSeatPesewas,
               paymentMethod: 'CASH',
               paymentStatus: 'PENDING',
               status: 'SEAT_HELD',
@@ -1327,7 +1337,7 @@ async function processScheduledRideIntents() {
 async function estimateDeviationSurcharge(tripId, lat, lng) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
-    select: { perKmRate: true, route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } } },
+    select: { perKmRatePesewas: true, route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } } },
   });
   if (!trip) throw new NotFoundError('Trip');
   const { detourKm, calculateDeviationSurcharge } = require('./fare.calculator');
@@ -1336,7 +1346,7 @@ async function estimateDeviationSurcharge(tripId, lat, lng) {
     viaLat: lat, viaLng: lng,
     toLat: trip.route.destLat, toLng: trip.route.destLng,
   });
-  const surcharge = calculateDeviationSurcharge({ extraKm, perKmRate: trip.perKmRate });
+  const surcharge = calculateDeviationSurcharge({ extraKm, perKmRatePesewas: trip.perKmRatePesewas });
   return { extraKm: Math.round(extraKm * 100) / 100, surcharge };
 }
 

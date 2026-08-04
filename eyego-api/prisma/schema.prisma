@@ -111,7 +111,7 @@ model User {
   businessExpenseEmail  String?
   isActive      Boolean      @default(true)
   isBanned      Boolean      @default(false)
-  walletBalance Float        @default(0)
+  walletBalancePesewas Int   @default(0)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -218,7 +218,7 @@ model Driver {
   currentLng      Float?
   currentHeading  Float?
   fcmToken        String?
-  walletBalance   Float        @default(0)
+  walletBalancePesewas Int     @default(0)
   payoutData      String?      // JSON: { type:'bank'|'momo', bankName?, accountNumber?, accountName?, network?, phone? }
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -355,8 +355,10 @@ model Trip {
   cancelledAt     DateTime?
   cancelledBy     TripEventActor?
   cancellationReason String?
-  baseFare        Float
-  perKmRate       Float
+  baseFarePesewas  Int
+  perKmRatePesewas Int
+  // Dimensionless multipliers/ratios stay Float — they are not money and
+  // rounding them to the pesewa would be wrong.
   surgeMultiplier Float      @default(1.0)
   commissionRate  Float      @default(0.15)
   confirmedSeats  Int        @default(0)
@@ -460,8 +462,17 @@ model Booking {
   userId              String?
   user                User?         @relation(fields: [userId], references: [id])
   seatNumber          Int?
-  fareAmount          Float
-  commissionAmount    Float
+  // ── MONEY IS INTEGER PESEWAS ────────────────────────────────────────────
+  // 1 GHS = 100 pesewas. Every monetary column in this schema is `Int` and
+  // named `…Pesewas`, without exception. See src/utils/money.js for why, and
+  // for the only functions permitted to convert.
+  //
+  // The suffix is not decoration. Changing `fareAmount Float` (cedis) to
+  // `fareAmount Int` (pesewas) in place would leave all ~120 read sites
+  // compiling perfectly and quietly charging 100× too much. Renaming makes
+  // every unconverted site a loud failure instead of a silent overcharge.
+  fareAmountPesewas       Int
+  commissionAmountPesewas Int
   paymentMethod       String
   paymentStatus       String @default("PENDING")
   paystackRef         String?
@@ -481,7 +492,7 @@ model Booking {
   status              BookingStatus @default(PENDING)
   cancelledAt         DateTime?
   cancellationReason  String?
-  cancellationFee     Float?
+  cancellationFeePesewas Int?
   pickupStopId        String?
   pickupStop          VirtualStop?  @relation(fields: [pickupStopId], references: [id])
   enRouteRatio        Float?
@@ -496,7 +507,7 @@ model Booking {
   // point, computed once at booking time — see fare.calculator.js
   // calculateDeviationSurcharge(). Zero for anyone boarding at the trip's
   // main pickup.
-  deviationSurcharge  Float         @default(0)
+  deviationSurchargePesewas Int      @default(0)
   // Group-wide heavy-cargo/luggage surcharge, toggled by any member post-booking
   // (invite.tsx) — was previously a client-only UI toggle that changed the
   // displayed price but never actually charged anything.
@@ -547,11 +558,11 @@ model Receipt {
   userId          String?
   user            User?    @relation(fields: [userId], references: [id])
   receiptNumber   String   @unique
-  totalPaid       Float
-  platformFee     Float
-  driverEarnings  Float
-  discountApplied Float    @default(0)
-  cancellationFee Float?
+  totalPaidPesewas       Int
+  platformFeePesewas     Int
+  driverEarningsPesewas  Int
+  discountAppliedPesewas Int    @default(0)
+  cancellationFeePesewas Int?
   paymentMethod   String
   paidAt          DateTime?
   createdAt       DateTime @default(now())
@@ -571,10 +582,10 @@ model DriverReceipt {
   driver          Driver   @relation(fields: [driverId], references: [id])
   tripId          String?
   receiptNumber   String   @unique
-  totalEarnings   Float
-  commissionDeducted Float
-  tipsReceived    Float   @default(0)
-  bonusAmount     Float   @default(0)
+  totalEarningsPesewas      Int
+  commissionDeductedPesewas Int
+  tipsReceivedPesewas       Int   @default(0)
+  bonusAmountPesewas        Int   @default(0)
   periodStart     DateTime?
   periodEnd       DateTime?
   paidAt          DateTime?
@@ -593,7 +604,9 @@ model PaymentTransaction {
   bookingId       String?
   booking         Booking? @relation(fields: [bookingId], references: [id])
   userId          String?
-  amount          Float
+  // Pesewas — which is also exactly what Paystack's `amount` field wants, so
+  // this column and the gateway now speak the same unit with no conversion.
+  amountPesewas   Int
   currency        String   @default("GHS")
   status          String
   paystackRef     String?
@@ -650,8 +663,12 @@ model DriverQuest {
   title         String
   description   String
   type          String                // RIDES_COUNT | EARNINGS
-  target        Float                 // e.g. 10 rides, 200 GHS earnings
-  rewardAmount  Float                 // bonus GHS credited on completion
+  // The unit of `target` FOLLOWS `type`: a count of rides when RIDES_COUNT,
+  // pesewas when EARNINGS. That ambiguity is inherent to one quest table
+  // covering both, so it is stated here rather than left to be guessed —
+  // read it through quests.service's `questUnit()`, never bare.
+  target        Int                   // 10 (rides) | 20000 (pesewas = GH₵200)
+  rewardAmountPesewas Int             // bonus credited on completion
   periodStart   DateTime
   periodEnd     DateTime
   isActive      Boolean               @default(true)
@@ -665,7 +682,8 @@ model DriverQuestProgress {
   questId     String
   quest       DriverQuest @relation(fields: [questId], references: [id])
   driverId    String
-  current     Float       @default(0)
+  // Same unit as the parent quest's `target` — see the note there.
+  current     Int         @default(0)
   completed   Boolean     @default(false)
   rewardedAt  DateTime?
   updatedAt   DateTime    @updatedAt
@@ -754,10 +772,12 @@ model WalletTransaction {
   driverId      String
   driver        Driver       @relation(fields: [driverId], references: [id])
   type          String
-  amount        Float
+  // Signed: a debit is negative. `balanceAfter = balanceBefore + amount` is an
+  // invariant the ledger asserts on every write (see wallet.service).
+  amountPesewas        Int
   description   String
-  balanceBefore Float
-  balanceAfter  Float
+  balanceBeforePesewas Int
+  balanceAfterPesewas  Int
   tripId        String?
   paystackRef   String?
   createdAt     DateTime     @default(now())
@@ -775,7 +795,7 @@ model DriverShift {
   driver      Driver    @relation(fields: [driverId], references: [id])
   startTime   DateTime
   endTime     DateTime?
-  earnings    Float     @default(0)
+  earningsPesewas Int   @default(0)
   tripsCount  Int       @default(0)
   status      String    @default("ACTIVE")
   createdAt   DateTime  @default(now())
@@ -895,7 +915,7 @@ model Promotion {
   id              String    @id @default(cuid())
   code            String    @unique
   discountPercent Int
-  maxDiscount     Float
+  maxDiscountPesewas Int
   active          Boolean   @default(true)
   usageCount      Int       @default(0)
   maxRedemptions  Int?
@@ -935,7 +955,7 @@ model ReferralBonus {
   referral    Referral @relation(fields: [referralId], references: [id])
   userId      String
   user        User     @relation(fields: [userId], references: [id])
-  amount      Float
+  amountPesewas Int
   type        String   @default("RIDER_CREDIT") // RIDER_CREDIT, DRIVER_BONUS
   status      String   @default("PENDING") // PENDING, CLAIMED, EXPIRED
   tripId      String?
