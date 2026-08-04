@@ -147,7 +147,7 @@ export default function RideDetailScreen() {
 
   useEffect(() => {
     if (isAlreadyBooked && id) {
-      router.replace(`/ride/${id}/tracking` as Href);
+      router.replace('/trip?stage=assigned' as Href);
     }
   }, [isAlreadyBooked, id, router]);
 

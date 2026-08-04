@@ -233,7 +233,7 @@ export default function ScheduledRideDetailScreen() {
                 label="Open live tracking"
                 onPress={() => {
                   Haptics.selectionAsync();
-                  router.push(`/ride/${intent.matchedTripId}/tracking` as any);
+                  router.push('/trip?stage=assigned' as any);
                 }}
                 style={{ marginTop: spacing.sm }}
               />

@@ -39,6 +39,16 @@ export interface UseMapCameraArgs {
   publishEveryMs?: number;
   /** Set false to stop the frame loop entirely (screen not visible). */
   active?: boolean;
+  /**
+   * Add the live interpolated puck to the `overview` fit set.
+   *
+   * The caller cannot do this itself without a cycle: the puck is produced by
+   * this hook, so a `fit` computed from it would have to be passed back into
+   * the hook that made it. The frame loop already holds the smoothed position,
+   * so it folds it in here — which is also what keeps the frame from jittering,
+   * since it uses the interpolated value rather than the last sampled one.
+   */
+  fitIncludesPuck?: boolean;
 }
 
 export interface MapCamera {
@@ -61,7 +71,10 @@ export interface MapCamera {
 }
 
 export function useMapCamera(args: UseMapCameraArgs): MapCamera {
-  const { mode, fit, center, padding, publishEveryMs = 400, active = true } = args;
+  const {
+    mode, fit, center, padding,
+    publishEveryMs = 400, active = true, fitIncludesPuck = false,
+  } = args;
 
   const cameraRef = useRef<any>(null);
   const interpolatorRef = useRef(new PuckInterpolator());
@@ -84,6 +97,8 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   modeRef.current = mode;
   const paddingRef = useRef<CameraPadding>(padding);
   paddingRef.current = padding;
+  const fitIncludesPuckRef = useRef(fitIncludesPuck);
+  fitIncludesPuckRef.current = fitIncludesPuck;
 
   const release = useCallback(() => {
     if (releasedAtRef.current != null) {
@@ -148,6 +163,10 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
       const effectiveMode: CameraMode =
         releasedAtRef.current != null ? 'free' : modeRef.current;
 
+      const liveFit = state && fitIncludesPuckRef.current
+        ? [...(targetRef.current.fit ?? []), [state.longitude, state.latitude] as Coord]
+        : targetRef.current.fit;
+
       const plan = planCamera(
         effectiveMode,
         {
@@ -155,7 +174,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
           // the camera should track the smooth value, not the sampled one.
           center: state ? ([state.longitude, state.latitude] as Coord) : targetRef.current.center,
           bearing: state?.bearing ?? targetRef.current.bearing,
-          fit: targetRef.current.fit,
+          fit: liveFit,
         },
         paddingRef.current,
         // The camera is re-commanded every frame while following, so each move

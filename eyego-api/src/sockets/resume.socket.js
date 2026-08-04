@@ -3,7 +3,7 @@
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 const tripState = require('../services/trip-state.service');
-const { buildTripSnapshot, TRIP_INCLUDE } = require('../services/trip-view');
+const { buildTripSnapshotWithPath, TRIP_INCLUDE } = require('../services/trip-view');
 const publisher = require('../services/trip-events.publisher');
 
 /**
@@ -77,7 +77,10 @@ function registerResumeProtocol(namespace, role) {
         socket.join(`trip:${tripId}`);
 
         const missed = await tripState.eventsSince(tripId, lastSeq, MAX_REPLAY);
-        const snapshot = buildTripSnapshot(trip, {
+        // With the route line: a client resuming mid-trip must get its map back
+        // in one round trip, not draw a bare pair of pins and then wait for the
+        // driver's next GPS fix to learn where the road goes.
+        const snapshot = await buildTripSnapshotWithPath(trip, {
           forUserId: role === 'DRIVER' ? null : viewerId,
         });
 

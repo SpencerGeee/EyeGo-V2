@@ -51,12 +51,43 @@ export type SafetyCheckPayload = {
   timestamp: number;
 };
 
+/**
+ * `trip:eta` as the SERVER now sends it — see
+ * eyego-api/src/services/route-geometry.service.js.
+ *
+ * `leg` is the field that fixes a long-standing lie: the old ETA always routed
+ * to the trip's final destination, so "8 min away" during pickup was the time
+ * to the rider's destination, a number unrelated to the wait. There are two
+ * legs — `toPickup` while the driver is fetching the rider, `toDropoff` once
+ * they are aboard — and the geometry belongs to whichever one is live.
+ *
+ * `rerouted` is true only on the pass where the server detected the driver had
+ * left the line and recomputed it, so a client can react to a re-route
+ * (re-draw, re-announce) without diffing geometry itself.
+ */
 export type DriverEtaPayload = {
   tripId: string;
+  leg?: 'toPickup' | 'toDropoff';
   etaMinutes: number;
   distanceKm?: number;
   message?: string;
-  geometry?: any;
+  geometry?: { type: 'LineString'; coordinates: [number, number][] };
+  rerouted?: boolean;
+};
+
+/**
+ * `trip:route` — the narrower "the line changed" event.
+ *
+ * Emitted only on a re-route, where `trip:eta` carries the same geometry but
+ * also a new ETA. A client that only draws the line can listen to this and
+ * ignore the ETA traffic entirely.
+ */
+export type TripRoutePayload = {
+  tripId: string;
+  leg: 'toPickup' | 'toDropoff';
+  geometry: { type: 'LineString'; coordinates: [number, number][] };
+  distanceKm?: number;
+  durationMin?: number;
 };
 
 export type TripStatusPayload = {
@@ -246,6 +277,17 @@ export const socketEvents = {
   onTripEta: (cb: (data: TripEtaEvent) => void) => {
     getSocket().on('trip:eta', cb);
     return () => getSocket().off('trip:eta', cb);
+  },
+
+  /**
+   * The route line changed because the driver left it and the server
+   * recomputed. `trip:eta` also carries the new geometry, so a screen already
+   * listening there does not need this — it exists so a map can redraw the line
+   * without subscribing to ETA churn.
+   */
+  onTripRoute: (cb: (data: TripRoutePayload) => void) => {
+    getSocket().on('trip:route', cb);
+    return () => getSocket().off('trip:route', cb);
   },
 
   onTripStatus: (cb: (data: TripStatusEvent) => void) => {
@@ -507,6 +549,19 @@ export const driverSocketEvents = {
   onTripEta: (cb: (data: DriverEtaPayload) => void) => {
     getDriverSocket().on('trip:eta', cb);
     return () => getDriverSocket().off('trip:eta', cb);
+  },
+
+  /**
+   * The server re-routed this trip because the driver left the line.
+   *
+   * The driver map draws the SERVER's geometry rather than calling Directions
+   * itself — otherwise the driver and the rider render different lines for one
+   * ride and each screen spends its own quota. This is how the line gets
+   * corrected after a wrong turn.
+   */
+  onTripRoute: (cb: (data: TripRoutePayload) => void) => {
+    getDriverSocket().on('trip:route', cb);
+    return () => getDriverSocket().off('trip:route', cb);
   },
 
   emitJoinTracking: (tripId: string) => {

@@ -91,7 +91,7 @@ export default function ScheduledRidesScreen() {
                 onPress={() =>
                   router.push(
                     (liveIntent.matchedTripId
-                      ? `/ride/${liveIntent.matchedTripId}/tracking`
+                      ? '/trip?stage=assigned'
                       : `/scheduled/${liveIntent.id}`) as any,
                   )
                 }

@@ -2,8 +2,10 @@ import { create } from 'zustand';
 import {
   getSocket,
   ridesApi,
+  socketEvents,
   subscribeToTrip,
   serverNow,
+  type TripPath,
   type TripSnapshot,
   type TripStatus,
   type TripEvent,
@@ -47,6 +49,32 @@ interface TripStoreState {
     etaSeconds: number | null;
   } | null;
 
+  /**
+   * Live ETA for the leg currently being driven, as the SERVER computed it.
+   *
+   * One owner for one fact. The legacy tracking screen called Mapbox Directions
+   * itself, on a 2→4→8→15 s retry ladder, and displayed that call's duration —
+   * so the rider's "6 min away" and the driver's were two different numbers
+   * from two different requests, and neither survived navigating away. `leg`
+   * matters as much as `minutes`: the same "6 min" means the driver reaching
+   * you or you reaching your destination, and conflating them is what made
+   * pickup-phase ETAs describe a journey nobody was making yet.
+   */
+  eta: {
+    leg: 'toPickup' | 'toDropoff';
+    minutes: number;
+    distanceKm: number | null;
+    message: string | null;
+    rerouted: boolean;
+  } | null;
+
+  /**
+   * The road line for the live leg. Seeded from `snapshot.path` (so a screen
+   * opened mid-trip has a line immediately) and refreshed in place by
+   * `trip:eta`/`trip:route` as the driver moves or is re-routed.
+   */
+  path: TripPath | null;
+
   /** Begin (or resume) following a trip. Idempotent. */
   watch: (tripId: string) => void;
   /** Stop following. Called when the trip goes terminal or the surface closes. */
@@ -58,6 +86,7 @@ interface TripStoreState {
 }
 
 let unsubscribe: (() => void) | null = null;
+let unsubscribeEta: (() => void) | null = null;
 let watchedTripId: string | null = null;
 
 export const useTripStore = create<TripStoreState>((set, get) => ({
@@ -67,24 +96,73 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
   connected: false,
   recovering: false,
   dispatch: null,
+  eta: null,
+  path: null,
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
     unsubscribe?.();
+    unsubscribeEta?.();
     watchedTripId = tripId;
+    // A new trip must not inherit the previous one's line or countdown.
+    set({ eta: null, path: null });
+
+    /**
+     * `trip:eta` is the only source of the live line and the countdown.
+     *
+     * It lives here rather than in the map component because both the map and
+     * the panel need it, and two subscribers meant two slightly different
+     * numbers on one screen. Note this listens on the RIDER namespace socket —
+     * the same one `subscribeToTrip` uses — so it is joined to the trip room by
+     * the subscribe below and needs no join of its own.
+     */
+    unsubscribeEta = socketEvents.onTripEta((e: any) => {
+      if (e?.tripId && e.tripId !== watchedTripId) return;
+      const coords = e?.geometry?.coordinates;
+      const leg: 'toPickup' | 'toDropoff' = e?.leg === 'toPickup' ? 'toPickup' : 'toDropoff';
+      set((s) => ({
+        eta: Number.isFinite(e?.etaMinutes)
+          ? {
+              leg,
+              minutes: Math.max(0, Math.round(e.etaMinutes)),
+              distanceKm: Number.isFinite(e?.distanceKm) ? e.distanceKm : null,
+              message: typeof e?.message === 'string' ? e.message : null,
+              rerouted: e?.rerouted === true,
+            }
+          : s.eta,
+        path:
+          Array.isArray(coords) && coords.length >= 2
+            ? {
+                leg,
+                geometry: { type: 'LineString', coordinates: coords },
+                distanceKm: Number.isFinite(e?.distanceKm) ? e.distanceKm : 0,
+                durationMin: Number.isFinite(e?.etaMinutes) ? e.etaMinutes : 0,
+                computedAt: Date.now(),
+              }
+            : s.path,
+      }));
+    });
 
     unsubscribe = subscribeToTrip({
       socket: getSocket(),
       tripId,
       lastSeq: get().snapshot?.tripId === tripId ? get().lastSeq : 0,
       onState: (s: TripChannelState) =>
-        set({
+        set((prev) => ({
           snapshot: s.snapshot,
           lastSeq: s.lastSeq,
           clockSkewMs: s.clockSkewMs,
           connected: s.connected,
           recovering: s.recovering,
-        }),
+          // The snapshot SEEDS the line; it never overwrites a fresher one.
+          // `trip:eta` fires every ~10 s or 50 m, so its geometry is newer than
+          // the snapshot's cached copy for most of a ride — and a resumed
+          // screen needs the snapshot's copy to have something to draw at all.
+          path:
+            s.snapshot?.path && (prev.path == null || s.snapshot.path.leg !== prev.path.leg)
+              ? s.snapshot.path
+              : prev.path,
+        })),
       onEvent: (event: TripEvent) => {
         // Dispatch progress is not lifecycle — three drivers may be asked in
         // sequence and only one becomes a transition — so it is tracked
@@ -124,9 +202,11 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
 
   unwatch: () => {
     unsubscribe?.();
+    unsubscribeEta?.();
     unsubscribe = null;
+    unsubscribeEta = null;
     watchedTripId = null;
-    set({ snapshot: null, lastSeq: 0, dispatch: null, recovering: false });
+    set({ snapshot: null, lastSeq: 0, dispatch: null, recovering: false, eta: null, path: null });
   },
 
   hydrate: async () => {
@@ -136,6 +216,9 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
         snapshot: trip,
         lastSeq: trip?.version ?? 0,
         clockSkewMs: serverNowMs - Date.now(),
+        // What makes a cold start mid-trip open with a drawn route instead of
+        // two bare pins and a wait for the driver's next GPS fix.
+        path: trip?.path ?? null,
         dispatch: dispatch?.currentDriverId
           ? {
               driverId: dispatch.currentDriverId,

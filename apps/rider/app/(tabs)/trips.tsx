@@ -128,7 +128,7 @@ export default function TripsScreen() {
       {/* Active booking banner */}
       {activeBooking && (
         <Pressable
-          onPress={() => router.push(`/ride/${activeBooking.tripId}/tracking` as Href)}
+          onPress={() => router.push('/trip?stage=assigned' as Href)}
           style={[styles.activeBanner, { borderLeftColor: colors.primary }]}
           accessibilityRole="button"
           accessibilityLabel="Active ride — tap to track"

@@ -13,6 +13,7 @@ const { isDriverAvailable } = require('../../services/driver-availability');
 const {
   TRIP_INCLUDE,
   buildTripSnapshot,
+  buildTripSnapshotWithPath,
   findActiveTripForUser,
   findActiveTripForDriver,
 } = require('../../services/trip-view');
@@ -238,7 +239,7 @@ async function requestRide(userId, body) {
 async function getActiveRide(userId) {
   const trip = await findActiveTripForUser(userId);
   if (!trip) return { trip: null, serverNowMs: Date.now() };
-  const snapshot = buildTripSnapshot(trip, { forUserId: userId });
+  const snapshot = await buildTripSnapshotWithPath(trip, { forUserId: userId });
   const dispatchState = [S.REQUESTED, S.MATCHING, S.REASSIGNING].includes(trip.status)
     ? await cascade.getCascadeState(trip.id)
     : null;
@@ -258,7 +259,7 @@ async function getRideEvents(tripId, viewerId, sinceSeq = 0) {
   const events = await tripState.eventsSince(tripId, sinceSeq);
   return {
     tripId,
-    snapshot: buildTripSnapshot(trip, { forUserId: viewerId }),
+    snapshot: await buildTripSnapshotWithPath(trip, { forUserId: viewerId }),
     events,
     serverNowMs: Date.now(),
   };
@@ -470,7 +471,7 @@ async function getDriverState(driverId) {
       lng: driver.currentLng,
       walletBalancePesewas: driver.walletBalancePesewas,
     },
-    trip: trip ? buildTripSnapshot(trip, {}) : null,
+    trip: trip ? await buildTripSnapshotWithPath(trip, {}) : null,
     serverNowMs: Date.now(),
   };
 }

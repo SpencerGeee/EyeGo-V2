@@ -286,7 +286,7 @@ export default function PaymentScreen() {
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
         socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-        const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+        const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
         pendingTimeoutsRef.current.push(t);
         return;
       }
@@ -310,7 +310,7 @@ export default function PaymentScreen() {
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
         socketEvents.emitPaymentConfirmed(data.bookingId ?? activeBooking?.id ?? '', id ?? '');
-        const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+        const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
         pendingTimeoutsRef.current.push(t);
       } catch (err) {
         if (!isMountedRef.current) return;
@@ -365,7 +365,7 @@ export default function PaymentScreen() {
             queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
             queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
             socketEvents.emitPaymentConfirmed(bookingId, id ?? '');
-            const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+            const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
             pendingTimeoutsRef.current.push(t);
             return;
           }
@@ -407,7 +407,7 @@ export default function PaymentScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
       socketEvents.emitPaymentConfirmed(activeBooking?.id ?? '', id ?? '');
-      const t = setTimeout(() => { if (isMountedRef.current) router.replace(`/ride/${id}/tracking` as any); }, 1500);
+      const t = setTimeout(() => { if (isMountedRef.current) router.replace('/trip?stage=assigned' as any); }, 1500);
       pendingTimeoutsRef.current.push(t);
     } catch {
       if (!isMountedRef.current) return;

@@ -7,7 +7,6 @@ import {
   Pressable,
   Alert,
   Linking,
-  Platform,
   Modal,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -18,7 +17,7 @@ import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm } from '@eyego/ui';
+import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -28,10 +27,10 @@ import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { openExternalNavigation } from '../../../utils/externalNav';
-// Driver app uses the blue-highway dark variant, not rider's brand-green default export.
-import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
-import MapboxGL, { useDeviceHeading, useVehicleHeading } from '../../../utils/mapbox';
-import { fetchRoute } from '../../../utils/routing';
+// The ONE map in the driver trip flow. It owns the MapView, the map style, the
+// camera state machine and the server's route geometry, so nothing map-shaped is
+// imported here any more.
+import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -73,57 +72,16 @@ const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 
 const STATUS_STEPS = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'COMPLETED'];
 
-/**
- * Active-route colours for the DRIVER app: bright core over a deep casing, the
- * two-layer arrangement every navigation renderer uses (Mapbox's own Nav SDK
- * ships #56A8FB over #2F7AC6).
- *
- * Two bugs are being fixed here at once, both reported from the road:
- *  1. The core used to be `statusCfg.color` — the STATUS pill's colour. So the
- *     line the driver has to follow was steel-grey while confirmed, blue while
- *     boarding and violet after arriving at pickup ("it's looking like a purple
- *     thing"), i.e. its most safety-critical property was a side effect of an
- *     unrelated label. It is now fixed, and status lives only in the pill.
- *  2. The driver map style paints its roads BLUE, so a blue-family route line
- *     disappeared into them — "isn't prominent enough and can get easily blended
- *     with the blue". Amber is the one hue that cannot collide with either the
- *     blue roads or the green "in progress" accent, and it is what Mapbox uses
- *     for the same reason in its traffic layers.
- *
- * The rider app deliberately uses the opposite pair (azure over navy) because
- * ITS map style paints roads green — see apps/rider/.../tracking.tsx.
- */
-const ROUTE_CORE = '#FFB020';
-const ROUTE_CASING = '#4A2B00';
-
-// Fetches a road-following route from OSRM between the driver and a moving
-// target (pickup, then destination), re-fetching whenever the target changes
-// or every 60s while active — same source as tracking/[id].tsx.
-function useRoadRoute(from: [number, number], to: [number, number]): [number, number][] {
-  const [coords, setCoords] = React.useState<[number, number][]>([]);
-  const fetchedForRef = useRef<string>('');
-
-  useEffect(() => {
-    const [dLng, dLat] = from;
-    const [eLng, eLat] = to;
-    if (isNaN(dLat) || isNaN(dLng) || isNaN(eLat) || isNaN(eLng)) return;
-    const key = `${dLng.toFixed(4)},${dLat.toFixed(4)}-${eLng.toFixed(4)},${eLat.toFixed(4)}`;
-    if (fetchedForRef.current === key) return;
-    fetchedForRef.current = key;
-
-    // Traffic-aware via /v1/geo/route rather than the public OSRM demo server —
-    // see utils/routing.ts for why free-flow durations were wrong.
-    fetchRoute([dLng, dLat], [eLng, eLat])
-      .then((route) => {
-        if (route && route.coordinates.length >= 2) setCoords(route.coordinates);
-      })
-      .catch(() => {
-        // Routing unavailable — straight fallback line stays, no crash
-      });
-  }, [from[0], from[1], to[0], to[1]]);
-
-  return coords;
-}
+// The route line, the route COLOURS (amber core over a deep-brown casing —
+// the driver map style paints its roads blue, so a blue line disappeared into
+// them) and the road geometry all live in DriverTripMap now.
+//
+// What was here: a local `useRoadRoute` hook calling Directions from the
+// driver's own position, plus an identical copy in tracking/[id].tsx. Two
+// screens fetching independently meant one ride could be drawn as two different
+// lines, and — because the target was the trip's FINAL destination in every
+// phase — the pickup-phase line and ETA described a journey the driver was not
+// yet making. The server owns the leg now (route-geometry.service.js).
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
@@ -138,8 +96,6 @@ export default function ActiveTripScreen() {
   const { setActiveTripId } = useDriverStore();
   const { addNotification } = useNotificationsStore();
   const [showPaymentQr, setShowPaymentQr] = useState(false);
-  // Physical handset orientation for the driver puck — see the marker below.
-  const deviceHeading = useDeviceHeading();
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
@@ -166,15 +122,24 @@ export default function ActiveTripScreen() {
   useDriverSocket({ tripId: id, enabled: !!trip });
   const { location } = useDriverLocation({ enabled: isActiveTrip });
 
-  // Marker heading: GPS course while moving, last known heading while stopped,
-  // compass only as a cold-start hint. See the puck marker below.
-  const vehicleHeading = useVehicleHeading({
-    latitude: location?.latitude,
-    longitude: location?.longitude,
-    gpsCourse: location?.heading,
-    speedMps: location?.speed,
-    compassHeading: deviceHeading,
-  });
+  // The puck's bearing is derived inside the shared interpolator now
+  // (packages/maps/src/puck.ts) — same rule as before (GPS course while moving,
+  // last known heading while stopped, compass only as a cold-start hint) but
+  // applied identically on both trip screens and in the rider app, instead of
+  // being re-derived per screen with slightly different thresholds.
+
+  // ETA for the leg the driver is ACTUALLY on, straight from the server. This
+  // screen previously showed no ETA at all — the only number on it was the
+  // scheduled departure time, which says nothing once a trip is moving.
+  const [eta, setEta] = useState<string | null>(null);
+  const handleEta = useCallback(
+    (next: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => {
+      const where = next.leg === 'toPickup' ? 'to pickup' : 'to drop-off';
+      const dist = next.distanceKm != null ? ` · ${next.distanceKm} km` : '';
+      setEta(`${Math.max(1, Math.round(next.minutes))} min ${where}${dist}`);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!trip) return;
@@ -290,45 +255,18 @@ export default function ActiveTripScreen() {
     onError: (err) => Alert.alert('Error', (err as Error).message),
   });
 
-  // Route coordinates for the road-following polyline. This MUST be computed
-  // (and useRoadRoute called) before the loading early-return below, not
-  // after it — useRoadRoute is a hook, and calling it only on renders where
-  // `trip` has already loaded (skipped entirely on the first, loading render)
-  // violates the Rules of Hooks: the hook count changes between renders,
-  // which throws "Rendered more hooks than during the previous render" the
-  // instant the query resolves. That uncaught render error is what the
-  // root _layout.tsx ErrorBoundary was catching and showing as "Something
-  // went wrong / Restart App" when resuming a trip from home (a fresh query,
-  // guaranteed to render once in the loading state first) — trips reached via
-  // the create-trip flow could avoid it if the data happened to already be
-  // cached, which is why it looked resume-specific.
-  // driverCoord's Accra fallback is fine to keep: it only ever seeds
-  // NavCamera.fallbackCenter and the driver's own position pulse before a
-  // live GPS fix arrives — a self-view convenience, never sent to the rider.
-  const driverCoord: [number, number] = location
-    ? [location.longitude, location.latitude]
-    : [trip?.route?.originLng ?? -0.187, trip?.route?.originLat ?? 5.6037];
-  // BUGFIX: pickup/dest markers used to silently collapse onto driverCoord's
-  // Accra fallback whenever trip.route lacked real coordinates, rendering a
-  // fake pickup/destination pin on the driver's own map. An active trip's
-  // route should always carry real coordinates (route creation requires
-  // successful geocoding), but stay null instead of fabricating one if it
-  // somehow doesn't — the marker guards below then simply render nothing.
+  // BUGFIX: pickup/dest markers used to silently collapse onto a hard-coded
+  // Accra centre whenever trip.route lacked real coordinates, rendering a fake
+  // pickup/destination pin on the driver's own map. An active trip's route
+  // should always carry real coordinates (route creation requires successful
+  // geocoding), but stay null instead of fabricating one if it somehow doesn't —
+  // every consumer then renders nothing rather than a plausible lie.
   const pickupCoord: [number, number] | null = typeof trip?.route?.originLat === 'number' && typeof trip?.route?.originLng === 'number'
     ? [trip.route.originLng, trip.route.originLat]
     : null;
   const destCoord: [number, number] | null = typeof trip?.route?.destLat === 'number' && typeof trip?.route?.destLng === 'number'
     ? [trip.route.destLng, trip.route.destLat]
     : pickupCoord;
-  // Navigate to pickup while en-route/arrived, then to destination once the
-  // trip is actually running — mirrors tracking/[id].tsx's target logic.
-  // Falls back to driverCoord only as the OSRM/polyline target so the route
-  // line has somewhere plausible to draw to — this is display-only geometry,
-  // not a coordinate presented as a real pickup/destination.
-  const routeTarget: [number, number] = (trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED'
-    ? destCoord
-    : pickupCoord) ?? driverCoord;
-  const routeCoords = useRoadRoute(driverCoord, routeTarget);
 
   // What the external-navigation hand-off should aim at: the same phase rule as
   // the route line above, so tapping Navigate never contradicts the line the
@@ -350,17 +288,11 @@ export default function ActiveTripScreen() {
   if (isLoading || !trip) {
     return (
       <View style={styles.safe}>
-        <MapboxGL.MapView
-          style={StyleSheet.absoluteFillObject}
-          styleURL={eyegoDarkStyle}
-          logoEnabled={false}
-          attributionEnabled={false}
-          compassEnabled={false}
-          rotateEnabled={false}
-          scaleBarEnabled={false}
-          zoomEnabled={false}
-          scrollEnabled={false}
-        />
+        {/* A flat backdrop, not a MapView. This used to mount a whole second
+            interactive map purely as skeleton wallpaper — a full GL surface and
+            a tile fetch for something the driver looks at for under a second,
+            immediately torn down and replaced by the real map below. */}
+        <View style={styles.loadingBackdrop} />
         <View style={[styles.loadingOverlay, { paddingTop: insets.top + 20 }]}>
           {[120, 80, 160].map((w, i) => (
             <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
@@ -418,117 +350,28 @@ export default function ActiveTripScreen() {
     bookingId: b.id,
   }));
 
-  // driverCoord/pickupCoord/destCoord/routeTarget/routeCoords are computed
-  // above (before the loading early-return) since routeCoords needs the
-  // useRoadRoute hook call to happen unconditionally on every render.
-
   const currentStepIndex = STATUS_STEPS.indexOf(trip.status);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <View style={styles.safe}>
-      {/* Full-screen dark map */}
-      <MapboxGL.MapView
-        style={StyleSheet.absoluteFillObject}
-        styleURL={eyegoDarkStyle}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={true}
-        // BUGFIX: was `true` — user rotate gestures changed the map's bearing,
-        // but the driver marker's `rotation` prop below is an absolute compass
-        // heading applied as a screen-space transform (see AnimatedMarkerView
-        // in @eyego/maps). It isn't compensated for map bearing, so any map
-        // rotation (gesture, or NavCamera's old course-tracking — see that
-        // component) desynced the marker from true GPS heading, making the
-        // pin appear to turn only when the map was rotated by hand instead of
-        // when the phone/vehicle actually changed direction. Matches the same
-        // north-up-map + heading-driven-marker pattern already used on the
-        // tracking/[id].tsx screen.
-        // 3D rotate/tilt gestures are on. They were briefly disabled to stop
-        // the driver pin spinning with the map; that desync is now fixed
-        // properly — @eyego/maps compensates marker rotation for the live map
-        // bearing — so the gesture is back without the side effect.
-        rotateEnabled={true}
-        pitchEnabled={true}
-        scaleBarEnabled={false}
-      >
-        {/* 3D tilted follow camera — always on for this screen, matching the
-            rider's tracking map. It used to flip to a flat overview outside
-            DRIVER_EN_ROUTE/IN_PROGRESS, so the map lurched between 2D and 3D
-            on every status change mid-trip. A trip screen is a nav screen for
-            its whole life; the tilt shouldn't be an event-triggered surprise. */}
-        <MapboxGL.NavCamera active fallbackCenter={driverCoord} />
-        {/* Driver puck — heading comes from useVehicleHeading, which prefers GPS
-            course over ground while moving, derives a bearing from consecutive
-            fixes when the device reports no course, holds the last heading when
-            stopped, and only ever consults the compass before any travel
-            heading has been seen.
-            Reported as "it moves as the phone moves, but the direction may be
-            wrong and it turns too much": rotating by the COMPASS first is what
-            caused that. A handset in a metal car cradle reads the cradle, not
-            the road. `rotation` here is still a TRUE compass bearing that
-            @eyego/maps compensates against the live map bearing — the artwork's
-            own tilt stays on the artwork, inside DriverPulse. */}
-        <MapboxGL.AnimatedMarkerView
-          coordinate={driverCoord}
-          rotation={vehicleHeading}
-          duration={1000}
-        >
-          <DriverPulse color={statusCfg.color} />
-        </MapboxGL.AnimatedMarkerView>
-
-        {/* Pickup marker — hidden once the trip is actually running */}
-        {trip.status !== 'IN_PROGRESS' && trip.status !== 'COMPLETED' && pickupCoord && (
-          <MapboxGL.MarkerView coordinate={pickupCoord}>
-            <View style={styles.pickupMarker}>
-              <Ionicons name="location" size={14} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
-        )}
-
-        {/* Destination marker */}
-        {destCoord && (
-          <MapboxGL.MarkerView coordinate={destCoord}>
-            <View style={styles.destMarker}>
-              <Ionicons name="flag" size={14} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
-        )}
-
-        {/* Route polyline — road-following via OSRM, straight-line fallback until it resolves */}
-        <MapboxGL.ShapeSource
-          id="activeRouteLine"
-          shape={{
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: routeCoords.length >= 2 ? routeCoords : [driverCoord, routeTarget],
-            },
-            properties: {},
-          }}
-        >
-          {/* CASING + CORE, not a blurred shadow — see ROUTE_CORE. */}
-          <MapboxGL.LineLayer
-            id="activeRouteLineShadow"
-            style={{ lineColor: ROUTE_CASING, lineWidth: 11, lineOpacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
-          />
-          <MapboxGL.LineLayer
-            id="activeRouteLineLayer"
-            style={{
-              lineColor: ROUTE_CORE,
-              lineWidth: 6,
-              lineOpacity: 1,
-              lineCap: 'round',
-              lineJoin: 'round',
-              // Dashed while this is the straight-line stand-in, so the driver is
-              // never shown a fabricated "road" to follow.
-              ...(routeCoords.length >= 2 ? null : { lineDasharray: [1.6, 1.4] }),
-            }}
-            aboveLayerID="activeRouteLineShadow"
-          />
-        </MapboxGL.ShapeSource>
-      </MapboxGL.MapView>
+      {/* The map. Same component, same camera state machine and same route
+          line as the sibling tracking screen — this screen used to mount its own
+          MapView with its own NavCamera and its own Directions call, so moving
+          between the two mid-trip tore one map down, built another, and re-framed
+          the ride differently on arrival. */}
+      <DriverTripMap
+        tripId={id!}
+        status={trip.status}
+        pickup={pickupCoord}
+        dropoff={destCoord}
+        location={location}
+        puckColor={statusCfg.color}
+        sheetFraction={0.46}
+        active={isActiveTrip}
+        onEta={handleEta}
+      />
 
       {/* Glassmorphic top header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -606,10 +449,14 @@ export default function ActiveTripScreen() {
                 {trip.route?.destinationName ?? '—'}
               </Text>
               <View style={styles.tripMeta}>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {trip.departureTime
-                    ? new Date(trip.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    : '--:--'}{' '}
+                {/* Live ETA wins over the scheduled departure time: once the
+                    driver is moving, "07:40" is history and "6 min to pickup"
+                    is the only number that answers what they are asking. */}
+                <Text variant="caption" color={eta ? statusCfg.color : colors.onSurfaceVariant}>
+                  {eta
+                    ?? (trip.departureTime
+                      ? new Date(trip.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : '--:--')}{' '}
                   · {passengers}/{total} seats
                 </Text>
               </View>
@@ -879,48 +726,9 @@ export default function ActiveTripScreen() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function DriverPulse({ color }: { color: string }) {
-  // Just the pin. This used to wrap the glyph in PulseRing (2 expanding,
-  // status-coloured rings), which read on-device as a big blue circle with the
-  // driver's arrow floating inside it — the driver's own position is not an
-  // event that needs a radar pulse; the pickup marker already uses one, and two
-  // pulsing things on one map is noise. Rings also forced tracksViewChanges to
-  // stay on for this marker, re-rasterising it every frame.
-  //
-  // A rotated circle looks identical to an unrotated one, so the puck keeps a
-  // directional glyph for the AnimatedMarkerView's heading-bound rotation to be
-  // visible at all — same "navigate" chevron as the pre-pickup tracking screen.
-  return (
-    <View style={[puckStyles.puck, { borderColor: color, shadowColor: color }]}>
-      {/* -45° cancels the "navigate" glyph's built-in north-east tilt so the
-          arrow points at the marker's true heading. Must stay on the glyph, not
-          on the marker's `rotation` — see the AnimatedMarkerView note above. */}
-      <Ionicons name="navigate" size={20} color={color} style={puckStyles.glyph} />
-    </View>
-  );
-}
-
-// Module-level: DriverPulse renders outside the screen component, so it can't
-// reach makeStyles(colors). Matches tracking/[id].tsx's driverMarker puck.
-const puckStyles = StyleSheet.create({
-  glyph: { transform: [{ rotate: '-45deg' }] },
-  puck: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    // Contact shadow only. A wide, half-opaque coloured shadow reads as a
-    // second glowing disc around the puck, which is the look being removed
-    // here — keep it tight enough to just lift the pin off the map.
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-});
+// The vehicle puck (and its rotation, its shadow and the -45° glyph
+// counter-rotation) lives in DriverTripMap now — it was duplicated here and in
+// tracking/[id].tsx with drifting shadow values.
 
 function QuickAction({
   icon,
@@ -985,26 +793,9 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: 10,
       backgroundColor: colors.surfaceContainerHigh,
     },
-    pickupMarker: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      backgroundColor: colors.secondary ?? '#7DD8F5',
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: '#fff',
-    },
-    destMarker: {
-      width: 28,
-      height: 28,
-      borderRadius: 8,
-      backgroundColor: colors.error,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: '#fff',
-    },
+    // Stands in for the map while the trip loads. Deliberately not a MapView:
+    // see the note at its use site.
+    loadingBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: '#050508' },
     // Glassmorphic header
     header: {
       position: 'absolute',

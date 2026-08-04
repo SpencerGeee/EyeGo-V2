@@ -5,19 +5,20 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { withOpacity } from '@eyego/config';
 import { useColors } from '../utils/useColors';
-import { useTripFlow, type TripStage } from '../stores/tripFlow.store';
-import { useTripStore, stageForStatus } from '../stores/trip.store';
+import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
+import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
 import { SelectStage } from '../components/trip/stages/SelectStage';
 import { RequestStage } from '../components/trip/stages/RequestStage';
+import { AssignedStage } from '../components/trip/stages/AssignedStage';
+import { TrackingStage } from '../components/trip/stages/TrackingStage';
 
 // Yango-style slow ease: 700ms with a gentle ease-out so the crossfade
 // spans as a continuous, perceptible morph rather than a quick snap.
@@ -35,14 +36,19 @@ const STAGE_TRANSITION_CFG = { duration: 700, easing: Easing.out(Easing.cubic) }
  * stage fades/lifts away while the incoming one fades/rises in, both mounted
  * for the duration — no unmount jump-cuts, exactly the Yango morph feel.
  *
- * Stages not yet migrated (assigned/tracking) bridge to their legacy routes.
+ * ALL FIVE stages now live here. `assigned` and `tracking` used to bridge out
+ * to `/ride/[id]/tracking`, a 1754-line screen with its own MapView, its own
+ * camera and its own Directions retry ladder — so the one moment the rider
+ * cares most about (a car approaching) was the one moment the map was torn
+ * down and rebuilt. That route is no longer reachable from the flow.
  */
 function renderStage(stage: TripStage) {
   switch (stage) {
     case 'search': return <SearchStage />;
     case 'select': return <SelectStage />;
     case 'request': return <RequestStage />;
-    // assigned/tracking still live on legacy routes (P3) — never reached yet.
+    case 'assigned': return <AssignedStage />;
+    case 'tracking': return <TrackingStage />;
     default: return null;
   }
 }
@@ -58,11 +64,13 @@ export default function TripScreen() {
   const syncFromServer = useTripFlow((s) => s.syncFromServer);
   const tripStatus = useTripStore((s) => s.snapshot?.status ?? null);
   const hydrate = useTripStore((s) => s.hydrate);
+  const router = useRouter();
 
   // Seed the stage machine once per surface open, from route params.
   useEffect(() => {
+    const seeded = (params.stage as TripStage) ?? 'search';
     seed({
-      stage: (params.stage as TripStage) ?? 'search',
+      stage: seeded,
       tier: params.tier,
       type: params.type,
       morphId: params.morphId,
@@ -72,7 +80,16 @@ export default function TripScreen() {
     // mid-trip, deep link — this is what makes the surface open on the right
     // stage instead of dropping the rider back on 'search' as though nothing
     // were happening. Neither app had an equivalent before.
-    void hydrate();
+    //
+    // The fallback matters as much as the hydration: every entry point that
+    // used to push `/ride/[id]/tracking` now seeds a live stage (`assigned`)
+    // so the surface opens on the panel instead of flashing the search sheet.
+    // If that ride has since ended, there is no snapshot for the stage to
+    // render and `stageForStatus` returns null for terminal statuses — so
+    // without this the rider would sit on an empty tracking panel forever.
+    void hydrate().then((trip) => {
+      if (!trip && !CLIENT_OWNED_STAGES.includes(seeded)) syncFromServer('search');
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -86,6 +103,38 @@ export default function TripScreen() {
     const derived = stageForStatus(tripStatus);
     if (derived) syncFromServer(derived);
   }, [tripStatus, syncFromServer]);
+
+  /**
+   * THE TERMINAL HAND-OFF. `stageForStatus` deliberately returns null for
+   * COMPLETED/CANCELLED/etc, so without this the surface would sit on the last
+   * live stage forever. The legacy tracking screen owned this exit; now the
+   * surface does, which is why that route can retire.
+   *
+   * Guarded by a ref rather than by the status alone: the same terminal
+   * snapshot arrives again on every reconnect replay, and `router.replace`
+   * fired twice stacks two receipts.
+   */
+  const handedOff = useRef(false);
+  const snapshot = useTripStore((s) => s.snapshot);
+  const unwatch = useTripStore((s) => s.unwatch);
+  useEffect(() => {
+    if (!isTerminal(tripStatus) || handedOff.current || !snapshot) return;
+    handedOff.current = true;
+    // Stop the channel BEFORE navigating: a socket still applying events to a
+    // dead trip is what kept the old flow's "reconnecting" chip alive on the
+    // receipt screen.
+    unwatch();
+    if (tripStatus === 'COMPLETED') {
+      const bid = snapshot.booking?.id;
+      router.replace(
+        `/ride/${snapshot.tripId}/complete${bid ? `?bookingId=${bid}` : ''}` as Href,
+      );
+    } else {
+      // Cancelled, expired, no-show, no drivers found: nothing to receipt.
+      // TripStatusListener owns the explanatory banner, so this only navigates.
+      router.replace('/(tabs)/home' as Href);
+    }
+  }, [tripStatus, snapshot, unwatch, router]);
 
   // Hardware back for stages past the root — the search stage registers its
   // own handler (morph-back to the home pill). Registered per-stage so the

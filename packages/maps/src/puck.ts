@@ -79,10 +79,15 @@ export function normaliseBearing(deg: number): number {
 }
 
 /**
- * Signed shortest angular distance from `from` to `to`, in (-180, 180].
+ * Signed shortest angular distance from `from` to `to`, in [-180, 180).
  *
  * This is the whole fix for the spinning-car bug: `shortestDelta(359, 1)` is
  * `+2`, not `-358`.
+ *
+ * The exact half-turn is genuinely ambiguous — a U-turn is 180 degrees whether
+ * the marker rotates clockwise or anticlockwise — and this returns `-180`, i.e.
+ * anticlockwise. Stated because the range endpoint is easy to get wrong when
+ * reading the modulo, not because either direction is more correct.
  */
 export function shortestDelta(from: number, to: number): number {
   const diff = (normaliseBearing(to) - normaliseBearing(from) + 540) % 360;

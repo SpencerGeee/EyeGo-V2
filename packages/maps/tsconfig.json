@@ -1,0 +1,17 @@
+{
+  // Editor-only config for @eyego/maps. The apps typecheck these sources
+  // through their own programs; this exists so the behaviour tests, which run
+  // on Node's built-in runner with type-stripping, get the two things that
+  // requires and that no app config provides: explicit `.ts` import
+  // specifiers (Node's ESM resolver will not guess an extension) and the Node
+  // globals the runner brings.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

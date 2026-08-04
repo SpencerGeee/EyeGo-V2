@@ -114,23 +114,27 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   };
 
   /**
-   * Navigate onward once a driver is attached.
+   * Settle up once a driver is attached.
    *
-   * Driven by the server's status rather than by whichever of the poll or the
-   * socket happened to land first. The double-navigation guard is still
-   * needed because the Activity tab's live card watches the same trip.
+   * NOTE THE ABSENCE OF NAVIGATION. This used to `dismissTo` the legacy
+   * tracking route, which meant the moment a driver accepted was also the
+   * moment the map was destroyed and rebuilt. Nothing needs to navigate now:
+   * `assigned` is a sibling stage on this same surface, and the status
+   * projection in `trip.tsx` crossfades to it as soon as the snapshot lands.
+   * All that is left here is clearing the pending request and refreshing the
+   * lists that show it — still guarded, because the Activity tab's live card
+   * watches the same trip and would otherwise clear it twice.
    */
   const navigatedRef = useRef(false);
   const finishMatch = React.useCallback(
-    (matchedTripId: string) => {
+    (_matchedTripId: string) => {
       if (navigatedRef.current) return;
       navigatedRef.current = true;
       setPendingTripRequest(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-      router.dismissTo(`/ride/${matchedTripId}/tracking` as any);
     },
-    [queryClient, router, setPendingTripRequest],
+    [queryClient, setPendingTripRequest],
   );
 
   useEffect(() => {

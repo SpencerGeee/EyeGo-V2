@@ -194,8 +194,19 @@ export function TripStatusListener() {
 
     const unsubStatus = socketEvents.onTripStatus((data) => {
       const segs = segmentsRef.current;
-      // tracking.tsx handles its own banners + navigation — don't double-fire
-      const isOnTrackingScreen = segs.some((s) => s === 'tracking');
+      /**
+       * The trip surface owns its own exit — don't double-fire.
+       *
+       * This used to test for the segment 'tracking' only, which was correct
+       * while `app/ride/[id]/tracking.tsx` was the live screen. That screen is
+       * now a redirect stub and the live stages are hosted by `app/trip.tsx`,
+       * whose segment is 'trip'. Left as-is, this listener and the surface's
+       * terminal hand-off would BOTH navigate on COMPLETED — two receipts
+       * stacked on top of each other — and this one would call
+       * `disconnectSocket()` first, potentially killing the channel before the
+       * surface ever saw the terminal snapshot it needs to route on.
+       */
+      const isOnTripSurface = segs.some((s) => s === 'trip' || s === 'tracking');
 
       if (data.status === 'DRIVER_EN_ROUTE') {
         showBanner('Your driver has started the trip', 'car-outline');
@@ -243,13 +254,19 @@ export function TripStatusListener() {
         showBanner('Trip was cancelled', 'close-circle');
         endTripLiveNotification();
         endTripLiveActivity('CANCELLED');
-        disconnectSocket();
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
         useRideStore.getState().clearRideState();
-        setTimeout(() => {
-          router.replace('/(tabs)/home' as Href);
-        }, 1500);
+        // Same split as COMPLETED below: the banner is always ours, the exit
+        // belongs to whoever is on screen. Disconnecting here while the surface
+        // is open would tear down the channel it is still reading the terminal
+        // snapshot from.
+        if (!isOnTripSurface) {
+          disconnectSocket();
+          setTimeout(() => {
+            router.replace('/(tabs)/home' as Href);
+          }, 1500);
+        }
       } else if (data.status === 'COMPLETED') {
         endTripLiveNotification();
         endTripLiveActivity('COMPLETED');
@@ -258,7 +275,7 @@ export function TripStatusListener() {
         queryClient.invalidateQueries({ queryKey: ['bookings', 'completed', 'count'] });
         queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
 
-        if (!isOnTrackingScreen) {
+        if (!isOnTripSurface) {
           // User is on home/trips/etc — push them to the trip complete screen
           const booking = activeBookingRef.current;
           const bookingId = safeRead(booking, 'id') ?? '';
@@ -272,7 +289,9 @@ export function TripStatusListener() {
             );
           }, 1500);
         }
-        // If on tracking screen: tracking.tsx handles disconnect + navigation
+        // If on the trip surface: trip.tsx's terminal hand-off owns unwatch +
+        // navigation to the receipt, and does it from the versioned snapshot
+        // rather than from whatever this socket payload happened to carry.
       }
     });
 
@@ -345,10 +364,13 @@ export function TripStatusListener() {
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
   }, []);
 
-  // Don't render when the relevant screen already handles its own banner
-  const isOnTrackingScreen = segments.some((s) => s === 'tracking');
+  // Don't render when the relevant screen already says the same thing. The
+  // trip surface's stages carry the status in their own headline copy ("Your
+  // driver has arrived" is the AssignedStage title), so a floating banner on
+  // top of it is the same sentence twice.
+  const isOnTripSurfaceRender = segments.some((s) => s === 'trip' || s === 'tracking');
   const isOnChatScreen = segments.some((s) => s === 'chat');
-  if (!bannerMsg || isOnTrackingScreen || isOnChatScreen) return null;
+  if (!bannerMsg || isOnTripSurfaceRender || isOnChatScreen) return null;
 
   const handleBannerPress = () => {
     const tId = safeRead(activeBooking, 'tripId');
@@ -357,7 +379,7 @@ export function TripStatusListener() {
       bannerDestinationRef.current = null;
       router.push(`/ride/${tId}/chat` as Href);
     } else {
-      router.push(`/ride/${tId}/tracking` as Href);
+      router.push('/trip?stage=assigned' as Href);
     }
   };
 

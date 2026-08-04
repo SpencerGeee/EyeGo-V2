@@ -354,7 +354,11 @@ export default function RootLayout() {
         if (type === 'RIDE_CONFIRMED' && bookingId) {
           router.push(`/ride/${bookingId}` as Href);
         } else if ((type === 'DRIVER_EN_ROUTE' || type === 'ARRIVED_AT_PICKUP' || type === 'DRIVER_ARRIVED') && (bookingId || tripId)) {
-          router.push(`/ride/${bookingId || tripId}/tracking` as Href);
+          // The persistent surface, not the retired tracking route. It carries
+          // no id because it rehydrates from the server's active trip — which
+          // is more reliable than this payload, where `bookingId` and `tripId`
+          // were used interchangeably.
+          router.push('/trip?stage=assigned' as Href);
         } else if ((type === 'CHAT_MESSAGE' || type === 'PRIVATE_CHAT') && tripId) {
           router.push(`/ride/${tripId}/chat` as Href);
         } else if (type === 'RIDE_COMPLETE' && bookingId) {
@@ -362,7 +366,7 @@ export default function RootLayout() {
         } else if (type === 'TRIP_CANCELLED_NO_SHOW') {
           router.push('/(tabs)/trips' as Href);
         } else if (tripId) {
-          router.push(`/ride/${tripId}/tracking` as Href);
+          router.push('/trip?stage=assigned' as Href);
         } else if (screen) {
           router.push(screen as Href);
         } else if (deepLink) {

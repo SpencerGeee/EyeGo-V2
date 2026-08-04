@@ -21,6 +21,11 @@ export type {
   TripSnapshot,
   TripStatus,
   TripChannelState,
+  // The route line and which leg it describes. Exported because both apps'
+  // stores hold it: the geometry is the server's, and no client recomputes it.
+  TripPath,
+  TripLeg,
+  TripEtaPush,
 } from './tripChannel';
 export { bookingsApi } from './bookings.api';
 export { paymentsApi } from './payments.api';

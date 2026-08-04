@@ -2,22 +2,23 @@
 
 const redis = require('../config/redis');
 const prisma = require('../config/database');
-const { isWithinGhana, getDirections } = require('../services/mapbox.service');
+const { isWithinGhana } = require('../services/mapbox.service');
+const { getRouteForTrip, deviationMeters, clearRouteForTrip } = require('../services/route-geometry.service');
 const { completeTrip, clearLiveActivityToken } = require('../modules/trips/trips.service');
 const pubSub = require('../graphql/pubsub');
 const { notifications: pushNotifications, sendMulticastPush, sendPush } = require('../services/push.service');
 const liveActivityPush = require('../services/live-activity-push.service');
-const { haversineMeters, distanceToPolyline } = require('../utils/geo');
+const { haversineMeters } = require('../utils/geo');
 const logger = require('../utils/logger');
 const env = require('../config/env');
 
 const LOCATION_UPDATE_CHANNEL = (driverId) => `driver:${driverId}:location`;
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
-// Congested Accra urban mean, not a free-flow figure. 30 km/h was optimistic
-// enough that fallback ETAs read like the roads were empty; the observed mean
-// once junctions, lights and congestion are counted sits in the low twenties.
-// Keep this in sync with FALLBACK_URBAN_KMH in modules/geo/geo.service.js.
-const ETA_FALLBACK_SPEED_KPH = parseInt(process.env.ETA_FALLBACK_SPEED_KPH) || 22;
+
+// How often a live GPS fix is written through to Postgres. Redis takes every
+// fix; the row is the cold copy. See the location handler for why.
+const DB_PERSIST_INTERVAL_MS = 15_000;
+const DB_PERSIST_DISTANCE_M = 60;
 
 // ── iOS Live Activity (ActivityKit) push fan-out ─────────────────────────
 // Separate channel from the FCM-based pushNotifications above — these go
@@ -169,15 +170,32 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
         return;
       }
 
-      // Update DB (throttled — only if moved significantly)
-      try {
-        await prisma.driver.update({
-          where: { id: driverId },
-          data: { currentLat: lat, currentLng: lng, currentHeading: heading },
-        });
-      } catch (err) { logger.debug('[DriverSocket] Non-critical DB location update error:', err?.message ?? err); }
-
+      // ── Where the live position actually lives ─────────────────────────
+      // Redis is the hot store and is written on EVERY fix; Postgres is the
+      // durable one and is written far less often. This used to be one row
+      // UPDATE per driver per two seconds — a thousand drivers online is 500
+      // writes a second against the same table that dispatch reads, for a
+      // value that is stale before it commits. Dispatch reads the Redis geo-set
+      // below, so the DB copy only has to be good enough for a cold read
+      // (admin live map, a REST fetch, a driver who has just reconnected).
       const locationPayload = JSON.stringify({ lat, lng, heading, speed, timestamp: Date.now() });
+      await redis.set(`driver:${driverId}:location`, locationPayload, 'EX', 3600).catch(() => {});
+
+      const dbAge = now - (socket._lastLocationPersist || 0);
+      const dbMoved = socket._lastPersistLat != null
+        ? haversineMeters(lat, lng, socket._lastPersistLat, socket._lastPersistLng)
+        : Infinity;
+      if (dbAge >= DB_PERSIST_INTERVAL_MS || dbMoved >= DB_PERSIST_DISTANCE_M) {
+        socket._lastLocationPersist = now;
+        socket._lastPersistLat = lat;
+        socket._lastPersistLng = lng;
+        try {
+          await prisma.driver.update({
+            where: { id: driverId },
+            data: { currentLat: lat, currentLng: lng, currentHeading: heading },
+          });
+        } catch (err) { logger.debug('[DriverSocket] Non-critical DB location update error:', err?.message ?? err); }
+      }
 
       // Publish to Redis — all passenger sockets subscribed to this driver will receive it
       await redis.publish(LOCATION_UPDATE_CHANNEL(driverId), locationPayload);
@@ -194,183 +212,131 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
       // Register driver in geo-set so dispatch can find nearby online drivers
       await redis.geoadd('drivers:online', lng, lat, driverId).catch(() => {});
 
-      // ── ETA calculation (throttled) ──────────────────────────────────────────
-      // Only hit Mapbox when the driver has moved enough OR enough time has passed.
+      // ── Route + ETA (throttled) ──────────────────────────────────────────
+      // One route, computed here, published to both apps. Neither client calls
+      // Directions any more, so the rider and the driver are looking at the
+      // same line for the same ride — see services/route-geometry.service.js.
       const cache = etaCache.get(driverId) || {};
       const msSinceLast = now - (cache.lastCalcAt || 0);
       const mSinceLast = cache.lastLat != null
         ? haversineMeters(lat, lng, cache.lastLat, cache.lastLng)
         : Infinity;
 
-      if (msSinceLast >= ETA_INTERVAL_MS || mSinceLast >= ETA_DISTANCE_M) {
-        // Resolve destination — use cache if available, otherwise hit DB
-        let { tripId, destLat, destLng } = cache;
+      if (msSinceLast < ETA_INTERVAL_MS && mSinceLast < ETA_DISTANCE_M) return;
 
-        if (!tripId || destLat == null) {
-          try {
-            const activeTrip = await prisma.trip.findFirst({
-              where: {
-                driverId,
-                status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'IN_PROGRESS'] },
-              },
-              select: {
-                id: true,
-                route: { select: { destLat: true, destLng: true } },
-              },
-            });
+      // The STATUS is re-read every pass, not cached. The status decides which
+      // LEG the route is about (driver→pickup vs pickup→destination), and a
+      // stale status routes to the wrong end of the ride — which is exactly the
+      // old bug where "6 min away" during pickup was the time to the rider's
+      // destination.
+      let trip;
+      try {
+        trip = await prisma.trip.findFirst({
+          where: {
+            driverId,
+            status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] },
+          },
+          select: {
+            id: true, status: true,
+            pickupLat: true, pickupLng: true,
+            dropoffLat: true, dropoffLng: true,
+            route: { select: { destLat: true, destLng: true } },
+          },
+        });
+      } catch (err) {
+        logger.warn(`ETA: DB lookup failed for driver ${driverId}: ${err.message}`);
+        return;
+      }
+      if (!trip) return;
 
-            if (activeTrip) {
-              tripId  = activeTrip.id;
-              destLat = activeTrip.route?.destLat;
-              destLng = activeTrip.route?.destLng;
-            }
-          } catch (err) {
-            logger.warn(`ETA: DB lookup failed for driver ${driverId}: ${err.message}`);
+      // On-demand rides used to fall out here: the old code read the
+      // destination from `trip.route`, and an on-demand trip has no route, so
+      // the rider's map never received a polyline at all for the product we
+      // actually sell. The route service reads the Trip's own dropoff first.
+      let route;
+      try {
+        route = await getRouteForTrip(trip, { lat, lng });
+      } catch (err) {
+        logger.warn(`ETA: route computation failed for driver ${driverId}: ${err.message}`);
+        return;
+      }
+      if (!route) return;
+
+      const tripId = trip.id;
+      const etaMinutes = Math.round(route.durationMin);
+      const etaPayload = {
+        tripId,
+        leg: route.leg,
+        etaMinutes,
+        distanceKm: Math.round(route.distanceKm * 10) / 10,
+        message: route.durationMin < 2
+          ? (route.leg === 'toPickup' ? 'Arriving now' : 'Almost there')
+          : `${etaMinutes} min ${route.leg === 'toPickup' ? 'away' : 'to destination'}`,
+        geometry: route.geometry,   // GeoJSON LineString — both maps draw this
+        rerouted: route.rerouted === true,
+      };
+
+      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:eta', etaPayload);
+      driverNamespace.to(TRIP_ROOM(tripId)).emit('trip:eta', etaPayload);
+
+      // A separate, narrower event so a client can redraw the line without
+      // having to treat every ETA tick as a geometry change. The driver app
+      // listens to this for turn-by-turn re-routing.
+      if (route.rerouted) {
+        const reroutePayload = { tripId, leg: route.leg, geometry: route.geometry, distanceKm: route.distanceKm, durationMin: route.durationMin };
+        io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:route', reroutePayload);
+        driverNamespace.to(TRIP_ROOM(tripId)).emit('trip:route', reroutePayload);
+        logger.info('[route] re-routed', { tripId, leg: route.leg });
+      }
+
+      // Live Activity update — fire-and-forget, throttled by the same
+      // ETA_INTERVAL_MS/ETA_DISTANCE_M gate above (~1 push per 10s or 50m),
+      // well inside Apple's rate limits.
+      pushLiveActivityUpdate(tripId, {
+        etaMinutes: etaPayload.etaMinutes,
+        distanceKm: etaPayload.distanceKm,
+        driverLat: lat,
+        driverLng: lng,
+      });
+
+      etaCache.set(driverId, { tripId, lastCalcAt: now, lastLat: lat, lastLng: lng });
+
+      // ── Ride-check safety ────────────────────────────────────────────────
+      // Only while the rider is actually in the car.
+      if (trip.status === 'IN_PROGRESS') {
+        try {
+          const sState = safetyState.get(driverId)
+            || { tripId, lastLat: lat, lastLng: lng, lastSpeed: speed, stoppedSince: null };
+
+          // Deviation uses the SAME line the rider is looking at, measured by
+          // the service that owns it. DEVIATION_THRESHOLD_M is much larger than
+          // the re-route threshold on purpose: an alarming a rider is a far
+          // heavier action than spending one Directions call.
+          const distM = deviationMeters(route, lat, lng);
+          if (Number.isFinite(distM) && distM > DEVIATION_THRESHOLD_M) {
+            emitSafetyCheck(io, tripId, 'route_deviation');
           }
-        }
 
-        if (tripId && destLat != null && destLng != null) {
-          try {
-            let directions;
-            if (!env.MAPBOX_SECRET_TOKEN || env.MAPBOX_SECRET_TOKEN === 'placeholder') {
-              // Dev/Fallback: use route virtual stops for a realistic polyline
-              // instead of a straight line. Builds waypoints from origin → stops → destination.
-              let waypoints = [[lng, lat]];
-              try {
-                const activeTrip = await prisma.trip.findFirst({
-                  where: { id: tripId, driverId },
-                  select: {
-                    route: {
-                      select: {
-                        destLat: true, destLng: true,
-                        virtualStops: {
-                          where: { isActive: true },
-                          orderBy: { sequence: 'asc' },
-                          select: { lat: true, lng: true },
-                        },
-                      },
-                    },
-                  },
-                });
-                if (activeTrip?.route?.virtualStops?.length) {
-                  // Driver hasn't passed each stop yet — include all stops as waypoints
-                  waypoints = [
-                    [lng, lat],
-                    ...activeTrip.route.virtualStops.map(s => [s.lng, s.lat]),
-                    [destLng, destLat],
-                  ];
-                } else {
-                  waypoints.push([destLng, destLat]);
-                }
-              } catch (_) {
-                waypoints.push([destLng, destLat]);
-              }
-
-              const meters = haversineMeters(lat, lng, destLat, destLng);
-              const distanceKm = (meters / 1000) * 1.35; // 1.35x winding road multiplier
-              // Use speed with traffic: 25 km/h for urban driving (more realistic than 30)
-              // No extra discount here — ETA_FALLBACK_SPEED_KPH is already the
-              // congested urban mean (see the constant), matching the same
-              // figure in modules/geo/geo.service.js. The old `* 0.85` on top of
-              // a 30 km/h "free-flow-ish" base was a second, undocumented fudge.
-              const trafficSpeed = ETA_FALLBACK_SPEED_KPH;
-              const durationMin = (distanceKm / Math.max(trafficSpeed, 5)) * 60.0;
-              
-              directions = {
-                durationMin,
-                distanceKm,
-                geometry: {
-                  type: 'LineString',
-                  coordinates: waypoints,
-                },
-              };
-            } else {
-              directions = await getDirections(lng, lat, destLng, destLat);
+          const currentSpeed = speed || 0;
+          const movedSignificantly = haversineMeters(lat, lng, sState.lastLat, sState.lastLng) > 10;
+          if (currentSpeed < 1 && !movedSignificantly) {
+            if (!sState.stoppedSince) {
+              sState.stoppedSince = now;
+            } else if (now - sState.stoppedSince >= STOPPED_THRESHOLD_MS) {
+              emitSafetyCheck(io, tripId, 'stopped_too_long');
+              sState.stoppedSince = now; // reset so repeated checks are spaced
             }
-
-            const { durationMin, distanceKm, geometry } = directions;
-
-            const etaPayload = {
-              tripId,
-              etaMinutes:  Math.round(durationMin),
-              distanceKm:  Math.round(distanceKm * 10) / 10,
-              message:     durationMin < 2 ? 'Arriving now' : `${Math.round(durationMin)} min away`,
-              geometry,    // GeoJSON LineString — rider map draws the real route
-            };
-
-            // Emit to both passenger (rider tracking) AND driver (driver tracking) namespaces
-            io.of('/passenger')
-              .to(TRIP_ROOM(tripId))
-              .emit('trip:eta', etaPayload);
-
-            driverNamespace
-              .to(TRIP_ROOM(tripId))
-              .emit('trip:eta', etaPayload);
-
-            // Live Activity update — fire-and-forget, throttled by the same
-            // ETA_INTERVAL_MS/ETA_DISTANCE_M gate as the socket emit above
-            // (~1 push per 10s or 50m), well inside Apple's rate limits.
-            pushLiveActivityUpdate(tripId, {
-              etaMinutes: etaPayload.etaMinutes,
-              distanceKm: etaPayload.distanceKm,
-              driverLat: lat,
-              driverLng: lng,
-            });
-
-            etaCache.set(driverId, {
-              tripId, destLat, destLng,
-              lastCalcAt: now,
-              lastLat: lat,
-              lastLng: lng,
-            });
-
-            // ── Ride-check / route-deviation safety (Phase 3B) ────────────
-            // Only run for IN_PROGRESS trips (driver has departed).
-            try {
-              const tripStatus = await prisma.trip.findUnique({
-                where: { id: tripId },
-                select: { status: true },
-              });
-              if (tripStatus?.status === 'IN_PROGRESS') {
-                const polyline = geometry?.coordinates;
-                const sState = safetyState.get(driverId) || { tripId, lastLat: lat, lastLng: lng, lastSpeed: speed, stoppedSince: null, lastCheckAt: 0 };
-
-                // 1) Route deviation check (only if we have a polyline)
-                if (polyline && polyline.length >= 2) {
-                  const distM = distanceToPolyline(lat, lng, polyline);
-                  if (distM > DEVIATION_THRESHOLD_M) {
-                    emitSafetyCheck(io, tripId, 'route_deviation');
-                  }
-                }
-
-                // 2) Stopped-too-long check
-                const currentSpeed = speed || 0;
-                const movedSignificantly = haversineMeters(lat, lng, sState.lastLat, sState.lastLng) > 10;
-
-                if (currentSpeed < 1 && !movedSignificantly) {
-                  // Driver appears stopped
-                  if (!sState.stoppedSince) {
-                    sState.stoppedSince = now;
-                  } else if (now - sState.stoppedSince >= STOPPED_THRESHOLD_MS) {
-                    emitSafetyCheck(io, tripId, 'stopped_too_long');
-                    sState.stoppedSince = now; // reset timer to avoid repeated checks
-                  }
-                } else {
-                  sState.stoppedSince = null;
-                }
-
-                sState.lastLat = lat;
-                sState.lastLng = lng;
-                sState.lastSpeed = currentSpeed;
-                safetyState.set(driverId, sState);
-              }
-            } catch (err) {
-              logger.debug('[DriverSocket] Non-blocking safety check error:', err?.message ?? err);
-            }
-          } catch (err) {
-            logger.warn(`ETA: Mapbox directions failed for driver ${driverId}: ${err.message}`);
-            // Don't update cache — will retry on next eligible location update
+          } else {
+            sState.stoppedSince = null;
           }
+
+          sState.tripId = tripId;
+          sState.lastLat = lat;
+          sState.lastLng = lng;
+          sState.lastSpeed = currentSpeed;
+          safetyState.set(driverId, sState);
+        } catch (err) {
+          logger.debug('[DriverSocket] Non-blocking safety check error:', err?.message ?? err);
         }
       }
     });
@@ -598,8 +564,11 @@ function emitSafetyCheck(io, tripId, reason) {
         }, 5000);
       }
 
-      // Clear ETA cache — trip is over
+      // Clear ETA + route caches — trip is over, and a stale cached leg would
+      // otherwise be served to the next client that asks for this trip.
       etaCache.delete(driverId);
+      safetyState.delete(driverId);
+      clearRouteForTrip(tripId).catch(() => {});
 
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
         tripId,

@@ -406,15 +406,17 @@ export default function HomeScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* Active Ride Bento Card — morphs into the tracking screen
+        {/* Active Ride Bento Card — morphs into the persistent trip surface
             (container-transform, same engine as the where-to pill above)
-            instead of a plain push, so it reads as one continuous surface. */}
+            instead of a plain push, so it reads as one continuous surface.
+            Both morph into the SAME route now, which is the point: the map
+            behind them is one instance that never remounts between them. */}
         {activeBooking && (
           <MorphSource ref={activeRideSourceRef} id="home-active-ride" borderRadius={24} backgroundColor={colors.surfaceCard}>
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              morphTo('home-active-ride', () => router.push(`/ride/${activeBooking.tripId}/tracking` as any));
+              morphTo('home-active-ride', () => router.push('/trip?stage=assigned' as any));
             }}
           >
           <Animated.View entering={FadeIn.duration(250)} style={styles.activeBentoCard}>

@@ -1,60 +1,223 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import MapboxGL, { type CameraRef } from '../../utils/mapbox';
+import MapboxGL from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
+import {
+  useMapCamera,
+  paddingForSheet,
+  type CameraMode,
+  type Coord,
+} from '@eyego/maps';
+import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
+import { useTripStore } from '../../stores/trip.store';
 import { useColors, Colors } from '../../utils/useColors';
 
 /**
- * The ONE persistent MapView for the whole trip surface. Mounted once by
- * app/trip.tsx and never unmounted while the flow runs — stages change what
- * is drawn on it (pins, routes, camera), not the map itself.
+ * The ONE MapView in the rider app.
  *
- * Search stage: user location + picked-destination pin, camera flies to the
- * selection. Later stages (select/request/assigned/tracking) extend this
- * component rather than mounting their own MapView.
+ * Mounted once by app/trip.tsx and never unmounted while a ride runs. Stages
+ * change what is DRAWN on it — pins, the route line, the camera mode — not the
+ * map itself. That is the whole difference between this and what was here
+ * before: five screens each mounted their own MapView with their own camera
+ * code, so every navigation tore a map down and built another one, and the two
+ * apps framed the same ride differently at every step.
+ *
+ * ── WHO OWNS WHAT ────────────────────────────────────────────────────────────
+ *   the STAGE  asks for a camera mode (see `modeForStatus`)
+ *   the USER   overrides it to `free` by panning; the recenter chip gives it back
+ *   the SERVER owns the route line (`snapshot.path`) and the driver's position
+ *   this file  owns nothing except which of those to show
+ *
+ * No `setCamera` call appears below. `useMapCamera` runs the only frame loop,
+ * and it is the same one the driver app runs.
  */
+
+/** Fraction of the screen the bottom sheet covers, per stage. */
+const SHEET_FRACTION: Record<string, number> = {
+  search: 0.62,
+  select: 0.5,
+  request: 0.44,
+  assigned: 0.44,
+  tracking: 0.4,
+};
+
+/**
+ * What the camera should be doing, given where the ride is.
+ *
+ * The rider always gets `overview`, never `followCourse`. Rotating the world to
+ * the car's heading is the navigation convention and it is right for the person
+ * driving; for a passenger watching a car approach it is disorienting, and it
+ * was one of the reasons the two apps felt like different products.
+ */
+function modeForStatus(hasFit: boolean): CameraMode {
+  // `free` when there is nothing worth framing — a camera that fits an empty
+  // set is the degenerate-bounds crash, and `boundsFor` returning null is the
+  // second half of that guard.
+  return hasFit ? 'overview' : 'free';
+}
+
+function coord(lng: number | null | undefined, lat: number | null | undefined): Coord | null {
+  return typeof lng === 'number' && typeof lat === 'number' && Number.isFinite(lng) && Number.isFinite(lat)
+    ? [lng, lat]
+    : null;
+}
+
+/**
+ * Everything that must stay framed, for the leg of the ride we are on.
+ *
+ * Deliberately NOT "everything we know". While the driver is coming to fetch
+ * you, framing the destination as well zooms the map out to the whole city and
+ * the car becomes a dot; while you are in the car, framing the pickup you have
+ * already left does the same thing backwards.
+ */
+function fitFor(
+  status: TripStatus | null,
+  snapshot: TripSnapshot | null,
+  puck: Coord | null,
+  searchPin: Coord | null,
+  userPos: Coord | null,
+  driverPins: Coord[],
+): Coord[] {
+  const pickup = coord(snapshot?.pickup.lng, snapshot?.pickup.lat);
+  const dropoff = coord(snapshot?.dropoff.lng, snapshot?.dropoff.lat);
+  const driver = puck ?? coord(snapshot?.driver?.lng, snapshot?.driver?.lat);
+
+  switch (status) {
+    case 'DRIVER_ASSIGNED':
+    case 'DRIVER_EN_ROUTE':
+    case 'ARRIVED_AT_PICKUP':
+      return [driver, pickup].filter(Boolean) as Coord[];
+    case 'IN_PROGRESS':
+      return [driver ?? pickup, dropoff].filter(Boolean) as Coord[];
+    case 'REQUESTED':
+    case 'MATCHING':
+    case 'REASSIGNING':
+      // While dispatch is running, the nearby drivers ARE the content — this is
+      // the rider watching the search actually progress.
+      return [pickup, ...driverPins].filter(Boolean).slice(0, 8) as Coord[];
+    default:
+      // No trip yet: frame wherever the rider is and whatever they searched for.
+      return [userPos, searchPin].filter(Boolean) as Coord[];
+  }
+}
+
 function TripMapImpl() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { isDark } = useThemeStore();
-  const searchPlace = useTripFlow((s) => s.searchPlace);
+  const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
 
-  const [userCoords, setUserCoords] = useState<[number, number] | null>(null);
+  const stage = useTripFlow((s) => s.stage);
+  const searchPlace = useTripFlow((s) => s.searchPlace);
+  const nearbyDrivers = useTripFlow((s) => s.nearbyDrivers);
+  const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
+  const pickupCoord = useTripFlow((s) => s.pickupCoord);
+  const snapshot = useTripStore((s) => s.snapshot);
+  const status = snapshot?.status ?? null;
+
+  const [userCoords, setUserCoords] = useState<Coord | null>(null);
   useEffect(() => {
     (async () => {
       try {
         const Location = await import('expo-location');
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
+        const { status: perm } = await Location.requestForegroundPermissionsAsync();
+        if (perm === 'granted') {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           setUserCoords([loc.coords.longitude, loc.coords.latitude]);
         }
-      } catch { /* non-fatal */ }
+      } catch { /* non-fatal — the map is still usable without a blue dot */ }
     })();
   }, []);
 
-  // BUGFIX: MapLibre's native <Camera> only applies centerCoordinate/zoomLevel
-  // declaratively on its FIRST mount — the GPS fix almost always resolves
-  // before the rider finishes searching, so by the time they pick a result
-  // the Camera element is already mounted (centered on their location) and
-  // further prop changes are silently ignored by the native module. Every
-  // other camera-driven screen in this app works around this by re-centering
-  // imperatively via a ref once mounted (see ride/[id].tsx's fitBounds,
-  // ride/[id]/tracking.tsx's setCamera, profile/place-picker.tsx's
-  // handleSelectSuggestion) — do the same here so selecting a destination
-  // actually flies the map instead of leaving it wherever it first landed.
-  // Dispatch overlay state — populated by RequestStage from the cascade socket.
-  const nearbyDrivers = useTripFlow((s) => s.nearbyDrivers);
-  const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
-  const pickupCoord = useTripFlow((s) => s.pickupCoord);
+  // ── The route line ───────────────────────────────────────────────────────
+  // Comes from the SERVER, via the trip store — which seeds it from
+  // `snapshot.path` and refreshes it from `trip:eta`/`trip:route`. This screen
+  // used to call Mapbox Directions itself on a retry timer, so the rider and
+  // the driver drew different lines for one ride and the line vanished on every
+  // navigation. It also used to hold its OWN `trip:eta` subscription, which
+  // meant the map and the panel could show two different countdowns; the store
+  // is now the single subscriber and this reads its output.
+  const path = useTripStore((s) => s.path);
+
+  const routeLine = useMemo(() => {
+    const coords = path?.geometry?.coordinates;
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: { type: 'LineString' as const, coordinates: coords },
+    };
+  }, [path]);
+
+  const driverPins = useMemo(
+    () => nearbyDrivers.map((d) => [d.longitude, d.latitude] as Coord),
+    [nearbyDrivers],
+  );
+
+  // The fit is computed from the SERVER's driver position, not from the
+  // interpolated puck: the puck is produced by the hook below, so deriving the
+  // hook's input from it would be a cycle. `fitIncludesPuck` tells the frame
+  // loop to fold the live position in for us.
+  const fit = useMemo(
+    () => fitFor(
+      status,
+      snapshot,
+      null,
+      searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null,
+      userCoords,
+      driverPins,
+    ),
+    [status, snapshot, searchPlace, userCoords, driverPins],
+  );
+
+  const mode = modeForStatus(fit.length > 0);
+
+  // ── The driver puck ──────────────────────────────────────────────────────
+  // GPS fixes arrive every couple of seconds; a marker moved straight to each
+  // one teleports. `useMapCamera` interpolates between them and smooths the
+  // bearing the short way round, so the car drives instead of blinking.
+  const camera = useMapCamera({
+    mode,
+    fit,
+    fitIncludesPuck: true,
+    padding: paddingForSheet({
+      screenHeight,
+      sheetFraction: SHEET_FRACTION[stage] ?? 0.44,
+      safeTop: insets.top,
+    }),
+    active: true,
+  });
+  const { pushSample, resetPuck } = camera;
+
+  useEffect(() => {
+    const off = socketEvents.onDriverLocation((d) => {
+      if (!Number.isFinite(d.latitude) || !Number.isFinite(d.longitude)) return;
+      pushSample({
+        latitude: d.latitude,
+        longitude: d.longitude,
+        heading: d.heading ?? null,
+        speed: d.speed ?? null,
+        at: Date.now(),
+      });
+    });
+    return () => { off(); };
+  }, [pushSample]);
+
+  // Reassignment and trip end both mean the old puck is a lie.
+  useEffect(() => { resetPuck(); }, [snapshot?.driver?.id, resetPuck]);
+
+  const puckCoord: Coord | null = camera.puck
+    ? [camera.puck.longitude, camera.puck.latitude]
+    : coord(snapshot?.driver?.lng, snapshot?.driver?.lat);
 
   // A straight pickup→driver line rather than a road route: the offer only
   // lasts ~20 seconds and moves between drivers, so a per-offer Directions call
-  // would spend quota on a line that is about to be replaced. The road-following
-  // polyline starts once a driver actually accepts (tracking screen).
+  // would spend quota on a line that is about to be replaced.
   const dispatchLine = useMemo(() => {
     if (!dispatchOffer || !pickupCoord) return null;
     if (!Number.isFinite(dispatchOffer.longitude) || !Number.isFinite(dispatchOffer.latitude)) return null;
@@ -68,80 +231,107 @@ function TripMapImpl() {
     };
   }, [dispatchOffer, pickupCoord]);
 
-  const cameraRef = useRef<CameraRef>(null);
-  useEffect(() => {
-    if (!searchPlace) return;
-    cameraRef.current?.setCamera({
-      centerCoordinate: [searchPlace.longitude, searchPlace.latitude],
-      zoomLevel: 14,
-      animationDuration: 700,
-    });
-  }, [searchPlace?.latitude, searchPlace?.longitude]);
+  const pickup = coord(snapshot?.pickup.lng, snapshot?.pickup.lat);
+  const dropoff = coord(snapshot?.dropoff.lng, snapshot?.dropoff.lat)
+    ?? (searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null);
 
   return (
-    <MapboxGL.MapView
-      style={StyleSheet.absoluteFill}
-      styleURL={isDark ? mapStyles.eyegoDarkStyle : mapStyles.eyegoLightStyle}
-      compassEnabled={false}
-      rotateEnabled={false}
-      attributionEnabled={false}
-      logoEnabled={false}
-    >
-      {(userCoords || searchPlace) && (
-        <MapboxGL.Camera
-          ref={cameraRef}
-          centerCoordinate={
-            searchPlace ? [searchPlace.longitude, searchPlace.latitude] : userCoords!
-          }
-          zoomLevel={searchPlace ? 14 : 13}
-          animationMode="flyTo"
-          animationDuration={700}
-        />
-      )}
-      {userCoords && <MapboxGL.UserLocation visible />}
+    <View style={StyleSheet.absoluteFill}>
+      <MapboxGL.MapView
+        style={StyleSheet.absoluteFill}
+        styleURL={isDark ? mapStyles.eyegoDarkStyle : mapStyles.eyegoLightStyle}
+        compassEnabled={false}
+        rotateEnabled={false}
+        attributionEnabled={false}
+        logoEnabled={false}
+        onRegionDidChange={camera.onRegionChange}
+      >
+        <MapboxGL.Camera ref={camera.cameraRef} />
+        {userCoords && !puckCoord && <MapboxGL.UserLocation visible />}
 
-      {/* ── Dispatch overlay ────────────────────────────────────────────
-          While a request is being placed, show the real drivers around the
-          rider and a line to whichever one currently holds the offer. The line
-          jumps to the next driver as the cascade advances, so the rider can see
-          the search actually progressing instead of watching a bare spinner. */}
-      {dispatchLine && (
-        <MapboxGL.ShapeSource id="dispatch-line" shape={dispatchLine}>
-          <MapboxGL.LineLayer
-            id="dispatch-line-layer"
-            style={{ lineColor: colors.primary, lineWidth: 4, lineOpacity: 0.9, lineCap: 'round' }}
-          />
-        </MapboxGL.ShapeSource>
-      )}
+        {/* The road line, drawn under everything else. Casing first so the
+            line reads on both light and dark styles without a halo hack. */}
+        {routeLine && (
+          <MapboxGL.ShapeSource id="trip-route" shape={routeLine}>
+            <MapboxGL.LineLayer
+              id="trip-route-casing"
+              style={{ lineColor: colors.backgroundDeep, lineWidth: 9, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.55 }}
+            />
+            <MapboxGL.LineLayer
+              id="trip-route-line"
+              style={{ lineColor: colors.primary, lineWidth: 5, lineCap: 'round', lineJoin: 'round' }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
 
-      {nearbyDrivers.map((d) => {
-        const isOffered = d.id === dispatchOffer?.driverId;
-        return (
-          <MapboxGL.MarkerView key={d.id} id={`driver-${d.id}`} coordinate={[d.longitude, d.latitude]}>
-            <View style={[styles.driverPuck, isOffered && styles.driverPuckActive]}>
-              <Ionicons
-                name="car-sport"
-                size={isOffered ? 16 : 13}
-                color={isOffered ? colors.onPrimary : colors.onSurfaceVariant}
-              />
+        {dispatchLine && (
+          <MapboxGL.ShapeSource id="dispatch-line" shape={dispatchLine}>
+            <MapboxGL.LineLayer
+              id="dispatch-line-layer"
+              style={{ lineColor: colors.primary, lineWidth: 4, lineOpacity: 0.9, lineCap: 'round' }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
+
+        {/* Idle nearby drivers, only while dispatch is actually running —
+            leaving them on during the ride is visual noise the rider reads as
+            "which one of these is mine?". */}
+        {!snapshot?.driver && nearbyDrivers.map((d) => {
+          const isOffered = d.id === dispatchOffer?.driverId;
+          return (
+            <MapboxGL.MarkerView key={d.id} id={`driver-${d.id}`} coordinate={[d.longitude, d.latitude]}>
+              <View style={[styles.driverPuck, isOffered && styles.driverPuckActive]}>
+                <Ionicons
+                  name="car-sport"
+                  size={isOffered ? 16 : 13}
+                  color={isOffered ? colors.onPrimary : colors.onSurfaceVariant}
+                />
+              </View>
+            </MapboxGL.MarkerView>
+          );
+        })}
+
+        {/* THE assigned driver. Rotated to the smoothed bearing, so it points
+            where the car is going rather than spinning on every fix. */}
+        {puckCoord && snapshot?.driver && (
+          <MapboxGL.MarkerView id="assigned-driver" coordinate={puckCoord}>
+            <View style={[styles.vehiclePuck, { transform: [{ rotate: `${camera.puck?.bearing ?? 0}deg` }] }]}>
+              <Ionicons name="navigate" size={16} color={colors.onPrimary} />
             </View>
           </MapboxGL.MarkerView>
-        );
-      })}
-      {searchPlace && (
-        <MapboxGL.PointAnnotation
-          id="destination-pin"
-          coordinate={[searchPlace.longitude, searchPlace.latitude]}
-        >
-          <View style={styles.destPin}>
-            <View style={styles.destPinBubble}>
-              <Ionicons name="location" size={22} color={colors.onPrimary} />
+        )}
+
+        {pickup && (
+          <MapboxGL.MarkerView id="pickup-pin" coordinate={pickup}>
+            <View style={styles.pickupDot} />
+          </MapboxGL.MarkerView>
+        )}
+
+        {dropoff && (
+          <MapboxGL.PointAnnotation id="destination-pin" coordinate={dropoff}>
+            <View style={styles.destPin}>
+              <View style={styles.destPinBubble}>
+                <Ionicons name="location" size={22} color={colors.onPrimary} />
+              </View>
+              <View style={styles.destPinTail} />
             </View>
-            <View style={styles.destPinTail} />
-          </View>
-        </MapboxGL.PointAnnotation>
+          </MapboxGL.PointAnnotation>
+        )}
+      </MapboxGL.MapView>
+
+      {/* The affordance that makes taking the camera safe: pan freely, get it
+          back with one tap. Without this, auto-following reads as the map
+          fighting you. */}
+      {camera.released && mode !== 'free' && (
+        <Pressable
+          onPress={camera.recenter}
+          style={[styles.recenter, { top: insets.top + 12 }]}
+          hitSlop={8}
+        >
+          <Ionicons name="locate" size={18} color={colors.onSurface} />
+        </Pressable>
       )}
-    </MapboxGL.MapView>
+    </View>
   );
 }
 
@@ -153,8 +343,6 @@ function TripMapImpl() {
 export const TripMap = React.memo(TripMapImpl);
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  // Idle nearby driver — deliberately quiet so the offered driver reads as the
-  // one thing happening on the map.
   driverPuck: {
     width: 26, height: 26, borderRadius: 13,
     backgroundColor: colors.surfaceCard,
@@ -170,6 +358,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     shadowOpacity: 0.7, shadowRadius: 8,
     elevation: 8,
   },
+  vehiclePuck: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: colors.onPrimary,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3, shadowRadius: 5, elevation: 7,
+  },
+  pickupDot: {
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: colors.onSurface,
+    borderWidth: 3, borderColor: colors.surfaceCard,
+  },
   destPin: { alignItems: 'center' },
   destPinBubble: {
     width: 36, height: 36, borderRadius: 18,
@@ -182,5 +383,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderLeftWidth: 6, borderRightWidth: 6, borderTopWidth: 8,
     borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.primary,
     marginTop: -1,
+  },
+  recenter: {
+    position: 'absolute', right: 16,
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: colors.surfaceCard,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.rimLight,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2, shadowRadius: 6, elevation: 5,
   },
 });

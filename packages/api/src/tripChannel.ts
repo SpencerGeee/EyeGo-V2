@@ -42,6 +42,29 @@ export type TripStatus = Exclude<
   'SNAPSHOT' | 'DISPATCH_PROGRESS' | 'DRIVER_LOCATION' | 'ETA' | 'OFFER' | 'OFFER_REVOKED'
 >;
 
+/** Which journey a route line describes. Never conflate the two. */
+export type TripLeg = 'toPickup' | 'toDropoff';
+
+export interface TripPath {
+  leg: TripLeg;
+  /** GeoJSON LineString in [lng, lat] order, as MapLibre wants it. */
+  geometry: { type: 'LineString'; coordinates: [number, number][] };
+  distanceKm: number;
+  durationMin: number;
+  computedAt: number;
+}
+
+/** Payload of the `trip:eta` push. Carries the live leg's line and countdown. */
+export interface TripEtaPush {
+  tripId: string;
+  leg: TripLeg;
+  etaMinutes: number;
+  distanceKm: number;
+  message: string;
+  geometry: TripPath['geometry'];
+  rerouted: boolean;
+}
+
 export interface TripSnapshot {
   tripId: string;
   shortId: string;
@@ -59,6 +82,15 @@ export interface TripSnapshot {
   } | null;
   vehicle: { plate: string; make: string; model: string; year: number; tier: string } | null;
   route: { id: string; name: string; distanceKm: number } | null;
+  /**
+   * The road line, computed once by the server for whichever leg is live.
+   *
+   * `toPickup` while the driver is coming to fetch you; `toDropoff` once you
+   * are in the car. No client calls Mapbox Directions any more — the rider and
+   * the driver draw the same line because there is only one, and it survives
+   * navigation because it arrives with the snapshot.
+   */
+  path: TripPath | null;
   seats: { confirmed: number; max: number };
   // Money is INTEGER PESEWAS (1 GH₵ = 100). Format with `formatGhs`; never do
   // arithmetic on it — if a screen needs a total, the server sends the total.

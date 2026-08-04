@@ -2,6 +2,7 @@
 
 const prisma = require('../config/database');
 const { LIVE_STATUSES } = require('./trip-state.service');
+const { peekRouteForTrip } = require('./route-geometry.service');
 
 /**
  * The one shape both apps read a ride in.
@@ -58,7 +59,7 @@ const TRIP_INCLUDE = Object.freeze({
  */
 function buildTripSnapshot(trip, viewer = {}) {
   if (!trip) return null;
-  const { forUserId = null } = viewer;
+  const { forUserId = null, path = null } = viewer;
 
   const myBooking = forUserId
     ? (trip.bookings || []).find((b) => b.userId === forUserId) || null
@@ -116,6 +117,23 @@ function buildTripSnapshot(trip, viewer = {}) {
       ? { id: trip.route.id, name: trip.route.name, distanceKm: trip.route.distanceKm }
       : null,
 
+    // ── The line on the map ──────────────────────────────────────────────
+    // The road geometry for whichever leg is live, computed once by the
+    // server (route-geometry.service.js) and handed to both apps. Every
+    // screen used to call Mapbox Directions itself, so the rider and the
+    // driver drew different lines for one ride and the line was re-fetched
+    // from scratch on every navigation. Null until the driver's first
+    // location fix has produced one, and null for statuses with no leg.
+    path: path
+      ? {
+          leg: path.leg,
+          geometry: path.geometry,
+          distanceKm: path.distanceKm,
+          durationMin: path.durationMin,
+          computedAt: path.computedAt,
+        }
+      : null,
+
     seats: { confirmed: trip.confirmedSeats, max: trip.maxSeats },
 
     // Every number in here is an INTEGER NUMBER OF PESEWAS, hence the suffixes.
@@ -152,10 +170,29 @@ function buildTripSnapshot(trip, viewer = {}) {
   };
 }
 
+/**
+ * Serialize, with the cached route line attached.
+ *
+ * `peek`, never `compute`: rendering a snapshot must not be able to block on a
+ * Mapbox round trip, and must not be a way for a client to spend Directions
+ * quota by refreshing. The line is produced by the driver's location pipeline;
+ * this only hands over whatever that has most recently published.
+ */
+async function buildTripSnapshotWithPath(trip, viewer = {}) {
+  if (!trip) return null;
+  let path = null;
+  try {
+    path = await peekRouteForTrip(trip);
+  } catch {
+    // A snapshot without a line is still a correct snapshot.
+  }
+  return buildTripSnapshot(trip, { ...viewer, path });
+}
+
 /** Load + serialize in one call. */
 async function loadTripSnapshot(tripId, viewer = {}) {
   const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
-  return buildTripSnapshot(trip, viewer);
+  return buildTripSnapshotWithPath(trip, viewer);
 }
 
 /**
@@ -199,6 +236,7 @@ async function findActiveTripForDriver(driverId) {
 module.exports = {
   TRIP_INCLUDE,
   buildTripSnapshot,
+  buildTripSnapshotWithPath,
   loadTripSnapshot,
   findActiveTripForUser,
   findActiveTripForDriver,

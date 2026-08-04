@@ -11,8 +11,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import MapboxGL, { useDeviceHeading, useVehicleHeading } from '../../../utils/mapbox';
-import { fetchRoute } from '../../../utils/routing';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,19 +18,14 @@ import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, Skeleton, PulseRing, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
+import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
-import { eyegoDriverDarkStyle as eyegoDarkStyle } from '@eyego/map-styles';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
-
-
-/** Must stay identical to (trip)/active/[id].tsx — one product, one route line. */
-const ROUTE_CORE = '#FFB020';
-const ROUTE_CASING = '#4A2B00';
+import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
   SCHEDULED:          { label: 'Scheduled',          next: 'start',  action: 'Start Trip'    },
@@ -53,8 +46,6 @@ export default function DriverTrackingScreen() {
   const qc = useQueryClient();
   const { setActiveTripId, isOnline } = useDriverStore();
   const { addNotification } = useNotificationsStore();
-  // Physical handset orientation for the driver puck — see the marker below.
-  const deviceHeading = useDeviceHeading();
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'tracking', id],
@@ -69,24 +60,34 @@ export default function DriverTrackingScreen() {
 
   const isActiveTrip = !!trip && !['COMPLETED', 'CANCELLED'].includes(trip.status);
 
-  // Live driver location
+  // Live driver location. `useDriverLocation` already emits every fix to the
+  // socket, which is why this screen no longer runs its own 4 s emit interval —
+  // that was doubling the location traffic for every driver on the road.
   const { location: driverLocation } = useDriverLocation({ enabled: isActiveTrip });
-  // Marker heading — see the puck marker below for why this isn't the compass.
-  const vehicleHeading = useVehicleHeading({
-    latitude: driverLocation?.latitude,
-    longitude: driverLocation?.longitude,
-    gpsCourse: driverLocation?.heading,
-    speedMps: driverLocation?.speed,
-    compassHeading: deviceHeading,
-  });
-  const locationRef = useRef(driverLocation);
-  useEffect(() => { locationRef.current = driverLocation; }, [driverLocation]);
 
-  // ETA state
+  // ETA state — fed ENTIRELY by the server (route-geometry.service.js) through
+  // DriverTripMap's `onEta`. This screen used to call Directions itself and
+  // route to the trip's final destination in every phase, so "12 min" during
+  // pickup was the time to the rider's DESTINATION, a number unrelated to the
+  // wait. The server knows which leg is live; the client no longer guesses.
   const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
   const [etaDistanceKm, setEtaDistanceKm] = useState<number | null>(null);
   const [etaMessage, setEtaMessage] = useState<string | null>(null);
-  const [routeCoords, setRouteCoords] = useState<[number, number][]>([]);
+
+  const handleEta = useCallback(
+    (eta: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => {
+      setEtaMinutes(eta.minutes);
+      setEtaDistanceKm(eta.distanceKm);
+      setEtaMessage(
+        eta.rerouted
+          ? 'Route updated'
+          : eta.distanceKm != null
+            ? `${eta.distanceKm} km ${eta.leg === 'toPickup' ? 'to pickup' : 'to destination'}`
+            : null,
+      );
+    },
+    [],
+  );
 
   // Keep screen on while trip is active
   useEffect(() => {
@@ -109,17 +110,9 @@ export default function DriverTrackingScreen() {
       driverSocketEvents.emitJoinTracking(id);
     });
 
-    // Listen for ETA updates emitted to the driver namespace
-    const unsubEta = driverSocketEvents.onTripEta?.((data) => {
-      if (data.tripId === id) {
-        setEtaMinutes(data.etaMinutes);
-        setEtaDistanceKm(data.distanceKm ?? null);
-        setEtaMessage(data.message ?? null);
-        if (data.geometry?.coordinates && data.geometry.coordinates.length >= 2) {
-          setRouteCoords(data.geometry.coordinates);
-        }
-      }
-    }) ?? (() => {});
+    // `trip:eta` / `trip:route` are handled by DriverTripMap (which owns the
+    // line as well as the number) — subscribing here too would mean two
+    // listeners racing to interpret the same payload differently.
 
     const unsubPayment = driverSocketEvents.onPaymentConfirmed((data) => {
       if (data.tripId === id) {
@@ -137,82 +130,40 @@ export default function DriverTrackingScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
     });
 
-    // Emit location every 4s so rider gets updates AND ETA is calculated
-    const interval = setInterval(() => {
-      const loc = locationRef.current;
-      if (loc) {
-        driverSocketEvents.emitLocation({
-          lat: loc.latitude,
-          lng: loc.longitude,
-          heading: loc.heading ?? 0,
-          speed: loc.speed ?? 0,
-        });
-      }
-    }, 4000);
+    // There was a 4-second `emitLocation` interval here. It duplicated what
+    // `useDriverLocation.applyPosition` already does on every GPS fix, so every
+    // driver on this screen sent their position twice — once per fix and again
+    // on a timer that re-sent a stale one in between. The hook is the single
+    // emitter now.
 
     return () => {
-      clearInterval(interval);
       unsubConnect();
-      unsubEta();
       unsubPayment();
       unsubSeat();
       disconnectDriverSocket();
     };
-  }, [trip?.id, isActiveTrip, id, qc, addNotification, setEtaMinutes, setEtaDistanceKm, setEtaMessage, setRouteCoords]);
+  }, [trip?.id, isActiveTrip, id, qc, addNotification]);
 
-  // Map camera ref — follows driver location
-  const cameraRef = useRef<any>(null);
-  const driverCoord = useMemo(() => {
-    if (!driverLocation) return null;
-    return [driverLocation.longitude, driverLocation.latitude] as [number, number];
-  }, [driverLocation?.latitude, driverLocation?.longitude]);
+  // The camera lives in DriverTripMap now — one state machine, shared with the
+  // rider app (packages/maps/src/camera.ts). What was here instead:
+  //
+  //   - a `setCamera` call re-issued on EVERY GPS fix, with no user-gesture
+  //     release at all. Pan away to look at a junction and the next fix yanked
+  //     you back; there was no rule for who owned the camera.
+  //   - the Re-center button as the only way out, and only because it re-issued
+  //     the same call with `heading: 0`.
+  //   - screen-local `zoomLevel: 17` / `pitch: 55` constants, which is why this
+  //     screen and the sibling active-trip screen framed one trip differently.
+  //
+  // BUGFIX kept from the old code and now encoded in `camera.ts`: the map stays
+  // course-up via the camera's own heading, never by rotating the marker — the
+  // marker's rotation is a TRUE bearing that @eyego/maps compensates against
+  // the live map bearing.
 
-  // Camera follows driver in a tilted 3D nav view (Uber/Bolt/Yango-style),
-  // constant for the life of the screen. It used to flatten to 2D outside
-  // DRIVER_EN_ROUTE/IN_PROGRESS, which meant the map visibly lurched between
-  // 2D and 3D as the trip advanced. Same constant-tilt rule as the rider's
-  // tracking map (TRACKING_PITCH there).
-  // BUGFIX: this used to also rotate the camera to face `bearingBetween(driverCoord, target)`
-  // (direction-to-destination, not the driver's actual heading). Combined with the map's own
-  // `rotateEnabled` gesture, that desynced the driver marker's screen-space rotation from true
-  // heading — the pin visually "turned" whenever the map rotated (auto or by hand), not when the
-  // phone/vehicle did. Camera now stays north-up (heading 0); marker rotation (below) is the only
-  // thing that reflects real GPS heading, so it always matches actual direction of travel.
-  // The screen's DEFAULT camera. `resetBearing` is only ever true for the
-  // Re-center button: a GPS tick must never reset the bearing (that would yank
-  // the map north-up under a driver who deliberately rotated it), but pressing
-  // Re-center is a request for the default view back — north-up, default tilt
-  // and zoom, centred on the vehicle. Reported as: after rotating there was no
-  // way back to the default camera.
-  const recenterCamera = useCallback((resetBearing: boolean) => {
-    if (!driverCoord || !cameraRef.current) return;
-    cameraRef.current.setCamera({
-      centerCoordinate: driverCoord,
-      animationDuration: resetBearing ? 500 : 1000,
-      zoomLevel: 17,
-      ...(resetBearing ? { heading: 0 } : null),
-      pitch: 55,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [driverCoord?.[0], driverCoord?.[1]]);
-
-  useEffect(() => {
-    if (driverCoord && cameraRef.current) {
-      recenterCamera(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  // driverCoord is a tuple — index access is the stable primitive dep; cameraRef is a stable ref
-  }, [driverCoord?.[0], driverCoord?.[1]]);
-
-  // Destination + pickup coords — declared HERE so the OSRM effect below can
-  // reference them. BUGFIX: these used to default a missing route coordinate
-  // to a fixed Accra center, which rendered a fake destination/pickup pin and
-  // fed a fabricated point into the OSRM ETA fetch below. A trip's route
-  // should always carry real coordinates, but if it genuinely doesn't, stay
-  // null and let every consumer (markers, camera, route line, OSRM) skip
-  // rendering/fetching instead of showing made-up data.
-  const CAMERA_FALLBACK: [number, number] = [-0.187, 5.6037];
-
+  // BUGFIX: these used to default a missing route coordinate to a fixed Accra
+  // centre, which rendered a fake pin and fed a fabricated point into the ETA
+  // fetch. If a trip genuinely has no coordinate, stay null and let every
+  // consumer skip rendering rather than show made-up data.
   const destCoord: [number, number] | null = useMemo(() => {
     const lat = trip?.route?.destLat;
     const lng = trip?.route?.destLng;
@@ -227,65 +178,14 @@ export default function DriverTrackingScreen() {
     return destCoord;
   }, [trip?.route?.originLat, trip?.route?.originLng, destCoord]);
 
-  // Route target: pickup when en-route/arrived, destination when trip is running.
-  // This makes the driver's map show "navigate to pickup" first, then "navigate to destination".
-  const driverRouteTarget: [number, number] | null = useMemo(() => {
-    return (trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED')
-      ? destCoord
-      : pickupCoord;
-  }, [trip?.status, destCoord, pickupCoord]);
-
-  // Fetch road-following route from OSRM and compute local ETA immediately.
-  // This runs as soon as driver coordinates are available — no need to wait for
-  // the backend socket to emit trip:eta, which can take several seconds.
-  const routeFetchedRef = useRef(false);
-  useEffect(() => {
-    if (!driverCoord || !driverRouteTarget || routeFetchedRef.current) return;
-    const [dLng, dLat] = driverCoord;
-    const [eLng, eLat] = driverRouteTarget;
-    if (isNaN(dLat) || isNaN(dLng) || isNaN(eLat) || isNaN(eLng)) return;
-
-    routeFetchedRef.current = true;
-    // Traffic-aware via /v1/geo/route. This used to call the public OSRM demo
-    // server directly, whose duration is FREE-FLOW — the reason an 8.3 km trip
-    // was quoted at ~12 minutes. See utils/routing.ts.
-    fetchRoute([dLng, dLat], [eLng, eLat])
-      .then((route) => {
-        if (!route) return;
-        if (route.coordinates.length >= 2) setRouteCoords(route.coordinates);
-        const mins = Math.max(1, Math.round(route.durationMin));
-        const km = parseFloat(route.distanceKm.toFixed(1));
-        // Only set if socket hasn't already provided a fresher value
-        setEtaMinutes((prev) => prev ?? mins);
-        setEtaDistanceKm((prev) => prev ?? km);
-        setEtaMessage((prev) => prev ?? `${km} km via roads`);
-      })
-      .catch(() => {
-        // Routing unavailable — route line stays as straight fallback, no crash
-      });
-  }, [driverCoord?.[0], driverCoord?.[1], driverRouteTarget?.[0], driverRouteTarget?.[1]]);
-
-  // Reset OSRM fetch when route target changes (en-route → in-progress phase switch)
-  const prevRouteTargetRef = useRef(driverRouteTarget);
-  useEffect(() => {
-    if (
-      prevRouteTargetRef.current?.[0] !== driverRouteTarget?.[0] ||
-      prevRouteTargetRef.current?.[1] !== driverRouteTarget?.[1]
-    ) {
-      prevRouteTargetRef.current = driverRouteTarget;
-      routeFetchedRef.current = false;
-      setRouteCoords([]);
-    }
-  }, [driverRouteTarget]);
-
-  // Refresh OSRM route every 60 s while the trip is active (updates as driver moves)
-  useEffect(() => {
-    if (!isActiveTrip) return;
-    const interval = setInterval(() => {
-      routeFetchedRef.current = false; // allow re-fetch on next location update
-    }, 60000);
-    return () => clearInterval(interval);
-  }, [isActiveTrip]);
+  // The leg choice (pickup first, then destination) and the road geometry both
+  // live on the SERVER now — route-geometry.service.js computes one line per
+  // leg, caches it, and re-routes after three consecutive off-route fixes.
+  // What was here: a `fetchRoute` call keyed on the driver's own position, a
+  // reset effect for the phase switch, and a 60 s interval to refetch. Three
+  // moving parts to reproduce, per screen, a line the server already had — and
+  // because each screen fetched independently, the driver and the rider could
+  // be following two different lines for one ride.
 
   // ── In-app banner ──
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
@@ -444,147 +344,22 @@ export default function DriverTrackingScreen() {
   return (
     <View style={styles.container}>
       <AppBackground isDark={theme !== 'light'} />
-      {/* Map */}
-      <MapboxGL.MapView
-        style={StyleSheet.absoluteFill}
-        styleURL={eyegoDarkStyle}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={true}
-        // Rotate/tilt gestures restored — marker rotation is now compensated
-        // for the live map bearing inside @eyego/maps, so turning the map no
-        // longer drags the driver pin's heading around with it.
-        rotateEnabled={true}
-        pitchEnabled={true}
-        scaleBarEnabled={false}
-      >
-        <MapboxGL.Camera
-          ref={cameraRef}
-          centerCoordinate={driverCoord ?? pickupCoord ?? CAMERA_FALLBACK}
-          zoomLevel={16}
-          // Seed the first frame already tilted so the map never renders flat
-          // and then tip over once the first GPS fix lands.
-          pitch={55}
-          heading={0}
-          animationMode="none"
-          animationDuration={0}
-        />
-
-        {/* Driver's current location — always visible, starts at pickup until GPS fix.
-            Previously a static Ionicons rotate('45deg') that never changed — the arrow
-            looked frozen no matter which way the phone/vehicle actually turned. Now
-            driven by the live GPS heading and glides between fixes via
-            AnimatedMarkerView instead of jumping.
-            BUGFIX: only render once a real coordinate (live GPS or the trip's
-            real pickup point) is known — pickupCoord/destCoord no longer fall
-            back to a fabricated Accra point, so this must guard on that. */}
-        {(driverCoord ?? pickupCoord) && (
-          <MapboxGL.AnimatedMarkerView
-            coordinate={(driverCoord ?? pickupCoord)!}
-            // BUGFIX ("the pin turns with the phone but points at the wall, not
-            // the gate"): this passed `heading + 45`. `rotation` is a TRUE
-            // compass bearing that @eyego/maps compensates against the live map
-            // bearing, so adding the glyph's own artwork offset to it put the pin
-            // a constant 45° off the real direction — small enough to look like
-            // it was working, large enough to point at the wrong side of the
-            // street. The artwork offset belongs on the artwork: `rotation` is
-            // now the true heading, and the -45° counter-rotation below cancels
-            // the Ionicons "navigate" glyph's built-in north-east tilt.
-            //
-            // Heading comes from useVehicleHeading: GPS course while actually
-            // moving, a bearing derived from consecutive fixes when the device
-            // reports no course, the last known heading while stopped, and the
-            // compass only as a cold-start hint. Rotating by the compass first
-            // (what this did before) is why the pin over-rotated on every turn —
-            // a handset in a metal cradle reads the cradle, not the road.
-            rotation={vehicleHeading}
-            duration={1000}
-          >
-            <View style={styles.driverMarker}>
-              <Ionicons name="navigate" size={20} color="#3B82F6" style={styles.driverMarkerGlyph} />
-            </View>
-          </MapboxGL.AnimatedMarkerView>
-        )}
-
-        {/* Pickup marker */}
-        {trip?.status !== 'IN_PROGRESS' && pickupCoord && (
-          <MapboxGL.MarkerView coordinate={pickupCoord}>
-            <PulseMarker color={colors.secondary} />
-          </MapboxGL.MarkerView>
-        )}
-
-        {/* Destination marker */}
-        {destCoord && (
-          <MapboxGL.MarkerView coordinate={destCoord}>
-            <View style={styles.destMarker}>
-              <Ionicons name="flag" size={14} color="#fff" />
-            </View>
-          </MapboxGL.MarkerView>
-        )}
-
-        {/* Route polyline */}
-        {(routeCoords.length >= 2 || (driverCoord && driverRouteTarget) || (pickupCoord && destCoord)) && (
-        <MapboxGL.ShapeSource
-          id="routeLine"
-          shape={{
-            type: 'Feature',
-            geometry: {
-              type: 'LineString',
-              coordinates: routeCoords.length >= 2
-                ? routeCoords
-                : driverCoord && driverRouteTarget
-                ? [driverCoord, driverRouteTarget]
-                : [pickupCoord!, destCoord!],
-            },
-            properties: {},
-          }}
-        >
-          {/* Casing + core, matching the active-trip screen exactly — see
-              ROUTE_CORE in (trip)/active/[id].tsx for why amber and why two
-              layers instead of a blurred black underlay. */}
-          <MapboxGL.LineLayer
-            id="routeLineShadow"
-            style={{
-              lineColor: ROUTE_CASING,
-              lineWidth: 11,
-              lineOpacity: 0.95,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }}
-          />
-          <MapboxGL.LineLayer
-            id="routeLineLayer"
-            style={{
-              // History: colors.primary (blue — vanished into the map style's own
-              // blue roads), then violet (#A855F7, "a purple thing"). Amber is
-              // the one hue that can't collide with either.
-              lineColor: ROUTE_CORE,
-              lineWidth: 6,
-              lineOpacity: 1,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }}
-            aboveLayerID="routeLineShadow"
-          />
-        </MapboxGL.ShapeSource>
-        )}
-      </MapboxGL.MapView>
-
-      {/* Re-center → the screen's DEFAULT camera (north-up, default tilt/zoom,
-          on the vehicle), so a driver who rotated or tilted the map always has a
-          one-tap way back. Same control and same semantics as the rider app's
-          Re-center chip. */}
-      <Pressable
-        onPress={() => recenterCamera(true)}
-        style={styles.recenterFab}
-        accessibilityRole="button"
-        accessibilityLabel="Re-center map"
-        hitSlop={8}
-      >
-        <GlassSurface style={StyleSheet.absoluteFill} borderRadius={24} intensity="low" />
-        <Ionicons name="locate" size={20} color={colors.primary} />
-      </Pressable>
-
+      {/* The map. One surface, one camera state machine, shared with the
+          sibling active-trip screen and — through packages/maps — with the
+          rider app. Everything that used to live inline here (a MapView, a
+          hand-rolled Camera, the puck, the pins, the line, the Re-center FAB)
+          is inside DriverTripMap. */}
+      <DriverTripMap
+        tripId={id}
+        status={trip?.status}
+        pickup={pickupCoord}
+        dropoff={destCoord}
+        location={driverLocation}
+        puckColor={colors.primary}
+        sheetFraction={0.42}
+        active={isActiveTrip}
+        onEta={handleEta}
+      />
       {/* Floating header */}
       <View style={styles.headerOverlay}>
         <View style={styles.headerRow}>
@@ -880,21 +655,9 @@ function TripStatusBadge({ status, colors }: { status: string; colors: DriverCol
   );
 }
 
-// ── Pulsing pickup marker ──
-function PulseMarker({ color }: { color?: string }) {
-  const colors = useColors();
-  const resolvedColor = color ?? colors.primary;
-  return (
-    <PulseRing size={40} color={resolvedColor} ringCount={2} duration={1500}>
-      <View style={[pulseStyles.dot, { backgroundColor: resolvedColor, borderColor: '#030C18' }]} />
-    </PulseRing>
-  );
-}
-
-const pulseStyles = StyleSheet.create({
-  ring: { position: 'absolute', width: 20, height: 20, borderRadius: 10 },
-  dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2 },
-});
+// The pulsing pickup marker moved into DriverTripMap with the rest of the map's
+// furniture — a pin that only this screen could draw was half the reason the two
+// trip screens looked like different apps.
 
 // ── Styles ──
 const makeStyles = (colors: DriverColors) =>
@@ -913,20 +676,9 @@ const makeStyles = (colors: DriverColors) =>
     },
     // Sits above the bottom panel and clear of the header; 48pt is the minimum
     // comfortable target for a thumb on a phone in a cradle.
-    recenterFab: {
-      position: 'absolute',
-      right: spacing.xl,
-      top: 130,
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      borderColor: colors.outline,
-      overflow: 'hidden',
-      zIndex: 11,
-    },
+    // The Re-center control lives in DriverTripMap, next to the camera that
+    // knows whether the user has actually taken it — this screen used to render
+    // the button unconditionally, so it was there even when it did nothing.
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -1169,39 +921,7 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: colors.error + '55',
       paddingVertical: spacing.sm,
     },
-    // Cancels the Ionicons "navigate" glyph's built-in north-east tilt so the
-    // arrow points at the marker's TRUE heading. This offset must live here, on
-    // the artwork — folding it into `rotation` corrupts the compass bearing that
-    // @eyego/maps compensates against the live map orientation.
-    driverMarkerGlyph: {
-      transform: [{ rotate: '-45deg' }],
-    },
-    driverMarker: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: '#fff',
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: '#3B82F6',
-      // Contact shadow, not a glow. The old wide half-opaque blue shadow
-      // rendered as a soft blue disc surrounding the puck — it read on device
-      // as "a blue circle with the driver pin inside it".
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3,
-      elevation: 8,
-    },
-    destMarker: {
-      width: 32,
-      height: 32,
-      borderRadius: 8,
-      backgroundColor: colors.error,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 2,
-      borderColor: '#fff',
-    },
+    // The puck, pin and destination-marker styles moved into DriverTripMap —
+    // they were duplicated, with slightly different numbers, in both trip
+    // screens, which is why one ride looked like two.
   });
