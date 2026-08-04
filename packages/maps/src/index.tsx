@@ -1081,6 +1081,20 @@ function buildFallback(bgColor: string, fgColor: string) {
   };
 }
 
+// ── The shared map behaviour, above the MapLibre compat layer ───────────────
+//
+// Everything above this line adapts MapLibre v11 to the prop names the app
+// uses. Everything below is the behaviour that used to be copy-pasted into
+// five screens: how the camera decides where to point, and how a trickle of
+// GPS fixes becomes a car that moves.
+//
+// Screens should import `useMapCamera` and declare a mode. No screen should
+// call `setCamera` itself — that is what let five copies of the camera drift
+// apart from each other, and let a driver ping fight a rider's pan.
+export * from './camera';
+export * from './puck';
+export * from './useMapCamera';
+
 export const MapAvailable = !!(NativeMap && NativeCamera && NativeViewAnnotation && NativeGeoJSONSource && NativeLayer);
 
 const fallback = MapAvailable ? null : buildFallback('#0A0A0B', '#3B82F6');
