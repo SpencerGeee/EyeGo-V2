@@ -222,26 +222,29 @@ export default function DriverTrackingScreen() {
       else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
       else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
 
+      /*
+       * These banners are the DRIVER's own feedback and nothing more. The
+       * rider's copy of this news — socket event, push, Live Activity — is fanned
+       * out by the server from the transition the `driverApi.*` call above
+       * committed, so there is nothing for this screen to announce.
+       *
+       * The old comment here recorded that this screen "emitted NOTHING" while
+       * its sibling `active/[id].tsx` did, and that riders therefore missed the
+       * arrival step. That asymmetry is exactly the failure mode of letting
+       * clients announce status: it can only ever be fixed one screen at a time,
+       * and there is no way to tell which screens are still wrong.
+       */
       if (toStatus === 'DRIVER_EN_ROUTE') {
-        driverSocketEvents.emitTripStarted(id);
+        driverSocketEvents.emitTripStarted(id); // room join only
         showBanner('Trip started — en route to pickup');
       }
       if (toStatus === 'ARRIVED_AT_PICKUP') {
-        // BUGFIX: this screen showed a local banner and emitted NOTHING, so a
-        // rider watching the tracking screen got no signal that the driver had
-        // pulled up — the arrival step was invisible to them, and the next thing
-        // they saw was whatever the driver's following tap produced. (The sibling
-        // `active/[id].tsx` screen already emitted this; only the tracking screen
-        // was missing it.)
-        driverSocketEvents.emitArrivedAtPickup(id);
         showBanner('Arrived at pickup — ready to depart');
       }
       if (toStatus === 'IN_PROGRESS') {
-        driverSocketEvents.emitTripDeparted(id);
         showBanner('Trip is now in progress');
       }
       if (toStatus === 'COMPLETED') {
-        driverSocketEvents.emitArrived(id);
         setActiveTripId(null);
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });

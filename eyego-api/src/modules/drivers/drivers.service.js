@@ -451,29 +451,11 @@ async function arriveAtPickup(driverId, tripId) {
     actorId: driverId,
   });
 
-  setImmediate(async () => {
-    try {
-      const [driver, bookings] = await Promise.all([
-        prisma.driver.findUnique({ where: { id: driverId }, select: { name: true } }),
-        prisma.booking.findMany({
-          where: { tripId, status: { notIn: ['CANCELLED'] } },
-          include: { user: { select: { fcmToken: true } } },
-        }),
-      ]);
-      const tokens = bookings.map(b => b.user?.fcmToken).filter(Boolean);
-      if (tokens.length) {
-        await pushService.sendMulticastPush(
-          tokens,
-          'Driver has arrived',
-          `${driver?.name ?? 'Your driver'} has arrived at the pickup point`,
-          { type: 'ARRIVED_AT_PICKUP', tripId },
-        );
-      }
-    } catch (err) {
-      logger.debug('[driversService] arriveAtPickup push failed (non-blocking):', err?.message ?? err);
-    }
-  });
-
+  // The "your driver has arrived" push is NOT sent here any more. It is sent by
+  // services/trip-notify.service.js off the committed transition above, so that
+  // every route to ARRIVED_AT_PICKUP — this one, the REST ride endpoints, an
+  // admin correction — notifies the rider identically. A push written next to
+  // one of several callers is a push the other callers silently don't send.
   return updated;
 }
 
@@ -655,25 +637,9 @@ async function departTrip(driverId, tripId) {
     expectedVersion: trip.version,
   });
 
-  // Push notifications — non-blocking
-  setImmediate(async () => {
-    try {
-      const bookings = await prisma.booking.findMany({
-        where: { tripId, status: 'CONFIRMED', paymentStatus: 'PAID' },
-        include: { user: { select: { fcmToken: true } } },
-      });
-      const tokens = bookings.map(b => b.user?.fcmToken).filter(Boolean);
-      if (tokens.length) {
-        await pushService.sendMulticastPush(
-          tokens,
-          'Trip in progress',
-          'Your EyeGo has departed. Enjoy the ride!',
-          { type: 'IN_PROGRESS', tripId },
-        );
-      }
-    } catch (_) {}
-  });
-
+  // Departure push moved to trip-notify.service.js — see arriveAtPickup above.
+  // Note this one also only reached bookings that were CONFIRMED *and* PAID, so
+  // a cash rider was never told their own trip had started.
   return updated;
 }
 
@@ -854,24 +820,10 @@ async function arriveTrip(driverId, tripId) {
     await Promise.all(paidBookings.map(b => generateTripReceipt(b.id).catch(() => {})));
   });
 
-  // Push notifications — non-blocking (result is { trip, totalEarningsPesewas })
-  setImmediate(async () => {
-    try {
-      const completedTrip = result.trip;
-      const bookings = await prisma.booking.findMany({
-        where: { tripId, status: 'COMPLETED' },
-        include: { user: { select: { fcmToken: true, notificationPrefs: true } } },
-      });
-      const originName = completedTrip.route?.originName ?? 'your stop';
-      await Promise.all(
-        bookings.map(b => {
-          if (!b.user?.fcmToken) return null;
-          return pushService.notifications.driverArrived(b.user.fcmToken, originName, b.user.notificationPrefs, tripId, b.id);
-        }),
-      );
-    } catch (_) {}
-  });
-
+  // Completion push moved to trip-notify.service.js — see arriveAtPickup above.
+  // It was also the wrong notification: `driverArrived` announces arrival at the
+  // PICKUP, so a rider being dropped off was told their driver had arrived to
+  // collect them.
   return result;
 }
 

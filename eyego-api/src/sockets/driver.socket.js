@@ -4,9 +4,8 @@ const redis = require('../config/redis');
 const prisma = require('../config/database');
 const { isWithinGhana } = require('../services/mapbox.service');
 const { getRouteForTrip, deviationMeters, clearRouteForTrip } = require('../services/route-geometry.service');
-const { completeTrip, clearLiveActivityToken } = require('../modules/trips/trips.service');
-const pubSub = require('../graphql/pubsub');
-const { notifications: pushNotifications, sendMulticastPush, sendPush } = require('../services/push.service');
+const { completeTrip } = require('../modules/trips/trips.service');
+const { sendMulticastPush, sendPush } = require('../services/push.service');
 const liveActivityPush = require('../services/live-activity-push.service');
 const { haversineMeters } = require('../utils/geo');
 const supply = require('../services/supply-index.service');
@@ -68,26 +67,11 @@ async function pushLiveActivityUpdate(tripId, { status, etaMinutes, distanceKm, 
   }
 }
 
-async function endLiveActivityForTrip(tripId, finalStatus) {
-  try {
-    const trip = await prisma.trip.findUnique({
-      where: { id: tripId },
-      select: { bookings: { where: { liveActivityPushToken: { not: null } }, select: { id: true, liveActivityPushToken: true } } },
-    });
-    if (!trip || !trip.bookings.length) return;
-
-    const contentState = { status: finalStatus, statusText: LIVE_ACTIVITY_STATUS_TEXT[finalStatus] || finalStatus, updatedAt: Date.now() };
-
-    await Promise.all(
-      trip.bookings.map(async (b) => {
-        await liveActivityPush.pushEnd(b.liveActivityPushToken, contentState);
-        await clearLiveActivityToken(b.id);
-      })
-    );
-  } catch (err) {
-    logger.debug('[DriverSocket] Live Activity end push failed (non-blocking):', err?.message ?? err);
-  }
-}
+// `endLiveActivityForTrip` lived here. Ending the activity is a consequence of
+// reaching a terminal status, not of a socket message, so it now happens in
+// services/trip-notify.service.js off the committed transition — which also
+// means it fires for a trip cancelled by the rider or expired by the sweeper,
+// neither of which ever reached this file.
 
 // ── ETA throttle config ────────────────────────────────────────────────────────
 const ETA_INTERVAL_MS = 10_000;   // minimum ms between ETA calculations per driver
@@ -597,24 +581,28 @@ function emitSafetyCheck(io, tripId, reason) {
       return trip;
     }
 
+    /**
+     * ── The three "announce" handlers below are now room joins ──────────────
+     *
+     * They existed because the CLIENT told the server what had just happened,
+     * and the server relayed it: `trip:status_change`, a GraphQL publish and a
+     * Live Activity push, all triggered by a socket emit the driver app fired
+     * immediately after the REST call that actually performed the transition.
+     *
+     * That is the anti-pattern the rewire exists to remove. The transition is
+     * already committed and versioned by the time this arrives, and
+     * `publishCommitted` now fans out `trip:event` AND — via
+     * services/trip-notify.service.js — the push, the Live Activity and the
+     * GraphQL publish. Doing it again here is at best a duplicate buzz on the
+     * rider's phone and at worst a contradiction: nothing stopped a client
+     * announcing a status the transition had not actually reached.
+     *
+     * Kept as no-ops (rather than deleted) so builds already in the field keep
+     * working, and because `trip_started` genuinely does need the room join.
+     */
     socket.on('driver:trip_started', async ({ tripId }) => {
-      // Ownership + status precondition (see authorizeStatusEvent above): this
-      // used to check neither, then later only ownership.
       if (!(await authorizeStatusEvent('driver:trip_started', tripId, 'DRIVER_EN_ROUTE'))) return;
-
       socket.join(TRIP_ROOM(tripId));
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
-        tripId,
-        status: 'DRIVER_EN_ROUTE',
-      });
-      pubSub.publish(`TRIP_STATUS:${tripId}`, {
-        tripId,
-        status: 'DRIVER_EN_ROUTE',
-        driverLat: null,
-        driverLng: null,
-        updatedAt: new Date().toISOString(),
-      });
-      pushLiveActivityUpdate(tripId, { status: 'DRIVER_EN_ROUTE' });
     });
 
     // Driver arrived at the PICKUP stop — distinct from 'driver:arrived' below,
@@ -628,38 +616,12 @@ function emitSafetyCheck(io, tripId, reason) {
     // arrival silently skipped.
     socket.on('driver:arrived_at_pickup', async ({ tripId }) => {
       if (!(await authorizeStatusEvent('driver:arrived_at_pickup', tripId, 'ARRIVED_AT_PICKUP'))) return;
-
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
-        tripId,
-        status: 'ARRIVED_AT_PICKUP',
-      });
-      pubSub.publish(`TRIP_STATUS:${tripId}`, {
-        tripId,
-        status: 'ARRIVED_AT_PICKUP',
-        driverLat: null,
-        driverLng: null,
-        updatedAt: new Date().toISOString(),
-      });
-      pushLiveActivityUpdate(tripId, { status: 'ARRIVED_AT_PICKUP' });
+      socket.join(TRIP_ROOM(tripId));
     });
 
     socket.on('driver:trip_departed', async ({ tripId }) => {
-      // IN_PROGRESS is only reachable from ARRIVED_AT_PICKUP: a rider must never
-      // be told the ride is underway before the driver has actually arrived.
       if (!(await authorizeStatusEvent('driver:trip_departed', tripId, 'IN_PROGRESS'))) return;
-
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
-        tripId,
-        status: 'IN_PROGRESS',
-      });
-      pubSub.publish(`TRIP_STATUS:${tripId}`, {
-        tripId,
-        status: 'IN_PROGRESS',
-        driverLat: null,
-        driverLng: null,
-        updatedAt: new Date().toISOString(),
-      });
-      pushLiveActivityUpdate(tripId, { status: 'IN_PROGRESS' });
+      socket.join(TRIP_ROOM(tripId));
     });
 
     socket.on('driver:arrived', async ({ tripId }) => {
@@ -693,11 +655,10 @@ function emitSafetyCheck(io, tripId, reason) {
       safetyState.delete(driverId);
       clearRouteForTrip(tripId).catch(() => {});
 
-      io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:status_change', {
-        tripId,
-        status: 'COMPLETED',
-      });
-      endLiveActivityForTrip(tripId, 'COMPLETED');
+      // No status announcement and no Live Activity end here: completing the
+      // trip above transitions it, and `publishCommitted` → trip-notify owns
+      // both. This handler survives only as the safety net its retry ladder
+      // describes — an old client that emitted this without the REST call.
     });
 
     // ── Typing indicators ────────────────────────────────────

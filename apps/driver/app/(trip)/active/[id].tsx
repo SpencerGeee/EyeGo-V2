@@ -206,6 +206,17 @@ export default function ActiveTripScreen() {
       else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
       else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
 
+      /*
+       * NOTE: these no longer announce the status to the server.
+       *
+       * The `driverApi.*` call above already performed the transition through
+       * the state machine, and the server fans the result out itself — the
+       * rider's `trip:event`, their push, their Live Activity. Emitting a
+       * socket event here as well made the CLIENT the announcer of a fact the
+       * server already owned, which is how a rider could be told a status the
+       * trip had not actually reached. `emitTripStarted` survives only to join
+       * the trip room for chat.
+       */
       if (toStatus === 'DRIVER_EN_ROUTE') {
         driverSocketEvents.emitTripStarted(id);
         addNotification({ type: 'DRIVER_EN_ROUTE', title: 'Trip started', body: 'You are now en route to the pickup stop.', tripId: id });
@@ -216,21 +227,13 @@ export default function ActiveTripScreen() {
         return;
       }
       if (toStatus === 'ARRIVED_AT_PICKUP') {
-        // Previously no socket emit fired here at all — a rider on the
-        // tracking screen got no real-time signal the driver had arrived,
-        // so the trip appeared to jump straight from "en route" to whatever
-        // the driver's NEXT tap (depart) produced, looking like a skipped
-        // step or a mixed-up status.
-        driverSocketEvents.emitArrivedAtPickup(id);
         addNotification({ type: 'ARRIVED_AT_PICKUP', title: 'Arrived at pickup', body: 'You have arrived at the pickup stop.', tripId: id });
       }
       if (toStatus === 'IN_PROGRESS') {
-        driverSocketEvents.emitTripDeparted(id);
         addNotification({ type: 'IN_PROGRESS', title: 'Trip in progress', body: 'You have departed. Ride is underway.', tripId: id });
       }
 
       if (toStatus === 'COMPLETED') {
-        driverSocketEvents.emitArrived(id);
         setActiveTripId(null);
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });

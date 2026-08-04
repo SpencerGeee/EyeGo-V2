@@ -404,6 +404,26 @@ function publishCommitted(result) {
       `trip:event publish failed for ${result.trip.id} (state IS committed): ${err.message}`,
     );
   }
+
+  /**
+   * Sockets reach an app that is open. This reaches one that is not — the FCM
+   * push, the lock-screen Live Activity, the GraphQL subscription.
+   *
+   * Deliberately here rather than in the callers. Those notifications used to
+   * live in the legacy driver socket handlers and in ad-hoc `setImmediate`
+   * blocks inside individual service functions, so what a rider was told
+   * depended on which code path the driver's tap travelled down — and the
+   * rewired REST endpoints travelled down none of them. Now every transition
+   * from every path notifies identically, and it is deduped on the trip
+   * version so the overlap between the two paths cannot buzz a phone twice.
+   */
+  try {
+    require('./trip-notify.service').notifyTransition(result.trip, result.event);
+  } catch (err) {
+    logger.warn(
+      `trip notify failed for ${result.trip.id} (state IS committed): ${err.message}`,
+    );
+  }
 }
 
 /**

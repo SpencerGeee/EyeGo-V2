@@ -179,7 +179,16 @@ const claimReassignedTrip = async (req, res) => {
   const trip = await driversService.claimReassignedTrip(req.user.userId, req.params.id);
   try {
     const io = req.app.get('io');
-    if (io) io.of('\passenger').to(`trip:${trip.id}`).emit('trip:status_change', { tripId: trip.id, status: 'DRIVER_EN_ROUTE' });
+    // BUGFIX: this read `io.of('\passenger')` — a backslash, not a slash. In JS
+    // '\p' is just 'p', so this addressed a namespace called "passenger" with
+    // no leading slash: a namespace Socket.IO happily creates and no client is
+    // ever connected to. Every rider whose trip was claimed after a driver
+    // cancellation was told nothing at all.
+    //
+    // Status is the trip's real one for the same reason as acceptDispatch
+    // above: claiming can land somewhere other than DRIVER_EN_ROUTE, and
+    // announcing a status the trip is not in is worse than announcing none.
+    if (io) io.of('/passenger').to(`trip:${trip.id}`).emit('trip:status_change', { tripId: trip.id, status: trip.status });
   } catch (_) {}
   ok(res, { trip }, 'Trip claimed');
 };
