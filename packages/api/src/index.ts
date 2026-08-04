@@ -3,6 +3,25 @@ export { authApi } from './auth.api';
 export { userApi } from './user.api';
 export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace } from './user.api';
 export { tripsApi } from './trips.api';
+// On-demand rides + the one realtime channel. See tripChannel.ts for why the
+// ~20 ad-hoc socket listeners were collapsed into a single sequenced event.
+export { ridesApi } from './rides.api';
+export type { FareQuote, ActiveRideResponse, DriverStateResponse } from './rides.api';
+export {
+  subscribeToTrip,
+  reduceTripEvent,
+  shouldApply,
+  hasGap,
+  serverNow,
+  secondsRemaining,
+} from './tripChannel';
+export type {
+  TripEvent,
+  TripEventType,
+  TripSnapshot,
+  TripStatus,
+  TripChannelState,
+} from './tripChannel';
 export { bookingsApi } from './bookings.api';
 export { paymentsApi } from './payments.api';
 export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth } from './socket';

@@ -1,11 +1,14 @@
 'use strict';
 
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
 const socketAuth = require('./middleware/socketAuth');
 const registerDriverSocket = require('./driver.socket');
 const registerPassengerSocket = require('./passenger.socket');
+const registerResumeProtocol = require('./resume.socket');
 const logger = require('../utils/logger');
 const redis = require('../config/redis');
+const publisher = require('../services/trip-events.publisher');
 
 function initSocketServer(httpServer) {
   const io = new Server(httpServer, {
@@ -20,15 +23,32 @@ function initSocketServer(httpServer) {
     pingInterval: 25000,
   });
 
+  // ── Redis adapter ─────────────────────────────────────
+  //
+  // THE PREREQUISITE FOR A SECOND INSTANCE EXISTING AT ALL. Without it, a
+  // rider connected to instance A never receives an emit issued on instance B
+  // — so every `io.to(room).emit(...)` in this codebase was silently
+  // single-instance-only, and horizontal scale was impossible regardless of
+  // what the load balancer did.
+  //
+  // Two dedicated connections: the adapter's subscriber blocks on SUBSCRIBE
+  // and cannot be shared with the command client.
+  io.adapter(createAdapter(redis.duplicate(), redis.duplicate()));
+
+  // The single publisher every trip event goes out through.
+  publisher.setIo(io);
+
   // ── /passenger namespace ──────────────────────────────
   const passengerNs = io.of('/passenger');
   passengerNs.use(socketAuth('PASSENGER'));
   registerPassengerSocket(io, passengerNs);
+  registerResumeProtocol(passengerNs, 'RIDER');
 
   // ── /driver namespace ─────────────────────────────────
   const driverNs = io.of('/driver');
   driverNs.use(socketAuth('DRIVER'));
   registerDriverSocket(io, driverNs);
+  registerResumeProtocol(driverNs, 'DRIVER');
 
   // ── /admin namespace (Live Map real-time updates) ──────────────
   // Same secret as the REST adminAuth middleware — validated through zod

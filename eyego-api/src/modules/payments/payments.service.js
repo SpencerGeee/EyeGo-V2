@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const prisma = require('../../config/database');
 const env = require('../../config/env');
 const paystack = require('./paystack.client');
+const tripState = require('../../services/trip-state.service');
 const pushService = require('../../services/push.service');
 const { NotFoundError, PaymentError, AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
@@ -262,6 +263,8 @@ async function verifyPayment(reference, requestingUserId) {
 }
 
 async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSync = false } = {}) {
+  // Captured inside the transaction, published after it commits.
+  let confirmTransition = null;
   const result = await prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },
@@ -406,7 +409,14 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
       updatedTrip.confirmedSeats >= env.MIN_OCCUPANCY_TO_DEPART &&
       updatedTrip.status === 'FILLING'
     ) {
-      await tx.trip.update({ where: { id: booking.tripId }, data: { status: 'CONFIRMED' } });
+      // Minimum occupancy reached — the trip is going. Emitted through the
+      // state machine so the driver and every seated rider learn it from the
+      // same versioned event instead of each app inferring it from its own
+      // seat count.
+      confirmTransition = await tripState.applyTransitionTx(tx, booking.tripId, 'CONFIRMED', {
+        actor: tripState.ACTOR.SYSTEM,
+        payload: { confirmedSeats: updatedTrip.confirmedSeats, trigger: 'MIN_OCCUPANCY' },
+      });
     }
 
     // Send driver earnings to wallet (credited when trip completes, not now)
@@ -414,6 +424,10 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
 
     return { ...booking, _justConfirmed: true, _settledBookingIds: bookingsToSettle.map((b) => b.id) };
   });
+
+  // Post-commit. Money and trip status moved together inside the transaction;
+  // both apps hear about it together, once, after it is durable.
+  tripState.publishCommitted(confirmTransition);
 
   if (result?._justConfirmed) {
     notifyEmergencyContactIfShareTripEnabled(bookingId).catch(() => {});

@@ -4,6 +4,7 @@ const prisma = require('../../config/database');
 const env = require('../../config/env');
 const { AppError, NotFoundError, ForbiddenError } = require('../../utils/errors');
 const { pushEnd } = require('../../services/live-activity-push.service');
+const tripState = require('../../services/trip-state.service');
 const logger = require('../../utils/logger');
 
 /**
@@ -168,15 +169,22 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
         status: { notIn: ['CANCELLED'] },
       },
     });
+    let transition = null;
     if (activeCount === 0 && ['FILLING', 'CONFIRMED'].includes(booking.trip.status)) {
-      await tx.trip.update({
-        where: { id: booking.tripId },
-        data: { status: 'SCHEDULED' },
+      // Last rider left: the trip goes back on sale. Through the state machine
+      // so the driver's app sees it happen rather than discovering it on a
+      // refetch.
+      transition = await tripState.applyTransitionTx(tx, booking.tripId, 'SCHEDULED', {
+        actor: tripState.ACTOR.SYSTEM,
+        payload: { reason: 'ALL_BOOKINGS_CANCELLED' },
       });
     }
 
-    return { booking: updated, refundAmount, cancellationFee, receipt };
+    return { booking: updated, refundAmount, cancellationFee, receipt, transition };
   });
+
+  // Post-commit: tell both apps the trip went back on sale.
+  tripState.publishCommitted(result.transition);
 
   // Fire-and-forget: end this rider's Live Activity outside the DB
   // transaction (it's a network call to Apple, not something that should

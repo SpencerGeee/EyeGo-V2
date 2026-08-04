@@ -31,6 +31,11 @@ const { staleCutoff } = require('./stale-trips');
  */
 const HARD_BUSY_STATUSES = Object.freeze([
   'CONFIRMED',
+  // A driver who has just claimed a trip but hasn't set off yet is busy. This
+  // state did not exist before the canonical-Trip work; without it, the gap
+  // between "accepted" and "en route" was a window where the driver could be
+  // offered a second ride.
+  'DRIVER_ASSIGNED',
   'DRIVER_EN_ROUTE',
   'ARRIVED_AT_PICKUP',
   'IN_PROGRESS',

@@ -1,0 +1,53 @@
+# Local dev infrastructure for eyego-api.
+#
+#   docker compose up -d
+#
+# Postgres, not SQLite: production is Postgres (.env.example), and the two are
+# not interchangeable for this workload. SQLite has no enums, no jsonb, no
+# SELECT ... FOR UPDATE SKIP LOCKED, and it serialises writes — so every
+# concurrency bug in dispatch (two drivers claiming one trip, two workers
+# claiming one scheduled task) is invisible locally and only appears in prod.
+#
+# Redis is mandatory, not optional. It holds dispatch cascade state, the driver
+# GEO supply index, and the Socket.IO adapter that makes a second API instance
+# possible at all. The old InMemoryRedis fallback silently voided distributed
+# locks; it has been removed.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eyego-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eyego
+      POSTGRES_PASSWORD: eyego
+      POSTGRES_DB: eyego_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - eyego-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eyego -d eyego_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: eyego-redis
+    restart: unless-stopped
+    # appendonly so a restart does not drop in-flight cascade state.
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - eyego-redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  eyego-pgdata:
+  eyego-redisdata:

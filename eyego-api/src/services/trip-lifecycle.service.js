@@ -2,6 +2,7 @@
 
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
+const tripState = require('./trip-state.service');
 
 /**
  * Trip lifetime enforcement.
@@ -61,9 +62,21 @@ function numFromEnv(key, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-const PRE_TRIP_STATUSES = ['SCHEDULED', 'FILLING', 'CONFIRMED', 'DISPATCHING'];
-const ACTIVE_STATUSES = ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
-const TERMINAL_STATUSES = ['COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_SHOW'];
+// Derived from the state machine, NOT hand-maintained.
+//
+// These were three local literal arrays, and they had already drifted: the
+// pre-trip list still contained `DISPATCHING`, a status that no longer exists,
+// and the terminal list was missing `NO_DRIVERS_FOUND` — so the sweep both
+// crashed on every run and, had it run, would have treated a
+// no-drivers-found trip as still expirable. Private copies of "which statuses
+// are which" are the exact failure the enum and the shared constants exist to
+// prevent; there is one list now and this file reads it.
+const {
+  PRE_TRIP_STATUSES,
+  ACTIVE_STATUSES,
+  TERMINAL_STATUSES,
+  PRE_DRIVER_STATUSES,
+} = tripState;
 /** Booking states that still hold a seat / still read as live to a rider. */
 const LIVE_BOOKING_STATUSES = ['SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED', 'PENDING'];
 
@@ -88,7 +101,15 @@ function isPastDeadline(trip) {
   const now = Date.now();
 
   if (departure && now - departure > HARD_MAX_HOURS * 3600_000) return true;
-  if (PRE_TRIP_STATUSES.includes(status) && departure && now - departure > PRETRIP_GRACE_HOURS * 3600_000) {
+  // Pre-driver states (REQUESTED/MATCHING/REASSIGNING) get the same grace.
+  // They already have their own 5-minute `RIDE_REQUEST_EXPIRY` ScheduledTask,
+  // so reaching here means that task never fired — which is precisely when a
+  // backstop is worth having.
+  if (
+    [...PRE_TRIP_STATUSES, ...PRE_DRIVER_STATUSES].includes(status) &&
+    departure &&
+    now - departure > PRETRIP_GRACE_HOURS * 3600_000
+  ) {
     return true;
   }
   if (ACTIVE_STATUSES.includes(status) && updated && now - updated > ACTIVE_IDLE_HOURS * 3600_000) {
@@ -105,7 +126,7 @@ function isPastDeadline(trip) {
  */
 async function expireTrip(tripId, reason = 'STALE') {
   try {
-    return await prisma.$transaction(async (tx) => {
+    const transition = await prisma.$transaction(async (tx) => {
       // Re-read inside the transaction and condition on non-terminal: this is
       // what makes concurrent sweeps and the lazy guard safe to run together.
       const trip = await tx.trip.findUnique({
@@ -115,29 +136,45 @@ async function expireTrip(tripId, reason = 'STALE') {
       if (!trip) return false;
       if (TERMINAL_STATUSES.includes(String(trip.status).toUpperCase())) return false;
 
-      await tx.trip.update({
-        where: { id: tripId },
-        data: { status: 'EXPIRED', arrivedAt: null },
+      // Through the state machine, not a raw update. Two things this buys that
+      // the direct write could not: the expiry produces a TripEvent both apps
+      // observe (so a rider staring at a dead trip finds out immediately
+      // rather than on their next poll), and reaching a terminal status
+      // automatically cancels every ScheduledTask still armed for this trip —
+      // no offer timeout can fire against a ride the sweep has written off.
+      let releasedCount = 0;
+      const transition = await tripState.applyTransitionTx(tx, tripId, 'EXPIRED', {
+        actor: tripState.ACTOR.SYSTEM,
+        payload: { reason },
+        // The seat counter is derived state; zero it rather than decrementing,
+        // so a sweep can never leave it drifting.
+        data: { arrivedAt: null, confirmedSeats: 0 },
+        sideEffects: async (innerTx) => {
+          // Release every seat still held/confirmed. Without this the rider's
+          // booking stayed live and their seat stayed spent — the half of the
+          // old sweep that was missing entirely.
+          const released = await innerTx.booking.updateMany({
+            where: { tripId, status: { in: LIVE_BOOKING_STATUSES } },
+            data: { status: 'EXPIRED' },
+          });
+          releasedCount = released.count;
+        },
       });
 
-      // Release every seat still held/confirmed on it. Without this the rider's
-      // booking stayed live and their seat stayed spent — the half of the old
-      // sweep that was missing entirely.
-      const releasedBookings = await tx.booking.updateMany({
-        where: { tripId, status: { in: LIVE_BOOKING_STATUSES } },
-        data: { status: 'EXPIRED' },
-      });
-
-      // The seat counter is derived state; recompute it rather than decrementing,
-      // so a sweep can never leave it drifting.
-      await tx.trip.update({ where: { id: tripId }, data: { confirmedSeats: 0 } });
-
-      logger.info(
-        `Trip ${tripId} expired (${reason}); released ${releasedBookings.count} booking(s)`,
-      );
-      return true;
+      logger.info(`Trip ${tripId} expired (${reason}); released ${releasedCount} booking(s)`);
+      return transition;
     });
+
+    // Post-commit. Both apps drop the dead trip from their live surfaces off
+    // the same versioned event as every other status change — no bespoke
+    // sweep-only socket message to keep in sync with the rest.
+    tripState.publishCommitted(transition);
+    return true;
   } catch (err) {
+    // A trip that went terminal between the read and the write raises
+    // TRIP_TERMINAL / VERSION_CONFLICT. That is the guard working, not a
+    // failure: another actor got there first and the trip is already closed.
+    if (err.code === 'TRIP_TERMINAL' || err.code === 'VERSION_CONFLICT') return false;
     logger.warn(`Failed to expire trip ${tripId} (non-blocking): ${err.message}`);
     return false;
   }
@@ -146,16 +183,20 @@ async function expireTrip(tripId, reason = 'STALE') {
 /**
  * Periodic sweep. Returns the number of trips expired.
  *
- * `io` is optional; when present, both namespaces are told so an app that is
- * open right now drops the dead trip from its live surfaces instead of waiting
- * for its next poll.
+ * The `io` parameter is gone: notifying open apps is no longer this function's
+ * job. `expireTrip` publishes the standard `trip:event`, so a sweep expiry is
+ * indistinguishable — to the clients — from any other status change, and there
+ * is one code path to keep correct instead of two.
  */
-async function expireStaleTrips(io = null) {
+async function expireStaleTrips() {
   const candidates = await prisma.trip.findMany({
     where: {
       status: { notIn: TERMINAL_STATUSES },
       OR: [
-        { status: { in: PRE_TRIP_STATUSES }, departureTime: { lt: hoursAgo(PRETRIP_GRACE_HOURS) } },
+        {
+          status: { in: [...PRE_TRIP_STATUSES, ...PRE_DRIVER_STATUSES] },
+          departureTime: { lt: hoursAgo(PRETRIP_GRACE_HOURS) },
+        },
         { status: { in: ACTIVE_STATUSES }, updatedAt: { lt: hoursAgo(ACTIVE_IDLE_HOURS) } },
         { departureTime: { lt: hoursAgo(HARD_MAX_HOURS) } },
       ],
@@ -168,20 +209,7 @@ async function expireStaleTrips(io = null) {
   let expired = 0;
   for (const trip of candidates) {
     const didExpire = await expireTrip(trip.id, 'SWEEP');
-    if (!didExpire) continue;
-    expired += 1;
-    try {
-      if (io) {
-        const payload = { tripId: trip.id, status: 'EXPIRED', reason: 'STALE' };
-        io.of('/passenger').to(`trip:${trip.id}`).emit('trip:status_update', payload);
-        io.of('/driver').to(`trip:${trip.id}`).emit('trip:status_update', payload);
-        if (trip.driverId) {
-          io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:status_update', payload);
-        }
-      }
-    } catch {
-      // Socket delivery is best-effort — the DB is the source of truth.
-    }
+    if (didExpire) expired += 1;
   }
 
   if (expired > 0) logger.info(`Trip expiry sweep: expired ${expired} stale trip(s)`);

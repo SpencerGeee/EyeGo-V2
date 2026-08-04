@@ -28,6 +28,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
 import { configureApiClient, configureSocket, getDriverSocket, driverApi, driverSocketEvents } from '@eyego/api';
 import { useDriverStore } from '../stores/driver.store';
+import { useDriverTripStore } from '../stores/trip.store';
 import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
@@ -303,6 +304,20 @@ export default function RootLayout() {
     };
   }, [showInAppBanner]);
 
+  /**
+   * ONE-CALL REHYDRATION + the single offer listener.
+   *
+   * `GET /rides/driver/state` answers "am I on a trip, and where is it" in one
+   * request. Without it, a cold start after a force-quit rebuilt the trip from
+   * whatever the current screen happened to query — the mechanism behind "the
+   * app forgot I was on a trip".
+   */
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    void useDriverTripStore.getState().hydrate();
+    return useDriverTripStore.getState().listenForOffers();
+  }, [isLoggedIn]);
+
   // Reconnect driver socket when app returns to foreground (e.g. after phone lock)
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -319,6 +334,10 @@ export default function RootLayout() {
         if (activeTripId) {
           driverSocketEvents.emitJoinTracking?.(activeTripId);
         }
+        // Re-ask the server what is true. The trip channel replays anything
+        // missed while backgrounded, but hydrating first means the UI is
+        // correct immediately rather than after the replay lands.
+        void useDriverTripStore.getState().hydrate();
       }
     });
     return () => sub.remove();

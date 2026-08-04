@@ -1,331 +1,129 @@
+'use strict';
+
 const Redis = require('ioredis');
-const env = require('./env');
 const logger = require('../utils/logger');
-const EventEmitter = require('events');
-const { haversineMeters } = require('../utils/geo');
 
-// In-memory fallback database
-const memoryStore = new Map();
-const memoryExpiry = new Map();
-const pubSubBus = new EventEmitter();
+/**
+ * Redis. Required. No fallback.
+ *
+ * WHAT WAS HERE BEFORE. A ~330-line `InMemoryRedis` shim that this module
+ * silently swapped in whenever the real Redis was unreachable. It looked like
+ * resilience. It was the opposite:
+ *
+ *   - Its own comments recorded that `SET ... NX` originally always succeeded,
+ *     so the payment double-charge lock and the Paystack webhook dedup lock
+ *     "gave zero protection whenever Redis is down" — while the service kept
+ *     reporting healthy.
+ *   - A per-process Map cannot be a distributed lock, a shared dispatch state,
+ *     or a Socket.IO adapter. With two instances the fallback does not degrade
+ *     the guarantee, it deletes it, silently, per process.
+ *   - A misconfigured production deploy therefore came up green and started
+ *     double-charging.
+ *
+ * Redis now holds dispatch cascade state, the driver GEO supply index, the
+ * Socket.IO adapter and the money locks. There is no honest way to serve
+ * traffic without it, so a bad connection is a startup failure, loudly, rather
+ * than a correctness failure, quietly.
+ *
+ * Local dev: `docker compose up -d` in eyego-api/.
+ */
 
-class InMemoryRedis {
-  constructor() {
-    this.status = 'ready';
-  }
-  async get(key) {
-    if (memoryExpiry.has(key) && memoryExpiry.get(key) < Date.now()) {
-      memoryStore.delete(key);
-      memoryExpiry.delete(key);
-      return null;
-    }
-    return memoryStore.get(key) || null;
-  }
-  // BUGFIX: never implemented NX (or PX) — every SET ... NX call (payment
-  // double-charge lock, webhook dedup lock in payments.service.js) silently
-  // always succeeded regardless of whether the key already existed, so those
-  // locks gave zero protection whenever Redis is down. Real Redis SET returns
-  // null on a failed NX/XX condition; callers check for that (`if (!acquired)`).
-  async set(key, value, ...args) {
-    let ttlSeconds = null;
-    let nx = false;
-    let xx = false;
-    for (let i = 0; i < args.length; i++) {
-      const token = String(args[i]).toUpperCase();
-      if (token === 'EX') { ttlSeconds = Number(args[i + 1]); i += 1; }
-      else if (token === 'PX') { ttlSeconds = Number(args[i + 1]) / 1000; i += 1; }
-      else if (token === 'NX') nx = true;
-      else if (token === 'XX') xx = true;
-    }
-    const exists = memoryStore.has(key) && !(memoryExpiry.has(key) && memoryExpiry.get(key) < Date.now());
-    if (nx && exists) return null;
-    if (xx && !exists) return null;
-    memoryStore.set(key, value);
-    if (ttlSeconds != null) memoryExpiry.set(key, Date.now() + ttlSeconds * 1000);
-    else memoryExpiry.delete(key);
-    return 'OK';
-  }
-  async del(key) {
-    const deleted = memoryStore.delete(key);
-    memoryExpiry.delete(key);
-    return deleted ? 1 : 0;
-  }
-  async ttl(key) {
-    if (!memoryStore.has(key)) return -2;
-    if (!memoryExpiry.has(key)) return -1;
-    const remaining = Math.max(0, Math.ceil((memoryExpiry.get(key) - Date.now()) / 1000));
-    return remaining;
-  }
-  async zadd(key, score, member) {
-    if (!memoryStore.has(key)) memoryStore.set(key, new Map());
-    const zset = memoryStore.get(key);
-    if (!(zset instanceof Map)) return 0;
-    zset.set(member, Number(score));
-    return 1;
-  }
-  async zremrangebyscore(key, min, max) {
-    if (!memoryStore.has(key)) return 0;
-    const zset = memoryStore.get(key);
-    if (!(zset instanceof Map)) return 0;
-    let removed = 0;
-    const minScore = min === '-inf' ? -Infinity : Number(min);
-    const maxScore = max === '+inf' ? Infinity : Number(max);
-    for (const [member, score] of zset.entries()) {
-      if (score >= minScore && score <= maxScore) {
-        zset.delete(member);
-        removed++;
-      }
-    }
-    return removed;
-  }
-  async zcount(key, min, max) {
-    if (!memoryStore.has(key)) return 0;
-    const zset = memoryStore.get(key);
-    if (!(zset instanceof Map)) return 0;
-    let count = 0;
-    const minScore = min === '-inf' ? -Infinity : Number(min);
-    const maxScore = max === '+inf' ? Infinity : Number(max);
-    for (const score of zset.values()) {
-      if (score >= minScore && score <= maxScore) {
-        count++;
-      }
-    }
-    return count;
-  }
-  // BUGFIX: admin FCM token registration (SOS/safety alerts) uses sadd/smembers
-  // — same "undefined called as a function" crash as geoadd/geosearch below,
-  // just discovered on a different call path (registerAdminFcmToken, and the
-  // driver-SOS / trip-request FCM broadcast that reads this set back).
-  async sadd(key, ...members) {
-    if (!memoryStore.has(key)) memoryStore.set(key, new Set());
-    const set = memoryStore.get(key);
-    if (!(set instanceof Set)) return 0;
-    let added = 0;
-    for (const m of members) {
-      if (!set.has(m)) { set.add(m); added++; }
-    }
-    return added;
-  }
-  async smembers(key) {
-    const set = memoryStore.get(key);
-    return set instanceof Set ? Array.from(set) : [];
-  }
-  async eval(script, numKeys, ...rest) {
-    const keys = rest.slice(0, numKeys);
-    const argv = rest.slice(numKeys);
-    const isOtpVerifyScript = typeof script === "string" && script.includes("cjson.decode") && script.includes("LOCKED") && script.includes("EXPIRED");
-    if (!isOtpVerifyScript) { throw new Error("EVAL not supported by in-memory Redis fallback for this script"); }
-    const otpKey = keys[0]; const lockKey = keys[1];
-    const inputOtp = argv[0]; const maxAttempts = Number(argv[1]); const lockDuration = Number(argv[2]);
-    const raw = await this.get(otpKey);
-    if (!raw) return "EXPIRED";
-    const data = JSON.parse(raw);
-    if (data.attempts >= maxAttempts) {
-      await this.del(otpKey);
-      await this.set(lockKey, "1", "EX", lockDuration);
-      return "LOCKED";
-    }
-    if (data.otp !== inputOtp) {
-      data.attempts += 1;
-      var remaining = maxAttempts - data.attempts;
-      var ttl = await this.ttl(otpKey);
-      if (ttl > 0) await this.set(otpKey, JSON.stringify(data), "EX", ttl);
-      else await this.set(otpKey, JSON.stringify(data));
-      if (remaining <= 0) {
-        await this.del(otpKey);
-        await this.set(lockKey, "1", "EX", lockDuration);
-        return "LOCKED";
-      }
-      return "INVALID:" + remaining;
-    }
-    await this.del(otpKey);
-    return "OK";
-  }
-  // BUGFIX: dispatch (driver online geoset + rider trip-request matching)
-  // calls redis.geoadd/geosearch/georadius. Without a real Redis running,
-  // this fallback previously had none of the three — every call threw
-  // "not a function" (undefined called as a function), and since that's a
-  // synchronous throw, the .catch() chained after it at every call site
-  // never even got a chance to run. Drivers never landed in 'drivers:online'
-  // and dispatch silently matched nobody, with no visible error anywhere.
-  async geoadd(key, ...args) {
-    if (!memoryStore.has(key)) memoryStore.set(key, new Map());
-    const geoset = memoryStore.get(key);
-    if (!(geoset instanceof Map)) return 0;
-    let added = 0;
-    for (let i = 0; i + 2 < args.length; i += 3) {
-      const [lng, lat, member] = [Number(args[i]), Number(args[i + 1]), args[i + 2]];
-      if (!geoset.has(member)) added++;
-      geoset.set(member, { lng, lat });
-    }
-    return added;
-  }
-  _geoNearby(key, lng, lat, radiusKm, { order = 'ASC', count, withCoord = false } = {}) {
-    const geoset = memoryStore.get(key);
-    if (!(geoset instanceof Map)) return [];
-    const results = [];
-    for (const [member, pos] of geoset.entries()) {
-      const distKm = haversineMeters(lat, lng, pos.lat, pos.lng) / 1000;
-      if (distKm <= radiusKm) results.push({ member, distKm, pos });
-    }
-    results.sort((a, b) => (order === 'DESC' ? b.distKm - a.distKm : a.distKm - b.distKm));
-    const limited = count != null ? results.slice(0, count) : results;
-    return limited.map((r) => (withCoord ? [r.member, [r.pos.lng, r.pos.lat]] : r.member));
-  }
-  // Parses Redis 6.2+ GEOSEARCH's keyword-argument form: FROMLONLAT lng lat
-  // BYRADIUS radius unit [ASC|DESC] [COUNT n] [WITHCOORD].
-  async geosearch(key, ...args) {
-    let lng, lat, radiusKm = 0, order, count, withCoord = false;
-    for (let i = 0; i < args.length; i++) {
-      const token = String(args[i]).toUpperCase();
-      if (token === 'FROMLONLAT') { lng = Number(args[i + 1]); lat = Number(args[i + 2]); i += 2; }
-      else if (token === 'BYRADIUS') {
-        const unit = String(args[i + 2]).toLowerCase();
-        radiusKm = unit === 'm' ? Number(args[i + 1]) / 1000 : Number(args[i + 1]);
-        i += 2;
-      } else if (token === 'ASC' || token === 'DESC') { order = token; }
-      else if (token === 'COUNT') { count = Number(args[i + 1]); i += 1; }
-      else if (token === 'WITHCOORD') { withCoord = true; }
-    }
-    return this._geoNearby(key, lng, lat, radiusKm, { order, count, withCoord });
-  }
-  // Parses the legacy GEORADIUS positional form: lng lat radius unit
-  // [ASC|DESC] [COUNT n] [WITHCOORD].
-  async georadius(key, lng, lat, radius, unit, ...rest) {
-    let order, count, withCoord = false;
-    for (let i = 0; i < rest.length; i++) {
-      const token = String(rest[i]).toUpperCase();
-      if (token === 'ASC' || token === 'DESC') order = token;
-      else if (token === 'COUNT') { count = Number(rest[i + 1]); i += 1; }
-      else if (token === 'WITHCOORD') withCoord = true;
-    }
-    const radiusKm = String(unit).toLowerCase() === 'm' ? Number(radius) / 1000 : Number(radius);
-    return this._geoNearby(key, Number(lng), Number(lat), radiusKm, { order, count, withCoord });
-  }
-  async publish(channel, message) {
-    pubSubBus.emit(channel, channel, message);
-    return 1;
-  }
-  async subscribe(channel) {
-    this.onMessage = (chan, msg) => {
-      if (chan === channel) {
-        this.emit('message', chan, msg);
-      }
-    };
-    pubSubBus.on(channel, this.onMessage);
-    return 1;
-  }
-  async unsubscribe(channel) {
-    if (this.onMessage) {
-      pubSubBus.off(channel, this.onMessage);
-    }
-    return 1;
-  }
-  duplicate() {
-    return new InMemoryRedis();
-  }
-  on(event, cb) {
-    this.addListener(event, cb);
-    return this;
-  }
-  emit(event, ...args) {
-    this.emitEvent ? this.emitEvent(event, ...args) : super.emit(event, ...args);
-  }
-  quit() {
-    return Promise.resolve();
-  }
+const REDIS_URL = process.env.REDIS_URL;
+
+if (!REDIS_URL) {
+  logger.error(
+    'FATAL: REDIS_URL is not set. Redis holds dispatch state, the driver supply ' +
+      'index, the Socket.IO adapter and the payment locks — the API cannot serve ' +
+      'traffic without it. Run `docker compose up -d` (eyego-api/) for local dev.',
+  );
+  process.exit(1);
 }
 
-// Inherit from EventEmitter for InMemoryRedis to support .on('message', ...)
-Object.setPrototypeOf(InMemoryRedis.prototype, EventEmitter.prototype);
-
-let client;
-let useMemoryFallback = false;
-
-try {
-  client = new Redis(env.REDIS_URL, {
-    lazyConnect: true,
-    enableOfflineQueue: false,
-    maxRetriesPerRequest: 1,
-    connectTimeout: 3000,
-    retryStrategy: (times) => {
-      if (times > 2) {
-        if (!useMemoryFallback) {
-          logger.warn('Redis unavailable after retries. Falling back to safe In-Memory Redis...');
-          useMemoryFallback = true;
-        }
-        return null; // give up
-      }
-      return 1000;
-    },
-  });
-
-  client.on('connect', () => {
-    logger.info('Redis connected');
-    useMemoryFallback = false;
-  });
-
-  client.on('error', (err) => {
-    logger.error('Redis error:', err.message);
-    if (!useMemoryFallback) {
-      logger.warn('Falling back to safe In-Memory Redis...');
-      useMemoryFallback = true;
-    }
-  });
-
-} catch (err) {
-  logger.error('Failed to initialize Redis client:', err);
-  useMemoryFallback = true;
+// Hosted Redis (Upstash, Redis Cloud, Elasticache in-transit-encryption) all
+// require TLS, which ioredis enables from the `rediss://` scheme. A plain
+// `redis://` URL against Upstash produces the confusing failure where the TCP
+// socket opens and logs "Redis connected", and then every command times out —
+// because the server is waiting for a TLS handshake that never comes.
+if (/^redis:\/\//.test(REDIS_URL) && /upstash\.io|redislabs\.com|cache\.amazonaws\.com/.test(REDIS_URL)) {
+  logger.warn(
+    'REDIS_URL uses redis:// against a hosted provider that requires TLS. ' +
+      'Use rediss:// (two s) or every command will time out after connecting.',
+  );
 }
 
-// Proxy wrapper that delegates to real Redis or In-Memory Redis depending on connection state
-const redisProxy = new Proxy({}, {
-  get(target, prop) {
-    if (prop === 'duplicate') {
-      return () => {
-        if (useMemoryFallback) return new InMemoryRedis();
-        try {
-          const dup = client.duplicate();
-          dup.on('error', () => {}); // silence errors on duplicate
-          return dup;
-        } catch (_) {
-          return new InMemoryRedis();
-        }
-      };
-    }
-
-    if (useMemoryFallback) {
-      const fallback = new InMemoryRedis();
-      if (typeof fallback[prop] === 'function') {
-        return fallback[prop].bind(fallback);
-      }
-      return fallback[prop];
-    }
-
-    const value = client[prop];
-    if (typeof value === 'function') {
-      return (...args) => {
-        try {
-          const result = value.apply(client, args);
-          if (result && typeof result.catch === 'function') {
-            return result.catch((err) => {
-              logger.warn(`Redis command '${prop}' failed, using in-memory fallback:`, err.message);
-              useMemoryFallback = true;
-              const fallback = new InMemoryRedis();
-              return typeof fallback[prop] === 'function' ? fallback[prop].bind(fallback)(...args) : fallback[prop];
-            });
-          }
-          return result;
-        } catch (err) {
-          logger.warn(`Redis command '${prop}' threw, using in-memory fallback:`, err.message);
-          useMemoryFallback = true;
-          const fallback = new InMemoryRedis();
-          return typeof fallback[prop] === 'function' ? fallback[prop].bind(fallback)(...args) : fallback[prop];
-        }
-      };
-    }
-    return value;
-  }
+const client = new Redis(REDIS_URL, {
+  connectTimeout: 10_000,
+  // Commands queue rather than failing while a reconnect is in flight, and
+  // they are never abandoned. See the note on duplicate() below: a retry limit
+  // here turns a transient blip into unhandled rejections.
+  maxRetriesPerRequest: null,
+  enableReadyCheck: true,
+  retryStrategy: (times) => Math.min(times * 200, 5000),
 });
 
-module.exports = redisProxy;
+let everConnected = false;
+
+client.on('connect', () => {
+  everConnected = true;
+  logger.info('Redis connected');
+});
+
+client.on('error', (err) => {
+  logger.error(`Redis error: ${err.message}`);
+});
+
+client.on('end', () => {
+  logger.warn('Redis connection closed');
+});
+
+/**
+ * Startup gate. Called from server.js before the HTTP listener binds, so the
+ * process never advertises readiness on a box that cannot reach Redis.
+ */
+async function assertReady(timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      const pong = await client.ping();
+      if (pong === 'PONG') return true;
+    } catch {
+      /* retry below */
+    }
+    if (Date.now() > deadline) {
+      logger.error(
+        `FATAL: Redis at ${REDIS_URL.replace(/:[^:@/]*@/, ':***@')} did not answer PING ` +
+          `within ${timeoutMs}ms. Refusing to start — see src/config/redis.js for why ` +
+          'there is no in-memory fallback.',
+      );
+      process.exit(1);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+// Captured before we shadow it below — `module.exports` IS the client, so
+// assigning our wrapper to `.duplicate` would otherwise make it call itself.
+const nativeDuplicate = client.duplicate.bind(client);
+
+/**
+ * A second connection — pub/sub and the Socket.IO adapter each need their own.
+ *
+ * `maxRetriesPerRequest: null` is deliberate and is what Socket.IO's own docs
+ * require. A subscriber connection must never give up on a command: with a
+ * retry limit, a few seconds of network wobble makes ioredis reject every
+ * queued command with `MaxRetriesPerRequestError`, and because the adapter
+ * does not attach catch handlers those surface as unhandled rejections and
+ * take the process down — losing every connected rider and driver over a blip
+ * that would have healed on its own.
+ */
+function duplicate() {
+  const dup = nativeDuplicate({ maxRetriesPerRequest: null, enableOfflineQueue: true });
+  dup.on('error', (err) => logger.error(`Redis (duplicate) error: ${err.message}`));
+  return dup;
+}
+
+module.exports = client;
+module.exports.assertReady = assertReady;
+module.exports.duplicate = duplicate;
+module.exports.hasConnected = () => everConnected;

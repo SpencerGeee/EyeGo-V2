@@ -24,6 +24,9 @@ const usersRoutes = require('./modules/users/users.routes');
 // group/on-demand pivot. Routes are now an internal-only concept (trips reuse
 // the Prisma Route model as ad-hoc rows). Do NOT re-mount routes.routes here.
 const tripsRoutes = require('./modules/trips/trips.routes');
+// On-demand rides — the single canonical dispatch path. `trips` remains for
+// the group/bus product; lifecycle for BOTH lives on Trip.status either way.
+const ridesRoutes = require('./modules/rides/rides.routes');
 const bookingsRoutes = require('./modules/bookings/bookings.routes');
 const paymentsRoutes = require('./modules/payments/payments.routes');
 const driversRoutes = require('./modules/drivers/drivers.routes');
@@ -124,10 +127,30 @@ app.get('/health', (req, res) => {
   });
 });
 
+/**
+ * Dispatch health. Separate from `/health` because it hits the database and
+ * `/health` is polled by the load balancer.
+ *
+ * Answers the question nobody could answer before: is dispatch actually
+ * working right now? Live trips by status, how many are stuck, and whether
+ * the durable-timer worker is draining. An in-memory cascade that died with a
+ * deploy left no trace anywhere — which is why stranded riders were reported
+ * as a mystery instead of showing up as an alarm.
+ */
+app.get('/health/dispatch', async (_req, res) => {
+  try {
+    const snapshot = await require('./services/trip-health.service').snapshot();
+    res.status(snapshot.healthy ? 200 : 503).json(snapshot);
+  } catch (err) {
+    res.status(503).json({ healthy: false, error: err.message });
+  }
+});
+
 // ── API Routes ────────────────────────────────────────────────────
 app.use('/v1/auth', authRoutes);
 app.use('/v1/user', usersRoutes);
 app.use('/v1/trips', tripsRoutes);
+app.use('/v1/rides', ridesRoutes);
 app.use('/v1/bookings', bookingsRoutes);
 app.use('/v1/payments', paymentsRoutes);
 app.use('/v1/notifications', notificationsRoutes);

@@ -4,6 +4,7 @@ const prisma = require('../../config/database');
 const env = require('../../config/env');
 const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
+const tripState = require('../../services/trip-state.service');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
@@ -126,7 +127,7 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
   // Use $transaction with Serializable isolation to prevent race conditions.
   // This ensures two riders can't book the same seat simultaneously and the
   // capacity check races are eliminated.
-  return prisma.$transaction(
+  const result = await prisma.$transaction(
     async (tx) => {
       // Re-read trip INSIDE the serializable transaction so we see the latest state
       const trip = await tx.trip.findUnique({
@@ -237,12 +238,18 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         },
       });
 
-      // Update trip status to FILLING if first booking
+      // Update trip status to FILLING if first booking. Through the state
+      // machine so the driver's app learns a seat was taken from the same
+      // event stream as everything else, in the same transaction as the seat.
+      let transition = null;
       if (trip.status === 'SCHEDULED') {
-        await tx.trip.update({ where: { id: tripId }, data: { status: 'FILLING' } });
+        transition = await tripState.applyTransitionTx(tx, tripId, 'FILLING', {
+          actor: tripState.ACTOR.SYSTEM,
+          payload: { firstBookingId: booking.id },
+        });
       }
 
-      return { booking, fareData, holdExpiry };
+      return { booking, fareData, holdExpiry, transition };
     },
     {
       isolationLevel: 'Serializable', // Prevent double-booking race conditions
@@ -250,6 +257,12 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       timeout: 10000, // Abort after 10s if the transaction hasn't completed
     },
   );
+
+  // Post-commit only — a SCHEDULED→FILLING event emitted from inside a
+  // serializable transaction that then retried would tell the driver a seat
+  // was taken twice.
+  if (result.transition) tripState.publishCommitted(result.transition);
+  return result;
 }
 
 async function createRideGroup(tripId, userId, isCoverAll = false) {
@@ -298,9 +311,9 @@ async function cancelBooking(bookingId, userId, { reason, note } = {}) {
       },
     });
     if (activeCount === 0 && booking.trip?.status === 'FILLING') {
-      await prisma.trip.update({
-        where: { id: booking.tripId },
-        data: { status: 'SCHEDULED' },
+      await tripState.applyTransition(booking.tripId, 'SCHEDULED', {
+        actor: tripState.ACTOR.SYSTEM,
+        payload: { reason: 'LAST_BOOKING_RELEASED' },
       });
     }
   } catch (_) {

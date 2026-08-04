@@ -1,12 +1,29 @@
 import { create } from 'zustand';
 
 /**
- * Trip-flow stage machine — drives the single persistent trip surface
+ * Trip-flow SURFACE state — drives the single persistent trip surface
  * (app/trip.tsx). The booking flow is stages inside ONE route (map + panel
  * stay mounted, content crossfades) instead of separate router pushes that
  * remount the map per screen.
+ *
+ * IMPORTANT — WHAT THIS STORE NO LONGER DECIDES.
+ *
+ * `stage` used to be a client-owned STACK: the app pushed itself from
+ * 'request' to 'assigned' when it felt like it, while two `setInterval` polls
+ * raced socket pushes to settle the same transition with nothing to arbitrate
+ * which answer was newer. The screen could — and did — show a stage the server
+ * disagreed with.
+ *
+ * Once a Trip exists, the stage is a pure projection of `Trip.status` via
+ * `stageForStatus()` in trip.store.ts. `search` and `select` remain
+ * client-owned because at that point no Trip exists and the server has no
+ * opinion about where the rider is. Everything from 'request' onwards is
+ * derived. Do not call `go()` for a derived stage.
  */
 export type TripStage = 'search' | 'select' | 'request' | 'assigned' | 'tracking';
+
+/** Stages the client may still navigate itself — no server trip exists yet. */
+export const CLIENT_OWNED_STAGES: TripStage[] = ['search', 'select'];
 
 export type SearchPlace = {
   name: string;
@@ -59,8 +76,10 @@ interface TripFlowState {
   setPickupCoord: (coord: [number, number] | null) => void;
   /** Seed the machine when the trip surface opens (from route params). */
   seed: (params: { stage?: TripStage; tier?: string; type?: string; morphId?: string; bookingId?: string }) => void;
-  /** Advance to a stage (pushes onto the back stack). */
+  /** Advance to a CLIENT-OWNED stage (pushes onto the back stack). */
   go: (stage: TripStage, params?: { bookingId?: string }) => void;
+  /** Project a server-derived stage. Called only from the status subscription. */
+  syncFromServer: (stage: TripStage) => void;
   /** Step back one stage; returns the new stage, or null when already at the root. */
   popStage: () => TripStage | null;
 }
@@ -92,12 +111,27 @@ export const useTripFlow = create<TripFlowState>((set, get) => ({
   go: (stage, params) =>
     set((s) => ({ stage, stack: [...s.stack, stage], ...(params ?? {}) })),
 
+  /**
+   * Server-driven stage change. Called ONLY by the trip surface's subscription
+   * to `Trip.status` — never from a button handler.
+   *
+   * It replaces the stack rather than pushing onto it: you cannot "go back"
+   * from tracking to request, because the ride cannot go back. Making that
+   * structural is what stops a stale screen resurrecting a stage the trip has
+   * already left.
+   */
+  syncFromServer: (stage: TripStage) =>
+    set((s) => (s.stage === stage ? s : { stage, stack: [stage] })),
+
   popStage: () => {
-    const { stack } = get();
+    const { stack, stage } = get();
+    // Back is a client-owned concept only. Once the server owns the stage,
+    // there is nothing to pop — the rider cancels the ride instead.
+    if (!CLIENT_OWNED_STAGES.includes(stage)) return null;
     if (stack.length <= 1) return null;
     const next = stack.slice(0, -1);
-    const stage = next[next.length - 1];
-    set({ stage, stack: next });
-    return stage;
+    const prev = next[next.length - 1];
+    set({ stage: prev, stack: next });
+    return prev;
   },
 }));

@@ -3,8 +3,88 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
+  // Pooled connection (PgBouncer) — what the running server uses.
   url      = env("DATABASE_URL")
+  // Direct connection — what `prisma migrate` uses.
+  //
+  // Neon (and every other PgBouncer-fronted Postgres) puts the pooler in
+  // transaction mode, which cannot run the session-level statements a
+  // migration needs — advisory locks, CREATE TYPE, ALTER TABLE in one
+  // transaction. Without this split, `migrate dev` fails with a prepared
+  // statement error that looks like a schema bug and is not one.
+  //
+  // DIRECT_URL must always be set. On a plain local Postgres with no pooler,
+  // set it to the same value as DATABASE_URL.
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// TRIP LIFECYCLE — the canonical state machine
+//
+// There is exactly ONE authority for where a ride is in its life: Trip.status.
+// Booking no longer carries lifecycle; it carries payment and seat concerns
+// only. Every write to Trip.status goes through applyTransition() in
+// src/services/trip-state.service.js — nothing else may touch it.
+// ─────────────────────────────────────────
+
+// Deliberately reuses the vocabulary already spoken across both apps
+// (SCHEDULED / FILLING / CONFIRMED / DRIVER_EN_ROUTE / ARRIVED_AT_PICKUP /
+// IN_PROGRESS / COMPLETED / CANCELLED / EXPIRED / NO_SHOW) rather than
+// inventing synonyms, and adds only the states the old model could not
+// express. Who cancelled is Trip.cancelledBy, not a separate status, so
+// "cancelled" stays one concept everywhere.
+enum TripStatus {
+  // ── on-demand, pre-driver (these could not exist before: Trip required a driver)
+  REQUESTED // rider asked; no driver yet. The Trip row exists from this moment.
+  MATCHING // dispatch cascade is live, offers going out (was: DISPATCHING)
+  // ── group / bus product, pre-departure
+  SCHEDULED // seats open, departure in the future
+  FILLING // seats being taken
+  CONFIRMED // enough seats confirmed, waiting on departure time
+  // ── driver attached
+  DRIVER_ASSIGNED // a driver claimed it; hasn't started moving yet (was: MATCHED)
+  REASSIGNING // driver dropped out; this same trip is going back to dispatch
+  DRIVER_EN_ROUTE // driving to pickup
+  ARRIVED_AT_PICKUP // at pickup, waiting for the rider
+  IN_PROGRESS // rider on board, moving to dropoff
+  // ── terminal (absorbing: applyTransition refuses every outbound edge)
+  COMPLETED
+  CANCELLED // see cancelledBy for RIDER | DRIVER | SYSTEM | ADMIN
+  NO_DRIVERS_FOUND // cascade exhausted without a taker
+  EXPIRED // nobody acted in time
+  NO_SHOW
+}
+
+enum TripEventActor {
+  RIDER
+  DRIVER
+  SYSTEM
+  ADMIN
+}
+
+// Booking is now SEAT + MONEY only. It no longer carries trip lifecycle —
+// "where is my ride" is answered by Trip.status and nowhere else. That split
+// is the fix for the rider and the driver looking at two disagreeing rows.
+enum BookingStatus {
+  PENDING // created, seat not yet held
+  SEAT_HELD // seat reserved pending payment
+  CONFIRMED // seat is the rider's
+  PAID
+  BOARDED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+  EXPIRED
+  NO_SHOW
+}
+
+enum ScheduledTaskStatus {
+  PENDING
+  CLAIMED
+  DONE
+  FAILED
+  CANCELLED
 }
 
 // ─────────────────────────────────────────
@@ -49,6 +129,7 @@ model User {
   scheduledRideIntents  ScheduledRideIntent[]
   tripRequests          TripRequest[]
   savedPlaces           SavedPlace[]
+  requestedTrips        Trip[]            @relation("RequestedTrips")
 }
 
 model SavedPlace {
@@ -229,24 +310,51 @@ model VirtualStop {
 // TRIPS
 // ─────────────────────────────────────────
 
+// The canonical ride. ONE row, both apps project it.
+//
+// On-demand ride  = routeId null, maxSeats 1, requesterId set, created at
+//                   REQUESTED with driverId null.
+// Group/bus trip  = routeId set, maxSeats > 1, created at SCHEDULED by a driver.
+//
+// driverId is nullable — that is the whole unlock. A ride can exist before a
+// driver does, so a driver cancel redispatches THIS trip (same id, same
+// receipt, same share link) instead of minting a new one.
 model Trip {
   id              String     @id @default(cuid())
   shortId         String     @unique @default(cuid())
-  driverId        String
-  driver          Driver     @relation(fields: [driverId], references: [id])
-  vehicleId       String
-  vehicle         Vehicle    @relation(fields: [vehicleId], references: [id])
-  routeId         String
-  route           Route      @relation(fields: [routeId], references: [id])
+  driverId        String?
+  driver          Driver?    @relation(fields: [driverId], references: [id])
+  vehicleId       String?
+  vehicle         Vehicle?   @relation(fields: [vehicleId], references: [id])
+  routeId         String?
+  route           Route?     @relation(fields: [routeId], references: [id])
+  // Who asked for the ride. Null for driver-created group trips that nobody
+  // has booked yet.
+  requesterId     String?
+  requester       User?      @relation("RequestedTrips", fields: [requesterId], references: [id])
   tier            String
-  status          String @default("SCHEDULED")
+  status          TripStatus @default(REQUESTED)
+  // Monotonic. Bumped by applyTransition() on every status change and used as
+  // the compare-and-swap guard, the TripEvent seq, and the client's
+  // server-wins arbiter. Never decreases, never reused.
+  version         Int        @default(0)
   doorstepPickup  Boolean    @default(false)
   pickupLat       Float?
   pickupLng       Float?
   pickupAddress   String?
-  departureTime   DateTime
+  // Destination is a first-class property of the ride, not of a Route.
+  dropoffLat      Float?
+  dropoffLng      Float?
+  dropoffAddress  String?
+  departureTime   DateTime   @default(now())
+  requestedAt     DateTime?
+  assignedAt      DateTime?
   departedAt      DateTime?
   arrivedAt       DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelledBy     TripEventActor?
+  cancellationReason String?
   baseFare        Float
   perKmRate       Float
   surgeMultiplier Float      @default(1.0)
@@ -255,10 +363,14 @@ model Trip {
   maxSeats        Int
   isExpressMode   Boolean    @default(false)
   heavyLoad       Boolean    @default(false)
+  // How many times this trip has been thrown back into dispatch after a
+  // driver cancel. Bounded so a serially-cancelled ride terminates.
+  redispatchCount Int        @default(0)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   bookings        Booking[]
+  events          TripEvent[]
   group           RideGroup?
   pulseScheduleId String?
   pulseSchedule   PulseSchedule? @relation(fields: [pulseScheduleId], references: [id])
@@ -267,6 +379,56 @@ model Trip {
   @@index([departureTime])
   @@index([driverId])
   @@index([routeId])
+  @@index([requesterId, status])
+  // Dispatch and the stuck-trip alarm both scan "live trips, oldest first".
+  @@index([status, createdAt])
+}
+
+// Append-only. Never UPDATE, never DELETE.
+//
+// seq is the Trip.version the transition produced, so it is gap-free and
+// strictly increasing per trip. It is what the realtime channel replays
+// against: a client reconnects with lastSeq and gets everything above it.
+model TripEvent {
+  id        String         @id @default(cuid())
+  tripId    String
+  trip      Trip           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  seq       Int
+  type      String         // usually the TripStatus reached; also non-status facts
+  actor     TripEventActor
+  actorId   String?
+  payload   Json           @default("{}")
+  createdAt DateTime       @default(now())
+
+  @@unique([tripId, seq])
+  @@index([tripId, seq])
+}
+
+// Durable timer / outbox table (Uber's LATE-table pattern).
+//
+// Rows are written INSIDE the same transaction as the state change that arms
+// them, so a timer can never be armed for a transition that rolled back — and
+// a deploy can never lose one, because it was never in process memory.
+model ScheduledTask {
+  id          String              @id @default(cuid())
+  type        String              // OFFER_TIMEOUT | CASCADE_TICK | TRIP_EXPIRY | ...
+  // Natural key for idempotency: at most one live task per (type, dedupeKey).
+  dedupeKey   String
+  tripId      String?
+  runAt       DateTime
+  payload     Json                @default("{}")
+  status      ScheduledTaskStatus @default(PENDING)
+  attempts    Int                 @default(0)
+  claimedAt   DateTime?
+  claimedBy   String?
+  lastError   String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([type, dedupeKey])
+  // The poller's hot query: PENDING rows whose runAt has passed, oldest first.
+  @@index([status, runAt])
+  @@index([tripId])
 }
 
 
@@ -314,7 +476,9 @@ model Booking {
   boardingQr          String?
   promotionId         String?
   promotion           Promotion?    @relation(fields: [promotionId], references: [id])
-  status              String @default("PENDING")
+  // Seat + money state ONLY. Lifecycle ("is the driver here yet") lives on
+  // Trip.status. Do not add movement states here.
+  status              BookingStatus @default(PENDING)
   cancelledAt         DateTime?
   cancellationReason  String?
   cancellationFee     Float?

@@ -14,7 +14,6 @@ const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
-const dispatchCascade = require('../../services/dispatch-cascade.service');
 const {
   expireStaleTrips,
   liveUnstartedTripFilter,
@@ -33,12 +32,18 @@ const { toCedis } = require('../../utils/money');
 // trips are created at DRIVER_EN_ROUTE the moment the driver accepts (see
 // trip-request.service.js), so `startTrip` — the app's "Start Trip" button —
 // only ever applies to a trip that was genuinely scheduled ahead of time.
-const TRIP_TRANSITIONS = Object.freeze({
-  DRIVER_EN_ROUTE:   ['SCHEDULED', 'FILLING', 'CONFIRMED'],
-  ARRIVED_AT_PICKUP: ['DRIVER_EN_ROUTE'],
-  IN_PROGRESS:       ['ARRIVED_AT_PICKUP'],
-  COMPLETED:         ['IN_PROGRESS'],
-});
+// SUPERSEDED. This local four-row table was one of several private copies of
+// "what may follow what", each slightly different, none enforced by the
+// database and none of them consulted by the other services that also wrote
+// Trip.status. The authoritative table is TRANSITIONS in
+// services/trip-state.service.js, it covers every status and every actor, and
+// `applyTransition` is the only thing that may perform the write.
+//
+// Kept only as the idempotency helper below, which is genuinely useful: a
+// retried request for a transition the trip has already made should be a
+// no-op success, not a 409 and a duplicate push notification.
+const tripState = require('../../services/trip-state.service');
+const dispatchCascade = require('../../services/dispatch-cascade.service');
 
 /**
  * Assert `trip` may move to `next`. Idempotent: re-issuing the transition a
@@ -62,16 +67,17 @@ const TRIP_TRANSITIONS = Object.freeze({
  */
 const EARNING_TYPES = ['EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING'];
 
-function assertTransition(trip, next) {
+/**
+ * Idempotency gate in front of the real state machine.
+ *
+ * Returns false ("nothing to do") when the trip is already where the caller
+ * wants it, so an offline-queue replay or a double-tap does not 409 and does
+ * not re-fire push notifications. Anything else is delegated to the one
+ * authoritative table — this function no longer decides legality itself.
+ */
+function needsTransition(trip, next) {
   if (trip.status === next) return false;
-  const allowed = TRIP_TRANSITIONS[next] ?? [];
-  if (!allowed.includes(trip.status)) {
-    throw new AppError(
-      `Cannot move this trip from ${trip.status} to ${next}.`,
-      409,
-      'INVALID_TRIP_TRANSITION',
-    );
-  }
+  tripState.assertTransition(trip.status, next, tripState.ACTOR.DRIVER);
   return true;
 }
 
@@ -417,8 +423,13 @@ async function getTripHistory(driverId, page = 1, limit = 20) {
 async function arriveAtPickup(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
-  if (!assertTransition(trip, 'ARRIVED_AT_PICKUP')) return trip;
-  const updated = await prisma.trip.update({ where: { id: tripId }, data: { status: 'ARRIVED_AT_PICKUP' } });
+  // Was a bare `prisma.trip.update({ status: 'ARRIVED_AT_PICKUP' })` behind a
+  // local, advisory guard. Now the one guarded write path: legality, actor
+  // permission, version CAS, TripEvent and the realtime fan-out in one call.
+  const { trip: updated } = await tripState.applyTransition(tripId, 'ARRIVED_AT_PICKUP', {
+    actor: tripState.ACTOR.DRIVER,
+    actorId: driverId,
+  });
 
   setImmediate(async () => {
     try {
@@ -477,42 +488,69 @@ async function acceptDispatch(driverId, tripId) {
   // count === 0 and is rejected with 409 (the client handles 409/410 by
   // navigating away with a "dispatch unavailable" message). The ACCEPTED action
   // is only recorded when the claim actually succeeds.
-  return prisma.$transaction(async (tx) => {
-    const updateResult = await tx.trip.updateMany({
-      where: { id: tripId, driverId, status: { in: ACCEPTABLE_DISPATCH_STATUSES } },
-      data: { status: 'CONFIRMED' },
-    });
+  if (!ACCEPTABLE_DISPATCH_STATUSES.includes(trip.status)) {
+    throw new AppError('This dispatch has expired or already been claimed.', 409, 'DISPATCH_UNAVAILABLE');
+  }
 
-    if (updateResult.count === 0) {
-      throw new AppError(
-        'This dispatch has expired or already been claimed.',
-        409,
-        'DISPATCH_UNAVAILABLE'
-      );
+  let result;
+  try {
+    // The hand-rolled conditional updateMany is gone. `applyTransition` does the
+    // same compare-and-swap — conditioned on status AND version — and adds the
+    // legality check, the append-only event and the version bump the old write
+    // could not produce. The audit row is written in the same transaction, so a
+    // claim can never commit without its DispatchAction (or vice versa).
+    result = await prisma.$transaction(async (tx) =>
+      tripState.applyTransitionTx(tx, tripId, 'CONFIRMED', {
+        actor: tripState.ACTOR.DRIVER,
+        actorId: driverId,
+        expectedVersion: trip.version,
+        sideEffects: async (innerTx) => {
+          await innerTx.dispatchAction.create({ data: { driverId, tripId, action: 'ACCEPTED' } });
+        },
+      }),
+    );
+  } catch (err) {
+    if (err.code === 'VERSION_CONFLICT' || err.code === 'ILLEGAL_TRANSITION') {
+      throw new AppError('This dispatch has expired or already been claimed.', 409, 'DISPATCH_UNAVAILABLE');
     }
+    throw err;
+  }
 
-    await tx.dispatchAction.create({
-      data: { driverId, tripId, action: 'ACCEPTED' },
-    });
-
-    return tx.trip.findUnique({ where: { id: tripId } });
-  });
+  tripState.publishCommitted(result);
+  return result.trip;
 }
 
 async function declineDispatch(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
-  // Unassign driver from the trip so it can be re-dispatched
-  const [updated] = await prisma.$transaction([
-    prisma.trip.update({
-      where: { id: tripId },
-      data: { status: 'CANCELLED' },
+  // Declining an assigned trip releases it. For an on-demand ride that means
+  // REASSIGNING — the same trip goes back to dispatch keeping its id, receipt
+  // and share link. Only a trip nobody else can take is cancelled outright.
+  const canRedispatch = !trip.routeId && trip.status !== 'REASSIGNING';
+  const target = canRedispatch ? 'REASSIGNING' : 'CANCELLED';
+
+  const result = await prisma.$transaction(async (tx) =>
+    tripState.applyTransitionTx(tx, tripId, target, {
+      actor: canRedispatch ? tripState.ACTOR.SYSTEM : tripState.ACTOR.DRIVER,
+      actorId: driverId,
+      payload: { declinedBy: driverId },
+      data: canRedispatch
+        ? { driverId: null, vehicleId: null, assignedAt: null, redispatchCount: { increment: 1 } }
+        : { cancelledBy: tripState.ACTOR.DRIVER, cancellationReason: 'DRIVER_DECLINED' },
+      sideEffects: async (innerTx) => {
+        await innerTx.dispatchAction.create({ data: { driverId, tripId, action: 'DECLINED' } });
+      },
     }),
-    prisma.dispatchAction.create({
-      data: { driverId, tripId, action: 'DECLINED' },
-    }),
-  ]);
-  return updated;
+  );
+  tripState.publishCommitted(result);
+
+  if (canRedispatch) {
+    // Excluded so the driver who just passed cannot immediately be re-offered it.
+    dispatchCascade
+      .startCascade(tripId, { kind: 'REASSIGNMENT', excludeDriverId: driverId })
+      .catch((err) => logger.warn(`Redispatch after decline failed for ${tripId}: ${err.message}`));
+  }
+  return result.trip;
 }
 
 async function uploadDocument(driverId, file, type) {
@@ -553,8 +591,12 @@ async function uploadDocument(driverId, file, type) {
 async function startTrip(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
-  if (!assertTransition(trip, 'DRIVER_EN_ROUTE')) return trip;
-  const updated = await prisma.trip.update({ where: { id: tripId }, data: { status: 'DRIVER_EN_ROUTE' } });
+  if (!needsTransition(trip, 'DRIVER_EN_ROUTE')) return trip;
+  const { trip: updated } = await tripState.applyTransition(tripId, 'DRIVER_EN_ROUTE', {
+    actor: tripState.ACTOR.DRIVER,
+    actorId: driverId,
+    expectedVersion: trip.version,
+  });
 
   // Push notifications — non-blocking
   setImmediate(async () => {
@@ -584,10 +626,13 @@ async function startTrip(driverId, tripId) {
 async function departTrip(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
-  if (!assertTransition(trip, 'IN_PROGRESS')) return trip;
-  const updated = await prisma.trip.update({
-    where: { id: tripId },
-    data: { status: 'IN_PROGRESS', departedAt: new Date() },
+  if (!needsTransition(trip, 'IN_PROGRESS')) return trip;
+  // `departedAt` is stamped by the state machine's own timestampsFor(), so the
+  // clock that records a milestone is the same one that records the event.
+  const { trip: updated } = await tripState.applyTransition(tripId, 'IN_PROGRESS', {
+    actor: tripState.ACTOR.DRIVER,
+    actorId: driverId,
+    expectedVersion: trip.version,
   });
 
   // Push notifications — non-blocking
@@ -628,18 +673,19 @@ async function arriveTrip(driverId, tripId) {
     // Without this, the active-screen `retry: 1` mutation could double-credit
     // the driver's wallet.
     if (trip.status === 'COMPLETED') {
-      return { trip, totalEarnings: 0, alreadyCompleted: true };
+      return { trip, totalEarnings: 0, alreadyCompleted: true, transition: null };
     }
     // A trip can only be completed from IN_PROGRESS — nothing may jump the
     // queue from e.g. ARRIVED_AT_PICKUP and settle fares for a ride that never
     // departed. (The COMPLETED short-circuit above keeps retries idempotent,
     // so this only ever rejects genuinely out-of-order calls.)
-    assertTransition(trip, 'COMPLETED');
-
-    // Close trip
-    await tx.trip.update({
-      where: { id: tripId },
-      data: { status: 'COMPLETED', arrivedAt: new Date() },
+    // Close trip. Inside the caller's transaction so the status change, the
+    // cash settlement and the driver's wallet credit below either all land or
+    // none do — the reason `applyTransitionTx` exists.
+    const transition = await tripState.applyTransitionTx(tx, tripId, 'COMPLETED', {
+      actor: tripState.ACTOR.DRIVER,
+      actorId: driverId,
+      expectedVersion: trip.version,
     });
 
     // ── Auto-settle any still-unpaid CASH bookings ───────────────────────
@@ -766,8 +812,14 @@ async function arriveTrip(driverId, tripId) {
       await incrementProgress(driverId, 'EARNINGS', safeEarnings, tx);
     }
 
-    return { trip, totalEarnings: safeEarnings };
+    return { trip, totalEarnings: safeEarnings, transition };
   });
+
+  // Post-commit fan-out. Both apps learn the trip is over from the same event,
+  // carrying the same version — rather than the rider finding out via a push
+  // notification and the driver via a REST response, which is how the two
+  // could disagree about whether the ride had ended.
+  if (result.transition) tripState.publishCommitted(result.transition);
 
   // Generate receipts for PAID bookings — non-blocking, runs after transaction commits
   setImmediate(async () => {
@@ -1083,16 +1135,25 @@ async function cancelTrip(driverId, tripId, { reason, note } = {}) {
       }
     }
 
-    return tx.trip.update({
-      where: { id: tripId },
-      data: { status: 'CANCELLED' },
-      include: { route: true },
+    // Seat release, refunds and the status change are one atomic fact. They
+    // used to be a transaction that ended in a raw `trip.update` — so the
+    // cancellation could commit without ever producing an event for the rider
+    // to observe, and the rider's app only found out on its next poll.
+    return tripState.applyTransitionTx(tx, tripId, 'CANCELLED', {
+      actor: tripState.ACTOR.DRIVER,
+      actorId: driverId,
+      payload: { reason, note },
+      data: {
+        cancelledBy: tripState.ACTOR.DRIVER,
+        cancellationReason: reason || 'DRIVER_CANCELLED',
+      },
     });
   });
 
+  tripState.publishCommitted(updatedTrip);
   logger.info('Driver cancelled trip', { driverId, tripId, reason, note });
 
-  return updatedTrip;
+  return updatedTrip.trip;
 }
 
 const REDISPATCH_RADIUS_KM = 8;
@@ -1103,9 +1164,23 @@ const MAX_REDISPATCH_DRIVERS_TO_NOTIFY = 12;
 // bookings intact, put the trip up for grabs to nearby online drivers, and
 // let the first one to claim it take over exactly where it was.
 async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
-  const updated = await prisma.trip.update({
+  // Detaching the driver here is what makes this a redispatch rather than a
+  // cancel-and-recreate: the trip keeps its id, its bookings, its receipt and
+  // its share link. `driverId` being nullable is the whole reason this edge
+  // can exist at all — under the old NOT NULL column it could not.
+  await tripState.applyTransition(trip.id, 'REASSIGNING', {
+    actor: tripState.ACTOR.SYSTEM,
+    actorId: cancellingDriverId,
+    payload: { reason, note, previousDriverId: cancellingDriverId },
+    data: {
+      driverId: null,
+      vehicleId: null,
+      assignedAt: null,
+      redispatchCount: { increment: 1 },
+    },
+  });
+  const updated = await prisma.trip.findUnique({
     where: { id: trip.id },
-    data: { status: 'REASSIGNING' },
     include: { route: true, bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } } },
   });
 
@@ -1215,13 +1290,23 @@ async function claimReassignedTrip(driverId, tripId) {
   const vehicle = await prisma.vehicle.findFirst({ where: { driverId, isActive: true } });
   if (!vehicle) throw new AppError('No active vehicle registered. Add a vehicle before accepting trips.', 400, 'NO_VEHICLE');
 
+  let transition;
   const result = await prisma.$transaction(async (tx) => {
-    const claim = await tx.trip.updateMany({
-      where: { id: tripId, status: 'REASSIGNING' },
-      data: { driverId, vehicleId: vehicle.id, status: 'DRIVER_EN_ROUTE' },
-    });
-    if (claim.count === 0) {
-      throw new AppError('This trip has already been reassigned to another driver.', 409, 'REASSIGNMENT_UNAVAILABLE');
+    try {
+      // Same first-claim-wins guarantee, now expressed once in the state
+      // machine (status + version CAS) instead of hand-rolled here, and it
+      // produces the TripEvent the waiting riders' apps react to.
+      transition = await tripState.applyTransitionTx(tx, tripId, 'DRIVER_EN_ROUTE', {
+        actor: tripState.ACTOR.DRIVER,
+        actorId: driverId,
+        data: { driverId, vehicleId: vehicle.id },
+        payload: { claimedFrom: 'REASSIGNING' },
+      });
+    } catch (err) {
+      if (err.code === 'VERSION_CONFLICT' || err.code === 'ILLEGAL_TRANSITION') {
+        throw new AppError('This trip has already been reassigned to another driver.', 409, 'REASSIGNMENT_UNAVAILABLE');
+      }
+      throw err;
     }
 
     await tx.dispatchAction.create({ data: { driverId, tripId, action: 'ACCEPTED' } });
@@ -1234,6 +1319,8 @@ async function claimReassignedTrip(driverId, tripId) {
       },
     });
   });
+
+  tripState.publishCommitted(transition);
 
   setImmediate(async () => {
     for (const b of result.bookings) {
@@ -1397,9 +1484,10 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
       // A request with NO live cascade (server restarted mid-flight, or it was
       // created before this shipped) falls through to the distance filter so it
       // is still claimable rather than stranded.
-      const offer = dispatchCascade.getCascadeState(r.id);
-      if (offer) return offer.currentDriverId === driverId;
-
+      // No cascade check here any more. Scheduled TripRequests are broadcast,
+      // not cascaded — the 20-second exclusive offer only applies to live
+      // on-demand rides, which are Trip rows dispatched through modules/rides
+      // and delivered over the `trip:event` channel rather than this poll.
       if (!hasCoords) return true; // no driver coords → return all recent pending
       if (r.pickupLat == null || r.pickupLng == null) return true; // can't filter → include
       return haversineKm(lat, lng, r.pickupLat, r.pickupLng) <= DISPATCH_RADIUS_KM;

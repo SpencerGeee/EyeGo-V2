@@ -16,20 +16,72 @@ const io = initSocketServer(server);
 // Make io accessible in request handlers if needed
 app.set('io', io);
 
+/**
+ * Connect to Postgres, tolerating a cold start.
+ *
+ * @param {number} attempts  how many tries before giving up for real
+ */
+async function connectWithRetry(attempts = 6) {
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      await prisma.$connect();
+      // Prove it can actually serve a query, not merely open a socket — a
+      // waking serverless endpoint accepts the connection well before it will
+      // answer anything.
+      await prisma.$queryRaw`SELECT 1`;
+      logger.info('Database connected');
+      return;
+    } catch (err) {
+      if (i === attempts) throw err;
+      const waitMs = Math.min(1000 * i, 5000);
+      logger.warn(
+        `Database not ready (attempt ${i}/${attempts}): ${err.message.split('\n')[0]}. ` +
+          `Retrying in ${waitMs}ms — a serverless endpoint may be waking up.`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+}
+
 // ── Startup ────────────────────────────────────────────────────────
 async function start() {
   try {
-    // Test DB connection
-    await prisma.$connect();
-    logger.info('Database connected');
+    // Test DB connection, with retries.
+    //
+    // Serverless Postgres (Neon, Aurora Serverless, Supabase free) scales the
+    // compute to zero when idle, so the FIRST connection after a quiet period
+    // has to wake it — several seconds during which the endpoint is reachable
+    // on TCP but refuses queries. Prisma reports that as P1001 "Can't reach
+    // database server", which reads like a wrong host or a firewall and is
+    // neither. One retry loop turns a confusing crash into a two-second pause.
+    await connectWithRetry();
 
-    // Test Redis (optional — rate limiting & caching degrade gracefully without it)
-    try {
-      await redis.ping();
-      logger.info('Redis connected');
-    } catch (err) {
-      logger.warn('Redis unavailable — continuing without it:', err.message);
-    }
+    // Redis is REQUIRED, and this gate runs before the listener binds so the
+    // process never advertises readiness on a box that cannot reach it.
+    //
+    // It used to be "optional — degrades gracefully", which was false: the
+    // in-memory fallback silently voided the payment double-charge lock and the
+    // webhook dedup lock, and cannot be a Socket.IO adapter at all. Redis now
+    // also holds dispatch cascade state and the driver supply index. A missing
+    // Redis is a broken deploy, and it should look like one. See config/redis.js.
+    await redis.assertReady();
+
+    // ── Durable timers ─────────────────────────────────────────────────
+    // Requiring these modules is what registers their ScheduledTask handlers;
+    // the worker must not start before they are loaded or a due task would be
+    // marked FAILED for having "no handler".
+    require('./services/dispatch-cascade.service');
+    require('./modules/rides/rides.service');
+    const scheduledTasks = require('./services/scheduled-task.service');
+    // Sleeps until the next task is actually due rather than polling on a
+    // fixed interval — see the note in scheduled-task.service.js. A once-a-
+    // second poll never lets a serverless database idle.
+    scheduledTasks.startWorker();
+
+    // Stuck-trip alarms. Notices in minutes what the expiry sweep only cleans
+    // up hours later, and — critically — alarms if the timer worker above
+    // stops draining, which is the failure most likely to strand riders.
+    require('./services/trip-health.service').start();
 
     // ── Trip expiry sweep ──────────────────────────────────────────────
     // Expire stale trips that passed their departure time by more than
@@ -48,7 +100,10 @@ async function start() {
     const tripLifecycle = require('./services/trip-lifecycle.service');
     const runTripExpiry = async () => {
       try {
-        await tripLifecycle.expireStaleTrips(app.get('io') ?? null);
+        // No `io` argument: expiry now publishes the standard `trip:event`
+        // like every other status change, so both apps learn about it through
+        // the one channel instead of a sweep-specific socket message.
+        await tripLifecycle.expireStaleTrips();
       } catch (err) {
         logger.warn('Trip expiry sweep failed (non-blocking):', err.message);
       }

@@ -7,12 +7,12 @@ const { availableDriverWhere } = require('../../services/driver-availability');
 const { NotFoundError, ConflictError, ForbiddenError, AppError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
 const surgeService = require('./surge.service');
-const { dispatchToNearbyDrivers } = require('../../services/dispatch.service');
 const pushService = require('../../services/push.service');
 const pubSub = require('../../graphql/pubsub');
 const logger = require('../../utils/logger');
 const mapboxService = require('../../services/mapbox.service');
 const ratingIntegrity = require('../../services/rating-integrity.service');
+const tripState = require('../../services/trip-state.service');
 
 async function createTrip(driverId, data) {
   const {
@@ -188,9 +188,16 @@ async function createTrip(driverId, data) {
   trip.farePerSeat = fareInfo.farePerPerson;
   trip.totalTripCost = fareInfo.totalTripCost;
 
-  // Notify nearby online drivers about this new trip (fire-and-forget)
-  setImmediate(() => dispatchToNearbyDrivers(trip));
-
+  // NO DISPATCH HERE. This creates a driver-owned group/bus trip — the driver
+  // is already attached, so there is nobody to dispatch to.
+  //
+  // What used to be here was `setImmediate(() => dispatchToNearbyDrivers(trip))`:
+  // the SECOND dispatch path. It broadcast to five drivers at once with no
+  // rider-facing progress, so which experience a rider got depended on which
+  // booking flow created the trip — one of them gave "driver 2 of 8, 20s left",
+  // the other gave a silent spinner. It was also unawaited, so if it threw, the
+  // request had already returned 200 and nothing ever dispatched, with no error
+  // anywhere. On-demand dispatch is now the single path in modules/rides.
   return trip;
 }
 
@@ -619,11 +626,12 @@ async function clearLiveActivityToken(bookingId) {
 
 async function completeTrip(tripId) {
   const completedRiderTokens = []; // populated inside the tx, pushed to after commit
+  let completionTransition = null; // published after commit, never inside
 
   await prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findUnique({
       where: { id: tripId },
-      select: { status: true, driverId: true, departureTime: true },
+      select: { status: true, driverId: true, departureTime: true, version: true },
     });
     if (!trip) throw new NotFoundError('Trip');
     // Idempotency guard: if already completed, return early to prevent double wallet credits
@@ -633,10 +641,13 @@ async function completeTrip(tripId) {
 
     const completedAt = new Date();
 
-    // Update trip status
-    await tx.trip.update({
-      where: { id: tripId },
-      data: { status: 'COMPLETED' },
+    // Update trip status through the one guarded write path, in this
+    // transaction, so the completion, the booking closures and the driver's
+    // earnings settle or fail together.
+    completionTransition = await tripState.applyTransitionTx(tx, tripId, 'COMPLETED', {
+      actor: tripState.ACTOR.DRIVER,
+      actorId: trip.driverId,
+      expectedVersion: trip.version,
     });
 
     // Batch-update all active bookings to COMPLETED so rider Past tab reflects correctly
@@ -824,6 +835,12 @@ async function completeTrip(tripId) {
     }
   });
 
+  // Post-commit fan-out on the one channel. Both apps get the same versioned
+  // COMPLETED event; neither has to infer it from a push notification or a
+  // refetch, which is how they used to end up disagreeing about whether the
+  // ride was over.
+  tripState.publishCommitted(completionTransition);
+
   // notifications.rideComplete was defined but never called — a backgrounded rider
   // (no live socket connection) never got a "trip complete, rate your ride" push.
   // savedAmount is a rough shared-vs-private-ride estimate for the notification copy,
@@ -887,6 +904,7 @@ async function driverNoShow(tripId, reportingUserId) {
   // Collect push data outside the transaction so we can fire after commit
   let affectedFcmTokens = [];
   let tripRouteLabel = 'your trip';
+  let cancelTransition = null;
 
   const result = await prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findUnique({
@@ -914,7 +932,12 @@ async function driverNoShow(tripId, reportingUserId) {
     }
 
     // Cancel the trip
-    await tx.trip.update({ where: { id: tripId }, data: { status: 'CANCELLED' } });
+    cancelTransition = await tripState.applyTransitionTx(tx, tripId, 'CANCELLED', {
+      actor: tripState.ACTOR.DRIVER,
+      actorId: trip.driverId,
+      payload: { reason: 'DRIVER_NO_SHOW' },
+      data: { cancelledBy: tripState.ACTOR.DRIVER, cancellationReason: 'DRIVER_NO_SHOW' },
+    });
 
     // Cancel all confirmed bookings and flag as DRIVER_NO_SHOW
     await tx.booking.updateMany({
@@ -956,6 +979,7 @@ async function driverNoShow(tripId, reportingUserId) {
     updatedAt: new Date().toISOString(),
   });
 
+  tripState.publishCommitted(cancelTransition);
   return result;
 }
 

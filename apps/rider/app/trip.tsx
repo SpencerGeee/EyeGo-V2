@@ -13,6 +13,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { withOpacity } from '@eyego/config';
 import { useColors } from '../utils/useColors';
 import { useTripFlow, type TripStage } from '../stores/tripFlow.store';
+import { useTripStore, stageForStatus } from '../stores/trip.store';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
 import { SelectStage } from '../components/trip/stages/SelectStage';
@@ -54,6 +55,9 @@ export default function TripScreen() {
   const stage = useTripFlow((s) => s.stage);
   const seed = useTripFlow((s) => s.seed);
   const popStage = useTripFlow((s) => s.popStage);
+  const syncFromServer = useTripFlow((s) => s.syncFromServer);
+  const tripStatus = useTripStore((s) => s.snapshot?.status ?? null);
+  const hydrate = useTripStore((s) => s.hydrate);
 
   // Seed the stage machine once per surface open, from route params.
   useEffect(() => {
@@ -64,8 +68,24 @@ export default function TripScreen() {
       morphId: params.morphId,
       bookingId: params.bookingId,
     });
+    // ONE-CALL REHYDRATION. If a ride is already live — cold start, app killed
+    // mid-trip, deep link — this is what makes the surface open on the right
+    // stage instead of dropping the rider back on 'search' as though nothing
+    // were happening. Neither app had an equivalent before.
+    void hydrate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * THE PROJECTION. Once a trip exists its status decides the stage, full
+   * stop. The client no longer navigates itself forward and then has to
+   * defend that decision against contradicting pushes — which is what made
+   * the request flow feel inconsistent.
+   */
+  useEffect(() => {
+    const derived = stageForStatus(tripStatus);
+    if (derived) syncFromServer(derived);
+  }, [tripStatus, syncFromServer]);
 
   // Hardware back for stages past the root — the search stage registers its
   // own handler (morph-back to the home pill). Registered per-stage so the

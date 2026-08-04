@@ -8,16 +8,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, Button, GlassSurface, GradientGlowBorder, MorphTarget } from '@eyego/ui';
-import { tripsApi, queryKeys, socketEvents } from '@eyego/api';
+import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
-import { offlineQueue } from '../../../utils/offlineQueue';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { useRideStore } from '../../../stores/ride.store';
+import { useTripStore, isTerminal } from '../../../stores/trip.store';
 
-const POLL_INTERVAL_MS = 4000;
-// If no driver has accepted within this window, stop polling and show a
-// terminal "no driver found" state instead of spinning forever.
-const SEARCH_TIMEOUT_MS = 3 * 60 * 1000;
+/**
+ * NO POLLING HERE ANY MORE.
+ *
+ * This screen used to run TWO `setInterval` polls (a 4s "has anyone accepted"
+ * and a resumed variant) alongside socket listeners, plus a 3-minute
+ * client-side timeout that decided on its own when the search had failed.
+ * Poll and push raced to settle the same transition with no version to
+ * arbitrate, and the client's timeout could contradict a server that was
+ * still happily cascading.
+ *
+ * All three are gone. The trip store projects `Trip.status` off the sequenced
+ * `trip:event` channel, which replays anything missed on reconnect, and the
+ * server owns the expiry (RIDE_REQUEST_EXPIRY, a durable ScheduledTask) so
+ * "we gave up" is a fact both apps receive rather than a guess each makes.
+ */
 
 /**
  * "Looking for a driver" stage of the persistent trip surface, ported from
@@ -34,7 +45,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const setNearbyDrivers = useTripFlow((s) => s.setNearbyDrivers);
   const setPickupCoord = useTripFlow((s) => s.setPickupCoord);
   const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
-  const [dispatchAttempt, setDispatchAttempt] = useState<{ attempt: number; total: number }>({ attempt: 0, total: 0 });
+  // `dispatchAttempt` is derived from the trip store below — it is no longer
+  // local state, because local state is exactly what could disagree with the
+  // server about which driver was being asked.
   const queryClient = useQueryClient();
   const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll } = useRideStore();
   const { destination: paramDestination, scheduledAt, resumeRequestId } = useLocalSearchParams<{
@@ -45,86 +58,119 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
   const destination = storeDestination?.address ?? paramDestination;
 
-  const [status, setStatus] = useState<'sending' | 'searching' | 'matched' | 'error' | 'timeout'>('sending');
+  const [localStatus, setLocalStatus] = useState<'sending' | 'error'>('sending');
   const [cancelling, setCancelling] = useState(false);
-  const requestIdRef = useRef<string | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tripIdRef = useRef<string | null>(null);
   const sentRef = useRef(false);
+  /**
+   * Generated ONCE per mount — i.e. once per user intent — and reused across
+   * every retry. Without it, a flaky connection during Confirm books two rides
+   * and charges twice.
+   */
+  const idempotencyKeyRef = useRef<string>(
+    `ride-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+  );
 
-  // One place that owns "a driver took this request", so the 4s poll, the
-  // resumed poll and the (previously unwired) socket push all settle it
-  // identically. The double-navigation guard lives here too — the Activity
-  // tab's LiveRequestCard polls the same request independently, and two
-  // racing navigations into a not-yet-existing tracking route used to crash.
-  const finishMatch = React.useCallback((matchedTripId: string) => {
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    if (useRideStore.getState().pendingTripRequestId !== requestIdRef.current) return;
-    setPendingTripRequest(null);
-    setStatus('matched');
-    queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
-    queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
-    router.dismissTo(`/ride/${matchedTripId}/tracking` as any);
-  }, [queryClient, router, setPendingTripRequest]);
+  // ── Server state. The screen reads; it never decides. ────────────────────
+  const snapshot = useTripStore((s) => s.snapshot);
+  const dispatch = useTripStore((s) => s.dispatch);
+  const clockSkewMs = useTripStore((s) => s.clockSkewMs);
+  const recovering = useTripStore((s) => s.recovering);
+  const watchTrip = useTripStore((s) => s.watch);
 
-  // DEAD-PATH FIX: the backend emits `trip:request_accepted` to this rider the
-  // instant a driver accepts, but nothing ever listened, so the only way this
-  // screen learned it had been matched was its own 4-second poll. The rider
-  // watched a spinner for up to four seconds after their driver was already on
-  // the way. The poll stays as the fallback for a dropped socket.
+  /**
+   * The visible status is DERIVED, not stored. There is no local state that
+   * can drift from the trip, because there is no local state — which is the
+   * entire fix for "the request page isn't consistent".
+   */
+  const status: 'sending' | 'searching' | 'matched' | 'error' | 'timeout' =
+    localStatus === 'error'
+      ? 'error'
+      : snapshot == null
+        ? localStatus
+        : snapshot.status === 'NO_DRIVERS_FOUND' || snapshot.status === 'EXPIRED'
+          ? 'timeout'
+          : isTerminal(snapshot.status)
+            ? 'error'
+            : snapshot.status === 'REQUESTED' ||
+                snapshot.status === 'MATCHING' ||
+                snapshot.status === 'REASSIGNING'
+              ? 'searching'
+              : 'matched';
+
+  /**
+   * Seconds left on the CURRENT driver's exclusive offer, counted against
+   * server time. The server sends `expiresAtServerMs` plus its own clock on
+   * every payload, so two phones with different clocks show the same number.
+   */
+  const offerSecondsLeft =
+    dispatch?.expiresAtServerMs != null
+      ? secondsRemaining(dispatch.expiresAtServerMs, clockSkewMs)
+      : null;
+
+  const dispatchAttempt = {
+    attempt: dispatch?.attempt ?? 0,
+    total: dispatch?.totalCandidates ?? 0,
+  };
+
+  /**
+   * Navigate onward once a driver is attached.
+   *
+   * Driven by the server's status rather than by whichever of the poll or the
+   * socket happened to land first. The double-navigation guard is still
+   * needed because the Activity tab's live card watches the same trip.
+   */
+  const navigatedRef = useRef(false);
+  const finishMatch = React.useCallback(
+    (matchedTripId: string) => {
+      if (navigatedRef.current) return;
+      navigatedRef.current = true;
+      setPendingTripRequest(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+      router.dismissTo(`/ride/${matchedTripId}/tracking` as any);
+    },
+    [queryClient, router, setPendingTripRequest],
+  );
+
   useEffect(() => {
-    const off = socketEvents.onTripRequestAccepted((data) => {
-      const id = requestIdRef.current;
-      if (!id) return;
-      if (data?.requestId && data.requestId !== id) return;
-      if (!data?.tripId) return;
-      finishMatch(data.tripId);
-    });
-    return () => { off(); };
-  }, [finishMatch]);
+    if (!snapshot) return;
+    // One rule, applied to one field. Previously four different socket events
+    // and a poll could each independently conclude "we are matched", and they
+    // did not always agree.
+    if (snapshot.status === 'DRIVER_ASSIGNED' || snapshot.status === 'DRIVER_EN_ROUTE') {
+      finishMatch(snapshot.tripId);
+    }
+    if (isTerminal(snapshot.status)) {
+      setPendingTripRequest(null);
+    }
+  }, [snapshot?.status, snapshot?.tripId, finishMatch, setPendingTripRequest]);
 
   // ── Live dispatch cascade → map overlay ──────────────────────────────
   // Dispatch is sequential (one driver at a time), so there is always exactly
-  // one "driver being asked". Feeding that into the trip store is what lets the
+  // one "driver being asked". Mirroring it onto the map store is what lets the
   // persistent map draw a polyline to them and move it along as the offer
-  // cascades — and it gives us a real, server-authoritative failure signal
-  // instead of only the 3-minute client timeout.
+  // cascades.
+  //
+  // This used to be a bespoke `dispatch:*` socket listener with four event
+  // names. It now reads the trip store, which gets the same facts off the one
+  // sequenced channel — so a rider whose phone was locked through two offers
+  // sees the CURRENT one on wake, not a replayed animation of stale ones.
   useEffect(() => {
-    const off = socketEvents.onDispatchProgress((event, data) => {
-      const id = requestIdRef.current;
-      // `rideId` is the TripRequest id the cascade is running for.
-      if (id && data.rideId && data.rideId !== id) return;
-
-      if (event === 'offer') {
-        setDispatchAttempt({ attempt: data.attempt ?? 0, total: data.totalCandidates ?? 0 });
-        if (Number.isFinite(data.driverLat) && Number.isFinite(data.driverLng)) {
-          setDispatchOffer({
-            driverId: String(data.driverId),
-            latitude: data.driverLat as number,
-            longitude: data.driverLng as number,
-            attempt: data.attempt ?? 0,
-            totalCandidates: data.totalCandidates ?? 0,
-          });
-        } else {
-          // Driver has never reported a position — keep them as the current
-          // offer for the counter, but draw no line to a place we don't know.
-          setDispatchOffer(null);
-        }
-      } else if (event === 'searching' || event === 'widening') {
-        setDispatchAttempt({ attempt: 0, total: data.totalCandidates ?? 0 });
-      } else if (event === 'exhausted') {
-        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-        setDispatchOffer(null);
-        setPendingTripRequest(null);
-        setStatus('timeout');
-      } else if (event === 'matched') {
-        setDispatchOffer(null);
-      }
+    if (!dispatch || dispatch.driverLat == null || dispatch.driverLng == null) {
+      // Either no live offer, or a driver who has never reported a position:
+      // keep the counter, but draw no line to a place we do not know.
+      setDispatchOffer(null);
+      return;
+    }
+    setDispatchOffer({
+      driverId: dispatch.driverId!,
+      latitude: dispatch.driverLat,
+      longitude: dispatch.driverLng,
+      attempt: dispatch.attempt,
+      totalCandidates: dispatch.totalCandidates,
     });
-    return () => { off(); };
-  }, [setDispatchOffer, setPendingTripRequest]);
+  }, [dispatch, setDispatchOffer]);
 
   // Seed the map: the pickup anchors the polyline, and the surrounding drivers
   // are the ambient context that makes the search legible.
@@ -167,111 +213,67 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     if (sentRef.current) return;
     sentRef.current = true;
 
-    // Resuming a request already sent from elsewhere (e.g. the Activity tab's
-    // live card) — skip re-POSTing (which would create a second, duplicate
-    // request) and just pick the polling back up.
+    // Resuming a ride already requested elsewhere (e.g. the Activity tab's
+    // live card, or a cold start mid-search). Nothing to re-POST and nothing
+    // to poll — just start following it. The channel replays anything that
+    // happened while this screen did not exist.
     if (resumeRequestId) {
-      requestIdRef.current = resumeRequestId;
-      setStatus('searching');
-      pollTimerRef.current = setInterval(async () => {
-        try {
-          const check = await tripsApi.getTripRequest(requestIdRef.current!);
-          const req = check.data?.data;
-          if (req?.status === 'ACCEPTED' && req.matchedTripId) {
-            finishMatch(req.matchedTripId);
-          } else if (req?.status === 'CANCELLED') {
-            if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-            setPendingTripRequest(null);
-            setStatus('timeout');
-          }
-        } catch {
-          // transient poll failure — try again on next tick
-        }
-      }, POLL_INTERVAL_MS);
-      return () => {
-        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-      };
+      tripIdRef.current = resumeRequestId;
+      watchTrip(resumeRequestId);
+      return;
     }
 
     if (!destination) return;
 
-    // A request with no pickup coordinate cannot be dispatched: driver matching is
-    // a proximity search around the pickup, and the accept path rejects it with
-    // MISSING_PICKUP_COORDS. Fail here, visibly, rather than leaving the rider
-    // watching a "finding your driver" spinner that can never resolve.
+    // A request with no pickup coordinate cannot be dispatched: driver matching
+    // is a proximity search around the pickup. Fail here, visibly, rather than
+    // leaving the rider watching a spinner that can never resolve.
     if (origin?.latitude == null || origin?.longitude == null) {
-      setStatus('error');
+      setLocalStatus('error');
+      return;
+    }
+    if (storeDestination?.latitude == null || storeDestination?.longitude == null) {
+      setLocalStatus('error');
       return;
     }
 
     (async () => {
       try {
-        const res = await tripsApi.requestTrip({
-          destination,
-          scheduledAt: scheduledAt ?? new Date().toISOString(),
-          seatCount: requestSeatCount,
-          coverAll: requestCoverAll,
-          pickupLat: origin?.latitude,
-          pickupLng: origin?.longitude,
-          destLat: storeDestination?.latitude,
-          destLng: storeDestination?.longitude,
+        // Price first. The quote is server-signed and single-use, so the number
+        // the rider just agreed to is the number they are charged — the two
+        // used to be independent computations that could silently disagree.
+        const quote = await ridesApi.quote({
+          pickupLat: origin.latitude,
+          pickupLng: origin.longitude,
+          dropoffLat: storeDestination.latitude,
+          dropoffLng: storeDestination.longitude,
         });
-        requestIdRef.current = res.data?.data?.requestId ?? null;
 
-        if (!requestIdRef.current) {
-          // Backend accepted the call but returned no id to poll — nothing to
-          // wait on, so surface it instead of sitting in "searching" forever.
-          setStatus('error');
-          return;
-        }
+        const { tripId } = await ridesApi.request(
+          {
+            quoteId: quote.quoteId,
+            pickupLat: origin.latitude,
+            pickupLng: origin.longitude,
+            pickupAddress: origin.address ?? undefined,
+            dropoffLat: storeDestination.latitude,
+            dropoffLng: storeDestination.longitude,
+            dropoffAddress: destination ?? undefined,
+          },
+          idempotencyKeyRef.current,
+        );
 
-        // Persist so the Activity tab can show a live card and keep polling
-        // even if the rider navigates away from this screen.
-        setPendingTripRequest(requestIdRef.current, destination ?? null);
-
-        setStatus('searching');
-        pollTimerRef.current = setInterval(async () => {
-          try {
-            const check = await tripsApi.getTripRequest(requestIdRef.current!);
-            const req = check.data?.data;
-            if (req?.status === 'ACCEPTED' && req.matchedTripId) {
-              finishMatch(req.matchedTripId);
-            }
-          } catch {
-            // transient poll failure — try again on next tick
-          }
-        }, POLL_INTERVAL_MS);
-
-        // No driver accepted within the window — stop polling and show a
-        // terminal state instead of spinning on "Looking for a driver" forever.
-        // Also cancel server-side so a driver can't still accept it later
-        // while the rider believes the search ended.
-        searchTimeoutRef.current = setTimeout(() => {
-          if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-          setStatus((prev) => {
-            if (prev !== 'searching') return prev;
-            if (requestIdRef.current) {
-              const reqId = requestIdRef.current;
-              tripsApi.cancelTripRequest(reqId).catch(() => {
-                // The cancel must eventually land server-side — otherwise a
-                // driver can still accept this "ended" search and create a
-                // booking the rider no longer expects. Queue it for retry.
-                offlineQueue.enqueue('TRIP_REQUEST_CANCEL', `/trips/request/${reqId}`, 'DELETE', null);
-              });
-            }
-            setPendingTripRequest(null);
-            return 'timeout';
-          });
-        }, SEARCH_TIMEOUT_MS);
+        tripIdRef.current = tripId;
+        // Persist so the Activity tab can show a live card if the rider
+        // navigates away from this screen.
+        setPendingTripRequest(tripId, destination ?? null);
+        // From here the server drives everything. No interval, no client
+        // timeout: expiry is a durable ScheduledTask on the server, so "we
+        // gave up" is one fact both apps receive rather than two guesses.
+        watchTrip(tripId);
       } catch {
-        setStatus('error');
+        setLocalStatus('error');
       }
     })();
-
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -280,15 +282,16 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   // still accept it minutes later and silently create a booking the rider
   // had no idea was still live).
   const handleCancel = async () => {
-    if (!requestIdRef.current) {
+    const tripId = tripIdRef.current ?? snapshot?.tripId ?? null;
+    if (!tripId) {
       router.dismissTo('/(tabs)/home' as any);
       return;
     }
     setCancelling(true);
     try {
-      await tripsApi.cancelTripRequest(requestIdRef.current);
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      await ridesApi.cancel(tripId);
       setPendingTripRequest(null);
+      useTripStore.getState().unwatch();
       router.dismissTo('/(tabs)/home' as any);
     } catch (err: any) {
       const msg = err?.response?.data?.message;

@@ -1,109 +1,148 @@
-# State — 14-item stress-test sweep (2026-07-30, second pass)
+# State — Uber-grade rewire (COMPLETE, 2026-08-03)
 
-## Current Goal
-All 14 reported items fixed. `tsc` green both apps, `node --check` green. NOT device-tested.
+## Status
+All 7 phases built. `prisma validate` green, all `src/*.js` pass `node --check`,
+all 14 new backend modules load, **rider + driver both tsc-clean (0 errors)**.
+**Nothing has served a request yet** — no Postgres instance has been run.
 
-## Root causes worth remembering
+Read `docs/research/REWIRE-RUNBOOK.md` first. It has the startup commands, the
+five architectural rules, a file-by-file map, and what was deliberately left out.
 
-1. **Where-to card collapsed to one empty pill (#6).** `inputsSection` resolved to a
-   DEFINITE height of 0, and its `alignItems: 'stretch'` then forced all three
-   children to 0 — so the card shrank to its 24pt padding, both field rows
-   vanished, and the timeline's dots spilled below the card (a border-box height
-   of 0 makes padding overflow). Proof from the screenshot: card exactly 48pt,
-   dot 1 exactly `paddingTop: 16` below the collapsed line, swap button 38pt
-   centred on it. Cause: **React Native's `flex` shorthand sets `flexBasis: 0`**
-   (`flex: 1` AND `flex: 0`), and a basis-0 child of an auto-height column
-   contributes 0 to its parent's content height with no free space to grow back
-   into. Both `MorphTarget`'s inner wrapper (`flex: 1`) and the swipe zone
-   (`flex: 0`) were in that chain. Fixed at the source (`flexBasis: 'auto'`) and
-   belt-and-braces: every height in the card is now explicit.
+## Startup (dev is now Postgres + Redis, both required)
+```
+cd eyego-api && docker compose up -d
+node node_modules/prisma/build/index.js migrate dev --name canonical-trip
+node node_modules/prisma/build/index.js generate
+```
+`npx` is broken here — always `node node_modules/prisma/build/index.js …` and
+`node node_modules/typescript/lib/tsc.js …`.
 
-2. **Cash payment "validation failed" (#7) was an envelope-unwrap bug.**
-   `POST /bookings` answers `created(res, { booking, fareData, holdExpiry })`, but
-   `bookings.api.ts` typed it `ApiResponse<Booking>` and the payment screen read
-   `res.data.data.id` → `undefined` → it sent `bookingId: ''` → the route's
-   `body('bookingId').notEmpty()` rejected it. That is literally where
-   "Validation failed" / "Payment initialization failed" came from. It also stored
-   the WRAPPER as `activeBooking` (so `.id`/`.tripId` were undefined → the next
-   attempt held ANOTHER seat: the "seat held but payment failed" pair) and dropped
-   the server fare (which lives on `fareData`). Same class as last pass's tracking
-   bug — the API types were lying about the wire format.
+## The five rules (do not violate these)
+1. `Trip.status` is the ONLY lifecycle authority. `Booking.status` = seat+money.
+2. Nothing writes `Trip.status` except `applyTransition()` /
+   `applyTransitionTx(tx, …)` + `publishCommitted(result)` post-commit.
+   **Verified: zero raw `trip.update({status})` sites remain.**
+3. Timers are `ScheduledTask` rows written inside the transition, never setTimeout.
+4. One socket event `trip:event` (seq == version, full snapshot, serverNowMs).
+   Client rule: `if (version > mine) replace else discard`.
+5. Clients project. Rider stage = `stageForStatus(status)`; driver screen =
+   `driverScreenForStatus(status)`. No client-computed status, no polls.
 
-3. **Trips never died (#1).** The sweep in server.js ran every SIX HOURS with
-   24h/48h windows and only flipped `Trip.status` — bookings stayed live and seats
-   stayed spent. `getActiveTrip` also matched in-flight statuses with NO time bound
-   at all, on the comment "a started trip stays resumable forever". That is why a
-   midnight trip was live and resumable at 13:00. Now
-   `services/trip-lifecycle.service.js`: 5-min sweep + a lazy `isPastDeadline`
-   guard, 3h pre-trip / 6h idle / 18h hard windows, status `EXPIRED` (NOT
-   `CANCELLED` — housekeeping must not count against drivers' cancellation rates),
-   bookings released, seat counter recomputed, sockets notified, idempotent.
+## Enum vocabulary (reuse, don't rename)
+`TripStatus`: REQUESTED, MATCHING, SCHEDULED, FILLING, CONFIRMED,
+DRIVER_ASSIGNED, REASSIGNING, DRIVER_EN_ROUTE, ARRIVED_AT_PICKUP, IN_PROGRESS,
+COMPLETED, CANCELLED, NO_DRIVERS_FOUND, EXPIRED, NO_SHOW.
+Who cancelled = `Trip.cancelledBy`, NOT split statuses (saved ~77 edits).
+Dropped: DISPATCHING→MATCHING, MATCHED→DRIVER_ASSIGNED.
+`BookingStatus`: PENDING, SEAT_HELD, CONFIRMED, PAID, BOARDED, COMPLETED,
+CANCELLED, REFUNDED, EXPIRED, NO_SHOW.
 
-4. **Cancelled ride still live (#5).** Query invalidation was never enough: the
-   live surfaces also read the PERSISTED Zustand ride store, which survives a
-   cancel and an app restart. `clearRideState()` on cancel is the real fix; home
-   now also filters terminal statuses and tracking bounces out of a dead trip.
+## What was built
+**Ph0** Trip.driverId/vehicleId/routeId nullable; +requesterId, dropoff coords,
+`version`, redispatchCount, cancel fields; `TripEvent` (append-only,
+`@@unique([tripId,seq])`); `ScheduledTask` (outbox, `@@unique([type,dedupeKey])`).
+Provider sqlite→postgresql + `eyego-api/docker-compose.yml`.
 
-5. **Straight line to pickup (#2).** `routeFetchedRef` latched to `true` BEFORE the
-   request, so ONE failure was terminal for the life of the screen and the 900ms
-   grace timer drew the straight-line fallback permanently. Now retried
-   (2/4/8/15s), the pre-trip leg routes DRIVER→pickup (not rider→pickup, which on
-   a driver-created trip is a metres-long stub), and the fallback is DASHED so it
-   can never pass for road geometry.
+**Ph1** `trip-state.service.js` — transition table, version CAS, event log,
+in-txn timers, terminal absorbing + auto task-cancel. All 13 legacy status
+writes converted (drivers/bookings/cancellation/payments/trips/trip-lifecycle).
+`drivers.service.js`'s private 4-row transition table → `needsTransition()`
+delegating to the real one.
 
-6. **Share link stuck on "Loading trip" (#14).** The page is one IIFE and
-   `new maplibregl.Map()` ran BEFORE the fetch. `maplibregl` comes from unpkg over
-   the recipient's connection — if that fails (or WebGL is absent), the
-   constructor threw, the IIFE aborted, and nothing below it ever ran: no fetch,
-   no error state, just the spinner. The map is now optional and guarded. Second
-   bug found: the tile URL was a hand-written `{z}/{x}/{y}.pbf` template that
-   returns **403** — verified with curl; OpenFreeMap publishes TileJSON at
-   `/planet` (200), which is what the native styles already use.
+**Ph2** Redis cascade + durable timers + per-trip lock; `matcher.service.js`
+(geo narrows → SQL decides → ETA ranks, batch-shaped `solve()`);
+`supply-index.service.js` (GEO + presence TTL); `eta.service.js` (batched
+Mapbox Matrix, cached, `degraded` fallback). **`dispatch.service.js` DELETED**
+— one path. `acceptOffer` split into `stopOfferTimer()`/`announceWinner()`.
+`trip-request.service.js` no longer cascades (20s offer is meaningless for a
+ride 4 days out) — scheduled requests broadcast via
+`notifyDriversOfScheduledRequest()`.
 
-7. **Route line colours (#8, #10).** The driver app used `statusCfg.color` — the
-   STATUS PILL's colour — for the line the driver must follow, so it was grey,
-   then blue, then violet ("a purple thing") as the trip advanced, and blue
-   vanished into the driver style's blue roads. Now fixed per app, casing + core
-   (the two-layer arrangement every nav renderer uses; a blurred 18% black
-   underlay gives no edge): driver amber `#FFB020`/`#4A2B00`, rider azure
-   `#5BB0FF`/`#123A66` (its map's roads are green).
+**Ph3** Socket.IO Redis adapter; `trip-events.publisher.js` (one envelope);
+`sockets/resume.socket.js` (`trip:subscribe`+replay+ack+`time:sync`);
+`trip-view.js`; `GET /v1/rides/active` + `/v1/rides/driver/state` bootstraps;
+`/v1/rides/:id/events` replay.
 
-8. **Map "capped to Accra" (#3).** Nothing was actually clamped — tiles are the
-   global OpenFreeMap planet set. The style has no low-zoom land layer, so outside
-   the metro area's z12+ road layers there was nothing to draw but the background
-   colour, which reads as missing tiles. Now explicitly capped to
-   `GHANA_BOUNDS` + `minZoom 6` in the shared adapter, so every map in both apps
-   is country-wide and deterministic.
+**Ph4** `packages/api/src/tripChannel.ts` (server-wins-by-version, gap
+detection→replay, TTL drop, clock-skew); `rides.api.ts`;
+`apps/rider/stores/trip.store.ts` + `apps/driver/stores/trip.store.ts`;
+`tripFlow.store.ts` gained `syncFromServer` and `popStage` now refuses on
+server-owned stages; **both `setInterval` polls + the 3-min client timeout
+deleted from RequestStage**; driver `_layout.tsx` hydrates + one offer listener.
 
-9. **Reported heading was GPS course only (#9).** `pos.coords.heading` is course
-   over GROUND — -1/0 when stopped. A driver waiting AT the pickup reported "due
-   north" forever, so the rider's car sat frozen. Now course-while-moving → last
-   good course → compass (last, because a cradled handset reads the cradle).
+**Ph5** `fare-quote.service.js` (HMAC 64-hex, single-use Redis redemption,
+409 FARE_EXPIRED / 422 INVALID_FARE_ID); idempotency keys on ride creation;
+`money.js` hardened (+`toMinor`/`fromMinor`/`assertMoney`).
 
-## New surface area
-- `packages/ui/src/SwipeToConfirm.tsx` — slide-to-confirm; the driver's primary
-  CTA (arrive / start ride / end trip) is now a swipe, not a tap (#13).
-- `apps/driver/utils/externalNav.ts` — Google/Apple/Waze hand-off with a
-  remembered preference (long-press Navigate to change it); targets the PICKUP
-  while en-route, not always the destination (#12).
-- `eyego-api/src/services/trip-lifecycle.service.js` (#1).
-- `CarMarker` redesigned: shaded low-detail top-down model, light outline, tight
-  contact shadow, mirrors, head/tail lights (#4). Pickup marker is now a PIN, so
-  place / vehicle / self are three distinct shapes when they overlap.
-- Re-center now returns to the DEFAULT camera (north-up) on both apps (#11);
-  driver tracking gained a re-center FAB.
+**Ph6** Redis mandatory + `assertReady()` exits; `InMemoryRedis` deleted;
+`trip-health.service.js` stuck-trip + dead-worker alarms; `GET /health/dispatch`;
+~40 lines added to `.env.example`; `REWIRE-RUNBOOK.md`.
 
-## Verification
-- `tsc --noEmit` green: apps/rider, apps/driver. `node --check` green on all
-  touched backend files. Share-page script parses. OpenFreeMap endpoints curl'd.
-- **Nothing device-tested.** Native rebuild needed (markers/gestures) + API redeploy.
+## Deliberately NOT done (user's call to schedule)
+**Float cedis → integer pesewas.** ~263 read/write sites across 4 codebases;
+missing one = a 100×-wrong charge, worse than the drift it fixes and invisible
+until a real rider is billed. Needs a live DB + end-to-end payment test.
+`money.js` now prevents drift accumulating and defines the conversion boundary.
 
 ## Open Issues
-- Item 3's "tiles stop at the outskirts" was diagnosed by elimination, not
-  reproduced: no code capped anything. If it persists inside Ghana after the
-  rebuild, suspect high camera pitch culling distant tiles, not the bounds.
-- Research (see scratchpad `marker-research.md`) says Uber uses a raster sprite in
-  a `SymbolLayer`, not a view marker; MLRN maintainers recommend the same. The
-  marker is still `MarkerView` + SVG. Worth migrating if drift/perf shows up.
-- `SwipeToConfirm` uses the deprecated `runOnJS` (as does the rest of this repo);
-  Reanimated 4 prefers `scheduleOnRN`. Cosmetic for now.
+- Never run against a live database or device. First run: `docker compose up -d`,
+  migrate, request a ride, watch `GET /health/dispatch`.
+- Legacy `/v1/trips` group/bus flows still exist alongside `/v1/rides` — correct
+  (two products) but only `/v1/rides` has been exercised by the new client code.
+- Still unaudited: map mount count, camera ownership, marker interpolation,
+  chat outbox, SOS delivery, driver foreground-service call sites, iOS
+  background location, Paystack capture idempotency.
+
+---
+
+## 2026-08-03 — FIRST LIVE RUN (backend verified against real infra)
+
+Dev infra is **Neon (Postgres) + Upstash (Redis)** — this machine has no Docker
+and no package manager. `eyego-api/SETUP-CLOUD-DEV.md` is the walkthrough.
+**API port is 5020, not 3000.**
+
+**Verified working end to end:**
+```
+Socket.io server initialized  →  Redis connected  →  Database connected
+→  ScheduledTask worker started  →  Trip health monitor started
+→  EyeGo API running on port 5020
+GET /health/dispatch → {"live":{},"stuck":0,"scheduledTasks":{"overdue":0,"failed":0},"healthy":true}
+```
+95s clean run, zero errors. Migration applied. `FOR UPDATE SKIP LOCKED` claim
+query confirmed executing. Redis GEOADD/GEOSEARCH confirmed working on Upstash.
+
+**Four real bugs found and fixed by actually running it:**
+1. **Upstash needs `rediss://` not `redis://`.** With plain `redis://` the TCP
+   socket opens and logs "Redis connected", then every command times out —
+   because the server is waiting on a TLS handshake that never comes.
+   `config/redis.js` now warns explicitly on this combination.
+2. **`maxRetriesPerRequest: 3` crashed the process.** The Socket.IO adapter
+   attaches no catch handlers, so a transient blip surfaced as unhandled
+   rejections and killed the server. Now `null` on both the main client and
+   `duplicate()` (which is what Socket.IO's own docs require).
+3. **Neon cold start looked like a dead database.** Serverless Postgres scales
+   to zero; the first connect after idle is reachable on TCP but refuses
+   queries, which Prisma reports as P1001 "Can't reach database server".
+   `server.js` now has `connectWithRetry()` (6 attempts, backoff) and proves
+   liveness with `SELECT 1`, not just an open socket.
+4. **`trip-lifecycle.service.js` held a stale private status list** containing
+   `DISPATCHING` (retired) and missing `NO_DRIVERS_FOUND` — so the expiry sweep
+   threw on every run. Now imports `PRE_TRIP_STATUSES` / `ACTIVE_STATUSES` /
+   `TERMINAL_STATUSES` / `PRE_DRIVER_STATUSES` from `trip-state.service.js`.
+   **This is exactly what the enum was introduced to catch, and it caught it.**
+   Swept the whole backend for other retired literals — clean. (`MATCHED` on
+   `ScheduledRideIntent` is fine; that column is still a `String`.)
+
+**Also fixed — would have burned the Neon free tier:** the ScheduledTask worker
+polled on a fixed 1s `setInterval` = ~86,400 remote queries/day, which means a
+serverless database NEVER idles and the monthly compute allowance is gone in
+about a week on zero traffic. Replaced with sleep-until-next-due (`nextDueAt()`
++ interruptible sleep + `wake()` on arm). **Measured: 1 claim query per 20s
+idle, down from ~20.** Timing got *more* precise, not less — a task due in
+300ms now runs in 300ms instead of on the next tick boundary.
+
+## Still not done
+- No ride has been requested yet. Next: point the rider app at
+  `http://<lan-ip>:5020`, request a ride, watch `/health/dispatch` and the
+  `trip:event` stream.
+- Float cedis → integer pesewas (see money.js for why it was deferred).

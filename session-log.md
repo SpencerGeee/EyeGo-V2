@@ -205,3 +205,39 @@ Rejected: "a started trip stays resumable forever" — that is exactly what kept
 Rejected: a hand-written `{z}/{x}/{y}.pbf` OpenFreeMap URL — returns 403; `/planet` is TileJSON.
 Open: "tiles stop outside Accra" diagnosed by elimination, not reproduced — recheck after rebuild.
 Open: vehicle marker still MarkerView+SVG; Uber/MLRN both favour a SymbolLayer raster sprite.
+
+## 2026-08-02 [saved]
+Goal: Rewire EyeGo to industry-standard ride-hailing architecture (Uber/Bolt parity).
+Decisions:
+- Trip becomes the one canonical ride object (nullable driverId, dropoff coords, TripStatus enum, version, append-only TripEvent) — rider/driver disjointedness is caused by two rows with two free-string statuses.
+- Dispatch state moves to Redis + a ScheduledTask outbox table; in-process Map + setTimeout strands rides on every deploy and forbids multi-instance.
+- Socket events collapse to one seq-numbered `trip:event` envelope with replay-on-reconnect, plus Socket.io Redis adapter.
+- Redis mandatory, fail loud — InMemoryRedis fallback silently voided payment/dedup locks.
+- DB reset (dev-only data), so Phase 5 Float→integer pesewas is a schema rewrite, not a data migration.
+Rejected: adding a parallel `Ride` model alongside Trip — recreates the two-row split being fixed. Haversine candidate ranking — must be routing-engine ETA.
+Open: explicit go-ahead for Phase 0; ~9 scorecard rows unaudited (map mount count, chat outbox, SOS delivery, Paystack idempotency).
+
+## 2026-08-03 [saved]
+**Goal:** Execute all 7 phases of the Uber-grade rewire plan.
+
+**Done:** Canonical `Trip` (nullable driver, dropoff, `version`, `TripStatus`
+enum, `TripEvent`, `ScheduledTask`); `applyTransition` as the single write path
+with all 13 legacy `trip.update({status})` sites converted; Redis-backed durable
+dispatch with ETA ranking and a GEO supply index; the second dispatch path
+(`dispatch.service.js`) deleted; one sequenced `trip:event` channel with replay
+and both bootstrap endpoints; both clients projecting server state with all
+polls removed; signed single-use fare quotes + idempotency keys; Redis made
+mandatory and stuck-trip alarms added.
+
+**Decisions:** dev DB sqlite→postgresql (prod already was; sqlite hides every
+concurrency bug); kept the existing status vocabulary instead of the plan's
+synonyms and put who-cancelled in `Trip.cancelledBy` (~170 fewer edits);
+scheduled `TripRequest`s broadcast rather than cascade (a 20s exclusive offer is
+meaningless for a ride four days out).
+
+**Rejected:** Float→integer pesewas — ~263 sites across 4 codebases, missing one
+gives a 100×-wrong charge, invisible until a real rider is billed. Needs a live
+DB + end-to-end payment test. `money.js` hardened instead.
+
+**Open:** never run against a live database or device. `docker compose up -d`,
+migrate, request a ride, watch `GET /health/dispatch`.
