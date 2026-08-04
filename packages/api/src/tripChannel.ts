@@ -77,7 +77,14 @@ export interface TripSnapshot {
   pickup: { lat: number | null; lng: number | null; address: string | null };
   dropoff: { lat: number | null; lng: number | null; address: string | null };
   driver: {
-    id: string; name: string; phone: string; photo: string | null;
+    id: string; name: string;
+    /**
+     * Null once the ride is over. The server scopes the driver's real number
+     * to the statuses where calling them is legitimate (see trip-view.js), so
+     * every consumer must handle its absence rather than assume a string.
+     */
+    phone: string | null;
+    photo: string | null;
     lat: number | null; lng: number | null; heading: number | null;
   } | null;
   vehicle: { plate: string; make: string; model: string; year: number; tier: string } | null;

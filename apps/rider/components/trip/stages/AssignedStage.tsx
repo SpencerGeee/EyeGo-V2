@@ -134,7 +134,10 @@ function AssignedStageImpl() {
                 id: driver.id,
                 name: driver.name,
                 avatarUrl: driver.photo,
-                phone: driver.phone,
+                // Null once the ride is terminal: the server stops sending the
+                // driver's real number the moment there is no reason to call
+                // them. See `onCall` below — the button goes with it.
+                phone: driver.phone ?? undefined,
               }}
               vehicle={
                 vehicle
@@ -143,7 +146,10 @@ function AssignedStageImpl() {
               }
               showActions
               premium={arrived}
-              onCall={handleCall}
+              // DriverInfoCard renders its call button only when given a
+              // handler, so no number means no button — rather than a button
+              // that opens the dialler on nothing.
+              onCall={driver.phone ? handleCall : undefined}
               onChat={() => tripId && router.push(`/ride/${tripId}/chat` as Href)}
             />
           )}

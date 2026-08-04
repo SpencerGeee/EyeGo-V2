@@ -159,27 +159,53 @@ const emergencyAlert = async (req, res) => {
         );
       }
 
-      // ── Push notification to emergency contact ───────────────────
-      if (emergencyContactPhone) {
-        // Emergency contacts don't have FCM tokens in the app — send SMS fallback
-        // For a future upgrade, store emergency contact FCM tokens in the database
-        try {
-          const smsService = require('../../services/sms.service');
-          const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { name: true },
-          });
-          const riderName = user?.name || 'A rider';
-          const googleMapsLink = lat && lng
-            ? `https://maps.google.com/?q=${lat},${lng}`
-            : 'Location unavailable';
-          await smsService.sendSms(
-            emergencyContactPhone,
-            `🚨 EMERGENCY: ${riderName} has triggered an SOS alert on EyeGo! Trip ID: ${tripId.slice(0, 8)}. Location: ${googleMapsLink}. Please contact them immediately.`
-          );
-        } catch (smsErr) {
-          logger.warn('Failed to send SOS SMS to emergency contact:', smsErr.message);
+      /**
+       * ── SMS to the rider's emergency contacts ───────────────────────────
+       *
+       * BUGFIX: this texted ONLY the single `emergencyContactPhone` the client
+       * happened to put in the request body, and did nothing at all if the
+       * field was absent. Emergency contacts are a server-side table with many
+       * rows per user, so whether anyone was told a rider had hit SOS depended
+       * on whether the screen that fired it had loaded its contacts cache —
+       * and an SOS replayed from the offline queue carries whatever the
+       * payload was frozen with, which may be nothing.
+       *
+       * The saved contacts are the source of truth. Any phone the client sent
+       * is unioned in rather than trusted alone, so a contact added on the
+       * device but not yet synced is still reached.
+       */
+      try {
+        const smsService = require('../../services/sms.service');
+        const [user, savedContacts] = await Promise.all([
+          prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+          prisma.emergencyContact.findMany({ where: { userId }, select: { phone: true } }),
+        ]);
+
+        const recipients = [
+          ...new Set(
+            [emergencyContactPhone, ...savedContacts.map((c) => c.phone)]
+              .filter(Boolean)
+              .map((p) => String(p).trim())
+              .filter((p) => p.length > 0),
+          ),
+        ];
+
+        if (recipients.length === 0) {
+          // Not an error, but it IS the difference between an SOS someone hears
+          // about and one that only lands in a support queue. Worth a log line.
+          logger.warn('SOS raised with no emergency contacts to notify', { tripId, userId });
         }
+
+        const riderName = user?.name || 'A rider';
+        const googleMapsLink = lat && lng
+          ? `https://maps.google.com/?q=${lat},${lng}`
+          : 'Location unavailable';
+        const body = `🚨 EMERGENCY: ${riderName} has triggered an SOS alert on EyeGo! Trip ID: ${tripId.slice(0, 8)}. Location: ${googleMapsLink}. Please contact them immediately.`;
+
+        // One failing number must not stop the rest being told.
+        await Promise.allSettled(recipients.map((phone) => smsService.sendSms(phone, body)));
+      } catch (smsErr) {
+        logger.warn('Failed to send SOS SMS to emergency contacts:', smsErr.message);
       }
 
       logger.warn('SOS emergency alert', { tripId, userId, lat, lng });

@@ -54,6 +54,23 @@ const TRIP_INCLUDE = Object.freeze({
 });
 
 /**
+ * Statuses where one party may legitimately phone the other: a driver is
+ * attached and the ride has not finished. Deliberately excludes every terminal
+ * status — the ride is over, so the reason to have the number is too.
+ */
+const CONTACTABLE_STATUSES = new Set([
+  'DRIVER_ASSIGNED',
+  'DRIVER_EN_ROUTE',
+  'ARRIVED_AT_PICKUP',
+  'IN_PROGRESS',
+  // The group/bus product attaches a driver well before departure, and a rider
+  // with a seat on a scheduled bus has a real reason to call about the pickup.
+  'SCHEDULED',
+  'FILLING',
+  'CONFIRMED',
+]);
+
+/**
  * @param {object} trip  a Trip loaded with TRIP_INCLUDE
  * @param {{forUserId?: string, forDriverId?: string}} [viewer]
  */
@@ -97,7 +114,27 @@ function buildTripSnapshot(trip, viewer = {}) {
       ? {
           id: trip.driver.id,
           name: trip.driver.name,
-          phone: trip.driver.phone,
+          /**
+           * The driver's REAL personal number, so it is scoped to the window
+           * where calling them is a legitimate thing to do.
+           *
+           * It used to be on every snapshot unconditionally. That meant a
+           * rider kept their driver's personal mobile number in the app after
+           * the ride ended — and, because every `trip:event` carries the whole
+           * snapshot, in the replayable event log as well. A ride-hailing
+           * platform handing out a driver's private number permanently, from a
+           * single trip, is the thing number masking exists to prevent.
+           *
+           * Proper masking needs a telephony relay (see
+           * modules/contact/contact.service.js — the CallSession model and the
+           * endpoints are built, but `initiateCall` returns a sandbox
+           * placeholder until Twilio Proxy or Africa's Talking is
+           * provisioned). Until then, direct dial during a live ride is the
+           * right trade — a rider who cannot reach their driver at the kerb is
+           * a worse safety outcome than an exposed number — but there is no
+           * argument at all for keeping it afterwards.
+           */
+          phone: CONTACTABLE_STATUSES.has(trip.status) ? trip.driver.phone : null,
           photo: trip.driver.profilePhoto,
           lat: trip.driver.currentLat,
           lng: trip.driver.currentLng,
