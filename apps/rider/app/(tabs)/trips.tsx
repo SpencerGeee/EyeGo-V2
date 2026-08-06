@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { useRouter, type Href } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, queryKeys } from '@eyego/api';

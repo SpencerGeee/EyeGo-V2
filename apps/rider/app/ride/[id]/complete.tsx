@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';

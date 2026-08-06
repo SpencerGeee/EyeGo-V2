@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Share, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect, type Href } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -552,7 +552,7 @@ export default function InviteScreen() {
             <Text variant="titleMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
               {formatGhs(
                 (selectedTrip as any)?.totalTripCostPesewas
-                  ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1)
+                  ?? (computedFare ?? selectedTrip?.farePerSeatPesewas ?? 0) * (members.length + 1)
               )}
             </Text>
           </View>
@@ -568,12 +568,12 @@ export default function InviteScreen() {
               {payForEveryone ? "Your Share (You pay for all)" : "Your Split Share"}
             </Text>
             <AnimatedFareText
-              value={
+              pesewas={
                 payForEveryone
                   ? ((selectedTrip as any)?.totalTripCostPesewas
-                      ?? (computedFare ?? selectedTrip?.fare ?? 8.5) * (members.length + 1))
+                      ?? (computedFare ?? selectedTrip?.farePerSeatPesewas ?? 0) * (members.length + 1))
                     + (activeBooking?.deviationSurchargePesewas ?? 0)
-                  : (activeBooking?.fareAmountPesewas ?? computedFare ?? selectedTrip?.fare ?? 8.5)
+                  : (activeBooking?.fareAmountPesewas ?? computedFare ?? selectedTrip?.farePerSeatPesewas ?? 0)
               }
               variant="fareMedium"
             />

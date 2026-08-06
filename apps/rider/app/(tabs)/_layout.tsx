@@ -18,6 +18,7 @@ import { fonts, type ColorTokens } from '@eyego/config';
 import { Text, GlassSurface } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
+import { useProfileSync } from '../../hooks/useProfileSync';
 
 type TabRoute = 'home' | 'services' | 'activity' | 'account';
 
@@ -167,6 +168,11 @@ function TabItem({
 }
 
 export default function TabLayout() {
+  // Reconciles the auth store's cached user with `/user/me` for the whole
+  // logged-in tree, so name/avatar/dob render from the server's truth rather
+  // than from the name-less payload minted at OTP time.
+  useProfileSync();
+
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}

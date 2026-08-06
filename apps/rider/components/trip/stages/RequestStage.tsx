@@ -3,11 +3,11 @@ import { View, StyleSheet, Pressable, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { MotiView } from 'moti';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, GradientGlowBorder, MorphTarget } from '@eyego/ui';
+import { Text, Button, GlassSurface, MorphTarget } from '@eyego/ui';
+import { SearchingIndicator } from '../SearchingIndicator';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripFlow } from '../../../stores/tripFlow.store';
@@ -59,6 +59,17 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const destination = storeDestination?.address ?? paramDestination;
 
   const [localStatus, setLocalStatus] = useState<'sending' | 'error'>('sending');
+  /**
+   * Why the request failed, in the rider's words.
+   *
+   * Every failure here used to collapse into one string — "We couldn't reach
+   * the server" — including the two cases that never touch the network at all
+   * (a missing pickup or dropoff coordinate). A rider whose destination had no
+   * coordinate attached was told their connection was bad, and the bare
+   * `catch {}` around the POST meant the real server message was discarded
+   * before anyone could read it.
+   */
+  const [errorReason, setErrorReason] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const tripIdRef = useRef<string | null>(null);
   const sentRef = useRef(false);
@@ -233,10 +244,16 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     // is a proximity search around the pickup. Fail here, visibly, rather than
     // leaving the rider watching a spinner that can never resolve.
     if (origin?.latitude == null || origin?.longitude == null) {
+      setErrorReason(
+        "We don't have a pin for your pickup yet. Go back and pick your pickup point on the map.",
+      );
       setLocalStatus('error');
       return;
     }
     if (storeDestination?.latitude == null || storeDestination?.longitude == null) {
+      setErrorReason(
+        "Your destination doesn't have a location attached. Go back and choose it from the suggestions so we know where to send the driver.",
+      );
       setLocalStatus('error');
       return;
     }
@@ -274,7 +291,24 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         // timeout: expiry is a durable ScheduledTask on the server, so "we
         // gave up" is one fact both apps receive rather than two guesses.
         watchTrip(tripId);
-      } catch {
+      } catch (err: any) {
+        // Surface what the server actually said. Swallowing this is what made
+        // every distinct failure — an expired quote, a rejected fare, an
+        // out-of-zone pickup, a genuine network drop — look like the same
+        // "couldn't send request" dead end with no way to act on it.
+        const serverMsg = err?.response?.data?.message ?? err?.response?.data?.error;
+        const isOffline = !err?.response;
+        console.error('[RequestStage] trip request failed', {
+          status: err?.response?.status,
+          data: err?.response?.data,
+          message: err?.message,
+        });
+        setErrorReason(
+          serverMsg ??
+            (isOffline
+              ? "We couldn't reach the server. Check your connection and try again."
+              : 'Something went wrong sending your request. Please try again.'),
+        );
         setLocalStatus('error');
       }
     })();
@@ -331,35 +365,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       </View>
 
       <View style={styles.body}>
-        {/* Pulsing ring animation, glowing while actively searching */}
+        {/* Concentric ring pulse — one UI-thread animation, no gradients, no
+            shadow layers. See SearchingIndicator for what this replaced and
+            why the old version cost frames exactly when dispatch needed them. */}
         <View style={styles.iconContainer}>
-          {status === 'searching' && [0, 1, 2].map((i) => (
-            <MotiView
-              key={i}
-              from={{ opacity: 0.4, scale: 0.8 }}
-              animate={{ opacity: 0, scale: 1.8 }}
-              transition={{
-                type: 'timing',
-                duration: 2000,
-                delay: i * 600,
-                loop: true,
-              }}
-              style={[styles.ring, { position: 'absolute' }]}
-            />
-          ))}
-          <GradientGlowBorder
-            palette={status === 'matched' ? 'green' : status === 'error' || status === 'timeout' ? undefined : 'green'}
-            fillColor={colors.surfaceCard}
-            borderRadius={36}
-            glow={status === 'searching' || status === 'matched'}
-            style={styles.iconGlowWrap}
-          >
-            <Ionicons
-              name={status === 'matched' ? 'checkmark-circle' : status === 'error' || status === 'timeout' ? 'alert-circle-outline' : 'bus-outline'}
-              size={32}
-              color={colors.primary}
-            />
-          </GradientGlowBorder>
+          <SearchingIndicator status={status as any} />
         </View>
 
         <Text style={styles.title}>
@@ -370,7 +380,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         </Text>
         <Text style={styles.subtitle}>
           {status === 'error' ? (
-            "We couldn't reach the server to send your trip request. Check your connection and try again."
+            errorReason ?? 'Something went wrong sending your request. Please try again.'
           ) : status === 'timeout' ? (
             'All our drivers are busy right now. Please try again in a few minutes, or book a scheduled ride instead.'
           ) : (

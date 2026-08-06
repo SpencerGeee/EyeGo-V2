@@ -9,7 +9,7 @@ import {
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';

@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { useQuery } from '@tanstack/react-query';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';

@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useCallback } from 'react';
+﻿import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -55,6 +55,36 @@ export default function EditProfileScreen() {
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactList, setContactList] = useState<Contacts.Contact[]>([]);
 
+  /**
+   * Adopt the profile once it actually arrives.
+   *
+   * Every field above seeds from `useState(user?.x)`, which reads the store
+   * exactly once — at first render. When this screen mounted before the
+   * profile had been reconciled with the server, the form rendered empty and
+   * stayed empty, which is what "it's telling me to save it again because it's
+   * blank" looked like. Saving from that state then PATCHed the blanks back
+   * over good server data.
+   *
+   * Only untouched fields are adopted: `dirty` flips on the first keystroke so
+   * a late-arriving refetch can never overwrite what the rider is typing.
+   */
+  const dirty = useRef(false);
+  useEffect(() => {
+    if (dirty.current || !user) return;
+    const u = user as any;
+    if (u.name) setName(u.name);
+    if (u.email) setEmail(u.email);
+    if (u.dob) {
+      setDob(u.dob);
+      const parts = String(u.dob).split(' / ');
+      if (parts.length === 3) {
+        setDobDate(new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])));
+      }
+    }
+    if (u.emergencyContact?.name) setEmergencyName(u.emergencyContact.name);
+    if (u.emergencyContact?.phone) setEmergencyPhone(u.emergencyContact.phone);
+  }, [user]);
+
   const handlePickContact = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
     if (status !== 'granted') {
@@ -83,6 +113,7 @@ export default function EditProfileScreen() {
       const d = selectedDate.getDate().toString().padStart(2, '0');
       const m = (selectedDate.getMonth() + 1).toString().padStart(2, '0');
       const y = selectedDate.getFullYear().toString();
+      dirty.current = true;
       setDob(`${d} / ${m} / ${y}`);
     }
   };
@@ -222,7 +253,7 @@ export default function EditProfileScreen() {
             <Input
               label="Full name"
               value={name}
-              onChangeText={(t) => { setName(t); setNameError(''); }}
+              onChangeText={(t) => { dirty.current = true; setName(t); setNameError(''); }}
               autoCapitalize="words"
               autoCorrect={false}
               returnKeyType="next"
@@ -237,7 +268,7 @@ export default function EditProfileScreen() {
             <Input
               label="Email (optional)"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => { dirty.current = true; setEmail(t); }}
               keyboardType="email-address"
               autoCapitalize="none"
               returnKeyType="next"
@@ -292,7 +323,7 @@ export default function EditProfileScreen() {
                 <Input
                   label="Contact name"
                   value={emergencyName}
-                  onChangeText={setEmergencyName}
+                  onChangeText={(t) => { dirty.current = true; setEmergencyName(t); }}
                   autoCapitalize="words"
                   returnKeyType="next"
                 />
@@ -305,7 +336,7 @@ export default function EditProfileScreen() {
                 <Input
                   label="Contact phone"
                   value={emergencyPhone}
-                  onChangeText={setEmergencyPhone}
+                  onChangeText={(t) => { dirty.current = true; setEmergencyPhone(t); }}
                   keyboardType="phone-pad"
                   returnKeyType="done"
                 />

@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, queryKeys } from '@eyego/api';
@@ -436,7 +436,7 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', ...springs.snappy, delay: 80 }}
                 style={styles.fareSection}
               >
-                <AnimatedFareText value={computedFare ?? trip?.farePerSeatPesewas ?? 0} variant="fareLarge" shiny />
+                <AnimatedFareText pesewas={computedFare ?? trip?.farePerSeatPesewas ?? 0} variant="fareLarge" shiny />
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   per seat · drops as more join
                 </Text>

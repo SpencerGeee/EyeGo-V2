@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { spacing, radii, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Pressable } from './Pressable';
@@ -15,7 +15,8 @@ interface RideCardTrip {
   id: string;
   tier?: 'ECONOMY' | 'COMFORT' | 'PREMIUM';
   scheduledAt?: string;
-  farePerSeat?: number;
+  /** Integer pesewas, matching `Trip.farePerSeatPesewas` on the wire. */
+  farePerSeatPesewas?: number;
   confirmedSeats?: number;
   maxCapacity?: number;
   pendingSeats?: number;
@@ -94,7 +95,7 @@ export function RideCard({ ride, onPress, index = 0 }: RideCardProps) {
 
           {/* Row 4: Fare */}
           <View style={[styles.row, { marginTop: spacing.sm }]}>
-            <AnimatedFareText value={ride.farePerSeat ?? 0} variant="fareMedium" color={colors.primary} />
+            <AnimatedFareText pesewas={ride.farePerSeatPesewas ?? 0} variant="fareMedium" color={colors.primary} />
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginLeft: spacing.xs }}>
               per seat
             </Text>

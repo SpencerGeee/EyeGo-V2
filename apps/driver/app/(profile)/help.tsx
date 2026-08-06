@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Linking, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';

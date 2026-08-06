@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
 import { fonts, fontSizes } from '@eyego/config';
-import { Text } from './Text';
+import { formatGhs } from '@eyego/utils';
 import { ShinyText } from './ShinyText';
+import { RollingDigits } from './RollingDigits';
 import { useThemedColors } from './ColorsContext';
 import type { TextVariant } from './Text';
 
@@ -22,8 +23,17 @@ const FARE_LINE_HEIGHT_RATIO: Partial<Record<TextVariant, number>> = {
 };
 
 interface AnimatedFareTextProps {
-  value: number;
-  prefix?: string;
+  /**
+   * INTEGER PESEWAS — the unit every money field on the wire uses.
+   *
+   * This prop used to be `value` and used to mean cedis: it rendered
+   * `value.toFixed(2)` behind a "GH₵ " prefix. When the API migrated to
+   * pesewas every call site kept compiling and started rendering a GH₵4.80
+   * fare as "GH₵ 480.00" and a GH₵20.00 driver balance as "GHS 2000.00".
+   * The rename is deliberate — it makes the compiler visit every call site
+   * rather than letting a wrong unit pass silently a second time.
+   */
+  pesewas: number;
   variant?: TextVariant;
   color?: string;
   /** Adds a premium shine sweep — reserved for a single hero fare number
@@ -31,55 +41,35 @@ interface AnimatedFareTextProps {
   shiny?: boolean;
 }
 
+/**
+ * The canonical way a fare appears in either app.
+ *
+ * Formatting is `formatGhs`, so the symbol, the thousands separator and the
+ * two-decimal tail are identical to every other money string in the product —
+ * no screen invents its own "GHS " prefix any more.
+ *
+ * Motion is `RollingDigits`: each digit rolls in its own clipped slot on the
+ * UI thread. The previous implementation tweened with a `setInterval` firing
+ * 20 `setState`s over 400ms, which re-rendered the whole subtree 20 times per
+ * fare change on the JS thread — the single worst offender on any screen that
+ * showed a live-updating price.
+ */
 export function AnimatedFareText({
-  value,
-  prefix = 'GH₵ ',
+  pesewas,
   variant = 'fareLarge',
   color,
   shiny = false,
 }: AnimatedFareTextProps) {
   const colors = useThemedColors();
-  const [displayValue, setDisplayValue] = useState(value);
-  // Keep a ref to the current display value so the animation effect can snapshot
-  // it as the start value without adding it to the dep array (which would restart
-  // the animation on every intermediate step and cause infinite re-triggering).
-  const displayValueRef = useRef(displayValue);
-  displayValueRef.current = displayValue;
-  const isFirstRender = useRef(true);
+  const formatted = useMemo(() => formatGhs(pesewas), [pesewas]);
 
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-
-    const startValue = displayValueRef.current;
-    const endValue = value;
-    const steps = 20;
-    const duration = 400;
-    let step = 0;
-
-    const interval = setInterval(() => {
-      step++;
-      const progress = step / steps;
-      const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
-      const current = startValue + (endValue - startValue) * eased;
-      setDisplayValue(Math.round(current * 100) / 100);
-
-      if (step >= steps) {
-        clearInterval(interval);
-        setDisplayValue(endValue);
-      }
-    }, duration / steps);
-
-    return () => clearInterval(interval);
-  }, [value]);
-
-  const formatted = `${prefix}${displayValue.toFixed(2)}`;
+  const fontSize = FARE_SIZE[variant] ?? fontSizes.fareLarge;
+  const lineHeight = fontSize * (FARE_LINE_HEIGHT_RATIO[variant] ?? 1.15);
 
   if (shiny) {
-    const fontSize = FARE_SIZE[variant] ?? fontSizes.fareLarge;
-    const lineHeight = fontSize * (FARE_LINE_HEIGHT_RATIO[variant] ?? 1.15);
+    // The shine sweep needs one continuous string to mask, so the hero fare
+    // swaps instantly instead of rolling. It is a headline that settles once,
+    // not a meter that ticks.
     return (
       <ShinyText
         baseColor={color ?? colors.primary}
@@ -91,8 +81,12 @@ export function AnimatedFareText({
   }
 
   return (
-    <Text variant={variant} color={color} style={{ fontFamily: fonts.monoBold }}>
-      {formatted}
-    </Text>
+    <RollingDigits
+      text={formatted}
+      value={pesewas}
+      fontSize={fontSize}
+      color={color ?? colors.onSurface}
+      fontFamily={fonts.monoBold}
+    />
   );
 }

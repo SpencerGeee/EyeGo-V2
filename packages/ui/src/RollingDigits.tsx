@@ -74,8 +74,9 @@ export const RollingDigits = memo(function RollingDigits({
   const entering = (rollingDown ? FadeInUp : FadeInDown)
     .withInitialValues({ transform: [{ translateY: rollingDown ? -travel : travel }] })
     .springify()
-    .duration(springs.snappy.duration)
-    .dampingRatio(springs.snappy.dampingRatio);
+    .stiffness(springs.standard.stiffness)
+    .damping(springs.standard.damping)
+    .mass(springs.standard.mass);
   const exiting = (rollingDown ? FadeOutDown : FadeOutUp).duration(140);
 
   return (

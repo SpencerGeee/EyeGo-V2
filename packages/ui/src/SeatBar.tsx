@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { spacing } from '@eyego/config';
 import { SeatBadge } from './SeatBadge';
 

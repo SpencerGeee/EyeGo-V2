@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewStyle, DimensionValue } from 'react-native';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { radii } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
 

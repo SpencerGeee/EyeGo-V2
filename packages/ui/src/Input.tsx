@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
   TextInput,
   TextInputProps,
@@ -14,7 +14,6 @@ import Animated, {
   withTiming,
   interpolate,
   interpolateColor,
-  runOnJS,
 } from 'react-native-reanimated';
 import { fonts, fontSizes, radii, spacing, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
@@ -49,31 +48,60 @@ export function Input({
   // animation. Only reveal the placeholder once the label has actually
   // cleared out of the way.
   const [showPlaceholder, setShowPlaceholder] = useState(false);
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  const labelAnim = useSharedValue(value ? 1 : 0);
+  const hasValue = value != null && value !== '';
+  const labelAnim = useSharedValue(hasValue ? 1 : 0);
   const focusAnim = useSharedValue(0);
+
+  /**
+   * The label floats whenever the field is focused OR holds a value — it is
+   * NOT a focus-only affordance.
+   *
+   * BUGFIX ("the date of birth placeholder overlaps the result"): the float
+   * used to be driven purely from `handleFocus`/`handleBlur`. Any field
+   * populated WITHOUT ever being focused therefore kept its label parked at
+   * the rest position — directly on top of the value. The date-of-birth field
+   * hit this every time, because tapping the calendar icon opens the picker
+   * and `onDateChange` writes the date straight into state without the
+   * TextInput ever receiving focus, printing "Date of birth" over
+   * "12 / 05 / 1998". The same applied to every pre-filled edit-profile field.
+   *
+   * Driving the float from state means programmatic writes, autofill and
+   * pre-filled values all behave identically to typing.
+   */
+  useEffect(() => {
+    const shouldFloat = focused || hasValue;
+    labelAnim.value = withSpring(shouldFloat ? 1 : 0, { stiffness: 300, damping: 20 });
+  }, [focused, hasValue, labelAnim]);
+
+  // The placeholder is a hint for an EMPTY, FOCUSED field only, and is held
+  // back until the label has cleared the space it would otherwise share.
+  useEffect(() => {
+    if (!focused || hasValue) {
+      setShowPlaceholder(false);
+      return;
+    }
+    const t = setTimeout(() => setShowPlaceholder(true), 180);
+    return () => clearTimeout(t);
+  }, [focused, hasValue]);
 
   const handleFocus = useCallback(
     (e: Parameters<NonNullable<TextInputProps['onFocus']>>[0]) => {
-      labelAnim.value = withSpring(1, { stiffness: 300, damping: 20 }, (finished) => {
-        if (finished) runOnJS(setShowPlaceholder)(true);
-      });
+      setFocused(true);
       focusAnim.value = withTiming(1, { duration: 200 });
       onFocus?.(e);
     },
-    [labelAnim, focusAnim, onFocus]
+    [focusAnim, onFocus]
   );
 
   const handleBlur = useCallback(
     (e: Parameters<NonNullable<TextInputProps['onBlur']>>[0]) => {
-      setShowPlaceholder(false);
-      if (!value) {
-        labelAnim.value = withSpring(0, { stiffness: 300, damping: 20 });
-      }
+      setFocused(false);
       focusAnim.value = withTiming(0, { duration: 200 });
       onBlur?.(e);
     },
-    [labelAnim, focusAnim, value, onBlur]
+    [focusAnim, onBlur]
   );
 
   const labelStyle = useAnimatedStyle(() => ({

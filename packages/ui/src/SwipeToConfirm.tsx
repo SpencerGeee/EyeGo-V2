@@ -125,8 +125,20 @@ export function SwipeToConfirm({
 
   // The fill grows with the thumb so the control reads as "progress toward the
   // action" rather than "a knob that moved".
+  //
+  // PERFORMANCE (this is the reported "swipe to start is laggy"). This used to
+  // animate `width` every frame. Width is a LAYOUT property: each frame of the
+  // drag queued a full Yoga layout pass for this subtree on the UI thread, so
+  // the one control in the app that must track a finger exactly was the one
+  // doing the most work per frame — while the thumb beside it, on a pure
+  // `translateX`, cost nothing.
+  //
+  // The fill is now full-width and parked off to the left, revealed by sliding
+  // in. `transform` is composited: no layout, no measurement. Same pixels.
   const fillStyle = useAnimatedStyle(() => ({
-    width: x.value + thumbSize + THUMB_INSET * 2,
+    transform: [
+      { translateX: -(trackWidth.value - (x.value + thumbSize + THUMB_INSET * 2)) },
+    ],
   }));
 
   const labelStyle = useAnimatedStyle(() => {
@@ -198,9 +210,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  // Full-width and translated, never resized — see fillStyle. `right: 0` is what
+  // makes it full-width without a measured number, so the transform is the only
+  // thing that changes per frame.
   fill: {
     position: 'absolute',
     left: 0,
+    right: 0,
     top: 0,
     bottom: 0,
   },

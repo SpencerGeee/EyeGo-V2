@@ -117,7 +117,7 @@ export default function TripCompleteScreen() {
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.earningsLabel}>
             You earned
           </Text>
-          <AnimatedFareText value={driverNetTotal} prefix="GHS " variant="fareLarge" color={colors.primary} shiny />
+          <AnimatedFareText pesewas={driverNetTotal} variant="fareLarge" color={colors.primary} shiny />
           <View style={styles.earningsMeta}>
             <View style={styles.metaItem}>
               <Ionicons name="people" size={16} color={colors.onSurfaceVariant} />

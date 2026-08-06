@@ -14,7 +14,7 @@ import Animated, {
 import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as SplashScreen from 'expo-splash-screen';
-import { fonts, colors, withOpacity, springs } from '@eyego/config';
+import { fonts, colors, withOpacity, durations, easings } from '@eyego/config';
 import { Text, LensSheen } from '@eyego/ui';
 
 const PRIMARY = colors.primary;
@@ -55,8 +55,15 @@ export function SplashAnimation({ onComplete }: Props) {
 
   useEffect(() => {
     // Entrance choreography.
-    logoIn.value = withTiming(1, springs.entrance);
-    wordmarkIn.value = withDelay(T_WORDMARK, withTiming(1, springs.entrance));
+    // Timing, not spring: the splash is a scripted sequence whose beats are
+    // hand-tuned against T_WORDMARK/T_MICROCOPY, so it needs a duration it can
+    // be choreographed against rather than a settle time.
+    const entranceCurve = {
+      duration: durations.standard,
+      easing: Easing.bezier(...(easings.decelerate as unknown as [number, number, number, number])),
+    };
+    logoIn.value = withTiming(1, entranceCurve);
+    wordmarkIn.value = withDelay(T_WORDMARK, withTiming(1, entranceCurve));
     microIn.value = withDelay(T_MICROCOPY, withTiming(1, { duration: 300 }));
 
     // Ambient loops.

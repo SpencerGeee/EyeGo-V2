@@ -39,6 +39,9 @@ export { TierSelector } from './TierSelector';
 export { DriverInfoCard } from './DriverInfoCard';
 export { AnimatedFareText } from './AnimatedFareText';
 export { RollingDigits } from './RollingDigits';
+// Moti with the platform's spring instead of Reanimated 3's bouncy default —
+// import from here, never from 'moti'. See Motion.tsx.
+export { MotiView, MotiText, AnimatePresence } from './Motion';
 export { RideCard } from './RideCard';
 
 // Premium Effects

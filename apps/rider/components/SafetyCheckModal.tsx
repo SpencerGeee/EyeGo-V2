@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 import { View, StyleSheet, Modal, Pressable } from 'react-native';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { Text, Button } from '@eyego/ui';

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { fonts, spacing, radii } from '@eyego/config';
 import { Text, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';

@@ -77,7 +77,14 @@ export default function RegisterScreen() {
         avatarUrl,
         dob: dob.trim() 
       } as any);
-      return { ...data.data, dob: dob.trim(), avatarUrl };
+      // Spreading a bare `avatarUrl` blanked the server's saved photo whenever
+      // the rider skipped the picker, because the local variable is `undefined`
+      // in that case and `undefined` still overwrites on spread.
+      return {
+        ...data.data,
+        dob: dob.trim(),
+        ...(avatarUrl ? { avatarUrl } : {}),
+      };
     },
     onSuccess: (updatedUser) => {
       updateUser(updatedUser as any);

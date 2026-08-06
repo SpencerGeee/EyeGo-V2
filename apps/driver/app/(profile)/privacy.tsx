@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { spacing, radii } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';

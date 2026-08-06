@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView, AnimatePresence } from 'moti';
+import { MotiView, AnimatePresence } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
 import { Text, Radio, GlassSurface } from '@eyego/ui';

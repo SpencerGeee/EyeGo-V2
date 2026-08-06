@@ -87,8 +87,25 @@ export default function TripScreen() {
     // If that ride has since ended, there is no snapshot for the stage to
     // render and `stageForStatus` returns null for terminal statuses — so
     // without this the rider would sit on an empty tracking panel forever.
-    void hydrate().then((trip) => {
-      if (!trip && !CLIENT_OWNED_STAGES.includes(seeded)) syncFromServer('search');
+    void hydrate().then(({ trip, ok }) => {
+      // BUGFIX (three reports, one line): "after paying I land on Where To",
+      // "the live tracking card takes me to Where To", "book + send invite
+      // sends me to Where To".
+      //
+      // `hydrate()` resolves the rider's active SOLO ride via `rides/active`.
+      // A seat on a driver-created GROUP trip is not one, so `trip` is
+      // legitimately null for every group flow — and this fallback then threw
+      // the rider onto the search sheet from a perfectly live booking. The
+      // same happened whenever the call merely FAILED, because the old
+      // `catch { return null }` made offline look identical to no-trip.
+      //
+      // So: never reset on a failed lookup, and never reset a stage that was
+      // seeded for a specific booking — that booking is the thing being shown.
+      if (!ok) return;
+      if (trip) return;
+      if (params.bookingId) return;
+      if (CLIENT_OWNED_STAGES.includes(seeded)) return;
+      syncFromServer('search');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

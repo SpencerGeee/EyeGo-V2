@@ -14,7 +14,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { connectSocket, socketEvents, getSocket, tripsApi } from '@eyego/api';

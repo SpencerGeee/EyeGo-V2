@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { driverAuthApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';

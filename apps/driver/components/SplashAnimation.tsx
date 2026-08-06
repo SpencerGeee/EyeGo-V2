@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import * as SplashScreen from 'expo-splash-screen';
 
 const PRIMARY = '#3B82F6';
