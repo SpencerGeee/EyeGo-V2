@@ -152,7 +152,12 @@ export default function EarningsScreen() {
     );
   };
 
-  // Derive chart data from real transactions
+  // Derive chart data from real transactions.
+  //
+  // BUGFIX: every bucket below summed `t.amount`, a field the wallet ledger has
+  // never had — the column is `amountPesewas`. `?? 0` then swallowed it, so the
+  // earnings chart rendered a flat zero for every period on every device while
+  // looking entirely healthy in code review.
   const chartData = useMemo((): ChartDataPoint[] => {
     // D5: guard against non-array transactions before any derivation
     if (!Array.isArray(txData)) return [];
@@ -171,7 +176,7 @@ export default function EarningsScreen() {
             const d = new Date(t.createdAt);
             return d.toDateString() === now.toDateString() && d.getHours() >= h && d.getHours() < h + 2;
           })
-          .reduce((s, t) => s + (t.amount ?? 0), 0),
+          .reduce((s, t) => s + (t.amountPesewas ?? 0), 0),
       }));
     }
 
@@ -187,7 +192,7 @@ export default function EarningsScreen() {
           label: DAY_LABELS[day.getDay()],
           value: credits
             .filter((t) => new Date(t.createdAt).toDateString() === day.toDateString())
-            .reduce((s, t) => s + (t.amount ?? 0), 0),
+            .reduce((s, t) => s + (t.amountPesewas ?? 0), 0),
         };
       });
     }
@@ -206,7 +211,7 @@ export default function EarningsScreen() {
             const d = new Date(t.createdAt);
             return d >= weekStart && d <= weekEnd;
           })
-          .reduce((s, t) => s + (t.amount ?? 0), 0),
+          .reduce((s, t) => s + (t.amountPesewas ?? 0), 0),
       };
     });
   }, [txData, period]);
@@ -250,7 +255,7 @@ export default function EarningsScreen() {
           {isLoading ? (
             <Text style={styles.balanceAmount}>GHS —</Text>
           ) : (
-            <AnimatedFareText value={balance} prefix="GHS " variant="fareLarge" color={colors.onSurface} shiny />
+            <AnimatedFareText pesewas={balance} variant="fareLarge" color={colors.onSurface} shiny />
           )}
           <View style={styles.balanceMeta}>
             <View style={styles.currencyBadge}>
@@ -315,7 +320,16 @@ export default function EarningsScreen() {
                   </View>
                 )}
                 {txs.map((tx: any, i: number) => {
-                  const isCredit = CREDIT_TYPES.includes(tx.type);
+                  // BUGFIX ("the top-up row just shows a dash"): the ledger
+                  // column is `amountPesewas` — `tx.amount` has never existed,
+                  // so every row formatted `undefined`. The ledger also stores
+                  // SIGNED amounts (a debit is negative, and `balanceAfter =
+                  // balanceBefore + amount` is asserted on write), so the sign
+                  // is a fact about the row, not something to infer from the
+                  // type list: a type missing from CREDIT_TYPES used to render
+                  // a credit with a minus in front of it.
+                  const amountPesewas = tx.amountPesewas ?? 0;
+                  const isCredit = amountPesewas >= 0;
                   return (
             <Entrance
               key={tx.id}
@@ -334,7 +348,11 @@ export default function EarningsScreen() {
                 />
               </View>
               <View style={styles.txInfo}>
-                <Text style={styles.txDesc}>{tx.description}</Text>
+                {/* A row with no description used to render as nothing at all,
+                    which is the other half of the reported blank/dash row. */}
+                <Text style={styles.txDesc}>
+                  {tx.description || (isCredit ? 'Wallet credit' : 'Wallet debit')}
+                </Text>
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   {new Date(tx.createdAt).toLocaleDateString()}
                 </Text>
@@ -343,7 +361,7 @@ export default function EarningsScreen() {
                 styles.txAmount,
                 { color: isCredit ? colors.online : colors.error },
               ]}>
-                {isCredit ? '+' : '-'}{formatGhs(tx.amount)}
+                {isCredit ? '+' : '-'}{formatGhs(Math.abs(amountPesewas))}
               </Text>
             </Entrance>
                   );

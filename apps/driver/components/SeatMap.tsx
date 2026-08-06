@@ -5,9 +5,16 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { driverColors } from '../utils/useColors';
 import * as Haptics from 'expo-haptics';
 
+/**
+ * HELD is not a cosmetic variant of BOOKED. A held seat is one a rider has
+ * reserved but not paid for; it releases itself when the hold expires. The map
+ * used to collapse it into EMPTY, so a driver watching seats fill saw a seat go
+ * from taken to free with no explanation, and the header count (which did
+ * include holds) disagreed with the grid underneath it.
+ */
 export interface SeatData {
   seatNumber: number;
-  status: 'EMPTY' | 'BOOKED' | 'BOARDED';
+  status: 'EMPTY' | 'HELD' | 'BOOKED' | 'BOARDED';
   passengerName?: string;
   userId?: string;
   userName?: string;
@@ -43,16 +50,33 @@ export function SeatMap({ seats, totalSeats, onSeatPress }: Props) {
               styles.seat,
               status === 'BOARDED' && styles.seatBoarded,
               status === 'BOOKED' && styles.seatBooked,
+              status === 'HELD' && styles.seatHeld,
               status === 'EMPTY' && styles.seatEmpty,
               pressed && isOccupied && styles.seatPressed,
             ]}
+            accessibilityRole={isOccupied ? 'button' : 'none'}
+            accessibilityLabel={
+              status === 'HELD'
+                ? `Seat ${num}, held, awaiting payment`
+                : status === 'EMPTY'
+                  ? `Seat ${num}, free`
+                  : `Seat ${num}, ${status.toLowerCase()}`
+            }
           >
             <Text style={[
               styles.seatNum,
-              { color: isOccupied ? driverColors.onPrimary : driverColors.onSurfaceVariant },
+              {
+                color:
+                  status === 'BOARDED' || status === 'BOOKED'
+                    ? driverColors.onPrimary
+                    : status === 'HELD'
+                      ? driverColors.warning
+                      : driverColors.onSurfaceVariant,
+              },
             ]}>
               {num}
             </Text>
+            {status === 'HELD' && <View style={styles.heldPip} />}
           </Pressable>
         );
       })}
@@ -82,6 +106,23 @@ const styles = StyleSheet.create({
   seatBooked: {
     backgroundColor: `${driverColors.primary}30`,
     borderColor: driverColors.primary,
+  },
+  // Deliberately NOT a lighter shade of the booked colour — "reserved, may
+  // vanish" has to be legible at a glance from the driver's seat, so it gets
+  // its own hue and a dashed rim rather than a subtler tint of the same one.
+  seatHeld: {
+    backgroundColor: `${driverColors.warning}22`,
+    borderColor: driverColors.warning,
+    borderStyle: 'dashed',
+  },
+  heldPip: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: driverColors.warning,
   },
   seatEmpty: {
     backgroundColor: driverColors.surfaceContainerHighest,

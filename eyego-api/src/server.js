@@ -122,9 +122,16 @@ async function start() {
     const runSeatHoldExpiry = async () => {
       try {
         const cutoff = new Date(Date.now() - HOLD_MINUTES * 60 * 1000);
+        // `seatNumber: null` is not tidiness — it is the whole point. The
+        // unique key is @@unique([tripId, seatNumber]) with no status in it, so
+        // a CANCELLED row that keeps `seatNumber: 3` permanently blocks seat 3
+        // on that trip: every later booker hits SeatTakenError on a seat the
+        // app is drawing as free. bookSeat has always nulled it when it
+        // releases a hold; this sweep did not, so every abandoned checkout
+        // burned a seat for the life of the trip.
         const expired = await prisma.booking.updateMany({
           where: { status: 'SEAT_HELD', createdAt: { lt: cutoff } },
-          data: { status: 'CANCELLED' },
+          data: { status: 'CANCELLED', seatNumber: null },
         });
         if (expired.count > 0) {
           logger.info(`Seat hold expiry: released ${expired.count} held seat(s)`);

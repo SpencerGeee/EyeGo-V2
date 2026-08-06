@@ -2,10 +2,11 @@
 import { View, StyleSheet, ScrollView, TextInput, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, AnimatePresence } from 'moti';
+import { MotiView, AnimatePresence } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../stores/ride.store';
+import { useToastStore } from '../../stores/toast.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -17,6 +18,7 @@ export default function GuestSelectionScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { guestInfo, setGuestInfo } = useRideStore();
+  const showToast = useToastStore((s) => s.show);
 
   const [selection, setSelection] = useState<'myself' | 'guest'>(guestInfo ? 'guest' : 'myself');
   const [name, setName] = useState(guestInfo?.name ?? '');
@@ -46,15 +48,19 @@ export default function GuestSelectionScreen() {
       setGuestInfo({ name: name.trim(), phone });
       // Saving used to be completely silent — the screen popped straight back to
       // a booking page that looked identical, so a rider had no way to tell the
-      // guest had been recorded at all. The booking screen now shows "Booking
-      // for <name>"; this haptic is the immediate acknowledgement.
+      // guest had been recorded at all. A haptic alone still left the reported
+      // "I can't tell if it worked": it confirms *something* happened without
+      // saying what, and the crucial part is what happens NEXT — the very next
+      // seat they pick is the guest's, not their own.
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(`Next seat you pick is for ${name.trim()}`, 'success');
     } else {
       setGuestInfo(null);
       Haptics.selectionAsync();
+      showToast('Booking for yourself', 'info');
     }
     router.back();
-  }, [selection, name, phone, setGuestInfo, router]);
+  }, [selection, name, phone, setGuestInfo, router, showToast]);
 
   const isContinueDisabled = false; // Validation now happens inside handleContinue
 

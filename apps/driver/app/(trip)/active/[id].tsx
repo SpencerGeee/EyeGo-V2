@@ -334,22 +334,32 @@ export default function ActiveTripScreen() {
   // is now both wrong (the values are pesewas) and unnecessary.
   const fare          = trip.driverEarningsPerSeatPesewas ?? fullFare - Math.round(fullFare * commissionRate);
   const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
-  const passengers = activeBookings.length;
+  // A HELD seat is reserved, not sold: the rider has picked it but not paid,
+  // and it releases itself if they never do. It must be visible on the map (a
+  // driver needs to know the seat isn't free) but it must NOT be counted as
+  // revenue, or the earnings card promises money that may never arrive.
+  const isHeld = (b: any) =>
+    b.status !== 'BOARDED' &&
+    b.paymentStatus !== 'PAID' &&
+    !b.isOffline &&
+    b.paymentMethod !== 'CASH';
+  const paidBookings = activeBookings.filter((b: any) => !isHeld(b));
+  const heldCount = activeBookings.length - paidBookings.length;
+  const passengers = paidBookings.length;
   const grossEarnings = passengers * fullFare;
   const platformFeePesewas   = passengers * (fullFare - fare);
   const netEarnings   = passengers * fare;
   const seats = activeBookings.map((b: any) => ({
     seatNumber: b.seatNumber,
-    // Only show seat as occupied when payment is confirmed or it's an offline booking
+    // BUGFIX: an unpaid hold used to fall through to 'EMPTY', so the seat map
+    // drew it as free while the header counted it as booked — the two halves of
+    // the same card disagreed, and a rider whose hold expired looked to the
+    // driver like a seat that was never taken.
     status: (
-      b.status === 'BOARDED'
-        ? 'BOARDED'
-        : (b.paymentStatus === 'PAID' || b.isOffline || b.paymentMethod === 'CASH')
-          ? 'BOOKED'
-          : 'EMPTY'
-    ) as 'BOARDED' | 'BOOKED' | 'EMPTY',
+      b.status === 'BOARDED' ? 'BOARDED' : isHeld(b) ? 'HELD' : 'BOOKED'
+    ) as 'BOARDED' | 'BOOKED' | 'HELD',
     userId: b.user?.id ?? b.userId,
-    userName: b.user?.name ?? 'Passenger',
+    userName: b.user?.name ?? b.guestName ?? 'Passenger',
     bookingId: b.id,
   }));
 
@@ -504,7 +514,9 @@ export default function ActiveTripScreen() {
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Seat Map</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>{passengers}/{total} booked</Text>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  {passengers}/{total} booked{heldCount > 0 ? ` · ${heldCount} held` : ''}
+                </Text>
                 <Pressable
                   onPress={() => setShowPaymentQr(true)}
                   style={styles.qrBtn}

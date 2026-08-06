@@ -1,11 +1,27 @@
+/**
+ * Mirrors `enum BookingStatus` in prisma/schema.prisma. It must stay complete:
+ * a status the server can send but this union omits is a status every
+ * `switch`/lookup on the client silently mishandles.
+ *
+ * SEAT_HELD is a *hold*, not a booking. The seat is reserved for the length of
+ * SEAT_HOLD_DURATION_MINUTES while the rider pays, is released automatically if
+ * they don't, and must never be presented to either app as "booked".
+ */
 export type BookingStatus =
   | 'PENDING'
+  | 'SEAT_HELD'
   | 'CONFIRMED'
+  | 'PAID'
   | 'BOARDED'
   | 'COMPLETED'
   | 'CANCELLED'
   | 'REFUNDED'
-  | 'SEAT_HELD';
+  | 'EXPIRED'
+  | 'NO_SHOW';
+
+/** True while the seat is only reserved — payment has not landed. */
+export const isSeatHeld = (s: BookingStatus | null | undefined): boolean =>
+  s === 'SEAT_HELD' || s === 'PENDING';
 
 export interface Booking {
   id: string;
@@ -28,6 +44,11 @@ export interface Booking {
   pickupStopId?: string;
   pickupStop?: { id: string; name: string };
   enRouteRatio?: number;
+  // Set when this seat was booked FOR someone else. One account can hold
+  // several seats on one trip — its own plus one per guest — so this is the
+  // field that tells two of that account's bookings apart.
+  guestName?: string | null;
+  guestPhone?: string | null;
   commissionAmountPesewas?: number;
   // A group-hub joiner's own pickup point when it differs from the trip's
   // main pickup, and the resulting detour surcharge (0 for the common case).

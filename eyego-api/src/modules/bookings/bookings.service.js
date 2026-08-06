@@ -151,13 +151,27 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         throw new AppError('This trip is full', 400, 'TRIP_FULL');
       }
 
-      // Cancel any existing SEAT_HELD booking this user already has on this trip
-      // (handles the "go back and pick a different seat" flow — prevents ghost bookings)
-      // Null the seatNumber too — otherwise the cancelled row keeps its old
-      // seatNumber and re-picking the same (or that) seat collides on the
-      // @@unique([tripId, seatNumber]) constraint.
+      // Release the hold this PASSENGER already has on this trip — the "go back
+      // and pick a different seat" flow, which would otherwise leave a ghost
+      // seat behind. Null the seatNumber too, or the cancelled row keeps it and
+      // re-picking that seat collides on @@unique([tripId, seatNumber]).
+      //
+      // BUGFIX (reported: "I booked for Sophia, then booked my own seat, and
+      // the driver only ever sees one seat taken"). This used to key on
+      // `{ tripId, userId }` alone. One account can legitimately hold SEVERAL
+      // seats on one trip — their own plus a seat booked for each guest — and
+      // every one of those rows carries the booker's userId. So the moment the
+      // rider confirmed their own seat, this cancelled the guest's seat they
+      // had just paid attention to, and the trip went back down to one booking.
+      //
+      // The unit of "same seat request" is the PASSENGER, not the account: a
+      // guest is identified by the name/phone the booker entered, and the
+      // booker themselves is the row with no guest attached.
+      const samePassenger = guestName
+        ? { guestName, guestPhone: guestPhone ?? null }
+        : { guestName: null };
       await tx.booking.updateMany({
-        where: { tripId, userId, status: 'SEAT_HELD' },
+        where: { tripId, userId, status: 'SEAT_HELD', ...samePassenger },
         data: { status: 'CANCELLED', seatNumber: null },
       });
 

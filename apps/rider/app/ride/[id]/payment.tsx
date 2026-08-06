@@ -10,7 +10,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from 'moti';
+import { MotiView } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@eyego/api';
@@ -166,7 +166,24 @@ export default function PaymentScreen() {
       // since expired/cancelled server-side) was being reused blindly here, so
       // confirmPayment's SEAT_HELD guard rejected it and every payment attempt
       // failed with a generic "initialization failed" error.
-      let bookingId = activeBooking?.tripId === id ? activeBooking?.id ?? '' : '';
+      // ROOT CAUSE of "the driver only ever sees one seat booked" (reported as
+      // mandatory): this used to reuse `activeBooking` for ANY booking on the
+      // same trip. Book a seat for a guest, then come back to book your own on
+      // that same trip, and this branch handed back the GUEST's booking id — so
+      // no second booking was ever created, the rider paid twice against one
+      // row, and the trip stayed at one occupied seat.
+      //
+      // A held booking may only be resumed by the checkout that created it. That
+      // means the same trip, the same seat, the same passenger, and a hold that
+      // has not already been paid for — anything else is a different seat and
+      // must create its own booking.
+      const resumable =
+        !!activeBooking &&
+        activeBooking.tripId === id &&
+        activeBooking.seatNumber === selectedSeat?.number &&
+        (activeBooking.guestName ?? null) === (guestInfo?.name ?? null) &&
+        (activeBooking.status === 'SEAT_HELD' || activeBooking.status === 'PENDING');
+      let bookingId = resumable ? activeBooking?.id ?? '' : '';
       attemptBookingIdRef.current = bookingId;
       try {
         if (!bookingId && id && selectedSeat) {
@@ -549,7 +566,7 @@ export default function PaymentScreen() {
             style={styles.amountCard}
           >
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Amount to pay</Text>
-            <AnimatedFareText value={fareAmountPesewas} variant="fareLarge" />
+            <AnimatedFareText pesewas={fareAmountPesewas} variant="fareLarge" />
             <Text variant="caption" color={colors.onSurfaceVariant}>
               Seat #{selectedSeat?.number ?? '—'} · {selectedTrip?.origin?.address?.split(',')[0] ?? ''} → {selectedTrip?.destination?.address?.split(',')[0] ?? ''}
             </Text>
