@@ -25,6 +25,7 @@ interface AuthState {
 
   login: (user: User, tokens: AuthTokens) => Promise<void>;
   updateUser: (user: User) => void;
+  mergeUser: (patch: Partial<User>) => void;
   logout: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
 }
@@ -81,6 +82,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.error('[AuthStore] Failed to persist user:', e)
     );
     set({ user });
+  },
+
+  /**
+   * Reconcile the cached user with a fresher server copy.
+   *
+   * BUGFIX ("I set my name during onboarding but the profile page is blank and
+   * asks me to save it again"): `user` was a WRITE-ONCE cache. It was written
+   * by `login()` — whose payload is issued at OTP time, before onboarding has
+   * collected a name — and after that only by the two `updateUser` call sites.
+   * Nothing ever reconciled it against `/user/me`, so a name that was sitting
+   * in the database rendered as "Set your name" locally, and signing in again
+   * overwrote the good local copy with the name-less login payload. The
+   * profile tab even fetched the fresh server profile already and used it for
+   * nothing but `.rating`.
+   *
+   * Merging rather than replacing matters: the login payload and `/user/me`
+   * carry different subsets of the user, so a replace in either direction
+   * drops fields. Undefined values in the patch are ignored for the same
+   * reason — a partial response must never blank a field we already know.
+   */
+  mergeUser: (patch) => {
+    const current = get().user;
+    if (!current) return;
+    const defined = Object.fromEntries(
+      Object.entries(patch).filter(([, v]) => v !== undefined)
+    ) as Partial<User>;
+    const next = { ...current, ...defined };
+    // Skip the write when nothing actually changed — this runs on every
+    // profile refetch and SecureStore writes are not free.
+    const changed = Object.keys(defined).some(
+      (k) => (current as any)[k] !== (next as any)[k]
+    );
+    if (!changed) return;
+    SecureStore.setItemAsync(KEYS.user, JSON.stringify(next)).catch(e =>
+      console.error('[AuthStore] Failed to persist user:', e)
+    );
+    set({ user: next });
   },
 
   logout: async () => {

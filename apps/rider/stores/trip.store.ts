@@ -80,7 +80,15 @@ interface TripStoreState {
   /** Stop following. Called when the trip goes terminal or the surface closes. */
   unwatch: () => void;
   /** One-call rehydration — cold start, foreground, reconnect. */
-  hydrate: () => Promise<TripSnapshot | null>;
+  /**
+   * Resolves the rider's active SOLO ride.
+   *
+   * `ok: false` means the lookup itself failed (offline, 5xx) — it does NOT
+   * mean the rider has no trip, and callers must not act as though it does.
+   * Collapsing those two cases into a bare `null` is what let a dropped
+   * request bounce a rider out of a live trip and back onto the search sheet.
+   */
+  hydrate: () => Promise<{ trip: TripSnapshot | null; ok: boolean }>;
   /** Server time on this device. */
   now: () => number;
 }
@@ -232,9 +240,9 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
           : null,
       });
       if (trip) get().watch(trip.tripId);
-      return trip;
+      return { trip, ok: true };
     } catch {
-      return null;
+      return { trip: null, ok: false };
     }
   },
 
