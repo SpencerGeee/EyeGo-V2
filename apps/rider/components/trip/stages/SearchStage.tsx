@@ -4,11 +4,14 @@ import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { useQuery } from '@tanstack/react-query';
+import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
+import { fonts, fontSizes, radii, withOpacity } from '@eyego/config';
 import { Text, MorphTarget, useMorph, MorphBackSwipeDetector } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
+import { useRecentPlaces } from '../../../stores/recentPlaces.store';
 import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 
@@ -28,54 +31,72 @@ import { consumePickedPlace } from '../../../utils/placePickerResult';
  * map picker (which already owns search + reverse-geocode + confirm) — the
  * Uber/Bolt/Yango model. Nothing on this screen animates except the morph
  * itself, so the morph gets the whole frame budget.
+ *
+ * LAYOUT CONTRACT — read this before touching any style below. This card has
+ * collapsed four separate times, always the same way: something in the ancestor
+ * chain (MorphTarget → MorphBackSwipeDetector's GestureDetector → the stage's
+ * absolute overlay) resolves to an indefinite or zero size, and every `flex`
+ * inside here inherits the zero, because `flex: n` in React Native expands to
+ * `flexBasis: 0` — a *definite* zero — and `flexBasis: 'auto'` cannot override
+ * it. So the rule for this subtree is absolute:
+ *
+ *   NOTHING between the card and the field text takes its size from a flex,
+ *   from `stretch`, or from measurement. Every width and height below is either
+ *   a constant or derived arithmetically from `windowWidth`.
+ *
+ * Keep the constants and the styles that consume them in sync; they are
+ * annotated where they must agree.
  */
-/** Horizontal inset of the floating card — must match `cardWrap`'s padding. */
+
+/** Horizontal inset of the floating card — must match `swipeZone`'s padding. */
 const CARD_H_MARGIN = 16;
-/** Must stay in sync with `floatingCard.padding`, `timeline.width`, `swapBtn.width`
- *  and `inputsSection.gap` — the field column's width is derived from them. */
-const CARD_PADDING = spacing.xl;
-const TIMELINE_W = 12;
+/** Must match `floatingCard.padding`. */
+const CARD_PADDING = 18;
+/** Must match `timeline.width`, `swapBtn.width` and `inputsSection.gap`. */
+const TIMELINE_W = 14;
 const SWAP_W = 38;
 const ROW_GAP = 12;
-/** Field row height and the derived column height. Both are EXPLICIT, never
- *  intrinsic: see the collapse note on `inputsSection`. */
-const ROW_H = 56;
+/** Field row height and the derived column height — both EXPLICIT, never
+ *  intrinsic. See the layout contract above. */
+const ROW_H = 62;
 const ROW_STACK_GAP = 8;
 const COL_H = ROW_H * 2 + ROW_STACK_GAP;
-/** Icon + horizontal padding + gaps consumed by a field row's chrome, so the
- *  text column can be given a real width instead of relying on `flex: 1`. */
-const FIELD_CHROME_W = 12 * 2 + 16 + 16 + 8 * 2;
+/** Must match `fieldRow.paddingHorizontal`, `fieldRow.gap` and the trailing
+ *  chevron's size — this is the chrome the text column does NOT get. */
+const FIELD_PAD_H = 14;
+const FIELD_TRAIL_W = 18;
+const FIELD_GAP = 10;
+const FIELD_CHROME_W = FIELD_PAD_H * 2 + FIELD_TRAIL_W + FIELD_GAP;
+
+/** Timeline geometry, so the dots sit on the vertical centre of their row
+ *  instead of floating wherever padding happens to leave them. */
+const DOT = 12;
+const TIMELINE_TOP = ROW_H / 2 - DOT / 2;
+const TIMELINE_LINE_H = ROW_H + ROW_STACK_GAP - DOT;
+
+const savedIcon = (place: SavedPlace): keyof typeof Ionicons.glyphMap => {
+  const label = place.label.toLowerCase();
+  if (label.includes('home')) return 'home';
+  if (label.includes('work') || label.includes('office')) return 'briefcase';
+  return 'bookmark';
+};
 
 function SearchStageImpl() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  // BUGFIX: the pickup/destination rows collapsed to just their two icons,
-  // hugged to the left of the card. Every view between here and the screen
-  // root is a stretch-width flex child *in theory*, but the card sits inside
-  // MorphTarget → MorphBackSwipeDetector's GestureDetector wrapper → the
-  // stage's absolutely-positioned overlay, and when that chain resolves to a
-  // content-driven width the `flex: 1` on the label Text measures to zero and
-  // the row shrink-wraps its icons — exactly the reported symptom. Pin the
-  // card to the real window width so the rows can never be content-sized,
-  // whatever the ancestors do.
   const { width: windowWidth } = useWindowDimensions();
+
+  // Every horizontal dimension in the card descends from this one number, so
+  // no descendant ever has to ask an ancestor how wide it is allowed to be.
   const cardWidth = Math.max(240, windowWidth - CARD_H_MARGIN * 2);
-  // BUGFIX (reported twice — the previous attempt pinned only the CARD width and
-  // the rows still collapsed): the field column relied on `flex: 1` inside a row
-  // to claim the space left over by the timeline rail and the swap button. Flex
-  // distributes *free* space, so the moment any ancestor resolves to a
-  // content-driven width there is no free space to distribute, the column
-  // measures to its icons, and the rider sees two bare glyphs hugging the left
-  // edge with no visible field at all. Deriving the width arithmetically from
-  // the (already pinned) card width removes the dependency on the ancestor chain
-  // entirely — see CARD_PADDING/TIMELINE_W/SWAP_W below.
   const fieldColWidth = Math.max(
     120,
     cardWidth - CARD_PADDING * 2 - TIMELINE_W - SWAP_W - ROW_GAP * 2,
   );
   const fieldTextWidth = Math.max(60, fieldColWidth - FIELD_CHROME_W);
+
   const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
@@ -89,6 +110,21 @@ function SearchStageImpl() {
 
   const [originText, setOriginText] = useState(origin?.address ?? 'Current Location');
   const [destText, setDestText] = useState(selectedPlace?.name ?? '');
+
+  // ── What used to be dead space ──────────────────────────────────────────
+  // Saved places and recents. The region under the fields was previously blank
+  // until a destination existed, which is exactly backwards: the rider needs
+  // the shortcuts BEFORE they have chosen, not after.
+  const recents = useRecentPlaces((s) => s.places);
+  const loadRecents = useRecentPlaces((s) => s.load);
+  const addRecent = useRecentPlaces((s) => s.add);
+  useEffect(() => { void loadRecents(); }, [loadRecents]);
+
+  const { data: savedPlaces = [] } = useQuery({
+    queryKey: queryKeys.user.savedPlaces,
+    queryFn: async () => (await userApi.getSavedPlaces()).data?.data?.places ?? [],
+    staleTime: 5 * 60_000,
+  });
 
   // BUGFIX: `origin` in the ride store was never populated from the device's
   // real GPS location — every trip search silently fell back to a hardcoded
@@ -145,9 +181,9 @@ function SearchStageImpl() {
     setSearchPlace(place);
     setDestination({ address: place.fullAddress, latitude: place.latitude, longitude: place.longitude });
     setDestText(place.name);
+    addRecent(place);
     haptic.select();
-  }, [setDestination, setSearchPlace]);
-
+  }, [setDestination, setSearchPlace, addRecent]);
 
   const handleSwap = useCallback(() => {
     haptic.light();
@@ -215,6 +251,8 @@ function SearchStageImpl() {
     }, [])
   );
 
+  const shortcutsVisible = !selectedPlace && (savedPlaces.length > 0 || recents.length > 0);
+
   return (
     <View style={styles.overlay} pointerEvents="box-none">
       {/* Header */}
@@ -243,8 +281,8 @@ function SearchStageImpl() {
             <View style={[styles.floatingCard, { width: cardWidth }]}>
 
               {/* ── Dual location rows + timeline ─────────────── */}
-              <View style={styles.inputsSection}>
-                <View style={styles.timeline}>
+              <View style={[styles.inputsSection, { height: COL_H }]}>
+                <View style={[styles.timeline, { height: COL_H }]}>
                   <View style={[styles.timelineDot, styles.timelineDotOrigin]} />
                   <View style={styles.timelineLine} />
                   <View style={[styles.timelineDot, styles.timelineDotDest]} />
@@ -256,17 +294,19 @@ function SearchStageImpl() {
                       and reverse-geocoding, and handing the whole job to it is
                       both the nicer interaction and the reason this card can stay
                       keyboard-free during the morph (see the note at the top of
-                      this file). The row still reads as a field: a standing
-                      caption above its current value. */}
+                      this file). */}
                   <Pressable
-                    style={({ pressed }) => [styles.fieldRow, pressed && styles.fieldRowPressed]}
+                    style={({ pressed }) => [
+                      styles.fieldRow,
+                      { width: fieldColWidth },
+                      pressed && styles.fieldRowPressed,
+                    ]}
                     onPress={() => openMapPicker('origin')}
                     accessibilityRole="button"
                     accessibilityLabel="Set pickup location"
                   >
-                    <Ionicons name="locate-outline" size={16} color={colors.outline} style={styles.inputIcon} />
                     <View style={[styles.fieldTextCol, { width: fieldTextWidth }]}>
-                      <Text style={styles.fieldLabel} numberOfLines={1}>PICKUP POINT</Text>
+                      <Text style={styles.fieldLabel} numberOfLines={1}>PICKUP</Text>
                       <Text
                         style={[styles.fieldValue, !originText && styles.fieldPlaceholder]}
                         numberOfLines={1}
@@ -274,28 +314,36 @@ function SearchStageImpl() {
                         {originText || 'Pickup point'}
                       </Text>
                     </View>
-                    <Ionicons name="map-outline" size={16} color={colors.outline} />
+                    <Ionicons
+                      name="chevron-forward"
+                      size={FIELD_TRAIL_W}
+                      color={withOpacity(colors.onSurfaceVariant, 0.5)}
+                    />
                   </Pressable>
 
                   {/* Destination — identical behaviour, so both halves of the card
                       work the same way. */}
                   <Pressable
-                    style={({ pressed }) => [styles.fieldRow, styles.fieldRowDest, pressed && styles.fieldRowPressed]}
+                    style={({ pressed }) => [
+                      styles.fieldRow,
+                      styles.fieldRowDest,
+                      { width: fieldColWidth },
+                      pressed && styles.fieldRowPressed,
+                    ]}
                     onPress={() => openMapPicker('dest')}
                     accessibilityRole="button"
                     accessibilityLabel="Choose destination"
                   >
-                    <Ionicons name="search-outline" size={16} color={colors.primary} style={styles.inputIcon} />
                     <View style={[styles.fieldTextCol, { width: fieldTextWidth }]}>
                       <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>WHERE TO</Text>
                       <Text
                         style={[styles.fieldValue, !destText && styles.fieldPlaceholder]}
                         numberOfLines={1}
                       >
-                        {destText || 'Destination'}
+                        {destText || 'Search a place or address'}
                       </Text>
                     </View>
-                    <Ionicons name="map-outline" size={16} color={colors.primary} />
+                    <Ionicons name="search" size={FIELD_TRAIL_W} color={colors.primary} />
                   </Pressable>
                 </View>
 
@@ -307,14 +355,14 @@ function SearchStageImpl() {
                   accessibilityRole="button"
                   accessibilityLabel="Swap pickup and destination"
                 >
-                  <Ionicons name="swap-vertical-outline" size={18} color={colors.onSurfaceVariant} />
+                  <Ionicons name="swap-vertical" size={18} color={colors.onSurfaceVariant} />
                 </Pressable>
               </View>
 
               {/* Seats + CTAs, once a destination is confirmed */}
               {selectedPlace && (
                 <>
-                  <View style={[styles.divider, { marginTop: 12 }]} />
+                  <View style={styles.divider} />
                   <View style={styles.seatPickerRow}>
                     <Text variant="bodySmall" color={colors.onSurfaceVariant}>Seats</Text>
                     <View style={styles.seatStepper}>
@@ -365,6 +413,62 @@ function SearchStageImpl() {
           </MorphTarget>
         </View>
       </MorphBackSwipeDetector>
+
+      {/* ── Shortcuts: what fills the space under the card ─────────────────
+          Same width and inset as the card so the two read as one column.
+          `box-none` on the wrapper keeps the map pannable in the gap below. */}
+      {shortcutsVisible && (
+        <View style={[styles.shortcuts, { width: cardWidth }]} pointerEvents="box-none">
+          {savedPlaces.length > 0 && (
+            <View style={styles.chipRow}>
+              {savedPlaces.slice(0, 3).map((p) => (
+                <Pressable
+                  key={p.id}
+                  style={({ pressed }) => [styles.chip, pressed && styles.rowPressed]}
+                  onPress={() =>
+                    commitPlace({
+                      name: p.label,
+                      fullAddress: p.address,
+                      latitude: p.lat,
+                      longitude: p.lng,
+                    })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Go to ${p.label}`}
+                >
+                  <Ionicons name={savedIcon(p)} size={14} color={colors.primary} />
+                  <Text style={styles.chipText} numberOfLines={1}>{p.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {recents.length > 0 && (
+            <View style={styles.recentCard}>
+              {recents.slice(0, 4).map((p, i) => (
+                <Pressable
+                  key={`${p.latitude},${p.longitude}`}
+                  style={({ pressed }) => [styles.recentRow, pressed && styles.rowPressed]}
+                  onPress={() => commitPlace(p)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Go to ${p.name}`}
+                >
+                  <View style={styles.recentIcon}>
+                    <Ionicons name="time-outline" size={16} color={colors.onSurfaceVariant} />
+                  </View>
+                  <View style={styles.recentTextCol}>
+                    <Text style={styles.recentName} numberOfLines={1}>{p.name}</Text>
+                    {!!p.fullAddress && p.fullAddress !== p.name && (
+                      <Text style={styles.recentAddress} numberOfLines={1}>{p.fullAddress}</Text>
+                    )}
+                  </View>
+                  {i < Math.min(recents.length, 4) - 1 && <View style={styles.recentDivider} />}
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -374,7 +478,6 @@ export const SearchStage = React.memo(SearchStageImpl);
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   overlay: {
-    flex: 1,
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 10,
@@ -408,11 +511,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   headerSpacer: { width: 44, height: 44 },
 
-  cardWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-
   /** Dismiss-gesture area: exactly the card's box, never the whole screen —
    *  otherwise the detector owns every pan over the map behind the card. */
   swipeZone: {
@@ -426,23 +524,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     // and `flexBasis: 'auto'` cannot override a `flex` shorthand in Yoga — auto
     // is not a definite value, so basis still resolved to 0 from the `flex`,
     // while `flexGrow: 0` here won and left the zone unable to grow back. Height
-    // zero, card collapsed, field rows with no box to tap. That is why the two
-    // previous attempts (pinning the card width, then the field column width)
-    // could not fix it: the zero came from above, not from here.
+    // zero, card collapsed, field rows with no box to tap.
     flexGrow: 0,
     flexShrink: 0,
     flexBasis: 'auto',
-    paddingHorizontal: 16,
+    paddingHorizontal: CARD_H_MARGIN,
     paddingTop: 8,
   },
 
   // ─── Floating Card (glass panel) ─────────────────────
   floatingCard: {
-    backgroundColor: withOpacity(colors.surfaceCard, 0.92),
+    backgroundColor: withOpacity(colors.surfaceCard, 0.94),
     borderRadius: 24,
     borderWidth: 1,
     borderColor: colors.rimLight,
-    padding: spacing.xl,
+    // MUST equal CARD_PADDING — the field column width is derived from it.
+    padding: CARD_PADDING,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.5,
@@ -451,66 +548,58 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── Dual rows + timeline ────────────────────────────
-  // BUGFIX (reported three times — "the where-to page is showing the one line
-  // thing"): this row used `alignItems: 'stretch'` and derived its height from
-  // its children. When any ancestor handed it a zero/indefinite cross size
-  // (`flex: 1`/`flex: 0` both mean `flexBasis: 0` in RN — see MorphTarget), the
-  // stretch pushed EVERY child to height 0: the card shrank to its 24pt padding
-  // on each side, the two field rows vanished entirely, and the timeline's dots
-  // spilled out below the card because a border-box height of 0 makes padding
-  // overflow. The height is now stated outright and no child in this subtree
-  // takes its height from a flex or from measurement.
+  // Height comes in inline (COL_H). `alignItems` is deliberately NOT 'stretch':
+  // stretch pushed every child to the parent's cross size, so an indefinite
+  // parent height flattened the whole card to its padding.
   inputsSection: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
-    height: COL_H,
+    gap: ROW_GAP,
   },
   timeline: {
     alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 16,
-    gap: 0,
-    width: 12,
-    height: COL_H,
+    // Puts the first dot on the vertical centre of the first field row rather
+    // than wherever symmetric padding happens to leave it.
+    paddingTop: TIMELINE_TOP,
+    width: TIMELINE_W,
     flexShrink: 0,
   },
   timelineDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: DOT,
+    height: DOT,
+    borderRadius: DOT / 2,
     flexShrink: 0,
   },
   timelineDotOrigin: {
     borderWidth: 2,
-    borderColor: colors.primary,
-    backgroundColor: colors.surfaceVariant,
+    borderColor: colors.onSurfaceVariant,
+    backgroundColor: 'transparent',
   },
   timelineDotDest: {
+    // Square-cornered, the way every mapping app distinguishes "the end" from
+    // "the start" without needing a legend.
+    borderRadius: 3,
     backgroundColor: colors.primary,
   },
   timelineLine: {
     width: 1.5,
     // Explicit, not `flex: 1` — a flex child cannot fill a parent whose height
     // was itself indeterminate, which is how the rail used to collapse.
-    height: COL_H - 32 /* padding */ - 24 /* two dots */ - 8 /* margins */,
+    height: TIMELINE_LINE_H,
     backgroundColor: colors.outlineVariant,
-    marginVertical: 4,
   },
   inputsCol: {
-    // Width and height are both supplied inline (`fieldColWidth` / `COL_H`).
-    // Deliberately NO `flex` here: `flex: 1` expands to `flexBasis: 0`, which is
-    // what let this column measure to nothing in the first place.
+    // Width and height are both supplied inline. Deliberately NO `flex` here:
+    // `flex: 1` expands to `flexBasis: 0`, which is what let this column
+    // measure to nothing in the first place.
     gap: ROW_STACK_GAP,
   },
-  // Static rims instead of the rotating gradient rings that used to live here —
-  // see the performance note at the top of this file.
   fieldRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
+    // MUST match FIELD_PAD_H / FIELD_GAP / ROW_H above.
+    paddingHorizontal: FIELD_PAD_H,
+    gap: FIELD_GAP,
     // Explicit height, not minHeight: a `minHeight` is still a *minimum*, and a
     // stretched-to-zero cross size beat it in the collapse described above.
     height: ROW_H,
@@ -520,43 +609,48 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surfaceInput,
   },
   fieldRowDest: {
-    borderColor: withOpacity(colors.primary, 0.55),
+    borderColor: withOpacity(colors.primary, 0.5),
+    backgroundColor: withOpacity(colors.primary, 0.06),
   },
   fieldRowPressed: { opacity: 0.72 },
-  inputIcon: { flexShrink: 0 },
   fieldTextCol: {
     // Width comes in inline (`fieldTextWidth`). `flex: 1` used to live here and
     // is the same trap as everywhere else in this card.
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   fieldLabel: {
     fontFamily: fonts.medium,
-    fontSize: 9,
-    letterSpacing: 0.8,
-    color: withOpacity(colors.onSurfaceVariant, 0.75),
+    fontSize: 10,
+    lineHeight: 13,
+    letterSpacing: 1,
+    color: withOpacity(colors.onSurfaceVariant, 0.7),
   },
   fieldLabelDest: {
     color: withOpacity(colors.primary, 0.9),
   },
   fieldValue: {
-    fontFamily: fonts.regular,
-    fontSize: fontSizes.bodyMedium,
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyLarge,
+    lineHeight: 21,
     color: colors.onSurface,
   },
   fieldPlaceholder: {
-    color: withOpacity(colors.onSurfaceVariant, 0.65),
+    fontFamily: fonts.regular,
+    color: withOpacity(colors.onSurfaceVariant, 0.6),
   },
   swapBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: SWAP_W,
+    height: SWAP_W,
+    borderRadius: SWAP_W / 2,
     backgroundColor: colors.surfaceVariant,
     borderWidth: 1,
     borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
+    // Vertically centred against the two-row column, computed rather than
+    // flexed for the same reason as everything else here.
+    marginTop: (COL_H - SWAP_W) / 2,
     flexShrink: 0,
   },
   swapBtnDisabled: { opacity: 0.4 },
@@ -565,6 +659,80 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     height: 1,
     backgroundColor: colors.rimLightSubtle,
     marginVertical: 14,
+  },
+
+  // ─── Shortcuts under the card ─────────────────────────
+  shortcuts: {
+    marginTop: 14,
+    marginHorizontal: CARD_H_MARGIN,
+    gap: 10,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.9),
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    maxWidth: 140,
+  },
+  chipText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurface,
+  },
+  recentCard: {
+    borderRadius: 20,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.9),
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    overflow: 'hidden',
+  },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    height: 58,
+    paddingHorizontal: 14,
+  },
+  rowPressed: { opacity: 0.65 },
+  recentIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceVariant,
+  },
+  recentTextCol: {
+    // No `flex: 1` anywhere in this file — see the layout contract. The row is
+    // a fixed height and the text simply truncates.
+    minWidth: 0,
+    gap: 1,
+    maxWidth: 240,
+  },
+  recentName: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurface,
+  },
+  recentAddress: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.caption,
+    color: withOpacity(colors.onSurfaceVariant, 0.75),
+  },
+  recentDivider: {
+    position: 'absolute',
+    left: 58, right: 0, bottom: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.rimLightSubtle,
   },
 
   // ─── CTAs ─────────────────────────────────────────────

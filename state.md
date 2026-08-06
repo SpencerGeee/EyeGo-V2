@@ -1,77 +1,86 @@
-# State — MVP/enterprise completion pass (2026-08-04, IN PROGRESS)
+# State — stress-test fix pass (2026-08-06)
 
-## Current Goal
-Take the whole product from "pages done" to Uber/Bolt-grade. User approved MAX
-scope: full map rebuild, money→pesewas, realtime+location, payments, safety,
-and putting the group/bus flow on the same state machine.
-
-## Startup (unchanged)
-Dev infra is **Neon (Postgres) + Upstash (Redis)**. API port **5020**.
+## Startup
+Dev infra: **Neon (Postgres) + Upstash (Redis)**. API port **5020**.
 `npx` is broken — always `node node_modules/prisma/build/index.js …` and
-`node node_modules/typescript/lib/tsc.js …`.
+`node node_modules/typescript/lib/tsc.js -p apps/<app>/tsconfig.json --noEmit`.
+Both apps typecheck clean; the only tsc output is `TS1149` path-casing noise
+(`Eyego V2` vs `EyeGo V2`), pre-existing and not actionable.
 
-## Plan Status
+## Decisions (locked by user)
+- **Money: integer pesewas everywhere.** Apps never do math on raw values; they
+  render through `formatGhs`. Any `*100` / `/100` at a call site is a bug.
+- **Seat holds: hold on select, confirm on payment.** Shown as "held", never
+  "booked", until payment lands. Driver renders held vs booked distinctly.
+- **Motion: one central system, swapped app-wide.** iOS-native curves; zero
+  aesthetic change, feel only.
+- **Env: deployed PROD API.** Docker is irrelevant to the reported failures.
 
-| # | Phase | State |
-|---|-------|-------|
-| P0 | Commit 7-phase rewire checkpoint | **DONE** `f979058` |
-| P1 | Money → integer pesewas | **DONE** `1197846` (server) + `fa9446c` (apps) |
-| P2 | Map rebuild | **PART DONE** `7f3e4ab` — primitives built, screens NOT wired |
-| P3 | Realtime + location pipeline | not started |
-| P4 | Money-adjacent flows (Paystack idempotency, refunds, ledger) | not started |
-| P5 | Safety + comms (chat outbox, SOS, masked calls, share links) | not started |
-| P6 | Group/bus flow onto the state machine | not started |
+## Done
+1. **Money 100x (4, 6, 13).** `AnimatedFareText` took `value` and rendered
+   `.toFixed(2)` (cedis) while callers passed pesewas. Now takes `pesewas` +
+   `formatGhs`; rename forced the compiler through all six call sites. Killed a
+   `setInterval` tween (20 setStates/400 ms) for UI-thread `RollingDigits`.
+2. **DOB overlap (1).** `Input` floated its label from `handleFocus` only, so a
+   date-picker write left the label on the value. Now `focused || hasValue`.
+3. **Profile blank (1, 5).** Auth store was a write-once cache seeded at OTP
+   time, never reconciled with `/user/me`. Added `mergeUser` + `useProfileSync`;
+   `profile/edit` adopts the profile behind a `dirty` ref.
+4. **Three "back to Where To" (9, 14, 15).** One line: `hydrate()` resolves the
+   active SOLO ride, null for every group booking, and its `catch` made offline
+   look identical. `hydrate` now returns `{ trip, ok }`.
+5. **Trip request (3) — diagnosable, root cause still unknown.** Three error
+   paths collapsed into one message behind a bare `catch {}`. Now logs
+   `[RequestStage] trip request failed` with status + body.
+6. **Where-To rebuilt (2).** Whole card rewritten under a stated layout
+   contract: nothing between the card and the field text takes its size from a
+   flex, from `stretch`, or from measurement — that is what collapsed it four
+   times. Bigger fields, chevron/search affordances, square destination dot,
+   computed swap centring. The dead region below now holds saved-place chips +
+   recents (`stores/recentPlaces.store.ts`, AsyncStorage, device-local).
+7. **Guest booking + seat holds (10, 12, 16).** Three separate causes:
+   - `bookSeat` cancelled holds by `{tripId, userId}`, so confirming your own
+     seat cancelled the guest seat you had just held. Now scoped to the
+     PASSENGER (guest name/phone, or "no guest attached" for yourself).
+   - `payment.tsx` reused `activeBooking` for any booking on the same trip, so
+     the second seat never created a booking at all — the rider paid twice
+     against one row. Now requires same trip + seat + passenger + still held.
+   - The hold-expiry sweep in `server.js` cancelled without nulling
+     `seatNumber`, and `@@unique([tripId, seatNumber])` has no status in it — so
+     every abandoned checkout permanently burned that seat.
+   Driver `SeatMap` gained a distinct `HELD` state (dashed warning rim + pip);
+   held seats no longer count toward `passengers` or gross earnings. Rider
+   `StatusBadge` + `@eyego/types` BookingStatus completed to match the Prisma
+   enum. Guest selection now toasts what happens next.
+8. **Motion system (7, 11, 20, 21).** `packages/config/src/motion.ts` rewritten
+   from the research doc: Apple-derived springs, nine of eleven at ζ ≥ 0.85,
+   overshoot reserved for `accent` only. `packages/ui/src/Motion.tsx` wraps Moti
+   so an unspecified transition resolves to `springs.standard` instead of
+   Reanimated 3's `damping:10, stiffness:100` (ζ 0.5 → 16.3 % overshoot,
+   1.46 s settle) — that default was the whole "bouncy toy" feel. All 41 files
+   swapped from `from 'moti'` to `from '@eyego/ui'`.
+9. **Join-trip loader (8).** Green orb was three looping `MotiView` rings inside
+   a `GradientGlowBorder glow` — four scheduled animations, five composited
+   layers, on the screen running dispatch. Replaced by
+   `components/trip/SearchingIndicator.tsx`: one shared value, `withRepeat` on
+   the UI thread, two rings derived by phase offset, honours reduce-motion.
+10. **Performance (17), partial.**
+    - `SwipeToConfirm` animated `width` every frame — a layout property, so the
+      one control that must track a finger queued a Yoga pass per frame. Now
+      a full-width fill on `translateX`. This is the laggy driver swipe.
+    - The ambient rotation clock was shared but never stopped: it ran on every
+      screen and in the background, rotating a 2.2×-diagonal gradient per ring.
+      Now reference-counted and AppState-gated, resuming from its own angle.
+11. **Driver earnings ledger (4, rest).** The wallet column is `amountPesewas`;
+    the screen read `tx.amount`, which has never existed. Rows formatted
+    `undefined` (the reported dash) and — worse — all three chart buckets summed
+    `t.amount ?? 0`, so the earnings chart was a flat zero for every period on
+    every device. Sign now comes from the signed ledger value, not from a
+    type-name list.
 
-## P1 — money (complete, verified)
-25 money columns are `Int` pesewas and **renamed with a `Pesewas` suffix**. The
-rename IS the safety mechanism: retyping `fareAmount` in place would leave every
-read site compiling and charging 100×. Rules now in force:
-1. `eyego-api/src/utils/money.js` is the ONLY place a `*100` / `/100` is allowed.
-2. Commission is taken and the driver keeps the REMAINDER — never `fare * 0.85`.
-3. Splitting uses `split()` (largest-remainder) so N shares sum back exactly.
-4. Paystack takes `amountPesewas` and sends it UNCHANGED — the `*100` is deleted.
-5. Clients never do money arithmetic. `formatGhs(pesewas)` only; `formatCurrency`
-   is deleted so the compiler finds every site.
-Migration is hand-written (add → backfill `ROUND(old*100)` → drop). Applied to
-the live DB. 22 jest invariants in `eyego-api/__tests__/money.pesewas.test.js`.
-
-**Live blocker fixed on the way:** `fare-quote.service.js` signed with
-`env.JWT_SECRET`, which is not in the env schema (zod strips it) → `undefined` →
-`createHmac` threw → **every fare quote 500'd**. Now `JWT_ACCESS_SECRET`,
-asserted at load.
-
-## P2 — map (primitives done, wiring NOT done)
-Built in `packages/maps/src/`:
-- `puck.ts` — GPS fixes → continuous motion. Shortest-angle bearing (the
-  359°→1° spin), heading held below walking pace, settles instead of dead
-  reckoning, interpolates over the observed sample gap.
-- `camera.ts` — modes `overview | follow | followCourse | free`. Stage requests,
-  user gesture always wins, auto-resume after 12s. `boundsFor` can never return
-  a degenerate box — **that, not NaN, is the map SIGABRT cause**.
-- `useMapCamera.ts` — rAF loop drives the camera imperatively, republishes React
-  state at 400ms. Only `isUserInteraction` releases the camera.
-29 behaviour checks pass (run against transpiled modules — `packages/*` has no
-jest runner, so the committed `.test.ts` is not in CI).
-
-### P2 REMAINING — this is the actual "map isn't built right" fix
-1. **Five MapView instances** exist: rider `TripMap.tsx`, rider
-   `ride/[id]/tracking.tsx`, driver `(trip)/active/[id].tsx` (TWO, at ~line 353
-   and ~432), driver `(trip)/tracking/[id].tsx`. Uber has ONE persistent map;
-   every screen mounting its own is why navigation feels like a teardown.
-2. Point all of them at `useMapCamera` and **delete their local camera code**
-   (`recenterCamera`, bespoke `setCamera`, per-screen pitch constants).
-3. `apps/rider/components/trip/useTripCamera.ts` is superseded — fold its
-   sheet-padding into `paddingForSheet` and delete it.
-4. **Route geometry must come from the server trip snapshot**, not per-screen
-   Mapbox calls (see `routeRetryTimerRef` in rider tracking.tsx). Add it to
-   `trip-view.js` `buildTripSnapshot`.
-5. Driver navigation: off-route detection + re-route request.
-
-## Open Issues
-- Nothing has been run on a device this session. Both apps tsc-clean, backend
-  boots clean against Neon+Upstash, `/health/dispatch` green — but no ride has
-  been requested end to end.
-- `packages/*` has no jest runner; two committed test files are not in CI.
-- Still unaudited (from the previous pass): chat outbox, SOS delivery, driver
-  foreground-service call sites, iOS background location, Paystack capture
-  idempotency. These are P3–P5.
+## Open
+- **Item 3 root cause.** Need the device log line from the next repro.
+- **Item 18 (map disjointed).** Not started. Prod API confirmed, Docker ruled
+  out, so it is a real client/camera issue — no reproduction detail yet.
+- **Perf audit is partial.** Two confirmed offenders fixed; no profiling run.
+- Nothing here is device-verified. Nothing is committed.
