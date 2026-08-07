@@ -1,5 +1,5 @@
 ﻿import React, { useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
@@ -9,7 +9,7 @@ import { bookingsApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Skeleton } from '@eyego/ui';
 import { formatGhs, formatTripDate } from '@eyego/utils';
 
 export default function JoinScreen() {
@@ -48,14 +48,31 @@ export default function JoinScreen() {
     );
   }
 
+  // The wait before a group ride loads is not a mystery — the screen already
+  // knows its own shape. So it draws that shape instead of a green spinner over
+  // an empty screen: the card, the two route lines and the fare row settle into
+  // place as the data arrives, rather than the layout snapping in from nothing.
+  // ("the green loader thing. its not nice.")
   if (isLoading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.base }}>
-            Loading ride details...
-          </Text>
+        <View style={styles.skeletonWrap}>
+          <Skeleton width={140} height={22} borderRadius={11} />
+          <View style={styles.skeletonCard}>
+            <Skeleton width={56} height={56} borderRadius={28} />
+            <View style={styles.skeletonLines}>
+              <Skeleton width="70%" height={14} />
+              <Skeleton width="45%" height={12} />
+            </View>
+          </View>
+          <View style={styles.skeletonCard}>
+            <View style={styles.skeletonLines}>
+              <Skeleton width="85%" height={14} />
+              <Skeleton width="60%" height={14} />
+              <Skeleton width="35%" height={12} />
+            </View>
+          </View>
+          <Skeleton width="100%" height={52} borderRadius={radii.lg} />
         </View>
       </SafeAreaView>
     );
@@ -171,6 +188,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'transparent' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing['3xl'] },
   content: { flex: 1, paddingHorizontal: spacing['2xl'], paddingTop: spacing['3xl'], gap: spacing.xl },
+  // Deliberately mirrors `content` below — the placeholder has to occupy the
+  // same grid the real screen will, or the "load" is still a layout jump.
+  skeletonWrap: {
+    flex: 1,
+    paddingHorizontal: spacing['2xl'],
+    paddingTop: spacing['3xl'],
+    gap: spacing.xl,
+  },
+  skeletonCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.base,
+    padding: spacing.lg,
+    borderRadius: radii.xl,
+    backgroundColor: colors.surfaceVariant,
+  },
+  skeletonLines: { flex: 1, gap: spacing.sm },
   inviteHeader: { alignItems: 'center' },
   inviteIcon: {
     width: 72,
