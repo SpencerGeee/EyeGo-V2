@@ -154,6 +154,61 @@ export function boundsFor(coords: Coord[]): { ne: Coord; sw: Coord } | null {
 }
 
 /**
+ * How far a fitted box must move before it is worth re-framing, in degrees
+ * (~55 m at Ghana's latitude).
+ *
+ * WHY THIS NUMBER EXISTS AT ALL. `overview` folds the live interpolated driver
+ * position into its fit set, and that position changes by a fraction of a metre
+ * on EVERY animation frame. Keyed on the exact box, no two consecutive frames
+ * ever matched, so `fitBounds` was re-issued sixty times a second — each call
+ * restarting a 600 ms ease from wherever the previous one had got to, roughly
+ * 16 ms in. The camera therefore lived permanently in the first 3 % of an
+ * easing curve: it crept, dragged behind the car, and never settled. That is
+ * what "the map feels disjointed" is describing.
+ *
+ * Quantising to a grid means the puck can wander inside the current frame
+ * without touching the camera, and only a move that genuinely changes what is
+ * on screen commands a new one.
+ */
+export const OVERVIEW_REFIT_TOLERANCE_DEG = 0.0005;
+
+/**
+ * The identity of an overview frame — what must change before re-framing.
+ *
+ * Padding is part of it. The old key was bounds-only, so a stage change that
+ * grew the bottom sheet (0.62 → 0.44 of the screen) but framed the same two
+ * points produced an identical key and the re-frame was suppressed — leaving
+ * the subject sitting behind the panel until the driver happened to move far
+ * enough. Same points, different visible area, different frame.
+ */
+export function overviewKey(
+  bounds: { ne: Coord; sw: Coord },
+  padding: CameraPadding,
+  toleranceDeg: number = OVERVIEW_REFIT_TOLERANCE_DEG,
+): string {
+  const snap = (n: number) => Math.round(n / toleranceDeg);
+  const box = [...bounds.ne, ...bounds.sw].map(snap).join(',');
+  return `${box}|${paddingKeyOf(padding)}`;
+}
+
+/**
+ * The padding half of `overviewKey`, on its own.
+ *
+ * The frame loop needs to tell a padding change (the sheet resized for a new
+ * stage — the rider caused it and is watching for it) apart from a bounds
+ * change (the driver moved). The first pre-empts an in-flight camera animation;
+ * the second waits for it.
+ */
+export function paddingKeyOf(padding: CameraPadding): string {
+  return [
+    padding.paddingTop ?? 0,
+    padding.paddingBottom ?? 0,
+    padding.paddingLeft ?? 0,
+    padding.paddingRight ?? 0,
+  ].join(',');
+}
+
+/**
  * Decide what the camera should do. Pure — no map, no refs, no side effects,
  * so the whole policy is testable and there is exactly one place to read it.
  */

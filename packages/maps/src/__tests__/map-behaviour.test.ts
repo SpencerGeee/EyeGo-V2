@@ -31,11 +31,14 @@ import {
 import {
   boundsFor,
   isUsableCoord,
+  overviewKey,
+  paddingKeyOf,
   planCamera,
   paddingForSheet,
   shouldAutoResume,
   shouldReleaseToUser,
   MIN_BOUNDS_SPAN_DEG,
+  OVERVIEW_REFIT_TOLERANCE_DEG,
   RESUME_AFTER_MS,
   NAV_PITCH,
   type Coord,
@@ -260,6 +263,51 @@ describe('sheet-aware padding', () => {
     lt(p.paddingBottom!, 800);
     const nan = paddingForSheet({ screenHeight: 800, sheetFraction: NaN, safeTop: 47 });
     assert.equal(Number.isFinite(nan.paddingBottom!), true);
+  });
+});
+
+/**
+ * The frame-loop dedupe. This is the regression guard for "the map feels
+ * disjointed": `overview` folds the live interpolated driver position into its
+ * fit set, so keying the re-frame on the exact bounding box meant no two
+ * consecutive animation frames ever matched and a 600 ms `fitBounds` was
+ * restarted sixty times a second.
+ */
+describe('overview re-frame key', () => {
+  const pad = { paddingTop: 71, paddingBottom: 376, paddingLeft: 32, paddingRight: 32 };
+  const box = (dLng: number) => ({
+    ne: [-0.18 + dLng, 5.61] as Coord,
+    sw: [-0.20 + dLng, 5.59] as Coord,
+  });
+
+  test('a puck creeping within tolerance does not re-frame', () => {
+    // A tenth of the grid — roughly what one animation frame of a car at
+    // 50 km/h actually moves.
+    const nudge = OVERVIEW_REFIT_TOLERANCE_DEG / 10;
+    assert.equal(overviewKey(box(0), pad), overviewKey(box(nudge), pad));
+  });
+
+  test('a move worth watching does re-frame', () => {
+    assert.notEqual(overviewKey(box(0), pad), overviewKey(box(0.01), pad));
+  });
+
+  test('the same box under a different sheet is a different frame', () => {
+    // The old key was bounds-only, so a stage change that grew the sheet over
+    // an unchanged pickup/dropoff pair was suppressed and the subject stayed
+    // hidden behind the panel.
+    const taller = { ...pad, paddingBottom: 496 };
+    assert.notEqual(overviewKey(box(0), pad), overviewKey(box(0), taller));
+  });
+
+  test('the padding key separates a stage change from a driver moving', () => {
+    // This is what lets the frame loop pre-empt an in-flight animation for the
+    // first and make the second wait.
+    const taller = { ...pad, paddingBottom: 496 };
+    assert.equal(paddingKeyOf(pad), paddingKeyOf({ ...pad }));
+    assert.notEqual(paddingKeyOf(pad), paddingKeyOf(taller));
+    // A missing edge is zero, not undefined — otherwise every partial padding
+    // object would read as a fresh stage.
+    assert.equal(paddingKeyOf({}), paddingKeyOf({ paddingTop: 0 }));
   });
 });
 

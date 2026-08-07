@@ -4,6 +4,8 @@ import {
   type CameraPadding,
   type CameraTarget,
   type Coord,
+  overviewKey,
+  paddingKeyOf,
   planCamera,
   shouldAutoResume,
   shouldReleaseToUser,
@@ -79,6 +81,10 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const cameraRef = useRef<any>(null);
   const interpolatorRef = useRef(new PuckInterpolator());
   const lastOverviewKeyRef = useRef('');
+  /** Timestamp the in-flight `fitBounds` animation is expected to land at. */
+  const fitSettlesAtRef = useRef(0);
+  /** The sheet padding the last re-frame was issued for. */
+  const lastPaddingKeyRef = useRef('');
   const [puck, setPuck] = useState<PuckState | null>(null);
 
   // `released` is the user override. Kept in a ref as well as state because the
@@ -183,7 +189,10 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
         { animationDuration: effectiveMode === 'overview' ? 600 : 0 },
       );
 
-      applyPlan(cameraRef.current, plan, effectiveMode, lastOverviewKeyRef);
+      applyPlan(
+        cameraRef.current, plan, effectiveMode,
+        lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef,
+      );
 
       raf = requestAnimationFrame(tick);
     };
@@ -214,22 +223,51 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
  * bounds every frame restarts the animation forever and the map never settles.
  * Fit once per change of intent instead.
  *
- * The memo lives in a per-hook ref rather than at module scope — a module-level
- * variable would be shared by every map in the process, so the rider's overview
- * would suppress the driver's.
+ * TWO guards are needed and the old code had half of one.
+ *
+ *   1. `overviewKey` quantises the box to a ~55 m grid and folds in the padding.
+ *      The old key was the exact bounds, stringified — and `overview` includes
+ *      the live interpolated puck, which moves a fraction of a metre every
+ *      frame, so no two consecutive frames ever produced the same string.
+ *   2. Even with a quantised key, a driver crossing a grid line at speed can
+ *      produce a new key several frames running. `fitBounds` is therefore never
+ *      issued while the previous one is still animating; the newest intent is
+ *      simply picked up on the frame after it lands. One clean 600 ms move at a
+ *      time, rather than a restart cascade that never arrives anywhere.
+ *
+ * That second guard applies to the DRIVER MOVING, and only to that. A padding
+ * change is the bottom sheet resizing for a new stage, which the rider just
+ * caused and is watching happen — making it queue behind an in-flight follow
+ * would leave the pickup pin under the panel for up to 600 ms. So a change of
+ * padding pre-empts, and a change of bounds waits its turn.
+ *
+ * All three memos live in per-hook refs rather than at module scope —
+ * module-level variables would be shared by every map in the process, so the
+ * rider's overview would suppress the driver's.
  */
 function applyPlan(
   cameraRef: any,
   plan: ReturnType<typeof planCamera>,
   mode: CameraMode,
   lastOverviewKeyRef: React.MutableRefObject<string>,
+  fitSettlesAtRef: React.MutableRefObject<number>,
+  lastPaddingKeyRef: React.MutableRefObject<string>,
 ): void {
   if (!cameraRef || plan.kind === 'none') return;
 
   if (plan.kind === 'fitBounds' && plan.bounds) {
-    const key = `${plan.bounds.ne.join()}|${plan.bounds.sw.join()}`;
+    const padding = plan.padding ?? {};
+    const key = overviewKey(plan.bounds, padding);
     if (key === lastOverviewKeyRef.current) return;
+
+    const paddingKey = paddingKeyOf(padding);
+    const stageChanged = paddingKey !== lastPaddingKeyRef.current;
+    const now = Date.now();
+    if (!stageChanged && now < fitSettlesAtRef.current) return;
+
     lastOverviewKeyRef.current = key;
+    lastPaddingKeyRef.current = paddingKey;
+    fitSettlesAtRef.current = now + (plan.animationDuration ?? 0);
     cameraRef.fitBounds?.(
       [plan.bounds.ne, plan.bounds.sw],
       plan.padding,
@@ -238,7 +276,11 @@ function applyPlan(
     return;
   }
 
-  if (mode !== 'overview') lastOverviewKeyRef.current = '';
+  if (mode !== 'overview') {
+    lastOverviewKeyRef.current = '';
+    lastPaddingKeyRef.current = '';
+    fitSettlesAtRef.current = 0;
+  }
 
   if (plan.kind === 'setCamera') {
     cameraRef.setCamera?.({
