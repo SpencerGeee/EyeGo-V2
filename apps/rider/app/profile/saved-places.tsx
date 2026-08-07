@@ -20,6 +20,7 @@ import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProp
 import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useToastStore } from '../../stores/toast.store';
+import { isHomeLabel, isWorkLabel } from '../../utils/savedPlaceSlots';
 
 const LEGACY_KEY = '@eyego_saved_places';
 
@@ -167,7 +168,18 @@ export default function SavedPlacesScreen() {
     });
   };
 
-  const hasLabel = (label: string) => places.some((p) => p.label.toLowerCase() === label);
+  /**
+   * Is the Home (or Work) slot already filled?
+   *
+   * This used to be an exact string match — `p.label.toLowerCase() === 'home'`.
+   * Anything else the rider typed ("Home Address", "My Home", or a label the
+   * place picker filled in for them) failed it, so the "Add Home address"
+   * prompt kept its place in the list directly above the home address it was
+   * asking for. Same predicates as Where To, so the two screens cannot disagree
+   * about which saved place IS home.
+   */
+  const slotFilled = (slot: 'Home' | 'Work') =>
+    places.some((p) => (slot === 'Home' ? isHomeLabel(p.label) : isWorkLabel(p.label)));
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -197,7 +209,7 @@ export default function SavedPlacesScreen() {
           ) : (
             <>
               {/* Home/Work placeholders when not yet saved */}
-              {(['Home', 'Work'] as const).filter((l) => !hasLabel(l.toLowerCase())).map((label) => (
+              {(['Home', 'Work'] as const).filter((l) => !slotFilled(l)).map((label) => (
                 <View key={label}>
                   <Pressable
                     style={styles.placeRow}
@@ -245,8 +257,6 @@ export default function SavedPlacesScreen() {
                   {index < places.length - 1 && <View style={styles.divider} />}
                 </View>
               ))}
-
-              {places.length === 0 && hasLabel('home') && null}
             </>
           )}
         </View>

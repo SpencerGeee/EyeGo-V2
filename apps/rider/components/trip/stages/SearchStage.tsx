@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Pressable, BackHandler, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, Pressable, BackHandler, ScrollView, useWindowDimensions } from 'react-native';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -14,6 +14,7 @@ import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { useRecentPlaces } from '../../../stores/recentPlaces.store';
 import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
+import { isHomeLabel, isWorkLabel } from '../../../utils/savedPlaceSlots';
 
 /**
  * Search stage of the persistent trip surface — the where-to card.
@@ -80,6 +81,38 @@ const savedIcon = (place: SavedPlace): keyof typeof Ionicons.glyphMap => {
   if (label.includes('work') || label.includes('office')) return 'briefcase';
   return 'bookmark';
 };
+
+/**
+ * Home and Work are not "two of the saved places" — they are the two the rider
+ * reaches for by name, and every ride app in this market gives them a permanent
+ * slot. Saved places carry a free-text label, so this is how a label becomes a
+ * slot: the FIRST place whose label reads as home claims the home slot, the
+ * first that reads as work claims work, and everything else is an ordinary
+ * saved place below them.
+ *
+ * The predicates live in utils/savedPlaceSlots so the saved-places screen and
+ * this one cannot disagree about what "Home" means — which is precisely how the
+ * "add home address" prompt survived the address being added.
+ */
+
+/** Metres between two coordinates — enough precision for "am I already here?". */
+function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLng = ((bLng - aLng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+/**
+ * How close counts as "already there". GPS in a built-up area drifts by 20–50 m
+ * and a house is not a point, so 250 m is generous on purpose: offering someone
+ * standing in their own doorway a ride home is worse than briefly hiding a
+ * shortcut they could still reach through the search field.
+ */
+const AT_PLACE_RADIUS_M = 250;
 
 function SearchStageImpl() {
   const colors = useColors();
@@ -251,7 +284,53 @@ function SearchStageImpl() {
     }, [])
   );
 
-  const shortcutsVisible = !selectedPlace && (savedPlaces.length > 0 || recents.length > 0);
+  // ── Home / Work slots + the rest ────────────────────────────────────────
+  // One pass, so a place can only ever occupy one row: whichever slot it claims
+  // first, or the "other saved" list if it claims neither. Without this a place
+  // labelled "Home office" appeared twice and the rider had two identical rows.
+  const { homePlace, workPlace, otherSaved } = useMemo(() => {
+    let home: SavedPlace | null = null;
+    let work: SavedPlace | null = null;
+    const rest: SavedPlace[] = [];
+    for (const p of savedPlaces) {
+      if (!home && isHomeLabel(p.label)) home = p;
+      else if (!work && isWorkLabel(p.label)) work = p;
+      else rest.push(p);
+    }
+    return { homePlace: home, workPlace: work, otherSaved: rest };
+  }, [savedPlaces]);
+
+  // "dont suggest going home when im already at home." Suppress the slot the
+  // rider is standing in — the address is still reachable by typing it, it just
+  // stops being the first thing offered. Needs a real GPS origin: with no fix,
+  // `origin` is null and nothing is suppressed, which is the safe direction.
+  const atPlace = useCallback(
+    (place: SavedPlace | null) => {
+      if (!place || !origin) return false;
+      return metresBetween(origin.latitude, origin.longitude, place.lat, place.lng) <= AT_PLACE_RADIUS_M;
+    },
+    [origin],
+  );
+
+  const showHome = !atPlace(homePlace);
+  const showWork = !atPlace(workPlace);
+
+  const openSavedPlaces = useCallback(() => {
+    haptic.light();
+    router.push('/profile/saved-places' as any);
+  }, [router]);
+
+  const commitSaved = useCallback(
+    (p: SavedPlace) =>
+      commitPlace({ name: p.label, fullAddress: p.address, latitude: p.lat, longitude: p.lng }),
+    [commitPlace],
+  );
+
+  // The panel is the screen until a destination exists, then it collapses to the
+  // card floating over the map. Home and Work always have a row — as a saved
+  // address or as the prompt to add one — so there is something to show even on
+  // a brand-new account, which is when the region was blankest.
+  const expanded = !selectedPlace;
 
   return (
     <View style={styles.overlay} pointerEvents="box-none">
@@ -414,62 +493,167 @@ function SearchStageImpl() {
         </View>
       </MorphBackSwipeDetector>
 
-      {/* ── Shortcuts: what fills the space under the card ─────────────────
-          Same width and inset as the card so the two read as one column.
-          `box-none` on the wrapper keeps the map pannable in the gap below. */}
-      {shortcutsVisible && (
-        <View style={[styles.shortcuts, { width: cardWidth }]} pointerEvents="box-none">
-          {savedPlaces.length > 0 && (
-            <View style={styles.chipRow}>
-              {savedPlaces.slice(0, 3).map((p) => (
-                <Pressable
-                  key={p.id}
-                  style={({ pressed }) => [styles.chip, pressed && styles.rowPressed]}
-                  onPress={() =>
-                    commitPlace({
-                      name: p.label,
-                      fullAddress: p.address,
-                      latitude: p.lat,
-                      longitude: p.lng,
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Go to ${p.label}`}
-                >
-                  <Ionicons name={savedIcon(p)} size={14} color={colors.primary} />
-                  <Text style={styles.chipText} numberOfLines={1}>{p.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          )}
+      {/* ── The panel under the card ───────────────────────────────────────
+          Until a destination is chosen this OWNS the rest of the screen: an
+          opaque surface carrying Home, Work, saved places and recents, the way
+          Uber and Bolt open. The map behind it is not useful yet — the rider
+          has not said where they are going, so there is nothing to show on it —
+          and the old half-height version left a strip of dead map under three
+          chips. Choosing a destination collapses this away and hands the screen
+          back to the map, which is the moment the map starts mattering.
 
-          {recents.length > 0 && (
-            <View style={styles.recentCard}>
-              {recents.slice(0, 4).map((p, i) => (
-                <Pressable
-                  key={`${p.latitude},${p.longitude}`}
-                  style={({ pressed }) => [styles.recentRow, pressed && styles.rowPressed]}
-                  onPress={() => commitPlace(p)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Go to ${p.name}`}
-                >
-                  <View style={styles.recentIcon}>
-                    <Ionicons name="time-outline" size={16} color={colors.onSurfaceVariant} />
-                  </View>
-                  <View style={styles.recentTextCol}>
-                    <Text style={styles.recentName} numberOfLines={1}>{p.name}</Text>
-                    {!!p.fullAddress && p.fullAddress !== p.name && (
-                      <Text style={styles.recentAddress} numberOfLines={1}>{p.fullAddress}</Text>
-                    )}
-                  </View>
-                  {i < Math.min(recents.length, 4) - 1 && <View style={styles.recentDivider} />}
-                </Pressable>
-              ))}
+          Same width and inset as the card so the two read as one column. */}
+      {expanded && (
+        <View style={[styles.panel, { width: cardWidth }]}>
+          <ScrollView
+            style={styles.panelScroll}
+            contentContainerStyle={[styles.panelContent, { paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Home + Work always have a row. A missing one is an invitation to
+                add it, not an absence — and once added it IS the row, so the
+                prompt can never sit next to the address it was asking for. */}
+            <View style={styles.sectionCard}>
+              {showHome && (
+                <SlotRow
+                  styles={styles}
+                  colors={colors}
+                  icon="home"
+                  title={homePlace ? homePlace.label : 'Add home address'}
+                  subtitle={homePlace?.address}
+                  isPrompt={!homePlace}
+                  onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
+                />
+              )}
+              {showHome && showWork && <View style={styles.rowDivider} />}
+              {showWork && (
+                <SlotRow
+                  styles={styles}
+                  colors={colors}
+                  icon="briefcase"
+                  title={workPlace ? workPlace.label : 'Add work address'}
+                  subtitle={workPlace?.address}
+                  isPrompt={!workPlace}
+                  onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
+                />
+              )}
             </View>
-          )}
+
+            {otherSaved.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>Saved places</Text>
+                <View style={styles.sectionCard}>
+                  {otherSaved.map((p, i) => (
+                    <React.Fragment key={p.id}>
+                      {i > 0 && <View style={styles.rowDivider} />}
+                      <SlotRow
+                        styles={styles}
+                        colors={colors}
+                        icon={savedIcon(p)}
+                        title={p.label}
+                        subtitle={p.address}
+                        onPress={() => commitSaved(p)}
+                      />
+                    </React.Fragment>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {recents.length > 0 && (
+              <>
+                <Text style={styles.sectionLabel}>Recent</Text>
+                <View style={styles.sectionCard}>
+                  {recents.slice(0, 8).map((p, i) => (
+                    <React.Fragment key={`${p.latitude},${p.longitude}`}>
+                      {i > 0 && <View style={styles.rowDivider} />}
+                      <SlotRow
+                        styles={styles}
+                        colors={colors}
+                        icon="time-outline"
+                        title={p.name}
+                        subtitle={p.fullAddress !== p.name ? p.fullAddress : undefined}
+                        onPress={() => commitPlace(p)}
+                      />
+                    </React.Fragment>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Always reachable, so the panel is never a dead end on a fresh
+                account with no saved places and no history. */}
+            <Pressable
+              style={({ pressed }) => [styles.searchWideBtn, pressed && styles.rowPressed]}
+              onPress={() => openMapPicker('dest')}
+              accessibilityRole="button"
+              accessibilityLabel="Search for a place"
+            >
+              <Ionicons name="search" size={16} color={colors.primary} />
+              <Text style={styles.searchWideText}>Search for a place or address</Text>
+            </Pressable>
+          </ScrollView>
         </View>
       )}
     </View>
+  );
+}
+
+/**
+ * One tappable place row. Home, Work, a saved place and a recent are the same
+ * gesture with a different icon, so they are the same row — the panel reads as
+ * one list rather than three lists that happen to be stacked.
+ *
+ * `isPrompt` is the empty state: same row, muted title, a plus instead of a
+ * chevron. That is deliberate — "Add home address" occupying the home row is
+ * what makes the address REPLACE it once saved.
+ */
+function SlotRow({
+  styles,
+  colors,
+  icon,
+  title,
+  subtitle,
+  isPrompt,
+  onPress,
+}: {
+  styles: ReturnType<typeof makeStyles>;
+  colors: Colors;
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle?: string;
+  isPrompt?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.placeRow, pressed && styles.rowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={isPrompt ? title : `Go to ${title}`}
+    >
+      <View style={[styles.placeIcon, isPrompt && styles.placeIconPrompt]}>
+        <Ionicons
+          name={icon}
+          size={17}
+          color={isPrompt ? colors.onSurfaceVariant : colors.primary}
+        />
+      </View>
+      <View style={styles.placeTextCol}>
+        <Text style={[styles.placeName, isPrompt && styles.placeNamePrompt]} numberOfLines={1}>
+          {title}
+        </Text>
+        {!!subtitle && (
+          <Text style={styles.placeAddress} numberOfLines={1}>{subtitle}</Text>
+        )}
+      </View>
+      <Ionicons
+        name={isPrompt ? 'add' : 'chevron-forward'}
+        size={16}
+        color={withOpacity(colors.onSurfaceVariant, 0.5)}
+      />
+    </Pressable>
   );
 }
 
@@ -661,78 +845,107 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginVertical: 14,
   },
 
-  // ─── Shortcuts under the card ─────────────────────────
-  shortcuts: {
+  // ─── The places panel under the card ──────────────────
+  /**
+   * The one box in this file that is SUPPOSED to grow, so it is the one place
+   * the no-`flex` rule does not apply — but it is still spelled out in
+   * longhands rather than `flex: 1`, because the shorthand is what collapsed
+   * every other box here and there is no reason to reintroduce the ambiguity.
+   * `minHeight: 0` lets the ScrollView inside actually scroll instead of being
+   * pushed past the bottom of the screen by its own content.
+   */
+  panel: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minHeight: 0,
     marginTop: 14,
     marginHorizontal: CARD_H_MARGIN,
+  },
+  panelScroll: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minHeight: 0,
+  },
+  panelContent: {
     gap: 10,
   },
-  chipRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 36,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: withOpacity(colors.surfaceCard, 0.9),
-    borderWidth: 1,
-    borderColor: colors.rimLight,
-    maxWidth: 140,
-  },
-  chipText: {
+  sectionLabel: {
     fontFamily: fonts.medium,
-    fontSize: fontSizes.bodySmall,
-    color: colors.onSurface,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: withOpacity(colors.onSurfaceVariant, 0.7),
+    marginTop: 4,
+    marginLeft: 4,
   },
-  recentCard: {
+  sectionCard: {
     borderRadius: 20,
-    backgroundColor: withOpacity(colors.surfaceCard, 0.9),
+    backgroundColor: withOpacity(colors.surfaceCard, 0.94),
     borderWidth: 1,
     borderColor: colors.rimLight,
     overflow: 'hidden',
   },
-  recentRow: {
+  placeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    height: 58,
+    height: 60,
     paddingHorizontal: 14,
   },
   rowPressed: { opacity: 0.65 },
-  recentIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  placeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: withOpacity(colors.primary, 0.12),
+  },
+  placeIconPrompt: {
     backgroundColor: colors.surfaceVariant,
   },
-  recentTextCol: {
-    // No `flex: 1` anywhere in this file — see the layout contract. The row is
-    // a fixed height and the text simply truncates.
+  placeTextCol: {
+    // Fixed-height row, truncating text — see the layout contract above.
     minWidth: 0,
     gap: 1,
-    maxWidth: 240,
+    maxWidth: 230,
   },
-  recentName: {
+  placeName: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
     color: colors.onSurface,
   },
-  recentAddress: {
+  placeNamePrompt: {
+    fontFamily: fonts.regular,
+    color: withOpacity(colors.onSurfaceVariant, 0.85),
+  },
+  placeAddress: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
     color: withOpacity(colors.onSurfaceVariant, 0.75),
   },
-  recentDivider: {
-    position: 'absolute',
-    left: 58, right: 0, bottom: 0,
+  rowDivider: {
+    marginLeft: 60,
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.rimLightSubtle,
+  },
+  searchWideBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 50,
+    borderRadius: 18,
+    backgroundColor: withOpacity(colors.primary, 0.1),
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.35),
+  },
+  searchWideText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.primary,
   },
 
   // ─── CTAs ─────────────────────────────────────────────

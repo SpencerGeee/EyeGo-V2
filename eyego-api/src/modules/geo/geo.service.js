@@ -45,8 +45,20 @@ const DIRECTIONS_TIMEOUT_MS = 8000;
  * of query comes back empty.
  */
 const SEARCHBOX_URL = 'https://api.mapbox.com/search/searchbox/v1/forward';
+const SEARCHBOX_SUGGEST_URL = 'https://api.mapbox.com/search/searchbox/v1/suggest';
+const SEARCHBOX_RETRIEVE_URL = 'https://api.mapbox.com/search/searchbox/v1/retrieve';
 const SEARCH_URL = 'https://api.mapbox.com/search/geocode/v6/forward';
 const REVERSE_URL = 'https://api.mapbox.com/search/geocode/v6/reverse';
+
+/**
+ * How many suggestions we are willing to pay a /retrieve round-trip for.
+ *
+ * /suggest returns no coordinates — every row costs a second call before it can
+ * be shown as a destination. They run in parallel, so the wall-clock cost is one
+ * extra round trip regardless of N, but the billing cost is not. Six is more
+ * than fits on screen above the fold.
+ */
+const SUGGEST_RETRIEVE_LIMIT = 6;
 
 /**
  * Search Box POI categories worth surfacing for a ride destination. Passing
@@ -83,6 +95,75 @@ function mapboxToResult(f) {
     // `poi` results are businesses/landmarks; the apps use this to pick an icon.
     kind: p.feature_type || 'place',
   };
+}
+
+/**
+ * Search Box AUTOCOMPLETE — /suggest followed by /retrieve.
+ *
+ * WHY, given /forward already queries the same index: they are not the same
+ * query. /forward is a one-shot geocode — it wants something close to the whole
+ * name and ranks by match quality. /suggest is the typeahead endpoint, and it is
+ * what Uber, Bolt and Yango are actually calling. It resolves partial words and
+ * misspellings ("accra mal", "kotoka intl") that /forward answers with nothing,
+ * which is the difference the rider is describing: the place is in the index,
+ * their half-typed query just never reached it.
+ *
+ * The cost is that /suggest returns no coordinates, only a `mapbox_id` — each
+ * row needs a /retrieve to become a destination. The two calls share a
+ * `session_token` so Mapbox bills them as one session rather than N geocodes.
+ * We mint the token per search request: sessions are meant to span a rider's
+ * whole typing burst, but the API is stateless and the apps do not carry one, so
+ * per-request is the honest choice until they do.
+ *
+ * Failure returns null, not [] — see searchOnce: a provider that errored has
+ * told us nothing, one that answered empty has told us the place isn't indexed.
+ */
+async function searchboxSuggest(query, limit, proximity, country) {
+  const sessionToken = `eyego-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  let suggestions;
+  try {
+    const { data } = await axios.get(SEARCHBOX_SUGGEST_URL, {
+      params: {
+        q: query,
+        limit: Math.min(limit, 10),
+        country,
+        language: 'en',
+        types: SEARCHBOX_TYPES,
+        proximity: `${proximity.lng},${proximity.lat}`,
+        session_token: sessionToken,
+        access_token: env.MAPBOX_SECRET_TOKEN,
+      },
+      timeout: SEARCH_TIMEOUT_MS,
+    });
+    suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+  } catch (err) {
+    logger.warn(`Mapbox Search Box suggest failed for "${query}": ${err.message}`);
+    return null;
+  }
+
+  const ids = suggestions
+    .map((s) => s?.mapbox_id)
+    .filter((id) => typeof id === 'string' && id.length > 0)
+    .slice(0, SUGGEST_RETRIEVE_LIMIT);
+  if (!ids.length) return [];
+
+  // Parallel, and one failed retrieve must not lose the other five.
+  const retrieved = await Promise.all(
+    ids.map((id) =>
+      axios
+        .get(`${SEARCHBOX_RETRIEVE_URL}/${encodeURIComponent(id)}`, {
+          params: { session_token: sessionToken, access_token: env.MAPBOX_SECRET_TOKEN },
+          timeout: SEARCH_TIMEOUT_MS,
+        })
+        .then(({ data }) => mapboxToResult(data?.features?.[0]))
+        .catch((err) => {
+          logger.warn(`Mapbox retrieve failed for ${id}: ${err.message}`);
+          return null;
+        }),
+    ),
+  );
+
+  return retrieved.filter(Boolean);
 }
 
 /**
@@ -314,6 +395,13 @@ async function searchOnce({ query: trimmed, limit, proximity, country }) {
 
     // Search Box — the ONLY source here that indexes businesses/landmarks.
     // Queried first so a named POI outranks a same-named street.
+    //
+    // Both of its endpoints are queried, because they answer differently:
+    // /forward is a one-shot geocode, /suggest is the typeahead the other ride
+    // apps use and is the one that tolerates a half-typed name. Merged and
+    // deduped by coordinate below, so overlap costs nothing visible.
+    tasks.unshift(searchboxSuggest(trimmed, limit, proximity, country));
+
     tasks.unshift(
       axios
         .get(SEARCHBOX_URL, {
