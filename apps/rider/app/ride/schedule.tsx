@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes, withOpacity , MAX_SEATS_PER_BOOKING, clampSeats } from '@eyego/config';
 import { Text, GlassCard, Button } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { tripsApi } from '@eyego/api';
@@ -48,7 +48,13 @@ export default function ScheduleRideScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
 
-  const [seatCount, setSeatCount] = useState(() => useRideStore.getState().requestSeatCount || 1);
+  // Clamped, not trusted. This seeds from whatever Where To last set, and Where
+  // To's stepper and this one used to disagree about the ceiling — so a value
+  // this screen could not itself produce arrived here and was posted to a
+  // validator that rejected it ("scheduling failed (validation failed)").
+  const [seatCount, setSeatCount] = useState(() =>
+    clampSeats(useRideStore.getState().requestSeatCount || 1),
+  );
   const [selectedDate, setSelectedDate] = useState<Date>(getMinDate());
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(getMinDate());
@@ -260,12 +266,12 @@ export default function ScheduleRideScreen() {
             {seatCount} seat{seatCount > 1 ? 's' : ''}
           </Text>
           <Pressable
-            onPress={() => setSeatCount((s) => Math.min(4, s + 1))}
+            onPress={() => setSeatCount((s) => Math.min(MAX_SEATS_PER_BOOKING, s + 1))}
             accessibilityRole="button"
             accessibilityLabel="Increase seats"
             hitSlop={8}
           >
-            <Ionicons name="add-circle-outline" size={26} color={seatCount < 4 ? colors.primary : colors.outline} />
+            <Ionicons name="add-circle-outline" size={26} color={seatCount < MAX_SEATS_PER_BOOKING ? colors.primary : colors.outline} />
           </Pressable>
         </GlassCard>
 

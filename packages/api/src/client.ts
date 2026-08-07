@@ -139,12 +139,32 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Retry on network error or 5xx (up to 3 times with exponential backoff)
+    // Retry on network error or 5xx (up to 3 times with exponential backoff).
+    //
+    // ONLY for requests that are safe to send twice. This used to retry every
+    // method, which is how one tap on the driver's "Publish trip" button became
+    // two trips in the rider's list (one of them wearing the positional "TOP
+    // PICK" badge): a POST whose response is lost to a flaky phone network has
+    // still been received and committed by the server, and the retry created a
+    // second Trip row. Nothing downstream could tell the two apart — they are
+    // genuinely distinct trips as far as the database is concerned.
+    //
+    // A write is only replayable if the server can recognise the replay. That
+    // means either the method is idempotent by definition, or the caller sent
+    // an Idempotency-Key that middleware/idempotency.js can dedupe against.
+    // Everything else fails once and surfaces the error, which the caller can
+    // retry deliberately.
     const retryCount = (original as any)._retryCount ?? 0;
     const isNetworkError = !error.response;
     const isServerError = error.response?.status >= 500;
+    const method = (original.method ?? 'get').toLowerCase();
+    const hasIdempotencyKey = Boolean(
+      (original.headers as Record<string, unknown> | undefined)?.['Idempotency-Key']
+    );
+    const isReplayable =
+      method === 'get' || method === 'head' || method === 'options' || hasIdempotencyKey;
 
-    if ((isNetworkError || isServerError) && retryCount < 3 && !original._retry) {
+    if (isReplayable && (isNetworkError || isServerError) && retryCount < 3 && !original._retry) {
       (original as any)._retryCount = retryCount + 1;
       const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
       await new Promise((resolve) => setTimeout(resolve, delay));

@@ -7,6 +7,7 @@ const authenticate = require('../../middleware/auth');
 const { authenticateDriver } = require('../../middleware/driverAuth');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
+const { MIN_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING } = require('../../config/booking');
 
 const router = Router();
 
@@ -76,7 +77,7 @@ router.post(
   authenticate,
   body('destination').trim().notEmpty().withMessage('Destination is required'),
   body('scheduledAt').isISO8601().withMessage('scheduledAt must be a valid ISO 8601 datetime'),
-  body('seatCount').optional().isInt({ min: 1, max: 6 }),
+  body('seatCount').optional().isInt({ min: MIN_SEATS_PER_BOOKING, max: MAX_SEATS_PER_BOOKING }),
   body('pickupLat').optional().isFloat({ min: -90, max: 90 }),
   body('pickupLng').optional().isFloat({ min: -180, max: 180 }),
   body('destLat').optional().isFloat({ min: -90, max: 90 }),
@@ -97,7 +98,7 @@ router.post(
   authenticate,
   body('destination').trim().notEmpty().withMessage('Destination is required'),
   body('scheduledAt').isISO8601().withMessage('scheduledAt must be an ISO 8601 datetime'),
-  body('seatCount').optional().isInt({ min: 1, max: 4 }),
+  body('seatCount').optional().isInt({ min: MIN_SEATS_PER_BOOKING, max: MAX_SEATS_PER_BOOKING }),
   body('pickupLat').isFloat({ min: -90, max: 90 }).withMessage('pickupLat is required'),
   body('pickupLng').isFloat({ min: -180, max: 180 }).withMessage('pickupLng is required'),
   body('destLat').optional().isFloat({ min: -90, max: 90 }),

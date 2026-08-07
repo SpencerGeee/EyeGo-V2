@@ -6,7 +6,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
-import { fonts, fontSizes, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, radii, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { Text, MorphTarget, useMorph, MorphBackSwipeDetector } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
@@ -378,7 +378,7 @@ function SearchStageImpl() {
                       <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{orderSeats}</Text>
                       <Pressable
                         style={styles.seatStepperBtn}
-                        onPress={() => setOrderSeats((n) => Math.min(8, n + 1))}
+                        onPress={() => setOrderSeats((n) => Math.min(MAX_SEATS_PER_BOOKING, n + 1))}
                         accessibilityRole="button"
                         accessibilityLabel="Increase seat count"
                         hitSlop={8}

@@ -514,25 +514,82 @@ async function getPromotions() {
   });
 }
 
+/**
+ * Create a promotion.
+ *
+ * BUGFIX ("creating a promotion on the admin doesnt work, it says failed to
+ * create promo"). Two faults, and a third that made both of them invisible.
+ *
+ * 1. `maxDiscountPesewas` is an Int column but was read with `parseFloat`. A
+ *    cap typed as "10.50" became 10.5, passed every check here, and was then
+ *    rejected by Postgres at the INSERT — a 500 from a value the form was
+ *    perfectly happy to accept.
+ * 2. The field is named in pesewas but every admin form types cedis. Sent
+ *    under a cedis name it arrived `undefined`, `parseFloat` returned NaN, and
+ *    the request died on "must be positive" for a box the operator had filled
+ *    in. Both spellings are now accepted and normalised to integer pesewas —
+ *    the canonical money unit everywhere in this codebase.
+ * 3. Each failure threw a message naming an internal field, so the panel
+ *    showed one flat "failed to create promo" no matter which box was wrong.
+ *    Messages now name the box and say what was received.
+ */
 async function createPromotion(data) {
-  const discountPercent = parseInt(data.discountPercent);
-  const maxDiscountPesewas = parseFloat(data.maxDiscountPesewas);
-  const expiry = new Date(data.expiry);
   const { AppError } = require('../../utils/errors');
-  if (!data.code || !data.code.trim()) throw new AppError('Promo code is required', 400);
-  if (!Number.isFinite(discountPercent) || discountPercent < 1 || discountPercent > 100) {
-    throw new AppError('discountPercent must be between 1 and 100', 400);
+  const discountPercent = parseInt(data.discountPercent, 10);
+
+  // Accept either unit; store pesewas. A cedis-named field is multiplied,
+  // a pesewas-named one is taken as-is, and both are rounded to an integer
+  // because the column is one.
+  const rawPesewas =
+    data.maxDiscountPesewas != null && data.maxDiscountPesewas !== ''
+      ? Number(data.maxDiscountPesewas)
+      : data.maxDiscountGhs != null && data.maxDiscountGhs !== ''
+        ? Number(data.maxDiscountGhs) * 100
+        : data.maxDiscount != null && data.maxDiscount !== ''
+          ? Number(data.maxDiscount) * 100
+          : NaN;
+  const maxDiscountPesewas = Math.round(rawPesewas);
+
+  const expiry = new Date(data.expiry);
+
+  if (!data.code || !String(data.code).trim()) {
+    throw new AppError('Promo code is required', 400);
   }
-  if (!Number.isFinite(maxDiscountPesewas) || maxDiscountPesewas <= 0) throw new AppError('maxDiscountPesewas must be positive', 400);
-  if (Number.isNaN(expiry.getTime())) throw new AppError('Invalid expiry date', 400);
+  if (!Number.isFinite(discountPercent) || discountPercent < 1 || discountPercent > 100) {
+    throw new AppError(
+      `Discount must be a whole number between 1 and 100 (received "${data.discountPercent}")`,
+      400,
+    );
+  }
+  if (!Number.isFinite(maxDiscountPesewas) || maxDiscountPesewas <= 0) {
+    throw new AppError(
+      'Maximum discount is required and must be greater than zero',
+      400,
+    );
+  }
+  if (Number.isNaN(expiry.getTime())) {
+    throw new AppError(`Expiry is not a valid date (received "${data.expiry}")`, 400);
+  }
+
+  // Optional cap on total redemptions. Silently dropped before, so a limit the
+  // operator set was never enforced.
+  const maxRedemptions =
+    data.maxRedemptions != null && data.maxRedemptions !== ''
+      ? parseInt(data.maxRedemptions, 10)
+      : null;
+  if (maxRedemptions != null && (!Number.isFinite(maxRedemptions) || maxRedemptions < 1)) {
+    throw new AppError('Redemption limit must be a whole number of 1 or more', 400);
+  }
+
   try {
     return await prisma.promotion.create({
       data: {
-        code: data.code.trim().toUpperCase(),
+        code: String(data.code).trim().toUpperCase(),
         discountPercent,
         maxDiscountPesewas,
         expiry,
         active: data.active !== false,
+        ...(maxRedemptions != null ? { maxRedemptions } : {}),
       },
     });
   } catch (err) {

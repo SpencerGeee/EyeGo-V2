@@ -22,7 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance } from '@eyego/ui';
@@ -387,7 +387,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                       <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{requestSeats}</Text>
                       <Pressable
                         style={styles.seatStepperBtn}
-                        onPress={() => setRequestSeatsLocal((n) => Math.min(8, n + 1))}
+                        onPress={() => setRequestSeatsLocal((n) => Math.min(MAX_SEATS_PER_BOOKING, n + 1))}
                         accessibilityRole="button"
                         accessibilityLabel="Increase seat count"
                         hitSlop={8}

@@ -5,6 +5,7 @@ const controller = require('./drivers.controller');
 const { authenticateDriver, requireActiveDriver } = require('../../middleware/driverAuth');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
+const idempotency = require('../../middleware/idempotency');
 const multer = require('multer');
 
 const upload = multer();
@@ -42,7 +43,12 @@ router.patch('/preferences', controller.updatePreferences);
 
 // Trips
 router.get('/fare-estimate', controller.getFareEstimate);
-router.post('/trips', requireActiveDriver, controller.createTrip);
+// Publishing a trip is a create, so a replayed request means a duplicate trip
+// on every rider's home screen. The client sends a per-attempt Idempotency-Key
+// (drivers.api.ts createTrip); this replays the original response instead of
+// creating a second Trip row. Requests without the header still pass through,
+// so older installs keep working.
+router.post('/trips', requireActiveDriver, idempotency, controller.createTrip);
 router.get('/trips', controller.getTripHistory);
 router.get('/trips/all', controller.getAllTrips);
 router.get('/trips/active', controller.getActiveTrip);

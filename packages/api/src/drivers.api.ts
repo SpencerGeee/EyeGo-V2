@@ -208,8 +208,20 @@ export const driverApi = {
     apiClient.get<ApiResponse<{ fareEstimate: { farePerPersonPesewas: number; totalTripCostPesewas: number; driverEarningsPerSeatPesewas: number; commissionPerSeatPesewas: number; commissionRate: number }; surgeMultiplier: number; distanceKm: number }>>('/driver/fare-estimate', { params }),
 
   // Trip management
-  createTrip: (data: CreateTripPayload) =>
-    apiClient.post<ApiResponse<{ trip: DriverTrip }>>('/driver/trips', data),
+  //
+  // Idempotency-Key: publishing a trip is a create, and a create that runs
+  // twice puts two identical trips in front of every rider ("i created one trip
+  // on the driver app and it showed as two trips on the rider app"). The key is
+  // per-attempt — a fresh one each time the driver taps Publish — so a genuine
+  // second publish still works, but a double-tap or a transport-level replay of
+  // the SAME attempt collapses into one Trip row server-side.
+  createTrip: (data: CreateTripPayload, idempotencyKey?: string) =>
+    apiClient.post<ApiResponse<{ trip: DriverTrip }>>('/driver/trips', data, {
+      headers: {
+        'Idempotency-Key':
+          idempotencyKey ?? `trip_${Date.now()}_${Math.floor(Math.random() * 1e9).toString(36)}`,
+      },
+    }),
 
   getTrips: (params?: { page?: number; limit?: number }) =>
     apiClient.get<ApiResponse<{ trips: DriverTrip[]; total: number; page: number; totalPages: number }>>('/driver/trips', { params }),
