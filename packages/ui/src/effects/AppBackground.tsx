@@ -3,6 +3,7 @@ import { View, StyleSheet, Dimensions, type ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  cancelAnimation,
   withRepeat,
   withTiming,
   Easing,
@@ -183,6 +184,11 @@ function Blob({ color, size, top, left, driftX, driftY, durationMs }: BlobConfig
         true
       );
     }
+    // PERF: a `-1` repeat is a UI-thread frame callback that outlives the
+    // component unless it is cancelled. This background mounts on nearly every
+    // screen, so without this every screen the user visited left a blob still
+    // animating for the rest of the session.
+    return () => cancelAnimation(progress);
   }, [progress, durationMs]);
 
   const animStyle = useAnimatedStyle(() => ({

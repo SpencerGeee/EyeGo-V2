@@ -3,6 +3,7 @@ import { View, StyleSheet, type ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  cancelAnimation,
   withRepeat,
   withTiming,
   Easing,
@@ -49,6 +50,12 @@ export function Loader({ label, size = 128, style }: LoaderProps) {
       -1,
       true
     );
+    // A loader is by definition unmounted the moment the thing it was waiting
+    // for arrives; without this its two infinite repeats kept running after.
+    return () => {
+      cancelAnimation(rotation);
+      cancelAnimation(pulse);
+    };
   }, [rotation, pulse]);
 
   const rotateStyle = useAnimatedStyle(() => ({

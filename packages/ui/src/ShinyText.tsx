@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  cancelAnimation,
   withRepeat,
   withTiming,
   Easing,
@@ -55,6 +56,8 @@ export function ShinyText({
       -1,
       false
     );
+    // An infinite repeat survives unmount unless cancelled — see AppBackground.
+    return () => cancelAnimation(sweep);
   }, [sweep, speedMs]);
 
   const bandWidth = Math.max(width * 0.6, 60);

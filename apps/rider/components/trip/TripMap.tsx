@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import MapboxGL from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
@@ -181,6 +182,15 @@ function TripMapImpl() {
   // GPS fixes arrive every couple of seconds; a marker moved straight to each
   // one teleports. `useMapCamera` interpolates between them and smooths the
   // bearing the short way round, so the car drives instead of blinking.
+  // PERF: the frame loop is 60 Hz of bounds arithmetic and native camera calls,
+  // and this map is deliberately never unmounted — so pushing payment, chat or
+  // the receipt over the trip surface used to leave it running underneath, for
+  // a map nobody could see. `useIsFocused` is false for a screen that is still
+  // mounted but covered, which is exactly the condition the hook's `active`
+  // flag exists for. The interpolator keeps buffering GPS fixes while paused,
+  // so coming back re-frames from the real position rather than a stale one.
+  const isFocused = useIsFocused();
+
   const camera = useMapCamera({
     mode,
     fit,
@@ -190,7 +200,7 @@ function TripMapImpl() {
       sheetFraction: SHEET_FRACTION[stage] ?? 0.44,
       safeTop: insets.top,
     }),
-    active: true,
+    active: isFocused,
   });
   const { pushSample, resetPuck } = camera;
 

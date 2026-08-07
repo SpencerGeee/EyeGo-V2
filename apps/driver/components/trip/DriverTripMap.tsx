@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { driverSocketEvents } from '@eyego/api';
 import { useMapCamera, paddingForSheet, type Coord } from '@eyego/maps';
@@ -50,7 +51,16 @@ export interface DriverTripMapProps {
   puckColor?: string;
   /** Fraction of the screen the bottom sheet covers, for camera padding. */
   sheetFraction?: number;
-  /** False while the screen is not visible: stops the frame loop dead. */
+  /**
+   * False while the screen is not visible: stops the frame loop dead.
+   *
+   * Defaults to true and is AND-ed with navigation focus, so a caller never has
+   * to remember it — neither of the two did, and a driver opening chat or the
+   * passenger list over the tracking screen left 60 Hz of bounds arithmetic and
+   * native camera calls running under a map nobody could see. Pass `false`
+   * explicitly for a reason focus cannot know about (a modal covering the map
+   * within the same screen).
+   */
   active?: boolean;
   /** Server ETA for the CURRENT leg, so a screen can render it without its own routing call. */
   onEta?: (eta: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => void;
@@ -73,6 +83,8 @@ export function DriverTripMapImpl({
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { height: screenHeight } = useWindowDimensions();
+  // False for a screen that is still mounted but covered — see `active` above.
+  const isFocused = useIsFocused();
 
   const carrying = CARRYING.has(status ?? '');
   const target = (carrying ? dropoff : pickup) ?? dropoff ?? pickup ?? null;
@@ -131,7 +143,7 @@ export function DriverTripMapImpl({
     mode: 'followCourse',
     center: target,
     padding: paddingForSheet({ screenHeight, sheetFraction, safeTop: insets.top }),
-    active,
+    active: active && isFocused,
   });
   const { pushSample, resetPuck } = camera;
 

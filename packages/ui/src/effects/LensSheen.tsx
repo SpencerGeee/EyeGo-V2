@@ -3,6 +3,7 @@ import { View, StyleSheet, type ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
+  cancelAnimation,
   withRepeat,
   withTiming,
   Easing,
@@ -30,6 +31,8 @@ export function LensSheen({ style, bandWidth = 70, durationMs = 4200 }: LensShee
       -1,
       false
     );
+    // An infinite repeat survives unmount unless cancelled — see AppBackground.
+    return () => cancelAnimation(progress);
   }, [progress, durationMs]);
 
   const sweepStyle = useAnimatedStyle(() => ({
