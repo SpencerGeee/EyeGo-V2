@@ -15,7 +15,7 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime, formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
@@ -44,7 +44,10 @@ function getStatusColors(colors: Colors): Record<string, string> {
     COMPLETED: colors.statusSuccess,
     CANCELLED: colors.statusError,
     CONFIRMED: colors.statusInfo,
-    SEAT_HELD: colors.statusInfo,
+    // Amber, matching StatusBadge and the seat map: a hold is not yet a
+    // booking, and colouring it the same blue as CONFIRMED told the rider the
+    // seat was theirs while payment was still outstanding.
+    SEAT_HELD: colors.statusWarning,
     BOARDED: colors.statusWarning,
     PENDING: colors.onSurfaceVariant,
   };
@@ -139,7 +142,12 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
           {relativeTime(departureTime)}
         </Text>
         <View style={[styles.statusChip, { backgroundColor: withOpacity(statusColor, 0.15) }]}>
-          <Text style={[styles.statusChipText, { color: statusColor }]}>{booking.status}</Text>
+          {/* BUGFIX: this printed `booking.status` straight from Prisma, so a
+              rider mid-payment read the literal "SEAT_HELD". One label map for
+              the whole app — see `bookingStatusLabel`. */}
+          <Text style={[styles.statusChipText, { color: statusColor }]}>
+            {bookingStatusLabel(booking.status)}
+          </Text>
         </View>
       </View>
       {fare != null && (

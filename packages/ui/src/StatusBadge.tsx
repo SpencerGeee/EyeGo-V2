@@ -23,20 +23,48 @@ interface StatusBadgeProps {
   status: BookingStatus;
 }
 
+/**
+ * The ONE place a booking status becomes words a rider reads.
+ *
+ * Exported because it used to live only inside this component, so any screen
+ * that drew its own chip — the Activity tab did — printed the raw Prisma enum
+ * instead: a rider with a held seat saw the literal string `SEAT_HELD`. Worse
+ * than ugly, it lost the distinction the enum exists to carry: a hold is not a
+ * booking, and `bookingStatusLabel` is what keeps every surface saying so.
+ */
+export const BOOKING_STATUS_LABELS: Record<BookingStatus, string> = {
+  PENDING:   'Pending',
+  // "Held", not "Booked": the seat is reserved while the rider pays and
+  // releases itself if they don't.
+  SEAT_HELD: 'Seat Held',
+  CONFIRMED: 'Confirmed',
+  PAID:      'Paid',
+  BOARDED:   'Boarded',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+  REFUNDED:  'Refunded',
+  EXPIRED:   'Expired',
+  NO_SHOW:   'No Show',
+};
+
+/** Never render a booking status without going through this. */
+export function bookingStatusLabel(status: string | null | undefined): string {
+  return BOOKING_STATUS_LABELS[status as BookingStatus] ?? BOOKING_STATUS_LABELS.PENDING;
+}
+
 function getStatusConfig(colors: ColorTokens): Record<BookingStatus, { label: string; color: string }> {
+  const label = (s: BookingStatus) => BOOKING_STATUS_LABELS[s];
   return {
-    PENDING:   { label: 'Pending',   color: colors.statusWarning },
-    // "Held", not "Booked": the seat is reserved while the rider pays and
-    // releases itself if they don't.
-    SEAT_HELD: { label: 'Seat Held', color: colors.statusWarning },
-    CONFIRMED: { label: 'Confirmed', color: colors.statusSuccess },
-    PAID:      { label: 'Paid',      color: colors.statusSuccess },
-    BOARDED:   { label: 'Boarded',   color: colors.statusSuccess },
-    COMPLETED: { label: 'Completed', color: colors.onSurfaceVariant },
-    CANCELLED: { label: 'Cancelled', color: colors.statusError },
-    REFUNDED:  { label: 'Refunded',  color: colors.statusError },
-    EXPIRED:   { label: 'Expired',   color: colors.onSurfaceVariant },
-    NO_SHOW:   { label: 'No Show',   color: colors.statusError },
+    PENDING:   { label: label('PENDING'),   color: colors.statusWarning },
+    SEAT_HELD: { label: label('SEAT_HELD'), color: colors.statusWarning },
+    CONFIRMED: { label: label('CONFIRMED'), color: colors.statusSuccess },
+    PAID:      { label: label('PAID'),      color: colors.statusSuccess },
+    BOARDED:   { label: label('BOARDED'),   color: colors.statusSuccess },
+    COMPLETED: { label: label('COMPLETED'), color: colors.onSurfaceVariant },
+    CANCELLED: { label: label('CANCELLED'), color: colors.statusError },
+    REFUNDED:  { label: label('REFUNDED'),  color: colors.statusError },
+    EXPIRED:   { label: label('EXPIRED'),   color: colors.onSurfaceVariant },
+    NO_SHOW:   { label: label('NO_SHOW'),   color: colors.statusError },
   };
 }
 

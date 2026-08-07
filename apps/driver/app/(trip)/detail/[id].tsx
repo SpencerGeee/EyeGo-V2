@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GradientGlowBorder, AppBackground } from '@eyego/ui';
+import { Text, Entrance, GradientGlowBorder, AppBackground, bookingStatusLabel } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -217,7 +217,7 @@ export default function TripDetailScreen() {
                     <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
                       {booking.user?.name ?? `Seat ${booking.seatNumber ?? '—'}`}
                     </Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>Seat {booking.seatNumber ?? '—'} · {booking.paymentStatus === 'PAID' ? 'Paid' : booking.paymentStatus === 'PENDING' ? 'Cash' : booking.status}</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>Seat {booking.seatNumber ?? '—'} · {booking.paymentStatus === 'PAID' ? 'Paid' : booking.paymentStatus === 'PENDING' ? 'Cash' : bookingStatusLabel(booking.status)}</Text>
                   </View>
                   {/* D16: fallback for unknown booking status values */}
                   <View style={[styles.statusChip, booking.status === 'BOARDED' ? { backgroundColor: '#22C55E20', borderColor: '#22C55E55' } : booking.status === 'CONFIRMED' ? { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}55` } : { backgroundColor: `${colors.onSurfaceVariant}20`, borderColor: `${colors.onSurfaceVariant}55` }]}>

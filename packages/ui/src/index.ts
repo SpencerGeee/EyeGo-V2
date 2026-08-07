@@ -30,7 +30,7 @@ export type { CarMarkerProps } from './CarMarker';
 export { SwipeToConfirm } from './SwipeToConfirm';
 export type { SwipeToConfirmProps } from './SwipeToConfirm';
 export { TierBadge } from './TierBadge';
-export { StatusBadge } from './StatusBadge';
+export { StatusBadge, BOOKING_STATUS_LABELS, bookingStatusLabel } from './StatusBadge';
 export { SeatBadge } from './SeatBadge';
 
 // Ride Components
