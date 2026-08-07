@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import {
   getDriverSocket,
+  connectDriverSocket,
+  disconnectDriverSocket,
   ridesApi,
   subscribeToTrip,
   serverNow,
@@ -75,8 +77,14 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
+    const hadRef = unsubscribe != null;
     unsubscribe?.();
     watchedTripId = tripId;
+    // Hold a socket ref for as long as we are watching — `disconnectDriverSocket`
+    // nulls the module's socket at zero refs, and this subscription's listeners
+    // would be left on the discarded object. See the same note in the rider
+    // store; it is the same bug with a different namespace.
+    if (!hadRef) connectDriverSocket();
     unsubscribe = subscribeToTrip({
       socket: getDriverSocket(),
       tripId,
@@ -93,7 +101,9 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
   },
 
   unwatch: () => {
+    const hadRef = unsubscribe != null;
     unsubscribe?.();
+    if (hadRef) disconnectDriverSocket();
     unsubscribe = null;
     watchedTripId = null;
     set({ snapshot: null, lastSeq: 0, recovering: false });

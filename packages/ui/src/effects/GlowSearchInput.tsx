@@ -76,20 +76,44 @@ interface GlowSearchPressableProps {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  /**
+   * Ring/glow palette. Defaults to the blue+orange "premium" pair, which is
+   * tuned for a near-black surround. Pass `'green'` on anything sitting over
+   * the lit green home background — see below.
+   */
+  palette?: RingPalette;
+  /** Glow strength multiplier, forwarded to GradientGlowBorder. */
+  glowIntensity?: number;
 }
+
+type RingPalette = 'default' | 'green' | 'driver' | 'gold' | 'royal' | 'economy' | 'comfort';
 
 /**
  * Fake-search-bar variant (navigates on press rather than accepting input) —
  * used for home.tsx's "Where to?" entry point.
+ *
+ * ── On the palette ───────────────────────────────────────────────────────────
+ * "the glow is too faint and the colour clashes with the green background."
+ *
+ * Both halves of that are the same mistake. The default ring is blue with an
+ * orange counter-arc, designed against near-black; over the home screen's green
+ * it is simultaneously the wrong hue (blue and orange are the two things green
+ * sits between, so the ring reads as dirty rather than as light) and invisible,
+ * because a glow is only ever as bright as its contrast with what is behind it.
+ * `RING_PALETTES.green` already existed for precisely this surround — it was
+ * simply never pointed at the search bar.
  */
 export function GlowSearchPressable({
   onPress,
   children,
   style,
   accessibilityLabel,
+  palette = 'default',
+  glowIntensity,
 }: GlowSearchPressableProps) {
   const colors = useThemedColors();
   const ringRef = useRef<GradientGlowBorderHandle>(null);
+  const isDefault = palette === 'default';
 
   return (
     <Pressable
@@ -101,14 +125,19 @@ export function GlowSearchPressable({
     >
       <GradientGlowBorder
         ref={ringRef}
-        colors={PREMIUM_RING_COLORS}
-        locations={PREMIUM_RING_LOCATIONS}
+        palette={palette}
+        // The explicit props win over a palette, so only pass them when there
+        // is no palette to honour — otherwise `palette="green"` would keep the
+        // blue ring it was chosen to replace.
+        colors={isDefault ? PREMIUM_RING_COLORS : undefined}
+        locations={isDefault ? PREMIUM_RING_LOCATIONS : undefined}
+        glowColor={isDefault ? colors.premiumBlue : undefined}
+        glowColorSecondary={isDefault ? colors.premiumOrange : undefined}
         fillColor={colors.surfaceInput}
         borderRadius={radii['2xl']}
         thickness="thin"
         glow
-        glowColor={colors.premiumBlue}
-        glowColorSecondary={colors.premiumOrange}
+        glowIntensity={glowIntensity}
         style={[styles.container, style]}
       >
         {children}

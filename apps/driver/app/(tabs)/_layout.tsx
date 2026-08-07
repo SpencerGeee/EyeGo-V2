@@ -2,16 +2,12 @@ import React from 'react';
 import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, spacing } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, usePressScale } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 
@@ -78,18 +74,14 @@ function TabItem({ routeName, isFocused, onPress, colors, styles }: {
   colors: DriverColors;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const scale = useSharedValue(1);
+  const press = usePressScale();
   const icons = TAB_ICONS[routeName];
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
+  const animStyle = press.style;
 
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => { scale.value = withSpring(0.88, { stiffness: 600, damping: 15 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { stiffness: 600, damping: 15 }); }}
+      {...press.handlers}
       style={styles.tabItem}
       accessibilityRole="button"
       accessibilityLabel={TAB_LABELS[routeName]}

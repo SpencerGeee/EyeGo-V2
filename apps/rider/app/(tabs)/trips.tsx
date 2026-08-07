@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, RefreshControl, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useRouter, type Href } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { FlashList } from '@shopify/flash-list';
@@ -11,7 +11,7 @@ import { bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, EmptyState, StatusBadge, backgroundScrollPauseProps } from '@eyego/ui';
+import { Text, Skeleton, EmptyState, StatusBadge, backgroundScrollPauseProps, usePressScale } from '@eyego/ui';
 import { formatGhs, formatTripDate } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import type { Booking } from '@eyego/types';
@@ -236,13 +236,11 @@ function AnimatedSegment({
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const press = usePressScale();
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => { scale.value = withSpring(0.94, { stiffness: 700, damping: 18 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 18 }); }}
+      {...press.handlers}
       style={styles.segmentItem}
       accessibilityRole="button"
       accessibilityState={{ selected: isActive }}
@@ -251,7 +249,7 @@ function AnimatedSegment({
       <Animated.View style={[
         { paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.md, borderRadius: radii.xl, overflow: 'hidden' },
         isActive && styles.segmentItemActive,
-        animStyle,
+        press.style,
       ]}>
         {isActive && Platform.OS === 'ios' && (
           <BlurView intensity={20} tint="light" style={StyleSheet.absoluteFill} />

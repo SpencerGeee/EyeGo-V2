@@ -18,7 +18,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useMutation } from '@tanstack/react-query';
 import { driverAuthApi, driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -300,8 +300,8 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
   useEffect(() => {
     if (value) {
       scale.value = withSequence(
-        withSpring(1.1, { stiffness: 400, damping: 20 }),
-        withSpring(1, { stiffness: 400, damping: 20 })
+        withSpring(1.08, springs.micro),
+        withSpring(1, springs.micro)
       );
     }
   }, [value, scale]);

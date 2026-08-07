@@ -22,7 +22,7 @@ import {
 } from '../utils/liveActivity';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
 // throws ReferenceError for properties that don't exist on Zustand-persisted
@@ -114,12 +114,13 @@ export function TripStatusListener() {
   const showBanner = useCallback((msg: string, icon: string = 'notifications') => {
     setBannerMsg(msg);
     setBannerIcon(icon);
-    // Slide in
+    // Slide in. `bounciness: 6` is the legacy Animated API's own word for the
+    // problem — a status banner that overshoots its resting position reads as
+    // the notification bouncing rather than as the notification arriving.
     Animated.spring(bannerAnim, {
       toValue: 0,
       useNativeDriver: true,
-      speed: 20,
-      bounciness: 6,
+      ...springs.standard,
     }).start();
     // Auto-dismiss after 5 s
     if (bannerTimer.current) clearTimeout(bannerTimer.current);

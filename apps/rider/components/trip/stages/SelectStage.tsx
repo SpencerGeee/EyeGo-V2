@@ -22,7 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
-import { fonts, fontSizes, spacing, radii, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance } from '@eyego/ui';
@@ -160,7 +160,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
   const handleSwap = () => {
     swapRotation.value = withSequence(
-      withSpring(180, { stiffness: 300, damping: 20 }),
+      withSpring(180, springs.standard),
       withTiming(360, { duration: 0 })
     );
     const tmpText = originText;
@@ -481,7 +481,10 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 return (
                   <Animated.View
                     key={trip.id ?? i}
-                    layout={LinearTransition.springify().damping(22).stiffness(200)}
+                    layout={LinearTransition.springify()
+                      .stiffness(springs.emphasized.stiffness)
+                      .damping(springs.emphasized.damping)
+                      .mass(springs.emphasized.mass)}
                   >
                   <Entrance
                     animation="slideUp"

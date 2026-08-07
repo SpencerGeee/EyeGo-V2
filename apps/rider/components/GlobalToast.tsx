@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useToastStore, type ToastType } from '../stores/toast.store';
 import { Text } from '@eyego/ui';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, springs, durations } from '@eyego/config';
 
 const CONFIG: Record<ToastType, { bg: string; iconColor: string; name: React.ComponentProps<typeof Ionicons>['name'] }> = {
   success: { bg: '#0f2e14', iconColor: '#4be277', name: 'checkmark-circle' },
@@ -22,13 +22,13 @@ export function GlobalToast() {
   useEffect(() => {
     if (visible) {
       Animated.parallel([
-        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, stiffness: 500, damping: 32 }),
-        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...springs.standard }),
+        Animated.timing(opacity, { toValue: 1, duration: durations.fast, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(translateY, { toValue: -120, duration: 240, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: -120, duration: durations.base, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0, duration: durations.fast, useNativeDriver: true }),
       ]).start();
     }
   }, [visible, translateY, opacity]);

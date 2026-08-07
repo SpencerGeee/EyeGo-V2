@@ -185,10 +185,22 @@ export function forceDisconnectSocket() {
 export function refreshSocketAuth(tripId?: string, driverId?: string): void {
   const _socket = socket;
   if (!_socket) return;
-  // Update the auth token for the next connection (socket.io reads auth on reconnect)
-  _socket.auth = { token: getToken?.() };
-  // If socket is already connected, no need to disconnect — just update auth for next reconnect
-  // If disconnected, reconnect now
+  // BUGFIX ("the map is frozen and the top says reconnecting"): this line used
+  // to be `_socket.auth = { token: getToken() }`.
+  //
+  // `getSocket()` deliberately installs `auth` as a CALLBACK, because socket.io
+  // re-invokes it before every connection attempt — that is the mechanism by
+  // which a reconnect picks up a rotated token. Assigning a plain object here
+  // destroyed that mechanism and froze the socket on whichever token happened
+  // to be current at this instant. It kept working right up until that token
+  // expired (~15 minutes), after which every reconnect failed authentication,
+  // socket.io retried and failed ten more times, and the trip screen sat on
+  // "Reconnecting…" forever with a map that never received another position.
+  // Worse, the function whose entire job is to refresh the auth was the thing
+  // that broke it.
+  //
+  // There is nothing to assign: the callback already reads the newest token.
+  // All that is left to do is get the connection back up.
   if (!_socket.connected) {
     _socket.connect();
   }

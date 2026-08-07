@@ -37,6 +37,17 @@ interface GradientGlowBorderProps {
   /** Second glow tint layered behind the first for a two-tone bloom
    * (e.g. blue + orange). Omit for a single-color glow. */
   glowColorSecondary?: string;
+  /**
+   * Multiplier on the glow's opacity and reach. 1 is the tuned default.
+   *
+   * A glow is only ever as bright as the contrast between its tint and what is
+   * behind it, so the same numbers that read as "premium" over a near-black
+   * card read as almost nothing over the lit green home background. Rather than
+   * brightening every glow in both apps — which would blow out the ones that
+   * are already right — a surface that sits over a bright backdrop asks for
+   * more here. Clamped so a caller cannot push shadowOpacity past 1.
+   */
+  glowIntensity?: number;
   /** Low-perf-tier escape hatch: renders a static ring, no rotation/burst. */
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -148,6 +159,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
       glow = false,
       glowColor: glowColorProp,
       glowColorSecondary: glowColorSecondaryProp,
+      glowIntensity = 1,
       disabled,
       style,
       children,
@@ -159,6 +171,9 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
     const locations = locationsProp ?? (colorsProp ? undefined : preset.locations);
     const glowColor = glowColorProp ?? (palette ? preset.glowColor : undefined);
     const glowColorSecondary = glowColorSecondaryProp ?? (palette ? preset.glowColorSecondary : undefined);
+    // shadowOpacity above 1 is not "brighter", it is undefined behaviour on
+    // both platforms — so the multiplier scales but the result is clamped.
+    const glowAt = (base: number) => Math.min(1, base * glowIntensity);
     const tier = usePerformanceTier();
     // Low-tier devices default to a static ring (no continuous rotation)
     // unless the caller explicitly opts in/out via `disabled`.
@@ -276,8 +291,8 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                   backgroundColor: fillColor,
                   shadowColor: glowColor ?? colors[colors.length - 1],
                   shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.65,
-                  shadowRadius: 28,
+                  shadowOpacity: glowAt(0.65),
+                  shadowRadius: 28 * glowIntensity,
                   elevation: 14,
                 },
               ]}
@@ -293,8 +308,8 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                   backgroundColor: fillColor,
                   shadowColor: glowColor ?? colors[colors.length - 1],
                   shadowOffset: { width: 0, height: 0 },
-                  shadowOpacity: 0.9,
-                  shadowRadius: 8,
+                  shadowOpacity: glowAt(0.9),
+                  shadowRadius: 8 * glowIntensity,
                   elevation: 14,
                 },
               ]}
@@ -310,8 +325,8 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                       backgroundColor: fillColor,
                       shadowColor: glowColorSecondary,
                       shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 0.55,
-                      shadowRadius: 36,
+                      shadowOpacity: glowAt(0.55),
+                      shadowRadius: 36 * glowIntensity,
                       elevation: 14,
                     },
                   ]}
@@ -325,8 +340,8 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                       backgroundColor: fillColor,
                       shadowColor: glowColorSecondary,
                       shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 0.75,
-                      shadowRadius: 10,
+                      shadowOpacity: glowAt(0.75),
+                      shadowRadius: 10 * glowIntensity,
                       elevation: 14,
                     },
                   ]}

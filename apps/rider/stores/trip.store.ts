@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import {
   getSocket,
+  connectSocket,
+  disconnectSocket,
   ridesApi,
   socketEvents,
   subscribeToTrip,
@@ -109,9 +111,21 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
+    const hadRef = unsubscribe != null;
     unsubscribe?.();
     unsubscribeEta?.();
     watchedTripId = tripId;
+    // BUGFIX ("the panel scrolls but the map is frozen"): this used to call
+    // `getSocket()` without taking a reference. `disconnectSocket()` is
+    // ref-counted, and when the last SCREEN released its ref it did not merely
+    // disconnect — it set the module's `socket` to null, so the next
+    // `getSocket()` built a different Socket object. This subscription was
+    // still holding listeners on the discarded one: no `trip:event` would ever
+    // arrive again, `connected` could never flip back, and the trip screen sat
+    // there with a live panel over a map that had stopped receiving positions.
+    // Watching a trip IS a use of the socket, so it holds its own ref for
+    // exactly as long as it is watching. Released in `unwatch`.
+    if (!hadRef) connectSocket();
     // A new trip must not inherit the previous one's line or countdown.
     set({ eta: null, path: null });
 
@@ -209,8 +223,13 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
   },
 
   unwatch: () => {
+    const hadRef = unsubscribe != null;
     unsubscribe?.();
     unsubscribeEta?.();
+    // Balances the `connectSocket()` in `watch`. Only when we actually held one
+    // — `unwatch` is called defensively from several unmount paths and a
+    // double release would tear the socket out from under another screen.
+    if (hadRef) disconnectSocket();
     unsubscribe = null;
     unsubscribeEta = null;
     watchedTripId = null;

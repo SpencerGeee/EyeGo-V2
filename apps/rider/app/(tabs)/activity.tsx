@@ -6,7 +6,7 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
@@ -15,7 +15,7 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime, formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
@@ -473,18 +473,16 @@ function AnimatedSegBtn({
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const press = usePressScale();
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => { scale.value = withSpring(0.92, { stiffness: 700, damping: 15 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 15 }); }}
+      {...press.handlers}
       style={styles.segmentBtn}
       accessibilityRole="button"
       accessibilityState={{ selected: isActive }}
     >
-      <Animated.View style={[isActive && styles.segmentActive, animStyle, styles.segmentPill]}>
+      <Animated.View style={[isActive && styles.segmentActive, press.style, styles.segmentPill]}>
         <Text
           style={[
             styles.segmentText,

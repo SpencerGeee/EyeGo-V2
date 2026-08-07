@@ -21,7 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, Avatar, AppBackground } from '@eyego/ui';
@@ -441,9 +441,13 @@ function StarButton({
   return (
     <Pressable
       onPress={() => {
+        // A star being awarded is one of the few things allowed to bounce —
+        // but through `springs.accent` (ζ 0.75, 2.8 % overshoot), not the old
+        // ζ 0.27 wobble, and from 1.2 rather than 1.35 so the star does not
+        // collide with the one beside it.
         scale.value = withSequence(
-          withSpring(1.35, { stiffness: 500, damping: 12 }),
-          withSpring(1, { stiffness: 400, damping: 18 })
+          withSpring(1.2, springs.accent),
+          withSpring(1, springs.micro)
         );
         onPress();
       }}

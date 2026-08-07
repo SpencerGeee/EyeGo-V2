@@ -138,6 +138,23 @@ async function registerForPushNotifications() {
  *  against the ambient background instead of a flat fill. */
 const TRANSPARENT_CONTENT = { backgroundColor: 'transparent' } as const;
 
+/**
+ * Native push for detail screens — the same constant the rider app has had.
+ *
+ * `slide_from_right` is react-native-screens' own re-implementation of a push.
+ * On iOS it slides the incoming screen over a *stationary* outgoing one and
+ * hands the back-swipe to a JS gesture. `'default'` hands the transition to
+ * UINavigationController, which is where the parallax (the screen underneath
+ * drifting at a third of the speed), the shadow under the leading edge and the
+ * real interactive pop live. Every one of those is a thing a rider notices
+ * without being able to name — and the driver app was the only one of the two
+ * not getting them. Android has no equivalent, so it keeps the explicit slide.
+ */
+const detailPush = {
+  animation: Platform.OS === 'ios' ? ('default' as const) : ('slide_from_right' as const),
+  gestureEnabled: true,
+};
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { retry: 2, staleTime: 1000 * 60 * 5 },
@@ -388,19 +405,19 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="(trip)/active/[id]"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(trip)/tracking/[id]"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(trip)/detail/[id]"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(trip)/chat/[id]"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(trip)/complete/[id]"
@@ -416,23 +433,23 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="(profile)"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(profile)/payout-account"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(profile)/account-deletion"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(profile)/terms"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(profile)/privacy"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
           <Stack.Screen
             name="(onboarding)"
@@ -444,7 +461,7 @@ export default function RootLayout() {
           />
           <Stack.Screen
             name="(trip)/report/[id]"
-            options={{ animation: 'slide_from_right' }}
+            options={detailPush}
           />
         </Stack>
         </MorphProvider>

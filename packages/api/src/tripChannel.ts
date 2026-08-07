@@ -264,6 +264,13 @@ export function subscribeToTrip({
       // snapshot that follows is the authority, and the server told us so
       // rather than leaving us to guess.
       if (ack?.truncated) void recover();
+      // A rejected subscribe is not a lost connection, and must not be reported
+      // as one. The socket is up; we are simply not in the room, so no event
+      // will ever arrive and the snapshot has to come over HTTP instead. Left
+      // unhandled this was indistinguishable from a dead network — the screen
+      // showed "Reconnecting…" over a map that would never update, for a socket
+      // that was connected the whole time.
+      if (ack?.error) void recover();
       emit();
     });
   };
@@ -283,6 +290,13 @@ export function subscribeToTrip({
 
   const handleConnect = () => {
     state = { ...state, connected: true };
+    // Report the connection BEFORE asking to subscribe, not inside the
+    // subscribe ack. The ack is a server round-trip that can be slow, can be
+    // dropped, or can never come at all; the connection is a fact we already
+    // hold. Publishing it only through the ack meant a perfectly healthy socket
+    // still displayed "Reconnecting…" for as long as the server took to answer
+    // — and indefinitely if it never did.
+    emit();
     subscribe();
   };
   const handleDisconnect = () => {
@@ -293,7 +307,17 @@ export function subscribeToTrip({
   socket.on('trip:event', handleEvent);
   socket.on('connect', handleConnect);
   socket.on('disconnect', handleDisconnect);
-  if (socket.connected) subscribe();
+  if (socket.connected) {
+    subscribe();
+  } else {
+    // Not connected yet, and `connect` may be minutes away on a bad network.
+    // Pull the snapshot over HTTP so the screen has real pickup and dropoff
+    // addresses to draw immediately rather than the placeholders it shows
+    // while `snapshot` is null. The socket takes over the moment it is up, and
+    // `shouldApply` discards this one if it turns out to be the older of the
+    // two — which is exactly why fetching it eagerly is safe.
+    void recover();
+  }
 
   /**
    * Periodic high-water mark for a connection that stays up for hours and so

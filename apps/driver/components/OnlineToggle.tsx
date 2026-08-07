@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, usePressScale } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
 
 interface Props {
@@ -13,24 +13,13 @@ interface Props {
 
 export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
   const driverColors = useColors();
-  const scale = useSharedValue(1);
-
-  const animStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    scale.value = withSpring(0.93, { stiffness: 600, damping: 15 });
-  };
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { stiffness: 600, damping: 15 });
-  };
+  const press = usePressScale({ disabled: loading });
+  const animStyle = press.style;
 
   return (
     <Pressable
       onPress={onToggle}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+      {...press.handlers}
       disabled={loading}
     >
       <Animated.View style={[

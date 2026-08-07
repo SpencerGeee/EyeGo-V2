@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl, Alert } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground } from '@eyego/ui';
+import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -219,13 +219,12 @@ function AnimatedSegBtn({
   colors: DriverColors;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const press = usePressScale();
+  const animStyle = press.style;
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => { scale.value = withSpring(0.92, { stiffness: 700, damping: 15 }); }}
-      onPressOut={() => { scale.value = withSpring(1, { stiffness: 700, damping: 15 }); }}
+      {...press.handlers}
       style={styles.segmentBtn}
       accessibilityRole="button"
       accessibilityState={{ selected: isActive }}

@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs, durations } from '@eyego/config';
 import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -194,10 +194,10 @@ export default function DriverTrackingScreen() {
 
   const showBanner = useCallback((msg: string) => {
     setBannerMsg(msg);
-    Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
+    Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true, ...springs.standard }).start();
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, { toValue: -80, duration: 300, useNativeDriver: true }).start(() => setBannerMsg(null));
+      Animated.timing(bannerAnim, { toValue: -80, duration: durations.standard, useNativeDriver: true }).start(() => setBannerMsg(null));
     }, 4000);
   }, [bannerAnim]);
 

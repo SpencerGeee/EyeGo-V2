@@ -8,7 +8,7 @@ import {
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, springs } from '@eyego/config';
 import { Text, Toggle, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -31,7 +31,10 @@ export default function SettingsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* General */}
-        <Animated.View entering={FadeInDown.delay(60).springify().damping(18)}>
+        <Animated.View entering={FadeInDown.delay(60).springify()
+            .stiffness(springs.standard.stiffness)
+            .damping(springs.standard.damping)
+            .mass(springs.standard.mass)}>
           <Text variant="labelCaps" style={styles.sectionLabel}>
             GENERAL
           </Text>
@@ -52,7 +55,10 @@ export default function SettingsScreen() {
             profile/notification-preferences.tsx. One link to the real thing
             instead of a second, non-functional copy. */}
         <Animated.View
-          entering={FadeInDown.delay(130).springify().damping(18)}
+          entering={FadeInDown.delay(130).springify()
+            .stiffness(springs.standard.stiffness)
+            .damping(springs.standard.damping)
+            .mass(springs.standard.mass)}
           style={{ marginTop: spacing['2xl'] }}
         >
           <Text variant="labelCaps" style={styles.sectionLabel}>

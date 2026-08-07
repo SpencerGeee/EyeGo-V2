@@ -75,6 +75,10 @@ function WhereToPressable({
     <GlowSearchPressable
       onPress={onPress}
       accessibilityLabel="Open destination search"
+      // Green ring over the green backdrop, at 1.35× so it actually reads
+      // against a lit background instead of washing out against it.
+      palette="green"
+      glowIntensity={1.35}
       style={styles.whereToCard}
     >
       <View style={styles.whereToIconWrap}>
@@ -636,7 +640,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 12,
+    // BUGFIX ("the top nav has a cutout at its bottom that cuts the glow
+    // field"): there is no cutout. The Where-To bar lives inside the ScrollView
+    // below, and a ScrollView clips its content to its own bounds — while the
+    // bar's glow is an iOS shadow painting up to ~36 pt ABOVE the bar. With
+    // only 12 + 8 pt of room between the header and the card, the top of the
+    // halo was sliced off flat at the scroll viewport's edge, and a hard
+    // horizontal line where a soft glow should be reads exactly like a notch
+    // cut out of the bar above it.
+    // Nothing here clips: the fix is to give the halo room to exist inside the
+    // scroll view. Paired with `scrollContent.paddingTop` — the two together
+    // must clear the largest shadowRadius the bar can paint.
+    paddingBottom: 4,
     gap: 10,
   },
   avatarBtn: {
@@ -693,7 +708,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    // ≥ the Where-To glow's outer reach (36 pt × the 1.35 intensity ≈ 49) so
+    // the halo never meets the clip edge. See the note on `header`.
+    paddingTop: 52,
     gap: 16,
     paddingBottom: 8,
   },

@@ -20,7 +20,7 @@ import Animated, {
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { maskPhone } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
@@ -266,8 +266,8 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
   useEffect(() => {
     if (value) {
       scale.value = withSequence(
-        withSpring(1.1, { stiffness: 400, damping: 20 }),
-        withSpring(1, { stiffness: 400, damping: 20 })
+        withSpring(1.08, springs.micro),
+        withSpring(1, springs.micro)
       );
     }
   }, [value, scale]);

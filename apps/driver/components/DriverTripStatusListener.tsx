@@ -14,7 +14,7 @@ import { useNotificationsStore } from '../stores/notifications.store';
 import { useColors } from '../utils/useColors';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
 import Constants from 'expo-constants';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
@@ -82,8 +82,7 @@ export function DriverTripStatusListener() {
     Animated.spring(bannerAnim, {
       toValue: 0,
       useNativeDriver: true,
-      speed: 20,
-      bounciness: 6,
+      ...springs.standard,
     }).start();
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => {

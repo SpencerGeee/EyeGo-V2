@@ -26,7 +26,7 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
 import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
-import { fonts, fontSizes, spacing, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, withOpacity, springs } from '@eyego/config';
 import {
   Text,
   GradientGlowBorder,
@@ -408,7 +408,7 @@ function AnimatedDot({
   const scaleX = useSharedValue(isActive ? 1 : 0.25);
 
   useEffect(() => {
-    scaleX.value = withSpring(isActive ? 1 : 0.25, { stiffness: 580, damping: 34, mass: 0.8 });
+    scaleX.value = withSpring(isActive ? 1 : 0.25, springs.micro);
   }, [isActive, scaleX]);
 
   const dotStyle = useAnimatedStyle(() => ({

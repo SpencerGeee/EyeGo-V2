@@ -64,6 +64,9 @@ export type { MorphRect, MorphSourceHandle } from './morph';
 export { PulseRing } from './effects/PulseRing';
 
 // Animation Primitives
+// The press-down scale for every touchable. Never hand-roll a withSpring for a
+// press — see usePressScale.ts for what that drifted into.
+export { usePressScale } from './usePressScale';
 export { Entrance, StaggerList, AnimatedList } from './animations';
 export type { EntranceProps, EntranceAnimation, ExitAnimation, StaggerListProps, AnimatedListProps } from './animations';
 export type { PulseRingProps } from './effects/PulseRing';

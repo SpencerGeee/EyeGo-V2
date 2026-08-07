@@ -12,7 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, socketEvents, connectSocket, disconnectSocket } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, EmptyState, AppBackground, Entrance, GlassSurface } from '@eyego/ui';
@@ -210,9 +210,12 @@ function SeatButton({
 
   const handlePress = () => {
     if (isUnavailable) return;
+    // Selecting a seat is a state change, not a celebration: press down, come
+    // back, done. The old 800/12 pair was ζ 0.21 — the seat inflated past its
+    // own size on the way back and knocked into its neighbours.
     scale.value = withSequence(
-      withSpring(0.88, { stiffness: 800, damping: 12 }),
-      withSpring(1, { stiffness: 800, damping: 12 })
+      withSpring(0.92, springs.press),
+      withSpring(1, springs.micro)
     );
     onPress();
   };

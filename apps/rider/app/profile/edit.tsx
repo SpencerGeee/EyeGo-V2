@@ -232,8 +232,24 @@ export default function EditProfileScreen() {
             the whole avatar block (zIndex for iOS, elevation for Android) keeps
             it above the form, and the extra bottom room stops the glow reaching
             the first field at all. */}
-        <MorphTarget id={morphId ?? 'profile-hero-avatar'} borderRadius={48} style={styles.avatarMorph}>
-          <View style={styles.avatarSection}>
+        {/* BUGFIX ("the circular avatar morphs into a full rectangle"):
+            MorphTarget reports the frame of ITS OWN wrapper, and this used to
+            wrap `avatarSection` — a block-level column holding the 108×108 ring
+            AND the "change photo" label, i.e. a ~390×190 box the full width of
+            the screen. So the provider was told, correctly, to land the clone on
+            a wide rectangle, and a 64 pt circle duly inflated into one. The
+            radius prop was never the problem; the frame was.
+
+            The target has to be the circle itself and nothing else, so the
+            wrapper is now pinned to the ring's exact 108×108 and sits INSIDE the
+            column rather than around it. `borderRadius` is half of that, which
+            makes the clone a circle at both ends of the flight. */}
+        <View style={styles.avatarSection}>
+          <MorphTarget
+            id={morphId ?? 'profile-hero-avatar'}
+            borderRadius={54}
+            style={styles.avatarMorph}
+          >
             <Pressable onPress={pickImage} style={styles.avatarContainer}>
               <GradientGlowBorder
                 colors={PREMIUM_RING_COLORS}
@@ -258,9 +274,9 @@ export default function EditProfileScreen() {
                 <Ionicons name="camera-outline" size={14} color={colors.onPrimary} />
               </View>
             </Pressable>
-            <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
-          </View>
-        </MorphTarget>
+          </MorphTarget>
+          <Text style={styles.changePhotoLabel}>CHANGE PHOTO</Text>
+        </View>
 
         <KeyboardAwareScrollView
           contentContainerStyle={styles.scroll}
@@ -433,15 +449,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: spacing['2xl'],
     paddingBottom: 120,
   },
+  // Exactly the ring's box — this is the rectangle the morph clone is told to
+  // become, so anything else in here (a label, a margin, an auto width) lands
+  // in the animation. Keep it 108×108.
   avatarMorph: {
-    zIndex: 2,
-    elevation: 2,
+    width: 108,
+    height: 108,
+    alignSelf: 'center',
   },
   avatarSection: {
     alignItems: 'center',
     marginBottom: spacing['2xl'],
     // Clearance for the ring's glow, which paints outside the 108×108 box.
     paddingBottom: spacing.md,
+    // Lifts the whole avatar block above the form so the ring's glow is not
+    // painted over by the later sibling. Moved here from `avatarMorph` when the
+    // nesting flipped — the stacking context has to be on the outer block.
+    zIndex: 2,
+    elevation: 2,
   },
   avatarContainer: { position: 'relative', width: 108, height: 108 },
   avatarRing: { width: 108, height: 108, alignItems: 'center', justifyContent: 'center' },
