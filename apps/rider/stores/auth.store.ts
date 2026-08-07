@@ -24,6 +24,7 @@ interface AuthState {
   isLoading: boolean;
 
   login: (user: User, tokens: AuthTokens) => Promise<void>;
+  refreshTokens: (tokens: AuthTokens) => void;
   updateUser: (user: User) => void;
   mergeUser: (patch: Partial<User>) => void;
   logout: () => Promise<void>;
@@ -77,6 +78,35 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     );
   },
 
+  /**
+   * Swap in a rotated token pair. This is NOT a sign-in and must never be
+   * routed through `login()`.
+   *
+   * BUGFIX ("the tracking page shows placeholder pickup and destination", "the
+   * map is frozen and it says reconnecting"). The 401 refresh interceptor used
+   * to call `login(user, tokens)`, and `login()` opens with
+   * `clearRideState()` — a deliberate guard against a stale booking surviving
+   * a crash into the NEXT sign-in. Refresh is not the next sign-in. It is the
+   * same session, ~15 minutes in, and it fires while the rider is sitting on
+   * the tracking screen watching a driver approach. So a routine token
+   * rotation wiped activeBooking, selectedTrip, the seat, the driver location
+   * and the fare out from under a live trip, and the screen fell back to its
+   * empty-state placeholders with nothing left to render on the map.
+   *
+   * Rotation touches exactly two fields. `user`, `isLoggedIn` and every ride
+   * store are none of its business. (The driver store has always had this
+   * method; only the rider was routed through `login`.)
+   */
+  refreshTokens: (tokens) => {
+    SecureStore.setItemAsync(KEYS.accessToken, tokens.accessToken).catch((e) =>
+      console.error('[AuthStore] Failed to persist accessToken:', e)
+    );
+    SecureStore.setItemAsync(KEYS.refreshToken, tokens.refreshToken).catch((e) =>
+      console.error('[AuthStore] Failed to persist refreshToken:', e)
+    );
+    set({ accessToken: tokens.accessToken, refreshToken: tokens.refreshToken });
+  },
+
   updateUser: (user) => {
     SecureStore.setItemAsync(KEYS.user, JSON.stringify(user)).catch(e =>
       console.error('[AuthStore] Failed to persist user:', e)
@@ -101,12 +131,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * carry different subsets of the user, so a replace in either direction
    * drops fields. Undefined values in the patch are ignored for the same
    * reason — a partial response must never blank a field we already know.
+   *
+   * BUGFIX ("i finished onboarding and the profile page still says set your
+   * name, and it asks for name and DOB again every time i reopen the app").
+   * Filtering only `undefined` was not enough, because `name` is NOT NULL in
+   * Prisma: the row created at OTP time carries an EMPTY STRING until
+   * onboarding fills it in. So the blank arrives as `''`, not `undefined`, and
+   * sailed straight through the filter. React Query holds `['user','profile']`
+   * for 60s, so the copy fetched moments before onboarding — the one that
+   * still says `name: ''` — was re-merged over the name that had just been
+   * saved. `index.tsx` gates on `!user?.name || user.name === ''`, so the
+   * store blanking itself sent the rider back to the register screen, on a
+   * loop, forever.
+   *
+   * The rule this encodes: a patch may fill a field in, and it may change one
+   * value to another value, but it may never turn a known value back into
+   * nothing. "I don't have this" must never outrank "I have this". Server
+   * fields that are legitimately clearable are cleared through `updateUser`,
+   * which replaces wholesale and is called from the screens that own them.
    */
   mergeUser: (patch) => {
     const current = get().user;
     if (!current) return;
+    const isBlank = (v: unknown) =>
+      v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
     const defined = Object.fromEntries(
-      Object.entries(patch).filter(([, v]) => v !== undefined)
+      Object.entries(patch).filter(
+        ([k, v]) => !isBlank(v) || isBlank((current as any)[k])
+      )
     ) as Partial<User>;
     const next = { ...current, ...defined };
     // Skip the write when nothing actually changed — this runs on every

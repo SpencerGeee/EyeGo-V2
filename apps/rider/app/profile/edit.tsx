@@ -13,7 +13,7 @@ import * as Contacts from 'expo-contacts';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -81,9 +81,21 @@ export default function EditProfileScreen() {
         setDobDate(new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])));
       }
     }
-    if (u.emergencyContact?.name) setEmergencyName(u.emergencyContact.name);
-    if (u.emergencyContact?.phone) setEmergencyPhone(u.emergencyContact.phone);
   }, [user]);
+
+  // Emergency contacts are a separate resource — `/user/me` has never carried
+  // an `emergencyContact` field, so seeding these two inputs from the user
+  // object left them blank on every visit no matter what was saved.
+  const { data: savedContact } = useQuery({
+    queryKey: ['user', 'emergencyContacts'],
+    queryFn: () => userApi.getEmergencyContacts(),
+    select: (r: any) => r.data?.data?.contacts?.[0] ?? null,
+  });
+  useEffect(() => {
+    if (dirty.current || !savedContact) return;
+    if (savedContact.name) setEmergencyName(savedContact.name);
+    if (savedContact.phone) setEmergencyPhone(savedContact.phone);
+  }, [savedContact]);
 
   const handlePickContact = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
@@ -143,15 +155,27 @@ export default function EditProfileScreen() {
         email: email.trim() || undefined,
         dob: dob.trim() || undefined,
         avatarUrl,
-        emergencyContact: emergencyName.trim()
-          ? { name: emergencyName.trim(), phone: emergencyPhone.trim() }
-          : undefined,
       } as any);
+
+      // BUGFIX ("the info i entered on the edit profile page doesnt persist").
+      // The emergency contact used to ride along in the PATCH body above.
+      // `updateMe` copies fields into an explicit allow-list and
+      // `emergencyContact` is not on it, so the server accepted the request,
+      // returned 200, and dropped the contact on the floor. The screen showed
+      // a success and the field was empty again on the next visit. Emergency
+      // contacts are their own resource with their own endpoint.
+      if (emergencyName.trim() && emergencyPhone.trim()) {
+        await userApi.syncEmergencyContacts([
+          { name: emergencyName.trim(), phone: emergencyPhone.trim() },
+        ]);
+      }
+
       return data.data;
     },
     onSuccess: (updatedUser) => {
       updateUser(updatedUser);
       qc.invalidateQueries({ queryKey: ['user', 'profile'] });
+      qc.invalidateQueries({ queryKey: ['user', 'emergencyContacts'] });
       handleBack();
     },
     onError: () => {

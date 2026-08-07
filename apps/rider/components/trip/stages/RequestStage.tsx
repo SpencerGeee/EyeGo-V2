@@ -40,7 +40,6 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const popStage = useTripFlow((s) => s.popStage);
   const setDispatchOffer = useTripFlow((s) => s.setDispatchOffer);
   const setNearbyDrivers = useTripFlow((s) => s.setNearbyDrivers);
   const setPickupCoord = useTripFlow((s) => s.setPickupCoord);
@@ -339,6 +338,45 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     }
   };
 
+  /**
+   * Back, on a stage the client does not own.
+   *
+   * BUGFIX ("on the request trip page the back button doesnt work"). This used
+   * to call `popStage()`, which opens by returning null for any stage outside
+   * CLIENT_OWNED_STAGES — and 'request' is not one of them, by design: once a
+   * request is in flight the server owns the stage and you cannot rewind to
+   * picking a seat. So the handler was correct about the stack and wrong about
+   * the button: it left the only visible exit wired to a function defined to do
+   * nothing.
+   *
+   * There IS a way out of a live search; it just isn't "back". It's cancel.
+   * When the request is still live we ask first, because leaving silently is
+   * what used to let a driver accept an abandoned request minutes later. When
+   * there is nothing live left to cancel (the request errored or timed out),
+   * back is unambiguous and goes straight home.
+   *
+   * `dismissTo` — not `back()` — because the Where-To screen is somewhere in
+   * this stack and must never be what a back gesture lands on.
+   */
+  const handleBack = () => {
+    if (mode === 'route') {
+      router.back();
+      return;
+    }
+    if (status === 'error' || status === 'timeout') {
+      router.dismissTo('/(tabs)/home' as any);
+      return;
+    }
+    Alert.alert(
+      'Stop looking for a driver?',
+      'We\'ll cancel this request. You can book again any time.',
+      [
+        { text: 'Keep looking', style: 'cancel' },
+        { text: 'Stop', style: 'destructive', onPress: handleCancel },
+      ],
+    );
+  };
+
   const formattedTime = scheduledAt
     ? new Date(scheduledAt).toLocaleString('en-GH', {
         weekday: 'short',
@@ -354,7 +392,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       {/* Back */}
       <View style={styles.header}>
         <Pressable
-          onPress={() => (mode === 'route' ? router.back() : popStage())}
+          onPress={handleBack}
           style={styles.backBtn}
           hitSlop={8}
           accessibilityRole="button"

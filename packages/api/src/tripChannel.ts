@@ -233,7 +233,7 @@ export function subscribeToTrip({
     state = { ...state, recovering: true };
     emit();
     try {
-      const { data } = await apiClient.get(`/v1/rides/${tripId}/events`, {
+      const { data } = await apiClient.get(`/rides/${tripId}/events`, {
         params: { since: state.lastSeq },
       });
       const payload = data?.data;

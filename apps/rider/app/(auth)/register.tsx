@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Entrance } from '@eyego/ui';
 import * as ImagePicker from 'expo-image-picker';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -27,6 +27,7 @@ export default function RegisterScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { user, updateUser } = useAuthStore();
+  const qc = useQueryClient();
   const [name, setName] = useState('');
   const [dob, setDob] = useState('');
   const [dobError, setDobError] = useState('');
@@ -88,6 +89,11 @@ export default function RegisterScreen() {
     },
     onSuccess: (updatedUser) => {
       updateUser(updatedUser as any);
+      // The copy of /user/me that React Query fetched on sign-in still says
+      // `name: ''` — the placeholder the row is created with — and it stays
+      // fresh for 60s. Without this, useProfileSync re-merges that blank over
+      // the name we just saved and index.tsx bounces straight back here.
+      qc.invalidateQueries({ queryKey: ['user', 'profile'] });
       router.replace('/(onboarding)');
     },
     onError: (err: any) => {

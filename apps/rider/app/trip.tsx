@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, BackHandler } from 'react-native';
 import Animated, {
   FadeIn,
@@ -8,7 +8,7 @@ import Animated, {
   Easing,
   runOnJS,
 } from 'react-native-reanimated';
-import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { withOpacity } from '@eyego/config';
 import { useColors } from '../utils/useColors';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
@@ -152,6 +152,40 @@ export default function TripScreen() {
       router.replace('/(tabs)/home' as Href);
     }
   }, [tripStatus, snapshot, unwatch, router]);
+
+  /**
+   * WHERE-TO IS AN ENTRANCE, NOT A DESTINATION.
+   *
+   * "if i click the back button on any page it shouldnt take me to the where to
+   * page even if its in the stack. going back from another page should take me
+   * to the homepage."
+   *
+   * The trip surface is a single route. Everything downstream of it — payment,
+   * invite, guest selection — pushes ON TOP of it, so every `router.back()`
+   * from those screens necessarily lands back here, and here re-seeds from
+   * `params.stage`, which for a normal booking was never set and therefore
+   * defaulted to 'search'. Backing out of payment dropped the rider on the
+   * Where-To sheet with the booking they had just made invisible behind it.
+   *
+   * Patching each caller would need every screen that can ever sit above this
+   * one to know what it is sitting above. Instead the rule lives in the one
+   * place that can enforce it: a client-owned stage is only ever valid on the
+   * focus that CREATED it. Regain focus on 'search' or 'select' and the rider
+   * got here by backing into it, so send them home. A deliberate tap on the
+   * Where-To pill is a fresh push, which is a first focus, which is untouched.
+   */
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) {
+        firstFocus.current = false;
+        return;
+      }
+      if (CLIENT_OWNED_STAGES.includes(useTripFlow.getState().stage)) {
+        router.dismissTo('/(tabs)/home' as Href);
+      }
+    }, [router]),
+  );
 
   // Hardware back for stages past the root — the search stage registers its
   // own handler (morph-back to the home pill). Registered per-stage so the

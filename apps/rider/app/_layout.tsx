@@ -264,8 +264,9 @@ export default function RootLayout() {
       getAccessToken: () => useAuthStore.getState().accessToken,
       getRefreshToken: () => useAuthStore.getState().refreshToken,
       onTokenRefreshed: ({ accessToken, refreshToken }) => {
-        const user = useAuthStore.getState().user!;
-        login(user, { accessToken, refreshToken });
+        // Rotation only — see auth.store's refreshTokens(). Calling login()
+        // here cleared the ride store mid-trip.
+        useAuthStore.getState().refreshTokens({ accessToken, refreshToken });
         // RC1: Re-authenticate socket with the new token
         refreshSocketAuth();
       },

@@ -55,7 +55,7 @@ export const ridesApi = {
     pickupLat: number; pickupLng: number;
     dropoffLat: number; dropoffLng: number;
     tier?: string; doorstepPickup?: boolean; heavyLoad?: boolean;
-  }) => apiClient.post('/v1/rides/quote', body).then(unwrap<FareQuote>),
+  }) => apiClient.post('/rides/quote', body).then(unwrap<FareQuote>),
 
   /**
    * Request a ride.
@@ -76,7 +76,7 @@ export const ridesApi = {
     idempotencyKey: string,
   ) =>
     apiClient
-      .post('/v1/rides', body, { headers: { 'Idempotency-Key': idempotencyKey } })
+      .post('/rides', body, { headers: { 'Idempotency-Key': idempotencyKey } })
       .then(unwrap<{ tripId: string; snapshot: TripSnapshot; replayed?: boolean }>),
 
   /**
@@ -84,27 +84,27 @@ export const ridesApi = {
    * reconnect. Neither app had an equivalent, which is why an app killed
    * mid-trip came back not knowing it was on one.
    */
-  active: () => apiClient.get('/v1/rides/active').then(unwrap<ActiveRideResponse>),
+  active: () => apiClient.get('/rides/active').then(unwrap<ActiveRideResponse>),
 
   /** Replay. Used by the channel on a detected sequence gap. */
   events: (tripId: string, since = 0) =>
     apiClient
-      .get(`/v1/rides/${tripId}/events`, { params: { since } })
+      .get(`/rides/${tripId}/events`, { params: { since } })
       .then(unwrap<{ tripId: string; snapshot: TripSnapshot; events: any[]; serverNowMs: number }>),
 
   cancel: (tripId: string, reason?: string) =>
     apiClient
-      .post(`/v1/rides/${tripId}/cancel`, { reason })
+      .post(`/rides/${tripId}/cancel`, { reason })
       .then(unwrap<{ tripId: string; status: string; version: number; freeCancel: boolean }>),
 
   // ── driver ────────────────────────────────────────────────────────────────
-  driverState: () => apiClient.get('/v1/rides/driver/state').then(unwrap<DriverStateResponse>),
-  accept: (tripId: string) => apiClient.post(`/v1/rides/${tripId}/accept`).then(unwrap),
-  decline: (tripId: string) => apiClient.post(`/v1/rides/${tripId}/decline`).then(unwrap),
-  enRoute: (tripId: string) => apiClient.post(`/v1/rides/${tripId}/en-route`).then(unwrap),
-  arrived: (tripId: string) => apiClient.post(`/v1/rides/${tripId}/arrived`).then(unwrap),
-  start: (tripId: string) => apiClient.post(`/v1/rides/${tripId}/start`).then(unwrap),
-  complete: (tripId: string) => apiClient.post(`/v1/rides/${tripId}/complete`).then(unwrap),
+  driverState: () => apiClient.get('/rides/driver/state').then(unwrap<DriverStateResponse>),
+  accept: (tripId: string) => apiClient.post(`/rides/${tripId}/accept`).then(unwrap),
+  decline: (tripId: string) => apiClient.post(`/rides/${tripId}/decline`).then(unwrap),
+  enRoute: (tripId: string) => apiClient.post(`/rides/${tripId}/en-route`).then(unwrap),
+  arrived: (tripId: string) => apiClient.post(`/rides/${tripId}/arrived`).then(unwrap),
+  start: (tripId: string) => apiClient.post(`/rides/${tripId}/start`).then(unwrap),
+  complete: (tripId: string) => apiClient.post(`/rides/${tripId}/complete`).then(unwrap),
   driverCancel: (tripId: string, reason?: string) =>
-    apiClient.post(`/v1/rides/${tripId}/driver-cancel`, { reason }).then(unwrap),
+    apiClient.post(`/rides/${tripId}/driver-cancel`, { reason }).then(unwrap),
 };
