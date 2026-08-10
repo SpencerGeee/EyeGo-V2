@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
@@ -35,6 +35,69 @@ export default function AddPassengerScreen() {
   const [otp, setOtp] = useState('');
   const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
 
+  /**
+   * WHICH SEATS ARE ACTUALLY FREE.
+   *
+   * The picker was a bare +/- stepper from 1 to a hardcoded 14 with no idea
+   * what the vehicle held or who was already in it, so a driver could dial up
+   * a seat someone was sitting in and only find out from a rejected request.
+   *
+   * Read from the same cache the trip screens fill, so opening this sheet
+   * costs nothing when it is warm and still self-heals when it is not.
+   */
+  const { data: trip } = useQuery({
+    queryKey: ['driver', 'trip', 'tracking', tripId],
+    queryFn: () => driverApi.getTripById(tripId),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    select: (r: any) => r.data?.data?.trip ?? null,
+    enabled: !!tripId,
+    staleTime: 10_000,
+  });
+
+  const maxSeats: number = trip?.maxSeats ?? trip?.vehicle?.seatCapacity ?? 14;
+  const takenSeats = useMemo(() => {
+    const rows: any[] = trip?.bookings ?? [];
+    return new Set(
+      rows
+        .filter((b) => !['CANCELLED', 'REFUNDED', 'EXPIRED', 'NO_SHOW'].includes(b.status))
+        .map((b) => b.seatNumber)
+        .filter((n): n is number => typeof n === 'number'),
+    );
+  }, [trip]);
+
+  const firstFreeSeat = useMemo(() => {
+    for (let n = 1; n <= maxSeats; n += 1) if (!takenSeats.has(n)) return n;
+    return null;
+  }, [maxSeats, takenSeats]);
+
+  /** Next free seat in `dir`, or the current one if there is none that way. */
+  const stepSeat = useCallback(
+    (dir: 1 | -1) =>
+      setSeatNumber((current) => {
+        for (let n = current + dir; n >= 1 && n <= maxSeats; n += dir) {
+          if (!takenSeats.has(n)) return n;
+        }
+        return current;
+      }),
+    [maxSeats, takenSeats],
+  );
+
+  const canStep = useCallback(
+    (dir: 1 | -1) => {
+      for (let n = seatNumber + dir; n >= 1 && n <= maxSeats; n += dir) {
+        if (!takenSeats.has(n)) return true;
+      }
+      return false;
+    },
+    [seatNumber, maxSeats, takenSeats],
+  );
+
+  // Land on a free seat as soon as occupancy is known — seat 1 is the default
+  // and is very often the one already sold.
+  useEffect(() => {
+    if (firstFreeSeat != null && takenSeats.has(seatNumber)) setSeatNumber(firstFreeSeat);
+  }, [firstFreeSeat, takenSeats, seatNumber]);
+
   const addByPhone = useMutation({
     mutationFn: () =>
       driverApi.addOfflinePassenger(tripId, {
@@ -57,26 +120,45 @@ export default function AddPassengerScreen() {
     onError: (err) => Alert.alert('Invalid OTP', (err as Error).message),
   });
 
+  /**
+   * REFRESH, THEN LEAVE.
+   *
+   * `invalidateQueries` marks the trip stale and returns straight away, so the
+   * old flow popped a modal, waited for a tap, dismissed — and dropped the
+   * driver back onto an Earnings Estimate still showing the figure from before
+   * the passenger existed. It corrected itself on the screen's 8-second poll,
+   * which is long enough to read as "that didn't work" and tap again.
+   *
+   * Awaiting the refetch means the screen underneath is already correct at the
+   * moment it is revealed. The confirmation modal goes with it: the seat
+   * appearing in the seat map and the money going up IS the confirmation, and
+   * it arrives a tap sooner.
+   */
+  const refreshTrip = useCallback(
+    () =>
+      qc.refetchQueries({
+        predicate: (q) => {
+          const k = q.queryKey as unknown[];
+          return k[0] === 'driver' && k[1] === 'trip' && k[3] === tripId;
+        },
+      }),
+    [qc, tripId],
+  );
+
   const boardPassenger = useMutation({
     mutationFn: () => driverApi.boardPassenger(tripId, pendingBookingId!),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', tripId] });
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', tripId] });
-      Alert.alert('Boarded!', 'Passenger has been boarded successfully.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+    onSuccess: async () => {
+      await refreshTrip();
+      router.back();
     },
     onError: (err) => Alert.alert('Error', (err as Error).message ?? 'Failed to board passenger. Please try again.'),
   });
 
   const addCash = useMutation({
     mutationFn: () => driverApi.addCashPassenger(tripId, { seatNumber }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', tripId] });
-      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', tripId] });
-      Alert.alert('Added!', 'Cash passenger has been added.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+    onSuccess: async () => {
+      await refreshTrip();
+      router.back();
     },
     onError: (err) => Alert.alert('Error', (err as Error).message),
   });
@@ -171,7 +253,7 @@ export default function AddPassengerScreen() {
                   />
                 </View>
               </View>
-              <SeatPicker seatNumber={seatNumber} onDecrement={() => setSeatNumber((s) => Math.max(1, s - 1))} onIncrement={() => setSeatNumber((s) => Math.min(14, s + 1))} colors={colors} styles={styles} />
+              <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} takenCount={takenSeats.size} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
               <Button
                 label="Send OTP to Passenger"
                 onPress={() => addByPhone.mutate()}
@@ -216,7 +298,7 @@ export default function AddPassengerScreen() {
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Select the seat number for this passenger.
               </Text>
-              <SeatPicker seatNumber={seatNumber} onDecrement={() => setSeatNumber((s) => Math.max(1, s - 1))} onIncrement={() => setSeatNumber((s) => Math.min(14, s + 1))} colors={colors} styles={styles} />
+              <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} takenCount={takenSeats.size} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
               <Button
                 label="Add Cash Passenger"
                 onPress={() => addCash.mutate()}
@@ -230,31 +312,51 @@ export default function AddPassengerScreen() {
   );
 }
 
-function SeatPicker({ seatNumber, onDecrement, onIncrement, colors, styles }: {
+/**
+ * The stepper walks FREE seats only — `onDecrement`/`onIncrement` skip anything
+ * occupied, and the arrow greys out when there is nothing free that way. The
+ * driver cannot land on a taken seat, so there is no rejected request to
+ * explain afterwards.
+ */
+function SeatPicker({
+  seatNumber, onDecrement, onIncrement, canDecrement, canIncrement,
+  takenCount, maxSeats, soldOut, colors, styles,
+}: {
   seatNumber: number;
   onDecrement: () => void;
   onIncrement: () => void;
+  canDecrement: boolean;
+  canIncrement: boolean;
+  takenCount: number;
+  maxSeats: number;
+  soldOut: boolean;
   colors: DriverColors;
   styles: ReturnType<typeof makeStyles>;
 }) {
   return (
     <View style={styles.fieldWrapper}>
       <Text variant="caption" color={colors.onSurfaceVariant} style={styles.fieldLabel}>
-        Seat number
+        {soldOut
+          ? 'Every seat is taken'
+          : `Seat number · ${maxSeats - takenCount} of ${maxSeats} free`}
       </Text>
       <View style={styles.seatPickerRow}>
         <Pressable
-          style={[styles.seatPickerBtn, seatNumber <= 1 && { opacity: 0.4 }]}
+          style={[styles.seatPickerBtn, !canDecrement && { opacity: 0.4 }]}
           onPress={onDecrement}
-          disabled={seatNumber <= 1}
+          disabled={!canDecrement}
+          accessibilityRole="button"
+          accessibilityLabel="Previous free seat"
         >
           <Ionicons name="remove" size={22} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.seatPickerValue}>{seatNumber}</Text>
+        <Text style={styles.seatPickerValue}>{soldOut ? '—' : seatNumber}</Text>
         <Pressable
-          style={[styles.seatPickerBtn, seatNumber >= 14 && { opacity: 0.4 }]}
+          style={[styles.seatPickerBtn, !canIncrement && { opacity: 0.4 }]}
           onPress={onIncrement}
-          disabled={seatNumber >= 14}
+          disabled={!canIncrement}
+          accessibilityRole="button"
+          accessibilityLabel="Next free seat"
         >
           <Ionicons name="add" size={22} color={colors.onSurface} />
         </Pressable>
@@ -286,6 +388,7 @@ const makeStyles = (colors: DriverColors) =>
     headerTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
     },
     optionsContainer: {
@@ -295,6 +398,7 @@ const makeStyles = (colors: DriverColors) =>
     sectionTitle: {
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.headlineMedium,
+      lineHeight: Math.round(fontSizes.headlineMedium * 1.3),
       color: colors.onSurface,
       letterSpacing: -0.5,
       marginBottom: spacing.md,
@@ -320,6 +424,7 @@ const makeStyles = (colors: DriverColors) =>
     optionTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
       marginBottom: 3,
     },
@@ -348,6 +453,7 @@ const makeStyles = (colors: DriverColors) =>
     countryCode: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
     phoneInput: {
@@ -355,6 +461,7 @@ const makeStyles = (colors: DriverColors) =>
       paddingHorizontal: spacing.sm,
       fontFamily: fonts.medium,
       fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
       color: colors.onSurface,
       letterSpacing: 1,
     },
@@ -367,6 +474,7 @@ const makeStyles = (colors: DriverColors) =>
       height: 72,
       fontFamily: fonts.displayBold,
       fontSize: fontSizes.display,
+      lineHeight: Math.round(fontSizes.display * 1.3),
       color: colors.onSurface,
       letterSpacing: 12,
     },

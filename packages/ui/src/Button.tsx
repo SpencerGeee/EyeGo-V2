@@ -75,18 +75,24 @@ function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { containe
   };
 }
 
-const sizeStyles: Record<ButtonSize, { container: ViewStyle; fontSize: number }> = {
+// `lineHeight` travels with `fontSize`, always. Geist's ascenders clip against
+// an implicit line box on iOS, which is the "top of the text is cut off" the
+// driver app's forms showed — a button label is no different.
+const sizeStyles: Record<ButtonSize, { container: ViewStyle; fontSize: number; lineHeight: number }> = {
   sm: {
     container: { paddingVertical: spacing.sm, paddingHorizontal: spacing.base, minHeight: 44 },
     fontSize: fontSizes.label,
+    lineHeight: Math.round(fontSizes.label * 1.3),
   },
   md: {
     container: { paddingVertical: 14, paddingHorizontal: spacing.xl, minHeight: 52 },
     fontSize: fontSizes.titleSmall,
+    lineHeight: Math.round(fontSizes.titleSmall * 1.3),
   },
   lg: {
     container: { paddingVertical: spacing.base, paddingHorizontal: spacing['2xl'], minHeight: 52 },
     fontSize: fontSizes.titleMedium,
+    lineHeight: Math.round(fontSizes.titleMedium * 1.3),
   },
 };
 
@@ -126,7 +132,7 @@ export function Button({
         style={{
           fontFamily: fonts.semiBold,
           fontSize: sStyle.fontSize,
-          lineHeight: Math.round(sStyle.fontSize * 1.3),
+          lineHeight: sStyle.lineHeight,
           color: vStyle.textColor,
         }}
       >

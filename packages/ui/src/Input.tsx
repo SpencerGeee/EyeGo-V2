@@ -193,11 +193,13 @@ function getStyles(colors: ColorTokens) {
       left: 0,
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       transformOrigin: 'left center',
     },
     input: {
       fontFamily: fonts.regular,
       fontSize: fontSizes.bodyLarge,
+      lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
       color: colors.onSurface,
       paddingVertical: 0,
       margin: 0,
@@ -211,6 +213,7 @@ function getStyles(colors: ColorTokens) {
     errorText: {
       fontFamily: fonts.regular,
       fontSize: fontSizes.caption,
+      lineHeight: Math.round(fontSizes.caption * 1.3),
       color: colors.error,
       marginTop: spacing.xs,
       marginLeft: spacing.xs,

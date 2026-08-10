@@ -91,12 +91,14 @@ const styles = StyleSheet.create({
   wordmark: {
     fontFamily: 'Geist_700Bold',
     fontSize: 32,
+    lineHeight: Math.round(32 * 1.3),
     color: '#fff',
     letterSpacing: -0.5,
   },
   tagline: {
     fontFamily: 'Geist_500Medium',
     fontSize: 14,
+    lineHeight: Math.round(14 * 1.3),
     color: `${PRIMARY}CC`,
     letterSpacing: 0.5,
   },

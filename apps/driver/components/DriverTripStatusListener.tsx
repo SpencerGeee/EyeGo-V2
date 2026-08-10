@@ -313,12 +313,14 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.semiBold,
     fontSize: 9,
+    lineHeight: Math.round(9 * 1.3),
     letterSpacing: 1.5,
     marginBottom: 2,
   },
   body: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
   },
   chevron: { paddingLeft: spacing.xs },
 });

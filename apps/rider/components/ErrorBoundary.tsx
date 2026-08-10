@@ -113,6 +113,7 @@ const styles = StyleSheet.create({
     color: '#FF5252',
     fontFamily: 'monospace',
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
   },
   button: {
     width: '100%',
@@ -127,5 +128,6 @@ const styles = StyleSheet.create({
     color: '#050508',
     fontWeight: 'bold',
     fontSize: 15,
+    lineHeight: Math.round(15 * 1.3),
   },
 });

@@ -318,6 +318,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   avatarEditIcon: {
     fontSize: 14,
+    lineHeight: Math.round(14 * 1.3),
     color: colors.onPrimary,
   },
   inputSection: {

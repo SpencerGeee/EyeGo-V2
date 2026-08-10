@@ -59,6 +59,7 @@ const styles = StyleSheet.create({
   label: {
     fontFamily: fonts.semiBold,
     fontSize: 11,
+    lineHeight: Math.round(11 * 1.3),
     letterSpacing: 0.8,
   },
 });

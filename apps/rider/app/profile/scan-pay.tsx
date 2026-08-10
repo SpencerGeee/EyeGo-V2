@@ -204,6 +204,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tabText: {
     fontFamily: fonts.semiBold,
     fontSize: 13,
+    lineHeight: Math.round(13 * 1.3),
     color: colors.onSurfaceVariant,
   },
   centerBox: {

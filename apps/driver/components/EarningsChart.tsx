@@ -110,6 +110,7 @@ const styles = StyleSheet.create({
   totalAmount: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.titleMedium,
+    lineHeight: Math.round(fontSizes.titleMedium * 1.3),
   },
   chart: { alignSelf: 'center' },
 });

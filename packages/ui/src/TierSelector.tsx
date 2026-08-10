@@ -106,12 +106,14 @@ function getStyles(colors: ColorTokens) {
     label: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.label,
+      lineHeight: Math.round(fontSizes.label * 1.3),
       color: colors.onSurface,
       letterSpacing: letterSpacings.label,
     },
     caption: {
       fontFamily: fonts.regular,
       fontSize: 10,
+      lineHeight: Math.round(10 * 1.3),
       color: colors.onSurfaceVariant,
       letterSpacing: letterSpacings.label,
     },

@@ -822,6 +822,7 @@ export default function PaymentScreen() {
                     paddingHorizontal: spacing.base,
                     fontFamily: fonts.medium,
                     fontSize: fontSizes.bodyMedium,
+                    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
                     color: colors.onSurface,
                     borderWidth: 1,
                     borderColor: colors.outline,

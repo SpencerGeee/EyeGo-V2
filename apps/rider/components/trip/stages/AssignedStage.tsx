@@ -254,6 +254,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   title: {
     fontFamily: fonts.displayBold,
     fontSize: fontSizes.titleLarge,
+    lineHeight: Math.round(fontSizes.titleLarge * 1.3),
     color: colors.onSurface,
     letterSpacing: -0.4,
   },

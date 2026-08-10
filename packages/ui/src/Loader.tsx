@@ -137,6 +137,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     // Slightly open, but nowhere near the letter-spaced caps this used to be —
     // a wait message is read, not displayed.
     letterSpacing: 0.1,

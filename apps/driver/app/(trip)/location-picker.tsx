@@ -284,6 +284,7 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 15,
+    lineHeight: Math.round(15 * 1.3),
     color: colors.onSurface,
     padding: 0,
   },
@@ -309,6 +310,7 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 13,
+    lineHeight: Math.round(13 * 1.3),
     color: colors.onSurface,
   },
   pinWrap: {

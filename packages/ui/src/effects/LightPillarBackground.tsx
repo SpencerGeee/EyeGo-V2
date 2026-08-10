@@ -4,6 +4,7 @@ import { Canvas, Fill, Shader, Skia } from '@shopify/react-native-skia';
 import { useDerivedValue, useSharedValue, useFrameCallback } from 'react-native-reanimated';
 import { usePerformanceTier } from './usePerformanceTier';
 import { subscribeBackgroundBusy } from './backgroundActivity';
+import { useIsTopmostBackground } from './topmostBackground';
 
 /**
  * "LightPillar" premium ambient background — a GPU port of the React Bits
@@ -265,7 +266,13 @@ export function LightPillarBackground({
   const [scrollBusy, setScrollBusy] = useState(false);
   useEffect(() => subscribeBackgroundBusy(setScrollBusy), []);
 
-  const isAnimated = animated && tier !== 'low' && !scrollBusy;
+  // ...and while this instance is buried under another screen, or the app is
+  // backgrounded. A stack keeps every pushed screen mounted, so without this
+  // every screen in the flow ran its own full-screen raymarch at once — see
+  // topmostBackground.ts. This is the single biggest cost on the screen.
+  const visible = useIsTopmostBackground();
+
+  const isAnimated = animated && tier !== 'low' && !scrollBusy && visible;
 
   // Battery-aware clock: 24fps on high tier, 8fps on low (saves ~66% GPU).
   // Low Power Mode forces the 'low' tier via usePerformanceTier, so this

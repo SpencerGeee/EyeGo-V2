@@ -361,6 +361,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 15,
+    lineHeight: Math.round(15 * 1.3),
     color: colors.onSurface,
     padding: 0,
   },
@@ -385,11 +386,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   suggestionText: {
     fontFamily: fonts.regular,
     fontSize: 13,
+    lineHeight: Math.round(13 * 1.3),
     color: colors.onSurface,
   },
   suggestionSub: {
     fontFamily: fonts.regular,
     fontSize: 11,
+    lineHeight: Math.round(11 * 1.3),
     color: colors.onSurfaceVariant,
     marginTop: 1,
   },

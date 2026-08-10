@@ -729,6 +729,7 @@ const makeStyles = (colors: DriverColors) =>
     headerRoute: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurface,
     },
     liveBadge: {
@@ -755,6 +756,7 @@ const makeStyles = (colors: DriverColors) =>
     liveText: {
       fontFamily: fonts.semiBold,
       fontSize: 11,
+      lineHeight: Math.round(11 * 1.3),
       color: colors.primary,
       letterSpacing: 1.5,
     },
@@ -782,6 +784,7 @@ const makeStyles = (colors: DriverColors) =>
     etaPillText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.primary,
     },
     statusBanner: {
@@ -815,6 +818,7 @@ const makeStyles = (colors: DriverColors) =>
     statusBannerLabel: {
       fontFamily: fonts.semiBold,
       fontSize: 9,
+      lineHeight: Math.round(9 * 1.3),
       color: colors.primary,
       letterSpacing: 1.5,
       marginBottom: 1,
@@ -822,6 +826,7 @@ const makeStyles = (colors: DriverColors) =>
     statusBannerText: {
       fontFamily: fonts.medium,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurface,
     },
     sheetBackground: {
@@ -877,6 +882,7 @@ const makeStyles = (colors: DriverColors) =>
     passengerListTitle: {
       fontFamily: fonts.displaySemiBold,
       fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
     passengerRow: {
@@ -896,11 +902,13 @@ const makeStyles = (colors: DriverColors) =>
     passengerInitial: {
       fontFamily: fonts.semiBold,
       fontSize: 13,
+      lineHeight: Math.round(13 * 1.3),
       color: colors.onSurface,
     },
     passengerName: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodySmall,
+      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
       color: colors.onSurface,
     },
     boardedBadge: {
@@ -911,6 +919,7 @@ const makeStyles = (colors: DriverColors) =>
     boardedText: {
       fontFamily: fonts.semiBold,
       fontSize: 9,
+      lineHeight: Math.round(9 * 1.3),
       letterSpacing: 0.3,
     },
     secondaryActions: {
@@ -932,6 +941,7 @@ const makeStyles = (colors: DriverColors) =>
     secondaryBtnText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.caption,
+      lineHeight: Math.round(fontSizes.caption * 1.3),
     },
     cancelRow: {
       flexDirection: 'row',

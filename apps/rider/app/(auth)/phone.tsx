@@ -240,6 +240,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   code: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
   },
   divider: {
@@ -252,6 +253,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.base,
     fontFamily: fonts.medium,
     fontSize: fontSizes.titleSmall,
+    lineHeight: Math.round(fontSizes.titleSmall * 1.3),
     color: colors.onSurface,
     letterSpacing: 1,
   },

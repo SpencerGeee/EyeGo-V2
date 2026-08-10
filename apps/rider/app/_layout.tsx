@@ -678,6 +678,7 @@ export default function RootLayout() {
                   style={{
                     fontFamily: 'Geist_600SemiBold',
                     fontSize: 12,
+                    lineHeight: Math.round(12 * 1.3),
                     color: '#fff',
                     letterSpacing: 0.5,
                   }}
@@ -688,6 +689,7 @@ export default function RootLayout() {
                   style={{
                     fontFamily: 'Geist_400Regular',
                     fontSize: 11,
+                    lineHeight: Math.round(11 * 1.3),
                     color: 'rgba(255,255,255,0.8)',
                     marginTop: 2,
                   }}

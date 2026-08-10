@@ -714,6 +714,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   hint: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
     color: colors.outline,
     textAlign: 'center',
   },

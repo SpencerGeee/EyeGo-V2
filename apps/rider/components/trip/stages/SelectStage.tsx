@@ -856,6 +856,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   headerSubtitle: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
     color: colors.onSurfaceVariant,
     maxWidth: 100,
   },
@@ -932,6 +933,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
   },
   tierPillsRow: {
@@ -970,6 +972,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   resultsCount: {
     fontFamily: fonts.semiBold,
     fontSize: 14,
+    lineHeight: Math.round(14 * 1.3),
     color: colors.onSurfaceVariant,
     letterSpacing: 0.3,
     marginBottom: spacing.md,
@@ -1015,16 +1018,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tripCardRating: {
     fontFamily: fonts.semiBold,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
   },
   tripCardDot: {
     color: colors.onSurfaceVariant,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
     marginHorizontal: 1,
   },
   tripCardVehicle: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
     color: colors.onSurfaceVariant,
   },
   tripCardPriceCol: {
@@ -1040,6 +1046,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tripCardPriceStrike: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
     color: colors.onSurfaceVariant,
     textDecorationLine: 'line-through',
   },
@@ -1074,6 +1081,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
     color: colors.onSurfaceVariant,
   },
   seatsChip: {
@@ -1109,6 +1117,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   fareInfoText: {
     fontFamily: fonts.regular,
     fontSize: 11,
+    lineHeight: Math.round(11 * 1.3),
     color: colors.onSurfaceVariant,
     textDecorationLine: 'underline',
   },
@@ -1138,6 +1147,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   enRouteChipText: {
     fontFamily: fonts.semiBold,
     fontSize: 9,
+    lineHeight: Math.round(9 * 1.3),
     color: colors.primary,
     letterSpacing: 0.2,
   },

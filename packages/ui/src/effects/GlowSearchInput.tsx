@@ -166,6 +166,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSizes.bodyLarge,
+    lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
     paddingVertical: 0,
   },
 });

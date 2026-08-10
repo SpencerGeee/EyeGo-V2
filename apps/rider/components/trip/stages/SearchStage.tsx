@@ -936,6 +936,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   sectionLabel: {
     fontFamily: fonts.medium,
     fontSize: 11,
+    lineHeight: Math.round(11 * 1.3),
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     color: withOpacity(colors.onSurfaceVariant, 0.7),
@@ -980,6 +981,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   placeName: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
   },
   placeNamePrompt: {
@@ -989,6 +991,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   placeAddress: {
     fontFamily: fonts.regular,
     fontSize: fontSizes.caption,
+    lineHeight: Math.round(fontSizes.caption * 1.3),
     color: withOpacity(colors.onSurfaceVariant, 0.75),
   },
   rowDivider: {
@@ -1010,6 +1013,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   searchWideText: {
     fontFamily: fonts.medium,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.primary,
   },
 
@@ -1047,6 +1051,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   ctaPrimaryText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onPrimary,
   },
   ctaSecondary: {
@@ -1056,6 +1061,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   ctaSecondaryText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.primary,
   },
 });

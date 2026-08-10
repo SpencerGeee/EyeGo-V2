@@ -135,5 +135,6 @@ const styles = StyleSheet.create({
   seatNum: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.caption,
+    lineHeight: Math.round(fontSizes.caption * 1.3),
   },
 });

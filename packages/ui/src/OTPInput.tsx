@@ -123,6 +123,7 @@ function getStyles(colors: ColorTokens) {
     digit: {
       fontFamily: fonts.monoBold,
       fontSize: 24,
+      lineHeight: Math.round(24 * 1.3),
       color: colors.onSurface,
       textAlign: 'center',
     },

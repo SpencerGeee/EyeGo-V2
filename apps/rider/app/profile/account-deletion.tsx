@@ -211,6 +211,7 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.lg,
       paddingHorizontal: spacing.base,
       fontSize: 16,
+      lineHeight: Math.round(16 * 1.3),
       backgroundColor: colors.surfaceInput,
       borderColor: colors.rimLightSubtle,
       color: colors.onSurface,

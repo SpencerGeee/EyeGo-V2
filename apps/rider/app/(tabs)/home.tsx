@@ -850,18 +850,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   statusBentoLabel: {
     fontFamily: fonts.medium,
     fontSize: 9,
+    lineHeight: Math.round(9 * 1.3),
     letterSpacing: 0.9,
     color: colors.onSurfaceVariant,
   },
   statusBentoTitle: {
     fontFamily: fonts.displayBold,
     fontSize: 15,
+    lineHeight: Math.round(15 * 1.3),
     color: colors.onSurface,
     letterSpacing: -0.2,
   },
   statusBentoMeta: {
     fontFamily: fonts.regular,
     fontSize: 12,
+    lineHeight: Math.round(12 * 1.3),
     color: colors.onSurfaceVariant,
     marginTop: 1,
   },
