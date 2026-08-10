@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '../../utils/useColors';
 import { VEHICLE_MODEL } from '../../assets/vehicle';
@@ -35,11 +35,14 @@ export function VehicleMarker({ bearing, size = 34 }: VehicleMarkerProps) {
     return (
       <Image
         source={VEHICLE_MODEL}
-        style={{
-          width: size,
-          height: size,
-          transform: [{ rotate: `${bearing}deg` }],
-        }}
+        style={[
+          styles.vehicleShadow,
+          {
+            width: size,
+            height: size,
+            transform: [{ rotate: `${bearing}deg` }],
+          },
+        ]}
         resizeMode="contain"
         // The vehicle is decoration for a fact the panel already states in
         // words ("your driver is 3 min away"), so it is not announced twice.
@@ -69,6 +72,21 @@ export function VehicleMarker({ bearing, size = 34 }: VehicleMarkerProps) {
 }
 
 const styles = StyleSheet.create({
+  // The render is a pearl-white body with no contact shadow baked in, which is
+  // ideal on the dark map style and weak on the light one, where a white
+  // vehicle sits on near-white roads. iOS derives a shadow from the layer's
+  // alpha, so this traces the vehicle's actual silhouette. Android is left
+  // alone on purpose: `elevation` shadows the view's rectangular outline, not
+  // the artwork, so it would draw a grey box around the bus.
+  vehicleShadow: Platform.select({
+    ios: {
+      shadowColor: '#000',
+      shadowOpacity: 0.28,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
+    },
+    default: {},
+  }),
   puck: {
     borderWidth: 1,
     alignItems: 'center',
