@@ -1,5 +1,6 @@
 'use strict';
 
+const prisma = require('../config/database');
 const redis = require('../config/redis');
 const env = require('../config/env');
 const logger = require('../utils/logger');
@@ -253,6 +254,60 @@ async function peekRouteForTrip(trip) {
   return readCache(trip.id, leg);
 }
 
+/**
+ * Compute the trip's live leg NOW, so the first snapshot after a status change
+ * already carries a line and an ETA.
+ *
+ * BUGFIX ("when i swipe to start the trip it visibly takes a while to show the
+ * estimated eta, the route polyline and all that — i think it's stuck on
+ * calculating eta").
+ *
+ * It was not stuck; it had nothing to show yet. `activeLeg(status)` changes the
+ * moment the trip does — `toPickup` becomes `toDropoff` on departure — and the
+ * new leg's cache is empty. Snapshots are built with `peekRouteForTrip`, which
+ * is deliberately read-only (rendering a snapshot must not block on a Mapbox
+ * round trip, and must not let a client spend Directions quota by refreshing).
+ * So every consumer got `path: null` and `eta: null` until the driver's NEXT
+ * location ping happened to call `getRouteForTrip` — several seconds of a blank
+ * map and a "Calculating ETA..." that had nobody calculating anything.
+ *
+ * The transition is the right moment to pay for the recompute: it happens once,
+ * it is user-initiated, and it is exactly when the answer changes. Best-effort
+ * on purpose — a trip whose line could not be drawn is still a started trip, so
+ * this must never be able to fail the swipe that triggered it.
+ */
+async function warmRouteForTrip(tripId) {
+  try {
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        id: true, status: true, driverId: true,
+        pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true,
+        route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } },
+      },
+    });
+    if (!trip || !activeLeg(trip.status)) return null;
+
+    let driverPos = null;
+    if (trip.driverId) {
+      const d = await prisma.driver.findUnique({
+        where: { id: trip.driverId },
+        select: { currentLat: true, currentLng: true },
+      });
+      if (d && usable(d.currentLat) && usable(d.currentLng)) {
+        driverPos = { lat: d.currentLat, lng: d.currentLng };
+      }
+    }
+    // `force` because the cache we care about is the one for the leg that just
+    // became live, and a stale entry from a previous pass through this leg
+    // would be measured from wherever the driver used to be.
+    return await getRouteForTrip(trip, driverPos, { force: true });
+  } catch (err) {
+    logger.warn('[route] warm failed', { tripId, error: err?.message });
+    return null;
+  }
+}
+
 /** Drop both legs — call when a trip ends or is reassigned to another driver. */
 async function clearRouteForTrip(tripId) {
   try {
@@ -270,5 +325,6 @@ module.exports = {
   deviationMeters,
   getRouteForTrip,
   peekRouteForTrip,
+  warmRouteForTrip,
   clearRouteForTrip,
 };

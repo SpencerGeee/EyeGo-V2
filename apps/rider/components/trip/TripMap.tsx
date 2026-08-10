@@ -3,6 +3,7 @@ import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { VehicleMarker } from './VehicleMarker';
 import MapboxGL from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
 import {
@@ -218,6 +219,37 @@ function TripMapImpl() {
     return () => { off(); };
   }, [pushSample]);
 
+  /**
+   * Second source for the same interpolator: the snapshot's own driver position.
+   *
+   * BUGFIX ("on the tracking page the marker pin doesn't seem to move"). The
+   * puck was fed EXCLUSIVELY by `onDriverLocation`. That channel is the fast
+   * one, but it is not the only one carrying the driver's position — every
+   * `trip:event` snapshot carries `driver.lat/lng/heading` too — and it is the
+   * one most likely to be quiet: a dropped subscription, a reconnect, a driver
+   * app that has gone to the background and is posting locations over HTTP
+   * rather than the socket. With nothing pushing samples the interpolator has
+   * nothing to interpolate, so `camera.puck` stays where it was and the marker
+   * sits frozen on the map while the panel above it updates normally.
+   *
+   * Pushing the snapshot position as well means the marker advances on whatever
+   * arrives first. Samples are idempotent as far as the interpolator is
+   * concerned — a repeated position is a zero-length move — so the two sources
+   * cannot fight, and the fast one still wins on smoothness when it is healthy.
+   */
+  useEffect(() => {
+    const lat = snapshot?.driver?.lat;
+    const lng = snapshot?.driver?.lng;
+    if (!Number.isFinite(lat as number) || !Number.isFinite(lng as number)) return;
+    pushSample({
+      latitude: lat as number,
+      longitude: lng as number,
+      heading: snapshot?.driver?.heading ?? null,
+      speed: null,
+      at: Date.now(),
+    });
+  }, [snapshot?.driver?.lat, snapshot?.driver?.lng, snapshot?.driver?.heading, pushSample]);
+
   // Reassignment and trip end both mean the old puck is a lie.
   useEffect(() => { resetPuck(); }, [snapshot?.driver?.id, resetPuck]);
 
@@ -305,9 +337,13 @@ function TripMapImpl() {
             where the car is going rather than spinning on every fix. */}
         {puckCoord && snapshot?.driver && (
           <MapboxGL.MarkerView id="assigned-driver" coordinate={puckCoord}>
-            <View style={[styles.vehiclePuck, { transform: [{ rotate: `${camera.puck?.bearing ?? 0}deg` }] }]}>
-              <Ionicons name="navigate" size={16} color={colors.onPrimary} />
-            </View>
+            {/* The vehicle, not a pin — see VehicleMarker. Bearing prefers the
+                interpolator's smoothed value and falls back to the server's
+                last reported heading, so a puck that has not yet accumulated
+                two fixes still points the right way instead of due north. */}
+            <VehicleMarker
+              bearing={camera.puck?.bearing ?? snapshot.driver.heading ?? 0}
+            />
           </MapboxGL.MarkerView>
         )}
 

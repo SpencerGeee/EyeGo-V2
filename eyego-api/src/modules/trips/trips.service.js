@@ -674,7 +674,11 @@ async function completeTrip(tripId) {
         tripId,
         paymentMethod: 'CASH',
         paymentStatus: { not: 'PAID' },
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        // Only real fares settle. Excluding just CANCELLED/NO_SHOW let
+        // SEAT_HELD and PENDING holds through, and debited the driver
+        // commission on seats nobody ever booked — see the long note on the
+        // identical query in drivers.service.js arriveTrip.
+        status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] },
       },
       select: { id: true, commissionAmountPesewas: true },
     });

@@ -15,6 +15,7 @@ const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calc
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
+const routeGeometry = require('../../services/route-geometry.service');
 const {
   expireStaleTrips,
   liveUnstartedTripFilter,
@@ -616,6 +617,14 @@ async function startTrip(driverId, tripId) {
     expectedVersion: trip.version,
   });
 
+  // The live leg just became `toPickup` and its cache is empty. Compute it
+  // before answering, so the client's refetch on success already has a line and
+  // an ETA instead of a blank map and "Calculating ETA..." until the driver's
+  // next GPS ping. Awaited deliberately: it costs one Directions call (~300ms)
+  // and it is the difference between the swipe feeling instant and feeling
+  // stuck. Never throws — see warmRouteForTrip.
+  await routeGeometry.warmRouteForTrip(tripId);
+
   // Push notifications — non-blocking
   setImmediate(async () => {
     try {
@@ -652,6 +661,11 @@ async function departTrip(driverId, tripId) {
     actorId: driverId,
     expectedVersion: trip.version,
   });
+
+  // Departing switches the live leg from `toPickup` to `toDropoff`, whose cache
+  // has never been written. Compute it now rather than leaving both apps with
+  // no route line and no ETA until the next location ping. See startTrip.
+  await routeGeometry.warmRouteForTrip(tripId);
 
   // Departure push moved to trip-notify.service.js — see arriveAtPickup above.
   // Note this one also only reached bookings that were CONFIRMED *and* PAID, so
@@ -700,7 +714,26 @@ async function arriveTrip(driverId, tripId) {
         tripId,
         paymentMethod: 'CASH',
         paymentStatus: { not: 'PAID' },
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        /**
+         * BUGFIX ("the earnings page showed 'cash commission auto settled on
+         * arrival — 1 seat(s) not marked boarded'; i don't know if it's a bug or
+         * a symptom of the seat that was marked on the select-seat page but
+         * nobody actually booked").
+         *
+         * It was a bug, and the reading was right. This used to exclude only
+         * CANCELLED and NO_SHOW, which let SEAT_HELD and PENDING through — a
+         * SEAT_HELD row is a fifteen-minute hold on a seat, not a passenger. So
+         * a checkout that was abandoned (or a ghost hold left behind by a failed
+         * booking attempt) was auto-settled as though someone had ridden and
+         * paid cash, and the driver's wallet was DEBITED the commission on a
+         * fare they never collected.
+         *
+         * Auto-settlement exists for one case: a rider who genuinely travelled
+         * and paid cash, where the driver simply never tapped "Mark Boarded".
+         * That rider's booking is CONFIRMED, PAID or BOARDED. A hold that never
+         * became one of those is not a fare, and there is nothing to settle.
+         */
+        status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] },
       },
       select: { id: true, commissionAmountPesewas: true },
     });
