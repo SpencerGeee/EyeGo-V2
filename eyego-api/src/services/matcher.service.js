@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const supply = require('./supply-index.service');
 const { etaMatrix } = require('./eta.service');
 const { availableDriverWhere } = require('./driver-availability');
+const destinationMode = require('./destination-mode.service');
 
 /**
  * The matcher: given rides that need cars and cars that could take them,
@@ -40,7 +41,7 @@ const MAX_PICKUP_ETA_SECONDS = parseInt(process.env.DISPATCH_MAX_PICKUP_ETA_SECO
  * @returns {Promise<Array<{id, fcmToken, currentLat, currentLng, distanceKm,
  *                          etaSeconds, etaDegraded}>>}
  */
-async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId = null, tier = null }) {
+async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId = null, tier = null, trip = null }) {
   if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) return [];
 
   // 1. Geo narrows.
@@ -61,6 +62,9 @@ async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId 
       fcmToken: true,
       currentLat: true,
       currentLng: true,
+      destinationLat: true,
+      destinationLng: true,
+      destinationExpiresAt: true,
       vehicles: { where: { isActive: true, isVerified: true }, select: { id: true, tier: true, seaterCount: true } },
     },
   });
@@ -71,7 +75,28 @@ async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId 
     : eligible;
   // A tier with no cars must not mean no ride at all; fall back to any car and
   // let pricing sort it out rather than showing "no drivers available".
-  const pool = tierMatched.length > 0 ? tierMatched : eligible;
+  let pool = tierMatched.length > 0 ? tierMatched : eligible;
+
+  // 2b. DESTINATION MODE. A driver heading home only wants rides that get them
+  //     closer to it. Drivers with no destination set are unaffected — the
+  //     predicate returns true for them — so this narrows nothing in the
+  //     ordinary case.
+  //
+  //     Applied AFTER the tier fallback and BEFORE the ETA matrix, so a
+  //     filtered-out driver never costs a Directions call. If it would empty
+  //     the pool entirely, it is dropped: one driver's preference must not turn
+  //     into a rider seeing "no drivers available" when there plainly are some.
+  if (trip) {
+    const withDestination = pool.filter((d) => destinationMode.headingTowards(d, trip));
+    if (withDestination.length > 0) {
+      if (withDestination.length !== pool.length) {
+        logger.info('Destination mode filtered candidates', {
+          tripId: trip.id, from: pool.length, to: withDestination.length,
+        });
+      }
+      pool = withDestination;
+    }
+  }
 
   // 3. Rank by ROAD ETA, not straight-line distance.
   const etas = await etaMatrix(

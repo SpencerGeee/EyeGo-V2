@@ -144,4 +144,12 @@ router.post('/support-tickets/:ticketId/reply', controller.replyToTicket);
 router.get('/inspections', controller.getInspections);
 router.post('/inspections', controller.scheduleInspection);
 
+// ── Destination mode ──────────────────────────────────────────────
+// "I'm heading home — only send me rides going my way."
+// See services/destination-mode.service.js for the matching rule and why the
+// allowance is rationed.
+router.get('/destination', controller.getDestinationMode);
+router.post('/destination', requireActiveDriver, controller.setDestinationMode);
+router.delete('/destination', controller.clearDestinationMode);
+
 module.exports = router;

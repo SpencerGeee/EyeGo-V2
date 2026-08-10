@@ -217,6 +217,26 @@ model Driver {
   currentLat      Float?
   currentLng      Float?
   currentHeading  Float?
+
+  // ── DESTINATION MODE ──────────────────────────────────────────────────────
+  // "I'm heading home — only offer me rides going my way." The driver sets a
+  // destination and dispatch stops offering trips that would take them the
+  // wrong way (see matcher.service.js `headingTowards`).
+  //
+  // Deliberately RATIONED. An unlimited version lets a driver camp on a narrow
+  // heading all shift, taking only the most convenient work while still
+  // counting as available supply — which starves the pool without ever showing
+  // up as drivers going offline. Two per day, and each one ends at the first
+  // matched trip or after two hours, whichever comes first.
+  destinationLat        Float?
+  destinationLng        Float?
+  destinationAddress    String?
+  destinationExpiresAt  DateTime?
+  // Uses consumed on `destinationUsesDate`. Rolled lazily on the first read of
+  // a new day rather than by a cron — nothing needs to know at midnight.
+  destinationUsesToday  Int       @default(0)
+  destinationUsesDate   DateTime?
+
   fcmToken        String?
   walletBalancePesewas Int     @default(0)
   payoutData      String?      // JSON: { type:'bank'|'momo', bankName?, accountNumber?, accountName?, network?, phone? }

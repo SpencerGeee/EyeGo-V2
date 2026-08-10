@@ -28,6 +28,7 @@ import { useNotificationsStore } from '../../stores/notifications.store';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { OnlineToggle } from '../../components/OnlineToggle';
+import { DestinationModeCard } from '../../components/DestinationModeCard';
 import DemandOverlay from '../../components/DemandOverlay';
 import mapStyles from '@eyego/map-styles';
 
@@ -492,6 +493,15 @@ export default function HomeScreen() {
               </Text>
             </View>
           </Entrance>
+
+          {/* "I'm heading home" — only shown while online and free, because it
+              is a dispatch preference and there is nothing for it to affect
+              otherwise. */}
+          {isOnline && !activeTripData && (
+            <Entrance animation="slideDown" delay={175} style={styles.ctaWrapper}>
+              <DestinationModeCard />
+            </Entrance>
+          )}
 
           {/* Active trip / Create trip CTA — the screen's hero action gets the premium ring */}
           <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>

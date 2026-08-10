@@ -49,6 +49,7 @@ const { isDriverAvailable } = require('./driver-availability');
 const { sendMulticastPush } = require('./push.service');
 const scheduledTasks = require('./scheduled-task.service');
 const matcher = require('./matcher.service');
+const destinationMode = require('./destination-mode.service');
 const publisher = require('./trip-events.publisher');
 const tripState = require('./trip-state.service');
 const { TRIP_STATUS, ACTOR } = tripState;
@@ -276,6 +277,9 @@ async function offerNext(tripId) {
         radiusKm: DISPATCH_EXTENDED_RADIUS_KM,
         excludeDriverId: state.excludeDriverId,
         tier: trip.tier,
+        // Destination mode reads the trip's dropoff to decide whether a
+        // homeward-bound driver is being sent the right way.
+        trip,
       });
       const seen = new Set(state.candidates.map((c) => c.id));
       const extra = wider.filter((c) => !seen.has(c.id));
@@ -384,6 +388,9 @@ async function resweep(tripId) {
         radiusKm: DISPATCH_EXTENDED_RADIUS_KM,
         excludeDriverId: state.excludeDriverId,
         tier: trip.tier,
+        // Destination mode reads the trip's dropoff to decide whether a
+        // homeward-bound driver is being sent the right way.
+        trip,
       })
       .catch((err) => {
         logger.warn(`Dispatch resweep ranking failed for ${tripId}: ${err.message}`);
@@ -488,7 +495,12 @@ async function startCascade(tripId, opts = {}) {
 
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
-    select: { id: true, status: true, pickupLat: true, pickupLng: true, tier: true },
+    // dropoff is selected for destination mode — see matcher.rankCandidates.
+    select: {
+      id: true, status: true, tier: true,
+      pickupLat: true, pickupLng: true,
+      dropoffLat: true, dropoffLng: true,
+    },
   });
   if (!trip) throw new Error(`startCascade: trip ${tripId} not found`);
 
@@ -511,6 +523,9 @@ async function startCascade(tripId, opts = {}) {
     radiusKm: DISPATCH_RADIUS_KM,
     excludeDriverId,
     tier: trip.tier,
+    // Destination mode reads the trip's dropoff to decide whether a
+    // homeward-bound driver is being sent the right way.
+    trip,
   });
 
   await writeState({
@@ -601,6 +616,16 @@ async function announceWinner(tripId, driverId) {
   }
   await finish(tripId, 'accepted');
   await clearState(tripId);
+
+  // Destination mode buys ONE ride in the right direction, not a filtered
+  // shift. The session ends here rather than at drop-off, so the driver is back
+  // in the general pool the moment they have the ride they asked for.
+  const winner = await prisma.driver
+    .findUnique({ where: { id: driverId }, select: { destinationExpiresAt: true, destinationLat: true, destinationLng: true } })
+    .catch(() => null);
+  if (destinationMode.isActive(winner)) {
+    await destinationMode.clearDestination(driverId, 'MATCHED');
+  }
 }
 
 /** The claim FAILED (lost the race, or threw). Put the cascade back to work. */

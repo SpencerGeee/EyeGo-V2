@@ -2,6 +2,24 @@ import { apiClient } from './client';
 import type { ApiResponse } from '@eyego/types';
 import type { TripDriver } from '@eyego/types';
 
+/**
+ * Destination mode — the driver's "I'm heading home" filter.
+ *
+ * `expiresAtServerMs` is SERVER time, like every other deadline in this API;
+ * render it against `serverNowMs`, never against `Date.now()`.
+ */
+export interface DestinationMode {
+  active: boolean;
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+  expiresAtServerMs: number | null;
+  usesToday: number;
+  usesRemaining: number;
+  maxUsesPerDay: number;
+  serverNowMs: number;
+}
+
 // ── Driver-facing (used by driver app) ───────────────────────────────────────
 export interface DriverProfile {
   id: string;
@@ -189,6 +207,17 @@ export const driverApi = {
 
   goOffline: () =>
     apiClient.post<ApiResponse<{ isOnline: boolean }>>('/driver/go-offline'),
+
+  // Destination mode — "only send me rides heading my way".
+  // Rationed server-side; `usesRemaining` is what the UI should gate on.
+  getDestinationMode: () =>
+    apiClient.get<ApiResponse<DestinationMode>>('/driver/destination'),
+
+  setDestinationMode: (data: { lat: number; lng: number; address?: string | null }) =>
+    apiClient.post<ApiResponse<DestinationMode>>('/driver/destination', data),
+
+  clearDestinationMode: () =>
+    apiClient.delete<ApiResponse<DestinationMode>>('/driver/destination'),
 
   /**
    * Fare preview for the create-trip flow. Pass the route endpoints whenever

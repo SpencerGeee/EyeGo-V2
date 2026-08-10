@@ -7,6 +7,7 @@ const { estimateFare } = require('../trips/fare.calculator');
 const surgeService = require('../trips/surge.service');
 const mapboxService = require('../../services/mapbox.service');
 const { ok, created } = require('../../utils/response');
+const destinationMode = require('../../services/destination-mode.service');
 
 const getMe = async (req, res) => {
   const driver = await driversService.getMe(req.user.userId);
@@ -480,6 +481,28 @@ const getUpcomingScheduled = async (req, res) => {
   ok(res, { scheduled });
 };
 
+// ── Destination mode ────────────────────────────────────────────────────────
+const getDestinationMode = async (req, res) => {
+  ok(res, await destinationMode.getStatus(req.user.userId));
+};
+
+const setDestinationMode = async (req, res) => {
+  const { lat, lng, address } = req.body ?? {};
+  ok(
+    res,
+    await destinationMode.setDestination(req.user.userId, {
+      lat: Number(lat),
+      lng: Number(lng),
+      address: typeof address === 'string' ? address.slice(0, 200) : null,
+    }),
+    'Destination set — only rides heading that way from now on',
+  );
+};
+
+const clearDestinationMode = async (req, res) => {
+  ok(res, await destinationMode.clearDestination(req.user.userId, 'MANUAL'));
+};
+
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getAllTrips, devActivate,
@@ -496,4 +519,5 @@ module.exports = {
   scheduleInspection, getInspections,
   deleteMe, reportTrip, emergencyAlert,
   getPendingTripRequests, getUpcomingScheduled,
+  getDestinationMode, setDestinationMode, clearDestinationMode,
 };
