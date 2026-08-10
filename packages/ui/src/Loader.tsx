@@ -8,17 +8,10 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
-import Svg, {
-  Circle,
-  Defs,
-  RadialGradient,
-  Stop,
-  Path,
-  Text as SvgText,
-  TextPath,
-} from 'react-native-svg';
-import { fonts } from '@eyego/config';
+import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { fonts, fontSizes } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
+import { Text } from './Text';
 
 interface LoaderProps {
   /** Contextual label, e.g. "Finding your driver…" or "Processing payment…". */
@@ -28,98 +21,108 @@ interface LoaderProps {
 }
 
 /**
- * Premium full-screen/blocking-wait loader: a "blackhole" radial-gradient
- * disc with a pulsing glow, and the label following a curved SVG path
- * around it — both rotate/pulse continuously via worklet-driven Reanimated,
- * never JS state. Reserved for genuinely blocking waits (ride matching,
- * payment processing, splash); inline spinners stay ActivityIndicator.
+ * Blocking-wait loader: a thin indeterminate ring with a static label beneath.
+ *
+ * WHAT THIS REPLACED, AND WHY ("the green loader orb thing that appears on
+ * selection of a created trip is not aesthetic — i told you to redesign it").
+ * The previous version was a solid `colors.primary` disc at ~55 % opacity with
+ * a 30 pt glow behind it, a second green radial-gradient disc on top, and the
+ * label set in letter-spaced caps on a curved SVG path ORBITING the whole thing
+ * once every nine seconds. Three problems, all of them structural rather than a
+ * matter of taste:
+ *
+ *   - A large saturated blob is the loudest thing that can be on a screen. It
+ *     dominated a moment that is, by definition, not the content.
+ *   - Text on a rotating path is unreadable for most of its rotation — it is
+ *     upside down for a quarter of every cycle — so the one piece of
+ *     information the loader carries was the part hardest to consume.
+ *   - Nine seconds per revolution reads as *stalled*. A progress indicator's
+ *     job is to say "still working"; anything slower than about a second per
+ *     turn says the opposite.
+ *
+ * What replaces it is the idiom every native app converged on: a slim arc on a
+ * faint track, one turn per ~0.9 s, tapering to transparent at its tail so the
+ * motion is legible without a hard leading edge. The label sits still, upright,
+ * below it. The accent colour appears only in the arc — a few pixels of it —
+ * which is enough to be branded and not enough to be the subject.
  */
-export function Loader({ label, size = 128, style }: LoaderProps) {
+export function Loader({ label, size = 44, style }: LoaderProps) {
   const colors = useThemedColors();
   const rotation = useSharedValue(0);
-  const pulse = useSharedValue(0);
 
   useEffect(() => {
     rotation.value = withRepeat(
-      withTiming(360, { duration: 9000, easing: Easing.linear }),
+      withTiming(360, { duration: 900, easing: Easing.linear }),
       -1,
-      false
-    );
-    pulse.value = withRepeat(
-      withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.quad) }),
-      -1,
-      true
+      false,
     );
     // A loader is by definition unmounted the moment the thing it was waiting
-    // for arrives; without this its two infinite repeats kept running after.
+    // for arrives; without this its infinite repeat kept running after.
     return () => {
       cancelAnimation(rotation);
-      cancelAnimation(pulse);
     };
-  }, [rotation, pulse]);
+  }, [rotation]);
 
   const rotateStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${rotation.value}deg` }],
   }));
 
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: 0.3 + pulse.value * 0.25,
-    transform: [{ scale: 1 + pulse.value * 0.06 }],
-  }));
-
-  const cx = size / 2;
-  const cy = size / 2;
-  const arcRadius = size * 0.62;
-  const arcPath = `M ${cx - arcRadius} ${cy} A ${arcRadius} ${arcRadius} 0 0 1 ${cx + arcRadius} ${cy}`;
-  const glowSize = size * 1.3;
+  // Stroke is proportional so the ring stays optically consistent at any size.
+  const stroke = Math.max(2, size * 0.075);
+  const r = (size - stroke) / 2;
+  const c = size / 2;
+  const circumference = 2 * Math.PI * r;
+  // ~70 % of the ring is drawn, the rest is the gap the eye reads as motion.
+  const arc = circumference * 0.7;
 
   return (
-    <View style={[styles.container, { width: size * 1.9, height: size * 1.9 }, style]}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          styles.glow,
-          {
-            width: glowSize,
-            height: glowSize,
-            borderRadius: glowSize / 2,
-            backgroundColor: colors.primary,
-            shadowColor: colors.primary,
-          },
-          glowStyle,
-        ]}
-      />
-      <Animated.View style={rotateStyle}>
+    <View style={[styles.container, style]}>
+      <Animated.View style={[{ width: size, height: size }, rotateStyle]}>
         <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <Defs>
-            <RadialGradient id="loaderDisc" cx="50%" cy="50%" r="60%">
-              <Stop offset="0%" stopColor={colors.backgroundDeep} stopOpacity={1} />
-              <Stop offset="65%" stopColor={colors.primary} stopOpacity={0.35} />
-              <Stop offset="100%" stopColor={colors.backgroundDeep} stopOpacity={0} />
-            </RadialGradient>
+            {/* Tapers the arc to nothing at its tail, so the ring has a
+                direction without a blunt end stopping the eye. */}
+            <LinearGradient id="loaderArc" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={colors.primary} stopOpacity={0} />
+              <Stop offset="55%" stopColor={colors.primary} stopOpacity={0.55} />
+              <Stop offset="100%" stopColor={colors.primary} stopOpacity={1} />
+            </LinearGradient>
           </Defs>
-          <Circle cx={cx} cy={cy} r={size * 0.4} fill="url(#loaderDisc)" />
+
+          {/* The track: present, but barely. It exists to stop the arc reading
+              as a fragment floating in space. */}
           <Circle
-            cx={cx}
-            cy={cy}
-            r={size * 0.4}
-            stroke={colors.rimLight}
-            strokeWidth={1}
+            cx={c}
+            cy={c}
+            r={r}
+            stroke={colors.outlineVariant ?? colors.outline}
+            strokeWidth={stroke}
+            strokeOpacity={0.35}
             fill="none"
           />
-          <Path id="loaderArc" d={arcPath} fill="none" />
-          <SvgText
-            fill={colors.onSurfaceVariant}
-            fontSize={size * 0.09}
-            fontFamily={fonts.labelCaps}
-            letterSpacing={2}
-          >
-            <TextPath href="#loaderArc" startOffset="50%" textAnchor="middle">
-              {label.toUpperCase()}
-            </TextPath>
-          </SvgText>
+          <Circle
+            cx={c}
+            cy={c}
+            r={r}
+            stroke="url(#loaderArc)"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={`${arc} ${circumference}`}
+            fill="none"
+          />
         </Svg>
       </Animated.View>
+
+      {!!label && (
+        <Text
+          variant="bodySmall"
+          color={colors.onSurfaceVariant}
+          style={styles.label}
+          numberOfLines={2}
+        >
+          {label}
+        </Text>
+      )}
     </View>
   );
 }
@@ -129,10 +132,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glow: {
-    position: 'absolute',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 30,
+  label: {
+    marginTop: 14,
+    textAlign: 'center',
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    // Slightly open, but nowhere near the letter-spaced caps this used to be —
+    // a wait message is read, not displayed.
+    letterSpacing: 0.1,
+    maxWidth: 220,
   },
 });
