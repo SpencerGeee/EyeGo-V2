@@ -340,6 +340,29 @@ function SearchStageImpl() {
 
   return (
     <View style={styles.overlay} pointerEvents="box-none">
+      {/*
+        THE SHEET. Opaque, full-bleed, and only while no destination is chosen.
+
+        BUGFIX ("on the where-to page the place you put the home and work
+        address isn't nice, plus the search for a place or address is literally
+        sitting on the map underneath").
+
+        The panel below was inset by `CARD_H_MARGIN` and painted at 0.94 alpha,
+        so the map showed through it — down both edges, faintly behind every
+        row, and most obviously under the "Search for a place or address"
+        button at the end of the scroll, which had map on three sides and read
+        as a control someone had dropped on the wrong layer.
+
+        There is nothing useful on that map yet. The rider has not said where
+        they are going, so it is showing them their own neighbourhood behind a
+        list they are trying to read. Uber, Bolt and Yango all open this step as
+        a full opaque sheet for exactly that reason, and hand the map back the
+        moment a destination exists — which is what `expanded` already tracks.
+      */}
+      {expanded && (
+        <View style={styles.sheetBackdrop} pointerEvents="none" />
+      )}
+
       {/* Header */}
       <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
         <Pressable
@@ -517,6 +540,23 @@ function SearchStageImpl() {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
+            {/* Search sits FIRST, immediately under the destination field it
+                belongs to. It used to be the last thing in this scroll, after
+                Home, Work, every saved place and eight recents — so the one
+                control that answers "my destination isn't in any of these
+                lists" was the one you had to scroll past all of them to find,
+                and it ended up hanging over the map below the content. It is
+                the primary action here; it reads as one now. */}
+            <Pressable
+              style={({ pressed }) => [styles.searchWideBtn, pressed && styles.rowPressed]}
+              onPress={() => openMapPicker('dest')}
+              accessibilityRole="button"
+              accessibilityLabel="Search for a place"
+            >
+              <Ionicons name="search" size={16} color={colors.primary} />
+              <Text style={styles.searchWideText}>Search for a place or address</Text>
+            </Pressable>
+
             {/* Home + Work always have a row. A missing one is an invitation to
                 add it, not an absence — and once added it IS the row, so the
                 prompt can never sit next to the address it was asking for. */}
@@ -544,6 +584,18 @@ function SearchStageImpl() {
                   onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
                 />
               )}
+              {/* Closes the group. Without it the block ends on whichever of
+                  Home/Work happens to exist, and there is no way into saved
+                  places from here at all once both are set. */}
+              {(showHome || showWork) && <View style={styles.rowDivider} />}
+              <SlotRow
+                styles={styles}
+                colors={colors}
+                icon="add-circle-outline"
+                title="Add a saved place"
+                isPrompt
+                onPress={openSavedPlaces}
+              />
             </View>
 
             {otherSaved.length > 0 && (
@@ -588,17 +640,6 @@ function SearchStageImpl() {
               </>
             )}
 
-            {/* Always reachable, so the panel is never a dead end on a fresh
-                account with no saved places and no history. */}
-            <Pressable
-              style={({ pressed }) => [styles.searchWideBtn, pressed && styles.rowPressed]}
-              onPress={() => openMapPicker('dest')}
-              accessibilityRole="button"
-              accessibilityLabel="Search for a place"
-            >
-              <Ionicons name="search" size={16} color={colors.primary} />
-              <Text style={styles.searchWideText}>Search for a place or address</Text>
-            </Pressable>
           </ScrollView>
         </View>
       )}
@@ -673,6 +714,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     zIndex: 10,
   },
 
+  /** Opaque, edge to edge, behind everything else in the stage. See the note at
+   *  its render site — this is what makes Where-To a sheet rather than a stack
+   *  of cards floating on a map the rider cannot use yet. */
+  sheetBackdrop: {
+    // Spelled out rather than spreading `StyleSheet.absoluteFillObject` — the
+    // spread widens every key to `number | undefined` inside `StyleSheet.create`
+    // and takes the whole inferred style map down with it.
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: colors.background,
+  },
+
   // ─── Header ──────────────────────────────────────────
   headerRow: {
     flexDirection: 'row',
@@ -724,17 +777,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   // ─── Floating Card (glass panel) ─────────────────────
   floatingCard: {
-    backgroundColor: withOpacity(colors.surfaceCard, 0.94),
+    backgroundColor: colors.surfaceCard,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: colors.rimLight,
     // MUST equal CARD_PADDING — the field column width is derived from it.
     padding: CARD_PADDING,
+    // Softened. A 0.5/32 drop shadow is what a card floating over a live map
+    // needs to separate itself from it; on an opaque sheet the same shadow just
+    // smears grey down the page under the fields.
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.5,
-    shadowRadius: 32,
-    elevation: 14,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 6,
   },
 
   // ─── Dual rows + timeline ────────────────────────────
@@ -888,7 +944,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sectionCard: {
     borderRadius: 20,
-    backgroundColor: withOpacity(colors.surfaceCard, 0.94),
+    // Fully opaque now that it sits on the sheet rather than on the map. At
+    // 0.94 every row had a faint wash of whatever was underneath it, which is
+    // half of why the Home/Work block read as unfinished.
+    backgroundColor: colors.surfaceCard,
     borderWidth: 1,
     borderColor: colors.rimLight,
     overflow: 'hidden',
