@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, BackHandler } from 'react-native';
+import { StyleSheet, BackHandler } from 'react-native';
 import Animated, {
   FadeIn,
   useSharedValue,
@@ -9,6 +9,7 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { withOpacity } from '@eyego/config';
 import { useColors } from '../utils/useColors';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
@@ -249,13 +250,27 @@ export default function TripScreen() {
     transform: [{ translateY: progress.value * -12 }],
   }));
 
-  const mapGradient = useMemo(
-    () => ({
-      position: 'absolute' as const,
-      top: 0, left: 0, right: 0,
-      height: 220,
-      backgroundColor: withOpacity(colors.backgroundDeep, 0.55),
-    }),
+  /**
+   * The scrim behind the top chips.
+   *
+   * It was named `mapGradient` and was not one: a flat 220 pt rectangle filled
+   * at 55 % opacity. A constant-alpha fill has to STOP somewhere, and where it
+   * stopped there was a hard horizontal seam across the map — reported as "a
+   * visible border that's a bit transparent at the top of the tracking page,
+   * it's not as fullscreen as the driver app".
+   *
+   * A real vertical fade has no edge to see. It also starts weaker (0.45) and
+   * reaches zero well before the bottom, so the map is genuinely full-bleed the
+   * way the driver's is; the scrim still does its one job, which is keeping the
+   * connection chip legible when the map underneath is a pale road.
+   */
+  const scrimColors = useMemo(
+    () =>
+      [
+        withOpacity(colors.backgroundDeep, 0.45),
+        withOpacity(colors.backgroundDeep, 0.18),
+        withOpacity(colors.backgroundDeep, 0),
+      ] as const,
     [colors],
   );
 
@@ -270,7 +285,14 @@ export default function TripScreen() {
     <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
       {/* One persistent map for every stage */}
       <TripMap />
-      <View style={mapGradient} pointerEvents="none" />
+      <LinearGradient
+        colors={scrimColors as unknown as readonly [string, string, ...string[]]}
+        // Weighted toward the top so the fade is imperceptible rather than a
+        // linear ramp you can still pick out the end of.
+        locations={[0, 0.55, 1]}
+        style={styles.topScrim}
+        pointerEvents="none"
+      />
 
       {rendered.previous && (
         <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
@@ -297,4 +319,11 @@ export default function TripScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'transparent' },
+  topScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+  },
 });
