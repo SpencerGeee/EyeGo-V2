@@ -14,6 +14,7 @@ import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { useRecentPlaces } from '../../../stores/recentPlaces.store';
 import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
+import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { isHomeLabel, isWorkLabel } from '../../../utils/savedPlaceSlots';
 
 /**
@@ -198,6 +199,9 @@ function SearchStageImpl() {
   const openMapPicker = useCallback((field: 'origin' | 'dest') => {
     haptic.light();
     pickingFieldRef.current = field;
+    // The trip surface owns this screen, so coming back from it must not be
+    // mistaken for backing into Where-To. See utils/tripSurfaceReturn.
+    expectTripSurfaceReturn();
     router.push({
       pathname: '/profile/place-picker',
       params: {
@@ -248,6 +252,7 @@ function SearchStageImpl() {
   const handleSchedule = useCallback(() => {
     haptic.light();
     setRequestSeats(orderSeats, true);
+    expectTripSurfaceReturn();
     router.push('/ride/schedule' as any);
   }, [orderSeats, setRequestSeats, router]);
 
@@ -317,6 +322,7 @@ function SearchStageImpl() {
 
   const openSavedPlaces = useCallback(() => {
     haptic.light();
+    expectTripSurfaceReturn();
     router.push('/profile/saved-places' as any);
   }, [router]);
 

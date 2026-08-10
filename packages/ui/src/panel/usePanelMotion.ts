@@ -64,7 +64,7 @@ export interface PanelMotionOptions {
  *  Softer than before (stiffness 240→down from 320, damping 22→down from 34,
  *  mass 1→up from 0.9) so the sheet feels naturally reactive to gesture
  *  velocity — Yango's signature "alive but not bouncy" tension. */
-export const panelSpring: WithSpringConfig = { stiffness: 240, damping: 22, mass: 1 };
+export const panelSpring: WithSpringConfig = { stiffness: 240, damping: 31, mass: 1 };
 
 const FLICK_VELOCITY = 900; // px/s — beyond this, always advance a stop
 const PROJECTION = 0.15; // s of velocity projection for snap choice

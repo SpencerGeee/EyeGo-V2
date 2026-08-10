@@ -52,7 +52,7 @@ export function RideCard({ ride, onPress, index = 0 }: RideCardProps) {
     <MotiView
       from={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 20, delay: index * 60 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 35, delay: index * 60 }}
     >
       <Pressable onPress={onPress} style={styles.card}>
         {/* Tier accent stripe */}

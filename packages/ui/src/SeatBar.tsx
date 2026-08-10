@@ -26,7 +26,7 @@ export function SeatBar({ total, confirmed, pending, compact = false }: SeatBarP
             key={i}
             from={isConfirmed ? { scale: 0.5 } : { scale: 1 }}
             animate={{ scale: 1 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20, delay: i * 30 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 35, delay: i * 30 }}
           >
             <SeatBadge status={status} compact={compact} />
           </MotiView>

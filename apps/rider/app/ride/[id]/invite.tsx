@@ -363,7 +363,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 100 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 100 }}
           style={styles.inviteCard}
         >
           <Ionicons name="people-outline" size={28} color={colors.primary} />
@@ -439,7 +439,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 200 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 200 }}
           style={styles.membersSection}
         >
           <View style={styles.membersHeader}>
@@ -458,7 +458,7 @@ export default function InviteScreen() {
               key={member.bookingId}
               from={{ opacity: 0, translateX: -10 }}
               animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 20, delay: i * 60 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 35, delay: i * 60 }}
             >
               <MemberRow name={member.passengerName} seatNumber={member.seatNumber} />
             </MotiView>
@@ -475,7 +475,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 250 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 250 }}
           style={styles.optionsCard}
         >
           <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Group Settings</Text>
@@ -543,7 +543,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 280 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 280 }}
           style={[styles.fareSummary, { flexDirection: 'column', alignItems: 'stretch', gap: spacing.xs }]}
         >
           {/* Total Fare */}
@@ -590,7 +590,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 300 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 300 }}
         >
           <Button
             variant="glow"

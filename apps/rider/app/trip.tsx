@@ -13,6 +13,7 @@ import { withOpacity } from '@eyego/config';
 import { useColors } from '../utils/useColors';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
+import { consumeTripSurfaceReturn } from '../utils/tripSurfaceReturn';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
 import { SelectStage } from '../components/trip/stages/SelectStage';
@@ -181,6 +182,15 @@ export default function TripScreen() {
         firstFocus.current = false;
         return;
       }
+      // ...EXCEPT when the surface opened that screen itself. The Where-To
+      // sheet pushes its own children — the place picker, saved places, the
+      // schedule screen — and coming back from one of those is the sheet's own
+      // round trip, not a rider backing in from downstream. The stage looks
+      // identical either way, so the screen that navigated declares the intent
+      // and this consumes it once. Without it, choosing a destination (or
+      // merely opening the picker and pressing back) threw the rider onto the
+      // home screen and lost the search they were part-way through.
+      if (consumeTripSurfaceReturn()) return;
       if (CLIENT_OWNED_STAGES.includes(useTripFlow.getState().stage)) {
         router.dismissTo('/(tabs)/home' as Href);
       }

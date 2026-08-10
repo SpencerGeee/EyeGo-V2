@@ -75,10 +75,17 @@ function WhereToPressable({
     <GlowSearchPressable
       onPress={onPress}
       accessibilityLabel="Open destination search"
-      // Green ring over the green backdrop, at 1.35× so it actually reads
-      // against a lit background instead of washing out against it.
+      // Green ring over the green backdrop so it reads as light rather than as
+      // dirt (the two hues green sits between are what washed it out before).
+      //
+      // 0.5, not 1.35. The halo's outer reach is `36 × intensity`, and the card
+      // sits 20 pt below the header — so anything above ~0.55 paints past the
+      // ScrollView's clip edge and gets sliced flat, which is the "cutout under
+      // the top nav" this card has been blamed for twice. Sizing the glow to
+      // the gap is what lets the card stay where it looked right, instead of
+      // being pushed down to make room for its own shadow.
       palette="green"
-      glowIntensity={1.35}
+      glowIntensity={0.5}
       style={styles.whereToCard}
     >
       <View style={styles.whereToIconWrap}>
@@ -640,18 +647,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    // BUGFIX ("the top nav has a cutout at its bottom that cuts the glow
-    // field"): there is no cutout. The Where-To bar lives inside the ScrollView
-    // below, and a ScrollView clips its content to its own bounds — while the
-    // bar's glow is an iOS shadow painting up to ~36 pt ABOVE the bar. With
-    // only 12 + 8 pt of room between the header and the card, the top of the
-    // halo was sliced off flat at the scroll viewport's edge, and a hard
-    // horizontal line where a soft glow should be reads exactly like a notch
-    // cut out of the bar above it.
-    // Nothing here clips: the fix is to give the halo room to exist inside the
-    // scroll view. Paired with `scrollContent.paddingTop` — the two together
-    // must clear the largest shadowRadius the bar can paint.
-    paddingBottom: 4,
+    // The Where-To bar lives inside the ScrollView below, a ScrollView clips to
+    // its own bounds, and the bar's glow is an iOS shadow that paints ABOVE the
+    // bar. If the halo reaches further than the gap here plus
+    // `scrollContent.paddingTop`, its top is sliced off flat at the viewport
+    // edge — and a hard horizontal line where a soft glow should be reads
+    // exactly like a notch cut out of the header.
+    //
+    // That was previously solved by pushing the card 36 pt further down, which
+    // bought the room but moved the card:
+    //
+    //   "i know i told you to give a little space to the where to field on the
+    //    homepage but now it's looking awkward, revert it to the initial
+    //    position since it was looking nice then."
+    //
+    // So the card goes back to 12 + 8 pt, and the halo is sized to FIT that gap
+    // instead of the gap being sized to fit the halo — see `glowIntensity` on
+    // the GlowSearchPressable above. Nothing clips, and nothing moved.
+    paddingBottom: 12,
     gap: 10,
   },
   avatarBtn: {
@@ -705,12 +718,30 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── Scroll ───────────────────────────────────────────────
+  /**
+   * Pulled up by exactly the headroom `scrollContent.paddingTop` adds.
+   *
+   * "i know i told you to give a little space to the where to field on the
+   * homepage but now it's looking awkward, revert it to the initial position."
+   *
+   * The space was not decoration — it was the fix for the Where-To glow being
+   * sliced flat at the ScrollView's clip edge (which read as a cutout in the
+   * header above it). Simply reverting `paddingTop` to 8 would bring the notch
+   * straight back.
+   *
+   * The two requirements are only in conflict if the padding has to move the
+   * card. It doesn't: the padding exists so the halo has somewhere to paint
+   * INSIDE the scroll bounds, and moving the whole scroll view up by the same
+   * amount keeps that headroom while putting the card back exactly where it
+   * used to sit. 52 − 44 = 8 pt below the header, the original position.
+   */
   scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 20,
-    // ≥ the Where-To glow's outer reach (36 pt × the 1.35 intensity ≈ 49) so
-    // the halo never meets the clip edge. See the note on `header`.
-    paddingTop: 52,
+    // Back to the original 8. Together with the header's 12 this is the 20 pt
+    // the halo now has to live within — see `glowIntensity` on the
+    // GlowSearchPressable and the note on `header`.
+    paddingTop: 8,
     gap: 16,
     paddingBottom: 8,
   },

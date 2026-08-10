@@ -29,6 +29,7 @@ import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph,
 import { formatGhs } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
+import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 
 // R7: The Trip type from @eyego/types doesn't include all runtime API fields.
 // This extended type covers the shape returned by tripsApi.search() so we can
@@ -432,7 +433,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   </Pressable>
                   <Pressable
                     style={[styles.noDriversCtaBtn, { backgroundColor: colors.surfaceContainer, borderWidth: 1, borderColor: colors.outlineVariant }]}
-                    onPress={() => router.push('/ride/schedule' as any)}
+                    onPress={() => { expectTripSurfaceReturn(); router.push('/ride/schedule' as any); }}
                     accessibilityRole="button"
                     accessibilityLabel="Schedule a trip for later"
                   >
@@ -509,6 +510,10 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                           isGroupFlow ? 'group=1' : '',
                         ].filter(Boolean).join('&');
                         const path = `/ride/${trip.id}${query ? `?${query}` : ''}`;
+                        // Backing out of a trip's detail belongs on the list of
+                        // trips it came from, not on the home screen — the
+                        // rider is still choosing. See utils/tripSurfaceReturn.
+                        expectTripSurfaceReturn();
                         // Container-transform: card grows into the ride detail
                         // screen (route uses animation 'fade', see root _layout).
                         morphTo(`ride-card-${trip.id}`, () => router.push(path as any));

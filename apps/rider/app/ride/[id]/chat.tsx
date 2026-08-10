@@ -456,14 +456,37 @@ export default function ChatScreen() {
   // each device, and relying on prepend/append order alone made the two
   // sides disagree on who "came first". Sorting by the authoritative
   // timestamp keeps both apps' rendering deterministic and consistent.
-  // Newest-first because the list is `inverted` (index 0 renders at bottom).
+  /**
+   * Oldest-first, rendered top-down — the same as the driver app.
+   *
+   * BUGFIX ("the rider chat isn't laid out properly compared to the driver app:
+   * on the driver app all the texts go to the top of the page, but on the rider
+   * app they seem to be in the middle").
+   *
+   * This list used to be `inverted`, which flips the content container along
+   * with the cells — so `listContent`'s `paddingTop` (base + 156, sized to clear
+   * the floating header) was actually applied at the BOTTOM of the screen. A
+   * short conversation was anchored to the bottom by the inversion and then
+   * shoved up by 156px of misplaced padding, which is how the messages ended up
+   * floating in the middle of an otherwise empty screen.
+   *
+   * Rather than just move the padding, this now matches the driver app exactly:
+   * a plain top-down list, oldest at the top, scrolled to the end as messages
+   * arrive. Two chat screens in one product should not read differently.
+   */
   const visibleMessages = useMemo(
     () =>
       messages
         .filter((m) => (isPrivateMode ? m.isPrivate : !m.isPrivate))
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
     [messages, isPrivateMode],
   );
+
+  // Keep the newest message in view, the way the driver app's list does. An
+  // inverted list got this for free; a top-down one has to ask.
+  const scrollToBottom = useCallback(() => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+  }, []);
 
   const formatTime = (iso: string) => {
     try {
@@ -477,7 +500,7 @@ export default function ChatScreen() {
     <MotiView
       from={{ opacity: 0, translateY: 8, scale: 0.97 }}
       animate={{ opacity: 1, translateY: 0, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 22 } as any}
+      transition={{ type: 'spring', stiffness: 320, damping: 36 } as any}
       style={[
         styles.bubbleWrapper,
         item.isMine ? styles.bubbleWrapperRight : styles.bubbleWrapperLeft,
@@ -645,10 +668,15 @@ export default function ChatScreen() {
           data={visibleMessages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
-          inverted
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
+          onContentSizeChange={scrollToBottom}
+          onLayout={scrollToBottom}
+          // The typing bubble belongs AFTER the last message. It was a header
+          // only because the list was inverted, where the header renders at the
+          // bottom; in a top-down list that would have put it above the whole
+          // conversation.
+          ListFooterComponent={
             isDriverTyping ? (
               <MotiView
                 from={{ opacity: 0, translateY: 4 }}
@@ -826,8 +854,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing['2xl'],
+    // 156px of header clearance, now on the edge it was always meant for. While
+    // the list was `inverted` this padding was flipped to the bottom of the
+    // screen, which is what pushed a short conversation into the middle.
     paddingTop: spacing.base + 156,
     paddingBottom: spacing.base,
+    gap: spacing.sm,
   },
   emptyState: {
     flex: 1,

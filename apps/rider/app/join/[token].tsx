@@ -104,7 +104,7 @@ export default function JoinScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35 }}
           style={styles.inviteHeader}
         >
           <View style={styles.inviteIcon}>
@@ -122,7 +122,7 @@ export default function JoinScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 150 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 150 }}
           style={styles.tripCard}
         >
           <View style={styles.routeRow}>
@@ -153,7 +153,7 @@ export default function JoinScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 250 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 250 }}
           style={styles.ctaSection}
         >
           <Button

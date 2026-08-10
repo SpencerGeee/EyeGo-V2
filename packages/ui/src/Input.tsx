@@ -72,7 +72,7 @@ export function Input({
    */
   useEffect(() => {
     const shouldFloat = focused || hasValue;
-    labelAnim.value = withSpring(shouldFloat ? 1 : 0, { stiffness: 300, damping: 20 });
+    labelAnim.value = withSpring(shouldFloat ? 1 : 0, { stiffness: 300, damping: 35 });
   }, [focused, hasValue, labelAnim]);
 
   // The placeholder is a hint for an EMPTY, FOCUSED field only, and is held

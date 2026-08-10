@@ -111,7 +111,7 @@ export function SwipeToConfirm({
     if (confirmed) return;
     if (!loading && committed.value) {
       committed.value = false;
-      x.value = withSpring(0, { damping: 22, stiffness: 220 });
+      x.value = withSpring(0, { damping: 30, stiffness: 220 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, confirmed]);
@@ -144,7 +144,7 @@ export function SwipeToConfirm({
             x.value = withTiming(max, { duration: 140 });
             runOnJS(fire)();
           } else {
-            x.value = withSpring(0, { damping: 20, stiffness: 240 });
+            x.value = withSpring(0, { damping: 31, stiffness: 240 });
           }
         }),
     [locked, threshold, thumbSize, fire, committed, x, trackWidth],
