@@ -1,70 +1,67 @@
 # State — Stress Sweep 2026-08-10c (26 items)
 
 ## Current Goal
-Fix the 26-item stress-test list. Phase 1 (backend + blockers) in progress.
+26-item stress-test list. 24 done and committed; 2 partially addressed.
 
 ## Decisions (confirmed with user)
-- Rider "Where to" becomes a 5-step paged flow mirroring driver `create.tsx`:
-  Pickup → Dropoff → Ride type → Seats/extras → Review & Confirm.
-- Driver destination filter (item 25): Uber-style, **limited** — 2 uses/day,
-  expires after 1 matched trip or 2h, bearing-cone + detour-cap matching.
-- Loader (item 5): **Reanimated** port of the luma-spin 8-position inset
-  keyframes; replaces every loader/ActivityIndicator in BOTH apps.
-- Delivery: backend + blockers → perf → UI → features. One push at the end,
-  only once both apps' `tsc` is green.
+- Rider Where-to = 5 paged steps. Steps 1–2 stay on SearchStage's existing
+  card (pickup/destination are two rows of one timeline); 3–5 are the new
+  `ConfigureStage`.
+- Driver destination filter: 2 uses/day, ends at first matched trip or 2h.
+- Loader: Reanimated port of luma-spin, replaces every loader in both apps.
+- Delivery: 5 commits on `main`, both apps `tsc` green before each.
 
-## Plan Status
+## Plan Status — commits c5729ac, c968be9, 1b4752e, 401409d, 046360f
 
-### DONE (Phase 1)
-- **#2 dispatch never reaches the driver** — TWO root causes, both fixed:
-  1. `eyego-api/src/modules/rides/rides.routes.js` read `req.user.id` (rider)
-     and `req.driver.id` (driver). Neither exists: both auth middlewares set
-     `req.user = decoded`, and the JWT payload's id field is `userId`. 14 call
-     sites replaced with an `actorId(req)` helper. The whole `/v1/rides` module
-     was dead — driver endpoints threw, rider endpoints ran as `undefined`.
-  2. `apps/driver/stores/trip.store.ts` stored the incoming OFFER and **nothing
-     in the app ever rendered it**. New `apps/driver/components/
-     DispatchOfferSheet.tsx`, root-mounted in `apps/driver/app/_layout.tsx`.
-  - Offer payload enriched in `dispatch-cascade.service.js` with
-    pickup/dropoff addresses + `farePesewas` / `driverEarningsPesewas`;
-    matching fields added to `DispatchOffer` in `trip.store.ts`.
-- **#1 Neon "Can't reach database server"** — `eyego-api/src/config/database.js`
-  rewritten: `$extends` retry (3 attempts, 150/600ms backoff) on transient
-  codes P1001/P1002/P1008/P1017/P2024, explicitly NOT retried inside
-  interactive transactions; boot warm-up `$connect()`. `errorHandler.js` maps
-  those codes to 503 `DB_UNAVAILABLE` instead of an unhandled 500.
-- **#21 "Transaction already closed" on Mark-as-arrived** — quest progress
-  moved OUT of the trip transaction in both `drivers.service.arriveTrip` and
-  `trips.service.completeTrip` (now `setImmediate` post-commit); the per-quest
-  loop in `quests.service.incrementProgress` is now concurrent and `tx`
-  defaults to `prisma`. Global `transactionOptions: { timeout: 20s, maxWait: 10s }`.
-- Sentry `user.id` in errorHandler was reading the non-existent `req.user.id`.
+### DONE
+1  Neon P1001 — retry extension + 503 mapping (`config/database.js`, `errorHandler.js`)
+2  Dispatch never arrived — `req.driver.id`/`req.user.id` were both undefined
+   (JWT field is `userId`); AND nothing rendered the stored offer → new
+   `apps/driver/components/DispatchOfferSheet.tsx`, root-mounted
+3  Rider paged Where-to — `ConfigureStage.tsx` + step dots on SearchStage
+4  Suggested card — `maxCapacity` doesn't exist (`maxSeats`); destination added
+5  Loader — orbiting-square Reanimated port; every ActivityIndicator swapped
+6  Invite page — fetch no longer gated on MapLibre `load`; links follow the
+   live request origin (`utils/publicUrl.js`, `app.set('trust proxy', 1)`)
+7  Group-hub cash — empty `bookingId` reached `/payments/initiate`; heavy-cargo
+   now editable while PENDING
+8  Rider cancel — Cancel action on every live booking row in Activity
+9  Straight line — `estimateLeg` returns `geometry: null`; clients draw nothing
+   until the road route lands
+10 Top scrim — 200pt → 118pt, 0.45 → 0.34
+11 Chat badge — `apps/rider/stores/chatUnread.store.ts` + badge on both buttons
+12 Rider chat — removed 156pt clearance for an in-flow header
+13 Line-height — add-passenger + 67 more sites across both apps
+14 Offline-passenger latency — awaits refetch, drops the confirm modal
+15 Booked seats — stepper walks free seats only, from real occupancy
+16 Wrong leg — client discards a path whose leg ≠ current status (`pathForStatus`)
+17 Stuck ETA — `DRIVER_ASSIGNED` had no leg in `activeLeg`
+18 Route casing — black, 11pt (was backgroundDeep @ 0.55)
+19 Destination pin — group trips keep dropoff on the Route; snapshot now falls back
+21 Transaction expiry — quests moved post-commit, tx budget 20s
+22 Recenter overlap — pill stack bounded `right: 76`
+25 Destination mode — `destination-mode.service.js`, matcher filter, migration,
+   `DestinationModeCard.tsx`
+26 /caveman + /context-management used throughout
 
-### TODO — remaining 22 items, in delivery order
-Blockers: #6 share-link stuck + dynamic Expo domain, #7 pay-for-everyone cash
-"validation failed" + heavy cargo, #8 no way to cancel a requested ride (rider),
-#16 rider shows destination route while driver is en route to PICKUP,
-#17 driver tracking stuck on "calculating ETA", no polyline until trip starts.
-Perf: #14 latency (offline-passenger earnings recompute), #20 booking-flow lag,
-#23 laggy swipeables, #24 iPhone 15 Pro Max thermal, #9 straight-line-before-
-route everywhere (must be instant, Uber/Bolt-style).
-UI: #4 suggested-card missing destination + wrong seats-left, #10 tracking top
-scrim too tall, #11 rider chat badge, #12 rider chat starts midway, #13
-add-passenger line-height clipping, #15 grey out booked seats, #18 route
-polyline blends with motorway (outline/colour), #19 no destination marker,
-#22 reset-camera button overlaps "1/2 boarded", #5 loader.
-Features: #3 rider multistep where-to, #25 driver destination filter.
+### PARTIAL — say so plainly
+20/23/24 Perf. ONE structural cause fixed and it is the big one: every screen in
+   a stack rendered its own full-screen Skia raymarch, so four screens deep meant
+   four shaders compositing every frame. Now only the topmost, foreground one
+   animates (`packages/ui/src/effects/topmostBackground.ts`). NOT measured on
+   device. `SwipeToConfirm` was already transform-only; its `runOnJS` deprecation
+   was left alone deliberately — see Open Issues.
 
 ## Evidence
-- `node --check` passes on all 7 changed backend files.
-- `driverAuth.js:38` sets `req.user = { ...decoded, status }`; `auth.service.js:16`
-  signs `{ userId, role, type, tokenId }` — confirms the `userId` field name.
-- `grep listenForOffers|useDriverTripStore apps/driver` returned only
-  `_layout.tsx` — proof nothing consumed the offer.
+- `tsc --noEmit` exit 0 for apps/rider and apps/driver after every commit.
+- `node --check` clean on all changed backend files; `prisma validate` passes.
+- Nothing device-tested.
 
 ## Open Issues
-- Neither app's `tsc` has been run since these edits.
-- `(trip)/dispatch/[id].tsx` is the LEGACY offer screen (driverApi.acceptDispatch,
-  scheduled/route trips). Left in place; the new sheet handles on-demand rides.
-  Decide later whether to converge them.
-- Nothing has been committed or pushed yet.
+- `runOnJS` deprecation in SwipeToConfirm/trip.tsx left as-is: this repo has a
+  history of SIGABRTs from gesture-callback worklet changes (see
+  `project_sweep_2026_07_30`). Cosmetic warning, not worth the crash risk.
+- Migration `20260810120000_driver_destination_mode` is written but NOT applied.
+- `(trip)/dispatch/[id].tsx` is still the legacy scheduled/route offer screen.
+  The new sheet handles on-demand only; converging them is unfinished work.
+- Perf items need a device pass to confirm the thermal fix.
