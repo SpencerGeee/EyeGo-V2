@@ -84,9 +84,12 @@ interface GlowSearchPressableProps {
   palette?: RingPalette;
   /** Glow strength multiplier, forwarded to GradientGlowBorder. */
   glowIntensity?: number;
+  /** Caps the halo's reach so intensity can raise brightness alone — see GradientGlowBorder. */
+  maxGlowRadius?: number;
 }
 
-type RingPalette = 'default' | 'green' | 'driver' | 'gold' | 'royal' | 'economy' | 'comfort';
+type RingPalette =
+  | 'default' | 'green' | 'brandGreen' | 'driver' | 'gold' | 'royal' | 'economy' | 'comfort';
 
 /**
  * Fake-search-bar variant (navigates on press rather than accepting input) —
@@ -110,6 +113,7 @@ export function GlowSearchPressable({
   accessibilityLabel,
   palette = 'default',
   glowIntensity,
+  maxGlowRadius,
 }: GlowSearchPressableProps) {
   const colors = useThemedColors();
   const ringRef = useRef<GradientGlowBorderHandle>(null);
@@ -138,6 +142,7 @@ export function GlowSearchPressable({
         thickness="thin"
         glow
         glowIntensity={glowIntensity}
+        maxGlowRadius={maxGlowRadius}
         style={[styles.container, style]}
       >
         {children}

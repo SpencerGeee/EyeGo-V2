@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -76,6 +76,19 @@ function coord(lng: number | null | undefined, lat: number | null | undefined): 
  * the car becomes a dot; while you are in the car, framing the pickup you have
  * already left does the same thing backwards.
  */
+/**
+ * The route line's colour.
+ *
+ * NOT `colors.primary`. The rider brand green is very close to the green the
+ * map style paints trunk roads and motorways in, so the route disappeared into
+ * exactly the roads it was drawn on top of — reported as "the polyline is green
+ * and blends with the main highway which is also green". Amber is the one hue
+ * the base map never uses for a road, water or park, which is also why the
+ * driver app settled on it (`DriverTripMap.ROUTE_CORE`); both apps now draw the
+ * same ride in the same colour.
+ */
+const ROUTE_LINE = '#FFB020';
+
 function fitFor(
   status: TripStatus | null,
   snapshot: TripSnapshot | null,
@@ -253,6 +266,16 @@ function TripMapImpl() {
   // Reassignment and trip end both mean the old puck is a lie.
   useEffect(() => { resetPuck(); }, [snapshot?.driver?.id, resetPuck]);
 
+  const [zoom, setZoom] = useState(14);
+  const handleRegionChange = useCallback(
+    (e: { properties?: { zoomLevel?: number } }) => {
+      camera.onRegionChange(e as never);
+      const z = e?.properties?.zoomLevel;
+      if (typeof z === 'number' && Number.isFinite(z)) setZoom(z);
+    },
+    [camera],
+  );
+
   const puckCoord: Coord | null = camera.puck
     ? [camera.puck.longitude, camera.puck.latitude]
     : coord(snapshot?.driver?.lng, snapshot?.driver?.lat);
@@ -277,6 +300,25 @@ function TripMapImpl() {
   const dropoff = coord(snapshot?.dropoff.lng, snapshot?.dropoff.lat)
     ?? (searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null);
 
+  /**
+   * The vehicle grows with the zoom, the way it does in Uber and Bolt.
+   *
+   * A marker is laid out in POINTS, so it stays a fixed size on screen no
+   * matter how far in the map is. Zoomed out that reads fine; zoomed all the
+   * way in, the same 34pt bus sits on a road drawn several times wider than it
+   * is and looks like a speck that has come loose from the street — "the
+   * minibus puck becomes very small when zoomed in". Interpolating between two
+   * bounds keeps it roughly the width of the carriageway at every zoom.
+   *
+   * Fed by `onRegionDidChange`, which fires when a gesture SETTLES rather than
+   * per frame, so this is a handful of re-renders per pan, not sixty a second.
+   */
+  const vehicleSize = useMemo(() => {
+    const MIN_Z = 13, MAX_Z = 18, MIN_PT = 30, MAX_PT = 62;
+    const t = Math.min(1, Math.max(0, (zoom - MIN_Z) / (MAX_Z - MIN_Z)));
+    return Math.round(MIN_PT + t * (MAX_PT - MIN_PT));
+  }, [zoom]);
+
   return (
     <View style={StyleSheet.absoluteFill}>
       <MapboxGL.MapView
@@ -286,7 +328,7 @@ function TripMapImpl() {
         rotateEnabled={false}
         attributionEnabled={false}
         logoEnabled={false}
-        onRegionDidChange={camera.onRegionChange}
+        onRegionDidChange={handleRegionChange}
       >
         <MapboxGL.Camera ref={camera.cameraRef} />
         {userCoords && !puckCoord && <MapboxGL.UserLocation visible />}
@@ -301,7 +343,7 @@ function TripMapImpl() {
             />
             <MapboxGL.LineLayer
               id="trip-route-line"
-              style={{ lineColor: colors.primary, lineWidth: 5, lineCap: 'round', lineJoin: 'round' }}
+              style={{ lineColor: ROUTE_LINE, lineWidth: 5, lineCap: 'round', lineJoin: 'round' }}
             />
           </MapboxGL.ShapeSource>
         )}
@@ -343,6 +385,7 @@ function TripMapImpl() {
                 two fixes still points the right way instead of due north. */}
             <VehicleMarker
               bearing={camera.puck?.bearing ?? snapshot.driver.heading ?? 0}
+              size={vehicleSize}
             />
           </MapboxGL.MarkerView>
         )}

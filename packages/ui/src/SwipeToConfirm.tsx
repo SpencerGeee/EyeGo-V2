@@ -7,6 +7,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
@@ -116,14 +117,47 @@ export function SwipeToConfirm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, confirmed]);
 
-  // Drive the thumb to the end on success even if the driver's finger never got
-  // there (a short-but-committed swipe, or a caller that confirms programmatically).
+  /**
+   * SUCCESS HAS TO ANNOUNCE ITSELF.
+   *
+   * "The checkmark that appears is way too subtle and most drivers might miss
+   * it" — and they would: the confirmed state was a colour change on a control
+   * the driver has just taken their eyes off, on a phone in a cradle, in
+   * daylight. So success now MOVES. The whole track pops once (a fast
+   * overshoot, then a spring back to rest) and the check punches in on the
+   * thumb behind it.
+   *
+   * Both are `transform`-only and run entirely on the UI thread — no layout,
+   * no measurement, nothing per-frame on the JS thread. The cost is two shared
+   * values that are idle except for ~400 ms after a swipe lands.
+   */
+  const pop = useSharedValue(1);
+  const check = useSharedValue(0);
+
   React.useEffect(() => {
-    if (!confirmed) return;
+    if (!confirmed) {
+      pop.value = 1;
+      check.value = 0;
+      return;
+    }
     const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
     x.value = withTiming(max, { duration: 180 });
+    pop.value = withSequence(
+      withTiming(1.045, { duration: 130 }),
+      withSpring(1, { damping: 13, stiffness: 260 }),
+    );
+    check.value = withSequence(
+      withTiming(0, { duration: 120 }),
+      withSpring(1, { damping: 11, stiffness: 320 }),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmed]);
+
+  const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
+  const checkStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: 0.4 + check.value * 0.6 }],
+    opacity: check.value,
+  }));
 
   const pan = useMemo(
     () =>
@@ -178,8 +212,13 @@ export function SwipeToConfirm({
   });
 
   return (
-    <View
-      style={[styles.track, { height, borderRadius: height / 2, backgroundColor: trackColor, borderColor }, style]}
+    <Animated.View
+      style={[
+        styles.track,
+        { height, borderRadius: height / 2, backgroundColor: trackColor, borderColor },
+        style,
+        popStyle,
+      ]}
       onLayout={(e) => {
         trackWidth.value = e.nativeEvent.layout.width;
       }}
@@ -194,7 +233,7 @@ export function SwipeToConfirm({
           styles.fill,
           // A confirmed action reads as solid, not as a translucent hint of
           // progress — the bar is the receipt for something that already happened.
-          { borderRadius: height / 2, backgroundColor: color, opacity: confirmed ? 0.9 : 0.22 },
+          { borderRadius: height / 2, backgroundColor: color, opacity: confirmed ? 1 : 0.22 },
           fillStyle,
         ]}
       />
@@ -242,14 +281,20 @@ export function SwipeToConfirm({
             thumbStyle,
           ]}
         >
-          <Ionicons
-            name={confirmed ? 'checkmark' : loading ? 'ellipsis-horizontal' : 'arrow-forward'}
-            size={confirmed ? 24 : 20}
-            color={onColor}
-          />
+          {confirmed ? (
+            <Animated.View style={checkStyle}>
+              <Ionicons name="checkmark" size={26} color={onColor} />
+            </Animated.View>
+          ) : (
+            <Ionicons
+              name={loading ? 'ellipsis-horizontal' : 'arrow-forward'}
+              size={20}
+              color={onColor}
+            />
+          )}
         </Animated.View>
       </GestureDetector>
-    </View>
+    </Animated.View>
   );
 }
 

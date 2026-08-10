@@ -360,7 +360,13 @@ async function getTripByShareToken(shareToken) {
   return { group, trip: group.trip, fareEstimate: fare };
 }
 
-async function getSeatMap(tripId) {
+/**
+ * Who is sitting where on a trip.
+ *
+ * @param {string} tripId
+ * @param {string|null} [viewerUserId] marks the viewer's own seats as `isMine`
+ */
+async function getSeatMap(tripId, viewerUserId = null) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
     select: { maxSeats: true, confirmedSeats: true, tier: true },
@@ -383,19 +389,35 @@ async function getSeatMap(tripId) {
         number: i + 1,
         status: displayStatus,
         isOffline: booking?.isOffline || false,
+        isMine: !!viewerUserId && booking.userId === viewerUserId,
       };
     }
-    // If there are no bookings, deterministically mark trip.confirmedSeats seats as OCCUPIED using a hash of tripId
-    const hash = Array.from(tripId || '').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const isOccupied = ((hash + i) % trip.maxSeats) < trip.confirmedSeats;
+    // A SEAT WITH NO BOOKING IS FREE. Nothing else is defensible.
+    //
+    // This used to fabricate occupancy for unbooked seats — `((hash(tripId) + i)
+    // % maxSeats) < confirmedSeats` — inventing a passenger with no booking row
+    // behind them. It is the "phantom seat" in "two seats are blocked, one is
+    // genuinely the offline passenger the driver added, the other one is not."
+    //
+    // It also broke booking outright, because the group-hub screen reserves "the
+    // first AVAILABLE seat" from this map. Phantoms ate the free seats, the
+    // screen fell back to seat 1, seat 1 belonged to the offline rider, and the
+    // resulting SeatTakenError surfaced as "could not reserve a seat, the trip
+    // may be full" on a trip that was nearly empty.
     return {
       number: i + 1,
-      status: isOccupied ? 'OCCUPIED' : 'AVAILABLE',
+      status: 'AVAILABLE',
       isOffline: false,
+      isMine: false,
     };
   });
 
-  return { seats, maxSeats: trip.maxSeats, confirmedSeats: trip.confirmedSeats };
+  // Derived from the rows, not from the counter column: `confirmedSeats` is
+  // maintained by several writers and a drifted value must not be able to paint
+  // seats that nobody booked.
+  const takenCount = seats.filter((s) => s.status !== 'AVAILABLE').length;
+
+  return { seats, maxSeats: trip.maxSeats, confirmedSeats: takenCount };
 }
 
 async function getPulseSchedules() {

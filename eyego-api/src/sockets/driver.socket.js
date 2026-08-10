@@ -3,7 +3,13 @@
 const redis = require('../config/redis');
 const prisma = require('../config/database');
 const { isWithinGhana } = require('../services/mapbox.service');
-const { getRouteForTrip, deviationMeters, clearRouteForTrip } = require('../services/route-geometry.service');
+const {
+  getRouteForTrip,
+  peekRouteForTrip,
+  warmRouteForTrip,
+  deviationMeters,
+  clearRouteForTrip,
+} = require('../services/route-geometry.service');
 const { completeTrip } = require('../modules/trips/trips.service');
 const { sendMulticastPush, sendPush } = require('../services/push.service');
 const liveActivityPush = require('../services/live-activity-push.service');
@@ -33,6 +39,61 @@ const LIVE_ACTIVITY_STATUS_TEXT = {
   COMPLETED: 'You have arrived',
   CANCELLED: 'Trip cancelled',
 };
+
+/**
+ * Build the `trip:eta` payload for a trip's live leg.
+ *
+ * Extracted so the join handler and the location handler cannot drift into
+ * publishing different shapes for the same fact — which is the mechanism behind
+ * "the ETA on the driver app is not consistent with the rider app".
+ */
+function etaPayloadFor(tripId, route) {
+  const etaMinutes = Math.round(route.durationMin);
+  return {
+    tripId,
+    leg: route.leg,
+    etaMinutes,
+    distanceKm: Math.round(route.distanceKm * 10) / 10,
+    message: route.durationMin < 2
+      ? (route.leg === 'toPickup' ? 'Arriving now' : 'Almost there')
+      : `${etaMinutes} min ${route.leg === 'toPickup' ? 'away' : 'to destination'}`,
+    geometry: route.geometry,
+    rerouted: route.rerouted === true,
+  };
+}
+
+/**
+ * Send whoever just joined the current line and ETA, straight away.
+ *
+ * Prefers the cache; computes only when there is nothing cached at all, which
+ * is the case immediately after a status change flips the live leg. Emitted to
+ * the ONE socket, not the room — everybody else already has it.
+ */
+async function emitRouteSnapshotTo(socket, tripId) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      id: true, status: true,
+      pickupLat: true, pickupLng: true,
+      dropoffLat: true, dropoffLng: true,
+      route: { select: { destLat: true, destLng: true } },
+    },
+  });
+  if (!trip) return;
+
+  let route = await peekRouteForTrip(trip);
+  if (!route) route = await warmRouteForTrip(tripId);
+  if (!route || !route.geometry) return;
+
+  socket.emit('trip:eta', etaPayloadFor(tripId, route));
+  socket.emit('trip:route', {
+    tripId,
+    leg: route.leg,
+    geometry: route.geometry,
+    distanceKm: route.distanceKm,
+    durationMin: route.durationMin,
+  });
+}
 
 async function pushLiveActivityUpdate(tripId, { status, etaMinutes, distanceKm, driverLat, driverLng } = {}) {
   try {
@@ -370,18 +431,8 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
       if (!route) return;
 
       const tripId = trip.id;
-      const etaMinutes = Math.round(route.durationMin);
-      const etaPayload = {
-        tripId,
-        leg: route.leg,
-        etaMinutes,
-        distanceKm: Math.round(route.distanceKm * 10) / 10,
-        message: route.durationMin < 2
-          ? (route.leg === 'toPickup' ? 'Arriving now' : 'Almost there')
-          : `${etaMinutes} min ${route.leg === 'toPickup' ? 'away' : 'to destination'}`,
-        geometry: route.geometry,   // GeoJSON LineString — both maps draw this
-        rerouted: route.rerouted === true,
-      };
+      // Same builder the join handler uses — one shape, one set of numbers.
+      const etaPayload = etaPayloadFor(tripId, route);
 
       io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:eta', etaPayload);
       driverNamespace.to(TRIP_ROOM(tripId)).emit('trip:eta', etaPayload);
@@ -493,6 +544,25 @@ function emitSafetyCheck(io, tripId, reason) {
 
         socket.join(TRIP_ROOM(tripId));
         logger.debug(`Driver ${driverId} joined tracking room ${tripId}`);
+
+        // THE LINE AND THE ETA, NOW — NOT ON THE NEXT GPS PING.
+        //
+        // DriverTripMap's own comment says "the server publishes the leg's
+        // geometry on join", and it did not. Joining only entered the room and
+        // sent chat history, so the first `trip:eta` a driver could receive was
+        // whatever the location handler produced NEXT — and that handler is
+        // throttled on time AND distance moved. A driver who has just swiped to
+        // start and is still sitting at the kerb satisfies neither gate, so the
+        // screen sat on "Calculating ETA..." with an empty map for as long as
+        // they stayed put. Reported verbatim as "stuck at calculating eta and
+        // no polyline is shown".
+        //
+        // The rider never saw this because rider snapshots carry `path` from
+        // the same cache — which is also why the two apps disagreed about the
+        // ETA. They now read the identical route object.
+        emitRouteSnapshotTo(socket, tripId).catch((err) =>
+          logger.warn(`join_tracking route emit failed for ${tripId}: ${err.message}`),
+        );
 
         // Send chat history so the driver sees past messages
         // Includes all public messages + private threads involving this driver

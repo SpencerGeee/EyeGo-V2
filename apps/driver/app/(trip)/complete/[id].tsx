@@ -32,13 +32,25 @@ import { useDriverStore } from '../../../stores/driver.store';
  * speed — that is what made this screen under-report every trip.
  */
 function formatTripMinutes(trip: any): number | null {
-  const start = trip?.startedAt ? new Date(trip.startedAt).getTime() : NaN;
+  // `departedAt` — the field the state machine actually stamps on IN_PROGRESS.
+  //
+  // This used to read `trip.startedAt`, which is not a column on Trip, and then
+  // fall back to `trip.route.durationMin`, which is not a column on Route
+  // either. Both branches were therefore permanently undefined and the screen
+  // showed "—" for every trip ever completed. `departureTime` is the SCHEDULED
+  // time and is the last resort only: for an on-demand ride it is the moment
+  // the trip row was created, which is close enough to be useful and never
+  // exact, so measured departure wins whenever it exists.
   const end = trip?.completedAt ? new Date(trip.completedAt).getTime() : NaN;
-  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
-    return Math.max(1, Math.round((end - start) / 60000));
+  if (!Number.isFinite(end)) return null;
+
+  for (const candidate of [trip?.departedAt, trip?.arrivedAt, trip?.departureTime]) {
+    const start = candidate ? new Date(candidate).getTime() : NaN;
+    if (Number.isFinite(start) && end > start) {
+      return Math.max(1, Math.round((end - start) / 60000));
+    }
   }
-  const stored = trip?.route?.durationMin;
-  return Number.isFinite(stored) ? Math.max(1, Math.round(stored)) : null;
+  return null;
 }
 
 export default function TripCompleteScreen() {

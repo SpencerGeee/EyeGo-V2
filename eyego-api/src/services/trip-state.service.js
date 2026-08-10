@@ -376,7 +376,26 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
 
     if (sideEffects) await sideEffects(tx, { id: tripId, status: to, version: nextVersion });
 
-    const trip = await tx.trip.findUnique({ where: { id: tripId } });
+    /**
+     * WITH THE RELATIONS. This is the row that gets serialized into every
+     * `trip:event`, and it used to be loaded bare.
+     *
+     * `buildTripSnapshot` reads `trip.driver`, `trip.vehicle`, `trip.route` and
+     * `trip.bookings`. On a row loaded without `include` those are all
+     * `undefined`, so the serializer emitted a technically-valid snapshot in
+     * which the driver was null, the vehicle was null, the destination address
+     * fell back to null and the rider had no booking. Both apps replace their
+     * snapshot with whatever the newest event carries, so a status change blanked
+     * the screen: reported as "when the driver marks that he's here, the minibus
+     * puck vanishes and the pickup and destination become placeholders — all the
+     * data seems to be blank", and recovering on the next transition or refetch
+     * that happened to load properly.
+     *
+     * Required lazily: `trip-view` imports LIVE_STATUSES from this module, so a
+     * top-level require would close the cycle at load time.
+     */
+    const { TRIP_INCLUDE } = require('./trip-view');
+    const trip = await tx.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
     return { trip, event, from: current.status };
   }
 }
@@ -455,7 +474,11 @@ async function recordEvent(tripId, type, opts = {}) {
     const event = await tx.tripEvent.create({
       data: { tripId, seq: nextVersion, type, actor, actorId, payload },
     });
-    const trip = await tx.trip.findUnique({ where: { id: tripId } });
+    // Relations included — see the note in applyTransitionTx. This path carries
+    // dispatch progress, so a bare row here blanked the rider's snapshot on
+    // every candidate the cascade tried.
+    const { TRIP_INCLUDE } = require('./trip-view');
+    const trip = await tx.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
     return { trip, event };
   });
 

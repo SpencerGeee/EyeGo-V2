@@ -58,6 +58,16 @@ export default function TripScreen() {
   const colors = useColors();
   const params = useLocalSearchParams<{
     stage?: string; tier?: string; type?: string; morphId?: string; bookingId?: string;
+    /**
+     * The pending on-demand request this surface was opened to show.
+     *
+     * Home's "looking for a driver" card passes it. It was NOT declared here,
+     * so the reset guard below could not see it, and tapping that card rendered
+     * the request stage for a frame and then threw the rider onto the Where-To
+     * sheet — "it takes me to the looking for a driver page then redirects to
+     * the where to page". Same class of bug as `bookingId`, same fix.
+     */
+    resumeRequestId?: string;
   }>();
   const stage = useTripFlow((s) => s.stage);
   const seed = useTripFlow((s) => s.seed);
@@ -105,6 +115,10 @@ export default function TripScreen() {
       if (!ok) return;
       if (trip) return;
       if (params.bookingId) return;
+      // Same reasoning as `bookingId`: the surface was opened to show ONE
+      // specific pending request, and `rides/active` legitimately returns null
+      // for it, so a null lookup is not evidence that there is nothing to show.
+      if (params.resumeRequestId) return;
       if (CLIENT_OWNED_STAGES.includes(seeded)) return;
       syncFromServer('search');
     });

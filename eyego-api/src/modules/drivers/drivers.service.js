@@ -306,6 +306,17 @@ async function goOnline(driverId, lat, lng) {
     await redis.geoadd('drivers:online', lng, lat, driverId).catch(() => {});
   }
 
+  // Riders who are ALREADY searching do not learn about this driver on their
+  // own — a cascade builds its candidate list from the supply that existed when
+  // the request was made. Reported as "I requested a trip, then switched the
+  // driver online, and the dispatch never arrived". Fire-and-forget: a driver
+  // going online must never fail because someone else's search misbehaved.
+  setImmediate(() => {
+    dispatchCascade
+      .notifySupplyAvailable(driverId)
+      .catch((err) => logger.warn(`Supply wake-up failed for ${driverId}: ${err.message}`));
+  });
+
   return updated;
 }
 

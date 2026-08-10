@@ -194,7 +194,10 @@ export default function ActiveTripScreen() {
   const flashConfirmed = useCallback((text: string) => {
     setConfirmedLabel(text);
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    confirmTimer.current = setTimeout(() => setConfirmedLabel(null), 1500);
+    // 1.5s was not long enough to be sure of. A driver swipes, looks up at the
+    // road, and looks back — the confirmation has to survive that glance away,
+    // which is the whole reason they were missing it.
+    confirmTimer.current = setTimeout(() => setConfirmedLabel(null), 2800);
   }, []);
   useEffect(
     () => () => {

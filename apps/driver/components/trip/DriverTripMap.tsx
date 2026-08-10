@@ -64,6 +64,17 @@ export interface DriverTripMapProps {
   active?: boolean;
   /** Server ETA for the CURRENT leg, so a screen can render it without its own routing call. */
   onEta?: (eta: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => void;
+  /**
+   * Distance from the safe-area top to the re-center button, in points.
+   *
+   * A prop rather than a constant because the button shares the top-right
+   * corner with whatever the HOST screen floats there. On the tracking screen
+   * that is the "n/m boarded" pill, and since the map renders first, the pill
+   * was painted straight over the button — "the icon to reset the camera view
+   * seems to be behind the number of seats boarded". A screen with something in
+   * that corner passes an offset that clears it.
+   */
+  recenterOffset?: number;
   /** Renders inside the map, above the line — seat overlays, extra pins. */
   children?: React.ReactNode;
 }
@@ -78,6 +89,7 @@ export function DriverTripMapImpl({
   sheetFraction = 0.42,
   active = true,
   onEta,
+  recenterOffset = 72,
   children,
 }: DriverTripMapProps) {
   const colors = useColors();
@@ -257,7 +269,7 @@ export function DriverTripMapImpl({
       {camera.released && (
         <Pressable
           onPress={camera.recenter}
-          style={[styles.recenter, { top: insets.top + 72 }]}
+          style={[styles.recenter, { top: insets.top + recenterOffset }]}
           accessibilityRole="button"
           accessibilityLabel="Re-center map"
           hitSlop={8}

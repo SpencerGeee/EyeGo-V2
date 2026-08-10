@@ -37,6 +37,7 @@ export default function InviteScreen() {
   const [pickupOverride, setPickupOverride] = useState<{ name: string; deviationSurchargePesewas: number } | null>(null);
   const [linkState, setLinkState] = useState<LinkState>('generating');
   const [bookingReady, setBookingReady] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
 
   // Reflect the booking's real server-side heavyCargo flag once it's loaded —
   // this can already be true if the rider left and came back to this screen.
@@ -58,11 +59,24 @@ export default function InviteScreen() {
       try {
         const seatsRes = await tripsApi.getSeats(id ?? '');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const seats: any[] = (seatsRes.data as any)?.data ?? [];
-        const firstFree = Array.isArray(seats)
-          ? seats.find((s) => s?.status === 'AVAILABLE')
-          : null;
-        if (firstFree?.seatNumber) seatNumber = firstFree.seatNumber;
+        const raw = (seatsRes.data as any)?.data;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const seats: any[] = Array.isArray(raw) ? raw : (raw?.seats ?? []);
+        // A SEAT WE ALREADY HOLD IS THE SEAT WE WANT.
+        //
+        // The rider reaches this screen from seat selection, so they usually
+        // arrive already holding one. Picking "the first AVAILABLE seat"
+        // ignored that and asked for a SECOND seat — which on a small trip
+        // meant no free seat existed, the seatNumber:1 fallback hit the seat
+        // the driver's offline passenger was in, and the SeatTakenError came
+        // back to the rider as "the trip may be full" on an empty bus.
+        const mine = seats.find((s) => s?.isMine);
+        const firstFree = seats.find((s) => s?.status === 'AVAILABLE');
+        const chosen = mine ?? firstFree;
+        // `number` is the field the seat map returns; `seatNumber` is accepted
+        // too so this survives either shape.
+        const resolved = chosen?.number ?? chosen?.seatNumber;
+        if (typeof resolved === 'number') seatNumber = resolved;
       } catch {
         // keep the seatNumber=1 fallback
       }
@@ -81,9 +95,19 @@ export default function InviteScreen() {
     onSuccess: (bookingData) => {
       setActiveBooking(bookingData);
       setBookingReady(true);
+      setBookingError(null);
     },
-    onError: () => {
+    onError: (err: any) => {
       setBookingReady(false);
+      // Say what the server said. The hard-coded "the trip may be full" this
+      // replaces was shown for EVERY failure, so a taken seat, an expired trip
+      // and a dropped connection all read as a full bus — and the one thing
+      // the rider could see was the one thing that wasn't true.
+      setBookingError(
+        err?.response?.data?.message ??
+          err?.message ??
+          'Could not reserve a seat. Please try again.',
+      );
     },
   });
 
@@ -325,7 +349,7 @@ export default function InviteScreen() {
         <View style={styles.emptyState}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.base, textAlign: 'center' }}>
-            Could not reserve a seat. The trip may be full.
+            {bookingError ?? 'Could not reserve a seat. Please try again.'}
           </Text>
           <Button
             label="Try Again"

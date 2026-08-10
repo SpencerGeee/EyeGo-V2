@@ -20,7 +20,7 @@ export interface GradientGlowBorderHandle {
 interface GradientGlowBorderProps {
   /** Named preset that supplies colors/locations/glow tints in one go —
    * explicit `colors`/`locations`/`glowColor*` props override it. */
-  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green';
+  palette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green' | 'brandGreen';
   /** Gradient stops sweeping the ring. Pass a mostly-dark array with 1-2
    * bright accent stops (see PREMIUM_RING_COLORS) to get a thin orbiting
    * light streak instead of a flat half-and-half color wash. */
@@ -48,6 +48,19 @@ interface GradientGlowBorderProps {
    * more here. Clamped so a caller cannot push shadowOpacity past 1.
    */
   glowIntensity?: number;
+  /**
+   * Hard cap on how far the glow reaches, in points. Unset = no cap.
+   *
+   * BRIGHTNESS AND REACH ARE DIFFERENT PROBLEMS, and `glowIntensity` scales
+   * both at once. That coupling is why the home screen's "Where to?" bar ended
+   * up dim: its halo is clipped flat by the ScrollView edge above it, so the
+   * only way to stop the clipping was to turn the intensity down — which took
+   * the brightness with it, and the bar stopped catching the eye at all.
+   *
+   * With a cap, intensity can be pushed for OPACITY while the radius stays
+   * inside the space the layout actually has. Same light, no slicing.
+   */
+  maxGlowRadius?: number;
   /** Low-perf-tier escape hatch: renders a static ring, no rotation/burst. */
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -78,7 +91,7 @@ export interface RingPalette {
 /** Context-matched ring palettes so a glow can follow the surface it wraps —
  * e.g. the gold PREMIUM tier card gets a gold ring, not the default
  * blue/orange. Same two-arc + hot-core construction as PREMIUM_RING_COLORS. */
-export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green', RingPalette> = {
+export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green' | 'brandGreen', RingPalette> = {
   default: {
     colors: PREMIUM_RING_COLORS,
     locations: PREMIUM_RING_LOCATIONS,
@@ -145,6 +158,29 @@ export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'c
     glowColor: '#4BE277',
     glowColorSecondary: '#D6A800',
   },
+  /**
+   * The Skia background's own gradient, used as a ring.
+   *
+   * `green` above carries a gold counter-arc (`#D6A800`), which is what makes
+   * it read as premium on a card — and is also what the "the glow border colour
+   * isn't a match to the green Skia background" report is about: gold is not in
+   * that backdrop anywhere. This palette instead samples the pillar exactly —
+   * `#4be277` at the top, `#005321` at the bottom (see LightPillarBackground) —
+   * with a mint hot-core, so the ring looks like the background lighting up
+   * rather than like a separate colour laid over it.
+   *
+   * Kept as a SEPARATE entry rather than a correction to `green`: the suggested
+   * / "finding your driver" cards use that one and read well as they are.
+   */
+  brandGreen: {
+    colors: [
+      '#0A0A0C', '#0A0A0C', '#005321', '#9CFFC2', '#4BE277', '#0A0A0C',
+      '#0A0A0C', '#1FAE52', '#B6FFD4', '#1FAE52', '#0A0A0C', '#0A0A0C',
+    ],
+    locations: PREMIUM_RING_LOCATIONS,
+    glowColor: '#4BE277',
+    glowColorSecondary: '#1FAE52',
+  },
 };
 
 export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientGlowBorderProps>(
@@ -160,6 +196,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
       glowColor: glowColorProp,
       glowColorSecondary: glowColorSecondaryProp,
       glowIntensity = 1,
+      maxGlowRadius,
       disabled,
       style,
       children,
@@ -174,6 +211,9 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
     // shadowOpacity above 1 is not "brighter", it is undefined behaviour on
     // both platforms — so the multiplier scales but the result is clamped.
     const glowAt = (base: number) => Math.min(1, base * glowIntensity);
+    /** Scaled reach, capped — see `maxGlowRadius`. */
+    const radiusAt = (base: number) =>
+      Math.min(base * glowIntensity, maxGlowRadius ?? Number.POSITIVE_INFINITY);
     const tier = usePerformanceTier();
     // Low-tier devices default to a static ring (no continuous rotation)
     // unless the caller explicitly opts in/out via `disabled`.
@@ -292,7 +332,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                   shadowColor: glowColor ?? colors[colors.length - 1],
                   shadowOffset: { width: 0, height: 0 },
                   shadowOpacity: glowAt(0.65),
-                  shadowRadius: 28 * glowIntensity,
+                  shadowRadius: radiusAt(28),
                   elevation: 14,
                 },
               ]}
@@ -309,7 +349,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                   shadowColor: glowColor ?? colors[colors.length - 1],
                   shadowOffset: { width: 0, height: 0 },
                   shadowOpacity: glowAt(0.9),
-                  shadowRadius: 8 * glowIntensity,
+                  shadowRadius: radiusAt(8),
                   elevation: 14,
                 },
               ]}
@@ -326,7 +366,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                       shadowColor: glowColorSecondary,
                       shadowOffset: { width: 0, height: 0 },
                       shadowOpacity: glowAt(0.55),
-                      shadowRadius: 36 * glowIntensity,
+                      shadowRadius: radiusAt(36),
                       elevation: 14,
                     },
                   ]}
@@ -341,7 +381,7 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
                       shadowColor: glowColorSecondary,
                       shadowOffset: { width: 0, height: 0 },
                       shadowOpacity: glowAt(0.75),
-                      shadowRadius: 10 * glowIntensity,
+                      shadowRadius: radiusAt(10),
                       elevation: 14,
                     },
                   ]}

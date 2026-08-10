@@ -45,6 +45,20 @@ const OFF_ROUTE_STRIKES = 3;
 /** A cached leg is stale after this even if the driver stayed on it — traffic
  *  moves, and the ETA rides on the same response. */
 const CACHE_TTL_SEC = 180;
+/**
+ * How long a STRAIGHT-LINE estimate is allowed to stand in for a real route.
+ *
+ * `estimateLeg` returns a two-point LineString — literally a straight line from
+ * origin to destination. It exists so a Mapbox outage degrades the map instead
+ * of emptying it, but it was being cached under the same 180 s TTL as a real
+ * route, so one failed or slow Directions call pinned a line straight through
+ * the buildings for three minutes: "a straight polyline to the destination, and
+ * it takes a big moment before it accurately maps to the road".
+ *
+ * A few seconds is enough to avoid hammering Directions while it is unhealthy,
+ * and short enough that the next location ping repairs the line.
+ */
+const ESTIMATE_TTL_SEC = 8;
 /** Congested Accra urban mean. Mirrors ETA_FALLBACK_SPEED_KPH in the sockets
  *  and FALLBACK_URBAN_KMH in geo.service.js. */
 const FALLBACK_KPH = Number(process.env.ETA_FALLBACK_SPEED_KPH) || 22;
@@ -144,7 +158,9 @@ async function readCache(tripId, leg) {
 
 async function writeCache(tripId, leg, value) {
   try {
-    await redis.set(cacheKey(tripId, leg), JSON.stringify(value), 'EX', CACHE_TTL_SEC);
+    // An estimate expires fast so the next fix can replace it with real roads.
+    const ttl = value?.source === 'estimate' ? ESTIMATE_TTL_SEC : CACHE_TTL_SEC;
+    await redis.set(cacheKey(tripId, leg), JSON.stringify(value), 'EX', ttl);
   } catch (err) {
     logger.debug('[route] cache write failed', { error: err?.message });
   }
@@ -211,7 +227,10 @@ async function getRouteForTrip(trip, driver, opts = {}) {
       ? deviationMeters(cached, driver.lat, driver.lng)
       : 0;
     const strikes = await registerDeviation(trip.id, dev > OFF_ROUTE_M);
-    const stale = Date.now() - (cached.computedAt || 0) > CACHE_TTL_SEC * 1000;
+    // An estimate goes stale on its own short clock: it is a placeholder for a
+    // road route, so the sooner it is retried the sooner the line lies on roads.
+    const ttlSec = cached.source === 'estimate' ? ESTIMATE_TTL_SEC : CACHE_TTL_SEC;
+    const stale = Date.now() - (cached.computedAt || 0) > ttlSec * 1000;
 
     if (strikes < OFF_ROUTE_STRIKES && !stale) return cached;
     rerouted = strikes >= OFF_ROUTE_STRIKES;

@@ -59,7 +59,23 @@ const OFFER_TTL_SECONDS = parseInt(process.env.DISPATCH_OFFER_TTL_SECONDS, 10) |
 const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 5;
 const DISPATCH_EXTENDED_RADIUS_KM = parseFloat(process.env.DISPATCH_EXTENDED_RADIUS_KM) || 12;
 
+/**
+ * How long the search stays alive with nobody to offer it to.
+ *
+ * Mirrors RIDE_REQUEST_EXPIRY_SECONDS in modules/rides — that task is what
+ * actually fails the trip, and a search that gave up first would strand the
+ * rider on a spinner until it fired.
+ */
+const SEARCH_TIMEOUT_SECONDS =
+  parseInt(process.env.DISPATCH_SEARCH_TIMEOUT_SECONDS, 10) ||
+  parseInt(process.env.RIDE_REQUEST_EXPIRY_SECONDS, 10) ||
+  300;
+/** Gap between re-scans while waiting for supply to appear. */
+const RESWEEP_INTERVAL_SECONDS =
+  parseInt(process.env.DISPATCH_RESWEEP_SECONDS, 10) || 10;
+
 const TASK_OFFER_TIMEOUT = 'DISPATCH_OFFER_TIMEOUT';
+const TASK_RESWEEP = 'DISPATCH_RESWEEP';
 /** Cascade state outlives any single offer but must not leak forever. */
 const STATE_TTL_SECONDS = 30 * 60;
 
@@ -250,6 +266,25 @@ async function offerNext(tripId) {
       await writeState(state);
     }
 
+    // NOBODY TO OFFER IT TO — WHICH IS NOT THE SAME AS FAILING.
+    //
+    // This used to go straight to NO_DRIVERS_FOUND, which made the cascade a
+    // ONE-SHOT: the candidate list was built once, at the instant of the
+    // request, and if it came back empty the rider was told "no drivers" a
+    // fraction of a second later. Reported as "I requested a trip, then put
+    // the driver online, and the dispatch never showed up" — correct, because
+    // by the time the driver came online there was no search left running to
+    // notice them. Supply arriving one second after the request was
+    // indistinguishable from supply never arriving at all.
+    //
+    // So the search now has a DURATION. Until the deadline it keeps re-scanning
+    // for drivers who have come online, come free, or driven into range.
+    const elapsedMs = Date.now() - (state.startedAtMs ?? Date.now());
+    if (elapsedMs < SEARCH_TIMEOUT_SECONDS * 1000) {
+      await scheduleResweep(tripId, state);
+      return;
+    }
+
     logger.info('Dispatch exhausted', { tripId, tried: state.candidates.length });
     await finish(tripId, 'exhausted');
     // Terminal, and said out loud. The old code's silent give-up is what left
@@ -263,6 +298,141 @@ async function offerNext(tripId) {
   });
 }
 
+/**
+ * Park the search and arm a re-scan. Caller must hold the cascade lock.
+ *
+ * Only announces WAITING once per cascade: the rider's screen should say "still
+ * looking" and then stay put, not restart its copy every ten seconds.
+ */
+async function scheduleResweep(tripId, state) {
+  const announced = state.waiting === true;
+  state.waiting = true;
+  await writeState(state);
+
+  await scheduledTasks.enqueue({
+    type: TASK_RESWEEP,
+    dedupeKey: tripId,
+    tripId,
+    runAt: new Date(Date.now() + RESWEEP_INTERVAL_SECONDS * 1000),
+    payload: { tripId },
+  });
+
+  if (!announced) {
+    logger.info('Dispatch waiting for supply', { tripId, tried: state.candidates.length });
+    await emitProgress(tripId, 'DISPATCH_PROGRESS', {
+      phase: 'WAITING_FOR_SUPPLY',
+      totalCandidates: state.candidates.length,
+      searchTimeoutSeconds: SEARCH_TIMEOUT_SECONDS,
+    });
+  }
+}
+
+/**
+ * Re-scan for drivers who were not available when the list was built.
+ *
+ * Runs at the WIDE radius: a rider who has already been waiting would rather
+ * have a driver twelve kilometres out than keep waiting for a nearer one that
+ * may never come online.
+ */
+async function resweep(tripId) {
+  return withLock(tripId, async () => {
+    const state = await readState(tripId);
+    if (!state || state.done) return;
+
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { id: true, status: true, pickupLat: true, pickupLng: true, tier: true },
+    });
+    if (!trip || ![TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING].includes(trip.status)) {
+      await finish(tripId, 'resolved');
+      return;
+    }
+
+    const fresh = await matcher
+      .rankCandidates({
+        tripId,
+        pickupLat: trip.pickupLat,
+        pickupLng: trip.pickupLng,
+        radiusKm: DISPATCH_EXTENDED_RADIUS_KM,
+        excludeDriverId: state.excludeDriverId,
+        tier: trip.tier,
+      })
+      .catch((err) => {
+        logger.warn(`Dispatch resweep ranking failed for ${tripId}: ${err.message}`);
+        return [];
+      });
+
+    // A driver who timed out earlier is deliberately eligible again — a missed
+    // offer is usually a phone in a pocket, not a refusal. An explicit decline
+    // (`state.declined`) is still respected, and offerNext re-checks it anyway.
+    const seen = new Set(state.candidates.map((c) => c.id));
+    const extra = fresh
+      .filter((c) => !seen.has(c.id) && !state.declined.includes(c.id))
+      .map((c) => ({
+        id: c.id,
+        fcmToken: c.fcmToken,
+        currentLat: c.currentLat,
+        currentLng: c.currentLng,
+        etaSeconds: c.etaSeconds,
+        etaDegraded: c.etaDegraded,
+        vehicleId: c.vehicleId,
+      }));
+
+    if (extra.length === 0) {
+      const elapsedMs = Date.now() - (state.startedAtMs ?? Date.now());
+      if (elapsedMs < SEARCH_TIMEOUT_SECONDS * 1000) {
+        await scheduleResweep(tripId, state);
+        return;
+      }
+      logger.info('Dispatch exhausted after waiting', { tripId, tried: state.candidates.length });
+      await finish(tripId, 'exhausted');
+      await tripState
+        .applyTransition(tripId, TRIP_STATUS.NO_DRIVERS_FOUND, {
+          actor: ACTOR.SYSTEM,
+          payload: { tried: state.candidates.length, waited: true },
+        })
+        .catch((err) => logger.warn(`NO_DRIVERS_FOUND transition failed for ${tripId}: ${err.message}`));
+      return;
+    }
+
+    logger.info('Dispatch found new supply', { tripId, found: extra.length });
+    state.candidates = state.candidates.concat(extra);
+    state.waiting = false;
+    await writeState(state);
+    // Released and re-taken rather than recursed under the held lock.
+    setImmediate(() => offerNext(tripId).catch((e) => logger.warn(e.message)));
+  });
+}
+
+/**
+ * A driver just became dispatchable (went online, or finished a trip).
+ *
+ * Without this the rider still gets their driver — the resweep timer would find
+ * them within RESWEEP_INTERVAL_SECONDS — but a ten-second delay on the one
+ * event we know about is a poor trade for one indexed query.
+ */
+async function notifySupplyAvailable(driverId) {
+  if (!driverId) return;
+  try {
+    const searching = await prisma.trip.findMany({
+      where: { status: { in: [TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING] } },
+      select: { id: true },
+      take: 25,
+    });
+    for (const trip of searching) {
+      const state = await readState(trip.id);
+      // Only nudge searches that are actually parked. One mid-offer is already
+      // being worked and must not be jogged into a second parallel offer.
+      if (!state || state.done || !state.waiting) continue;
+      if (state.excludeDriverId === driverId) continue;
+      await scheduledTasks.cancel(TASK_RESWEEP, trip.id).catch(() => {});
+      await resweep(trip.id);
+    }
+  } catch (err) {
+    logger.warn(`notifySupplyAvailable(${driverId}) failed: ${err.message}`);
+  }
+}
+
 async function finish(tripId, reason) {
   const state = await readState(tripId);
   if (state) {
@@ -270,6 +440,9 @@ async function finish(tripId, reason) {
     await writeState(state);
   }
   await scheduledTasks.cancel(TASK_OFFER_TIMEOUT, tripId).catch(() => {});
+  // The waiting-for-supply timer is a second armed clock. Leaving it behind
+  // would wake a cascade that has already been won or cancelled.
+  await scheduledTasks.cancel(TASK_RESWEEP, tripId).catch(() => {});
   logger.info('Dispatch cascade finished', { tripId, reason });
 }
 
@@ -460,8 +633,17 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
   await offerNext(tripId);
 });
 
+/** Waiting-for-supply timer fired: look again. */
+scheduledTasks.registerHandler(TASK_RESWEEP, async (task) => {
+  const { tripId } = task.payload || {};
+  if (!tripId) return;
+  await resweep(tripId);
+});
+
 module.exports = {
   startCascade,
+  resweep,
+  notifySupplyAvailable,
   declineOffer,
   stopOfferTimer,
   announceWinner,
@@ -471,5 +653,7 @@ module.exports = {
   OFFER_TTL_SECONDS,
   DISPATCH_RADIUS_KM,
   DISPATCH_EXTENDED_RADIUS_KM,
+  SEARCH_TIMEOUT_SECONDS,
   TASK_OFFER_TIMEOUT,
+  TASK_RESWEEP,
 };

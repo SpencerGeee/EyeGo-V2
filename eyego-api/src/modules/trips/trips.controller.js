@@ -59,7 +59,9 @@ const getTripByShareToken = async (req, res) => {
 };
 
 const getSeatMap = async (req, res) => {
-  const seatMap = await tripsService.getSeatMap(req.params.id);
+  // The viewer's id is what lets the group-hub screen re-use the seat it
+  // already holds instead of trying to reserve a second one.
+  const seatMap = await tripsService.getSeatMap(req.params.id, req.user?.id ?? null);
   ok(res, seatMap);
 };
 

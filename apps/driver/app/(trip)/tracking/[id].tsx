@@ -402,25 +402,30 @@ export default function DriverTrackingScreen() {
         <Text style={styles.liveText}>LIVE</Text>
       </View>
 
-      {/* ETA pill */}
-      {etaMinutes != null && (
-        <Entrance animation="slideLeft" style={styles.etaPill}>
+      {/* ETA and passenger pills, stacked on the LEFT.
+          The passenger pill used to sit top-right, directly on top of the map's
+          re-center button — "the icon to reset the camera view seems to be at
+          the back of the number of seats boarded". The map renders first, so
+          the pill always won. Stacking both pills on the left gives the button
+          the corner to itself instead of fighting over it with a z-index. */}
+      <View style={styles.pillStack} pointerEvents="box-none">
+        {etaMinutes != null && (
+          <Entrance animation="slideLeft">
+            <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
+              <Ionicons name="time-outline" size={14} color={colors.primary} />
+              <Text style={styles.etaPillText}>
+                {etaMinutes < 2 ? 'Arriving now' : `${etaMinutes} min to destination`}
+              </Text>
+            </BlurView>
+          </Entrance>
+        )}
+        <Entrance animation="slideLeft">
           <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
-            <Ionicons name="time-outline" size={14} color={colors.primary} />
-            <Text style={styles.etaPillText}>
-              {etaMinutes < 2 ? 'Arriving now' : `${etaMinutes} min to destination`}
-            </Text>
+            <Ionicons name="people-outline" size={14} color={colors.primary} />
+            <Text style={styles.etaPillText}>{boarded}/{passengers} boarded</Text>
           </BlurView>
         </Entrance>
-      )}
-
-      {/* Passenger count pill */}
-      <Entrance animation="slideRight" style={styles.passengerPill}>
-        <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
-          <Ionicons name="people-outline" size={14} color={colors.primary} />
-          <Text style={styles.etaPillText}>{boarded}/{passengers} boarded</Text>
-        </BlurView>
-      </Entrance>
+      </View>
 
       {/* In-app banner */}
       {bannerMsg != null && (
@@ -745,17 +750,15 @@ const makeStyles = (colors: DriverColors) =>
       color: colors.primary,
       letterSpacing: 1.5,
     },
-    etaPill: {
+    pillStack: {
       position: 'absolute',
       left: spacing.xl,
       top: 155,
       zIndex: 10,
-    },
-    passengerPill: {
-      position: 'absolute',
-      right: spacing.xl,
-      top: 155,
-      zIndex: 10,
+      gap: spacing.sm,
+      // Left-aligned so a short pill and a long one share a left edge rather
+      // than centring against each other.
+      alignItems: 'flex-start',
     },
     etaPillBlur: {
       flexDirection: 'row',

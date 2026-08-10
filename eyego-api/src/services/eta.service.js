@@ -31,10 +31,28 @@ const haversineKm = (aLat, aLng, bLat, bLng) => haversineMeters(aLat, aLng, bLat
  */
 
 const MAPBOX_TOKEN = process.env.MAPBOX_ACCESS_TOKEN || process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
-const MATRIX_URL = 'https://api.mapbox.com/directions-matrix/v1/mapbox/driving';
+/**
+ * `driving-traffic`, NOT `driving`.
+ *
+ * The plain profile returns FREE-FLOW durations — the time the trip would take
+ * on empty roads at the posted limit. Every ETA in the app that came through
+ * here was therefore an answer to "how long if the driver never stops", which in
+ * Accra is not the question anyone is asking. Reported as "does the ETA take
+ * traffic into account? Bolt and Uber are very accurate". It did not; it does
+ * now. `services/mapbox.service.js#getDirections` was already on the traffic
+ * profile, so the two were also disagreeing with each other.
+ */
+const MATRIX_URL = 'https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic';
 
-/** Mapbox Matrix caps a single call at 25 coordinates including the source. */
-const MAX_MATRIX_SOURCES = 24;
+/**
+ * Coordinate cap per Matrix call, INCLUDING the destination.
+ *
+ * The traffic profile allows 10 coordinates, not the 25 the plain profile
+ * allows — so this dropped from 24 with the profile change. Sending more comes
+ * back 422, which the catch below would have quietly turned into free-flow
+ * fallbacks for the whole sweep: traffic-aware in name only.
+ */
+const MAX_MATRIX_SOURCES = 9;
 const CACHE_TTL_SECONDS = parseInt(process.env.ETA_CACHE_TTL_SECONDS, 10) || 60;
 /** Urban average including junctions — the free-flow fallback's assumption. */
 const FALLBACK_SPEED_KMH = parseFloat(process.env.ETA_FALLBACK_SPEED_KMH) || 22;

@@ -75,17 +75,28 @@ function WhereToPressable({
     <GlowSearchPressable
       onPress={onPress}
       accessibilityLabel="Open destination search"
-      // Green ring over the green backdrop so it reads as light rather than as
-      // dirt (the two hues green sits between are what washed it out before).
-      //
-      // 0.5, not 1.35. The halo's outer reach is `36 × intensity`, and the card
-      // sits 20 pt below the header — so anything above ~0.55 paints past the
-      // ScrollView's clip edge and gets sliced flat, which is the "cutout under
-      // the top nav" this card has been blamed for twice. Sizing the glow to
-      // the gap is what lets the card stay where it looked right, instead of
-      // being pushed down to make room for its own shadow.
-      palette="green"
-      glowIntensity={0.5}
+      /*
+       * BRIGHT, BUT STILL INSIDE THE GAP.
+       *
+       * The previous 0.5 was not a taste call — it was the only lever
+       * available. Intensity scaled the halo's REACH as well as its
+       * brightness (`36 × intensity`), and the card sits 20 pt below the
+       * header, so anything brighter painted past the ScrollView's clip edge
+       * and got sliced flat. Turning it down to fit is what left the bar
+       * "very mild — it barely catches the attention".
+       *
+       * `maxGlowRadius` separates the two. Intensity now buys opacity only;
+       * the reach is pinned at 18 pt, comfortably inside the 20 pt gap. The
+       * bar can be as bright as the suggested cards without being pushed down
+       * to make room for its own shadow.
+       *
+       * `brandGreen`, not `green`: that palette carries a gold counter-arc,
+       * which is the colour that "isn't a match to the green Skia
+       * background". brandGreen samples the pillar's own #4be277 → #005321.
+       */
+      palette="brandGreen"
+      glowIntensity={1.5}
+      maxGlowRadius={18}
       style={styles.whereToCard}
     >
       <View style={styles.whereToIconWrap}>
