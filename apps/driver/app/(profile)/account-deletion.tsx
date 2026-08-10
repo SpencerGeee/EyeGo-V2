@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, Loader } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
@@ -84,7 +84,7 @@ export default function AccountDeletionScreen() {
             </View>
             {isPending ? (
               <View style={styles.loadingRow}>
-                <ActivityIndicator color={colors.error} size="large" />
+                <Loader size={36} color={colors.error} />
                 <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.md }}>
                   Deleting account…
                 </Text>

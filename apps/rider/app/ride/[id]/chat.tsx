@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
+import { useChatUnread } from '../../../stores/chatUnread.store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { connectSocket, socketEvents, getSocket, tripsApi } from '@eyego/api';
 import NetInfo from '@react-native-community/netinfo';
@@ -117,6 +118,14 @@ export default function ChatScreen() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
   const flatListRef = useRef<FlashListRef<ChatMessage>>(null);
+
+  // Reading the thread is what clears the badge. Runs on every arriving
+  // message too — a message that lands while this screen is open has already
+  // been read by the time it is rendered.
+  const markChatRead = useChatUnread((s) => s.markRead);
+  useEffect(() => {
+    if (id) markChatRead(id);
+  }, [id, markChatRead, messages.length]);
   const visibleMessageIdsRef = useRef<Set<string>>(new Set());
   // Track which unread message IDs we've already sent read receipts for
   // to avoid re-sending on every re-render (race condition fix)
@@ -854,10 +863,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing['2xl'],
-    // 156px of header clearance, now on the edge it was always meant for. While
-    // the list was `inverted` this padding was flipped to the bottom of the
-    // screen, which is what pushed a short conversation into the middle.
-    paddingTop: spacing.base + 156,
+    // NO header clearance. `styles.header` is a normal in-flow row above this
+    // list — it is not absolutely positioned and never was — so it already
+    // takes its own space. The extra 156px was clearance for a header that
+    // does not float, and it is the remaining half of "the driver's chat
+    // starts at the top but the rider's starts midway": the conversation was
+    // being pushed down by a header's height for a second time.
+    paddingTop: spacing.base,
     paddingBottom: spacing.base,
     gap: spacing.sm,
   },

@@ -23,6 +23,8 @@ import {
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
+import { useTripStore } from '../stores/trip.store';
+import { useChatUnread } from '../stores/chatUnread.store';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
 // throws ReferenceError for properties that don't exist on Zustand-persisted
@@ -342,6 +344,18 @@ export function TripStatusListener() {
     const unsubChat = socketEvents.onChatMessage((msg) => {
       const segs = segmentsRef.current;
       const isOnChatScreen = segs.some((s) => s === 'chat');
+
+      // Count it FIRST, and count it even where the banner is suppressed —
+      // which includes the trip surface, where the rider spends the whole
+      // ride. That suppression is why a driver's message used to arrive with
+      // no visible trace at all until the chat was opened on a hunch.
+      //
+      // `chat:message` carries no tripId; it does not need one, because the
+      // socket only delivers it to the room of the trip the rider is on. That
+      // trip is what the badge belongs to.
+      const activeTripId = useTripStore.getState().snapshot?.tripId;
+      if (!isOnChatScreen && activeTripId) useChatUnread.getState().received(activeTripId);
+
       if (isOnChatScreen) return;
 
       const preview = msg.text.length > 55 ? msg.text.slice(0, 52) + '\u2026' : msg.text;

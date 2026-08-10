@@ -7,6 +7,7 @@ import { Text, GlassSurface, DriverInfoCard, InlayPanel, RollingDigits } from '@
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
+import { useChatUnread } from '../../../stores/chatUnread.store';
 import { shareLiveTracking } from '../../../utils/safety';
 
 /**
@@ -54,6 +55,7 @@ function AssignedStageImpl() {
 
   const status = snapshot?.status ?? null;
   const tripId = snapshot?.tripId ?? null;
+  const unreadChats = useChatUnread((s) => (tripId ? s.counts[tripId] ?? 0 : 0));
   const driver = snapshot?.driver ?? null;
   const vehicle = snapshot?.vehicle ?? null;
 
@@ -151,6 +153,7 @@ function AssignedStageImpl() {
               // that opens the dialler on nothing.
               onCall={driver.phone ? handleCall : undefined}
               onChat={() => tripId && router.push(`/ride/${tripId}/chat` as Href)}
+              unreadChats={unreadChats}
             />
           )}
 

@@ -267,8 +267,10 @@ export default function TripScreen() {
   const scrimColors = useMemo(
     () =>
       [
-        withOpacity(colors.backgroundDeep, 0.45),
-        withOpacity(colors.backgroundDeep, 0.18),
+        // Lighter as well as shorter. 0.45 was dark enough to read as a panel
+        // over the map rather than as shading behind a chip.
+        withOpacity(colors.backgroundDeep, 0.34),
+        withOpacity(colors.backgroundDeep, 0.12),
         withOpacity(colors.backgroundDeep, 0),
       ] as const,
     [colors],
@@ -324,6 +326,11 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 200,
+    // 200 pt covered a third of the screen. With the stage panel occupying the
+    // bottom, that left only a band across the middle of the map actually
+    // clear — and the scrim was still plainly visible, which was the whole
+    // complaint. It only has to reach far enough to sit behind the status bar
+    // and the connection chip; past that it is darkening map for no reason.
+    height: 118,
   },
 });

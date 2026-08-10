@@ -3,9 +3,7 @@ import {
   View,
   StyleSheet,
   Pressable,
-  RefreshControl,
-  ActivityIndicator,
-} from 'react-native';
+  RefreshControl,} from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
@@ -15,7 +13,7 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime, formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel } from '@eyego/ui';
+import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
@@ -685,7 +683,7 @@ export default function ActivityScreen() {
       {filter === 'scheduled' ? (
         scheduledLoading && !isRefreshing ? (
           <View style={styles.center}>
-            <ActivityIndicator color={colors.primary} />
+            <Loader size={20} color={colors.primary} />
           </View>
         ) : (
           <AnimatedList
@@ -755,7 +753,7 @@ export default function ActivityScreen() {
         )
       ) : isLoading && !isRefreshing ? (
         <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
+          <Loader size={20} color={colors.primary} />
         </View>
       ) : (
         <AnimatedList

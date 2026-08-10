@@ -3,9 +3,7 @@ import {
   View,
   StyleSheet,
   Pressable,
-  TextInput,
-  ActivityIndicator,
-} from 'react-native';
+  TextInput,} from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -16,7 +14,7 @@ import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
+import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProps, Loader } from '@eyego/ui';
 import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useToastStore } from '../../stores/toast.store';
@@ -204,7 +202,7 @@ export default function SavedPlacesScreen() {
         <View style={styles.placesCard}>
           {isLoading ? (
             <View style={{ padding: spacing.xl, alignItems: 'center' }}>
-              <ActivityIndicator size="small" color={colors.primary} />
+              <Loader size={20} color={colors.primary} />
             </View>
           ) : (
             <>

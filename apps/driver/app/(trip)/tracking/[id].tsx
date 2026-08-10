@@ -419,7 +419,7 @@ export default function DriverTrackingScreen() {
                   still collecting, "12 min to destination" is the length of
                   the ride, not the time to the rider — and it was what made
                   this pill disagree with the rider's own ETA. */}
-              <Text style={styles.etaPillText}>
+              <Text style={styles.etaPillText} numberOfLines={1}>
                 {etaMinutes < 2
                   ? 'Arriving now'
                   : `${etaMinutes} min ${etaLeg === 'toPickup' ? 'to pickup' : 'to destination'}`}
@@ -763,6 +763,14 @@ const makeStyles = (colors: DriverColors) =>
     pillStack: {
       position: 'absolute',
       left: spacing.xl,
+      // The stack is bounded on BOTH sides. Left-only positioning let a pill
+      // grow to whatever its text needed, and "12 min to destination" reached
+      // far enough right to slide under the map's re-center button — which
+      // sits at `right: 16` and overlaps this stack's vertical band. Moving
+      // the pills to the left was supposed to have settled that; it only did
+      // for short strings. 76 = the button's 44 plus its 16 inset and a 16
+      // gap, so nothing in here can reach it however long the label gets.
+      right: 76,
       top: 155,
       zIndex: 10,
       gap: spacing.sm,

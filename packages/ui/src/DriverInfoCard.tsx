@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable } from './Pressable';
-import { spacing, radii, type ColorTokens } from '@eyego/config';
+import { spacing, radii, fonts, type ColorTokens } from '@eyego/config';
 import { Text } from './Text';
 import { Avatar } from './Avatar';
 import { useThemedColors } from './ColorsContext';
@@ -30,13 +30,16 @@ interface DriverInfoCardProps {
   showActions?: boolean;
   onCall?: () => void;
   onChat?: () => void;
+  /** Unread messages from the driver. Renders a badge on the chat button;
+   *  0 or undefined renders nothing. */
+  unreadChats?: number;
   /** Animated gradient ring + glow + a drifting glass-lens sheen — the
    * "hero" treatment for the matched-driver moment. Keep off for repeated
    * list rows (perf: see effects/GradientGlowBorder). */
   premium?: boolean;
 }
 
-export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, onChat, premium = false }: DriverInfoCardProps) {
+export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, onChat, unreadChats = 0, premium = false }: DriverInfoCardProps) {
   const colors = useThemedColors();
   const styles = getStyles(colors);
 
@@ -67,6 +70,13 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
           {onChat && (
             <Pressable style={styles.actionBtn} onPress={onChat} haptic="light">
               <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
+              {unreadChats > 0 && (
+                <View style={[styles.chatBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={[styles.chatBadgeText, { color: colors.onPrimary }]}>
+                    {unreadChats > 9 ? '9+' : unreadChats}
+                  </Text>
+                </View>
+              )}
             </Pressable>
           )}
         </View>
@@ -120,6 +130,24 @@ function getStyles(colors: ColorTokens) {
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: colors.rimLight,
+    },
+    chatBadge: {
+      position: 'absolute',
+      top: -2,
+      right: -2,
+      minWidth: 18,
+      height: 18,
+      borderRadius: 9,
+      paddingHorizontal: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: colors.surfaceContainerHigh,
+    },
+    chatBadgeText: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      lineHeight: Math.round(10 * 1.3),
     },
   });
 }

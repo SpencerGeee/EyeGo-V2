@@ -1,7 +1,8 @@
 import React, { useRef } from 'react';
-import { ActivityIndicator, StyleSheet, ViewStyle } from 'react-native';
+import { StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
+import { Loader } from './Loader';
 import {
   GradientGlowBorder,
   type GradientGlowBorderHandle,
@@ -124,7 +125,9 @@ export function Button({
   }
 
   const content = loading ? (
-    <ActivityIndicator size="small" color={vStyle.textColor} />
+    // The app's own loader, at a size that fits inside the button's line box —
+    // so a pending button and a pending screen are visibly the same product.
+    <Loader size={Math.round(sStyle.fontSize * 1.15)} color={vStyle.textColor} />
   ) : (
     <>
       {icon}

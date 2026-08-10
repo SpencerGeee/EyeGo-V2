@@ -7,6 +7,7 @@ import { Text, GlassSurface, InlayPanel, RollingDigits, Avatar } from '@eyego/ui
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
+import { useChatUnread } from '../../../stores/chatUnread.store';
 import { shareLiveTracking } from '../../../utils/safety';
 
 /**
@@ -34,6 +35,7 @@ function TrackingStageImpl() {
   const recovering = useTripStore((s) => s.recovering);
 
   const tripId = snapshot?.tripId ?? null;
+  const unreadChats = useChatUnread((s) => (tripId ? s.counts[tripId] ?? 0 : 0));
   const driver = snapshot?.driver ?? null;
   const vehicle = snapshot?.vehicle ?? null;
 
@@ -125,10 +127,24 @@ function TrackingStageImpl() {
                 onPress={() => tripId && router.push(`/ride/${tripId}/chat` as Href)}
                 hitSlop={8}
                 accessibilityRole="button"
-                accessibilityLabel="Message driver"
+                accessibilityLabel={
+                  unreadChats > 0
+                    ? `Message driver, ${unreadChats} unread`
+                    : 'Message driver'
+                }
                 style={styles.iconBtn}
               >
                 <Ionicons name="chatbubble-outline" size={17} color={colors.onSurface} />
+                {/* The whole point of the counter: on this screen the app-wide
+                    chat banner is deliberately suppressed, so without a badge
+                    a driver's message left no trace at all. */}
+                {unreadChats > 0 && (
+                  <View style={[styles.chatBadge, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.chatBadgeText, { color: colors.onPrimary }]}>
+                      {unreadChats > 9 ? '9+' : unreadChats}
+                    </Text>
+                  </View>
+                )}
               </Pressable>
             </View>
           )}
@@ -206,6 +222,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 36, height: 36, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: colors.outlineVariant,
+  },
+  chatBadge: {
+    position: 'absolute', top: -3, right: -3,
+    minWidth: 16, height: 16, borderRadius: 8,
+    paddingHorizontal: 3,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: colors.surfaceContainer,
+  },
+  chatBadgeText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 9,
+    lineHeight: Math.round(9 * 1.3),
   },
   fareRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   fareValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },

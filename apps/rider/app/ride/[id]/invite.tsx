@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Share, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Pressable, Share, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect, type Href } from 'expo-router';
 import { MotiView } from '@eyego/ui';
@@ -401,7 +401,7 @@ export default function InviteScreen() {
           {/* Link preview — three states: generating / ready / error */}
           {linkState === 'generating' && (
             <View style={styles.linkBox}>
-              <ActivityIndicator size="small" color={colors.primary} />
+              <Loader size={20} color={colors.primary} />
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                 Generating invite link...
               </Text>
@@ -534,7 +534,7 @@ export default function InviteScreen() {
               </View>
             </View>
             {updateHeavyCargo.isPending
-              ? <ActivityIndicator size="small" color={colors.primary} />
+              ? <Loader size={20} color={colors.primary} />
               : <View style={[styles.checkbox, heavyCargo && styles.checkboxSelected]}>
                   {heavyCargo && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
                 </View>}
@@ -558,7 +558,7 @@ export default function InviteScreen() {
               </View>
             </View>
             {applyPickup.isPending
-              ? <ActivityIndicator size="small" color={colors.primary} />
+              ? <Loader size={20} color={colors.primary} />
               : <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />}
           </Pressable>
         </MotiView>

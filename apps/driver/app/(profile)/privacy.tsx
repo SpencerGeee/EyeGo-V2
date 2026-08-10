@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, Loader } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { spacing, radii } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
@@ -48,7 +48,7 @@ export default function PrivacyScreen() {
         />
         {loading && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator color={colors.primary} size="large" />
+            <Loader size={36} color={colors.primary} />
           </View>
         )}
       </View>

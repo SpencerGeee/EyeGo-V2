@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, usePressScale } from '@eyego/ui';
+import { Text, usePressScale, Loader } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
 
 interface Props {
@@ -29,7 +29,7 @@ export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
         animStyle,
       ]}>
         {loading ? (
-          <ActivityIndicator size={12} color={isOnline ? driverColors.online : driverColors.offline} />
+          <Loader size={12} color={isOnline ? driverColors.online : driverColors.offline} />
         ) : (
           <View style={[styles.dot, { backgroundColor: isOnline ? driverColors.online : driverColors.offline }]} />
         )}

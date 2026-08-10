@@ -130,11 +130,23 @@ function SuggestedTripCard({
   const tierColors = getTierColors(colors);
   const tier = (trip.tier as string) ?? 'ECONOMY';
   const tierColor = tierColors[tier] ?? tierColors.ECONOMY;
+  // `maxCapacity` is not a field on anything the server sends — searchTrips
+  // returns the Trip row, whose capacity column is `maxSeats`. So this always
+  // fell through to the literal 12, and a 14-seater advertised "12 seats left"
+  // the moment it was created. Same name the fare uses as its denominator, so
+  // the seats and the price now agree about how big the vehicle is.
+  const capacity = trip.maxSeats ?? trip.availableSeats ?? trip.vehicle?.seaterCount ?? 0;
   const seatsLeft = Math.max(
     0,
-    (trip.maxCapacity ?? 12) - (trip.confirmedSeats ?? 0) - (trip.pendingSeats ?? 0),
+    capacity - (trip.confirmedSeats ?? 0) - (trip.pendingSeats ?? 0),
   );
   const seatsLow = seatsLeft <= 2;
+
+  // WHERE IT IS GOING. The card showed the tier, the seats and the price and
+  // left out the one thing that decides whether the ride is any use — the
+  // rider had to open it to find out, then come back.
+  const destination: string | null =
+    trip.route?.destinationName ?? trip.dropoffAddress ?? trip.destination ?? null;
   const tierIcon =
     tier === 'ECONOMY' ? 'car-outline' as const :
     tier === 'COMFORT' ? 'bus-outline' as const :
@@ -183,6 +195,14 @@ function SuggestedTripCard({
               </Text>
             </View>
           </View>
+          {destination && (
+            <View style={styles.tripDestRow}>
+              <Ionicons name="arrow-forward" size={11} color={colors.onSurfaceVariant} />
+              <Text style={styles.tripDest} numberOfLines={1}>
+                {destination}
+              </Text>
+            </View>
+          )}
           <Text style={styles.tripMeta}>
             {trip.scheduledAt
               ? new Date(trip.scheduledAt).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
@@ -1074,6 +1094,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: 9,
     lineHeight: 13,
     letterSpacing: 0.6,
+  },
+  tripDestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+  },
+  tripDest: {
+    flex: 1,
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: Math.round(12 * 1.35),
+    color: colors.onSurface,
   },
   tripMeta: {
     fontFamily: fonts.monoRegular,

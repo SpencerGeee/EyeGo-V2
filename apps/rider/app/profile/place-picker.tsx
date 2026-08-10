@@ -1,10 +1,10 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Pressable, ActivityIndicator, TextInput, FlatList } from 'react-native';
+import { View, StyleSheet, Pressable, TextInput, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Loader } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { haptic } from '../../utils/haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
@@ -228,7 +228,7 @@ export default function PlacePickerScreen() {
               returnKeyType="search"
               autoFocus={focusSearch === '1'}
             />
-            {isSearching && <ActivityIndicator size="small" color={colors.primary} />}
+            {isSearching && <Loader size={20} color={colors.primary} />}
           </View>
           {/* A search that found nothing used to render NOTHING — reported as
               "I search for IPMC showroom and nothing happens". Say so, and say
@@ -283,7 +283,7 @@ export default function PlacePickerScreen() {
             <View style={{ flex: 1 }}>
               {isResolving || (!resolved && center) ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Loader size={20} color={colors.primary} />
                   <Text style={styles.addressDim}>Locating…</Text>
                 </View>
               ) : resolved ? (

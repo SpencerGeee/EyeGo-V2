@@ -1,12 +1,12 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
-import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface } from '@eyego/ui';
+import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface, Loader } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
@@ -128,7 +128,7 @@ export default function ScheduledRideDetailScreen() {
 
         {isLoading && !intent ? (
           <View style={styles.center}>
-            <ActivityIndicator color={colors.primary} />
+            <Loader size={20} color={colors.primary} />
           </View>
         ) : !intent ? (
           <View style={styles.center}>

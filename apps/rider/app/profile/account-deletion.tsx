@@ -5,13 +5,11 @@ import {
   ScrollView,
   Pressable,
   Alert,
-  TextInput,
-  ActivityIndicator,
-} from 'react-native';
+  TextInput,} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii } from '@eyego/config';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, Loader } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useAuthStore } from '../../stores/auth.store';
 import { apiClient } from '@eyego/api';
@@ -137,7 +135,7 @@ export default function AccountDeletionScreen() {
 
               {isDeleting ? (
                 <View style={styles.loadingWrap}>
-                  <ActivityIndicator size="large" color={colors.statusError} />
+                  <Loader size={36} color={colors.statusError} />
                   <Text variant="bodySmall" style={{ color: colors.onSurfaceVariant, marginTop: spacing.base }}>
                     Deleting your account...
                   </Text>
