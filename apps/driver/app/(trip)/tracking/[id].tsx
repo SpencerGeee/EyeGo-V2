@@ -73,11 +73,13 @@ export default function DriverTrackingScreen() {
   const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
   const [etaDistanceKm, setEtaDistanceKm] = useState<number | null>(null);
   const [etaMessage, setEtaMessage] = useState<string | null>(null);
+  const [etaLeg, setEtaLeg] = useState<'toPickup' | 'toDropoff'>('toDropoff');
 
   const handleEta = useCallback(
     (eta: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => {
       setEtaMinutes(eta.minutes);
       setEtaDistanceKm(eta.distanceKm);
+      setEtaLeg(eta.leg);
       setEtaMessage(
         eta.rerouted
           ? 'Route updated'
@@ -413,8 +415,14 @@ export default function DriverTrackingScreen() {
           <Entrance animation="slideLeft">
             <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
               <Ionicons name="time-outline" size={14} color={colors.primary} />
+              {/* The leg matters as much as the number: while the driver is
+                  still collecting, "12 min to destination" is the length of
+                  the ride, not the time to the rider — and it was what made
+                  this pill disagree with the rider's own ETA. */}
               <Text style={styles.etaPillText}>
-                {etaMinutes < 2 ? 'Arriving now' : `${etaMinutes} min to destination`}
+                {etaMinutes < 2
+                  ? 'Arriving now'
+                  : `${etaMinutes} min ${etaLeg === 'toPickup' ? 'to pickup' : 'to destination'}`}
               </Text>
             </BlurView>
           </Entrance>

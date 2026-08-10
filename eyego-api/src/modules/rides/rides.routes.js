@@ -64,6 +64,14 @@ router.post(
     body('dropoffLat').isFloat({ min: -90, max: 90 }),
     body('dropoffLng').isFloat({ min: -180, max: 180 }),
     body('paymentMethod').optional().isIn(['CASH', 'CARD', 'MOMO', 'WALLET']),
+    // "Yes, book a second ride anyway" — see requestRide. The rider has to have
+    // been shown the prompt for this to be true, so it is never a default.
+    body('allowConcurrent').optional().isBoolean(),
+    // Booking on someone else's behalf. Name only is enough to identify the
+    // passenger to the driver; the phone is what lets the driver reach them at
+    // the kerb, which is the whole point of the feature.
+    body('passenger.name').optional().isString().isLength({ min: 1, max: 80 }),
+    body('passenger.phone').optional().isString().isLength({ min: 5, max: 20 }),
   ],
   validate,
   h(async (req, res) => {
@@ -74,6 +82,7 @@ router.post(
       dropoffLat: Number(req.body.dropoffLat),
       dropoffLng: Number(req.body.dropoffLng),
       idempotencyKey: req.get('Idempotency-Key') || req.body.idempotencyKey || null,
+      allowConcurrent: req.body.allowConcurrent === true || req.body.allowConcurrent === 'true',
     });
     res.status(201).json({ success: true, data: result });
   }),

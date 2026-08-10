@@ -1,7 +1,8 @@
 ﻿import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -48,7 +49,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   // local state, because local state is exactly what could disagree with the
   // server about which driver was being asked.
   const queryClient = useQueryClient();
-  const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll } = useRideStore();
+  const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll, setGuestInfo } = useRideStore();
+  /** True between opening guest-selection and coming back with an answer. */
+  const awaitingGuestRef = useRef(false);
   const { destination: paramDestination, scheduledAt, resumeRequestId } = useLocalSearchParams<{
     destination?: string;
     scheduledAt?: string;
@@ -69,6 +72,15 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * before anyone could read it.
    */
   const [errorReason, setErrorReason] = useState<string | null>(null);
+  /**
+   * The server refused because a ride is already running.
+   *
+   * Kept apart from `errorReason` because it is not a failure — it is a
+   * question. "You already have a ride in progress" was previously a dead end,
+   * which is wrong for the case Uber and Bolt both support: booking a second
+   * car, usually for somebody else, while your own ride is still going.
+   */
+  const [conflict, setConflict] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const tripIdRef = useRef<string | null>(null);
   const sentRef = useRef(false);
@@ -223,9 +235,125 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     [setDispatchOffer, setNearbyDrivers],
   );
 
+  /**
+   * Quote, then request. Extracted from the mount effect so the conflict flow
+   * below can re-run it with different terms after the rider answers.
+   *
+   * A retry ALWAYS takes a fresh idempotency key. The key is what makes a
+   * double-tap safe, and reusing it here would replay the cached 409 instead of
+   * sending the second ride the rider just explicitly asked for.
+   */
+  const sendRequest = React.useCallback(
+    async (opts?: { allowConcurrent?: boolean; passenger?: { name: string; phone: string } | null }) => {
+      if (origin?.latitude == null || origin?.longitude == null) return;
+      if (storeDestination?.latitude == null || storeDestination?.longitude == null) return;
+
+      setConflict(false);
+      setErrorReason(null);
+      setLocalStatus('sending');
+
+      try {
+        // Price first. The quote is server-signed and single-use, so the number
+        // the rider just agreed to is the number they are charged — the two
+        // used to be independent computations that could silently disagree.
+        const quote = await ridesApi.quote({
+          pickupLat: origin.latitude,
+          pickupLng: origin.longitude,
+          dropoffLat: storeDestination.latitude,
+          dropoffLng: storeDestination.longitude,
+        });
+
+        const { tripId } = await ridesApi.request(
+          {
+            quoteId: quote.quoteId,
+            pickupLat: origin.latitude,
+            pickupLng: origin.longitude,
+            pickupAddress: origin.address ?? undefined,
+            dropoffLat: storeDestination.latitude,
+            dropoffLng: storeDestination.longitude,
+            dropoffAddress: destination ?? undefined,
+            ...(opts?.allowConcurrent ? { allowConcurrent: true } : {}),
+            ...(opts?.passenger ? { passenger: opts.passenger } : {}),
+          } as any,
+          idempotencyKeyRef.current,
+        );
+
+        tripIdRef.current = tripId;
+        // Persist so the Activity tab can show a live card if the rider
+        // navigates away from this screen.
+        setPendingTripRequest(tripId, destination ?? null);
+        // From here the server drives everything. No interval, no client
+        // timeout: expiry is a durable ScheduledTask on the server, so "we
+        // gave up" is one fact both apps receive rather than two guesses.
+        watchTrip(tripId);
+      } catch (err: any) {
+        const code = err?.response?.data?.code ?? err?.response?.data?.error?.code;
+        // Not a failure — a question. See `conflict`.
+        if (code === 'RIDE_ALREADY_ACTIVE') {
+          setConflict(true);
+          setLocalStatus('error');
+          return;
+        }
+        // Surface what the server actually said. Swallowing this is what made
+        // every distinct failure — an expired quote, a rejected fare, an
+        // out-of-zone pickup, a genuine network drop — look like the same
+        // "couldn't send request" dead end with no way to act on it.
+        const serverMsg = err?.response?.data?.message ?? err?.response?.data?.error;
+        const isOffline = !err?.response;
+        console.error('[RequestStage] trip request failed', {
+          status: err?.response?.status,
+          data: err?.response?.data,
+          message: err?.message,
+        });
+        setErrorReason(
+          serverMsg ??
+            (isOffline
+              ? "We couldn't reach the server. Check your connection and try again."
+              : 'Something went wrong sending your request. Please try again.'),
+        );
+        setLocalStatus('error');
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [origin?.latitude, origin?.longitude, storeDestination?.latitude, storeDestination?.longitude, destination],
+  );
+
+  /** "Book it anyway, and it's for me." */
+  const bookConcurrentForSelf = React.useCallback(() => {
+    setGuestInfo(null);
+    idempotencyKeyRef.current = `ride-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    void sendRequest({ allowConcurrent: true, passenger: null });
+  }, [sendRequest, setGuestInfo]);
+
+  /**
+   * "Book it anyway, and it's for someone else."
+   *
+   * Hands off to the existing guest-selection screen rather than growing a
+   * second name/phone form. Coming back with `guestInfo` set is the signal to
+   * send — see the focus effect below.
+   */
+  const bookConcurrentForGuest = React.useCallback(() => {
+    setGuestInfo(null);
+    awaitingGuestRef.current = true;
+    expectTripSurfaceReturn();
+    router.push('/ride/guest-selection' as any);
+  }, [router, setGuestInfo]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!awaitingGuestRef.current) return;
+      const info = useRideStore.getState().guestInfo;
+      if (!info?.name) return; // backed out without choosing anyone
+      awaitingGuestRef.current = false;
+      idempotencyKeyRef.current = `ride-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      void sendRequest({ allowConcurrent: true, passenger: { name: info.name, phone: info.phone } });
+    }, [sendRequest]),
+  );
+
   useEffect(() => {
     if (sentRef.current) return;
     sentRef.current = true;
+
 
     // Resuming a ride already requested elsewhere (e.g. the Activity tab's
     // live card, or a cold start mid-search). Nothing to re-POST and nothing
@@ -257,60 +385,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       return;
     }
 
-    (async () => {
-      try {
-        // Price first. The quote is server-signed and single-use, so the number
-        // the rider just agreed to is the number they are charged — the two
-        // used to be independent computations that could silently disagree.
-        const quote = await ridesApi.quote({
-          pickupLat: origin.latitude,
-          pickupLng: origin.longitude,
-          dropoffLat: storeDestination.latitude,
-          dropoffLng: storeDestination.longitude,
-        });
-
-        const { tripId } = await ridesApi.request(
-          {
-            quoteId: quote.quoteId,
-            pickupLat: origin.latitude,
-            pickupLng: origin.longitude,
-            pickupAddress: origin.address ?? undefined,
-            dropoffLat: storeDestination.latitude,
-            dropoffLng: storeDestination.longitude,
-            dropoffAddress: destination ?? undefined,
-          },
-          idempotencyKeyRef.current,
-        );
-
-        tripIdRef.current = tripId;
-        // Persist so the Activity tab can show a live card if the rider
-        // navigates away from this screen.
-        setPendingTripRequest(tripId, destination ?? null);
-        // From here the server drives everything. No interval, no client
-        // timeout: expiry is a durable ScheduledTask on the server, so "we
-        // gave up" is one fact both apps receive rather than two guesses.
-        watchTrip(tripId);
-      } catch (err: any) {
-        // Surface what the server actually said. Swallowing this is what made
-        // every distinct failure — an expired quote, a rejected fare, an
-        // out-of-zone pickup, a genuine network drop — look like the same
-        // "couldn't send request" dead end with no way to act on it.
-        const serverMsg = err?.response?.data?.message ?? err?.response?.data?.error;
-        const isOffline = !err?.response;
-        console.error('[RequestStage] trip request failed', {
-          status: err?.response?.status,
-          data: err?.response?.data,
-          message: err?.message,
-        });
-        setErrorReason(
-          serverMsg ??
-            (isOffline
-              ? "We couldn't reach the server. Check your connection and try again."
-              : 'Something went wrong sending your request. Please try again.'),
-        );
-        setLocalStatus('error');
-      }
-    })();
+    void sendRequest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -412,12 +487,15 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
         <Text style={styles.title}>
           {status === 'matched' ? 'Driver found!'
+            : conflict ? 'You already have a ride'
             : status === 'error' ? "Couldn't send request"
             : status === 'timeout' ? 'All our drivers are busy'
             : 'Looking for a driver'}
         </Text>
         <Text style={styles.subtitle}>
-          {status === 'error' ? (
+          {conflict ? (
+            'One of your trips is still running. Do you want to book a separate trip as well?'
+          ) : status === 'error' ? (
             errorReason ?? 'Something went wrong sending your request. Please try again.'
           ) : status === 'timeout' ? (
             'All our drivers are busy right now. Please try again in a few minutes, or book a scheduled ride instead.'
@@ -443,11 +521,37 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               : `${dispatchAttempt.total} driver${dispatchAttempt.total === 1 ? '' : 's'} nearby — contacting them in turn…`}
           </Text>
         )}
-        <Text style={styles.hint}>
-          {status === 'timeout'
-            ? 'Nothing was charged for this request.'
-            : "You'll be taken to live tracking automatically as soon as a driver accepts."}
-        </Text>
+        {!conflict && (
+          <Text style={styles.hint}>
+            {status === 'timeout'
+              ? 'Nothing was charged for this request.'
+              : "You'll be taken to live tracking automatically as soon as a driver accepts."}
+          </Text>
+        )}
+
+        {/* THE SECOND-RIDE CHOICE.
+            Two taps, because there are genuinely two questions: whether to book
+            at all, and who is riding. Asking "who for" up front would put a
+            decision in front of every rider to serve the minority who need it —
+            which is why Uber and Bolt both surface it at exactly this moment. */}
+        {conflict && (
+          <View style={styles.conflictActions}>
+            <Button
+              label="Book a trip for myself"
+              onPress={bookConcurrentForSelf}
+              style={{ width: '100%' }}
+            />
+            <Button
+              label="Book for someone else"
+              variant="secondary"
+              onPress={bookConcurrentForGuest}
+              style={{ width: '100%' }}
+            />
+            <Text style={styles.hint}>
+              You pay for both rides. The driver sees whoever you name as the passenger.
+            </Text>
+          </View>
+        )}
 
         {/* Info card */}
         <View style={styles.infoCard}>
@@ -612,6 +716,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: fontSizes.bodySmall,
     color: colors.outline,
     textAlign: 'center',
+  },
+  conflictActions: {
+    width: '100%',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    alignItems: 'center',
   },
   infoCard: {
     flexDirection: 'row',

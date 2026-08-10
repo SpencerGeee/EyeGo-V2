@@ -214,6 +214,24 @@ function buildTripSnapshot(trip, viewer = {}) {
       ? { id: myBooking.id, status: myBooking.status, seatNumber: myBooking.seatNumber }
       : null,
 
+    /**
+     * Who is actually riding, when the booker is not the passenger.
+     *
+     * Null for an ordinary ride. Populated when the trip was booked on someone
+     * else's behalf, so the driver's screen can say "picking up Ama" rather
+     * than the account holder's name, and the booker's own screen can confirm
+     * whose ride they are watching. Read from the trip's bookings rather than
+     * `myBooking`, because for the DRIVER there is no `myBooking` at all.
+     */
+    passenger: (() => {
+      const withGuest = (trip.bookings ?? []).find(
+        (b) => b.guestName && !['CANCELLED'].includes(b.status),
+      );
+      return withGuest
+        ? { name: withGuest.guestName, phone: withGuest.guestPhone ?? null }
+        : null;
+    })(),
+
     timestamps: {
       requestedAt: trip.requestedAt,
       assignedAt: trip.assignedAt,

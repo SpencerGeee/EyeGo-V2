@@ -112,18 +112,46 @@ async function requestRide(userId, body) {
     paymentMethod = 'CASH',
     doorstepPickup = false,
     idempotencyKey = null,
+    /**
+     * The rider has SEEN the "you already have a ride" prompt and chosen to
+     * book a second one anyway.
+     *
+     * The guard below exists to stop a double-tap on Confirm putting two
+     * searches into dispatch, and for that it must stay the default. But it was
+     * also the only answer to a legitimate request — booking a car for someone
+     * else while your own ride is still running, which is the case Uber and
+     * Bolt both support. An accidental second request and a deliberate one look
+     * identical to the server, so the client has to say which it is.
+     */
+    allowConcurrent = false,
+    /**
+     * Who is actually travelling, when it is not the account holder.
+     *
+     * Stored on the BOOKING as guestName/guestPhone — the columns the group
+     * flow already uses for exactly this, so the driver's passenger list, the
+     * seat map and the receipt all render the right name with no new plumbing.
+     * The booker still owns the trip: they pay, they see the tracking, and
+     * they are who cancellation and support act on.
+     */
+    passenger = null,
   } = body;
 
+  const guestName = typeof passenger?.name === 'string' ? passenger.name.trim() || null : null;
+  const guestPhone = typeof passenger?.phone === 'string' ? passenger.phone.trim() || null : null;
+
   return withIdempotency(idempotencyKey, userId, async () => {
-    // One live ride at a time. Without this, a double-tap on Confirm puts two
-    // trips into dispatch and the rider watches two searches fight.
-    const existing = await findActiveTripForUser(userId);
-    if (existing) {
-      throw new AppError(
-        'You already have a ride in progress.',
-        409,
-        'RIDE_ALREADY_ACTIVE',
-      );
+    // One live ride at a time unless the rider has explicitly asked for a
+    // second — see `allowConcurrent`. Without this, a double-tap on Confirm
+    // puts two trips into dispatch and the rider watches two searches fight.
+    if (!allowConcurrent) {
+      const existing = await findActiveTripForUser(userId);
+      if (existing) {
+        throw new AppError(
+          'You already have a ride in progress.',
+          409,
+          'RIDE_ALREADY_ACTIVE',
+        );
+      }
     }
 
     // Redeeming the quote is what makes the quoted price the charged price —
@@ -175,6 +203,9 @@ async function requestRide(userId, body) {
           pickupLat,
           pickupLng,
           pickupAddress,
+          // Null for the ordinary case; set when booking on someone's behalf.
+          guestName,
+          guestPhone,
         },
       });
 
