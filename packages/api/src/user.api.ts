@@ -43,12 +43,45 @@ export interface SavedPlace {
   icon?: string | null;
 }
 
+/**
+ * Flatten the `/user/me` envelope.
+ *
+ * BUGFIX ("i finish onboarding, close the app, reopen it and it asks for my
+ * full name and date of birth again"). The controller replies with
+ * `ok(res, { user })`, i.e. `{ success, message, data: { user: {...} } }` —
+ * but `getProfile`/`updateProfile` are typed `ApiResponse<User>` and every one
+ * of their six call sites reads `res.data.data` as the user itself. So the
+ * whole rider profile stack was one level short:
+ *
+ *   - `register.tsx` persisted `{ user: {...}, dob }` into SecureStore, an
+ *     object with no top-level `name`. `index.tsx` gates on `!user?.name`, so
+ *     every cold start bounced the rider back to "Complete your profile" —
+ *     forever, no matter how many times they filled it in.
+ *   - `useProfileSync` merged that same `{ user }` blob over the auth store,
+ *     so the server copy could never repair it either.
+ *   - `edit.tsx`, `business.tsx` and `scan-pay.tsx` read `.name`, `.phone` and
+ *     `.businessMode` off the wrapper and got `undefined` every time.
+ *
+ * Unwrapping here rather than at the six call sites keeps the declared
+ * `ApiResponse<User>` contract honest. The `?? data` fallback means this stays
+ * correct if the server is ever flattened to match.
+ */
+const unwrapUser = <T extends { data?: any }>(res: T): T => {
+  const body = res?.data;
+  if (!body || typeof body !== 'object') return res;
+  const payload = body.data;
+  if (payload && typeof payload === 'object' && 'user' in payload) {
+    return { ...res, data: { ...body, data: payload.user } };
+  }
+  return res;
+};
+
 export const userApi = {
   getProfile: () =>
-    apiClient.get<ApiResponse<User>>('/user/me'),
+    apiClient.get<ApiResponse<User>>('/user/me').then(unwrapUser),
 
   updateProfile: (data: UpdateProfileRequest) =>
-    apiClient.patch<ApiResponse<User>>('/user/me', data),
+    apiClient.patch<ApiResponse<User>>('/user/me', data).then(unwrapUser),
 
   uploadAvatar: async (uri: string): Promise<string> => {
     const formData = new FormData();

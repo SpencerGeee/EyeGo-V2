@@ -97,11 +97,34 @@ function buildTripSnapshot(trip, viewer = {}) {
     isOnDemand: !trip.routeId,
     tier: trip.tier,
 
-    pickup: {
-      lat: trip.pickupLat,
-      lng: trip.pickupLng,
-      address: trip.pickupAddress,
-    },
+    /**
+     * BUGFIX ("on the rider tracking page the pickup point is shown as the
+     * placeholder pickup, but the destination is correctly showing the one i
+     * put there").
+     *
+     * This read the TRIP's pickup unconditionally. For a group/bus trip that
+     * is the driver's route origin — a generic point the rider never chose —
+     * while the rider's own pickup lives on THEIR booking, which they set on
+     * the invite/seat screen and which the deviation surcharge is charged
+     * against. So the panel showed a stranger's kerb next to the rider's real
+     * destination, which is why only one of the two looked wrong.
+     *
+     * A rider is shown where THEY are being collected; the trip's own pickup
+     * remains the answer for the driver (no `forUserId`) and for any rider who
+     * never set one. `TRIP_INCLUDE` already selects these three booking fields.
+     */
+    pickup:
+      myBooking && myBooking.pickupLat != null && myBooking.pickupLng != null
+        ? {
+            lat: myBooking.pickupLat,
+            lng: myBooking.pickupLng,
+            address: myBooking.pickupAddress ?? trip.pickupAddress,
+          }
+        : {
+            lat: trip.pickupLat,
+            lng: trip.pickupLng,
+            address: trip.pickupAddress,
+          },
     // Destination is a property of the ride now, not of a Route. `route` is
     // only populated for the group/bus product.
     dropoff: {

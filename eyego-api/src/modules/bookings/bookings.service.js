@@ -142,19 +142,32 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         throw new AppError('This trip is no longer accepting bookings', 400, 'TRIP_UNAVAILABLE');
       }
 
-      // ── Capacity guard: ensure there's still room ───────────────────────
-      // Count non-cancelled bookings to get the true number of occupied seats
-      const activeBookingCount = await tx.booking.count({
-        where: { tripId, status: { notIn: ['CANCELLED'] } },
-      });
-      if (activeBookingCount >= trip.maxSeats) {
-        throw new AppError('This trip is full', 400, 'TRIP_FULL');
-      }
-
       // Release the hold this PASSENGER already has on this trip — the "go back
       // and pick a different seat" flow, which would otherwise leave a ghost
       // seat behind. Null the seatNumber too, or the cancelled row keeps it and
       // re-picking that seat collides on @@unique([tripId, seatNumber]).
+      //
+      // THIS MUST RUN BEFORE THE CAPACITY COUNT. It used to run after, which
+      // caused both halves of a single report:
+      //
+      //   "book and invite my group said 'could not reserve a seat, the trip
+      //    may be full' — the only person on it was one offline rider the
+      //    driver added"
+      //   "when i go back to seat selection, 2 seats are reserved instead of
+      //    the one offline seat"
+      //
+      // The group-hub screen creates a booking the moment it mounts. Re-enter
+      // it — after a back, a retry, a failed payment — and the rider arrives
+      // already holding a seat. The capacity count includes every non-cancelled
+      // booking, so it counted the rider's OWN outstanding hold against them:
+      // one offline rider + the rider's own stale hold reached `maxSeats` and
+      // the trip reported itself full to the very person whose seat it was.
+      //
+      // Worse, throwing there meant this release never ran, so the stale hold
+      // was preserved by the failure — the seat map legitimately showed two
+      // reserved seats for one passenger, and each retry could strand another.
+      // Releasing first makes the count mean what it says: seats held by
+      // SOMEONE ELSE.
       //
       // BUGFIX (reported: "I booked for Sophia, then booked my own seat, and
       // the driver only ever sees one seat taken"). This used to key on
@@ -174,6 +187,16 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         where: { tripId, userId, status: 'SEAT_HELD', ...samePassenger },
         data: { status: 'CANCELLED', seatNumber: null },
       });
+
+      // ── Capacity guard: ensure there's still room ───────────────────────
+      // Counted AFTER the release above, so this is the number of seats held by
+      // everyone other than the passenger currently asking for one.
+      const activeBookingCount = await tx.booking.count({
+        where: { tripId, status: { notIn: ['CANCELLED'] } },
+      });
+      if (activeBookingCount >= trip.maxSeats) {
+        throw new AppError('This trip is full', 400, 'TRIP_FULL');
+      }
 
       // Check seat is not already taken by someone else
       const existing = await tx.booking.findFirst({

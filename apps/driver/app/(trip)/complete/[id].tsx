@@ -14,6 +14,7 @@ import {
   Entrance,
   AnimatedCheckmark,
   AnimatedFareText,
+  Skeleton,
   GradientGlowBorder,
   GlassSurface,
   AppBackground,
@@ -71,7 +72,28 @@ export default function TripCompleteScreen() {
   const commissionRate = (completedTrip as any)?.commissionRate ?? 0.15;
   const platformFeePesewas = grossEarnings * commissionRate;
   const netEarnings = Math.max(0, grossEarnings - platformFeePesewas);
-  const earnings = earningsParam ? parseFloat(earningsParam) : netEarnings;
+  /**
+   * BUGFIX ("the trip complete page showed 0 at first then later went to 5.10 —
+   * a driver who skips past it quickly thinks the trip paid nothing").
+   *
+   * This read `earningsParam ? parseFloat(...) : netEarnings`, and the string
+   * `"0"` IS TRUTHY — so a zero handed over in the route params pinned the
+   * headline at ₵0.00 and locked out the figure derived from the trip's own
+   * bookings, which is the number the screen would otherwise have shown
+   * immediately.
+   *
+   * Zero arrives here legitimately: `arriveTrip` short-circuits with
+   * `totalEarningsPesewas: 0` when the trip was ALREADY completed (its
+   * idempotency guard), which is exactly what a duplicate completion call hits.
+   * So the one path that produces a zero is the path where the real earnings
+   * definitely exist and are definitely not zero.
+   *
+   * A zero (or absent, or unparseable) param now means "I wasn't told", not
+   * "it was nothing", and the locally-computed figure answers instead — no
+   * flash of ₵0.00, and no wait for the round trip.
+   */
+  const paramEarnings = earningsParam != null ? parseFloat(earningsParam) : NaN;
+  const hasParamEarnings = Number.isFinite(paramEarnings) && paramEarnings > 0;
   const boarded = allActiveBookings.length;
   const total = completedTrip?.maxSeats ?? 14;
   const farePerSeatPesewas = completedTrip?.farePerSeatPesewas ?? 0;
@@ -86,6 +108,30 @@ export default function TripCompleteScreen() {
     return s + (isNaN(c) ? (parseFloat(b.fareAmountPesewas) || 0) * commissionRate : c);
   }, 0);
   const driverNetTotal = grossEarnings - commissionTotal;
+
+  /**
+   * What the headline actually shows.
+   *
+   * `driverNetTotal` is derived entirely from `completedTrip`, which comes out
+   * of the full `['driver','trips','all']` fetch. Until that resolves,
+   * `bookings` is `[]`, every reduce above sums to zero, and the screen
+   * confidently announced "You earned ₵0.00" before correcting itself a moment
+   * later — the reported "showed 0 at first then later went to 5.10". A driver
+   * who taps through quickly, or whose connection is slow, only ever sees the
+   * zero and reasonably concludes the trip paid nothing.
+   *
+   * The completion call already returned the authoritative figure and passed it
+   * here in the route params; it was parsed into a variable nothing rendered.
+   * Use it for the instant paint, hand over to the locally-derived total once
+   * the trip is really loaded (it carries the per-passenger breakdown the rest
+   * of the receipt needs), and show a skeleton rather than a fabricated zero
+   * when neither is available yet.
+   */
+  const headlineNetPesewas = completedTrip
+    ? driverNetTotal
+    : hasParamEarnings
+      ? paramEarnings
+      : null;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -118,7 +164,11 @@ export default function TripCompleteScreen() {
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.earningsLabel}>
             You earned
           </Text>
-          <AnimatedFareText pesewas={driverNetTotal} variant="fareLarge" color={colors.primary} shiny />
+          {headlineNetPesewas != null ? (
+            <AnimatedFareText pesewas={headlineNetPesewas} variant="fareLarge" color={colors.primary} shiny />
+          ) : (
+            <Skeleton width={140} height={38} borderRadius={10} />
+          )}
           <View style={styles.earningsMeta}>
             <View style={styles.metaItem}>
               <Ionicons name="people" size={16} color={colors.onSurfaceVariant} />

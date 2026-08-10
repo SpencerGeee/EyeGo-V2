@@ -104,7 +104,17 @@ async function createQuote({
     throw new AppError('Pickup and dropoff coordinates are required', 400, 'MISSING_COORDS');
   }
 
-  const distanceKm = await roadDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
+  // BUGFIX ("couldn't send request — could not measure the route for this
+  // trip", on every single on-demand request). `roadDistanceKm` resolves to an
+  // OBJECT — `{ distanceKm, durationMin, source }` — and has done since it
+  // grew a straight-line fallback. This call assigned that object straight to
+  // `distanceKm`, and `Number.isFinite({...})` is unconditionally false, so the
+  // guard below fired on every quote no matter how good the route was. The
+  // fallback path made it worse by guaranteeing the function never throws and
+  // never returns a bad distance, so the failure could only ever be here.
+  // Every other caller in the codebase already destructures `.distanceKm`.
+  const route = await roadDistanceKm(pickupLat, pickupLng, dropoffLat, dropoffLng);
+  const distanceKm = route?.distanceKm;
   if (!Number.isFinite(distanceKm) || distanceKm <= 0) {
     throw new AppError('Could not measure the route for this trip', 422, 'ROUTE_UNAVAILABLE');
   }
@@ -160,6 +170,7 @@ async function createQuote({
     distanceKm,
     surgeMultiplier,
     breakdown: fare,
+    durationMin: route?.durationMin ?? null,
     expiresAtServerMs: expiresAtMs,
     serverNowMs: Date.now(),
     expiresInSeconds: QUOTE_TTL_SECONDS,

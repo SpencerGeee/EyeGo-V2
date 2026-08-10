@@ -179,6 +179,29 @@ export default function ActiveTripScreen() {
   });
 
   const pendingFromStatus = useRef<string | null>(null);
+
+  /**
+   * A brief, explicit "that worked" on the swipe control itself.
+   *
+   * The status chip at the top of the screen was the ONLY evidence a transition
+   * had landed, and the driver had to go looking for it — the swipe simply
+   * sprang back, which is the same thing it does when nothing happened. Naming
+   * the state the trip has just reached means the driver never has to guess
+   * whether to swipe again (and swiping again is what earns a 409).
+   */
+  const [confirmedLabel, setConfirmedLabel] = useState<string | null>(null);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashConfirmed = useCallback((text: string) => {
+    setConfirmedLabel(text);
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    confirmTimer.current = setTimeout(() => setConfirmedLabel(null), 1500);
+  }, []);
+  useEffect(
+    () => () => {
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    },
+    [],
+  );
   // CONFIRMED included: it's the status a trip has immediately after a driver
   // accepts (acceptDispatch/acceptTripRequest both set status: 'CONFIRMED'),
   // including on a resumed trip reopened from the home screen's "Resume Trip"
@@ -187,7 +210,20 @@ export default function ActiveTripScreen() {
   const VALID_ADVANCE_STATUSES = ['CONFIRMED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
 
   const advanceStatus = useMutation({
-    retry: 1,
+    /*
+     * NO RETRY. A status transition is not idempotent: the server applies it
+     * through the state machine under a version compare-and-swap, so replaying
+     * one that already landed is rejected.
+     *
+     * BUGFIX ("i swipe to say i've arrived and it gives me request failed with
+     * status code 409"). With `retry: 1`, a first attempt that actually
+     * SUCCEEDED but whose response was slow or lost — routine on a driver's
+     * phone — was retried, and the retry asked the server to move from a
+     * status the trip had already left. `DRIVER_EN_ROUTE → ARRIVED_AT_PICKUP`
+     * is legal exactly once; the second call is a conflict, and the driver was
+     * shown a raw axios message for an action that had worked.
+     */
+    retry: 0,
     mutationFn: async () => {
       const status = trip?.status;
       if (!status || !VALID_ADVANCE_STATUSES.includes(status)) throw new Error(`Cannot advance from status: ${status ?? 'unknown'}`);
@@ -227,9 +263,11 @@ export default function ActiveTripScreen() {
         return;
       }
       if (toStatus === 'ARRIVED_AT_PICKUP') {
+        flashConfirmed('Marked as arrived');
         addNotification({ type: 'ARRIVED_AT_PICKUP', title: 'Arrived at pickup', body: 'You have arrived at the pickup stop.', tripId: id });
       }
       if (toStatus === 'IN_PROGRESS') {
+        flashConfirmed('Trip started');
         addNotification({ type: 'IN_PROGRESS', title: 'Trip in progress', body: 'You have departed. Ride is underway.', tripId: id });
       }
 
@@ -255,7 +293,38 @@ export default function ActiveTripScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message),
+    /*
+     * A 409 means the trip is no longer in the status we asked to move it out
+     * of — almost always because THIS driver already moved it (a double swipe,
+     * a retried request, the socket applying the change first). That is not a
+     * failure the driver can act on, and showing them "Request failed with
+     * status code 409" for a step that has already happened is worse than
+     * showing nothing: it teaches them to swipe again, which is what produced
+     * the conflict in the first place.
+     *
+     * So: re-read the trip and let the truth decide. If the status has in fact
+     * advanced, the swipe worked — resync and say so. Only a genuine failure
+     * reaches the driver, and never as a raw HTTP string.
+     */
+    onError: async (err) => {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+      if (status === 409) {
+        addNotification({
+          type: 'DRIVER_EN_ROUTE',
+          title: 'Already updated',
+          body: 'This step had already gone through — your trip status is up to date.',
+          tripId: id,
+        });
+        return;
+      }
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (err as Error).message ??
+        'Please try again.';
+      Alert.alert("Couldn't update the trip", message);
+    },
   });
 
   // BUGFIX: pickup/dest markers used to silently collapse onto a hard-coded
@@ -672,6 +741,8 @@ export default function ActiveTripScreen() {
                 loadingLabel={`${statusInfo.action}…`}
                 onConfirm={() => advanceStatus.mutate()}
                 loading={advanceStatus.isPending}
+                confirmed={confirmedLabel != null}
+                confirmedLabel={confirmedLabel ?? undefined}
                 color={colors.primary}
                 onColor={colors.onPrimary ?? '#0A0D14'}
                 trackColor={colors.surfaceContainer}

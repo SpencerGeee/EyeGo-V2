@@ -109,13 +109,41 @@ export default function PaymentScreen() {
   // trip.farePerSeatPesewas. Never compute on the client — env-driven rates on the
   // server are the only source of truth. booking.fareAmountPesewas already reflects any
   // en-route discount, so we never need a client-side adjustment here.
+  // BUGFIX ("the seat said 3 cedis, the payment page said 4.80, then the
+  // tracking page said 3 again").
+  //
+  // `activeBooking` is PERSISTED in the ride store, so it outlives the flow that
+  // created it. The mutation below already knows this — it computes `resumable`
+  // before it will touch a stored booking — but the price on screen did not, and
+  // read `activeBooking.fareAmountPesewas` unconditionally. A leftover booking
+  // from an earlier, abandoned checkout (a different trip, a different seat, its
+  // own deviation surcharge baked in) therefore priced this screen, while the
+  // booking actually created on confirm was priced correctly from THIS trip.
+  // That is the whole 3 → 4.80 → 3 sequence: only the middle number came from
+  // the stale row, and the tracking page was right all along.
+  //
+  // Same predicate as `resumable`: a stored booking may only speak for this
+  // screen if it is this trip's, this seat's, this passenger's and still held.
+  const bookingIsForThisCheckout =
+    !!activeBooking &&
+    activeBooking.tripId === id &&
+    activeBooking.seatNumber === selectedSeat?.number &&
+    (activeBooking.guestName ?? null) === (guestInfo?.name ?? null) &&
+    (activeBooking.status === 'SEAT_HELD' || activeBooking.status === 'PENDING');
+
   const serverPerSeat =
-    activeBooking?.fareAmountPesewas ??
+    (bookingIsForThisCheckout ? activeBooking?.fareAmountPesewas : null) ??
     computedFare ??
     selectedTrip?.farePerSeatPesewas ??
     0;
-  const enRouteRatio: number | null = (activeBooking as { enRouteRatio?: number })?.enRouteRatio ?? null;
-  const enRouteStopName: string | null = (activeBooking as { pickupStop?: { name?: string } })?.pickupStop?.name ?? null;
+  // Same reasoning as the fare above: an en-route discount belongs to one
+  // specific held booking, so a stale row must not annotate this checkout.
+  const enRouteRatio: number | null = bookingIsForThisCheckout
+    ? (activeBooking as { enRouteRatio?: number })?.enRouteRatio ?? null
+    : null;
+  const enRouteStopName: string | null = bookingIsForThisCheckout
+    ? (activeBooking as { pickupStop?: { name?: string } })?.pickupStop?.name ?? null
+    : null;
   // BUGFIX: this used to add a client-computed +GHS 10 on top of serverPerSeat when
   // selectedTrip.heavyCargo was set — but that flag is now persisted server-side
   // (bookings.service.js recomputeBookingAddons) and already baked into

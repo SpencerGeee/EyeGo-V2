@@ -101,6 +101,19 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 let refreshPromise: Promise<string> | null = null;
 let logoutCalled = false;
 
+/**
+ * Thrown only when the server has definitively refused the refresh token, as
+ * opposed to us being unable to reach the server at all. The distinction is the
+ * difference between "your session ended" and "you went through a tunnel", and
+ * only the former may log the user out.
+ */
+class AuthRefreshRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthRefreshRejected';
+  }
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -113,14 +126,41 @@ apiClient.interceptors.response.use(
       if (!refreshPromise) {
         refreshPromise = (async (): Promise<string> => {
           const storedRefresh = getRefreshToken();
-          if (!storedRefresh) throw new Error('No refresh token available');
-          const { data } = await axios.post(`${apiClient.defaults.baseURL}${getRefreshUrl()}`, {
-            refreshToken: storedRefresh,
-          });
-          const { accessToken, refreshToken: newRefresh } = data.data;
-          logoutCalled = false;
-          onTokenRefreshed({ accessToken, refreshToken: newRefresh });
-          return accessToken;
+          if (!storedRefresh) throw new AuthRefreshRejected('No refresh token available');
+
+          // Retry the refresh itself through transient failures. Access tokens
+          // live 15 minutes, so this call fires roughly every 15 minutes for the
+          // whole session — on a phone that is regularly in and out of signal,
+          // on a bus, that is a lot of chances to catch one bad moment.
+          let lastErr: unknown;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const { data } = await axios.post(
+                `${apiClient.defaults.baseURL}${getRefreshUrl()}`,
+                { refreshToken: storedRefresh },
+                { timeout: 15000 },
+              );
+              const { accessToken, refreshToken: newRefresh } = data.data;
+              logoutCalled = false;
+              onTokenRefreshed({ accessToken, refreshToken: newRefresh });
+              return accessToken;
+            } catch (e: any) {
+              lastErr = e;
+              const status = e?.response?.status;
+              // The server has actually rejected this refresh token (expired,
+              // revoked outside the grace window, malformed). Retrying cannot
+              // help and the session really is over.
+              if (status === 401 || status === 403) {
+                throw new AuthRefreshRejected('Refresh token rejected');
+              }
+              // Network error, timeout or 5xx — the token is probably still
+              // perfectly good, we just could not reach the server.
+              if (attempt < 2) {
+                await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+              }
+            }
+          }
+          throw lastErr;
         })().finally(() => {
           refreshPromise = null;
         });
@@ -130,10 +170,25 @@ apiClient.interceptors.response.use(
         const newToken = await refreshPromise;
         if (original.headers) original.headers.Authorization = `Bearer ${newToken}`;
         return apiClient(original);
-      } catch {
-        if (!logoutCalled) {
-          logoutCalled = true;
-          onLogout();
+      } catch (refreshError) {
+        // BUGFIX ("the app logs me out after some time", reported on both the
+        // rider and the driver app). This used to log out on ANY refresh
+        // failure. The refresh call fires every ~15 minutes when the access
+        // token expires, and a single unreachable-server moment — walking into
+        // a lift, a 3s server hiccup, switching from Wi-Fi to mobile data —
+        // threw, hit this catch, and wiped SecureStore. The refresh token was
+        // valid for 30 days the entire time; nothing about the session had
+        // actually ended.
+        //
+        // A failure to ASK is not an answer of "no". Only tear the session down
+        // when the server has genuinely rejected the token; otherwise surface
+        // the original error and leave the credentials alone, so the next
+        // request (or the next screen focus) simply tries again.
+        if (refreshError instanceof AuthRefreshRejected) {
+          if (!logoutCalled) {
+            logoutCalled = true;
+            onLogout();
+          }
         }
         return Promise.reject(error);
       }

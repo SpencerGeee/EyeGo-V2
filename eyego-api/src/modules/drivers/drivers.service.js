@@ -467,7 +467,23 @@ async function getTripById(driverId, tripId) {
       vehicle: true,
       bookings: {
         where: { status: { notIn: ['CANCELLED'] } },
-        include: { user: { select: { name: true, phone: true, profilePhoto: true } } },
+        include: {
+          // `id` IS LOAD-BEARING. Both driver screens that list passengers key
+          // off it, and neither could ever see anybody without it:
+          //
+          //   chat/[id].tsx        .filter(b => [...].includes(b.status) && b.user?.id)
+          //   rate-passengers/[id] .filter(b => b.status !== 'CANCELLED' && b.user?.id)
+          //
+          // Omitting it from the select meant `b.user` arrived as
+          // `{ name, phone, profilePhoto }` with no id, so BOTH filters rejected
+          // every booking and both screens rendered their empty states:
+          // "No passengers yet" on a trip with riders aboard (so the rider's
+          // private chat message had nobody to be addressed to), and
+          // "No passengers to rate" after a completed trip with two passengers.
+          // rate-passengers also posts the rating against this id, so the screen
+          // could not have worked even if it had rendered.
+          user: { select: { id: true, name: true, phone: true, profilePhoto: true } },
+        },
       },
     },
   });

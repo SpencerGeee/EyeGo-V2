@@ -253,7 +253,18 @@ export default function TripScreen() {
           {renderStage(rendered.previous)}
         </Animated.View>
       )}
-      <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]}>
+      {/*
+        BUGFIX ("on the rider tracking page i can't move the map, it's like it's
+        frozen, but the card underneath is completely movable").
+        This layer is `absoluteFill` and sits directly on top of `<TripMap />`.
+        Without `box-none` it is a screen-sized invisible touch target: every
+        pan, pinch and rotate landed on it and stopped there, so the map never
+        received a single gesture while the panel inside this very layer stayed
+        perfectly interactive — which is exactly the split the report describes.
+        `box-none` lets the view itself decline touches while its real children
+        (the stage panel) keep receiving them normally.
+      */}
+      <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="box-none">
         {renderStage(rendered.current)}
       </Animated.View>
     </Animated.View>

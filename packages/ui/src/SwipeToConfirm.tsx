@@ -56,6 +56,21 @@ export interface SwipeToConfirmProps {
   height?: number;
   style?: StyleProp<ViewStyle>;
   loadingLabel?: string;
+  /**
+   * The action came back successful. The control holds at the end of the track
+   * with a filled bar and a checkmark instead of springing back.
+   *
+   * BUGFIX ("i swipe to start the trip and it just resets the swipe circle to
+   * the initial point — the only way i can tell it worked is to check the
+   * status field at the top"). Success and failure were literally the same
+   * animation: the reset below fires whenever `loading` goes false, and it goes
+   * false on both. So the one control guarding the irreversible steps of a trip
+   * gave the driver no way to tell whether the irreversible thing had happened,
+   * which is also how a driver ends up swiping twice and collecting a 409.
+   */
+  confirmed?: boolean;
+  /** Label shown while `confirmed` is true. */
+  confirmedLabel?: string;
 }
 
 const THUMB_INSET = 4;
@@ -73,6 +88,8 @@ export function SwipeToConfirm({
   height = 60,
   style,
   loadingLabel,
+  confirmed = false,
+  confirmedLabel,
 }: SwipeToConfirmProps) {
   const thumbSize = height - THUMB_INSET * 2;
   // Travel is measured, not assumed: the control is full-width in a panel whose
@@ -80,21 +97,33 @@ export function SwipeToConfirm({
   const trackWidth = useSharedValue(0);
   const x = useSharedValue(0);
   const committed = useSharedValue(false);
-  const locked = disabled || loading;
+  const locked = disabled || loading || confirmed;
 
   const fire = useCallback(() => {
     onConfirm();
   }, [onConfirm]);
 
-  // Reset when the caller stops loading without unmounting us (e.g. the mutation
-  // failed and the driver must try again).
+  // Reset when the caller stops loading without unmounting us — but ONLY when
+  // the action did not succeed. A confirmed action holds at the end of the
+  // track; springing back there is what made a successful swipe indistinguishable
+  // from a rejected one (see `confirmed` above).
   React.useEffect(() => {
+    if (confirmed) return;
     if (!loading && committed.value) {
       committed.value = false;
       x.value = withSpring(0, { damping: 22, stiffness: 220 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, [loading, confirmed]);
+
+  // Drive the thumb to the end on success even if the driver's finger never got
+  // there (a short-but-committed swipe, or a caller that confirms programmatically).
+  React.useEffect(() => {
+    if (!confirmed) return;
+    const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
+    x.value = withTiming(max, { duration: 180 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmed]);
 
   const pan = useMemo(
     () =>
@@ -161,14 +190,33 @@ export function SwipeToConfirm({
     >
       <Animated.View
         pointerEvents="none"
-        style={[styles.fill, { borderRadius: height / 2, backgroundColor: color, opacity: 0.22 }, fillStyle]}
+        style={[
+          styles.fill,
+          // A confirmed action reads as solid, not as a translucent hint of
+          // progress — the bar is the receipt for something that already happened.
+          { borderRadius: height / 2, backgroundColor: color, opacity: confirmed ? 0.9 : 0.22 },
+          fillStyle,
+        ]}
       />
 
+      {/* The success label sits above the fill and does NOT fade with the drag,
+          so the driver has something explicit to read at the end of the swipe
+          rather than inferring it from the status chip at the top of the screen. */}
+      {confirmed && (
+        <View style={styles.labelWrap} pointerEvents="none">
+          <Text variant="labelLarge" style={{ color: onColor }}>
+            {confirmedLabel ?? 'Done'}
+          </Text>
+        </View>
+      )}
+
       <Animated.View style={[styles.labelWrap, labelStyle]} pointerEvents="none">
+        {!confirmed && (
         <Text variant="labelLarge" style={{ color: locked ? 'rgba(255,255,255,0.5)' : '#FFFFFF' }}>
           {loading ? (loadingLabel ?? 'Working…') : label}
         </Text>
-        {!loading && (
+        )}
+        {!loading && !confirmed && (
           <View style={styles.chevrons}>
             <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.28)" />
             <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.5)" />
@@ -187,14 +235,16 @@ export function SwipeToConfirm({
               borderRadius: thumbSize / 2,
               left: THUMB_INSET,
               top: THUMB_INSET,
-              backgroundColor: locked ? 'rgba(255,255,255,0.22)' : color,
+              // `confirmed` is a locked state too, but it must not look greyed
+              // out — success keeps the accent colour, only refusal dims.
+              backgroundColor: confirmed ? color : locked ? 'rgba(255,255,255,0.22)' : color,
             },
             thumbStyle,
           ]}
         >
           <Ionicons
-            name={loading ? 'ellipsis-horizontal' : 'arrow-forward'}
-            size={20}
+            name={confirmed ? 'checkmark' : loading ? 'ellipsis-horizontal' : 'arrow-forward'}
+            size={confirmed ? 24 : 20}
             color={onColor}
           />
         </Animated.View>

@@ -269,7 +269,19 @@ export default function DriverTrackingScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message),
+    // A 409 means this step already landed — see the long note on the same
+    // handler in `(trip)/active/[id].tsx`. Resync rather than alarm the driver.
+    onError: async (err) => {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+      if (status === 409) return;
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (err as Error).message ??
+        'Please try again.';
+      Alert.alert("Couldn't update the trip", message);
+    },
   });
 
   const cancelTrip = useMutation({
