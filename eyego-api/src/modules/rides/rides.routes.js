@@ -20,6 +20,15 @@ const validate = require('../../middleware/validate');
 const router = Router();
 const h = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
+/**
+ * Both auth middlewares put the decoded JWT on `req.user`, and the id in that
+ * payload is `userId` — there is no `id` on it, and no `req.driver` at all.
+ * Reading the wrong field made every rider call act as an anonymous stranger
+ * and every driver call throw before it reached the service, which is why
+ * dispatch offers never arrived on the driver app.
+ */
+const actorId = (req) => req.user.userId;
+
 // ── rider ────────────────────────────────────────────────────────────────────
 
 /** Price a ride. Returns a signed, single-use, short-lived quote. */
@@ -35,7 +44,7 @@ router.post(
   ],
   validate,
   h(async (req, res) => {
-    const quote = await rides.quoteRide(req.user.id, {
+    const quote = await rides.quoteRide(actorId(req), {
       tier: req.body.tier ?? 'ECO',
       pickupLat: Number(req.body.pickupLat),
       pickupLng: Number(req.body.pickupLng),
@@ -75,7 +84,7 @@ router.post(
   ],
   validate,
   h(async (req, res) => {
-    const result = await rides.requestRide(req.user.id, {
+    const result = await rides.requestRide(actorId(req), {
       ...req.body,
       pickupLat: Number(req.body.pickupLat),
       pickupLng: Number(req.body.pickupLng),
@@ -97,7 +106,7 @@ router.get(
   '/active',
   authenticate,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.getActiveRide(req.user.id) });
+    res.json({ success: true, data: await rides.getActiveRide(actorId(req)) });
   }),
 );
 
@@ -109,7 +118,7 @@ router.get(
   validate,
   h(async (req, res) => {
     const since = Number.parseInt(req.query.since, 10) || 0;
-    res.json({ success: true, data: await rides.getRideEvents(req.params.id, req.user.id, since) });
+    res.json({ success: true, data: await rides.getRideEvents(req.params.id, actorId(req), since) });
   }),
 );
 
@@ -119,7 +128,7 @@ router.post(
   h(async (req, res) => {
     res.json({
       success: true,
-      data: await rides.cancelRide(req.user.id, req.params.id, req.body?.reason ?? null),
+      data: await rides.cancelRide(actorId(req), req.params.id, req.body?.reason ?? null),
     });
   }),
 );
@@ -131,7 +140,7 @@ router.get(
   '/driver/state',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.getDriverState(req.driver.id) });
+    res.json({ success: true, data: await rides.getDriverState(actorId(req)) });
   }),
 );
 
@@ -139,7 +148,7 @@ router.post(
   '/:id/accept',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.acceptRide(req.driver.id, req.params.id) });
+    res.json({ success: true, data: await rides.acceptRide(actorId(req), req.params.id) });
   }),
 );
 
@@ -147,7 +156,7 @@ router.post(
   '/:id/decline',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.declineRide(req.driver.id, req.params.id) });
+    res.json({ success: true, data: await rides.declineRide(actorId(req), req.params.id) });
   }),
 );
 
@@ -155,7 +164,7 @@ router.post(
   '/:id/en-route',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.startEnRoute(req.driver.id, req.params.id) });
+    res.json({ success: true, data: await rides.startEnRoute(actorId(req), req.params.id) });
   }),
 );
 
@@ -163,7 +172,7 @@ router.post(
   '/:id/arrived',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.markArrived(req.driver.id, req.params.id) });
+    res.json({ success: true, data: await rides.markArrived(actorId(req), req.params.id) });
   }),
 );
 
@@ -171,7 +180,7 @@ router.post(
   '/:id/start',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.startTrip(req.driver.id, req.params.id) });
+    res.json({ success: true, data: await rides.startTrip(actorId(req), req.params.id) });
   }),
 );
 
@@ -179,7 +188,7 @@ router.post(
   '/:id/complete',
   authenticateDriver,
   h(async (req, res) => {
-    res.json({ success: true, data: await rides.completeTrip(req.driver.id, req.params.id) });
+    res.json({ success: true, data: await rides.completeTrip(actorId(req), req.params.id) });
   }),
 );
 
@@ -190,7 +199,7 @@ router.post(
   h(async (req, res) => {
     res.json({
       success: true,
-      data: await rides.driverCancel(req.driver.id, req.params.id, req.body?.reason ?? null),
+      data: await rides.driverCancel(actorId(req), req.params.id, req.body?.reason ?? null),
     });
   }),
 );

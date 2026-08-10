@@ -85,10 +85,19 @@ async function listQuestHistoryForDriver(driverId) {
 
 /**
  * Increment progress for a driver on matching active quests.
- * Called from within an existing $transaction (share the tx context).
- * If current >= target, marks completed and credits the driver wallet.
+ *
+ * `tx` is OPTIONAL and callers should usually omit it. Quest progress is
+ * gamification, not money — nothing about a ride is wrong if it lands a moment
+ * later — and running it inside the trip's interactive transaction meant N
+ * sequential round trips to a cross-region database were charged against a 5s
+ * transaction budget. That is what expired the transaction on "Mark as
+ * arrived" and told the driver the trip could not be updated, on a tap whose
+ * trip work had already succeeded.
+ *
+ * The per-quest work now runs concurrently rather than in a serial loop, so
+ * the cost is one round trip's latency instead of one per active quest.
  */
-async function incrementProgress(driverId, type, amount, tx) {
+async function incrementProgress(driverId, type, amount, tx = prisma) {
   if (!driverId || !type || amount <= 0) return;
 
   const now = new Date();
@@ -102,27 +111,29 @@ async function incrementProgress(driverId, type, amount, tx) {
     },
   });
 
-  for (const quest of quests) {
-    // Upsert progress row (the upsert returns the row with current already incremented)
-    const progress = await tx.driverQuestProgress.upsert({
-      where: { questId_driverId: { questId: quest.id, driverId } },
-      update: { current: { increment: amount } },
-      create: { questId: quest.id, driverId, current: amount },
-    });
-
-    // Target met — mark completed so the Quests tab can show a "Claim Reward"
-    // button. The wallet is credited on-demand via claimQuestReward(), not
-    // automatically here — the driver taps to claim, matching the reward
-    // moment other quest/achievement UIs give.
-    if (progress.current >= quest.target && !progress.completed) {
-      await tx.driverQuestProgress.update({
+  await Promise.all(
+    quests.map(async (quest) => {
+      // Upsert progress row (the upsert returns the row with current already incremented)
+      const progress = await tx.driverQuestProgress.upsert({
         where: { questId_driverId: { questId: quest.id, driverId } },
-        data: { completed: true },
+        update: { current: { increment: amount } },
+        create: { questId: quest.id, driverId, current: amount },
       });
 
-      logger.info(`Quest ${quest.id} completed for driver ${driverId} — awaiting claim`);
-    }
-  }
+      // Target met — mark completed so the Quests tab can show a "Claim Reward"
+      // button. The wallet is credited on-demand via claimQuestReward(), not
+      // automatically here — the driver taps to claim, matching the reward
+      // moment other quest/achievement UIs give.
+      if (progress.current >= quest.target && !progress.completed) {
+        await tx.driverQuestProgress.update({
+          where: { questId_driverId: { questId: quest.id, driverId } },
+          data: { completed: true },
+        });
+
+        logger.info(`Quest ${quest.id} completed for driver ${driverId} — awaiting claim`);
+      }
+    }),
+  );
 }
 
 /**

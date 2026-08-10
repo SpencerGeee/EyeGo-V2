@@ -180,10 +180,22 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
           // `trip:eta` fires every ~10 s or 50 m, so its geometry is newer than
           // the snapshot's cached copy for most of a ride — and a resumed
           // screen needs the snapshot's copy to have something to draw at all.
-          path:
+          //
+          // BUT a line for the WRONG LEG is worse than no line. When the driver
+          // set off, the status went to DRIVER_EN_ROUTE while the server was
+          // still computing the toPickup geometry, so the snapshot arrived with
+          // `path: null` and this kept the previous line — the toDropoff leg a
+          // scheduled trip is given so riders can see where the bus goes. The
+          // rider was told "setting off now" over a line drawn to their
+          // destination rather than to their pickup. Discard on leg mismatch;
+          // one frame with no line is honest, and the right one lands next tick.
+          path: pathForStatus(
             s.snapshot?.path && (prev.path == null || s.snapshot.path.leg !== prev.path.leg)
               ? s.snapshot.path
               : prev.path,
+            s.snapshot?.status ?? null,
+          ),
+          eta: legForStatus(s.snapshot?.status ?? null) === prev.eta?.leg ? prev.eta : null,
         })),
       onEvent: (event: TripEvent) => {
         // Dispatch progress is not lifecycle — three drivers may be asked in
@@ -280,6 +292,44 @@ const SEARCHING_STATUSES: TripStatus[] = ['REQUESTED', 'MATCHING', 'REASSIGNING'
  * ride. `search` and `select` are the only stages the client still owns,
  * because at that point no Trip exists and the server has no opinion.
  */
+/**
+ * Which leg of the ride is live, for a status.
+ *
+ * MUST mirror `activeLeg()` in eyego-api/src/services/route-geometry.service.js
+ * — it is the client's copy of the server's rule, and it exists so the client
+ * can tell that a line it already holds belongs to a leg that is over.
+ */
+export function legForStatus(status: TripStatus | null | undefined): 'toPickup' | 'toDropoff' | null {
+  switch (status) {
+    case 'DRIVER_ASSIGNED':
+    case 'CONFIRMED':
+    case 'DRIVER_EN_ROUTE':
+    case 'ARRIVED_AT_PICKUP':
+      return 'toPickup';
+    // SCHEDULED/FILLING keep `toDropoff` on purpose: a group trip that has not
+    // departed still draws where the bus is going, so a rider can see the route
+    // before booking a seat.
+    case 'IN_PROGRESS':
+    case 'SCHEDULED':
+    case 'FILLING':
+      return 'toDropoff';
+    default:
+      return null;
+  }
+}
+
+/** Drop a path that belongs to a leg the ride has moved past. */
+function pathForStatus<T extends { leg?: string | null } | null>(
+  path: T,
+  status: TripStatus | null | undefined,
+): T | null {
+  if (!path) return path;
+  const want = legForStatus(status);
+  // No live leg (still dispatching, or terminal) — nothing should be drawn.
+  if (!want) return null;
+  return path.leg === want ? path : null;
+}
+
 export function stageForStatus(status: TripStatus | null | undefined): TripStage | null {
   switch (status) {
     case 'REQUESTED':

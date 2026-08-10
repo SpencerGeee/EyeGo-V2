@@ -158,14 +158,14 @@ function AssignedStageImpl() {
             <View style={styles.stopRow}>
               <View style={[styles.stopDot, { backgroundColor: colors.onSurface }]} />
               <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
-                {snapshot?.pickup.address ?? 'Pickup'}
+                {snapshot?.pickup?.address ?? 'Pickup'}
               </Text>
             </View>
             <View style={styles.stopLine} />
             <View style={styles.stopRow}>
               <View style={[styles.stopDot, { backgroundColor: colors.primary, borderRadius: 3 }]} />
               <Text variant="bodySmall" numberOfLines={1} style={{ flex: 1 }}>
-                {snapshot?.dropoff.address ?? 'Destination'}
+                {snapshot?.dropoff?.address ?? 'Destination'}
               </Text>
             </View>
           </View>

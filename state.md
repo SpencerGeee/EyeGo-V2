@@ -1,86 +1,70 @@
-# State — stress-test fix pass (2026-08-06)
+# State — Stress Sweep 2026-08-10c (26 items)
 
-## Startup
-Dev infra: **Neon (Postgres) + Upstash (Redis)**. API port **5020**.
-`npx` is broken — always `node node_modules/prisma/build/index.js …` and
-`node node_modules/typescript/lib/tsc.js -p apps/<app>/tsconfig.json --noEmit`.
-Both apps typecheck clean; the only tsc output is `TS1149` path-casing noise
-(`Eyego V2` vs `EyeGo V2`), pre-existing and not actionable.
+## Current Goal
+Fix the 26-item stress-test list. Phase 1 (backend + blockers) in progress.
 
-## Decisions (locked by user)
-- **Money: integer pesewas everywhere.** Apps never do math on raw values; they
-  render through `formatGhs`. Any `*100` / `/100` at a call site is a bug.
-- **Seat holds: hold on select, confirm on payment.** Shown as "held", never
-  "booked", until payment lands. Driver renders held vs booked distinctly.
-- **Motion: one central system, swapped app-wide.** iOS-native curves; zero
-  aesthetic change, feel only.
-- **Env: deployed PROD API.** Docker is irrelevant to the reported failures.
+## Decisions (confirmed with user)
+- Rider "Where to" becomes a 5-step paged flow mirroring driver `create.tsx`:
+  Pickup → Dropoff → Ride type → Seats/extras → Review & Confirm.
+- Driver destination filter (item 25): Uber-style, **limited** — 2 uses/day,
+  expires after 1 matched trip or 2h, bearing-cone + detour-cap matching.
+- Loader (item 5): **Reanimated** port of the luma-spin 8-position inset
+  keyframes; replaces every loader/ActivityIndicator in BOTH apps.
+- Delivery: backend + blockers → perf → UI → features. One push at the end,
+  only once both apps' `tsc` is green.
 
-## Done
-1. **Money 100x (4, 6, 13).** `AnimatedFareText` took `value` and rendered
-   `.toFixed(2)` (cedis) while callers passed pesewas. Now takes `pesewas` +
-   `formatGhs`; rename forced the compiler through all six call sites. Killed a
-   `setInterval` tween (20 setStates/400 ms) for UI-thread `RollingDigits`.
-2. **DOB overlap (1).** `Input` floated its label from `handleFocus` only, so a
-   date-picker write left the label on the value. Now `focused || hasValue`.
-3. **Profile blank (1, 5).** Auth store was a write-once cache seeded at OTP
-   time, never reconciled with `/user/me`. Added `mergeUser` + `useProfileSync`;
-   `profile/edit` adopts the profile behind a `dirty` ref.
-4. **Three "back to Where To" (9, 14, 15).** One line: `hydrate()` resolves the
-   active SOLO ride, null for every group booking, and its `catch` made offline
-   look identical. `hydrate` now returns `{ trip, ok }`.
-5. **Trip request (3) — diagnosable, root cause still unknown.** Three error
-   paths collapsed into one message behind a bare `catch {}`. Now logs
-   `[RequestStage] trip request failed` with status + body.
-6. **Where-To rebuilt (2).** Whole card rewritten under a stated layout
-   contract: nothing between the card and the field text takes its size from a
-   flex, from `stretch`, or from measurement — that is what collapsed it four
-   times. Bigger fields, chevron/search affordances, square destination dot,
-   computed swap centring. The dead region below now holds saved-place chips +
-   recents (`stores/recentPlaces.store.ts`, AsyncStorage, device-local).
-7. **Guest booking + seat holds (10, 12, 16).** Three separate causes:
-   - `bookSeat` cancelled holds by `{tripId, userId}`, so confirming your own
-     seat cancelled the guest seat you had just held. Now scoped to the
-     PASSENGER (guest name/phone, or "no guest attached" for yourself).
-   - `payment.tsx` reused `activeBooking` for any booking on the same trip, so
-     the second seat never created a booking at all — the rider paid twice
-     against one row. Now requires same trip + seat + passenger + still held.
-   - The hold-expiry sweep in `server.js` cancelled without nulling
-     `seatNumber`, and `@@unique([tripId, seatNumber])` has no status in it — so
-     every abandoned checkout permanently burned that seat.
-   Driver `SeatMap` gained a distinct `HELD` state (dashed warning rim + pip);
-   held seats no longer count toward `passengers` or gross earnings. Rider
-   `StatusBadge` + `@eyego/types` BookingStatus completed to match the Prisma
-   enum. Guest selection now toasts what happens next.
-8. **Motion system (7, 11, 20, 21).** `packages/config/src/motion.ts` rewritten
-   from the research doc: Apple-derived springs, nine of eleven at ζ ≥ 0.85,
-   overshoot reserved for `accent` only. `packages/ui/src/Motion.tsx` wraps Moti
-   so an unspecified transition resolves to `springs.standard` instead of
-   Reanimated 3's `damping:10, stiffness:100` (ζ 0.5 → 16.3 % overshoot,
-   1.46 s settle) — that default was the whole "bouncy toy" feel. All 41 files
-   swapped from `from 'moti'` to `from '@eyego/ui'`.
-9. **Join-trip loader (8).** Green orb was three looping `MotiView` rings inside
-   a `GradientGlowBorder glow` — four scheduled animations, five composited
-   layers, on the screen running dispatch. Replaced by
-   `components/trip/SearchingIndicator.tsx`: one shared value, `withRepeat` on
-   the UI thread, two rings derived by phase offset, honours reduce-motion.
-10. **Performance (17), partial.**
-    - `SwipeToConfirm` animated `width` every frame — a layout property, so the
-      one control that must track a finger queued a Yoga pass per frame. Now
-      a full-width fill on `translateX`. This is the laggy driver swipe.
-    - The ambient rotation clock was shared but never stopped: it ran on every
-      screen and in the background, rotating a 2.2×-diagonal gradient per ring.
-      Now reference-counted and AppState-gated, resuming from its own angle.
-11. **Driver earnings ledger (4, rest).** The wallet column is `amountPesewas`;
-    the screen read `tx.amount`, which has never existed. Rows formatted
-    `undefined` (the reported dash) and — worse — all three chart buckets summed
-    `t.amount ?? 0`, so the earnings chart was a flat zero for every period on
-    every device. Sign now comes from the signed ledger value, not from a
-    type-name list.
+## Plan Status
 
-## Open
-- **Item 3 root cause.** Need the device log line from the next repro.
-- **Item 18 (map disjointed).** Not started. Prod API confirmed, Docker ruled
-  out, so it is a real client/camera issue — no reproduction detail yet.
-- **Perf audit is partial.** Two confirmed offenders fixed; no profiling run.
-- Nothing here is device-verified. Nothing is committed.
+### DONE (Phase 1)
+- **#2 dispatch never reaches the driver** — TWO root causes, both fixed:
+  1. `eyego-api/src/modules/rides/rides.routes.js` read `req.user.id` (rider)
+     and `req.driver.id` (driver). Neither exists: both auth middlewares set
+     `req.user = decoded`, and the JWT payload's id field is `userId`. 14 call
+     sites replaced with an `actorId(req)` helper. The whole `/v1/rides` module
+     was dead — driver endpoints threw, rider endpoints ran as `undefined`.
+  2. `apps/driver/stores/trip.store.ts` stored the incoming OFFER and **nothing
+     in the app ever rendered it**. New `apps/driver/components/
+     DispatchOfferSheet.tsx`, root-mounted in `apps/driver/app/_layout.tsx`.
+  - Offer payload enriched in `dispatch-cascade.service.js` with
+    pickup/dropoff addresses + `farePesewas` / `driverEarningsPesewas`;
+    matching fields added to `DispatchOffer` in `trip.store.ts`.
+- **#1 Neon "Can't reach database server"** — `eyego-api/src/config/database.js`
+  rewritten: `$extends` retry (3 attempts, 150/600ms backoff) on transient
+  codes P1001/P1002/P1008/P1017/P2024, explicitly NOT retried inside
+  interactive transactions; boot warm-up `$connect()`. `errorHandler.js` maps
+  those codes to 503 `DB_UNAVAILABLE` instead of an unhandled 500.
+- **#21 "Transaction already closed" on Mark-as-arrived** — quest progress
+  moved OUT of the trip transaction in both `drivers.service.arriveTrip` and
+  `trips.service.completeTrip` (now `setImmediate` post-commit); the per-quest
+  loop in `quests.service.incrementProgress` is now concurrent and `tx`
+  defaults to `prisma`. Global `transactionOptions: { timeout: 20s, maxWait: 10s }`.
+- Sentry `user.id` in errorHandler was reading the non-existent `req.user.id`.
+
+### TODO — remaining 22 items, in delivery order
+Blockers: #6 share-link stuck + dynamic Expo domain, #7 pay-for-everyone cash
+"validation failed" + heavy cargo, #8 no way to cancel a requested ride (rider),
+#16 rider shows destination route while driver is en route to PICKUP,
+#17 driver tracking stuck on "calculating ETA", no polyline until trip starts.
+Perf: #14 latency (offline-passenger earnings recompute), #20 booking-flow lag,
+#23 laggy swipeables, #24 iPhone 15 Pro Max thermal, #9 straight-line-before-
+route everywhere (must be instant, Uber/Bolt-style).
+UI: #4 suggested-card missing destination + wrong seats-left, #10 tracking top
+scrim too tall, #11 rider chat badge, #12 rider chat starts midway, #13
+add-passenger line-height clipping, #15 grey out booked seats, #18 route
+polyline blends with motorway (outline/colour), #19 no destination marker,
+#22 reset-camera button overlaps "1/2 boarded", #5 loader.
+Features: #3 rider multistep where-to, #25 driver destination filter.
+
+## Evidence
+- `node --check` passes on all 7 changed backend files.
+- `driverAuth.js:38` sets `req.user = { ...decoded, status }`; `auth.service.js:16`
+  signs `{ userId, role, type, tokenId }` — confirms the `userId` field name.
+- `grep listenForOffers|useDriverTripStore apps/driver` returned only
+  `_layout.tsx` — proof nothing consumed the offer.
+
+## Open Issues
+- Neither app's `tsc` has been run since these edits.
+- `(trip)/dispatch/[id].tsx` is the LEGACY offer screen (driverApi.acceptDispatch,
+  scheduled/route trips). Left in place; the new sheet handles on-demand rides.
+  Decide later whether to converge them.
+- Nothing has been committed or pushed yet.

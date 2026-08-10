@@ -161,9 +161,22 @@ async function offerNext(tripId) {
     const state = await readState(tripId);
     if (!state || state.done) return;
 
+    // Everything the driver's offer card renders is selected here, once. The
+    // card used to get lat/lng and a tier and nothing else, so it could not
+    // say where the ride was going or what it paid — the two facts a driver
+    // actually decides on.
     const trip = await prisma.trip.findUnique({
       where: { id: tripId },
-      select: { id: true, status: true, pickupLat: true, pickupLng: true, tier: true, version: true },
+      select: {
+        id: true, status: true, tier: true, version: true,
+        pickupLat: true, pickupLng: true, pickupAddress: true,
+        dropoffLat: true, dropoffLng: true, dropoffAddress: true,
+        commissionRate: true,
+        bookings: {
+          where: { status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED'] } },
+          select: { fareAmountPesewas: true, commissionAmountPesewas: true },
+        },
+      },
     });
     // The trip may have been accepted, cancelled or expired out from under us.
     if (!trip || ![TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING].includes(trip.status)) {
@@ -197,11 +210,26 @@ async function offerNext(tripId) {
         payload: { tripId, driverId: candidate.id, attempt: state.index },
       });
 
+      // What the driver nets if they take it: gross fare on the trip minus the
+      // platform's cut. Computed from the bookings that already exist rather
+      // than re-quoting, so the number cannot disagree with what gets paid out.
+      const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
+      const commissionPesewas = trip.bookings.reduce(
+        (n, b) => n + (b.commissionAmountPesewas ?? Math.round((b.fareAmountPesewas || 0) * (trip.commissionRate ?? 0.15))),
+        0,
+      );
+
       publisher.publishOfferToDriver(candidate.id, {
         tripId,
         kind: state.kind,
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
+        pickupAddress: trip.pickupAddress,
+        dropoffLat: trip.dropoffLat,
+        dropoffLng: trip.dropoffLng,
+        dropoffAddress: trip.dropoffAddress,
+        farePesewas: grossPesewas,
+        driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
         tier: trip.tier,
         // Server-authoritative countdown. The driver app renders
         // (expiresAtServerMs - serverNowMs), never its own clock, so a phone

@@ -35,6 +35,13 @@ export interface DispatchOffer {
   tripId: string;
   pickupLat: number | null;
   pickupLng: number | null;
+  pickupAddress: string | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
+  dropoffAddress: string | null;
+  /** Gross fare on the trip, and what this driver actually keeps. Pesewas. */
+  farePesewas: number | null;
+  driverEarningsPesewas: number | null;
   tier: string | null;
   /** Server deadline. Never compare this to Date.now() directly. */
   expiresAtServerMs: number;
@@ -140,6 +147,12 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
             tripId: p.tripId,
             pickupLat: p.pickupLat ?? null,
             pickupLng: p.pickupLng ?? null,
+            pickupAddress: p.pickupAddress ?? null,
+            dropoffLat: p.dropoffLat ?? null,
+            dropoffLng: p.dropoffLng ?? null,
+            dropoffAddress: p.dropoffAddress ?? null,
+            farePesewas: p.farePesewas ?? null,
+            driverEarningsPesewas: p.driverEarningsPesewas ?? null,
             tier: p.tier ?? null,
             expiresAtServerMs: p.expiresAtServerMs,
             etaSeconds: p.etaSeconds ?? null,

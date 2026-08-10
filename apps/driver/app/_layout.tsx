@@ -32,6 +32,7 @@ import { useDriverTripStore } from '../stores/trip.store';
 import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
+import DispatchOfferSheet from '../components/DispatchOfferSheet';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useOtaUpdates } from '../hooks/useOtaUpdates';
 
@@ -468,6 +469,10 @@ export default function RootLayout() {
         {/* Off-screen parity: app-wide socket banners (chat/dispatch/status) +
             cache invalidation, mirroring the rider TripStatusListener. */}
         {isLoggedIn && <DriverTripStatusListener />}
+        {/* The dispatch offer's renderer. Root-mounted so an offer interrupts
+            whatever screen the driver is on — the store has been collecting
+            offers since the rewire with nothing on the other end. */}
+        {isLoggedIn && <DispatchOfferSheet />}
         {/* Global foreground push notification banner */}
         {inAppBanner && (
           <Animated.View

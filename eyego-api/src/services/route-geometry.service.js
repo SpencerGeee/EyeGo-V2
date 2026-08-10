@@ -77,6 +77,13 @@ const strikeKey = (tripId) => `route:${tripId}:strikes`;
  */
 function activeLeg(status) {
   switch (status) {
+    // DRIVER_ASSIGNED was missing, and it is the status a ride sits at for the
+    // whole gap between "driver accepted" and "driver tapped I'm on my way".
+    // With no leg there was no geometry and no duration, so the driver's screen
+    // showed a lone pin and "Calculating ETA…" that never resolved, and only
+    // started drawing once the trip moved on. The driver is heading for the
+    // pickup from the moment they accept — that is the leg.
+    case 'DRIVER_ASSIGNED':
     case 'CONFIRMED':
     case 'DRIVER_EN_ROUTE':
     case 'ARRIVED_AT_PICKUP':
@@ -131,17 +138,27 @@ function legEndpoints(trip, leg, driver) {
   return { originLat, originLng, destLat, destLng };
 }
 
-/** Straight line + a road multiplier. Used when Mapbox is unreachable or unset. */
+/**
+ * Distance and duration only, when Mapbox is unreachable or unset.
+ *
+ * NO GEOMETRY, deliberately. This used to return the two-point straight line
+ * between the endpoints, and every consumer drew it — so a ride opened with a
+ * ruler-straight line cutting across the city that snapped onto roads a moment
+ * later. Uber and Bolt never show that, and the reason is simply that they draw
+ * nothing until the road route exists.
+ *
+ * The numbers are still worth having: an ETA from a haversine × road-factor is
+ * approximately right and much better than "Calculating…". The line is not —
+ * a straight line across Accra is not approximately the route, it is a
+ * different route. So: keep the estimate, drop the drawing.
+ */
 function estimateLeg({ originLat, originLng, destLat, destLng }) {
   const straightKm = haversineMeters(originLat, originLng, destLat, destLng) / 1000;
   const distanceKm = Math.max(straightKm * ROAD_FACTOR, 0.05);
   return {
     distanceKm,
     durationMin: (distanceKm / Math.max(FALLBACK_KPH, 5)) * 60,
-    geometry: {
-      type: 'LineString',
-      coordinates: [[originLng, originLat], [destLng, destLat]],
-    },
+    geometry: null,
     source: 'estimate',
   };
 }

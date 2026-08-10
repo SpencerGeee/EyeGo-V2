@@ -469,10 +469,14 @@
     document.getElementById('app-link').href = `eyego://join/${SHARE_TOKEN}`;
 
     // ── Map: markers + route ──
+    // Wrapped: a throw in here used to propagate out of render(), into
+    // fetchData's catch, and replace a perfectly good ride sheet with
+    // "Could not load ride details".
+    const drawSafely = () => { try { updateMap(route); } catch (err) { console.warn('Map draw failed', err); } };
     if (!map.isStyleLoaded()) {
-      map.once('styledata', () => updateMap(route));
+      map.once('styledata', drawSafely);
     } else {
-      updateMap(route);
+      drawSafely();
     }
   }
 
@@ -565,9 +569,20 @@
   }
 
   // ── Start ──────────────────────────────────────────────────────
-  map.once('load', () => {
-    fetchData();
-  });
+  //
+  // Fetch IMMEDIATELY. This used to be `map.once('load', fetchData)`, which
+  // made the ride details hostage to a third-party tile server: if
+  // tiles.openfreemap.org was slow or blocked, or the browser had no WebGL,
+  // `load` never fired, `fetchData` was never called, and the page sat on
+  // "Loading your ride details…" forever with no error and no way out.
+  //
+  // The map is decoration; the seat, the fare and the Join button are the
+  // point. `render()` already defers its own map work to `styledata`, so
+  // drawing catches up whenever (or if) the map is ready.
+  fetchData();
+
+  // A map that fails to initialise must not take the page down with it.
+  map.on('error', (e) => console.warn('Map error (page still usable)', e && e.error));
 })();
 </script>
 </body>

@@ -84,7 +84,7 @@ function TrackingStageImpl() {
                 {minutes != null ? 'Arriving in' : 'On your way'}
               </Text>
               <Text variant="bodySmall" color={colors.onSurfaceVariant} numberOfLines={1}>
-                {snapshot?.dropoff.address ?? 'Your destination'}
+                {snapshot?.dropoff?.address ?? 'Your destination'}
               </Text>
             </View>
             {minutes != null && (

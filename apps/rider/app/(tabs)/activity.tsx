@@ -150,15 +150,44 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
           </Text>
         </View>
       </View>
-      {fare != null && (
-        <Text style={styles.itemFare}>
-          {typeof fare === 'number' ? formatGhs(fare) : fare}
-        </Text>
-      )}
+      <View style={{ alignItems: 'flex-end', gap: spacing.xs }}>
+        {fare != null && (
+          <Text style={styles.itemFare}>
+            {typeof fare === 'number' ? formatGhs(fare) : fare}
+          </Text>
+        )}
+        {/* CANCEL, where the rider actually looks for it.
+            A booked ride could only be cancelled from the Trips tab's banner,
+            which shows one booking at a time — so a rider with a booked seat
+            anywhere else in their history had no way out of it at all. The
+            row keeps its tap-to-open behaviour; this is a separate hit area. */}
+        {CANCELLABLE_BOOKING_STATUSES.includes(booking.status) && (
+          <Pressable
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Cancel ride from ${origin} to ${destination}`}
+            onPress={(e) => {
+              e.stopPropagation();
+              Haptics.selectionAsync();
+              router.push({ pathname: '/ride/[id]/cancel', params: { id: booking.id } } as any);
+            }}
+            style={({ pressed }) => [styles.rowCancel, pressed && { opacity: 0.6 }]}
+          >
+            <Text style={[styles.rowCancelText, { color: colors.error }]}>Cancel</Text>
+          </Pressable>
+        )}
+      </View>
     </Pressable>
     </MorphSource>
   );
 }
+
+/**
+ * Statuses a rider may still back out of. BOARDED and everything terminal are
+ * deliberately absent — once you are in the vehicle, cancelling is a dispute,
+ * not a cancellation.
+ */
+const CANCELLABLE_BOOKING_STATUSES = ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID'];
 
 // Live card for a pending/dispatched on-demand trip request — polls status
 // and clears itself from ride.store once matched or cancelled/expired
@@ -941,6 +970,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: fontSizes.titleSmall * 1.3,
     color: colors.onSurface,
     letterSpacing: -0.3,
+  },
+  rowCancel: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withOpacity(colors.error, 0.4),
+  },
+  rowCancelText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 11,
+    lineHeight: Math.round(11 * 1.4),
   },
   liveRequestCard: {
     padding: spacing.lg,

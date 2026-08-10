@@ -6,6 +6,9 @@ const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurchar
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
+// Invite links follow the origin the API is being reached at, not the baked-in
+// APP_URL — see utils/publicUrl.js.
+const { inviteUrl } = require('../../utils/publicUrl');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
@@ -64,7 +67,11 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
       });
       if (!booking) throw new NotFoundError('Booking');
       if (booking.userId !== userId) throw new ForbiddenError();
-      if (booking.status !== 'SEAT_HELD') {
+      // PENDING is pre-payment too — a cash booking sits there until the seat
+      // is held. Excluding it meant toggling Heavy cargo on the group hub for a
+      // cash ride answered "this booking is already confirmed", which is both
+      // wrong and unactionable.
+      if (booking.status !== 'SEAT_HELD' && booking.status !== 'PENDING') {
         throw new AppError('This booking is already confirmed and can no longer be changed', 400, 'BOOKING_LOCKED');
       }
 
@@ -106,7 +113,7 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
       });
 
       const result = await tx.booking.updateMany({
-        where: { id: bookingId, status: 'SEAT_HELD' },
+        where: { id: bookingId, status: { in: ['SEAT_HELD', 'PENDING'] } },
         data: {
           pickupLat: finalPickupLat ?? null,
           pickupLng: finalPickupLng ?? null,
@@ -721,7 +728,7 @@ async function generateInvite(bookingId, userId) {
     },
   });
 
-  const inviteLink = `${env.APP_URL}/invite/${group.shareToken}`;
+  const inviteLink = inviteUrl(group.shareToken);
   return { inviteToken: group.shareToken, inviteLink };
 }
 
@@ -747,7 +754,7 @@ async function regenerateInvite(bookingId, userId) {
     },
   });
 
-  const inviteLink = `${env.APP_URL}/invite/${group.shareToken}`;
+  const inviteLink = inviteUrl(group.shareToken);
   return { inviteToken: group.shareToken, inviteLink };
 }
 
@@ -770,7 +777,7 @@ async function getGroup(bookingId, userId) {
   if (!booking) throw new NotFoundError('Booking');
 
   const group = booking.trip.group;
-  const inviteLink = group ? `${env.APP_URL}/invite/${group.shareToken}` : '';
+  const inviteLink = group ? inviteUrl(group.shareToken) : '';
 
   const members = booking.trip.bookings
     .filter(b => b.userId !== userId) // exclude the requesting user (shown as "You")

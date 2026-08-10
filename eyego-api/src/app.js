@@ -44,6 +44,12 @@ const { yoga } = require('./graphql/index');
 
 const app = express();
 
+// Behind exactly one proxy (Render/Fly/Cloudflare/ngrok in front of us). This
+// is what makes `req.protocol` say `https` rather than `http`, and it is what
+// share links and rate-limit client IPs are derived from. Kept at 1 rather
+// than `true` so a client cannot forge an arbitrary X-Forwarded-For chain.
+app.set('trust proxy', 1);
+
 // ── Error tracking (no-op without SENTRY_DSN) ───────────────────
 sentry.initSentry(app);
 
@@ -113,6 +119,12 @@ app.use((req, res, next) => {
   res.setHeader('X-Correlation-Id', req.correlationId);
   next();
 });
+
+// ── Public origin ────────────────────────────────────────────────
+// Share links follow the origin the API is actually being reached at, so a
+// sideload/preview build hands out links that resolve for the recipient
+// instead of links pointing at the baked-in APP_URL.
+app.use(require('./utils/publicUrl').rememberPublicOrigin);
 
 // ── Rate limiting ────────────────────────────────────────────────
 app.use(defaultLimiter);
@@ -200,7 +212,10 @@ function makePublicPageHandler(relPath, tokenParam) {
     }
     const config = {
       [tokenParam]: req.params[tokenParam],
-      apiBase: process.env.APP_URL || '',
+      // The origin the visitor actually reached us on. Baking APP_URL in here
+      // pointed the page's own fetches at a host that, on a sideload/preview
+      // build, was not the one serving the page.
+      apiBase: require('./utils/publicUrl').publicBaseUrl(req),
     };
     const html = cachedHtml.replace('window.__EYEGO_CONFIG__ || {}', JSON.stringify(config));
     res.setHeader('Content-Type', 'text/html');

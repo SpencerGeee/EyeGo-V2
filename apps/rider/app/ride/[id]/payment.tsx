@@ -205,12 +205,24 @@ export default function PaymentScreen() {
       // means the same trip, the same seat, the same passenger, and a hold that
       // has not already been paid for — anything else is a different seat and
       // must create its own booking.
+      //
+      // The seat comparison only applies when this checkout is ABOUT a seat.
+      // Arriving from the group hub ("pay for everyone") there is no
+      // `selectedSeat` — the host's booking already exists and was made on the
+      // seat screen. The old condition compared a real `seatNumber` against
+      // `undefined`, decided the host's own booking was somebody else's, and
+      // fell through to the create branch, which is guarded on `selectedSeat`
+      // and so did nothing at all. `bookingId` stayed `''` and
+      // POST /payments/initiate rejected it on `body('bookingId').notEmpty()`
+      // — the literal source of "Payment failed. Validation failed." on the
+      // group hub's cash option.
+      const payable = (s?: string) => s === 'SEAT_HELD' || s === 'PENDING';
       const resumable =
         !!activeBooking &&
         activeBooking.tripId === id &&
-        activeBooking.seatNumber === selectedSeat?.number &&
+        (selectedSeat ? activeBooking.seatNumber === selectedSeat.number : true) &&
         (activeBooking.guestName ?? null) === (guestInfo?.name ?? null) &&
-        (activeBooking.status === 'SEAT_HELD' || activeBooking.status === 'PENDING');
+        payable(activeBooking.status);
       let bookingId = resumable ? activeBooking?.id ?? '' : '';
       attemptBookingIdRef.current = bookingId;
       try {
@@ -293,6 +305,16 @@ export default function PaymentScreen() {
         // attempt collapses to a single charge on the server.
         // BUGFIX: Removed Date.now() from key format. A stable key (bookingId + method)
         // ensures retries are idempotent. Date.now() made every attempt unique.
+        // Never send an empty bookingId. The server answers that with a bare
+        // "Validation failed", which tells the rider nothing and told us
+        // nothing either — every report of it was really one of the branches
+        // above declining to produce an id.
+        if (!bookingId) {
+          throw new Error(
+            "We couldn't find the seat this payment is for. Go back and pick your seat, then try again.",
+          );
+        }
+
         if (!idempotencyKeyRef.current) {
           idempotencyKeyRef.current = `pay_${bookingId}_${activeTab}`;
         }

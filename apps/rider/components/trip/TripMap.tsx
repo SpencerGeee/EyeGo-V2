@@ -97,8 +97,8 @@ function fitFor(
   userPos: Coord | null,
   driverPins: Coord[],
 ): Coord[] {
-  const pickup = coord(snapshot?.pickup.lng, snapshot?.pickup.lat);
-  const dropoff = coord(snapshot?.dropoff.lng, snapshot?.dropoff.lat);
+  const pickup = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat);
+  const dropoff = coord(snapshot?.dropoff?.lng, snapshot?.dropoff?.lat);
   const driver = puck ?? coord(snapshot?.driver?.lng, snapshot?.driver?.lat);
 
   switch (status) {
@@ -296,8 +296,8 @@ function TripMapImpl() {
     };
   }, [dispatchOffer, pickupCoord]);
 
-  const pickup = coord(snapshot?.pickup.lng, snapshot?.pickup.lat);
-  const dropoff = coord(snapshot?.dropoff.lng, snapshot?.dropoff.lat)
+  const pickup = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat);
+  const dropoff = coord(snapshot?.dropoff?.lng, snapshot?.dropoff?.lat)
     ?? (searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null);
 
   /**
@@ -333,13 +333,18 @@ function TripMapImpl() {
         <MapboxGL.Camera ref={camera.cameraRef} />
         {userCoords && !puckCoord && <MapboxGL.UserLocation visible />}
 
-        {/* The road line, drawn under everything else. Casing first so the
-            line reads on both light and dark styles without a halo hack. */}
+        {/* The road line, drawn under everything else.
+            The casing used to be `backgroundDeep` at 0.55 — a dark grey on a
+            dark map, which is to say nearly nothing. Over a motorway (the
+            style's widest, brightest casing) the route simply disappeared into
+            the road under it. Solid black at full opacity and two points wider
+            is what separates the line from the road it is drawn on; every
+            mapping app does exactly this. */}
         {routeLine && (
           <MapboxGL.ShapeSource id="trip-route" shape={routeLine}>
             <MapboxGL.LineLayer
               id="trip-route-casing"
-              style={{ lineColor: colors.backgroundDeep, lineWidth: 9, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.55 }}
+              style={{ lineColor: '#000000', lineWidth: 11, lineCap: 'round', lineJoin: 'round', lineOpacity: 0.9 }}
             />
             <MapboxGL.LineLayer
               id="trip-route-line"
@@ -396,15 +401,19 @@ function TripMapImpl() {
           </MapboxGL.MarkerView>
         )}
 
+        {/* THE DESTINATION.
+            `anchor` was omitted, so the pin defaulted to 'center' and its tip
+            pointed at nothing in particular. 'bottom' puts the tail on the
+            coordinate, which is what a pin means. */}
         {dropoff && (
-          <MapboxGL.PointAnnotation id="destination-pin" coordinate={dropoff}>
+          <MapboxGL.MarkerView id="destination-pin" coordinate={dropoff} anchor="bottom">
             <View style={styles.destPin}>
               <View style={styles.destPinBubble}>
                 <Ionicons name="location" size={22} color={colors.onPrimary} />
               </View>
               <View style={styles.destPinTail} />
             </View>
-          </MapboxGL.PointAnnotation>
+          </MapboxGL.MarkerView>
         )}
       </MapboxGL.MapView>
 

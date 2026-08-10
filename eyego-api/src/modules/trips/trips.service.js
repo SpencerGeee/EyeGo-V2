@@ -651,6 +651,10 @@ async function clearLiveActivityToken(bookingId) {
 async function completeTrip(tripId) {
   const completedRiderTokens = []; // populated inside the tx, pushed to after commit
   let completionTransition = null; // published after commit, never inside
+  // Quest inputs, captured inside the tx and spent after commit. See the
+  // post-commit block below for why quests no longer run inside it.
+  let questDriverId = null;
+  let questEarningsPesewas = 0;
 
   await prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findUnique({
@@ -858,17 +862,27 @@ async function completeTrip(tripId) {
       });
     }
 
-    // ── Quest progress (Phase 2B): increment RIDES_COUNT and EARNINGS ────
-    if (trip.driverId) {
-      const { incrementProgress } = require('../quests/quests.service');
-      // Increment ride count by 1 for completing this trip
-      await incrementProgress(trip.driverId, 'RIDES_COUNT', 1, tx);
-      // Increment earnings by the net amount credited to wallet
-      if (totalNetEarnings > 0) {
-        await incrementProgress(trip.driverId, 'EARNINGS', totalNetEarnings, tx);
-      }
-    }
+    questDriverId = trip.driverId ?? null;
+    questEarningsPesewas = totalNetEarnings;
   });
+
+  // ── Quest progress: RIDES_COUNT and EARNINGS ─────────────────────────────
+  // POST-COMMIT — see the same note in drivers.service.arriveTrip. Inside the
+  // transaction its serial round trips were charged against the interactive
+  // transaction budget and expired the whole completion.
+  if (questDriverId) {
+    setImmediate(async () => {
+      const { incrementProgress } = require('../quests/quests.service');
+      try {
+        await incrementProgress(questDriverId, 'RIDES_COUNT', 1);
+        if (questEarningsPesewas > 0) {
+          await incrementProgress(questDriverId, 'EARNINGS', questEarningsPesewas);
+        }
+      } catch (err) {
+        logger.warn(`Quest progress for driver ${questDriverId} failed: ${err.message}`);
+      }
+    });
+  }
 
   // Post-commit fan-out on the one channel. Both apps get the same versioned
   // COMPLETED event; neither has to infer it from a push notification or a

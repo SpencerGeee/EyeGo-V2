@@ -126,10 +126,17 @@ function buildTripSnapshot(trip, viewer = {}) {
             address: trip.pickupAddress,
           },
     // Destination is a property of the ride now, not of a Route. `route` is
-    // only populated for the group/bus product.
+    // only populated for the group/bus product — and for THOSE trips the
+    // coordinates live on the route, not on the trip.
+    //
+    // The address already fell back to the route; the coordinates did not, so
+    // a group trip published `{lat: null, lng: null}` and the rider's map had
+    // nothing to put a destination pin on — the route line simply stopped in
+    // mid-air. `legEndpoints` in route-geometry.service.js has always consulted
+    // both; this is the same rule, applied to the snapshot.
     dropoff: {
-      lat: trip.dropoffLat,
-      lng: trip.dropoffLng,
+      lat: trip.dropoffLat ?? trip.route?.destLat ?? null,
+      lng: trip.dropoffLng ?? trip.route?.destLng ?? null,
       address: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
     },
 

@@ -854,17 +854,6 @@ async function arriveTrip(driverId, tripId) {
       });
     }
 
-    // ── Quest progress ── increment RIDES_COUNT and EARNINGS so the driver's
-    // Quests tab actually advances after a completed ride. This was previously
-    // ONLY done in trips.service.completeTrip(), which the active-screen flow
-    // never reached because this REST path completes the trip first and the
-    // socket completeTrip then bailed on the idempotency guard.
-    const { incrementProgress } = require('../quests/quests.service');
-    await incrementProgress(driverId, 'RIDES_COUNT', 1, tx);
-    if (safeEarnings > 0) {
-      await incrementProgress(driverId, 'EARNINGS', safeEarnings, tx);
-    }
-
     return { trip, totalEarningsPesewas: safeEarnings, transition };
   });
 
@@ -873,6 +862,29 @@ async function arriveTrip(driverId, tripId) {
   // notification and the driver via a REST response, which is how the two
   // could disagree about whether the ride had ended.
   if (result.transition) tripState.publishCommitted(result.transition);
+
+  // ── Quest progress ── RIDES_COUNT and EARNINGS, so the driver's Quests tab
+  // advances after a completed ride.
+  //
+  // POST-COMMIT, deliberately. This used to run inside the transaction above,
+  // where its serial round trips ate the 5s interactive-transaction budget and
+  // expired the whole thing — the driver tapped "Mark as arrived", the trip
+  // and the wallet credit were rolled back, and the app said the trip could
+  // not be updated. Quest counters are not money and are not worth coupling to
+  // a ride's atomicity; if this fails the ride is still correctly settled.
+  if (!result.alreadyCompleted) {
+    setImmediate(async () => {
+      const { incrementProgress } = require('../quests/quests.service');
+      try {
+        await incrementProgress(driverId, 'RIDES_COUNT', 1);
+        if (result.totalEarningsPesewas > 0) {
+          await incrementProgress(driverId, 'EARNINGS', result.totalEarningsPesewas);
+        }
+      } catch (err) {
+        logger.warn(`Quest progress for driver ${driverId} after trip ${tripId} failed: ${err.message}`);
+      }
+    });
+  }
 
   // Generate receipts for PAID bookings — non-blocking, runs after transaction commits
   setImmediate(async () => {

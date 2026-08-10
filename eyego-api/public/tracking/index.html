@@ -639,10 +639,11 @@
   }
 
   // ── Start ──────────────────────────────────────────────────────
-  map.once('load', () => {
-    fetchAndRender();
-    pollTimer = setInterval(fetchAndRender, POLL_INTERVAL_MS);
-  });
+  // Not gated on the map — see the same note in public/invite/index.html. A
+  // slow or blocked tile host must not stop the tracking data from arriving.
+  fetchAndRender();
+  pollTimer = setInterval(fetchAndRender, POLL_INTERVAL_MS);
+  map.on('error', (e) => console.warn('Map error (page still usable)', e && e.error));
 })();
 </script>
 </body>
