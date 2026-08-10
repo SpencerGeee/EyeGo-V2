@@ -20,10 +20,10 @@ import { create } from 'zustand';
  * opinion about where the rider is. Everything from 'request' onwards is
  * derived. Do not call `go()` for a derived stage.
  */
-export type TripStage = 'search' | 'select' | 'request' | 'assigned' | 'tracking';
+export type TripStage = 'search' | 'configure' | 'select' | 'request' | 'assigned' | 'tracking';
 
 /** Stages the client may still navigate itself — no server trip exists yet. */
-export const CLIENT_OWNED_STAGES: TripStage[] = ['search', 'select'];
+export const CLIENT_OWNED_STAGES: TripStage[] = ['search', 'configure', 'select'];
 
 export type SearchPlace = {
   name: string;

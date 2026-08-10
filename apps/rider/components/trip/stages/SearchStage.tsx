@@ -238,10 +238,14 @@ function SearchStageImpl() {
 
   // Destination is confirmed by the picker, so there is no "find rides" browse
   // step — go straight to the driver-matching/dispatch stage.
+  // Steps 1-2 end here. Rather than dispatching immediately, this hands over to
+  // ConfigureStage for ride type, seats/extras and a review — the paged shape
+  // the driver's create-trip flow already has. The seat count set on this card
+  // is carried forward as the flow's starting value.
   const handleOrderRide = useCallback(() => {
     haptic.medium();
     setRequestSeats(orderSeats, true);
-    goStage('request');
+    goStage('configure');
   }, [goStage, orderSeats, setRequestSeats]);
 
   // Same choice, later departure. Everything the rider set up here — pickup,
@@ -376,7 +380,23 @@ function SearchStageImpl() {
 
         <Text style={styles.headerTitle}>Where To</Text>
 
-        <View style={styles.headerSpacer} />
+        {/* Steps 1-2 of the same 5-step flow ConfigureStage continues, so the
+            rider can see how much is left rather than discovering it. Pickup is
+            step 1; a confirmed destination is step 2. */}
+        <View style={styles.stepDots} accessibilityLabel={`Step ${selectedPlace ? 2 : 1} of 5`}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <View
+              key={n}
+              style={[
+                styles.stepDot,
+                n <= (selectedPlace ? 2 : 1) && {
+                  backgroundColor: colors.primary,
+                  width: n === (selectedPlace ? 2 : 1) ? 16 : 5,
+                },
+              ]}
+            />
+          ))}
+        </View>
       </View>
 
       {/* The dismiss gesture is scoped to the CARD, not to `flex: 1`.
@@ -753,6 +773,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: -0.3,
   },
   headerSpacer: { width: 44, height: 44 },
+  stepDots: {
+    width: 44,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+  },
+  stepDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.outline },
 
   /** Dismiss-gesture area: exactly the card's box, never the whole screen —
    *  otherwise the detector owns every pan over the map behind the card. */

@@ -17,6 +17,7 @@ import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
 import { consumeTripSurfaceReturn } from '../utils/tripSurfaceReturn';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
+import { ConfigureStage } from '../components/trip/stages/ConfigureStage';
 import { SelectStage } from '../components/trip/stages/SelectStage';
 import { RequestStage } from '../components/trip/stages/RequestStage';
 import { AssignedStage } from '../components/trip/stages/AssignedStage';
@@ -47,6 +48,8 @@ const STAGE_TRANSITION_CFG = { duration: 700, easing: Easing.out(Easing.cubic) }
 function renderStage(stage: TripStage) {
   switch (stage) {
     case 'search': return <SearchStage />;
+    // Steps 3-5 of the paged Where-to flow; SearchStage owns 1-2.
+    case 'configure': return <ConfigureStage />;
     case 'select': return <SelectStage />;
     case 'request': return <RequestStage />;
     case 'assigned': return <AssignedStage />;

@@ -50,6 +50,12 @@ interface RideState {
   requestSeatCount: number;
   requestCoverAll: boolean;
 
+  // On-demand ride options, chosen in the paged Where-to flow. The rider could
+  // not pick any of these before: every quote went out on the server defaults.
+  rideTier: 'ECO' | 'COMFORT' | 'PREMIUM';
+  doorstepPickup: boolean;
+  heavyLoad: boolean;
+
   // Actions
   setOrigin: (loc: Location | null) => void;
   setDestination: (loc: Location | null) => void;
@@ -65,6 +71,7 @@ interface RideState {
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
   setRequestSeats: (count: number, coverAll: boolean) => void;
+  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean; heavyLoad: boolean }>) => void;
   clearRideState: () => void;
 }
 
@@ -87,6 +94,9 @@ export const useRideStore = create<RideState>()(
       pendingPromoCode: null,
       requestSeatCount: 1,
       requestCoverAll: true,
+      rideTier: 'ECO',
+      doorstepPickup: false,
+      heavyLoad: false,
 
       setOrigin: (loc) => set({ origin: loc }),
       setDestination: (loc) => set({ destination: loc }),
@@ -103,6 +113,7 @@ export const useRideStore = create<RideState>()(
       setComputedFare: (fare) => set({ computedFare: fare }),
       setPendingPromoCode: (code) => set({ pendingPromoCode: code }),
       setRequestSeats: (count, coverAll) => set({ requestSeatCount: count, requestCoverAll: coverAll }),
+      setRideOptions: (o) => set(o),
 
       clearRideState: () =>
         set({
@@ -122,6 +133,9 @@ export const useRideStore = create<RideState>()(
           pendingPromoCode: null,
           requestSeatCount: 1,
           requestCoverAll: true,
+          rideTier: 'ECO',
+          doorstepPickup: false,
+          heavyLoad: false,
         }),
     }),
     {

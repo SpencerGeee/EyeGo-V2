@@ -41,6 +41,8 @@ import { useColors, Colors } from '../../utils/useColors';
 /** Fraction of the screen the bottom sheet covers, per stage. */
 const SHEET_FRACTION: Record<string, number> = {
   search: 0.62,
+  // The paged configure flow is a tall card; the map keeps the strip above it.
+  configure: 0.62,
   select: 0.5,
   request: 0.44,
   assigned: 0.44,

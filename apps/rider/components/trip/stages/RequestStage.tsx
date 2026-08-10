@@ -256,11 +256,20 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         // Price first. The quote is server-signed and single-use, so the number
         // the rider just agreed to is the number they are charged — the two
         // used to be independent computations that could silently disagree.
+        // The options the rider chose in the paged flow. These were always
+        // parameters of the quote; nothing sent them, so every ride was priced
+        // and dispatched as a plain ECO with no extras regardless of what the
+        // rider asked for.
+        const { rideTier, doorstepPickup, heavyLoad } = useRideStore.getState();
+
         const quote = await ridesApi.quote({
           pickupLat: origin.latitude,
           pickupLng: origin.longitude,
           dropoffLat: storeDestination.latitude,
           dropoffLng: storeDestination.longitude,
+          tier: rideTier,
+          doorstepPickup,
+          heavyLoad,
         });
 
         const { tripId } = await ridesApi.request(
@@ -272,6 +281,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             dropoffLat: storeDestination.latitude,
             dropoffLng: storeDestination.longitude,
             dropoffAddress: destination ?? undefined,
+            doorstepPickup,
             ...(opts?.allowConcurrent ? { allowConcurrent: true } : {}),
             ...(opts?.passenger ? { passenger: opts.passenger } : {}),
           } as any,
