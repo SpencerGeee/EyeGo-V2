@@ -152,8 +152,11 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
 
     // Decrement confirmed seats if was paid
     if (booking.paymentStatus === 'PAID') {
-      await tx.trip.update({
-        where: { id: booking.tripId },
+      // Floored with `updateMany` + `gt: 0` for the same reason as riderNoShow:
+      // a counter that can go negative reads as EXTRA available seats, because
+      // availableSeats is `maxSeats - confirmedSeats`.
+      await tx.trip.updateMany({
+        where: { id: booking.tripId, confirmedSeats: { gt: 0 } },
         data: { confirmedSeats: { decrement: 1 } },
       });
     }

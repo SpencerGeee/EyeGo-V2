@@ -157,8 +157,20 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const filtersActive = sortBy !== 'time' || minSeats > 1;
 
   const displayTrips = useMemo(() => {
+    /**
+     * FAIL OPEN. This was `(t.availableSeats ?? 0) >= minSeats`, and the server
+     * did not send `availableSeats` at all — so the test was `0 >= 1` for every
+     * trip and the list came back EMPTY, always. `filtersActive` is
+     * `minSeats > 1`, so no filter badge appeared either: the rider saw an
+     * empty result with nothing to explain it and no way to act on it.
+     *
+     * The server sends the field now (searchTrips), but the rule stays
+     * fail-open: an unknown seat count must never silently hide a trip. Hiding
+     * a real trip is a much worse failure than showing one that turns out to be
+     * full, which the booking call rejects cleanly with TRIP_FULL.
+     */
     const list = (trips as TripWithRoute[]).filter(
-      (t) => (t.availableSeats ?? 0) >= minSeats
+      (t) => typeof t.availableSeats !== 'number' || t.availableSeats >= minSeats
     );
     const fareOf = (t: TripWithRoute) => t.farePerSeatPesewas ?? t.fare ?? 0;
     const timeOf = (t: TripWithRoute) =>
@@ -504,8 +516,20 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                 const fullFare = trip.farePerSeatPesewas ?? 0;
                 const selectedStop = selectedStopByTrip[trip.id ?? ''];
                 const displayFare = selectedStop ? selectedStop.fare : fullFare;
-                const seatsLeft = trip.availableSeats ?? 3;
-                const seatsLow = seatsLeft <= 2;
+                /**
+                 * `?? 3` invented a number. A trip whose seat count had not
+                 * loaded rendered "3 SEATS LEFT" — a plausible, specific,
+                 * wrong claim, which is worse than showing nothing because
+                 * nothing about it looks broken. Same class as the hardcoded
+                 * "4.9" rating that was removed earlier.
+                 *
+                 * Null now means unknown, and the badge below is simply not
+                 * drawn. The server always sends this field (see searchTrips);
+                 * a null here means an older server or a failed load, and
+                 * neither is something to paper over.
+                 */
+                const seatsLeft = typeof trip.availableSeats === 'number' ? trip.availableSeats : null;
+                const seatsLow = seatsLeft != null && seatsLeft <= 2;
                 const activeStops = trip.route?.virtualStops?.filter(s => s.isActive) ?? [];
                 const hasEnRoute = activeStops.length > 0;
                 const timeStr = trip.departureTime
@@ -609,12 +633,15 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                             </Pressable>
                           )}
                         </View>
-                        <View style={[styles.seatsChip, { backgroundColor: seatsLow ? withOpacity(colors.statusError, 0.1) : colors.surfaceContainerHigh }]}>
-                          <Ionicons name="people-outline" size={12} color={seatsLow ? colors.statusError : colors.onSurfaceVariant} />
-                          <Text style={[styles.seatsChipText, { color: seatsLow ? colors.statusError : colors.onSurfaceVariant }]}>
-                            {seatsLeft} SEAT{seatsLeft !== 1 ? 'S' : ''} LEFT
-                          </Text>
-                        </View>
+                        {/* Drawn only when the count is known — see `seatsLeft`. */}
+                        {seatsLeft != null && (
+                          <View style={[styles.seatsChip, { backgroundColor: seatsLow ? withOpacity(colors.statusError, 0.1) : colors.surfaceContainerHigh }]}>
+                            <Ionicons name="people-outline" size={12} color={seatsLow ? colors.statusError : colors.onSurfaceVariant} />
+                            <Text style={[styles.seatsChipText, { color: seatsLow ? colors.statusError : colors.onSurfaceVariant }]}>
+                              {seatsLeft} SEAT{seatsLeft !== 1 ? 'S' : ''} LEFT
+                            </Text>
+                          </View>
+                        )}
                       </View>
 
                       <Pressable

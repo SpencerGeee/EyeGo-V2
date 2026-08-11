@@ -143,7 +143,11 @@ export default function JoinScreen() {
             <TripMetaItem icon="time-outline" label={formatTripDate(trip.departureTime)} />
             <TripMetaItem
               icon="person-outline"
-              label={`${Math.max(0, ((trip as any).maxSeats ?? 0) - ((trip as any).confirmedSeats ?? 0))} seats left`}
+              // Server-computed. The local `maxSeats - confirmedSeats` ignored
+              // held-but-unpaid seats, so an invite link — the one context where
+              // the host is holding every remaining seat — reported the van as
+              // emptier than it was, to the very people being invited into it.
+              label={`${(trip as any).availableSeats ?? Math.max(0, ((trip as any).maxSeats ?? 0) - ((trip as any).confirmedSeats ?? 0))} seats left`}
             />
             <TripMetaItem icon="cash-outline" label={formatGhs((trip as any).baseFarePesewas ?? (trip as any).fare ?? 0)} accent />
           </View>

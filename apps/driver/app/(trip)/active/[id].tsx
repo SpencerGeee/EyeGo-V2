@@ -17,7 +17,7 @@ import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
 import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -70,16 +70,33 @@ const STATUS_FLOW: Record<string, { label: string; next: string | null; action: 
   CANCELLED:          { label: 'Cancelled',            next: null,     action: ''              },
 };
 
-const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  CONFIRMED:          { label: 'Confirmed',         color: '#94A3B8' },
-  SCHEDULED:          { label: 'Scheduled',        color: '#94A3B8' },
-  FILLING:            { label: 'Boarding',          color: '#3B82F6' },
-  DRIVER_EN_ROUTE:    { label: 'En Route',          color: '#F59E0B' },
-  ARRIVED_AT_PICKUP:  { label: 'Arrived',           color: '#A78BFA' },
-  IN_PROGRESS:        { label: 'In Progress',       color: '#4be277' },
-  COMPLETED:          { label: 'Completed',         color: '#60A5FA' },
-  CANCELLED:          { label: 'Cancelled',         color: '#F87171' },
+/**
+ * Colours stay local (they are this app's palette); the LABEL now comes from
+ * the shared vocabulary in @eyego/config.
+ *
+ * This file previously declared two label maps of its own — one here and one
+ * in STATUS_FLOW above — which disagreed with each other and with the tracking
+ * screen, so the same status renamed itself as the driver moved around. See
+ * packages/config/src/tripStatus.ts.
+ */
+const STATUS_TONE_COLOR: Record<string, string> = {
+  CONFIRMED:          '#94A3B8',
+  SCHEDULED:          '#94A3B8',
+  FILLING:            '#3B82F6',
+  DRIVER_EN_ROUTE:    '#F59E0B',
+  ARRIVED_AT_PICKUP:  '#A78BFA',
+  IN_PROGRESS:        '#4be277',
+  COMPLETED:          '#60A5FA',
+  CANCELLED:          '#F87171',
 };
+
+const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> =
+  Object.fromEntries(
+    Object.keys(TRIP_STATUS_COPY).map((key) => [
+      key,
+      { label: driverStatusLabel(key), color: STATUS_TONE_COLOR[key] ?? '#94A3B8' },
+    ]),
+  );
 
 const STATUS_STEPS = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'COMPLETED'];
 

@@ -5,6 +5,7 @@ const env = require('../../config/env');
 const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
+const { seatOccupyingWhere } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
 const boardingPin = require('../../services/boarding-pin.service');
 const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
@@ -236,16 +237,21 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       // ── Capacity guard: ensure there's still room ───────────────────────
       // Counted AFTER the release above, so this is the number of seats held by
       // everyone other than the passenger currently asking for one.
+      // `seatOccupyingWhere()` rather than "not cancelled": a NO_SHOW, an
+      // EXPIRED hold and a REFUNDED booking all release their seat, and the old
+      // filter counted every one of them as still occupying it. That is how a
+      // trip became permanently unfillable after one no-show.
       const activeBookingCount = await tx.booking.count({
-        where: { tripId, status: { notIn: ['CANCELLED'] } },
+        where: { tripId, ...seatOccupyingWhere() },
       });
       if (activeBookingCount >= trip.maxSeats) {
         throw new AppError('This trip is full', 400, 'TRIP_FULL');
       }
 
-      // Check seat is not already taken by someone else
+      // Check seat is not already taken by someone else. Same fix: this is what
+      // stopped a specific seat number from ever being re-sold.
       const existing = await tx.booking.findFirst({
-        where: { tripId, seatNumber, status: { notIn: ['CANCELLED'] } },
+        where: { tripId, seatNumber, ...seatOccupyingWhere() },
       });
       if (existing) throw new SeatTakenError();
 
@@ -470,7 +476,7 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
   }
 
   const taken = await tx.booking.findMany({
-    where: { tripId, status: { notIn: ['CANCELLED'] } },
+    where: { tripId, ...seatOccupyingWhere() },
     select: { seatNumber: true },
   });
   const takenSeats = new Set(taken.map((b) => b.seatNumber).filter((n) => n != null));
@@ -494,7 +500,7 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
   });
 
   const lead = await tx.booking.findFirst({
-    where: { tripId, userId: leadUserId, isCoveredByLead: false, status: { notIn: ['CANCELLED'] } },
+    where: { tripId, userId: leadUserId, isCoveredByLead: false, ...seatOccupyingWhere() },
     select: { paymentMethod: true },
   });
 
@@ -538,7 +544,7 @@ async function cancelBooking(bookingId, userId, { reason, note } = {}) {
     const activeCount = await prisma.booking.count({
       where: {
         tripId: booking.tripId,
-        status: { not: 'CANCELLED' },
+        ...seatOccupyingWhere(),
       },
     });
     if (activeCount === 0 && booking.trip?.status === 'FILLING') {
@@ -983,7 +989,7 @@ async function getGroup(bookingId, userId) {
         include: {
           group: true,
           bookings: {
-            where: { status: { notIn: ['CANCELLED'] } },
+            where: { ...seatOccupyingWhere() },
             include: { user: { select: { id: true, name: true, profilePhoto: true } } },
             orderBy: { createdAt: 'asc' },
           },

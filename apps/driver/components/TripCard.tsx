@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, Pressable } from 'react-native';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, driverStatusLabel } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors } from '../utils/useColors';
@@ -16,14 +16,10 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED:       '#F87171',
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  SCHEDULED:       'Scheduled',
-  FILLING:         'Boarding',
-  DRIVER_EN_ROUTE: 'En Route',
-  IN_PROGRESS:     'In Progress',
-  COMPLETED:       'Completed',
-  CANCELLED:       'Cancelled',
-};
+/** Labels come from the shared vocabulary now — this file used to declare its
+ * own copy, which is how the trip list and the trip screens disagreed about
+ * what the same status was called. See packages/config/src/tripStatus.ts. */
+const STATUS_LABELS = new Proxy({} as Record<string,string>, { get: (_t, k: string) => driverStatusLabel(k) });
 
 interface Props {
   trip: DriverTrip;

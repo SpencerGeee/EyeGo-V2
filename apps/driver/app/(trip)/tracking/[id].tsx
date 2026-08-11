@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii, springs, durations } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs, durations, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
 import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -524,7 +524,7 @@ export default function DriverTrackingScreen() {
               </View>
               <View style={styles.etaDivider} />
               <View style={styles.etaRight}>
-                <Text style={styles.etaStatus}>{etaMessage ?? statusInfo.label}</Text>
+                <Text style={styles.etaStatus}>{etaMessage ?? driverStatusLabel(trip?.status)}</Text>
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                   {etaDistanceKm != null ? `${etaDistanceKm} km` : `${passengers} passenger${passengers !== 1 ? 's' : ''}`}
                 </Text>
@@ -719,15 +719,26 @@ export default function DriverTrackingScreen() {
 }
 
 // ── Status badge ──
-const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  SCHEDULED:          { label: 'Scheduled',       color: '#94A3B8' },
-  FILLING:            { label: 'Boarding',         color: '#3B82F6' },
-  DRIVER_EN_ROUTE:    { label: 'En Route',         color: '#F59E0B' },
-  ARRIVED_AT_PICKUP:  { label: 'Arrived',          color: '#A78BFA' },
-  IN_PROGRESS:        { label: 'In Progress',      color: '#22C55E' },
-  COMPLETED:          { label: 'Completed',        color: '#60A5FA' },
-  CANCELLED:          { label: 'Cancelled',        color: '#F87171' },
+/** Colours are this app's palette; labels come from the shared vocabulary, so
+ *  this screen and the manage screen can no longer disagree about what a
+ *  status is called. See packages/config/src/tripStatus.ts. */
+const STATUS_TONE_COLOR: Record<string, string> = {
+  SCHEDULED:          '#94A3B8',
+  FILLING:            '#3B82F6',
+  DRIVER_EN_ROUTE:    '#F59E0B',
+  ARRIVED_AT_PICKUP:  '#A78BFA',
+  IN_PROGRESS:        '#22C55E',
+  COMPLETED:          '#60A5FA',
+  CANCELLED:          '#F87171',
 };
+
+const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> =
+  Object.fromEntries(
+    Object.keys(TRIP_STATUS_COPY).map((key) => [
+      key,
+      { label: driverStatusLabel(key), color: STATUS_TONE_COLOR[key] ?? '#94A3B8' },
+    ]),
+  );
 
 function TripStatusBadge({ status, colors }: { status: string; colors: DriverColors }) {
   const cfg = TRIP_STATUS_CONFIG[status] ?? { label: status, color: colors.onSurfaceVariant };

@@ -147,8 +147,18 @@ function SuggestedTripCard({
   // fell through to the literal 12, and a 14-seater advertised "12 seats left"
   // the moment it was created. Same name the fare uses as its denominator, so
   // the seats and the price now agree about how big the vehicle is.
-  const capacity = trip.maxSeats ?? trip.availableSeats ?? trip.vehicle?.seaterCount ?? 0;
-  const seatsLeft = Math.max(
+  /**
+   * Server-computed, with the old arithmetic kept only as a fallback.
+   *
+   * The local formula subtracted `confirmedSeats` and `pendingSeats`, which is
+   * a different question from the one the booking page answered — it ignored
+   * held-but-unpaid seats, so a trip whose host had cover-all on showed seats
+   * free here and "0 left" one tap later. `availableSeats` is now derived once
+   * on the server from the occupancy-filtered bookings.
+   */
+  const capacity = trip.maxSeats ?? trip.vehicle?.seaterCount ?? 0;
+  const serverSeatsLeft = typeof trip.availableSeats === 'number' ? trip.availableSeats : null;
+  const seatsLeft = serverSeatsLeft ?? Math.max(
     0,
     capacity - (trip.confirmedSeats ?? 0) - (trip.pendingSeats ?? 0),
   );

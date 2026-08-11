@@ -15,6 +15,7 @@ const logger = require('../../utils/logger');
 const mapboxService = require('../../services/mapbox.service');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const tripState = require('../../services/trip-state.service');
+const { seatOccupyingWhere } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
 
 async function createTrip(driverId, data) {
@@ -259,7 +260,7 @@ async function getTrip(id, viewerUserId = null) {
         },
       },
       bookings: {
-        where: { status: { not: 'CANCELLED' } },
+        where: { ...seatOccupyingWhere() },
         select: { id: true, seatNumber: true, status: true, paymentStatus: true, userId: true, isOffline: true, guestName: true },
       },
     },
@@ -303,6 +304,30 @@ async function getTrip(id, viewerUserId = null) {
   // Full trip cost — what a rider pays when they choose "I'm paying for everyone".
   trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
 
+  /**
+   * ONE ANSWER TO "HOW MANY SEATS ARE LEFT".
+   *
+   * BUGFIX. Four different formulas existed for this and they disagreed the
+   * moment a seat was held but unpaid — which is exactly what sharing an invite
+   * does, since the host holds every remaining seat:
+   *
+   *   graphql/dataloaders.js  maxSeats - confirmedSeats          (ignores holds)
+   *   rider ride/[id].tsx     maxSeats - bookings.length         (counts holds)
+   *   rider home.tsx          maxSeats - confirmedSeats - pending
+   *   rider join/[token].tsx  maxSeats - confirmedSeats          (ignores holds)
+   *
+   * So the same trip read "0 seats left" on the booking page and "4 seats left"
+   * on the home card, and a rider tapping between them watched the number
+   * change.
+   *
+   * `trip.bookings` is already filtered to `seatOccupyingWhere()`, so its
+   * length IS the occupancy — holds included, no-shows and cancellations
+   * excluded. Computed once, here, and every client reads this field instead of
+   * doing its own arithmetic.
+   */
+  trip.availableSeats = Math.max(0, trip.maxSeats - trip.bookings.length);
+  trip.occupiedSeats = trip.bookings.length;
+
   // Attach driver's average rating
   if (trip.driver) {
     // Chronic low-raters excluded — one rating model for both apps.
@@ -324,7 +349,7 @@ async function getTripByShareToken(shareToken) {
           vehicle: true,
           driver: { select: { id: true, name: true, profilePhoto: true } },
           bookings: {
-            where: { status: { not: 'CANCELLED' } },
+            where: { ...seatOccupyingWhere() },
             select: { seatNumber: true, status: true },
           },
         },
@@ -357,6 +382,14 @@ async function getTripByShareToken(shareToken) {
   group.trip.fare = fare.farePerPersonPesewas;
   group.trip.farePerSeatPesewas = fare.farePerPersonPesewas;
   group.trip.totalTripCostPesewas = fare.totalTripCostPesewas;
+
+  // Same one derivation as getTrip and searchTrips. The invite/join screens
+  // were computing `maxSeats - confirmedSeats` locally, which ignores the
+  // held-but-unpaid seats the host is holding precisely BECAUSE they shared
+  // this link — so the page under-reported occupancy to the people being
+  // invited into the van.
+  group.trip.availableSeats = Math.max(0, group.trip.maxSeats - group.trip.bookings.length);
+  group.trip.occupiedSeats = group.trip.bookings.length;
 
   /**
    * THE ROAD, NOT A STRAIGHT LINE.
@@ -405,7 +438,7 @@ async function getSeatMap(tripId, viewerUserId = null) {
   if (!trip) throw new NotFoundError('Trip');
 
   const bookings = await prisma.booking.findMany({
-    where: { tripId, status: { notIn: ['CANCELLED'] } },
+    where: { tripId, ...seatOccupyingWhere() },
     select: { seatNumber: true, status: true, userId: true, isOffline: true },
   });
 
@@ -470,7 +503,7 @@ async function getPulseSchedules() {
         orderBy: { departureTime: 'asc' },
         take: 1,
         include: {
-          bookings: { where: { status: { not: 'CANCELLED' } }, select: { id: true } },
+          bookings: { where: { ...seatOccupyingWhere() }, select: { id: true } },
         },
       },
     },
@@ -545,7 +578,7 @@ async function searchTrips(query) {
     vehicle: true,
     driver: { select: { id: true, name: true, profilePhoto: true, currentLat: true, currentLng: true } },
     bookings: {
-      where: { status: { not: 'CANCELLED' } },
+      where: { ...seatOccupyingWhere() },
       select: { id: true, seatNumber: true, status: true },
     },
   };
@@ -610,6 +643,28 @@ async function searchTrips(query) {
     trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
     trip.fare = fareInfo.farePerPersonPesewas; // backwards-compat
     trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
+
+    /**
+     * THE FIELD THE LISTING FILTERS ON, WHICH THIS ENDPOINT NEVER SENT.
+     *
+     * BUGFIX — the rider's trip list was ALWAYS EMPTY.
+     *
+     * `SelectStage` filters `(t.availableSeats ?? 0) >= minSeats` and `minSeats`
+     * defaults to 1. This endpoint returned no `availableSeats` at all, so the
+     * comparison was `0 >= 1` for every trip and every trip was dropped. Worse,
+     * `filtersActive` is `minSeats > 1`, so the UI showed no filter badge
+     * either: the rider saw a plainly empty list with nothing to explain it,
+     * and searching harder could not fix it.
+     *
+     * (The `availableSeats` a few lines above is unrelated — that is the fare
+     * DENOMINATOR passed into estimateFare, and `maxSeats` is correct there.)
+     *
+     * `trip.bookings` is filtered to `seatOccupyingWhere()`, so its length is
+     * the real occupancy. Same derivation as `getTrip`, so the listing and the
+     * detail page can no longer disagree.
+     */
+    trip.availableSeats = Math.max(0, trip.maxSeats - (trip.bookings?.length ?? 0));
+    trip.occupiedSeats = trip.bookings?.length ?? 0;
   });
 
   return { trips, total: totalCount, page: Number(page), totalPages: Math.ceil(totalCount / take) };
@@ -1079,17 +1134,55 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
       throw new AppError('Booking is not in a confirmable state', 400);
     }
 
-    // Mark no-show — no refund
+    /**
+     * Mark no-show — no refund — and RELEASE THE SEAT NUMBER.
+     *
+     * `seatNumber: null` is not cosmetic. `Booking` carries
+     * `@@unique([tripId, seatNumber])`, so a NO_SHOW row that keeps seat 3
+     * makes seat 3 unbookable for the life of the trip: the next rider to pick
+     * it fails on the unique constraint, which surfaces as an opaque error on a
+     * seat the map is (now correctly) drawing as free.
+     *
+     * `cancelBooking` already did this; the two other exits from a booking —
+     * here and in cancellation.service — did not, which is why the seat came
+     * back in the counts but not in reality.
+     */
     await tx.booking.update({
       where: { id: bookingId },
-      data: { status: 'NO_SHOW' },
+      data: { status: 'NO_SHOW', seatNumber: null },
     });
 
-    // Release the seat
-    await tx.trip.update({
-      where: { id: tripId },
-      data: { confirmedSeats: { decrement: 1 } },
-    });
+    /**
+     * Release the seat — but only if it was ever counted.
+     *
+     * BUGFIX. `confirmedSeats` is incremented ONLY when payment settles
+     * (payments.service.js) or when the driver adds a cash passenger
+     * (drivers.service.js). `bookSeat` does not increment it. This decrement
+     * was unconditional while the guard above deliberately admits SEAT_HELD
+     * bookings — which are, by definition, unpaid and therefore never counted.
+     * Marking one of those a no-show subtracted a seat that had never been
+     * added.
+     *
+     * The consequence runs the WRONG WAY. `availableSeats` is
+     * `Math.max(0, maxSeats - confirmedSeats)`, so a negative counter produces
+     * `maxSeats + n` — the trip advertises more seats than the vehicle has, and
+     * the clamp only protects the harmless direction. It also skews
+     * `orderBy: { confirmedSeats: 'desc' }` in the dispatch pool and the
+     * MIN_OCCUPANCY_TO_DEPART check.
+     *
+     * Guarded exactly the way cancellation.service.js already guards its own
+     * decrement, so the two agree on what they are counting.
+     */
+    if (booking.paymentStatus === 'PAID') {
+      // `updateMany` with a `gt: 0` filter is the floor: the decrement simply
+      // does not apply when there is nothing to subtract. `update` would have
+      // taken the counter negative, which is the state that oversells a
+      // vehicle. Defence in depth behind the PAID guard above.
+      await tx.trip.updateMany({
+        where: { id: tripId, confirmedSeats: { gt: 0 } },
+        data: { confirmedSeats: { decrement: 1 } },
+      });
+    }
 
     logger.info('Rider no-show recorded', { tripId, bookingId });
     return { bookingId };

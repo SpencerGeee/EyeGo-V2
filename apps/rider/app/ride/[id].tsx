@@ -91,7 +91,15 @@ export default function RideDetailScreen() {
         latitude: typeof rawTrip.route?.destLat === 'number' ? rawTrip.route.destLat : null,
         longitude: typeof rawTrip.route?.destLng === 'number' ? rawTrip.route.destLng : null,
       },
-      availableSeats: rawTrip.maxSeats - (rawTrip.bookings?.length ?? 0),
+      /**
+       * Server-computed. This used to recount `bookings.length` locally, which
+       * was a fourth independent formula for the same question and disagreed
+       * with the home card and the join page the moment a seat was held but
+       * unpaid — exactly what sharing an invite does. `getTrip` now derives it
+       * once from the occupancy-filtered bookings; the fallback keeps an older
+       * server from rendering NaN.
+       */
+      availableSeats: rawTrip.availableSeats ?? Math.max(0, rawTrip.maxSeats - (rawTrip.bookings?.length ?? 0)),
       totalSeats: rawTrip.maxSeats,
       distanceKm: rawTrip.route?.distanceKm ?? 0,
       // Duration comes from the traffic-aware route fetched below (see
@@ -186,8 +194,12 @@ export default function RideDetailScreen() {
     setStoreTier(selectedTier, serverFare);
   }, [selectedTier, trip, tripTier, setStoreTier]);
 
-  const occupiedSeats = trip ? (trip.totalSeats ?? 10) - (trip.availableSeats ?? 0) : 0;
-  const occupancyPercent = trip ? (occupiedSeats / (trip.totalSeats ?? 10)) * 100 : 0;
+  // `?? 10` was an invented capacity — a 14-seater rendered as 10 and a 4-seater
+  // as 10, and the occupancy bar was wrong in both directions with nothing to
+  // show for it. Unknown capacity now yields 0 occupancy rather than a fiction.
+  const totalSeats = trip?.totalSeats ?? null;
+  const occupiedSeats = totalSeats != null ? totalSeats - (trip?.availableSeats ?? 0) : 0;
+  const occupancyPercent = totalSeats ? (occupiedSeats / totalSeats) * 100 : 0;
 
   // Show loading spinner while trip data is not yet available
   if (isLoading && !trip) {
@@ -524,7 +536,9 @@ export default function RideDetailScreen() {
         visible={showFareBreakdown}
         onClose={() => setShowFareBreakdown(false)}
         farePesewas={computedFare ?? trip?.farePerSeatPesewas ?? 0}
-        seats={trip?.maxSeats ?? 4}
+        // `?? 4` invented a seat count in the PRICE BREAKDOWN, which is the one
+        // sheet whose entire job is explaining how the number was reached.
+        seats={trip?.maxSeats ?? trip?.totalSeats ?? 0}
         surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
       />
     </View>
