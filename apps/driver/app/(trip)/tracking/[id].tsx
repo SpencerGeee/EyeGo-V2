@@ -73,7 +73,30 @@ export default function DriverTrackingScreen() {
   const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
   const [etaDistanceKm, setEtaDistanceKm] = useState<number | null>(null);
   const [etaMessage, setEtaMessage] = useState<string | null>(null);
-  const [etaLeg, setEtaLeg] = useState<'toPickup' | 'toDropoff'>('toDropoff');
+  /**
+   * WHICH JOURNEY THE ETA MEASURES.
+   *
+   * BUGFIX ("i started the trip and the tracking page says i'm moving to the
+   * destination, meanwhile the rider app says i'm on my way to them"). This
+   * defaulted to 'toDropoff' — so between mount and the FIRST `trip:eta` frame
+   * the screen asserted the destination leg no matter what the trip status
+   * was. The rider was right and the driver's own app was wrong, about the
+   * driver, which is the worst way round for it to be.
+   *
+   * `null` until the server says, and until then the leg is derived from the
+   * status, which both apps already agree on. There is no state in which
+   * guessing beats reading.
+   */
+  const [etaLeg, setEtaLeg] = useState<'toPickup' | 'toDropoff' | null>(null);
+
+  /**
+   * The leg to render RIGHT NOW: whatever the server last said, or — before it
+   * has said anything — whatever the trip's own status implies. This is the
+   * same rule the server applies in `route-geometry.activeLeg`, so the two
+   * cannot disagree: the driver is fetching the rider until they are aboard.
+   */
+  const effectiveLeg: 'toPickup' | 'toDropoff' =
+    etaLeg ?? (trip?.status === 'IN_PROGRESS' ? 'toDropoff' : 'toPickup');
 
   const handleEta = useCallback(
     (eta: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => {
@@ -452,7 +475,11 @@ export default function DriverTrackingScreen() {
 
       {/* Bottom sheet */}
       <InlayPanel
-        snapPointsPct={[0.32, 0.6]}
+        // Same fix as the home panel: 0.32 put the card's own content below the
+        // fold on open, so the driver had to drag the sheet up before they
+        // could read their ETA or reach the action. The resting snap now fits
+        // the card.
+        snapPointsPct={[0.5, 0.8]}
         initialState="collapsed"
         sheetStyle={styles.sheetBackground}
         grabberColor={colors.outline}
@@ -473,7 +500,12 @@ export default function DriverTrackingScreen() {
                   {etaMinutes != null ? `${etaMinutes} min` : '...'}
                 </Text>
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  {etaMinutes != null ? 'to destination' : 'Calculating ETA...'}
+                  {/* Was the hardcoded string 'to destination', which said the
+                      same thing while the driver was still collecting the
+                      rider as it did once they were aboard. */}
+                  {etaMinutes != null
+                    ? (effectiveLeg === 'toPickup' ? 'to pickup' : 'to destination')
+                    : 'Calculating ETA...'}
                 </Text>
               </View>
               <View style={styles.etaDivider} />

@@ -140,15 +140,30 @@ export function SwipeToConfirm({
       check.value = 0;
       return;
     }
+    /**
+     * TUNED DOWN — "the bounciness is too slow, it's way too much and it's tacky."
+     *
+     * These springs were at damping 13 and 11 against stiffness 260 and 320.
+     * Damping ratio ζ = damping / (2·√(stiffness·mass)), so those were ζ ≈ 0.40
+     * and ≈ 0.31: heavily UNDER-damped, meaning several visible overshoots each
+     * way before settling, and a long tail while they did. That wobble is the
+     * tackiness, and it sat on top of a 130 ms ramp-up, which is why it also
+     * read as slow.
+     *
+     * Now ζ ≈ 0.9 on both — one small, confident settle and done — with the
+     * stiffness roughly doubled so the whole gesture resolves quicker rather
+     * than merely wobbling less. The overshoot is trimmed to 1.025 too: the
+     * point is to catch a driver's eye, not to boing.
+     */
     const max = Math.max(1, trackWidth.value - thumbSize - THUMB_INSET * 2);
-    x.value = withTiming(max, { duration: 180 });
+    x.value = withTiming(max, { duration: 140 });
     pop.value = withSequence(
-      withTiming(1.045, { duration: 130 }),
-      withSpring(1, { damping: 13, stiffness: 260 }),
+      withTiming(1.025, { duration: 90 }),
+      withSpring(1, { damping: 26, stiffness: 460 }),
     );
     check.value = withSequence(
-      withTiming(0, { duration: 120 }),
-      withSpring(1, { damping: 11, stiffness: 320 }),
+      withTiming(0, { duration: 80 }),
+      withSpring(1, { damping: 28, stiffness: 520 }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmed]);
@@ -178,7 +193,9 @@ export function SwipeToConfirm({
             x.value = withTiming(max, { duration: 140 });
             runOnJS(fire)();
           } else {
-            x.value = withSpring(0, { damping: 31, stiffness: 240 });
+            // Snappier return on a rejected swipe. Same ζ ≈ 0.95, but stiffer,
+            // so the thumb is back at rest in roughly half the time.
+            x.value = withSpring(0, { damping: 34, stiffness: 340 });
           }
         }),
     [locked, threshold, thumbSize, fire, committed, x, trackWidth],

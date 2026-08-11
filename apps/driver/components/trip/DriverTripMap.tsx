@@ -205,18 +205,40 @@ export function DriverTripMapImpl({
 
         {shape && (
           <MapboxGL.ShapeSource id="driver-route" shape={shape}>
+            {/*
+              INFERRED BEFORE THE TRIP STARTS, COMMITTED ONCE IT HAS.
+
+              "The polyline should be faint and inferred and become bold when
+              the trip has started." Before the rider is aboard, the line is a
+              plan — the driver has not committed to it and may still be told
+              to go elsewhere — so it is drawn thinner, dimmer and dashed. The
+              moment the ride is under way it firms up into the solid, full
+              weight line, and that change is itself the confirmation that the
+              swipe landed.
+
+              `isRoad` is a separate question: a dashed line ALSO means "this
+              is a straight-line estimate, not a road route yet". Both reasons
+              to dash are honoured.
+            */}
             <MapboxGL.LineLayer
               id="driver-route-casing"
-              style={{ lineColor: ROUTE_CASING, lineWidth: 11, lineOpacity: 0.95, lineCap: 'round', lineJoin: 'round' }}
+              style={{
+                lineColor: ROUTE_CASING,
+                lineWidth: carrying ? 11 : 8,
+                lineOpacity: carrying ? 0.95 : 0.5,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
             />
             <MapboxGL.LineLayer
               id="driver-route-core"
               style={{
                 lineColor: ROUTE_CORE,
-                lineWidth: 6,
+                lineWidth: carrying ? 6 : 4,
+                lineOpacity: carrying ? 1 : 0.55,
                 lineCap: 'round',
                 lineJoin: 'round',
-                ...(isRoad ? null : { lineDasharray: [1.6, 1.4] }),
+                ...(isRoad && carrying ? null : { lineDasharray: [1.6, 1.4] }),
               }}
               aboveLayerID="driver-route-casing"
             />
@@ -232,6 +254,17 @@ export function DriverTripMapImpl({
             <PulseRing size={40} color={colors.secondary} ringCount={2} duration={1500}>
               <View style={[styles.dot, { backgroundColor: colors.secondary }]} />
             </PulseRing>
+          </MapboxGL.MarkerView>
+        )}
+
+        {/* Once the rider is aboard the pickup stops PULSING but it does not
+            stop existing: a route that simply begins in the middle of nothing
+            gives the driver no way to see where this ride started, and the
+            same complaint that produced the destination flag applies to both
+            ends of the line. Quiet, unpulsed, still there. */}
+        {carrying && pickup && (
+          <MapboxGL.MarkerView id="driver-pickup-done" coordinate={pickup}>
+            <View style={[styles.endDot, { borderColor: colors.secondary }]} />
           </MapboxGL.MarkerView>
         )}
 
@@ -295,6 +328,12 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: '#fff',
   },
   dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: '#030C18' },
+  /** The quiet "this end of the line is a real place" mark. Hollow, so it
+   *  reads as a waypoint already passed rather than a live target. */
+  endDot: {
+    width: 13, height: 13, borderRadius: 6.5,
+    backgroundColor: '#030C18', borderWidth: 2.5,
+  },
   puckGlyph: { transform: [{ rotate: '-45deg' }] },
   puck: {
     width: 40, height: 40, borderRadius: 20,

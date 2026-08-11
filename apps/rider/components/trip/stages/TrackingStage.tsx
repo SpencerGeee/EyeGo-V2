@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, InlayPanel, RollingDigits, Avatar } from '@eyego/ui';
+import { Text, GlassSurface, InlayPanel, RollingDigits, Avatar, GradientGlowBorder } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
@@ -105,8 +105,24 @@ function TrackingStageImpl() {
 
           {/* One compact row instead of the full driver card: who is driving is
               already established by this point. */}
+          {/*
+            THE LIGHT. "There isn't a glow border on any of the cards so it
+            seems dead." These two rows are the live facts of the ride — who is
+            driving, and what it costs — and they were flat panels on a flat
+            sheet. `brandGreen` is the ring the Where-To field wears, which is
+            what the rider last saw before this screen, so the same light
+            carries through the whole booking rather than stopping at the door.
+          */}
           {driver && (
-            <View style={styles.driverRow}>
+            <GradientGlowBorder
+              palette="brandGreen"
+              fillColor={colors.surfaceContainerHigh}
+              borderRadius={radii.xl}
+              thickness="thin"
+              glow
+              glowIntensity={0.7}
+              style={styles.driverRow}
+            >
               <Avatar uri={driver.photo} name={driver.name} size={36} />
               <View style={{ flex: 1 }}>
                 <Text variant="bodySmall" numberOfLines={1}>{driver.name}</Text>
@@ -146,20 +162,38 @@ function TrackingStageImpl() {
                   </View>
                 )}
               </Pressable>
-            </View>
+            </GradientGlowBorder>
           )}
 
           {/* Server-computed integer pesewas, rendered as-is. */}
           {snapshot?.fare.amountPesewas != null && (
-            <View style={styles.fareRow}>
+            <GradientGlowBorder
+              palette="brandGreen"
+              fillColor={colors.surfaceContainerHigh}
+              borderRadius={radii.xl}
+              thickness="thin"
+              glow
+              glowIntensity={0.55}
+              style={styles.fareRow}
+            >
               <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                 {snapshot.fare.paymentStatus === 'PAID' ? 'Paid' : 'Fare'}
               </Text>
               <Text style={styles.fareValue}>{formatGhs(snapshot.fare.amountPesewas)}</Text>
+              {/* One seat unless the rider is covering the group — see
+                  trip-view's `seatsPaidFor`. Saying "for 4 seats" is the
+                  difference between a fare that looks wrong and one that
+                  explains itself. */}
+              {(snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor != null &&
+                ((snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor ?? 1) > 1 && (
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    · {(snapshot.fare as { seatsPaidFor?: number | null }).seatsPaidFor} seats
+                  </Text>
+                )}
               {snapshot.fare.paymentMethod === 'CASH' && snapshot.fare.paymentStatus !== 'PAID' && (
                 <Text variant="caption" color={colors.onSurfaceVariant}>· pay cash on arrival</Text>
               )}
-            </View>
+            </GradientGlowBorder>
           )}
 
           <View style={styles.actions}>
@@ -211,12 +245,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: colors.primary,
   },
+  /* No border or background of its own any more: GradientGlowBorder paints
+     both, and a second flat border under the ring reads as a doubled edge. */
   driverRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    borderWidth: 1, borderColor: colors.outlineVariant,
-    backgroundColor: colors.surfaceContainer,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md,
   },
   iconBtn: {
     width: 36, height: 36, borderRadius: 18,
@@ -235,7 +268,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontSize: 9,
     lineHeight: Math.round(9 * 1.3),
   },
-  fareRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  fareRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md,
+  },
   fareValue: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyLarge, color: colors.onSurface },
   actions: { flexDirection: 'row', gap: spacing.md },
   action: {

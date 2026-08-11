@@ -54,7 +54,15 @@ const STATUS_FLOW: Record<string, { label: string; next: string | null; action: 
   // the passenger-is-aboard, pulling-off action. Two buttons reading "Start
   // Trip" at different points in one flow is exactly what made this confusing.
   ARRIVED_AT_PICKUP:  { label: 'Arrived at Pickup',    next: 'depart', action: 'Start Ride'    },
-  IN_PROGRESS:        { label: 'In Progress',          next: 'arrive', action: 'Mark Arrived'  },
+  // BUGFIX ("i'm in the trip in progress state and when i swipe again, the
+  // trip is done"). It was labelled 'Mark Arrived', so the control read
+  // "Swipe to arrived" — but the mutation for IN_PROGRESS calls
+  // `driverApi.arriveTrip`, whose transition is IN_PROGRESS → COMPLETED. The
+  // wiring was right and the word was wrong: the driver was told they were
+  // logging an arrival and were in fact ending the ride and being sent to the
+  // receipt. `arriveTrip` means "arrived at the DESTINATION", which is the same
+  // event as finishing; the label now says what actually happens.
+  IN_PROGRESS:        { label: 'In Progress',          next: 'complete', action: 'Complete Trip' },
   COMPLETED:          { label: 'Completed',            next: null,     action: ''              },
   CANCELLED:          { label: 'Cancelled',            next: null,     action: ''              },
 };
