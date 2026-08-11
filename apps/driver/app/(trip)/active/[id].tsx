@@ -260,6 +260,43 @@ export default function ActiveTripScreen() {
       else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
       else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
 
+      /**
+       * WRITE THE NEW STATUS STRAIGHT INTO THE CACHE.
+       *
+       * BUGFIX ("when you switch from one status to the next by swiping or
+       * clicking the button, it visibly takes a long while before it updates on
+       * the status fields at the top of the manage page").
+       *
+       * Every branch below only calls `invalidateQueries`, which marks the data
+       * stale and starts a REFETCH. So the chips — and the route card's ETA
+       * colour, which reads the same status — kept rendering the OLD status
+       * until a second network round-trip came back. On a driver's connection
+       * that is the "long while": the swipe had already succeeded server-side
+       * and the screen was the last thing to find out.
+       *
+       * We are not guessing here. The mutation resolved, so the transition
+       * landed, and `toStatus` is the state machine's only legal successor to
+       * the status we sent from. The invalidation still runs underneath and
+       * reconciles against the server's own snapshot, so this is a head start,
+       * not a competing source of truth.
+       *
+       * Patches the RAW axios payload because that is what this query caches —
+       * `select` extracts `.data.data.trip` on read.
+       */
+      if (toStatus) {
+        qc.setQueryData(['driver', 'trip', 'active', id], (old: any) => {
+          const currentTrip = old?.data?.data?.trip;
+          if (!currentTrip) return old;
+          return {
+            ...old,
+            data: {
+              ...old.data,
+              data: { ...old.data.data, trip: { ...currentTrip, status: toStatus } },
+            },
+          };
+        });
+      }
+
       /*
        * NOTE: these no longer announce the status to the server.
        *
@@ -548,7 +585,12 @@ export default function ActiveTripScreen() {
               borderRadius={radii.xl}
               thickness="thin"
               glow
-              glowIntensity={0.6}
+              // Brightness and reach are separate knobs. The glow was being
+              // clipped by the sheet's top edge, and turning the intensity down
+              // to stop that would have taken the brightness with it. Capping
+              // the RADIUS keeps the light where the padding above can hold it.
+              glowIntensity={0.75}
+              maxGlowRadius={14}
               style={styles.routeCard}
             >
             <View style={styles.routeSummary}>
@@ -771,18 +813,35 @@ export default function ActiveTripScreen() {
               reason. See @eyego/ui SwipeToConfirm. */}
           {statusInfo.next && (
             <Entrance animation="slideDown" delay={200}>
-              <SwipeToConfirm
-                label={`Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`}
-                loadingLabel={`${statusInfo.action}…`}
-                onConfirm={() => advanceStatus.mutate()}
-                loading={advanceStatus.isPending}
-                confirmed={confirmedLabel != null}
-                confirmedLabel={confirmedLabel ?? undefined}
-                color={colors.primary}
-                onColor={colors.onPrimary ?? '#0A0D14'}
-                trackColor={colors.surfaceContainer}
-                borderColor={colors.outline}
-              />
+              {/* Ringed, like the route card above it and the ETA card on the
+                  tracking screen. This is the screen's primary action and it was
+                  the only major surface here wearing no light at all, which is
+                  what made the sheet read as unfinished next to tracking.
+                  The ring drops while the mutation is in flight — a control that
+                  keeps glowing while it is busy invites a second swipe, and a
+                  status transition is legal exactly once. */}
+              <GradientGlowBorder
+                palette="driver"
+                fillColor="transparent"
+                borderRadius={radii.full}
+                thickness="thin"
+                glow={!advanceStatus.isPending && confirmedLabel == null}
+                glowIntensity={0.8}
+                maxGlowRadius={16}
+              >
+                <SwipeToConfirm
+                  label={`Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`}
+                  loadingLabel={`${statusInfo.action}…`}
+                  onConfirm={() => advanceStatus.mutate()}
+                  loading={advanceStatus.isPending}
+                  confirmed={confirmedLabel != null}
+                  confirmedLabel={confirmedLabel ?? undefined}
+                  color={colors.primary}
+                  onColor={colors.onPrimary ?? '#0A0D14'}
+                  trackColor={colors.surfaceContainer}
+                  borderColor={colors.outline}
+                />
+              </GradientGlowBorder>
             </Entrance>
           )}
 
@@ -1016,6 +1075,23 @@ const makeStyles = (colors: DriverColors) =>
     },
     sheetContent: {
       paddingHorizontal: spacing['2xl'],
+      /**
+       * BUGFIX ("the top part of the pickup and destination section has the top
+       * side cut off — the section above the status labels").
+       *
+       * There was no `paddingTop` at all, so the route card began at y=0 of the
+       * sheet content, immediately under the grabber. That card is wrapped in a
+       * GradientGlowBorder: the ring is drawn just OUTSIDE the card's bounds and
+       * the glow reaches further still, so both were sliced flat by the sheet's
+       * rounded top edge. The card looked cropped because it was — the lit
+       * border simply had nowhere to be drawn.
+       *
+       * Big enough to clear the ring, the glow's capped reach, and the grabber
+       * above it. See `maxGlowRadius` on the card itself, which is the other
+       * half of this fix: padding gives the glow room, the cap stops it needing
+       * more than the room it has.
+       */
+      paddingTop: spacing.lg,
       paddingBottom: 40,
       gap: spacing.lg,
     },
