@@ -1,65 +1,58 @@
 # State — Stress Sweep 2026-08-11 (23 items)
 
 ## Current Goal
-23-item stress-test list from device testing on `main`. Working through
-task list #1–#18 (23 user items grouped into 18 tasks).
+23-item stress-test list. ALL 23 fixed and committed to `main`.
 
-## Key facts discovered this session (do not re-derive)
-- **Dispatch (item 3) root cause**: driver socket is `autoConnect:false`; the
-  ONLY caller of `connectDriverSocket()` was `watch()`, which runs when the
-  driver is ALREADY on a trip. An idle driver held a socket that never dialled.
-  Server side was fine (`socket.join('driver:<id>')` at driver.socket.js:243,
-  `publishOfferToDriver` → that room).
-- **Fare "—" (item 2)**: `ridesApi.quote` returns `amountPesewas`.
-  ConfigureStage read `farePesewas ?? fareAmountPesewas ?? totalPesewas` —
-  none exist, so it always coalesced to null.
-- `GradientGlowBorder` palette `brandGreen` IS the where-to green glow
-  (`#4BE277` / `#1FAE52`). Use it for item 22.
-- Driver reference design for paged forms: `apps/driver/app/(trip)/create.tsx`
-  (AppBackground + header + StepIndicator + ScrollView + pinned footer).
-- `npx` is broken here. Typecheck with:
-  `cd apps/<app> && node ../../node_modules/typescript/lib/tsc.js --noEmit`
+## Delivery — 6 commits
+a600ef7 dispatch never rang + rider multistep/fare
+83daa07 pay-for-everyone + ghost live-trip card + driver home
+35b028f public /track and /invite pages
+2e3fcf8 status discrepancy + swipe feel + polyline + glow
+4fb4d5d chat badges + keyboard
+fdc4524 pickup propagation + complete-screen 0 + perf
 
-## Plan Status
-
-### DONE (not yet committed)
-- **Task 2 / item 3** dispatch offer never reached driver:
-  - `apps/driver/stores/trip.store.ts` — `listenForOffers()` now takes a
-    refcounted `connectDriverSocket()`, re-hydrates on every `connect`, and
-    releases on teardown. `hydrate()` adopts a REST-delivered offer.
-  - `eyego-api/src/services/dispatch-cascade.service.js` — offers mirrored to
-    `dispatch:offer:driver:<id>` (self-expiring); `forgetOffer` on decline /
-    accept / cancel / timeout; exports `getOfferForDriver`, `forgetOffer`.
-  - `eyego-api/src/modules/rides/rides.service.js` — `getDriverState` returns
-    `offer` (suppressed while on a trip).
-  - `packages/api/src/rides.api.ts` — `PendingOffer` type on DriverStateResponse.
-  - `apps/driver/app/_layout.tsx` — `TRIP_OFFER` push had NO case and fell to
-    the catch-all, opening `(trip)/active/<id>` for an unowned trip. Now
-    hydrates (tap + foreground-received).
-- **Task 1 / items 1,2** rider multistep:
-  - `apps/rider/components/trip/stages/ConfigureStage.tsx` REWRITTEN from an
-    InlayPanel over the map (fixed 62 % height → clipped content) into a
-    full-bleed screen on `AppBackground` with header, animated step rail,
-    ScrollView body, pinned footer. Per-tier prices now quoted in parallel.
-    Review card uses `brandGreen` glow.
-
-### REMAINING — tasks #3–#18
-3 driver DestinationModeCard layout + glow · 4 rider ghost live-trip card after
-cancel · 5 driver home panel initial snap height · 6 invite page (map/480 vs
-4.80/overlap/theme) · 7 coverAll fare on tracking + driver earnings ·
-8 pickup update not reaching driver · 9 driver tracking panel height +
-pre-start ETA/polyline · 10 chat badges + keyboard covering input (both chats) ·
-11 driver manage/tracking redesign · 12 perf pass · 13 public tracking page
-(MANDATORY: straight line, ETA 64 vs 16, stuck card, theme) · 14 rider/driver
-status discrepancy · 15 swipe bounciness · 16 route end pins · 17 rider
-tracking glow borders · 18 complete-screen 0 flash
+## Root causes worth not re-deriving
+- **Dispatch (3)**: driver socket is `autoConnect:false`; only `watch()` ever
+  dialled it, and that runs when already ON a trip. Idle driver = never
+  connected. `listenForOffers()` now takes a refcounted connection.
+  Offers carry no trip seq → no replay → also mirrored to redis
+  `dispatch:offer:driver:<id>` and returned by `/rides/driver/state`.
+  `TRIP_OFFER` push had no case in `_layout.tsx` and fell to the catch-all.
+- **Fare "—" (2)**: `ridesApi.quote` returns `amountPesewas`; client read
+  three names that don't exist.
+- **Pay-for-everyone (9,10)**: `createRideGroup` returned early when a group
+  existed (invite LINK creates it first), so `isCoverAll` was never stored;
+  and settlement only covers seats that ALREADY hold a booking. Now upserts
+  and claims free seats as real bookings (`isCoveredByLead`). `trip-view`
+  used `find()` for the viewer's booking → summed now (`seatsPaidFor`).
+- **Ghost card (5,6)**: card rendered for any non-terminal booking; with no
+  `trip` relation, `String(undefined).toUpperCase()` = "UNDEFINED" passed the
+  terminal filter, and every field fell to its `??` placeholder.
+- **Public pages (8,16)**: `/track` endpoint sent no geometry (straight line)
+  and no ETA (counted down to departureTime → 64 vs 16 min). `/invite` built
+  its Map unguarded at the top of the IIFE (CDN fail = stuck spinner) and used
+  a `{z}/{x}/{y}` tile template that 404s. `trip.fare` is PESEWAS → 480 vs 4.80.
+- **Chat badge (13)**: counted against `useTripStore.snapshot.tripId`, which is
+  null for group rides. Private messages were never subscribed at all.
+- **Keyboard (13,21)**: `behavior="height"` no-ops under edge-to-edge
+  adjustResize; root SafeAreaView claimed the same strip as the avoider.
+- **Status (17,19)**: driver tracking defaulted `etaLeg` to `'toDropoff'`;
+  IN_PROGRESS swipe was labelled "Mark Arrived" but calls `arriveTrip`
+  (→ COMPLETED).
+- **Perf (15)**: per-frame cost was already fine; nothing bounded the NUMBER
+  of frames — 24fps for a whole shift. Added a decay duty cycle that resets on
+  every navigation. Tracking screen also mounted AppBackground UNDER an opaque
+  full-screen map.
 
 ## Evidence
-- `tsc --noEmit` exit 0 for apps/rider and apps/driver after the above.
-- `node --check` clean on both changed backend files.
-- Nothing device-tested.
+- `tsc --noEmit` exit 0 for apps/rider and apps/driver after every commit.
+- `node --check` clean on all changed backend files.
+- **Nothing device-tested.**
 
 ## Open Issues
 - Migration `20260810120000_driver_destination_mode` still NOT applied.
 - `(trip)/dispatch/[id].tsx` is still the legacy scheduled/route offer screen;
-  the new sheet handles on-demand only.
+  `DispatchOfferSheet` handles on-demand only.
+- Perf changes need a device pass to confirm the thermal fix.
+- `runOnJS` deprecation in SwipeToConfirm left alone deliberately — this repo
+  has a history of SIGABRTs from gesture-callback worklet changes.
