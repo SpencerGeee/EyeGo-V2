@@ -11,7 +11,8 @@ import {
   Alert,
 } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
@@ -123,6 +124,8 @@ export default function ChatScreen() {
   // message too — a message that lands while this screen is open has already
   // been read by the time it is rendered.
   const markChatRead = useChatUnread((s) => s.markRead);
+  const insets = useSafeAreaInsets();
+  const keyboardShown = useKeyboardState((s) => s.isVisible);
   useEffect(() => {
     if (id) markChatRead(id);
   }, [id, markChatRead, messages.length]);
@@ -591,7 +594,7 @@ export default function ChatScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -669,7 +672,27 @@ export default function ChatScreen() {
         container itself when the keyboard opens, so the newest message stays
         visible right above the input bar the whole time.
       */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {/*
+        BUGFIX ("when you open the private side and choose to type, the keyboard
+        comes up and you can't see the text you're typing").
+
+        Two things were wrong together.
+
+        `behavior="height"` on Android: this is `react-native-keyboard-controller`'s
+        KeyboardAvoidingView, not React Native's, and under edge-to-edge with
+        `adjustResize` the height strategy has nothing left to shrink — the
+        window is already resized — so it effectively no-ops and the input bar
+        stays under the keyboard. `padding` is the strategy this library
+        actually implements on both platforms.
+
+        And the root `SafeAreaView` applied ALL edges, so the container's bottom
+        already sat `insets.bottom` above the screen edge. The avoider then
+        padded by a keyboard height measured from the true screen bottom, and
+        the two disagreed by exactly the home-indicator inset. The safe area now
+        covers the top only and the input bar owns its own bottom padding, so
+        there is one source of truth for the space under the field.
+      */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <View style={{ flex: 1 }}>
         {/* Messages */}
         <FlashList
@@ -754,8 +777,21 @@ export default function ChatScreen() {
           ))}
         </ScrollView>
 
-        {/* Input bar */}
-        <View style={styles.inputBar}>
+        {/* Input bar. Owns its own bottom inset now that the safe area is
+            top-only — see the note on KeyboardAvoidingView above. When the
+            keyboard is up the avoider supplies the space and this collapses to
+            the minimum, so the field never floats on a gap. */}
+        {/* Input bar. Owns its own bottom inset now that the safe area is
+            top-only — see the note on KeyboardAvoidingView above. The inset
+            applies ONLY while the keyboard is down: when it is up the avoider
+            has already supplied that space, and adding it again is what leaves
+            the field hovering on a strip of background above the keys. */}
+        <View
+          style={[
+            styles.inputBar,
+            { paddingBottom: spacing.base + (keyboardShown ? 0 : insets.bottom) },
+          ]}
+        >
           <GlassSurface borderRadius={radii.full} intensity="low" dark style={styles.inputFieldWrap}>
             <Ionicons name="chatbubble-outline" size={16} color={colors.outline} style={styles.inputLeadIcon} />
           <TextInput

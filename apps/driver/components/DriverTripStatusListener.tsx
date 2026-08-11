@@ -16,6 +16,7 @@ import { Text } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
 import Constants from 'expo-constants';
+import { useChatUnread } from '../stores/chatUnread.store';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
 // throws ReferenceError for properties that don't exist on objects deserialized
@@ -198,6 +199,10 @@ export function DriverTripStatusListener() {
       const sender = safeRead(msg, 'senderName') ?? 'Passenger';
       const tId = safeRead(msg, 'tripId') ?? activeTripIdRef.current;
       if (!tId) return;
+      // The banner lives about four seconds. A driver watching the road misses
+      // it, and until now that was the end of it — there was no badge anywhere
+      // in this app, so the message left no trace to come back to.
+      useChatUnread.getState().received(tId);
       const preview = text.length > 55 ? text.slice(0, 52) + '…' : text;
       bannerDestRef.current = { type: 'chat', tripId: tId };
       showBanner(`${sender}: ${preview}`, 'chatbubble-ellipses');
@@ -211,6 +216,7 @@ export function DriverTripStatusListener() {
       const sender = safeRead(msg, 'senderName') ?? 'Passenger';
       const tId = safeRead(msg, 'tripId') ?? activeTripIdRef.current;
       if (!tId) return;
+      useChatUnread.getState().received(tId);
       const preview = text.length > 55 ? text.slice(0, 52) + '…' : text;
       bannerDestRef.current = { type: 'chat', tripId: tId };
       showBanner(`${sender} (private): ${preview}`, 'lock-closed');

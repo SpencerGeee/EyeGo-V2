@@ -19,6 +19,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, springs, durations } from '@eyego/config';
 import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
+import { useChatUnread } from '../../../stores/chatUnread.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
@@ -97,6 +98,8 @@ export default function DriverTrackingScreen() {
    */
   const effectiveLeg: 'toPickup' | 'toDropoff' =
     etaLeg ?? (trip?.status === 'IN_PROGRESS' ? 'toDropoff' : 'toPickup');
+
+  const unreadChats = useChatUnread((s) => (id ? s.counts[id] ?? 0 : 0));
 
   const handleEta = useCallback(
     (eta: { leg: 'toPickup' | 'toDropoff'; minutes: number; distanceKm: number | null; rerouted: boolean }) => {
@@ -587,6 +590,14 @@ export default function DriverTrackingScreen() {
             >
               <Ionicons name="chatbubble-outline" size={18} color={colors.onSurfaceVariant} />
               <Text style={[styles.secondaryBtnText, { color: colors.onSurfaceVariant }]}>Chat</Text>
+              {/* The trace a four-second banner cannot leave. */}
+              {unreadChats > 0 && (
+                <View style={[styles.chatBadge, { backgroundColor: colors.primary }]}>
+                  <Text style={[styles.chatBadgeText, { color: colors.onPrimary ?? '#0A0D14' }]}>
+                    {unreadChats > 9 ? '9+' : unreadChats}
+                  </Text>
+                </View>
+              )}
             </Pressable>
             <Pressable
               style={styles.secondaryBtn}
@@ -965,6 +976,22 @@ const makeStyles = (colors: DriverColors) =>
     secondaryActions: {
       flexDirection: 'row',
       gap: spacing.sm,
+    },
+    chatBadge: {
+      position: 'absolute',
+      top: 4,
+      right: 10,
+      minWidth: 17,
+      height: 17,
+      borderRadius: 8.5,
+      paddingHorizontal: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chatBadgeText: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      lineHeight: Math.round(10 * 1.4),
     },
     secondaryBtn: {
       flex: 1,

@@ -341,6 +341,29 @@ export function TripStatusListener() {
     // ── Chat message banners (app-wide) ──
     // Show a banner on every screen except the chat screen itself.
     // Tapping the banner navigates to the chat screen.
+    /**
+     * WHICH TRIP A BADGE BELONGS TO.
+     *
+     * This read `useTripStore.getState().snapshot?.tripId` alone, and that
+     * store only ever holds a SOLO on-demand ride — a seat on a driver-created
+     * group trip legitimately leaves it null (see the same note in trip.tsx).
+     * So on every group ride the id was undefined, `received()` was never
+     * called, and the badge could not light no matter how many messages
+     * arrived. That is "the chat badge didn't show still".
+     *
+     * The booking the rider is actually on is the fallback, because for a
+     * group ride that is the only place the trip id exists on this client.
+     */
+    const currentChatTripId = (): string | undefined => {
+      const solo = useTripStore.getState().snapshot?.tripId;
+      if (solo) return solo;
+      const rs = useRideStore.getState() as {
+        activeBooking?: { tripId?: string } | null;
+        selectedTrip?: { id?: string } | null;
+      };
+      return rs.activeBooking?.tripId ?? rs.selectedTrip?.id;
+    };
+
     const unsubChat = socketEvents.onChatMessage((msg) => {
       const segs = segmentsRef.current;
       const isOnChatScreen = segs.some((s) => s === 'chat');
@@ -353,12 +376,34 @@ export function TripStatusListener() {
       // `chat:message` carries no tripId; it does not need one, because the
       // socket only delivers it to the room of the trip the rider is on. That
       // trip is what the badge belongs to.
-      const activeTripId = useTripStore.getState().snapshot?.tripId;
+      const activeTripId = currentChatTripId();
       if (!isOnChatScreen && activeTripId) useChatUnread.getState().received(activeTripId);
 
       if (isOnChatScreen) return;
 
       const preview = msg.text.length > 55 ? msg.text.slice(0, 52) + '\u2026' : msg.text;
+      bannerDestinationRef.current = 'chat';
+      showBanner(`${msg.senderName ?? 'Driver'}: ${preview}`, 'chatbubble-ellipses');
+    });
+
+    /**
+     * PRIVATE messages were never counted, and never bannered.
+     *
+     * `chat:private_message` is a different socket event from `chat:message`,
+     * and only the group one was subscribed here — so a one-to-one message
+     * from the driver produced nothing anywhere in the app: no banner, no
+     * badge, no trace. Half the chat feature was invisible.
+     */
+    const unsubPrivateChat = socketEvents.onPrivateChatMessage((msg) => {
+      const segs = segmentsRef.current;
+      const isOnChatScreen = segs.some((s) => s === 'chat');
+
+      const activeTripId = currentChatTripId();
+      if (!isOnChatScreen && activeTripId) useChatUnread.getState().received(activeTripId);
+
+      if (isOnChatScreen) return;
+
+      const preview = msg.text.length > 55 ? msg.text.slice(0, 52) + '…' : msg.text;
       bannerDestinationRef.current = 'chat';
       showBanner(`${msg.senderName ?? 'Driver'}: ${preview}`, 'chatbubble-ellipses');
     });
@@ -371,6 +416,7 @@ export function TripStatusListener() {
       unsubEta();
       unsubSafetyCheck();
       unsubChat();
+      unsubPrivateChat();
     };
   }, [isLoggedIn, showBanner, queryClient, router]);
 

@@ -4,12 +4,15 @@ import {
   StyleSheet,
   FlatList,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// The library's avoider, not React Native's. RN's `behavior="height"` has
+// nothing to shrink under edge-to-edge with adjustResize, so on Android it
+// effectively no-ops and the composer stays under the keyboard.
+import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
@@ -21,6 +24,7 @@ import { Text, Entrance, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
+import { useChatUnread } from '../../../stores/chatUnread.store';
 import { scheduleLocalNotification } from '../../../utils/notifications';
 
 interface Message {
@@ -148,6 +152,16 @@ export default function TripChatScreen() {
       );
     } catch (_) {}
   }, [id, isPrivate, recipientId, outboxKey]);
+
+  // Being on this screen IS reading them. Clears on mount and again whenever a
+  // message lands while the driver is looking at it, so the badge cannot be
+  // left lit by a conversation they are in the middle of.
+  const markChatRead = useChatUnread((s) => s.markRead);
+  const insets = useSafeAreaInsets();
+  const keyboardShown = useKeyboardState((s) => s.isVisible);
+  useEffect(() => {
+    if (id) markChatRead(id);
+  }, [id, markChatRead, messages.length]);
 
   // Network status + outbox flush
   useEffect(() => {
@@ -464,7 +478,7 @@ export default function TripChatScreen() {
     : 'Broadcast to all passengers…';
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <View style={styles.header}>
@@ -521,11 +535,7 @@ export default function TripChatScreen() {
         </View>
       )}
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
         {/* Private tab — passenger picker when no recipient selected */}
         {chatMode === 'private' && !privateRecipientId ? (
           <View style={{ flex: 1 }}>
@@ -595,8 +605,17 @@ export default function TripChatScreen() {
         )}
 
         {/* Input — hidden when on passenger picker */}
+        {/* Bottom inset applies only while the keyboard is DOWN — when it is up
+            the avoider already supplies that space, and applying it twice
+            leaves the composer hovering on a strip of background above the
+            keys. */}
         {!(chatMode === 'private' && !privateRecipientId) && (
-          <View style={styles.inputRow}>
+          <View
+            style={[
+              styles.inputRow,
+              { paddingBottom: spacing.md + (keyboardShown ? 0 : insets.bottom) },
+            ]}
+          >
             <TextInput
               style={styles.textInput}
               value={text}

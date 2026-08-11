@@ -22,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
+import { useChatUnread } from '../../../stores/chatUnread.store';
 import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
@@ -104,6 +105,7 @@ export default function ActiveTripScreen() {
   const { setActiveTripId } = useDriverStore();
   const { addNotification } = useNotificationsStore();
   const [showPaymentQr, setShowPaymentQr] = useState(false);
+  const unreadChats = useChatUnread((s) => (id ? s.counts[id] ?? 0 : 0));
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
@@ -728,6 +730,7 @@ export default function ActiveTripScreen() {
               color={colors.onSurfaceVariant}
               onPress={() => router.push(`/(trip)/chat/${id}`)}
               colors={colors}
+              badge={unreadChats}
             />
             <QuickAction
               icon="map-outline"
@@ -834,6 +837,7 @@ function QuickAction({
   onPress,
   onLongPress,
   colors,
+  badge = 0,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -841,6 +845,8 @@ function QuickAction({
   onPress: () => void;
   onLongPress?: () => void;
   colors: DriverColors;
+  /** Unread count. Rendered as a corner pip; 0 renders nothing. */
+  badge?: number;
 }) {
   return (
     <Pressable
@@ -861,6 +867,26 @@ function QuickAction({
     >
       <Ionicons name={icon} size={20} color={color} />
       <Text style={{ fontFamily: fonts.medium, fontSize: 10, lineHeight: 13, color, letterSpacing: 0.2 }}>{label}</Text>
+      {badge > 0 && (
+        <View
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 10,
+            minWidth: 17,
+            height: 17,
+            borderRadius: 8.5,
+            paddingHorizontal: 4,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: colors.primary,
+          }}
+        >
+          <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, lineHeight: 14, color: colors.onPrimary ?? '#0A0D14' }}>
+            {badge > 9 ? '9+' : badge}
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }
