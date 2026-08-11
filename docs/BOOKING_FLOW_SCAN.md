@@ -1,138 +1,121 @@
-# Booking-flow consistency scan — rider vs driver vs server
+# Booking-flow scan — findings and fixes
 
-Static scan, 2026-08-11. Every finding below has a file:line and a concrete
-failure. Nothing here is device-tested — that is the point, these are the ones
-you would otherwise have had to find by hand.
+Two passes over the booking flow across rider, driver and server, 2026-08-11.
+Everything below is **fixed and committed** unless marked otherwise.
 
-Ordered by severity.
-
----
-
-## 1. `confirmedSeats` drifts DOWN and can oversell the vehicle — HIGH
-
-`Trip.confirmedSeats` is a denormalised counter with **two decrement sites but
-only one real increment site**, and they do not agree on what they are counting.
-
-| Site | Action | Guard |
-|---|---|---|
-| `payments.service.js:410` | `increment: settledCount` | on payment settlement |
-| `drivers.service.js:1109,1160` | `increment: 1` | driver-added offline/cash passenger |
-| `cancellation.service.js:157` | `decrement: 1` | **guarded** on `paymentStatus === 'PAID'` ✅ |
-| `trips.service.js:1091` (`riderNoShow`) | `decrement: 1` | **UNGUARDED** ❌ |
-
-`bookSeat` never increments — a seat only becomes "confirmed" when payment
-settles. So marking an **unpaid** rider as a no-show decrements a counter that
-was never incremented for them.
-
-**Consequence, and it is the wrong direction.** `availableSeats` is computed as
-`Math.max(0, maxSeats - confirmedSeats)` (`graphql/dataloaders.js:40`). With
-`confirmedSeats` negative, that becomes `maxSeats + n` — the trip advertises
-**more seats than the vehicle has**. The clamp protects against the harmless
-direction and not the harmful one.
-
-It also skews `orderBy: { confirmedSeats: 'desc' }` in
-`trips.service.js:1291` ("prefer filling an already-popular trip") and the
-`MIN_OCCUPANCY_TO_DEPART` check.
-
-**Fix:** guard the `riderNoShow` decrement on `paymentStatus === 'PAID'`, the
-same way cancellation already does.
-
-**Checked against live data (2026-08-11):** 0 trips with `confirmedSeats < 0`
-and 0 with `confirmedSeats > maxSeats`. The bug is **latent** — nobody has been
-marked no-show on an unpaid booking yet — so no backfill is needed, only the
-guard. Worth fixing before it fires rather than after.
+Commits: `d7058ae` (pass 1), `3a0fdda` (pass 2).
 
 ---
 
-## 2. Four different formulas for "seats available" — HIGH
+## Pass 1 — the counters and the seat filter
 
-The same question is answered four ways, and they disagree whenever a seat is
-held but unpaid — which is exactly what sharing an invite does.
+### 1. The rider's trip list was ALWAYS empty — CRITICAL
+`SelectStage` filtered `(t.availableSeats ?? 0) >= minSeats` with `minSeats`
+defaulting to 1, and `searchTrips` never returned `availableSeats`. So the test
+was `0 >= 1` for every trip and every trip was dropped. `filtersActive` is
+`minSeats > 1`, so no filter badge appeared either — an empty list with nothing
+to explain it.
+**Fixed:** endpoint returns the field; filter now fails OPEN, so an unknown
+count can never hide a real trip.
 
-| Where | Formula | Counts holds? |
-|---|---|---|
-| `graphql/dataloaders.js:40` | `maxSeats - confirmedSeats` | no |
-| `apps/rider/app/ride/[id].tsx:94` | `maxSeats - bookings.length` | **yes** |
-| `apps/rider/app/(tabs)/home.tsx:151` | `maxSeats - confirmedSeats - pendingSeats` | partly |
-| `apps/rider/app/join/[token].tsx:146` | `maxSeats - confirmedSeats` | no |
+### 2. A no-show consumed a seat permanently — CRITICAL
+Every occupancy query asked `status: { not: 'CANCELLED' }`. `BookingStatus` has
+FOUR terminal states that release a seat — CANCELLED, EXPIRED, REFUNDED,
+NO_SHOW — and the filter excluded one. A no-show kept its seat in the counts,
+in the collision check and on the driver's map. `riderNoShow` also did not null
+`seatNumber`, and `@@unique([tripId, seatNumber])` has no status in it, so the
+next rider to pick that seat failed on a constraint for a seat drawn as free.
+**Fixed:** one shared `seatOccupyingWhere()` in `utils/booking-status.js`, used
+by all 22 occupancy queries; `seatNumber` released on no-show.
 
-A host with cover-all on holds every remaining seat. On the book-a-seat page
-that reads as **0 seats left**; on the home card and the join page the same trip
-still shows seats free. A rider taps through from one to the other and the
-number changes.
+### 3. `confirmedSeats` could go negative and OVERSELL — HIGH
+Incremented only on payment settlement, but `riderNoShow` decremented
+unconditionally while deliberately accepting unpaid SEAT_HELD bookings.
+`availableSeats = maxSeats - confirmedSeats`, so a negative counter advertises
+MORE seats than exist — the `Math.max(0, …)` clamp guarded the harmless
+direction only.
+**Fixed:** guarded on PAID (matching cancellation), and floored with
+`updateMany … confirmedSeats: { gt: 0 }`. Live data checked: 0 rows were out of
+range, so it was latent — no backfill needed.
 
-**Fix:** one server-computed `availableSeats` on the trip payload, and delete
-all three client formulas.
+### 4. Four formulas for "seats available" — HIGH
+Server, booking page, home card and join page each computed it differently and
+disagreed the moment a seat was held but unpaid — which is exactly what sharing
+an invite does.
+**Fixed:** derived once server-side from the occupancy-filtered bookings;
+every client reads the field.
 
----
+### 5. Three invented numbers — MEDIUM
+`availableSeats ?? 3` rendered "3 SEATS LEFT" for a trip whose count never
+loaded; `totalSeats ?? 10` sized the occupancy bar for a van that might hold 4
+or 14; `maxSeats ?? 4` fed the price-breakdown sheet whose whole job is
+explaining the number.
+**Fixed:** unknown renders nothing.
 
-## 3. Fabricated seat numbers in the UI — MEDIUM
-
-Three different invented fallbacks when the real number is missing:
-
-- `apps/rider/components/trip/stages/SelectStage.tsx:507` — `trip.availableSeats ?? 3`
-  renders "3 SEATS LEFT" for a trip whose seat count never loaded.
-- `apps/rider/app/ride/[id].tsx:189` — `trip.totalSeats ?? 10`
-- `apps/rider/app/ride/[id].tsx:527` — `seats={trip?.maxSeats ?? 4}` into the
-  price-breakdown sheet
-
-Same class of bug as the "4.9 rating" that was removed earlier: a plausible
-invented number is worse than an absent one, because nothing looks wrong.
-
-**Fix:** render nothing (or a skeleton) rather than a guess.
-
----
-
-## 4. Driver app has four independent status-label maps — MEDIUM
-
-The same `TripStatus` is given a different label depending on which driver
-screen you are on:
-
-| File:line | `DRIVER_EN_ROUTE` reads as |
-|---|---|
-| `active/[id].tsx:55` | "Heading to Pickup" |
-| `active/[id].tsx:77` | "En Route" |
-| `tracking/[id].tsx:35` | "En Route to Stop" |
-| `tracking/[id].tsx:725` | "En Route" |
-| `components/TripCard.tsx:22` | "En Route" |
-
-Two of those maps are in the *same file*. The rider meanwhile says "Driver is on
-the way" (`tripLiveNotification.ts:13`). A driver moving between manage and
-tracking mid-trip sees the status rename itself.
-
-**Fix:** one exported `TRIP_STATUS_LABELS` in `@eyego/config`, consumed by both
-apps, so the rider and driver vocabulary is defined once.
+### 6. Four status-label maps in the driver app — MEDIUM
+`DRIVER_EN_ROUTE` was written five ways across four maps, two in the same file.
+**Fixed:** one shared vocabulary in `@eyego/config/tripStatus.ts`, with separate
+rider and driver phrasing per status.
 
 ---
 
-## 5. `rides.service.js:251` sets `confirmedSeats: 1` on an unpaid booking — LOW/MEDIUM
+## Pass 2 — the condition-dependent ones
 
-An on-demand trip is created with `confirmedSeats: 1` while its booking is
-`paymentStatus: 'PENDING'`. Everywhere else, "confirmed" means settled. Harmless
-for a 1-seat on-demand ride today, but it is the definitional inconsistency that
-makes finding #1 possible in the first place.
+### 7. Cover-all, toggled twice, destroyed its own seats — HIGH
+Turning cover-all OFF cancelled the held seats without nulling `seatNumber`, so
+each released seat became permanently unbookable — and `createMany({
+skipDuplicates: true })` then silently skipped them if the host toggled it back
+ON, so the host could not re-hold the van either.
+**Fixed:** `seatNumber: null` on release.
 
-**Fix:** pick one meaning of `confirmedSeats` — committed, or paid — and make
-all five write sites obey it. Recommend *committed*, since that is what a seat
-map should show.
+### 8. The seat filter in eleven more places — HIGH
+Same `not: 'CANCELLED'` in the driver's add-passenger collision checks (a
+no-show seat could not be resold to a walk-up), the "last rider left → back on
+sale" check (a trip whose remaining bookings were all no-shows never returned
+to sale), push-notification recipient lists (no-shows still notified), and four
+socket authorisation checks.
+**Fixed.** Admin analytics deliberately left alone — a no-show still counts as
+revenue.
+
+### 9. Anyone could cancel a driver's offline passenger — SECURITY
+`cancelBooking` read `if (booking.userId !== null && booking.userId !== userId)
+throw`, so a null `userId` passed the check and any authenticated rider could
+cancel that booking given only its id. The justification in the comment was
+wrong: rider-made guest bookings carry the BOOKER's userId; the only
+null-userId rows are the driver's own cash passengers.
+**Fixed:** null userId is now rejected outright on this endpoint.
+
+### 10. The seat stepper did nothing — HIGH
+`RequestStage` read `requestSeatCount` and never sent it (TypeScript had it
+flagged as unused), and `requestRide` hardcoded `maxSeats: 1`. A rider choosing
+three seats got a one-seat trip and a driver expecting one passenger.
+**Fixed:** sent, validated (1–6), clamped server-side. Fare untouched — an
+on-demand ride is priced as the whole car. Verified this cannot leak a private
+hire into public listings: `searchTrips` returns only SCHEDULED/FILLING and
+on-demand trips never enter those states.
 
 ---
 
-## Not a bug (checked and cleared)
+## Checked and cleared
 
-- Server queries correctly exclude `CANCELLED` bookings everywhere
-  (`trips.service.js:262,327,473,547`), so client `bookings.length` is already
-  cancellation-safe.
-- Payment-method vocabulary (`CASH`/`CARD`/`MOMO`/`WALLET`) matches across
-  client, API types and server validators.
-- `MAX_SEATS_PER_BOOKING` is imported from `@eyego/config` in every rider seat
-  stepper — no local copies.
-- `cancellation.service.js` guards its decrement correctly.
+- Server queries correctly exclude cancelled bookings — client `bookings.length`
+  was already cancellation-safe.
+- Payment-method vocabulary matches across client, API types and validators.
+- `MAX_SEATS_PER_BOOKING` imported from `@eyego/config` everywhere; no copies.
+- Seat-hold expiry sweep releases `seatNumber` correctly.
+- `acceptTripRequest` uses a proper compare-and-swap claim — no double-accept.
+- `bookSeat` releases a passenger's prior hold keyed on the PASSENGER, not the
+  account, so booking for a guest then for yourself no longer cancels the guest.
+- `cancelBooking` correctly refuses PAID bookings.
+- `drivers.service` cancel-trip path already nulled `seatNumber`.
+- `confirmPayment`'s trip-full guard is a secondary check behind the unique seat
+  assignment; the drifting counter it read is now fixed anyway.
 
----
+## Still open
 
-## Suggested order
-
-1 and 2 are the ones that can take money or oversell a vehicle. 3 and 4 are
-polish that stops the flow *reading* inconsistently. 5 is the cleanup that
-prevents 1 recurring.
+- `rides.service.js` creates on-demand trips with `confirmedSeats = partySize`
+  while payment is PENDING, whereas group trips only count a seat once payment
+  settles. Harmless today (on-demand trips are never publicly listed, so nothing
+  reads their availability), but the two products still mean slightly different
+  things by "confirmed". Worth unifying if on-demand ever becomes shareable.
+- Nothing here is device-tested. Backend changes need a deploy.
