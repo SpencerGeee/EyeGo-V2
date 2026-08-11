@@ -510,12 +510,16 @@ async function driverCancel(driverId, tripId, reason = null) {
 
 /** Driver one-call rehydration. */
 async function getDriverState(driverId) {
-  const [driver, trip] = await Promise.all([
+  const [driver, trip, offer] = await Promise.all([
     prisma.driver.findUnique({
       where: { id: driverId },
       select: { id: true, name: true, status: true, isOnline: true, currentLat: true, currentLng: true, walletBalancePesewas: true },
     }),
     findActiveTripForDriver(driverId),
+    // "Is anyone waiting on me right now?" An offer is pushed over a socket
+    // and never replayed — it carries no trip seq — so a phone that was asleep
+    // or reconnecting for those twenty seconds has no other way to find out.
+    cascade.getOfferForDriver(driverId).catch(() => null),
   ]);
   if (!driver) throw new NotFoundError('Driver');
 
@@ -530,6 +534,9 @@ async function getDriverState(driverId) {
       walletBalancePesewas: driver.walletBalancePesewas,
     },
     trip: trip ? await buildTripSnapshotWithPath(trip, {}) : null,
+    // Suppressed while already on a trip: a driver mid-ride cannot take a new
+    // offer, and surfacing one would put a modal over their live trip screen.
+    offer: trip ? null : offer,
     serverNowMs: Date.now(),
   };
 }

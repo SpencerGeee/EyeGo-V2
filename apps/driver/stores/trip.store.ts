@@ -118,12 +118,44 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
 
   hydrate: async () => {
     try {
-      const { trip, serverNowMs } = await ridesApi.driverState();
+      const { trip, serverNowMs, offer } = await ridesApi.driverState();
+      const skew = serverNowMs - Date.now();
       set({
         snapshot: trip,
         lastSeq: trip?.version ?? 0,
-        clockSkewMs: serverNowMs - Date.now(),
+        clockSkewMs: skew,
       });
+      // THE OFFER SURVIVES A DEAD SOCKET.
+      //
+      // An offer is a 20-second window. If the phone was asleep, on a train, or
+      // mid-reconnect when it was published, the socket frame is simply gone —
+      // there is no replay for offers because they carry no trip seq. So the
+      // one call every cold start / foreground / reconnect already makes now
+      // answers "is someone waiting on me right now?" too. Only adopt it if it
+      // still has time on it against SERVER time.
+      if (offer && offer.expiresAtServerMs - (Date.now() + skew) > 1000) {
+        const held = get().offer;
+        if (held?.tripId !== offer.tripId) {
+          set({
+            offer: {
+              tripId: offer.tripId,
+              pickupLat: offer.pickupLat ?? null,
+              pickupLng: offer.pickupLng ?? null,
+              pickupAddress: offer.pickupAddress ?? null,
+              dropoffLat: offer.dropoffLat ?? null,
+              dropoffLng: offer.dropoffLng ?? null,
+              dropoffAddress: offer.dropoffAddress ?? null,
+              farePesewas: offer.farePesewas ?? null,
+              driverEarningsPesewas: offer.driverEarningsPesewas ?? null,
+              tier: offer.tier ?? null,
+              expiresAtServerMs: offer.expiresAtServerMs,
+              etaSeconds: offer.etaSeconds ?? null,
+              attempt: offer.attempt ?? 0,
+              totalCandidates: offer.totalCandidates ?? 0,
+            },
+          });
+        }
+      }
       if (trip) get().watch(trip.tripId);
       return trip;
     } catch {
@@ -137,6 +169,21 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
    * and one staleness rule (TTL) rather than none.
    */
   listenForOffers: () => {
+    // THE BUG THIS FIXES: "I requested a ride and the driver phone never rang."
+    //
+    // The driver socket is created with `autoConnect: false`, and the ONLY
+    // thing that ever called `.connect()` was `watch()` — which runs when the
+    // driver is already on a trip. A driver sitting on the home screen waiting
+    // for work therefore held a socket object that had never dialled out. The
+    // server published the offer correctly, into a room nobody was in.
+    //
+    // Taking a refcounted connection here means the offer channel is live for
+    // the whole logged-in session, which is exactly as long as a driver can be
+    // offered work. It also pins the socket identity: `disconnectDriverSocket`
+    // nulls the module socket at zero refs, so without this ref an `unwatch()`
+    // at the end of a trip destroyed the object this handler was bound to and
+    // no further offer could ever arrive until the app was restarted.
+    connectDriverSocket();
     const socket = getDriverSocket();
     const handler = (event: TripEvent) => {
       if (event.type === 'OFFER') {
@@ -167,8 +214,18 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
         set((s) => (s.offer?.tripId === event.payload?.tripId ? { offer: null } : s));
       }
     };
+    // A reconnect (backgrounded phone, tunnel, carrier handover) re-runs the
+    // server's `socket.join('driver:<id>')`, but any offer published while we
+    // were away is gone for good — offers carry no seq and so are not replayed.
+    // Re-asking on every reconnect is what closes that window.
+    const onReconnect = () => { void get().hydrate(); };
+    socket.on('connect', onReconnect);
     socket.on('trip:event', handler);
-    return () => socket.off('trip:event', handler);
+    return () => {
+      socket.off('trip:event', handler);
+      socket.off('connect', onReconnect);
+      disconnectDriverSocket();
+    };
   },
 
   clearOffer: () => set({ offer: null }),

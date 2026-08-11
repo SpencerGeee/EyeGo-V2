@@ -38,12 +38,36 @@ export interface ActiveRideResponse {
   serverNowMs: number;
 }
 
+/**
+ * A dispatch offer as REST returns it — the socket-miss safety net.
+ *
+ * Offers ride the socket normally, but they carry no trip `seq`, so unlike
+ * every lifecycle event there is nothing to replay them from. A driver whose
+ * phone was asleep for the twenty seconds the offer was live simply never
+ * learns it existed. `GET /rides/driver/state` therefore answers "is anyone
+ * waiting on me right now" alongside "am I on a trip".
+ */
+export interface PendingOffer {
+  tripId: string;
+  pickupLat: number | null; pickupLng: number | null; pickupAddress: string | null;
+  dropoffLat: number | null; dropoffLng: number | null; dropoffAddress: string | null;
+  farePesewas: number | null;
+  driverEarningsPesewas: number | null;
+  tier: string | null;
+  expiresAtServerMs: number;
+  etaSeconds: number | null;
+  attempt: number;
+  totalCandidates: number;
+}
+
 export interface DriverStateResponse {
   driver: {
     id: string; name: string; status: string; isOnline: boolean;
     lat: number | null; lng: number | null; walletBalancePesewas: number;
   };
   trip: TripSnapshot | null;
+  /** Live dispatch offer held by this driver, if any. */
+  offer: PendingOffer | null;
   serverNowMs: number;
 }
 

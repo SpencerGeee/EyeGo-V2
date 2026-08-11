@@ -256,7 +256,17 @@ export default function RootLayout() {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as Record<string, any>;
       const { type, tripId } = data ?? {};
-      if (type === 'TRIP_ASSIGNED' && tripId) {
+      if (type === 'TRIP_OFFER') {
+        // The dispatch cascade's own push. It had NO case here, so it fell
+        // through to the catch-all below and opened `/(trip)/active/<id>` for
+        // a trip this driver has not accepted and does not own — a dead screen
+        // where the offer card should have been.
+        //
+        // Nothing to navigate to: `DispatchOfferSheet` is mounted at the root
+        // and appears over whatever is on screen. Re-hydrating is what makes it
+        // appear, because the offer is on `/rides/driver/state` now.
+        void useDriverTripStore.getState().hydrate();
+      } else if (type === 'TRIP_ASSIGNED' && tripId) {
         router.push({
           pathname: '/(trip)/dispatch/[id]',
           params: {
@@ -310,6 +320,15 @@ export default function RootLayout() {
   // Foreground notification handler — shows in-app banner when push arrives while app is open
   useEffect(() => {
     const receivedSub = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data as Record<string, any> | undefined;
+      if (data?.type === 'TRIP_OFFER') {
+        // A push arriving in the foreground means the socket did not deliver
+        // this — otherwise the sheet would already be up. Pull the offer over
+        // REST and show the card rather than a banner the driver must read and
+        // then go hunting for, with twenty seconds on the clock.
+        void useDriverTripStore.getState().hydrate();
+        return;
+      }
       const title = notification.request.content.title ?? '';
       const body = notification.request.content.body ?? '';
       if (title || body) {

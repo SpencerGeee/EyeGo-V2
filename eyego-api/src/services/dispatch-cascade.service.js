@@ -82,6 +82,47 @@ const STATE_TTL_SECONDS = 30 * 60;
 
 const stateKey = (tripId) => `dispatch:cascade:${tripId}`;
 const lockKey = (tripId) => `dispatch:lock:${tripId}`;
+/**
+ * The offer, mirrored per-driver so it can be FETCHED rather than only pushed.
+ *
+ * Cascade state is keyed by trip, which answers "who is this trip offered to".
+ * It cannot answer the question a driver's app asks on every cold start,
+ * foreground and reconnect: "is anyone waiting on me right now". A socket frame
+ * is the only way an offer has ever reached a phone, and an offer carries no
+ * trip seq, so unlike every lifecycle event there is nothing to replay it from
+ * — a phone asleep for those twenty seconds never learned the offer existed.
+ * This key self-expires with the offer, so it can never outlive its own answer.
+ */
+const driverOfferKey = (driverId) => `dispatch:offer:driver:${driverId}`;
+
+/** Park an offer where `GET /rides/driver/state` can find it. */
+async function rememberOffer(driverId, payload, expiresAtMs) {
+  const ms = Math.max(1000, expiresAtMs - Date.now());
+  await redis.set(driverOfferKey(driverId), JSON.stringify(payload), 'PX', ms).catch(() => {});
+}
+
+/** Drop it the moment it stops being true — taken, declined, revoked, expired. */
+async function forgetOffer(driverId) {
+  if (!driverId) return;
+  await redis.del(driverOfferKey(driverId)).catch(() => {});
+}
+
+/**
+ * The live offer for this driver, or null. Expired entries answer null rather
+ * than a dead card: redis TTL is the authority, and we re-check the deadline
+ * anyway in case the key outlived it by a tick.
+ */
+async function getOfferForDriver(driverId) {
+  try {
+    const raw = await redis.get(driverOfferKey(driverId));
+    if (!raw) return null;
+    const offer = JSON.parse(raw);
+    if (!offer?.expiresAtServerMs || offer.expiresAtServerMs <= Date.now()) return null;
+    return offer;
+  } catch {
+    return null;
+  }
+}
 
 // ── state ────────────────────────────────────────────────────────────────────
 
@@ -220,7 +261,7 @@ async function offerNext(tripId) {
         0,
       );
 
-      publisher.publishOfferToDriver(candidate.id, {
+      const offerPayload = {
         tripId,
         kind: state.kind,
         pickupLat: trip.pickupLat,
@@ -241,7 +282,13 @@ async function offerNext(tripId) {
         etaSeconds: candidate.etaSeconds,
         attempt: state.index,
         totalCandidates: state.candidates.length,
-      });
+      };
+
+      // Park it BEFORE publishing. If the driver's socket is down, the push
+      // notification is what wakes the app, and the app's first act on wake is
+      // to hydrate — which must already be able to see this.
+      await rememberOffer(candidate.id, offerPayload, expiresAtMs);
+      publisher.publishOfferToDriver(candidate.id, offerPayload);
       pushToDriver(candidate, trip, expiresAtMs).catch(() => {});
 
       await emitProgress(tripId, 'DISPATCH_PROGRESS', {
@@ -574,6 +621,7 @@ async function declineOffer(tripId, driverId) {
   await writeState(state);
   if (state.currentDriverId !== driverId) return false;
 
+  await forgetOffer(driverId);
   publisher.publishOfferRevoked(driverId, tripId, 'DECLINED');
   await scheduledTasks.cancel(TASK_OFFER_TIMEOUT, tripId).catch(() => {});
   await offerNext(tripId);
@@ -612,8 +660,12 @@ async function announceWinner(tripId, driverId) {
     const offered = state.candidates.slice(0, state.index).map((c) => c.id);
     for (const id of offered) {
       if (id !== driverId) publisher.publishOfferRevoked(id, tripId, 'TAKEN');
+      // Including the winner: their offer is now a trip, and a stale REST
+      // offer would re-open the card over the trip screen on next hydrate.
+      await forgetOffer(id);
     }
   }
+  await forgetOffer(driverId);
   await finish(tripId, 'accepted');
   await clearState(tripId);
 
@@ -642,6 +694,7 @@ async function resumeAfterFailedClaim(tripId, driverId) {
 async function cancelCascade(tripId) {
   const state = await readState(tripId);
   if (state?.currentDriverId) {
+    await forgetOffer(state.currentDriverId);
     publisher.publishOfferRevoked(state.currentDriverId, tripId, 'CANCELLED');
   }
   await finish(tripId, 'cancelled');
@@ -682,7 +735,10 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
   // Ignore a timeout for an offer that has already moved on.
   if (!state || state.done || state.currentDriverId !== driverId) return;
   logger.info('Dispatch offer timed out', { tripId, driverId });
-  if (driverId) publisher.publishOfferRevoked(driverId, tripId, 'TIMEOUT');
+  if (driverId) {
+    await forgetOffer(driverId);
+    publisher.publishOfferRevoked(driverId, tripId, 'TIMEOUT');
+  }
   await offerNext(tripId);
 });
 
@@ -703,6 +759,8 @@ module.exports = {
   resumeAfterFailedClaim,
   cancelCascade,
   getCascadeState,
+  getOfferForDriver,
+  forgetOffer,
   OFFER_TTL_SECONDS,
   DISPATCH_RADIUS_KM,
   DISPATCH_EXTENDED_RADIUS_KM,
