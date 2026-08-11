@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { formatGhs } from '@eyego/utils';
 import { View, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
+import { useDriverTripStore } from '../../../stores/trip.store';
 import * as Haptics from 'expo-haptics';
 
 // How many seconds the driver has to respond if no expiresAt is provided
@@ -39,31 +40,62 @@ export default function DispatchScreen() {
   // requires the trip's driverId to already match this driver).
   const isReassignment = kind === 'REASSIGNMENT';
 
-  const initialSeconds = useMemo(() => {
+  /**
+   * THE COUNTDOWN, AGAINST SERVER TIME — converged with DispatchOfferSheet.
+   *
+   * This counted `new Date(expiresAt) - Date.now()`, which is the driver's own
+   * device clock. A phone a minute fast showed a minute less than the deadline
+   * it was actually racing; a phone a minute slow showed time remaining on an
+   * offer the server had already reassigned, so the driver swiped Accept into a
+   * 409. Two drivers offered the same trip saw different numbers. The cascade
+   * sheet was built against `serverNowMs` for exactly this reason; there was no
+   * argument for the other offer surface in the same app disagreeing with it.
+   *
+   * `useDriverTripStore.now()` is Date.now() plus the skew measured on the last
+   * payload the server sent, so both screens now render the same second.
+   */
+  const serverNow = useDriverTripStore((s) => s.now);
+
+  const expiresAtMs = useMemo(() => {
     if (expiresAt) {
-      const diff = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000);
-      return Math.max(1, diff);
+      const t = new Date(expiresAt).getTime();
+      if (Number.isFinite(t)) return t;
     }
-    return DEFAULT_TIMEOUT_S;
+    // No deadline on the payload (the REASSIGNMENT path sends none) — fall back
+    // to a fixed window measured from now, still on server time.
+    return serverNow() + DEFAULT_TIMEOUT_S * 1000;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expiresAt]);
+
+  const initialSeconds = useMemo(
+    () => Math.max(1, Math.round((expiresAtMs - serverNow()) / 1000)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [expiresAtMs],
+  );
 
   const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
   const timedOut = secondsLeft <= 0;
+  /** Last second we buzzed on, so a 500 ms tick cannot buzz twice per second. */
+  const lastBuzzedRef = useRef<number | null>(null);
 
-  // Countdown
+  // Re-derived from the deadline every tick rather than decremented, so a
+  // dropped frame or a backgrounded app cannot leave the clock behind the
+  // real one. Haptics fire HERE, not inside the state updater — React may
+  // invoke an updater more than once, and a buzz is not idempotent.
   useEffect(() => {
     if (timedOut) return;
-    const timer = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) { clearInterval(timer); return 0; }
-        if (s <= 6) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        }
-        return s - 1;
-      });
-    }, 1000);
+    const tick = () => {
+      const left = Math.max(0, Math.round((expiresAtMs - serverNow()) / 1000));
+      if (left <= 6 && left > 0 && left !== lastBuzzedRef.current) {
+        lastBuzzedRef.current = left;
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      }
+      setSecondsLeft(left);
+    };
+    tick();
+    const timer = setInterval(tick, 500);
     return () => clearInterval(timer);
-  }, [timedOut]);
+  }, [timedOut, expiresAtMs, serverNow]);
 
   // D8: guard invalid id — navigate back after mount
   useEffect(() => {
@@ -171,11 +203,22 @@ export default function DispatchScreen() {
         <Entrance animation="slideUp" delay={60} style={styles.header}>
           <View style={[styles.dispatchBadge, { backgroundColor: `${colors.primary}22`, borderColor: `${colors.primary}55` }]}>
             <View style={[styles.dispatchDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.dispatchLabel, { color: colors.primary }]}>Trip Assigned</Text>
+            {/* All three kinds landed on the same two hardcoded strings, so a
+                reassignment — a trip another driver abandoned, which is
+                first-claim-wins and will NOT be held for this driver —
+                announced itself as a personal assignment with a private
+                countdown. Say which offer this actually is. */}
+            <Text style={[styles.dispatchLabel, { color: colors.primary }]}>
+              {isReassignment ? 'Up for grabs' : isTripRequest ? 'Ride request' : 'Trip assigned'}
+            </Text>
           </View>
-          <Text style={styles.headline}>New Trip Request</Text>
+          <Text style={styles.headline}>
+            {isReassignment ? 'Trip needs a driver' : 'New trip request'}
+          </Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
-            Accept within {initialSeconds}s or it will be reassigned.
+            {isReassignment || isTripRequest
+              ? 'First driver to accept gets it.'
+              : `Accept within ${initialSeconds}s or it will be reassigned.`}
           </Text>
         </Entrance>
 

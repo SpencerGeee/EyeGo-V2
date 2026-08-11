@@ -266,7 +266,12 @@ export default function RootLayout() {
         // and appears over whatever is on screen. Re-hydrating is what makes it
         // appear, because the offer is on `/rides/driver/state` now.
         void useDriverTripStore.getState().hydrate();
-      } else if (type === 'TRIP_ASSIGNED' && tripId) {
+      // Admin dispatch assigned this driver a scheduled trip. It had no case,
+      // so it fell to the catch-all at the bottom and opened the ACTIVE trip
+      // screen for a trip the driver has not accepted yet — the same bug
+      // TRIP_OFFER had. Both admin pushes land on the offer screen, which is
+      // where the Accept button is.
+      } else if ((type === 'TRIP_ASSIGNED' || type === 'ADMIN_TRIP_ASSIGNED') && tripId) {
         router.push({
           pathname: '/(trip)/dispatch/[id]',
           params: {

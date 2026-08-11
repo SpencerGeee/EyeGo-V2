@@ -24,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
+import { useDriverTripStore } from '../../stores/trip.store';
 import { useNotificationsStore } from '../../stores/notifications.store';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
@@ -203,6 +204,25 @@ export default function HomeScreen() {
       // rather than closing over `activeTripId`, since this effect only
       // re-subscribes on isOnline changes.
       if (useDriverStore.getState().activeTripId) return;
+      /*
+       * ONE OFFER ON SCREEN AT A TIME.
+       *
+       * There are two dispatch paths into this app and they do not know about
+       * each other: the sequential cascade, which publishes an OFFER over
+       * `trip:event` and is rendered by the root-mounted DispatchOfferSheet,
+       * and this older `trip:assigned` socket event, which NAVIGATES to the
+       * dispatch screen. Nothing stopped both from happening, and a driver
+       * holding a live cascade offer who was then pushed onto the legacy screen
+       * would have had the sheet's Accept covered by a different screen's
+       * Accept — two countdowns, two endpoints, one driver.
+       *
+       * The cascade holds an exclusive offer with a server deadline, so it
+       * wins: this path stands down while one is live. (Today they cannot
+       * actually collide — nothing creates TripRequests any more — but the two
+       * systems are still both wired, and a latent double-offer is exactly the
+       * bug the sequential cascade exists to prevent.)
+       */
+      if (useDriverTripStore.getState().offer) return;
       seenDispatchIdsRef.current.add(data.tripId);
       useNotificationsStore.getState().addNotification({
         type: 'TRIP_ASSIGNED',
@@ -220,7 +240,13 @@ export default function HomeScreen() {
           destination: data.routeDestination,
           departureTime: data.departureTime,
           expiresAt: data.expiresAt,
-          estimatedEarnings: data.estimatedEarnings != null ? String(data.estimatedEarnings) : undefined,
+          // The server sends `estimatedEarningsPesewas` (admin.controller.js).
+          // This read `data.estimatedEarnings`, a field that has never been on
+          // the payload, so it was always undefined and the earnings card on
+          // the dispatch screen never rendered — a driver being offered a trip
+          // could not see what it paid, which is the one fact they decide on.
+          estimatedEarnings:
+            data.estimatedEarningsPesewas != null ? String(data.estimatedEarningsPesewas) : undefined,
         },
       } as any);
     });

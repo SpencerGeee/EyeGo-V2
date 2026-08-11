@@ -602,7 +602,14 @@ export const driverSocketEvents = {
     routeOrigin: string;
     routeDestination: string;
     departureTime: string;
-    estimatedEarnings?: number;
+    /**
+     * Driver's cut after commission, in PESEWAS — the name the server has
+     * always sent (admin.controller.js). The type said `estimatedEarnings`,
+     * so every consumer read a field that does not exist and the dispatch
+     * screen's earnings card silently never rendered. Typed wrong is how it
+     * stayed unnoticed: the compiler was happy to check the wrong name.
+     */
+    estimatedEarningsPesewas?: number;
     seatCount?: number;
     bookedCount?: number;
     expiresAt: string;
