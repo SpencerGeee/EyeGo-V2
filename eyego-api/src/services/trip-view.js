@@ -44,6 +44,10 @@ const TRIP_INCLUDE = Object.freeze({
       paymentMethod: true,
       paymentStatus: true,
       status: true,
+      // Distinguishes a seat the group's host BOUGHT from the seat they SIT
+      // in, so the snapshot can sum their money without also claiming they are
+      // four passengers.
+      isCoveredByLead: true,
       guestName: true,
       guestPhone: true,
       pickupLat: true,
@@ -78,9 +82,24 @@ function buildTripSnapshot(trip, viewer = {}) {
   if (!trip) return null;
   const { forUserId = null, path = null } = viewer;
 
-  const myBooking = forUserId
-    ? (trip.bookings || []).find((b) => b.userId === forUserId) || null
+  /**
+   * Every seat this viewer is paying for, not just the first one found.
+   *
+   * A rider who chose "I'll pay for everyone" owns one booking per covered
+   * seat (see bookings.service `syncCoveredSeatsTx`). `find` returned whichever
+   * of those Prisma happened to order first and the tracking page then showed
+   * ONE seat's fare — reported as "I'm paying for everyone but the tracking
+   * page says 4.80". Their own seat stays the identity of the ride; the money
+   * is the sum across all of them.
+   */
+  const myBookings = forUserId ? (trip.bookings || []).filter((b) => b.userId === forUserId) : [];
+  // Prefer the seat they actually sit in over one they merely bought.
+  const myBooking =
+    myBookings.find((b) => !b.isCoveredByLead) ?? myBookings[0] ?? null;
+  const myFarePesewas = myBookings.length
+    ? myBookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0)
     : null;
+  const mySeatsPaidFor = myBookings.length;
 
   return {
     // ── identity + the two fields that make every client decision total ──
@@ -212,8 +231,12 @@ function buildTripSnapshot(trip, viewer = {}) {
       perKmPesewas: trip.perKmRatePesewas,
       // Not money: a dimensionless multiplier, so no suffix and no rounding.
       surge: trip.surgeMultiplier,
-      // The rider's own money for this ride. Null for a driver viewing it.
-      amountPesewas: myBooking ? myBooking.fareAmountPesewas : null,
+      // The rider's own money for this ride — SUMMED across every seat they
+      // are paying for, so a host covering the group sees the group's total
+      // and not one seat of it. Null for a driver viewing it.
+      amountPesewas: myFarePesewas,
+      /** How many seats that total covers. 1 for an ordinary rider. */
+      seatsPaidFor: mySeatsPaidFor || null,
       paymentMethod: myBooking ? myBooking.paymentMethod : null,
       paymentStatus: myBooking ? myBooking.paymentStatus : null,
     },

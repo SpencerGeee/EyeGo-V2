@@ -414,6 +414,13 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       await ridesApi.cancel(tripId);
       setPendingTripRequest(null);
       useTripStore.getState().unwatch();
+      // The home screen's live-ride card reads a CACHED `['bookings','active']`.
+      // Cancelling here did not touch that cache, so the rider landed on home
+      // and was shown the ride they had just cancelled, served from the stale
+      // response — and pulling to refresh made it vanish, which is exactly what
+      // was reported. Drop it on the way out so home refetches on mount.
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
       router.dismissTo('/(tabs)/home' as any);
     } catch (err: any) {
       const msg = err?.response?.data?.message;

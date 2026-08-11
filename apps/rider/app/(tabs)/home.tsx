@@ -30,12 +30,24 @@ import { useRideStore } from '../../stores/ride.store';
 // when no coordinate is available.
 const DEFAULT_MAP_CENTER: [number, number] = [-0.187, 5.6037];
 
-function activeBookingStatusLabel(status: string | undefined): string {
+/**
+ * The status chip, or nothing.
+ *
+ * This used to `default: return 'CONFIRMED'`, which meant an unknown or absent
+ * status asserted the single most reassuring thing this card can say. A rider
+ * who had just cancelled read "Confirmed" off a ride that no longer existed.
+ * An unrecognised status is not a confirmation — say nothing instead.
+ */
+function activeBookingStatusLabel(status: string | undefined): string | null {
   switch (status) {
     case 'DRIVER_EN_ROUTE': return 'DRIVER ON THE WAY';
+    case 'DRIVER_ASSIGNED': return 'DRIVER ASSIGNED';
+    case 'ARRIVED_AT_PICKUP': return 'DRIVER ARRIVED';
     case 'IN_PROGRESS': return 'TRIP IN PROGRESS';
     case 'FILLING': return 'CONFIRMED · FILLING';
-    default: return 'CONFIRMED';
+    case 'MATCHED':
+    case 'CONFIRMED': return 'CONFIRMED';
+    default: return null;
   }
 }
 
@@ -287,6 +299,21 @@ export default function HomeScreen() {
   const activeBookingRaw = (activeBookings as any)?.data?.data?.booking ?? null;
   const activeBooking =
     activeBookingRaw &&
+    // A LIVE CARD NEEDS A LIVE TRIP.
+    //
+    // "I cancelled, then landed on the index page with the live trip card
+    // showing 'Your Driver', 'Confirmed' and 'your destination' — all
+    // placeholders." Every one of those strings is this card's `??` fallback,
+    // which means it rendered against a booking whose `trip` relation was
+    // absent. The terminal filter below could not catch it either: with no
+    // trip, `String(undefined).toUpperCase()` is the literal "UNDEFINED",
+    // which is in neither terminal list, so a trip-less booking sailed
+    // through as though it were healthy.
+    //
+    // There is nothing to show a rider about a ride with no trip on it. The
+    // card is also a navigation target into tracking, so rendering it in that
+    // state strands them in a dead ride. Require the relation.
+    activeBookingRaw.trip &&
     !TERMINAL_BOOKING.includes(String(activeBookingRaw.status ?? '').toUpperCase()) &&
     !TERMINAL_TRIP.includes(String(activeBookingRaw.trip?.status ?? '').toUpperCase())
       ? activeBookingRaw
@@ -482,9 +509,13 @@ export default function HomeScreen() {
                   animationMode="none"
                 />
               </MapboxGL.MapView>
+              {/* Was a hardcoded "IN PROGRESS" — it said so over a ride that
+                  had not started, and over one that had just been cancelled. */}
               <View style={styles.activeBentoRouteChip}>
                 <View style={styles.activeBentoDot} />
-                <Text style={styles.activeBentoStatusText}>IN PROGRESS</Text>
+                <Text style={styles.activeBentoStatusText}>
+                  {activeBookingStatusLabel(activeBooking.trip?.status) ?? 'LIVE'}
+                </Text>
               </View>
               {/* Gradient fade blending the map into the docked card below */}
               <LinearGradient
@@ -515,7 +546,11 @@ export default function HomeScreen() {
                   </View>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={styles.activeBentoAway}>{activeBookingStatusLabel(activeBooking.trip?.status)}</Text>
+                  {activeBookingStatusLabel(activeBooking.trip?.status) ? (
+                    <Text style={styles.activeBentoAway}>
+                      {activeBookingStatusLabel(activeBooking.trip?.status)}
+                    </Text>
+                  ) : null}
                 </View>
               </View>
               <View style={styles.activeBentoDestRow}>

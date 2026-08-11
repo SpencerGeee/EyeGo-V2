@@ -6,7 +6,7 @@ import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface } from '@eyego/ui';
+import { Text, GradientGlowBorder } from '@eyego/ui';
 import { useColors, type DriverColors } from '../utils/useColors';
 import { consumePickedPlace } from '../utils/placePickerResult';
 
@@ -117,19 +117,31 @@ export function DestinationModeCard() {
 
   if (mode.active) {
     return (
-      <View style={styles.card}>
-        <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+      <GradientGlowBorder
+        palette="driver"
+        fillColor={colors.surfaceContainerHigh}
+        borderRadius={radii.xl}
+        thickness="thin"
+        glow
+        glowIntensity={0.85}
+        style={styles.card}
+      >
         <View style={[styles.icon, { backgroundColor: `${colors.primary}22` }]}>
           <Ionicons name="home" size={18} color={colors.primary} />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={styles.body}>
           <Text style={styles.title} numberOfLines={1}>
             {mode.address ?? 'Heading to your destination'}
           </Text>
-          <Text variant="caption" color={colors.onSurfaceVariant}>
-            Only rides going this way{remainingLabel ? ` · ${remainingLabel}` : ''}
+          <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+            Only rides going this way
           </Text>
         </View>
+        {remainingLabel ? (
+          <View style={[styles.pill, { borderColor: `${colors.primary}55`, backgroundColor: `${colors.primary}18` }]}>
+            <Text style={[styles.pillText, { color: colors.primary }]}>{remainingLabel}</Text>
+          </View>
+        ) : null}
         <Pressable
           onPress={() => clearMode.mutate()}
           hitSlop={10}
@@ -139,30 +151,82 @@ export function DestinationModeCard() {
         >
           <Ionicons name="close" size={16} color={colors.onSurfaceVariant} />
         </Pressable>
-      </View>
+      </GradientGlowBorder>
     );
   }
+
+  const exhausted = mode.usesRemaining <= 0;
 
   return (
     <Pressable
       onPress={openPicker}
-      style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [pressed && { opacity: 0.85 }]}
       accessibilityRole="button"
       accessibilityLabel="Set a destination to only get rides heading that way"
     >
-      <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
-      <View style={[styles.icon, { backgroundColor: `${colors.onSurfaceVariant}18` }]}>
-        <Ionicons name="navigate-outline" size={18} color={colors.onSurfaceVariant} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.title}>Set a destination</Text>
-        <Text variant="caption" color={colors.onSurfaceVariant}>
-          {mode.usesRemaining > 0
-            ? `Only get rides heading your way · ${mode.usesRemaining} of ${mode.maxUsesPerDay} left today`
-            : 'Both of today’s destination trips are used'}
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+      {/*
+        THE FAINT GLOW. This is an earner, not a setting — a driver who never
+        notices it drives home empty. It gets a thin brand ring at reduced
+        intensity so it reads as lit without competing with the Create Trip
+        button directly below it, which is the screen's hero and carries the
+        same ring at full strength.
+      */}
+      <GradientGlowBorder
+        palette="driver"
+        fillColor={colors.surfaceContainerHigh}
+        borderRadius={radii.xl}
+        thickness="thin"
+        glow
+        glowIntensity={exhausted ? 0 : 0.6}
+        disabled={exhausted}
+        style={styles.card}
+      >
+        <View
+          style={[
+            styles.icon,
+            { backgroundColor: exhausted ? `${colors.onSurfaceVariant}18` : `${colors.primary}1A` },
+          ]}
+        >
+          <Ionicons
+            name="navigate-outline"
+            size={18}
+            color={exhausted ? colors.onSurfaceVariant : colors.primary}
+          />
+        </View>
+        {/*
+          LAYOUT BUGFIX. The subtitle used to read "Only get rides heading your
+          way · 2 of 2 left today" as one unbroken string in a `flex: 1` column
+          with no `numberOfLines`. On a phone that is three wrapped lines, so
+          the row grew to ~90 pt, the icon and chevron floated centred against a
+          block of text, and the whole card sat unbalanced next to the fixed
+          height ones around it. The allowance is now a pill of its own — the
+          part a driver actually scans for — and both text lines are clamped, so
+          the row is one predictable height whatever the copy says.
+        */}
+        <View style={styles.body}>
+          <Text style={styles.title} numberOfLines={1}>
+            Set a destination
+          </Text>
+          <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+            {exhausted ? 'Resets tomorrow' : 'Only get rides heading your way'}
+          </Text>
+        </View>
+        <View
+          style={[
+            styles.pill,
+            exhausted
+              ? { borderColor: colors.outline }
+              : { borderColor: `${colors.primary}55`, backgroundColor: `${colors.primary}18` },
+          ]}
+        >
+          <Text
+            style={[styles.pillText, { color: exhausted ? colors.onSurfaceVariant : colors.primary }]}
+          >
+            {exhausted ? '0 left' : `${mode.usesRemaining} left`}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+      </GradientGlowBorder>
     </Pressable>
   );
 }
@@ -175,10 +239,6 @@ const makeStyles = (colors: DriverColors) =>
       gap: spacing.md,
       paddingHorizontal: spacing.base,
       paddingVertical: spacing.md,
-      borderRadius: radii.xl,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.outline,
-      overflow: 'hidden',
     },
     icon: {
       width: 34,
@@ -186,6 +246,22 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: 17,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    /** `minWidth: 0` is what actually lets `numberOfLines` bite: without it a
+     *  flex child refuses to shrink below its text's intrinsic width and the
+     *  clamp never engages, which is how the subtitle wrapped in the first
+     *  place. */
+    body: { flex: 1, minWidth: 0, gap: 1 },
+    pill: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radii.full,
+      borderWidth: 1,
+    },
+    pillText: {
+      fontFamily: fonts.semiBold,
+      fontSize: 11,
+      lineHeight: Math.round(11 * 1.4),
     },
     title: {
       fontFamily: fonts.semiBold,

@@ -312,6 +312,32 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
   return result;
 }
 
+/**
+ * Create the ride group, or update the one that exists.
+ *
+ * TWO BUGS LIVED HERE, and together they made "I'll pay for everyone" a
+ * checkbox that changed a number on one screen and nothing else.
+ *
+ * 1. `if (existing) return existing` — the group is created when the invite
+ *    LINK is generated, which always happens before the host reaches the
+ *    cover-all toggle. So by the time the toggle fired this call, the group
+ *    already existed and the new `isCoverAll` was thrown away unread. The
+ *    settlement code in payments.service reads `group.isCoverAll` and was
+ *    therefore looking at a flag that could never become true.
+ *
+ * 2. Even with the flag set, settlement only covers seats that ALREADY have a
+ *    held booking on them. A host who pays for everyone before anyone has
+ *    joined has no siblings to settle, so the charge was one seat — which is
+ *    the reported "I paid for everyone and the fare is 4.80", and the same
+ *    root cause as the driver seeing one passenger and one seat of earnings:
+ *    with no rows for the other seats, there was nothing for either app to
+ *    count.
+ *
+ * So turning cover-all ON now claims the free seats for the host, as real
+ * bookings flagged `isCoveredByLead`. That makes the seat map, the occupancy
+ * count, the driver's earnings and the host's charge all fall out of the same
+ * rows, with no second notion of "how many seats did they really buy".
+ */
 async function createRideGroup(tripId, userId, isCoverAll = false) {
   // Wrap in serializable transaction to eliminate TOCTOU race between check and insert.
   // Without this, concurrent calls could both see no existing group and both create one,
@@ -319,15 +345,127 @@ async function createRideGroup(tripId, userId, isCoverAll = false) {
   return prisma.$transaction(
     async (tx) => {
       const existing = await tx.rideGroup.findUnique({ where: { tripId } });
-      if (existing) return existing;
 
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h — matches generateInvite
-      return tx.rideGroup.create({
-        data: { tripId, leadPassengerId: userId, isCoverAll, expiresAt },
-      });
+      let group;
+      if (existing) {
+        // Only the lead may change how the group pays.
+        if (existing.leadPassengerId !== userId) return existing;
+        group =
+          existing.isCoverAll === !!isCoverAll
+            ? existing
+            : await tx.rideGroup.update({
+                where: { tripId },
+                data: { isCoverAll: !!isCoverAll },
+              });
+      } else {
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h — matches generateInvite
+        group = await tx.rideGroup.create({
+          data: { tripId, leadPassengerId: userId, isCoverAll: !!isCoverAll, expiresAt },
+        });
+      }
+
+      await syncCoveredSeatsTx(tx, tripId, userId, !!isCoverAll);
+      return group;
     },
-    { isolationLevel: 'Serializable', maxWait: 3000, timeout: 5000 },
-  );
+    { isolationLevel: 'Serializable', maxWait: 5000, timeout: 15000 },
+  ).then(async (group) => {
+    // Post-commit. Claiming (or releasing) every free seat changes what the
+    // driver's seat map and passenger count should say, and the driver has no
+    // reason to refetch on their own — without this the app keeps showing seats
+    // as free until something else happens to reload it.
+    await tripState
+      .recordEvent(tripId, 'SEAT_UPDATE', {
+        actor: tripState.ACTOR.RIDER,
+        payload: { reason: isCoverAll ? 'COVER_ALL_ON' : 'COVER_ALL_OFF', leadPassengerId: userId },
+      })
+      .catch(() => {});
+    return group;
+  });
+}
+
+/**
+ * Make the trip's seat rows agree with the host's cover-all choice.
+ *
+ * ON  — hold every remaining free seat for the host, priced identically to
+ *       their own seat, flagged `isCoveredByLead` so it is distinguishable
+ *       from a seat they deliberately booked for a named companion.
+ * OFF — release only the seats claimed this way. A real joiner's booking is
+ *       never touched, and neither is anything already paid for: money that
+ *       has moved is not ours to undo here.
+ */
+async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
+  const trip = await tx.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      maxSeats: true,
+      tier: true,
+      doorstepPickup: true,
+      heavyLoad: true,
+      surgeMultiplier: true,
+      baseFarePesewas: true,
+      perKmRatePesewas: true,
+      route: { select: { distanceKm: true } },
+    },
+  });
+  if (!trip) return;
+
+  if (!coverAll) {
+    await tx.booking.updateMany({
+      where: {
+        tripId,
+        userId: leadUserId,
+        isCoveredByLead: true,
+        status: 'SEAT_HELD',
+        paymentStatus: { notIn: ['PAID', 'CASH_PENDING'] },
+      },
+      data: { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: 'COVER_ALL_OFF' },
+    });
+    return;
+  }
+
+  const taken = await tx.booking.findMany({
+    where: { tripId, status: { notIn: ['CANCELLED'] } },
+    select: { seatNumber: true },
+  });
+  const takenSeats = new Set(taken.map((b) => b.seatNumber).filter((n) => n != null));
+
+  const free = [];
+  for (let n = 1; n <= trip.maxSeats; n += 1) if (!takenSeats.has(n)) free.push(n);
+  if (free.length === 0) return;
+
+  // The same denominator the host's own seat was priced with (`maxSeats`), so
+  // every seat on this trip costs the same and the total is exactly the trip's
+  // total cost rather than a second, separately-derived number.
+  const fareData = calculateFare({
+    tier: trip.tier,
+    distanceKm: trip.route?.distanceKm ?? 0,
+    seatCount: trip.maxSeats,
+    doorstepPickup: trip.doorstepPickup,
+    heavyLoad: trip.heavyLoad,
+    surgeMultiplier: trip.surgeMultiplier,
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
+  });
+
+  const lead = await tx.booking.findFirst({
+    where: { tripId, userId: leadUserId, isCoveredByLead: false, status: { notIn: ['CANCELLED'] } },
+    select: { paymentMethod: true },
+  });
+
+  await tx.booking.createMany({
+    data: free.map((seatNumber) => ({
+      tripId,
+      userId: leadUserId,
+      seatNumber,
+      fareAmountPesewas: fareData.farePerPersonPesewas,
+      commissionAmountPesewas: fareData.commissionPerSeatPesewas,
+      paymentMethod: lead?.paymentMethod ?? 'CASH',
+      status: 'SEAT_HELD',
+      isCoveredByLead: true,
+      boardingQr: crypto.randomBytes(16).toString('hex'),
+    })),
+    skipDuplicates: true,
+  });
 }
 
 async function cancelBooking(bookingId, userId, { reason, note } = {}) {

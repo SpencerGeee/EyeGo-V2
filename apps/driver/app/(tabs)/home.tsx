@@ -463,10 +463,22 @@ export default function HomeScreen() {
         </Entrance>
       )}
 
-      {/* Bottom panel — collapsed snap keeps the CTA in view on launch;
-          driver can drag up for the fuller stats view. */}
+      {/*
+        Bottom panel.
+
+        The resting snap has to clear the TAB BAR, not just the bottom of the
+        screen. The panel is anchored to the screen edge and the tab bar floats
+        over its last ~84 pt, so the old 0.42 left roughly 270 pt of usable
+        height for ~320 pt of content — the driver opened the app and had to
+        drag the sheet up before the Create Trip button was reachable. "It kills
+        the aesthetics, the drivers should see the vision immediately."
+
+        0.56 leaves the stats row, the destination card and the hero CTA all
+        sitting clear above the tab bar on launch; the upper snap stays for the
+        fuller stats view.
+      */}
       <InlayPanel
-        snapPointsPct={[0.42, 0.72]}
+        snapPointsPct={[0.56, 0.82]}
         sheetStyle={styles.sheetBg}
         grabberColor={colors.outline}
       >
