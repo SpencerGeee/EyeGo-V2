@@ -1,49 +1,68 @@
-# State — Stress Sweep 2026-08-11b (items 1–32)
+# State — Stress Sweep 2026-08-11b + feature round
 
-## Status: COMPLETE for every item received. Pushed.
+## Bugs: ALL RECEIVED ITEMS FIXED. Features: 2 of ~13 shipped.
 
-Items **8–22 were truncated out of the user's message and never received**. The
-user could not recall them ("I was stress testing on the go") and will re-capture
-them in the next round. Item 23 was only half-visible in the transcript. Item 27
-was a confirmation, not a defect — no work needed.
+## Commits this session (11)
+`44720bf` where-to rebuild · `7d20378` matching screen bg · `49852f4` pickup
+semantics + post-trip map · `d23616f` invite polyline + brand map + ETA ·
+`d03a7e9` driver manage sheet · `2b0698a` SelectStage back nav ·
+`e0f6532` held-seat/idempotency/keyboard · `623e360` cancel screen ·
+`ca233c6` driver shell + green glow · `b3284b9` Verify My Ride + Pause Requests
 
-## Commits (7)
-| SHA | Items |
-|---|---|
-| `6b91f19` | 2, 3, 6, 31 |
-| `44720bf` | 4 — where-to rebuilt as driver-style Skia screen |
-| `7d20378` | 1 (part) — matching screen had no background |
-| `49852f4` | 28, 29, 30 |
-| `d23616f` | 7, 25 — invite polyline, brand map, ETA, load speed |
-| `d03a7e9` | 5, 24, 26 — driver manage sheet |
-| `2b0698a` | 1 (part) — SelectStage back nav |
+## Second bug batch (the items 8–22 the user re-sent)
+1. Chat keyboard — **third** attempt. Root cause both prior fixes missed:
+   `KeyboardAvoidingView` infers space from its own frame, and the frame was
+   wrong (not root, edge-to-edge, shifting safe-area). Now uses
+   `useReanimatedKeyboardAnimation` height directly. Both chats.
+2. Phantom booking — invite holds seats at `SEAT_HELD`; server AND home screen
+   only excluded TERMINAL statuses, so a hold read as a live ride. Now an
+   allow-list: `CONFIRMED, PAID, BOARDED`. Invite screen declares its round trip.
+3. Idempotency 409 — **our own retry** racing our own first attempt on a slow
+   pay-for-all. Client now treats `IDEMPOTENCY_IN_PROGRESS` as retry-after-
+   backoff; server releases the reservation on `close` as well as `finish`.
+4. Cancel screen — `isFeeLoading` was `!cancelFeeData`, so a FAILED fee query
+   was stuck "checking" forever. Now reads `isPending`/`isError`. Separately the
+   ScrollView had no `flex`, so it sized to content and clipped its own tail.
 
-## Decisions locked with the user (do not re-ask)
-- **#4**: full-screen route mirroring `apps/driver/app/(trip)/create.tsx`;
-  suggestions = saved Home/Work + recents only.
-- **#1 back nav**: header chevron + hardware back + edge-swipe step back ONE
-  stage.
-- **#28 fee**: `max(DOORSTEP_MIN_FEE, detourKm × DOORSTEP_PER_KM)`, refused past
-  `DOORSTEP_MAX_DETOUR_KM`, Configure-stage toggle, all trips.
-- **#28 at-pickup**: `PICKUP_ARRIVAL_RADIUS_M` = 150 m.
-- **#24**: port rider TrackingStage system to driver (absorbed 5 and 26).
+## Visual overhaul (user's mid-turn request)
+- `apps/driver/components/trip/TripSurfaceShell.tsx` — ONE shell both driver
+  trip screens render. Owns panel geometry (from rider `TrackingStage`),
+  the Reconnecting chip, spacing rhythm, card ring. **Visual layer only** — no
+  trip logic touched, per the user's explicit choice.
+- `apps/driver/stores/connection.store.ts` — presentation-only socket state.
+  `useDriverSocket` had connect/disconnect handlers that only console.logged.
+- `packages/ui/src/effects/CardAuroraGlow.tsx` — green bottom bloom on the
+  rider tracking panel. Centre BELOW the surface, intensity hard-capped at 0.28,
+  single static paint. All three are constraints, not defaults.
+
+## Features
+**Shipped:** Verify My Ride (PIN), Pause Requests. Both opt-in, both default to
+today's behaviour.
+**Remaining ~11:** see `docs/FEATURE_BACKLOG_DRIVER_RIDER.md` — audited, sized,
+ordered, with the blocking decision named for each. Record My Ride is
+deliberately unbuilt with a legal write-up.
+
+## Decisions locked (do not re-ask)
+- Trip Radar = broadcast first, sequential cascade as fallback.
+- Record My Ride = not built; needs Ghanaian DPA review first.
+- Driver screens = one shared shell; visual layer only.
+- Green glow = subtle bottom-anchored, static.
 
 ## Verification
-- `apps/rider` and `apps/driver` `tsc --noEmit` → **exit 0**.
-- `node --check` clean on every changed backend file.
-- Inline JS of both public HTML pages parses.
-- **NOTHING device-tested.** Crash/visual fixes need a new EAS build; backend
-  fixes need a deploy.
+- `apps/rider` and `apps/driver` `tsc --noEmit` → **exit 0** after every commit.
+- `node --check` clean on every changed backend file. Prisma schema valid.
+- **NOTHING device-tested.** Needs a new EAS build + a backend deploy.
 
-## New env knobs (add to deployment config)
-`PICKUP_ARRIVAL_RADIUS_M` (150), `DOORSTEP_MIN_FEE` (3.0),
-`DOORSTEP_PER_KM` (4.0), `DOORSTEP_MAX_DETOUR_KM` (3.0). All have defaults.
+## MUST DO BEFORE DEPLOY
+1. Run the migration `20260811120000_boarding_pin_and_pause_requests`.
+   Additive only (nullable columns + defaulted booleans) — safe on live data.
+2. `prisma generate` — it failed locally with a Windows EPERM file lock
+   (`query_engine-windows.dll.node`), which is environmental, not a code fault.
+   It will regenerate on a clean run.
 
-## Traps re-learned this session
-- `GradientGlowBorder` requires `fillColor`; the reach cap is **`maxGlowRadius`**.
-  Clipped glow = padding + cap, never a lower `glowIntensity`.
-- `ARRIVED_AT_PICKUP` is reachable ONLY from `DRIVER_EN_ROUTE`.
-- `where-to.tsx` is a redirect stub; the real screen is `SearchStage.tsx`.
-- `@eyego/map-styles` is NOT a dependency of `eyego-api` — read from disk.
-- `npx` is broken here: `node node_modules/typescript/lib/tsc.js --noEmit` from
+## Traps
+- `GradientGlowBorder` needs `fillColor`; reach cap is `maxGlowRadius`.
+  Clipped glow = padding + cap, never lower `glowIntensity`.
+- A ScrollView with no `flex` in a column parent sizes to CONTENT and clips.
+- `npx` is broken: `node node_modules/typescript/lib/tsc.js --noEmit` from
   inside `apps/<app>`.
