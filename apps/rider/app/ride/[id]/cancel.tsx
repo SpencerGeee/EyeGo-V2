@@ -16,6 +16,7 @@ import { Text, Radio, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { cancellationApi } from '@eyego/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { useRideStore } from '../../../stores/ride.store';
 import { formatGhs } from '@eyego/utils';
 
@@ -39,8 +40,28 @@ export default function CancelRideScreen() {
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [note, setNote] = useState('');
 
+  /**
+   * Room for the keyboard when "Other reason" opens the note field.
+   *
+   * This screen had no keyboard handling at all, so typing a reason put the
+   * field under the keys with no way to see what was being written — the same
+   * defect as the chat screen. Measured from the keyboard itself rather than
+   * inferred from a frame, for the reasons in the note on chat.tsx.
+   *
+   * Applied as scroll padding rather than a container transform: the footer
+   * ("Keep My Ride" / "Cancel Ride") should stay exactly where it is, and only
+   * the scrollable content needs to get out of the way.
+   */
+  const keyboardShown = useKeyboardState((s) => s.isVisible);
+  const keyboardMetrics = useKeyboardState((s) => s.height);
+  const keyboardInset = keyboardShown ? keyboardMetrics : 0;
+
   // Fetch cancellation fee estimate
-  const { data: cancelFeeData } = useQuery({
+  const {
+    data: cancelFeeData,
+    isPending: isFeePending,
+    isError: isFeeError,
+  } = useQuery({
     queryKey: ['cancellation-fee', id],
     queryFn: () => cancellationApi.getFee(id),
     select: (r: any) => r.data?.data ?? r.data ?? r,
@@ -50,10 +71,22 @@ export default function CancelRideScreen() {
 
   const cancellationFeePesewas = cancelFeeData?.fee ?? 0;
   const isFeeEligible = cancelFeeData?.eligible ?? false;
-  // BUGFIX: Only show fee banner after the query has loaded to avoid flashing
-  // fee: 0 (no fee) while the API call is in-flight. If fee query fails silently,
-  // we show a neutral message instead of hiding a real fee.
-  const isFeeLoading = !cancelFeeData && id !== undefined;
+  /**
+   * BUGFIX ("it's showing 'checking cancellation policy' which is stuck and
+   * doesn't work").
+   *
+   * This was `!cancelFeeData && id !== undefined` — derived from the ABSENCE of
+   * data rather than from the query's state. When the fee request failed, data
+   * stayed undefined forever, so the condition stayed true forever and the
+   * banner sat on "Checking cancellation policy…" for the life of the screen.
+   * There was no path out of it, because nothing was still loading.
+   *
+   * Read the query's own state instead. `isPending` is true only while a fetch
+   * is genuinely in flight; a failure lands in `isFeeError`, which gets an
+   * honest message telling the rider what they can and cannot know before they
+   * commit — the one thing a cancellation screen must never be vague about.
+   */
+  const isFeeLoading = !!id && isFeePending;
   const hasFee = isFeeEligible && cancellationFeePesewas > 0;
 
   const cancelMutation = useMutation({
@@ -126,7 +159,25 @@ export default function CancelRideScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/*
+          `style={{ flex: 1 }}` is load-bearing, not decoration.
+
+          BUGFIX ("the 'why are you cancelling' section seems to be cut off").
+          A ScrollView with no flex inside a column parent sizes itself to its
+          CONTENT, not to the space left over. So this grew past the screen,
+          pushed the footer out of view and clipped its own tail — which is the
+          reasons list, because that is what sits at the bottom. It never
+          scrolled, because as far as layout was concerned it was not
+          overflowing anything. Constraining it to the leftover space is what
+          turns the overflow into a scroll.
+        */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.scroll, { paddingBottom: spacing['3xl'] + keyboardInset }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -205,6 +256,8 @@ export default function CancelRideScreen() {
                 <Text style={styles.policyText}>
                   {isFeeLoading
                     ? 'Checking cancellation policy…'
+                    : isFeeError
+                    ? "We couldn't check the fee for this ride just now. If one applies, it will be shown on your receipt."
                     : hasFee
                     ? `A cancellation fee of ${formatGhs(cancellationFeePesewas)} applies to this ride.`
                     : 'Cancelling after the driver has been dispatched may incur a cancellation fee.'}
@@ -535,6 +588,10 @@ const makeStyles = (colors: Colors) =>
       minHeight: 110,
     },
     footer: {
+      // Never absorbed into the scroll area. Without this the footer is a
+      // shrinkable flex child and an over-tall scroll region squeezed it — the
+      // other half of the "cut off" report.
+      flexShrink: 0,
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.base,
       paddingBottom: spacing['2xl'],
