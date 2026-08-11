@@ -287,9 +287,14 @@ function ConfigureStageImpl() {
                 </View>
               </View>
 
+              {/* The fee is the diversion this causes, not a flat charge — see
+                  DOORSTEP_PER_KM in the fare calculator. The blurb does not name
+                  an amount because the amount depends on how far off-route the
+                  rider is, and the quote on the review step already shows the
+                  real number before they confirm. */}
               <Toggle
                 label="Doorstep pickup"
-                blurb="The driver comes to your door rather than the nearest road"
+                blurb="The driver comes to your door rather than the nearest road — costs extra based on the detour"
                 value={doorstepPickup}
                 onChange={(v) => setRideOptions({ doorstepPickup: v })}
                 colors={colors}

@@ -151,11 +151,31 @@ export default function TripScreen() {
    * fired twice stacks two receipts.
    */
   const handedOff = useRef(false);
+  /**
+   * Mirrors `handedOff` as state, purely so the map can be torn down.
+   *
+   * BUGFIX ("i finished the trip but the homepage shown afterwards is under the
+   * map — the background is the opaque map instead of the skia background").
+   *
+   * `router.replace` swaps THIS route's entry, but the rider reached the trip
+   * surface through the invite/booking flow, so the surface was not the only
+   * thing on the stack and the replace did not take the map with it. The tab
+   * scenes are deliberately transparent — that is what lets the root
+   * AppBackground show through every tab — so a still-mounted MapLibre view
+   * anywhere below them is what the rider sees as their home background.
+   *
+   * Unmounting the map on the terminal transition fixes it for every stack
+   * shape, rather than for the one navigation path that happened to be tested.
+   * There is nothing left to render on it at this point either: the trip is
+   * over and the channel has already been stopped.
+   */
+  const [surfaceRetired, setSurfaceRetired] = useState(false);
   const snapshot = useTripStore((s) => s.snapshot);
   const unwatch = useTripStore((s) => s.unwatch);
   useEffect(() => {
     if (!isTerminal(tripStatus) || handedOff.current || !snapshot) return;
     handedOff.current = true;
+    setSurfaceRetired(true);
     // Stop the channel BEFORE navigating: a socket still applying events to a
     // dead trip is what kept the old flow's "reconnecting" chip alive on the
     // receipt screen.
@@ -288,8 +308,10 @@ export default function TripScreen() {
     // of racing it. The card itself is no longer part of this story — its
     // reveal is driven by morph progress in MorphTarget.
     <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
-      {/* One persistent map for every stage */}
-      <TripMap />
+      {/* One persistent map for every stage — until the trip ends. See
+          `surfaceRetired`: past that point this view is not a map any more,
+          it is the home screen's background. */}
+      {!surfaceRetired && <TripMap />}
       <LinearGradient
         colors={scrimColors as unknown as readonly [string, string, ...string[]]}
         // Weighted toward the top so the fade is imperceptible rather than a

@@ -68,6 +68,11 @@ function canonicalInputs(q) {
     Number(q.dropoffLng).toFixed(5),
     q.seatCount,
     q.doorstepPickup ? 1 : 0,
+    // Part of the price, so part of the signature. Left out, a client could
+    // redeem a quote priced for a 3 km detour against a booking claiming none.
+    // Fixed precision for the same reason `distanceKm` has it: the signed text
+    // must be the same string on both sides.
+    q.doorstepDetourKm == null ? 'n' : Number(q.doorstepDetourKm).toFixed(3),
     q.heavyLoad ? 1 : 0,
     q.distanceKm.toFixed(3),
     q.surgeMultiplier.toFixed(2),
@@ -99,6 +104,10 @@ async function createQuote({
   seatCount = 1,
   doorstepPickup = false,
   heavyLoad = false,
+  /** The trip's own pickup point, when this quote is for joining an existing
+   *  trip. Only used to measure a door-pickup detour — see below. */
+  routePickupLat = null,
+  routePickupLng = null,
 }) {
   if (![pickupLat, pickupLng, dropoffLat, dropoffLng].every(Number.isFinite)) {
     throw new AppError('Pickup and dropoff coordinates are required', 400, 'MISSING_COORDS');
@@ -121,12 +130,48 @@ async function createQuote({
 
   const surgeMultiplier = await getSurgeMultiplier(pickupLat, pickupLng).catch(() => 1.0);
 
+  /**
+   * DOOR PICKUP IS PRICED BY ITS DETOUR.
+   *
+   * `routePickupLat/Lng` is the trip's own pickup point — the one the driver
+   * set. When the rider asks to be collected somewhere else, the extra cost is
+   * the extra ROAD distance: out to them and back onto the route, which is what
+   * the two legs below measure. Straight-line would systematically undercharge
+   * exactly where it matters (a river, a one-way system, a closed junction).
+   *
+   * Left null for an on-demand ride, where the rider's own location IS the
+   * pickup and there is no detour to price.
+   */
+  let doorstepDetourKm = null;
+  if (doorstepPickup && Number.isFinite(routePickupLat) && Number.isFinite(routePickupLng)) {
+    const [toRider, backToRoute] = await Promise.all([
+      roadDistanceKm(routePickupLat, routePickupLng, pickupLat, pickupLng).catch(() => null),
+      roadDistanceKm(pickupLat, pickupLng, routePickupLat, routePickupLng).catch(() => null),
+    ]);
+    const out = toRider?.distanceKm;
+    const back = backToRoute?.distanceKm;
+    if (Number.isFinite(out) && Number.isFinite(back)) {
+      doorstepDetourKm = out + back;
+      // Past this it is not a pickup, it is a second trip. Refused rather than
+      // priced, so a rider cannot quietly drag a driver across town for a fee
+      // that no longer covers it.
+      if (doorstepDetourKm > env.DOORSTEP_MAX_DETOUR_KM * 2) {
+        throw new AppError(
+          'That pickup point is too far from this trip\'s route.',
+          422,
+          'DETOUR_TOO_FAR',
+        );
+      }
+    }
+  }
+
   const fare = calculateFare({
     tier,
     distanceKm,
     // An on-demand ride is the whole car: the fare is not divided by seats.
     seatCount: 1,
     doorstepPickup,
+    doorstepDetourKm,
     heavyLoad,
     surgeMultiplier,
   });
@@ -149,6 +194,7 @@ async function createQuote({
     dropoffLng,
     seatCount,
     doorstepPickup,
+    doorstepDetourKm,
     heavyLoad,
     distanceKm,
     surgeMultiplier,
@@ -170,6 +216,7 @@ async function createQuote({
     distanceKm,
     surgeMultiplier,
     breakdown: fare,
+    doorstepDetourKm,
     durationMin: route?.durationMin ?? null,
     expiresAtServerMs: expiresAtMs,
     serverNowMs: Date.now(),

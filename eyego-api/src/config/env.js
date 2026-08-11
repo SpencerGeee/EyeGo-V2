@@ -97,7 +97,24 @@ const envSchema = z.object({
   COMFORT_PER_KM_RATE: z.coerce.number().default(12.0),
   PREMIUM_BASE_FARE: z.coerce.number().default(50.0),
   PREMIUM_PER_KM_RATE: z.coerce.number().default(16.0),
+  /**
+   * Door pickup — the rider asks to be collected where THEY are rather than at
+   * the trip's pickup point.
+   *
+   * This was one flat number, which prices a 200 m nudge and a 3 km diversion
+   * identically: the short one overcharges the rider and the long one
+   * undercharges the driver for fuel and time they actually spend. The fee is
+   * now `max(MIN, detourKm × PER_KM)` over the real extra road distance, with
+   * the flat figure kept as the fallback for the case where the detour cannot
+   * be measured (no route, no coordinates) — refusing to price it at all would
+   * mean refusing the booking.
+   */
   DOORSTEP_SURCHARGE: z.coerce.number().default(5.0),
+  DOORSTEP_MIN_FEE: z.coerce.number().default(3.0),
+  DOORSTEP_PER_KM: z.coerce.number().default(4.0),
+  /** Beyond this the diversion stops being a pickup and becomes a second trip,
+   *  so it is refused rather than priced. */
+  DOORSTEP_MAX_DETOUR_KM: z.coerce.number().default(3.0),
   HEAVY_LOAD_SURCHARGE: z.coerce.number().default(8.0),
   // Group-hub joiners picking their own pickup point (not the trip's main pickup)
   // detour the driver for free up to this many km — only a genuinely large
@@ -153,6 +170,8 @@ const {
   PREMIUM_BASE_FARE,
   PREMIUM_PER_KM_RATE,
   DOORSTEP_SURCHARGE,
+  DOORSTEP_MIN_FEE,
+  DOORSTEP_PER_KM,
   HEAVY_LOAD_SURCHARGE,
   MIN_FARE_PER_SEAT,
   DRIVER_MIN_WALLET_BALANCE,
@@ -170,6 +189,8 @@ module.exports = {
   PREMIUM_BASE_FARE_PESEWAS: fromCedis(PREMIUM_BASE_FARE),
   PREMIUM_PER_KM_RATE_PESEWAS: fromCedis(PREMIUM_PER_KM_RATE),
   DOORSTEP_SURCHARGE_PESEWAS: fromCedis(DOORSTEP_SURCHARGE),
+  DOORSTEP_MIN_FEE_PESEWAS: fromCedis(DOORSTEP_MIN_FEE),
+  DOORSTEP_PER_KM_PESEWAS: fromCedis(DOORSTEP_PER_KM),
   HEAVY_LOAD_SURCHARGE_PESEWAS: fromCedis(HEAVY_LOAD_SURCHARGE),
   MIN_FARE_PER_SEAT_PESEWAS: fromCedis(MIN_FARE_PER_SEAT),
   DRIVER_MIN_WALLET_BALANCE_PESEWAS: fromCedis(DRIVER_MIN_WALLET_BALANCE),

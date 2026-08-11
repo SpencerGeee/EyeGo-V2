@@ -49,6 +49,14 @@ function calculateFare({
   distanceKm,
   seatCount,
   doorstepPickup = false,
+  /**
+   * Extra ROAD kilometres the driver drives to collect this rider from their own
+   * point instead of the trip's pickup. Only meaningful with `doorstepPickup`.
+   *
+   * Absent/unmeasurable falls back to the flat surcharge — see
+   * `doorstepFeePesewas` below.
+   */
+  doorstepDetourKm = null,
   heavyLoad = false,
   surgeMultiplier = 1.0,
   storedBaseFarePesewas,
@@ -73,7 +81,28 @@ function calculateFare({
     throw new Error(`distanceKm must be a non-negative number, got ${distanceKm}`);
   }
 
-  const doorstepSurcharge = doorstepPickup ? env.DOORSTEP_SURCHARGE_PESEWAS : 0;
+  /**
+   * Door pickup, priced by the diversion it actually causes.
+   *
+   * One flat number charged the same for a 200 m nudge as for a 3 km detour —
+   * overcharging the rider on the short one and paying the driver nothing for
+   * the fuel and time on the long one. `max(min, km × rate)` keeps a floor
+   * under trivial detours (the driver still stops, waits and pulls out again,
+   * which costs something even at zero distance) while a real diversion scales.
+   *
+   * The flat surcharge survives as the fallback: when the detour cannot be
+   * measured, pricing it at zero would be a free ride for the one option that
+   * costs the driver most, and refusing the booking outright over a missing
+   * route is worse than charging the old number.
+   */
+  const doorstepSurcharge = !doorstepPickup
+    ? 0
+    : Number.isFinite(doorstepDetourKm) && doorstepDetourKm >= 0
+      ? Math.max(
+          env.DOORSTEP_MIN_FEE_PESEWAS,
+          Math.round(env.DOORSTEP_PER_KM_PESEWAS * doorstepDetourKm),
+        )
+      : env.DOORSTEP_SURCHARGE_PESEWAS;
   const heavyLoadSurcharge = heavyLoad ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
 
   // ── The whole pricing model, in two lines ────────────────────────────────
@@ -132,6 +161,11 @@ function calculateFare({
     commissionRate: env.PLATFORM_COMMISSION,
     minFarePerSeatPesewas,
     floorApplied: farePerPersonPesewas < minFarePerSeatPesewas,
+    // Surfaced so the rider's price breakdown can name the extras instead of
+    // showing a total that is larger than its own visible line items.
+    doorstepSurchargePesewas: doorstepSurcharge,
+    doorstepDetourKm: Number.isFinite(doorstepDetourKm) ? doorstepDetourKm : null,
+    heavyLoadSurchargePesewas: heavyLoadSurcharge,
   };
 }
 

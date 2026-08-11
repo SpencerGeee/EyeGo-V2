@@ -12,6 +12,7 @@ const { generateTripReceipt, refundBookingForDriverCancellation } = require('../
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
+const { haversineMeters } = require('../../utils/geo');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
@@ -618,15 +619,86 @@ async function uploadDocument(driverId, file, type) {
   return { url, type, status: 'PENDING' };
 }
 
+/**
+ * How close the driver has to be to the pickup point for starting the trip to
+ * mean "I am here" rather than "I am coming".
+ *
+ * A driver who creates a trip does it FROM their pickup point, and when they
+ * are already standing on it, telling every rider "your driver is on the way"
+ * is simply false — there is no journey to watch, the ETA counts down to a
+ * number that is already zero, and the rider waits for an arrival that has
+ * happened. 150 m is tight enough that a driver a street away is still "on the
+ * way" and loose enough to survive ordinary urban GPS drift.
+ */
+const PICKUP_ARRIVAL_RADIUS_M = parseInt(process.env.PICKUP_ARRIVAL_RADIUS_M, 10) || 150;
+
 async function startTrip(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
-  if (!needsTransition(trip, 'DRIVER_EN_ROUTE')) return trip;
-  const { trip: updated } = await tripState.applyTransition(tripId, 'DRIVER_EN_ROUTE', {
-    actor: tripState.ACTOR.DRIVER,
-    actorId: driverId,
-    expectedVersion: trip.version,
+
+  // Where the driver actually is, as of their last ping.
+  const driver = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { name: true, currentLat: true, currentLng: true },
   });
+
+  /**
+   * "At the pickup" is a fact about geography, not about which button was
+   * tapped. Unknown location falls through to EN_ROUTE: claiming the driver
+   * has arrived on the strength of a missing coordinate is the one error here
+   * that strands a rider waiting at the kerb.
+   */
+  const atPickup =
+    Number.isFinite(driver?.currentLat) &&
+    Number.isFinite(driver?.currentLng) &&
+    Number.isFinite(trip.pickupLat) &&
+    Number.isFinite(trip.pickupLng) &&
+    haversineMeters(driver.currentLat, driver.currentLng, trip.pickupLat, trip.pickupLng) <=
+      PICKUP_ARRIVAL_RADIUS_M;
+
+  /**
+   * ARRIVED_AT_PICKUP is only reachable FROM DRIVER_EN_ROUTE — see the
+   * transition table in trip-state.service.js. A scheduled or confirmed trip
+   * cannot jump straight to it, and trying would throw out of
+   * `assertTransition` and fail the driver's swipe.
+   *
+   * So a driver who is already standing on the pickup point walks both edges:
+   * en route, then arrived. Both are real events with real timestamps, which
+   * is what the rider's tracking screen and the receipt both replay, and the
+   * walk collapses to a single hop for the common case where the trip is
+   * already DRIVER_EN_ROUTE.
+   */
+  const path = atPickup ? ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP'] : ['DRIVER_EN_ROUTE'];
+  const target = path[path.length - 1];
+
+  /**
+   * BUGFIX (#29 — "the rider tracking page does nothing and no polyline is
+   * shown").
+   *
+   * This used to `return trip` the moment no transition was needed, and a
+   * dispatched ride is created at DRIVER_EN_ROUTE the instant the driver
+   * accepts (see the note at the top of this file). So for every dispatched
+   * trip the driver's swipe hit that early return: no event was published, no
+   * push went out, and — the visible part — `warmRouteForTrip` never ran, so
+   * the rider's tracking map had no geometry to draw and sat on an empty
+   * screen under a status that had not changed.
+   *
+   * Starting is now always an event, even when the status is already right.
+   * The transition is conditional; the route warm and the publish are not.
+   */
+  let updated = trip;
+  for (const step of path) {
+    // Re-checked per hop: the first transition bumps `version`, and passing the
+    // original one to the second would fail its own optimistic-concurrency
+    // guard. `needsTransition` also skips a hop the trip is already on, which
+    // is what makes the two-step walk collapse to one for a dispatched ride.
+    if (!needsTransition(updated, step)) continue;
+    ({ trip: updated } = await tripState.applyTransition(tripId, step, {
+      actor: tripState.ACTOR.DRIVER,
+      actorId: driverId,
+      expectedVersion: updated.version,
+    }));
+  }
 
   // The live leg just became `toPickup` and its cache is empty. Compute it
   // before answering, so the client's refetch on success already has a line and
@@ -639,20 +711,21 @@ async function startTrip(driverId, tripId) {
   // Push notifications — non-blocking
   setImmediate(async () => {
     try {
-      const [driver, bookings] = await Promise.all([
-        prisma.driver.findUnique({ where: { id: driverId }, select: { name: true } }),
-        prisma.booking.findMany({
-          where: { tripId, status: 'CONFIRMED', paymentStatus: 'PAID' },
-          include: { user: { select: { fcmToken: true } } },
-        }),
-      ]);
+      const bookings = await prisma.booking.findMany({
+        where: { tripId, status: 'CONFIRMED', paymentStatus: 'PAID' },
+        include: { user: { select: { fcmToken: true } } },
+      });
       const tokens = bookings.map(b => b.user?.fcmToken).filter(Boolean);
       if (tokens.length) {
+        // Say the true thing. A driver standing on the pickup point who sends
+        // "is on the way" tells every rider to keep waiting indoors.
         await pushService.sendMulticastPush(
           tokens,
-          'Driver is on the way',
-          `${driver?.name ?? 'Your driver'} has started the trip`,
-          { type: 'DRIVER_EN_ROUTE', tripId },
+          atPickup ? 'Your driver is at the pickup point' : 'Driver is on the way',
+          atPickup
+            ? `${driver?.name ?? 'Your driver'} is waiting at the pickup point`
+            : `${driver?.name ?? 'Your driver'} is driving to the pickup point`,
+          { type: target, tripId },
         );
       }
     } catch (_) {}
