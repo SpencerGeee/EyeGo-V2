@@ -3,6 +3,7 @@
 const redis = require('../config/redis');
 const { notifications: pushNotifications } = require('../services/push.service');
 const logger = require('../utils/logger');
+const { seatOccupyingWhere } = require('../utils/booking-status');
 
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
 const LOCATION_CHANNEL = (driverId) => `driver:${driverId}:location`;
@@ -215,7 +216,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       try {
         const prisma = require('../config/database');
         booking = await prisma.booking.findFirst({
-          where: { tripId, userId, status: { not: 'CANCELLED' } },
+          where: { tripId, userId, ...seatOccupyingWhere() },
           select: { seatNumber: true, id: true },
         });
         if (!booking) {
@@ -304,7 +305,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
         const prisma = require('../config/database');
         // Sender must have an active booking on this trip
         const booking = await prisma.booking.findFirst({
-          where: { tripId, userId, status: { not: 'CANCELLED' } },
+          where: { tripId, userId, ...seatOccupyingWhere() },
           select: { id: true, seatNumber: true },
         });
         if (!booking) {
@@ -376,7 +377,7 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       try {
         const prisma = require('../config/database');
         const booking = await prisma.booking.findFirst({
-          where: { tripId, userId, status: { not: 'CANCELLED' } },
+          where: { tripId, userId, ...seatOccupyingWhere() },
           select: { id: true },
         });
         if (!booking) {

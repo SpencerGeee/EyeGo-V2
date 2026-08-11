@@ -17,6 +17,7 @@ const { haversineMeters } = require('../utils/geo');
 const supply = require('../services/supply-index.service');
 const logger = require('../utils/logger');
 const env = require('../config/env');
+const { seatOccupyingWhere } = require('../utils/booking-status');
 
 const LOCATION_UPDATE_CHANNEL = (driverId) => `driver:${driverId}:location`;
 const TRIP_ROOM = (tripId) => `trip:${tripId}`;
@@ -851,7 +852,7 @@ function emitSafetyCheck(io, tripId, reason) {
           return;
         }
         const recipientBooking = await prisma.booking.findFirst({
-          where: { tripId, userId: recipientId, status: { not: 'CANCELLED' } },
+          where: { tripId, userId: recipientId, ...seatOccupyingWhere() },
           select: { id: true },
         });
         if (!recipientBooking) {

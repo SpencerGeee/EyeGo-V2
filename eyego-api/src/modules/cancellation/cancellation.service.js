@@ -8,6 +8,7 @@ const { AppError, NotFoundError, ForbiddenError } = require('../../utils/errors'
 const { pushEnd } = require('../../services/live-activity-push.service');
 const tripState = require('../../services/trip-state.service');
 const logger = require('../../utils/logger');
+const { seatOccupyingWhere } = require('../../utils/booking-status');
 
 /**
  * Calculate cancellation fee based on time before departure.
@@ -171,7 +172,7 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     const activeCount = await tx.booking.count({
       where: {
         tripId: booking.tripId,
-        status: { notIn: ['CANCELLED'] },
+        ...seatOccupyingWhere(),
       },
     });
     let transition = null;

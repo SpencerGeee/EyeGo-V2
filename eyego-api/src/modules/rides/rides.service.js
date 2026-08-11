@@ -165,6 +165,9 @@ async function requestRide(userId, body) {
     dropoffAddress,
     paymentMethod = 'CASH',
     doorstepPickup = false,
+    /** How many people are travelling. Capacity information for the driver —
+     *  see the note where it is written to the trip. Clamped, never trusted. */
+    seatCount = 1,
     idempotencyKey = null,
     /**
      * The rider has SEEN the "you already have a ride" prompt and chosen to
@@ -189,6 +192,11 @@ async function requestRide(userId, body) {
      */
     passenger = null,
   } = body;
+
+  // Clamped server-side as well as validated at the route: this becomes the
+  // trip's capacity, and a bad value would publish a trip claiming seats the
+  // vehicle does not have.
+  const partySize = Math.min(Math.max(Math.trunc(Number(seatCount)) || 1, 1), 6);
 
   const guestName = typeof passenger?.name === 'string' ? passenger.name.trim() || null : null;
   const guestPhone = typeof passenger?.phone === 'string' ? passenger.phone.trim() || null : null;
@@ -247,8 +255,22 @@ async function requestRide(userId, body) {
           perKmRatePesewas: quote.breakdown.perKmRatePesewas,
           surgeMultiplier: quote.surgeMultiplier,
           commissionRate: quote.breakdown.commissionRate,
-          maxSeats: 1,
-          confirmedSeats: 1,
+          /**
+           * Party size, not a pricing input.
+           *
+           * BUGFIX — this was hardcoded to 1 while the rider's seat stepper
+           * happily let them pick up to four, and nothing carried the choice to
+           * the server. Three people waited at a kerb for a driver whose app
+           * said one passenger.
+           *
+           * The FARE is unaffected: an on-demand ride is priced as the whole
+           * car (the quote passes `seatCount: 1` deliberately), and the rider
+           * pays the quoted amount whatever this says. This is what the driver
+           * is shown so they know how many people to expect and whether their
+           * vehicle fits them.
+           */
+          maxSeats: partySize,
+          confirmedSeats: partySize,
         },
       });
 

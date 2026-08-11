@@ -470,7 +470,28 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
         status: 'SEAT_HELD',
         paymentStatus: { notIn: ['PAID', 'CASH_PENDING'] },
       },
-      data: { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: 'COVER_ALL_OFF' },
+      /**
+       * `seatNumber: null` is load-bearing.
+       *
+       * BUGFIX — turning cover-all OFF permanently destroyed those seats.
+       *
+       * The unique key is `@@unique([tripId, seatNumber])` with no status in
+       * it, so a CANCELLED row that keeps `seatNumber: 3` blocks seat 3 for the
+       * life of the trip. Two things then went wrong at once: no joiner could
+       * ever take those seats (SeatTakenError on a seat the map draws as free),
+       * and `createMany({ skipDuplicates: true })` below silently skipped them
+       * if the host toggled cover-all back ON — so the host could not re-hold
+       * the van they had just released either.
+       *
+       * Toggling this switch twice is not an edge case; it is the first thing
+       * anyone does when they are deciding whether to pay for everyone.
+       */
+      data: {
+        status: 'CANCELLED',
+        seatNumber: null,
+        cancelledAt: new Date(),
+        cancellationReason: 'COVER_ALL_OFF',
+      },
     });
     return;
   }
@@ -526,9 +547,25 @@ async function cancelBooking(bookingId, userId, { reason, note } = {}) {
     include: { trip: { select: { status: true } } },
   });
   if (!booking) throw new NotFoundError('Booking');
-  // Guest bookings have userId=null — allow cancellation by any authenticated user.
-  // Authenticated user bookings still require ownership.
-  if (booking.userId !== null && booking.userId !== userId) throw new ForbiddenError();
+  /**
+   * OWNERSHIP, WITH NO NULL ESCAPE HATCH.
+   *
+   * SECURITY FIX. This read `if (booking.userId !== null && booking.userId !==
+   * userId) throw` — so when `userId` WAS null the check passed and any
+   * authenticated rider could cancel the booking, given only its id.
+   *
+   * The comment justified it as "guest bookings have userId=null", but that is
+   * not where guest bookings come from. A rider booking on someone else's
+   * behalf gets the BOOKER's userId plus guestName/guestPhone (see the
+   * `passenger` handling in rides.service). The only rows with a null userId
+   * are the driver's own offline/cash passengers, created by `addCashNoPhone` —
+   * people who are not app users at all and whose seats a stranger has no
+   * business releasing.
+   *
+   * Those are cancelled through the driver's endpoints, which authorise on trip
+   * ownership. Nothing legitimate reaches this function with a null userId.
+   */
+  if (booking.userId === null || booking.userId !== userId) throw new ForbiddenError();
   if (booking.paymentStatus === 'PAID') {
     throw new AppError('Cannot cancel a paid booking here. Contact support.', 400, 'BOOKING_PAID');
   }

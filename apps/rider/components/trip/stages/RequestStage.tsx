@@ -298,6 +298,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             dropoffLng: storeDestination.longitude,
             dropoffAddress: destination ?? undefined,
             doorstepPickup,
+            // The seat stepper the rider actually used. This was read from the
+            // store and then never sent — see the note on `seatCount` in
+            // rides.api.ts. Whole-car pricing is unaffected; the driver just
+            // learns how many people to expect.
+            seatCount: requestSeatCount,
             ...(opts?.allowConcurrent ? { allowConcurrent: true } : {}),
             ...(opts?.passenger ? { passenger: opts.passenger } : {}),
           } as any,

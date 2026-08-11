@@ -14,6 +14,7 @@ const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { haversineMeters } = require('../../utils/geo');
 const ratingIntegrity = require('../../services/rating-integrity.service');
+const { seatOccupyingWhere } = require('../../utils/booking-status');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
 const routeGeometry = require('../../services/route-geometry.service');
@@ -370,7 +371,7 @@ async function getActiveTrip(driverId) {
       route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
       vehicle: true,
       bookings: {
-        where: { status: { notIn: ['CANCELLED'] } },
+        where: { ...seatOccupyingWhere() },
         include: { user: { select: { name: true, phone: true, profilePhoto: true } } },
       },
     },
@@ -386,7 +387,7 @@ async function getAllTrips(driverId) {
       route: true,
       vehicle: true,
       bookings: {
-        where: { status: { notIn: ['CANCELLED'] } },
+        where: { ...seatOccupyingWhere() },
         select: { id: true, seatNumber: true, fareAmountPesewas: true, commissionAmountPesewas: true, paymentStatus: true, status: true, isOffline: true },
       },
     },
@@ -479,7 +480,7 @@ async function getTripById(driverId, tripId) {
       route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
       vehicle: true,
       bookings: {
-        where: { status: { notIn: ['CANCELLED'] } },
+        where: { ...seatOccupyingWhere() },
         include: {
           // `id` IS LOAD-BEARING. Both driver screens that list passengers key
           // off it, and neither could ever see anybody without it:
@@ -763,7 +764,7 @@ async function arriveTrip(driverId, tripId) {
       where: { id: tripId, driverId },
       include: {
         // Include both PAID (MoMo/card) and PENDING (cash) bookings — drivers collect cash in person
-        bookings: { where: { status: { notIn: ['CANCELLED'] }, paymentStatus: { in: ['PAID', 'PENDING'] } } },
+        bookings: { where: { ...seatOccupyingWhere(), paymentStatus: { in: ['PAID', 'PENDING'] } } },
       },
     });
     if (!trip) throw new NotFoundError('Trip');
@@ -996,7 +997,7 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
   // Atomically check seat contention + create booking inside a transaction
   // to prevent overbooking when two drivers add offline passengers concurrently
   const existing = await prisma.booking.findFirst({
-    where: { tripId, seatNumber, status: { notIn: ['CANCELLED'] } },
+    where: { tripId, seatNumber, ...seatOccupyingWhere() },
   });
   if (existing) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
 
@@ -1006,7 +1007,7 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
   const booking = await prisma.$transaction(async (tx) => {
     // Re-check seat inside the tx to catch concurrent creates
     const conflict = await tx.booking.findFirst({
-      where: { tripId, seatNumber, status: { notIn: ['CANCELLED'] } },
+      where: { tripId, seatNumber, ...seatOccupyingWhere() },
     });
     if (conflict) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
 
@@ -1072,7 +1073,7 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
   // pattern as wallet.service.js's withdraw().
   await prisma.$transaction(async (tx) => {
     const conflict = await tx.booking.findFirst({
-      where: { tripId, seatNumber, status: { notIn: ['CANCELLED'] } },
+      where: { tripId, seatNumber, ...seatOccupyingWhere() },
     });
     if (conflict) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
 
@@ -1357,7 +1358,7 @@ async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
   });
   const updated = await prisma.trip.findUnique({
     where: { id: trip.id },
-    include: { route: true, bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } } },
+    include: { route: true, bookings: { where: { ...seatOccupyingWhere() }, include: { user: { select: { fcmToken: true } } } } },
   });
 
   await prisma.dispatchAction.create({
@@ -1491,7 +1492,7 @@ async function claimReassignedTrip(driverId, tripId) {
       where: { id: tripId },
       include: {
         route: true,
-        bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } },
+        bookings: { where: { ...seatOccupyingWhere() }, include: { user: { select: { fcmToken: true } } } },
       },
     });
   });
@@ -1686,7 +1687,7 @@ async function getPendingTripRequests(driverId, { lat, lng } = {}) {
     where: { status: 'REASSIGNING', driverId: { not: driverId } },
     orderBy: { updatedAt: 'desc' },
     take: 20,
-    include: { route: true, bookings: { where: { status: { notIn: ['CANCELLED'] } }, select: { id: true } } },
+    include: { route: true, bookings: { where: { ...seatOccupyingWhere() }, select: { id: true } } },
   });
   const reassignmentOffers = reassignments
     .filter((t) => {
@@ -1723,7 +1724,7 @@ async function getUpcomingScheduledTrips(driverId) {
     take: 50,
     include: {
       route: { select: { originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
-      _count: { select: { bookings: { where: { status: { notIn: ['CANCELLED'] } } } } },
+      _count: { select: { bookings: { where: { ...seatOccupyingWhere() } } } },
     },
   });
 

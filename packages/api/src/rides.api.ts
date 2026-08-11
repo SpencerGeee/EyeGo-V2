@@ -96,6 +96,19 @@ export const ridesApi = {
       dropoffLat: number; dropoffLng: number; dropoffAddress?: string;
       paymentMethod?: 'CASH' | 'CARD' | 'MOMO' | 'WALLET';
       doorstepPickup?: boolean;
+      /**
+       * How many people are travelling.
+       *
+       * BUGFIX — the rider's seat stepper did nothing. `RequestStage` read
+       * `requestSeatCount` off the store and never sent it (TypeScript had it
+       * flagged as an unused variable), so a rider who chose 3 seats got a
+       * one-seat trip and a driver who had no idea three people were waiting.
+       *
+       * It does NOT change the price: an on-demand ride is priced as the whole
+       * car, which is why the quote passes `seatCount: 1`. This is capacity
+       * information for the driver, not a fare input.
+       */
+      seatCount?: number;
     },
     idempotencyKey: string,
   ) =>

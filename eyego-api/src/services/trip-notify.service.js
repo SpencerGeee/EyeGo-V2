@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const pushService = require('./push.service');
 const liveActivityPush = require('./live-activity-push.service');
 const pubSub = require('../graphql/pubsub');
+const { seatOccupyingWhere } = require('../utils/booking-status');
 
 /**
  * Out-of-band notification of a committed trip transition.
@@ -172,7 +173,7 @@ async function sendRiderPushes(trip, status) {
   if (!copy) return;
 
   const bookings = await prisma.booking.findMany({
-    where: { tripId: trip.id, status: { notIn: ['CANCELLED'] } },
+    where: { tripId: trip.id, ...seatOccupyingWhere() },
     select: { id: true, user: { select: { fcmToken: true, notificationPrefs: true } } },
   });
 

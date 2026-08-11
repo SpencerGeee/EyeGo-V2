@@ -8,6 +8,7 @@ const surgeService = require('../trips/surge.service');
 const mapboxService = require('../../services/mapbox.service');
 const { ok, created } = require('../../utils/response');
 const destinationMode = require('../../services/destination-mode.service');
+const { seatOccupyingWhere } = require('../../utils/booking-status');
 
 const getMe = async (req, res) => {
   const driver = await driversService.getMe(req.user.userId);
@@ -419,7 +420,7 @@ const emergencyAlert = async (req, res) => {
 
       const trip = await prisma.trip.findFirst({
         where: { id: tripId, driverId },
-        include: { bookings: { where: { status: { notIn: ['CANCELLED'] } }, include: { user: { select: { fcmToken: true } } } } },
+        include: { bookings: { where: { ...seatOccupyingWhere() }, include: { user: { select: { fcmToken: true } } } } },
       });
 
       const ticket = await prisma.supportTicket.create({

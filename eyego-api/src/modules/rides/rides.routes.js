@@ -73,6 +73,11 @@ router.post(
     body('dropoffLat').isFloat({ min: -90, max: 90 }),
     body('dropoffLng').isFloat({ min: -180, max: 180 }),
     body('paymentMethod').optional().isIn(['CASH', 'CARD', 'MOMO', 'WALLET']),
+    // Party size. Bounded here rather than trusted: it becomes the trip's
+    // capacity, and an unbounded value would let a client publish a trip
+    // claiming a hundred seats. Does not affect the fare — an on-demand ride is
+    // priced as the whole car.
+    body('seatCount').optional().isInt({ min: 1, max: 6 }).toInt(),
     // "Yes, book a second ride anyway" — see requestRide. The rider has to have
     // been shown the prompt for this to be true, so it is never a default.
     body('allowConcurrent').optional().isBoolean(),
