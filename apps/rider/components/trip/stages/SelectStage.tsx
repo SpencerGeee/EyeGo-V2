@@ -5,6 +5,7 @@ import {
   ScrollView,
   Pressable,
   Modal,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -103,6 +104,35 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const insets = useSafeAreaInsets();
   const popStage = useTripFlow((s) => s.popStage);
   const goStage = useTripFlow((s) => s.go);
+
+  /**
+   * BACK MEANS BACK ONE STEP.
+   *
+   * BUGFIX ("there's no way to go back when you advance on the steps").
+   *
+   * This stage had a back chevron in its header and nothing else. Android's
+   * hardware back and the iOS edge-swipe are how most people actually go back,
+   * and neither was handled here, so they fell through to the navigator and
+   * dropped the rider out of the whole trip surface — losing the pickup, the
+   * destination and the tier they had just chosen — instead of returning them
+   * to the previous step. ConfigureStage already did this; this stage did not.
+   *
+   * `popStage()` returns null once there is nothing left to pop (it refuses on
+   * server-owned stages by design, see tripFlow.store), and that is the only
+   * case where leaving the surface is the right answer.
+   */
+  const handleBack = React.useCallback(() => {
+    if (mode === 'route') { router.back(); return; }
+    if (popStage() == null) router.back();
+  }, [mode, router, popStage]);
+
+  React.useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true;
+    });
+    return () => sub.remove();
+  }, [handleBack]);
   const flowType = useTripFlow((s) => s.type);
   const { type: rideType } = useLocalSearchParams<{ type?: string }>();
   const isGroupFlow = (rideType ?? flowType) === 'group';
@@ -230,7 +260,9 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       {/* Header */}
       <View style={styles.header}>
         <Pressable
-          onPress={() => (mode === 'route' ? router.back() : popStage())}
+          // Same handler as hardware back, so the chevron and the gesture can
+          // never disagree about where "back" goes.
+          onPress={handleBack}
           style={styles.headerBackBtn}
           hitSlop={12}
           accessibilityRole="button"
