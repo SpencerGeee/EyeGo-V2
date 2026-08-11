@@ -752,11 +752,32 @@ const TERMINAL_TRIP_STATUSES = [
   'COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_DRIVERS_FOUND', 'NO_SHOW',
 ];
 
+/**
+ * A HELD SEAT IS NOT A RIDE.
+ *
+ * BUGFIX ("I chose to book a trip and invite my group, went to the invite page,
+ * came back — it showed my seat was booked and the live card was on the home
+ * screen. I didn't finish booking the ride.")
+ *
+ * Generating an invite holds seats at SEAT_HELD so nobody else can take them
+ * while the host shares the link. That is a reservation with a timer on it, not
+ * a booking: no money has moved and the host has not committed to anything. But
+ * this query excluded only the TERMINAL statuses, so a hold read as the rider's
+ * active ride — the home screen drew the live-trip card for it and the seat map
+ * showed the seat as theirs, for a trip they had not booked.
+ *
+ * Allow-list instead of deny-list, because the failure mode of getting this
+ * wrong is claiming a ride exists. CONFIRMED covers cash bookings, whose
+ * paymentStatus stays PENDING by design, so this does not require payment to
+ * have cleared — only that the rider actually committed to the seat.
+ */
+const LIVE_BOOKING_STATUSES = ['CONFIRMED', 'PAID', 'BOARDED'];
+
 async function getActiveBooking(userId) {
   const booking = await prisma.booking.findFirst({
     where: {
       userId,
-      status: { notIn: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] },
+      status: { in: LIVE_BOOKING_STATUSES },
       trip: { status: { notIn: TERMINAL_TRIP_STATUSES } },
     },
     include: {        trip: {

@@ -219,7 +219,34 @@ apiClient.interceptors.response.use(
     const isReplayable =
       method === 'get' || method === 'head' || method === 'options' || hasIdempotencyKey;
 
-    if (isReplayable && (isNetworkError || isServerError) && retryCount < 3 && !original._retry) {
+    /**
+     * "A request with this Idempotency-Key is already being processed."
+     *
+     * BUGFIX (group pay-for-all failing with exactly that message).
+     *
+     * This is OUR OWN retry colliding with OUR OWN first attempt. A slow write
+     * — pay-for-all charges every booking on the trip and waits on Paystack —
+     * outlives the network timeout, we retry after 1s, and the server, entirely
+     * correctly, sees the first attempt still in flight and answers 409
+     * IDEMPOTENCY_IN_PROGRESS. The rider is shown a raw conflict message for a
+     * payment that is at that moment succeeding.
+     *
+     * Waiting is the right answer, and it is safe for the same reason the retry
+     * was allowed at all: the key means the server can recognise the replay.
+     * Once the original finishes, the next attempt is served its cached
+     * response instead of charging anyone twice.
+     */
+    const isIdempotencyInFlight =
+      error.response?.status === 409 &&
+      ((error.response?.data as any)?.code === 'IDEMPOTENCY_IN_PROGRESS' ||
+        (error.response?.data as any)?.error?.code === 'IDEMPOTENCY_IN_PROGRESS');
+
+    if (
+      isReplayable &&
+      (isNetworkError || isServerError || isIdempotencyInFlight) &&
+      retryCount < 3 &&
+      !original._retry
+    ) {
       (original as any)._retryCount = retryCount + 1;
       const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
       await new Promise((resolve) => setTimeout(resolve, delay));

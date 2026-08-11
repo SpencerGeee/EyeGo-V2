@@ -11,7 +11,8 @@ import {
 // The library's avoider, not React Native's. RN's `behavior="height"` has
 // nothing to shrink under edge-to-edge with adjustResize, so on Android it
 // effectively no-ops and the composer stays under the keyboard.
-import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -159,6 +160,15 @@ export default function TripChatScreen() {
   const markChatRead = useChatUnread((s) => s.markRead);
   const insets = useSafeAreaInsets();
   const keyboardShown = useKeyboardState((s) => s.isVisible);
+
+  // Same measured-not-inferred keyboard padding as the rider chat — see the
+  // long note there. Kept identical on purpose: these two screens are the same
+  // screen from opposite ends of the trip, and letting them drift is how one of
+  // them silently regresses.
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+  const keyboardPad = useAnimatedStyle(() => ({
+    paddingBottom: Math.abs(keyboardHeight.value),
+  }));
   useEffect(() => {
     if (id) markChatRead(id);
   }, [id, markChatRead, messages.length]);
@@ -535,7 +545,7 @@ export default function TripChatScreen() {
         </View>
       )}
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding" keyboardVerticalOffset={0}>
+      <Animated.View style={[{ flex: 1 }, keyboardPad]}>
         {/* Private tab — passenger picker when no recipient selected */}
         {chatMode === 'private' && !privateRecipientId ? (
           <View style={{ flex: 1 }}>
@@ -648,7 +658,7 @@ export default function TripChatScreen() {
             </Pressable>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </Animated.View>
     </SafeAreaView>
   );
 }

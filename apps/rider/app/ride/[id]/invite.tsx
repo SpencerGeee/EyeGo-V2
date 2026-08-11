@@ -14,6 +14,7 @@ import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, AnimatedFareText, Loader, AppBackground } from '@eyego/ui';
 import type { GroupMember, Trip } from '@eyego/types';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
+import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { haptic } from '../../../utils/haptics';
 // Shared formatter. This file used to declare its own cedis-formatting
 // helper, which silently shadowed the real one — and the moment the values
@@ -264,6 +265,15 @@ export default function InviteScreen() {
   const handleChangePickup = useCallback(() => {
     haptic.light();
     pickingPickupRef.current = true;
+    /*
+     * Declare the round trip. The trip surface sits under this screen and its
+     * focus guard sends the rider home (or re-seeds to the Where-To stage)
+     * unless the screen that navigated says it expects to come back. Every
+     * other surface-owned push already does this; the invite flow did not, so
+     * stepping out to pick a pickup point — or out to the browser and back —
+     * dropped the host out of the invite they were part-way through.
+     */
+    expectTripSurfaceReturn();
     router.push('/profile/place-picker' as any);
   }, [router]);
 
@@ -619,7 +629,12 @@ export default function InviteScreen() {
           <Button
             variant="glow"
             label="Proceed to Payment"
-            onPress={() => router.push(`/ride/${id}/payment` as Href)}
+            onPress={() => {
+              // Same reason as handleChangePickup — payment is a surface-owned
+              // push, and backing out of it must land here, not on Where-To.
+              expectTripSurfaceReturn();
+              router.push(`/ride/${id}/payment` as Href);
+            }}
           />
         </MotiView>
       </ScrollView>

@@ -294,6 +294,20 @@ export default function HomeScreen() {
   // cached response, or a ride the DRIVER cancelled while this screen sat in the
   // background. So the terminal states are filtered here too, on both the
   // booking and its trip.
+  /**
+   * A HELD SEAT IS NOT A RIDE — mirrors LIVE_BOOKING_STATUSES on the server.
+   *
+   * Sharing an invite link holds the remaining seats at SEAT_HELD so nobody
+   * takes them mid-share. The deny-list below let that through as a live ride,
+   * so a host who opened the invite page and came back found the live-trip card
+   * on their home screen for a trip they never finished booking. PENDING is
+   * excluded for the same reason: it is a booking row that exists before the
+   * rider has committed to it.
+   *
+   * CONFIRMED is included even though cash bookings keep `paymentStatus:
+   * PENDING` — the test is commitment, not cleared funds.
+   */
+  const LIVE_BOOKING = ['CONFIRMED', 'PAID', 'BOARDED'];
   const TERMINAL_BOOKING = ['CANCELLED', 'COMPLETED', 'NO_SHOW', 'REFUNDED', 'EXPIRED'];
   // NO_DRIVERS_FOUND was missing from this list, and it is the single most
   // likely way an on-demand ride ends. A request that nobody took therefore
@@ -329,6 +343,7 @@ export default function HomeScreen() {
   const activeBooking =
     activeBookingRaw &&
     activeTripDriverId != null &&
+    LIVE_BOOKING.includes(String(activeBookingRaw.status ?? '').toUpperCase()) &&
     // A LIVE CARD NEEDS A LIVE TRIP.
     //
     // "I cancelled, then landed on the index page with the live trip card

@@ -129,12 +129,30 @@ function idempotency(req, res, next) {
     //    "payment failed", even when the original attempt had in fact gone
     //    through. Clearing it here means a retry re-runs against the real state
     //    (and the service layer's own idempotency makes that safe).
-    res.on('finish', () => {
-      if (persisted) return;
+    /*
+     * 'close' as well as 'finish'.
+     *
+     * 'finish' only fires when a response was actually written. A client that
+     * gives up — a phone that times out on a slow pay-for-all and tears the
+     * socket down, which is precisely the case this endpoint hits — fires
+     * 'close' and never 'finish', so the statusCode-0 placeholder survived and
+     * every retry for the next STALE_RESERVATION_MS was answered with
+     * "A request with this Idempotency-Key is already being processed."
+     *
+     * Guarded by `released` because 'close' also fires after 'finish' on a
+     * normal response, and a second delete would remove a legitimately cached
+     * success — turning this into a double-charge risk rather than a fix.
+     */
+    let released = false;
+    const releaseReservation = () => {
+      if (persisted || released) return;
+      released = true;
       prisma.idempotencyKey
         .delete({ where: { userId_endpoint_key: { userId, endpoint, key } } })
         .catch(() => {});
-    });
+    };
+    res.on('finish', releaseReservation);
+    res.on('close', releaseReservation);
 
     return next();
   })().catch(next);

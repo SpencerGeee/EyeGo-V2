@@ -11,7 +11,8 @@ import {
   Alert,
 } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
-import { KeyboardAvoidingView, useKeyboardState } from 'react-native-keyboard-controller';
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -126,6 +127,30 @@ export default function ChatScreen() {
   const markChatRead = useChatUnread((s) => s.markRead);
   const insets = useSafeAreaInsets();
   const keyboardShown = useKeyboardState((s) => s.isVisible);
+
+  /**
+   * KEYBOARD SPACE, MEASURED NOT INFERRED.
+   *
+   * Third attempt at this bug, and the first two failed the same way: both used
+   * `KeyboardAvoidingView`, which works out how much room to add by measuring
+   * its own frame against the window. That measurement is what kept being
+   * wrong here — the avoider is not the root (a header and a tab bar sit above
+   * it), the screen is edge-to-edge, and the safe-area inset moved between
+   * attempts. Every fix was tuning an offset against a number we could not see.
+   *
+   * `useReanimatedKeyboardAnimation` reports the keyboard's actual height on
+   * both platforms. Padding the container by exactly that removes the whole
+   * measurement question: the list shrinks by the keyboard's height, the input
+   * bar rides on top of it, and there is no frame, offset or inset to get wrong.
+   *
+   * `Math.abs` because the hook reports height as a negative translate offset —
+   * guarding the sign here means a library change of convention cannot silently
+   * invert the padding.
+   */
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+  const keyboardPad = useAnimatedStyle(() => ({
+    paddingBottom: Math.abs(keyboardHeight.value),
+  }));
   useEffect(() => {
     if (id) markChatRead(id);
   }, [id, markChatRead, messages.length]);
@@ -692,7 +717,7 @@ export default function ChatScreen() {
         covers the top only and the input bar owns its own bottom padding, so
         there is one source of truth for the space under the field.
       */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <Animated.View style={[{ flex: 1 }, keyboardPad]}>
       <View style={{ flex: 1 }}>
         {/* Messages */}
         <FlashList
@@ -832,7 +857,7 @@ export default function ChatScreen() {
           </GlassSurface>
         </View>
       </View>
-      </KeyboardAvoidingView>
+      </Animated.View>
     </SafeAreaView>
   );
 }
