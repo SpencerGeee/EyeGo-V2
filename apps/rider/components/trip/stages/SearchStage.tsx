@@ -6,9 +6,18 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
-import { fonts, fontSizes, radii, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
-import { Text, MorphTarget, useMorph, MorphBackSwipeDetector } from '@eyego/ui';
+import { fonts, fontSizes, radii, spacing, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
+import {
+  Text,
+  MorphTarget,
+  useMorph,
+  MorphBackSwipeDetector,
+  AppBackground,
+  GlassSurface,
+  GradientGlowBorder,
+} from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useThemeStore } from '../../../stores/theme.store';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { useRecentPlaces } from '../../../stores/recentPlaces.store';
@@ -117,6 +126,7 @@ const AT_PLACE_RADIUS_M = 250;
 
 function SearchStageImpl() {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -221,6 +231,33 @@ function SearchStageImpl() {
     addRecent(place);
     haptic.select();
   }, [setDestination, setSearchPlace, addRecent]);
+
+  /**
+   * Which of the two fields a suggestion tap fills.
+   *
+   * The suggestion list used to be destination-only, so a rider whose PICKUP
+   * was the thing they wanted to change — the common case when you are booking
+   * from somewhere that is not where you are standing — had exactly one route
+   * to it: open the map picker and search. Tapping the row you mean to fill and
+   * then tapping Home is the obvious gesture, and it did nothing.
+   *
+   * Destination is the default because it is what an empty trip is missing:
+   * pickup fills itself from GPS a moment after this screen opens.
+   */
+  const [focusedField, setFocusedField] = useState<'origin' | 'dest'>('dest');
+
+  const commitToOrigin = useCallback((place: SearchPlace) => {
+    setOrigin({ latitude: place.latitude, longitude: place.longitude, address: place.fullAddress });
+    setOriginText(place.name);
+    addRecent(place);
+    haptic.select();
+  }, [setOrigin, addRecent]);
+
+  /** A suggestion tap. Fills whichever row the rider last focused. */
+  const commitToFocused = useCallback((place: SearchPlace) => {
+    if (focusedField === 'origin') commitToOrigin(place);
+    else commitPlace(place);
+  }, [focusedField, commitToOrigin, commitPlace]);
 
   const handleSwap = useCallback(() => {
     haptic.light();
@@ -330,42 +367,57 @@ function SearchStageImpl() {
     router.push('/profile/saved-places' as any);
   }, [router]);
 
+  /**
+   * Recents worth offering for the field the rider is filling.
+   *
+   * Two filters, both of which the flat list got wrong. A place that is
+   * already the OTHER end of this trip is not a suggestion — offering the
+   * rider's pickup as their destination produces a zero-length trip and a
+   * fare of nothing. And the place already IN the focused field is not a
+   * suggestion either; tapping it is a no-op that looks broken.
+   *
+   * Coordinates are compared at ~11 m (5 decimal places), the same precision
+   * the server signs a fare quote at, so "the same place" means the same thing
+   * on both sides.
+   */
+  const relevantRecents = useMemo(() => {
+    const at = (a: { latitude: number; longitude: number } | null | undefined,
+                b: { latitude: number; longitude: number }) =>
+      !!a && a.latitude.toFixed(5) === b.latitude.toFixed(5)
+          && a.longitude.toFixed(5) === b.longitude.toFixed(5);
+    const other = focusedField === 'origin' ? selectedPlace : origin;
+    const mine = focusedField === 'origin' ? origin : selectedPlace;
+    return recents.filter((p) => !at(other, p) && !at(mine, p)).slice(0, 6);
+  }, [recents, focusedField, origin, selectedPlace]);
+
   const commitSaved = useCallback(
     (p: SavedPlace) =>
-      commitPlace({ name: p.label, fullAddress: p.address, latitude: p.lat, longitude: p.lng }),
-    [commitPlace],
+      commitToFocused({ name: p.label, fullAddress: p.address, latitude: p.lat, longitude: p.lng }),
+    [commitToFocused],
   );
 
-  // The panel is the screen until a destination exists, then it collapses to the
-  // card floating over the map. Home and Work always have a row — as a saved
-  // address or as the prompt to add one — so there is something to show even on
-  // a brand-new account, which is when the region was blankest.
-  const expanded = !selectedPlace;
-
+  /**
+   * THE SCREEN IS THE SCREEN NOW.
+   *
+   * This stage used to be a card floating over the live map with an opaque
+   * sheet slid behind it, and it read exactly like that: a black, bare panel
+   * with map leaking down its edges and no relationship to the driver app's
+   * create-trip screen, which is the same job done well. The rider asked for
+   * that screen, so this is that screen — the shared Skia `AppBackground`, two
+   * stacked location rows on glass, a glow ring around them, and suggestions
+   * underneath.
+   *
+   * `variant="static"` is deliberate and is the "optimized" part: the animated
+   * background runs a shader every frame, and this surface is reached by a
+   * container-transform morph that needs the whole frame budget (see the
+   * architecture note at the top of this file). The static variant paints once.
+   *
+   * The map is not mounted behind this at all any more, so there is no leak to
+   * cover and no second opaque layer to pay for.
+   */
   return (
-    <View style={styles.overlay} pointerEvents="box-none">
-      {/*
-        THE SHEET. Opaque, full-bleed, and only while no destination is chosen.
-
-        BUGFIX ("on the where-to page the place you put the home and work
-        address isn't nice, plus the search for a place or address is literally
-        sitting on the map underneath").
-
-        The panel below was inset by `CARD_H_MARGIN` and painted at 0.94 alpha,
-        so the map showed through it — down both edges, faintly behind every
-        row, and most obviously under the "Search for a place or address"
-        button at the end of the scroll, which had map on three sides and read
-        as a control someone had dropped on the wrong layer.
-
-        There is nothing useful on that map yet. The rider has not said where
-        they are going, so it is showing them their own neighbourhood behind a
-        list they are trying to read. Uber, Bolt and Yango all open this step as
-        a full opaque sheet for exactly that reason, and hand the map back the
-        moment a destination exists — which is what `expanded` already tracks.
-      */}
-      {expanded && (
-        <View style={styles.sheetBackdrop} pointerEvents="none" />
-      )}
+    <View style={styles.screen}>
+      <AppBackground variant="static" isDark={isDark} />
 
       {/* Header */}
       <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
@@ -378,7 +430,7 @@ function SearchStageImpl() {
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
 
-        <Text style={styles.headerTitle}>Where To</Text>
+        <Text style={styles.headerTitle}>Set your trip</Text>
 
         {/* Steps 1-2 of the same 5-step flow ConfigureStage continues, so the
             rider can see how much is left rather than discovering it. Pickup is
@@ -408,35 +460,43 @@ function SearchStageImpl() {
           <MorphTarget id={activeMorphId} borderRadius={24} style={{ width: cardWidth }}>
             <View style={[styles.floatingCard, { width: cardWidth }]}>
 
-              {/* ── Dual location rows + timeline ─────────────── */}
-              <View style={[styles.inputsSection, { height: COL_H }]}>
-                <View style={[styles.timeline, { height: COL_H }]}>
-                  <View style={[styles.timelineDot, styles.timelineDotOrigin]} />
-                  <View style={styles.timelineLine} />
-                  <View style={[styles.timelineDot, styles.timelineDotDest]} />
-                </View>
+              {/*
+                ── The two fields ───────────────────────────────────────────
+                Mirrors the driver's create-trip step 1: a glass row per end
+                with a coloured dot, a connector between them, and the whole
+                pair inside a glow ring. Same components, same geometry, so a
+                driver and a rider setting up the same trip are looking at the
+                same control.
 
-                <View style={[styles.inputsCol, { width: fieldColWidth, height: COL_H }]}>
-                  {/* Pickup. Tapping ANY part of the row opens the fullscreen map
-                      picker — that screen already owns search, the draggable pin
-                      and reverse-geocoding, and handing the whole job to it is
-                      both the nicer interaction and the reason this card can stay
-                      keyboard-free during the morph (see the note at the top of
-                      this file). */}
+                Tapping a row focuses it AND opens the fullscreen picker. The
+                focus is what makes the suggestions below fill the right field
+                if the rider backs out of the picker and taps Home instead.
+              */}
+              <GradientGlowBorder
+                borderRadius={radii.xl}
+                thickness="thin"
+                fillColor="transparent"
+                glow
+                glowIntensity={1.1}
+                maxGlowRadius={18}
+              >
+                <View style={styles.fieldsGroup}>
                   <Pressable
                     style={({ pressed }) => [
-                      styles.fieldRow,
-                      { width: fieldColWidth },
+                      styles.locationRow,
+                      focusedField === 'origin' && styles.locationRowFocused,
                       pressed && styles.fieldRowPressed,
                     ]}
-                    onPress={() => openMapPicker('origin')}
+                    onPress={() => { setFocusedField('origin'); openMapPicker('origin'); }}
                     accessibilityRole="button"
                     accessibilityLabel="Set pickup location"
                   >
-                    <View style={[styles.fieldTextCol, { width: fieldTextWidth }]}>
+                    <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+                    <View style={[styles.locationDot, { backgroundColor: colors.onSurfaceVariant }]} />
+                    <View style={styles.locationTextCol}>
                       <Text style={styles.fieldLabel} numberOfLines={1}>PICKUP</Text>
                       <Text
-                        style={[styles.fieldValue, !originText && styles.fieldPlaceholder]}
+                        style={[styles.locationValue, !originText && styles.fieldPlaceholder]}
                         numberOfLines={1}
                       >
                         {originText || 'Pickup point'}
@@ -449,23 +509,38 @@ function SearchStageImpl() {
                     />
                   </Pressable>
 
-                  {/* Destination — identical behaviour, so both halves of the card
-                      work the same way. */}
+                  {/* Connector + swap, sharing the dot's centre line so the two
+                      rows read as one journey rather than two controls. */}
+                  <View style={styles.connectorRow}>
+                    <View style={styles.locationConnector} />
+                    <Pressable
+                      style={[styles.swapBtn, (!selectedPlace || !origin) && styles.swapBtnDisabled]}
+                      onPress={handleSwap}
+                      disabled={!selectedPlace || !origin}
+                      accessibilityRole="button"
+                      accessibilityLabel="Swap pickup and destination"
+                      hitSlop={8}
+                    >
+                      <Ionicons name="swap-vertical" size={16} color={colors.onSurfaceVariant} />
+                    </Pressable>
+                  </View>
+
                   <Pressable
                     style={({ pressed }) => [
-                      styles.fieldRow,
-                      styles.fieldRowDest,
-                      { width: fieldColWidth },
+                      styles.locationRow,
+                      focusedField === 'dest' && styles.locationRowFocused,
                       pressed && styles.fieldRowPressed,
                     ]}
-                    onPress={() => openMapPicker('dest')}
+                    onPress={() => { setFocusedField('dest'); openMapPicker('dest'); }}
                     accessibilityRole="button"
                     accessibilityLabel="Choose destination"
                   >
-                    <View style={[styles.fieldTextCol, { width: fieldTextWidth }]}>
+                    <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+                    <View style={[styles.locationDot, { backgroundColor: colors.primary }]} />
+                    <View style={styles.locationTextCol}>
                       <Text style={[styles.fieldLabel, styles.fieldLabelDest]} numberOfLines={1}>WHERE TO</Text>
                       <Text
-                        style={[styles.fieldValue, !destText && styles.fieldPlaceholder]}
+                        style={[styles.locationValue, !destText && styles.fieldPlaceholder]}
                         numberOfLines={1}
                       >
                         {destText || 'Search a place or address'}
@@ -474,18 +549,7 @@ function SearchStageImpl() {
                     <Ionicons name="search" size={FIELD_TRAIL_W} color={colors.primary} />
                   </Pressable>
                 </View>
-
-                {/* Swap — only meaningful once both ends are known. */}
-                <Pressable
-                  style={[styles.swapBtn, (!selectedPlace || !origin) && styles.swapBtnDisabled]}
-                  onPress={handleSwap}
-                  disabled={!selectedPlace || !origin}
-                  accessibilityRole="button"
-                  accessibilityLabel="Swap pickup and destination"
-                >
-                  <Ionicons name="swap-vertical" size={18} color={colors.onSurfaceVariant} />
-                </Pressable>
-              </View>
+              </GradientGlowBorder>
 
               {/* Seats + CTAs, once a destination is confirmed */}
               {selectedPlace && (
@@ -542,127 +606,78 @@ function SearchStageImpl() {
         </View>
       </MorphBackSwipeDetector>
 
-      {/* ── The panel under the card ───────────────────────────────────────
-          Until a destination is chosen this OWNS the rest of the screen: an
-          opaque surface carrying Home, Work, saved places and recents, the way
-          Uber and Bolt open. The map behind it is not useful yet — the rider
-          has not said where they are going, so there is nothing to show on it —
-          and the old half-height version left a strip of dead map under three
-          chips. Choosing a destination collapses this away and hands the screen
-          back to the map, which is the moment the map starts mattering.
+      {/* ── Suggestions ────────────────────────────────────────────────────
+          Underneath the two fields, and deliberately short: saved places and
+          recents, nothing else. The old panel led with a full-width search
+          button and then listed Home, Work, every saved place and eight
+          recents — four sections of chrome above two rows anyone actually
+          taps. Search already lives on the destination field itself.
 
-          Same width and inset as the card so the two read as one column. */}
-      {expanded && (
-        <View style={[styles.panel, { width: cardWidth }]}>
-          <ScrollView
-            style={styles.panelScroll}
-            contentContainerStyle={[styles.panelContent, { paddingBottom: insets.bottom + 24 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Search sits FIRST, immediately under the destination field it
-                belongs to. It used to be the last thing in this scroll, after
-                Home, Work, every saved place and eight recents — so the one
-                control that answers "my destination isn't in any of these
-                lists" was the one you had to scroll past all of them to find,
-                and it ended up hanging over the map below the content. It is
-                the primary action here; it reads as one now. */}
-            <Pressable
-              style={({ pressed }) => [styles.searchWideBtn, pressed && styles.rowPressed]}
-              onPress={() => openMapPicker('dest')}
-              accessibilityRole="button"
-              accessibilityLabel="Search for a place"
-            >
-              <Ionicons name="search" size={16} color={colors.primary} />
-              <Text style={styles.searchWideText}>Search for a place or address</Text>
-            </Pressable>
-
-            {/* Home + Work always have a row. A missing one is an invitation to
-                add it, not an absence — and once added it IS the row, so the
-                prompt can never sit next to the address it was asking for. */}
-            <View style={styles.sectionCard}>
-              {showHome && (
-                <SlotRow
-                  styles={styles}
-                  colors={colors}
-                  icon="home"
-                  title={homePlace ? homePlace.label : 'Add home address'}
-                  subtitle={homePlace?.address}
-                  isPrompt={!homePlace}
-                  onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
-                />
-              )}
-              {showHome && showWork && <View style={styles.rowDivider} />}
-              {showWork && (
-                <SlotRow
-                  styles={styles}
-                  colors={colors}
-                  icon="briefcase"
-                  title={workPlace ? workPlace.label : 'Add work address'}
-                  subtitle={workPlace?.address}
-                  isPrompt={!workPlace}
-                  onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
-                />
-              )}
-              {/* Closes the group. Without it the block ends on whichever of
-                  Home/Work happens to exist, and there is no way into saved
-                  places from here at all once both are set. */}
-              {(showHome || showWork) && <View style={styles.rowDivider} />}
+          "Only the relevant ones" is literal here: rows are filtered against
+          whichever end is ALREADY set, so the screen never offers a place as a
+          destination when it is the pickup, and the heading says which field a
+          tap will fill. */}
+      <View style={[styles.suggestions, { width: cardWidth }]}>
+        <Text style={styles.sectionLabel}>
+          {focusedField === 'origin' ? 'Set pickup from' : 'Suggestions'}
+        </Text>
+        <ScrollView
+          style={styles.panelScroll}
+          contentContainerStyle={[styles.panelContent, { paddingBottom: insets.bottom + 24 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Home + Work always have a row. A missing one is an invitation to
+              add it, not an absence — and once added it IS the row, so the
+              prompt can never sit next to the address it was asking for. */}
+          <View style={styles.sectionCard}>
+            {showHome && (
               <SlotRow
                 styles={styles}
                 colors={colors}
-                icon="add-circle-outline"
-                title="Add a saved place"
-                isPrompt
-                onPress={openSavedPlaces}
+                icon="home"
+                title={homePlace ? homePlace.label : 'Add home address'}
+                subtitle={homePlace?.address}
+                isPrompt={!homePlace}
+                onPress={() => (homePlace ? commitSaved(homePlace) : openSavedPlaces())}
               />
-            </View>
-
-            {otherSaved.length > 0 && (
-              <>
-                <Text style={styles.sectionLabel}>Saved places</Text>
-                <View style={styles.sectionCard}>
-                  {otherSaved.map((p, i) => (
-                    <React.Fragment key={p.id}>
-                      {i > 0 && <View style={styles.rowDivider} />}
-                      <SlotRow
-                        styles={styles}
-                        colors={colors}
-                        icon={savedIcon(p)}
-                        title={p.label}
-                        subtitle={p.address}
-                        onPress={() => commitSaved(p)}
-                      />
-                    </React.Fragment>
-                  ))}
-                </View>
-              </>
             )}
-
-            {recents.length > 0 && (
-              <>
-                <Text style={styles.sectionLabel}>Recent</Text>
-                <View style={styles.sectionCard}>
-                  {recents.slice(0, 8).map((p, i) => (
-                    <React.Fragment key={`${p.latitude},${p.longitude}`}>
-                      {i > 0 && <View style={styles.rowDivider} />}
-                      <SlotRow
-                        styles={styles}
-                        colors={colors}
-                        icon="time-outline"
-                        title={p.name}
-                        subtitle={p.fullAddress !== p.name ? p.fullAddress : undefined}
-                        onPress={() => commitPlace(p)}
-                      />
-                    </React.Fragment>
-                  ))}
-                </View>
-              </>
+            {showHome && showWork && <View style={styles.rowDivider} />}
+            {showWork && (
+              <SlotRow
+                styles={styles}
+                colors={colors}
+                icon="briefcase"
+                title={workPlace ? workPlace.label : 'Add work address'}
+                subtitle={workPlace?.address}
+                isPrompt={!workPlace}
+                onPress={() => (workPlace ? commitSaved(workPlace) : openSavedPlaces())}
+              />
             )}
+          </View>
 
-          </ScrollView>
-        </View>
-      )}
+          {relevantRecents.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>Recent</Text>
+              <View style={styles.sectionCard}>
+                {relevantRecents.map((p, i) => (
+                  <React.Fragment key={`${p.latitude},${p.longitude}`}>
+                    {i > 0 && <View style={styles.rowDivider} />}
+                    <SlotRow
+                      styles={styles}
+                      colors={colors}
+                      icon="time-outline"
+                      title={p.name}
+                      subtitle={p.fullAddress !== p.name ? p.fullAddress : undefined}
+                      onPress={() => commitToFocused(p)}
+                    />
+                  </React.Fragment>
+                ))}
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -732,6 +747,76 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 10,
+  },
+
+  /** The stage, full-bleed. `AppBackground` paints it; nothing shows through.
+   *  `flex: 1` is safe HERE — this is the stage root and its parent is the
+   *  absolutely-positioned stage container, which has a definite size. The
+   *  layout contract at the top of this file applies to everything BELOW. */
+  screen: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 10,
+    backgroundColor: colors.background,
+  },
+
+  /** The two location rows as one unit, inside the glow ring. */
+  fieldsGroup: {
+    borderRadius: radii.xl,
+    overflow: 'hidden',
+    backgroundColor: withOpacity(colors.surfaceContainer, 0.55),
+  },
+  /** Mirrors the driver's `locationRow` — glass, dot, text, trailing icon. */
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: radii.xl,
+    paddingHorizontal: FIELD_PAD_H,
+    height: ROW_H,
+    overflow: 'hidden',
+  },
+  /** Which row a suggestion tap will fill. Without this the rider has no way
+   *  to tell, and the section heading alone is easy to miss. */
+  locationRowFocused: {
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.55),
+  },
+  locationDot: { width: DOT, height: DOT, borderRadius: DOT / 2 },
+  /** No `flex`. See the layout contract at the top of this file — a flex here
+   *  is a definite zero the moment any ancestor measures indefinite, and this
+   *  card has collapsed that way four times. Width comes from the row's own
+   *  padding instead, which is a constant. */
+  locationTextCol: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', minWidth: 0 },
+  locationValue: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
+    color: colors.onSurface,
+    marginTop: 2,
+  },
+  /** Connector + swap on one line, so the swap sits ON the journey line rather
+   *  than beside it the way the old right-hand column did. */
+  connectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: ROW_STACK_GAP + 14,
+    paddingHorizontal: FIELD_PAD_H,
+    gap: 12,
+  },
+  locationConnector: {
+    width: 2,
+    height: 14,
+    marginLeft: (DOT - 2) / 2,
+    backgroundColor: colors.outline,
+  },
+
+  /** The suggestion list under the fields. */
+  suggestions: {
+    flexGrow: 1,
+    flexShrink: 1,
+    alignSelf: 'center',
+    marginTop: 18,
   },
 
   /** Opaque, edge to edge, behind everything else in the stage. See the note at
