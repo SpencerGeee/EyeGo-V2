@@ -1,72 +1,73 @@
-# State — Stress Sweep 2026-08-11 (23 items)
+# State — Stress Sweep 2026-08-11b (items 1–32)
 
 ## Current Goal
-23-item stress-test list. ALL 23 fixed and committed to `main`.
+32-item stress list. Items 8–22 were TRUNCATED out of the user's message and
+are unrecoverable — user will re-capture them in the next stress round.
+Everything else must be finished this session ("dont end till its done").
 
-## Delivery — 6 commits
-a600ef7 dispatch never rang + rider multistep/fare
-83daa07 pay-for-everyone + ghost live-trip card + driver home
-35b028f public /track and /invite pages
-2e3fcf8 status discrepancy + swipe feel + polyline + glow
-4fb4d5d chat badges + keyboard
-fdc4524 pickup propagation + complete-screen 0 + perf
+## Answers locked from the user (do not re-ask)
+- **#4 where-to**: full-screen route mirroring `apps/driver/app/(trip)/create.tsx`;
+  suggestions = saved Home/Work + recents ONLY (no POIs, no "use current location").
+- **#1 back nav**: header chevron on every stage past the first + Android
+  hardware back + iOS edge-swipe step back ONE stage; backing out of Request
+  cancels the ride request.
+- **#28 door pickup**: fee = `max(minFee, detourKm × perKmRate)`, gated to a max
+  detour radius, offered as a Configure-stage toggle on ALL trips, folded into
+  the quote before Request.
+- **#28 at-pickup test**: driver GPS within **150 m** of trip pickup at Start →
+  skip "driver on the way", show "Driver is at the pickup point"; outside →
+  DRIVER_EN_ROUTE "Driving to pickup point".
+- **#24 driver redesign**: port rider `TrackingStage` visual system wholesale
+  (map treatment, glass panel, glow borders, motion timings); re-skin seat map,
+  status stepper, swipe action into that shell. Absorbs #5 and #26.
+
+## Delivered — 2 commits
+- `6b91f19` #2, #3, #6, #31
+- `44720bf` #4 (SearchStage rebuilt as driver-style full-screen Skia surface)
 
 ## Root causes worth not re-deriving
-- **Dispatch (3)**: driver socket is `autoConnect:false`; only `watch()` ever
-  dialled it, and that runs when already ON a trip. Idle driver = never
-  connected. `listenForOffers()` now takes a refcounted connection.
-  Offers carry no trip seq → no replay → also mirrored to redis
-  `dispatch:offer:driver:<id>` and returned by `/rides/driver/state`.
-  `TRIP_OFFER` push had no case in `_layout.tsx` and fell to the catch-all.
-- **Fare "—" (2)**: `ridesApi.quote` returns `amountPesewas`; client read
-  three names that don't exist.
-- **Pay-for-everyone (9,10)**: `createRideGroup` returned early when a group
-  existed (invite LINK creates it first), so `isCoverAll` was never stored;
-  and settlement only covers seats that ALREADY hold a booking. Now upserts
-  and claims free seats as real bookings (`isCoveredByLead`). `trip-view`
-  used `find()` for the viewer's booking → summed now (`seatsPaidFor`).
-- **Ghost card (5,6)**: card rendered for any non-terminal booking; with no
-  `trip` relation, `String(undefined).toUpperCase()` = "UNDEFINED" passed the
-  terminal filter, and every field fell to its `??` placeholder.
-- **Public pages (8,16)**: `/track` endpoint sent no geometry (straight line)
-  and no ETA (counted down to departureTime → 64 vs 16 min). `/invite` built
-  its Map unguarded at the top of the IIFE (CDN fail = stuck spinner) and used
-  a `{z}/{x}/{y}` tile template that 404s. `trip.fare` is PESEWAS → 480 vs 4.80.
-- **Chat badge (13)**: counted against `useTripStore.snapshot.tripId`, which is
-  null for group rides. Private messages were never subscribed at all.
-- **Keyboard (13,21)**: `behavior="height"` no-ops under edge-to-edge
-  adjustResize; root SafeAreaView claimed the same strip as the avoider.
-- **Status (17,19)**: driver tracking defaulted `etaLeg` to `'toDropoff'`;
-  IN_PROGRESS swipe was labelled "Mark Arrived" but calls `arriveTrip`
-  (→ COMPLETED).
-- **Perf (15)**: per-frame cost was already fine; nothing bounded the NUMBER
-  of frames — 24fps for a whole shift. Added a decay duty cycle that resets on
-  every navigation. Tracking screen also mounted AppBackground UNDER an opaque
-  full-screen map.
+- **#2/#3 are ONE chain.** `requestRide` calls `fareQuote.redeemQuote` (a
+  destructive single-use Redis DEL) BEFORE `startCascade`, which can throw.
+  503 "couldn't send request" → retry sends the same quoteId at a deleted key →
+  "this price has expired". Fix: `restoreQuote()` + `giveQuoteBack()` on every
+  post-redemption failure path, plus a one-shot client re-quote on FARE_EXPIRED.
+- **The orphan.** Trip+Booking COMMIT before dispatch is attempted, and the
+  terminal write was `.catch(() => {})`. A trip that could not transition stayed
+  REQUESTED with a CONFIRMED booking and no driver forever. Added `failTripHard`
+  (applyTransition, then a direct terminal write as fallback).
+- **`getActiveBooking`'s terminal list** never learned `NO_DRIVERS_FOUND` or
+  `NO_SHOW`, so the orphan came back as the rider's ACTIVE booking. Rider home's
+  `TERMINAL_TRIP` was missing `NO_DRIVERS_FOUND`/`REASSIGNING` too. Card now
+  additionally REQUIRES `trip.driverId` — the user's "rider and driver in
+  agreement" rule. (`driver` select has no `id`; use the `driverId` scalar.)
+- **#6**: `FareBreakdownSheet` prop was `fare: number` with no unit; caller
+  passed pesewas → "GH₵720" over a page saying 7.20. Renamed `farePesewas`,
+  routed through `formatGhs`. `platformFeePesewas` was misnamed (it is cedis).
+- **#31**: `User` has NO `rating` column. Rider ratings live in
+  `PassengerRating[]` and nothing aggregated them, so `freshProfile?.rating` was
+  always undefined and the chip was hidden. Now aggregated in `getMe`.
+- **where-to.tsx is only a redirect stub.** The real screen is
+  `components/trip/stages/SearchStage.tsx` inside the persistent trip surface
+  (`app/trip.tsx`).
+- `GradientGlowBorder` requires `fillColor`; the glow reach cap is
+  **`maxGlowRadius`**, not `glowMaxRadius`.
+- Rider Skia bg usage: `<AppBackground variant="static" isDark={isDark} />`
+  with `isDark` from `stores/theme.store`.
+
+## Remaining (task list IDs)
+- #3 — multistep polish: Skia bg + glow borders + per-stage back nav (item 1)
+- #5 — public /invite + /track: road polyline, load speed, ETA, brand parity (7, 25)
+- #6 — driver manage: clipped top strip + slow status chips (5, 26)
+- #7 — port rider tracking aesthetic to driver manage + swipe-to-start (24)
+- #8 — pickup-point semantics + paid door pickup (28, 29)
+- #9 — post-trip home renders under the opaque map (30)
 
 ## Evidence
-- `tsc --noEmit` exit 0 for apps/rider and apps/driver after every commit.
+- `apps/rider` `tsc --noEmit` **exit 0** after every commit.
 - `node --check` clean on all changed backend files.
-- **Nothing device-tested.**
+- **Nothing device-tested.** Item 27 needs no work (user confirmed ETA correct).
+- Item 23 is only half-visible in the transcript; cannot action.
 
-## Carry-overs — both CLOSED 2026-08-11
-- Migration `20260810120000_driver_destination_mode` **APPLIED** to the live
-  Neon DB (`prisma migrate deploy`); all six `Driver.destination*` columns
-  verified present, `migrate status` = "Database schema is up to date!".
-- Dispatch convergence **DONE** (1fcb5f2). The two surfaces now share one
-  clock and cannot both hold an offer:
-  - legacy screen counted down on the DEVICE clock → now `useDriverTripStore.now()`
-  - home's `trip:assigned` handler stands down while a cascade offer is live
-  - socket type said `estimatedEarnings`; server sends `estimatedEarningsPesewas`
-    (so the earnings card had never once rendered)
-  - `ADMIN_TRIP_ASSIGNED` had no nav case → fell to the active-trip catch-all
-  - copy is kind-aware (assigned vs reassignment vs request)
-  The legacy screen is KEPT on purpose: admin-assigned scheduled trips
-  (`admin.controller.js`) and reassignment claims (`drivers.service.js`) are
-  live, genuinely different flows. Only the cascade's on-demand offers use the
-  sheet. Nothing creates `TripRequest`s any more, so `kind=REQUEST` is dormant.
-
-## Open Issues
-- Perf changes need a device pass to confirm the thermal fix.
-- `runOnJS` deprecation in SwipeToConfirm left alone deliberately — this repo
-  has a history of SIGABRTs from gesture-callback worklet changes.
+## Build/tooling
+- `npx` is broken here. Use `node node_modules/typescript/lib/tsc.js --noEmit`
+  from inside `apps/<app>`.

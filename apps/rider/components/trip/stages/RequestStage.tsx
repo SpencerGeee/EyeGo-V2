@@ -7,7 +7,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, MorphTarget } from '@eyego/ui';
+import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder } from '@eyego/ui';
+import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingIndicator } from '../SearchingIndicator';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -38,6 +39,7 @@ import { useTripStore, isTerminal } from '../../../stores/trip.store';
  */
 function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const colors = useColors();
+  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -607,14 +609,27 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           </View>
         )}
 
-        {/* Info card */}
-        <View style={styles.infoCard}>
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
-          <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
-          <Text style={styles.infoText}>
-            Trip requests are grouped — other riders heading the same way will be added automatically.
-          </Text>
-        </View>
+        {/* Info card. Ringed while the search is live — this is the only lit
+            element on the screen during the wait, and it is what makes the
+            stage read as active rather than stalled. Dropped once a driver is
+            found, so the ring means "still looking" and nothing else. */}
+        <GradientGlowBorder
+          borderRadius={radii.lg}
+          thickness="thin"
+          fillColor="transparent"
+          glow={status === 'searching'}
+          glowIntensity={0.9}
+          maxGlowRadius={16}
+          style={{ width: '100%' }}
+        >
+          <View style={styles.infoCard}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
+            <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
+            <Text style={styles.infoText}>
+              Trip requests are grouped — other riders heading the same way will be added automatically.
+            </Text>
+          </View>
+        </GradientGlowBorder>
 
         {status === 'searching' ? (
           <>
@@ -668,10 +683,25 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   );
 
   if (mode === 'route') {
+    /**
+     * ROUTE MODE HAD NO BACKGROUND AT ALL.
+     *
+     * `safe` is `backgroundColor: 'transparent'`, which is right in stage mode
+     * — the persistent map and the gradient below sit behind it there. Reached
+     * as a standalone route (the home screen's pending-request card, a push
+     * notification) there is nothing behind it, so the rider watched for a
+     * driver on a flat black rectangle. That is the "black and bare" screen.
+     *
+     * Static variant: this screen already runs the SearchingIndicator's pulse
+     * and is the one moment in the flow where dispatch wants the frames.
+     */
     return (
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        {body}
-      </SafeAreaView>
+      <View style={styles.routeRoot}>
+        <AppBackground variant="static" isDark={isDark} />
+        <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+          {body}
+        </SafeAreaView>
+      </View>
     );
   }
   // Stage mode. This used to lay a 90%-opaque scrim over the whole surface,
@@ -704,6 +734,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: 'transparent',
+  },
+  /** Route mode only — the layer `AppBackground` paints. In stage mode the
+   *  persistent map plus the gradient below do this job, which is why `safe`
+   *  is transparent and why this screen had no background at all on the route. */
+  routeRoot: {
+    flex: 1,
+    backgroundColor: colors.backgroundDeep,
   },
   header: {
     paddingHorizontal: spacing['2xl'],
