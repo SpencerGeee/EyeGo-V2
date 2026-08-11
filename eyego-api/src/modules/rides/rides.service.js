@@ -95,6 +95,59 @@ async function quoteRide(userId, params) {
 }
 
 /**
+ * Put a trip into a terminal state, and mean it.
+ *
+ * This used to be `applyTransition(...).catch(() => {})`, and the swallow was
+ * the whole bug. The Trip and Booking rows are committed BEFORE dispatch is
+ * attempted, so when dispatch failed and the transition also failed — a guard
+ * rejection, a dropped connection, anything — the ride stayed at REQUESTED with
+ * a CONFIRMED booking and no driver, permanently. The rider's home screen reads
+ * a non-terminal booking as a live ride, so it drew the trip card with every
+ * field fallen through to its placeholder ("Your driver", "your destination");
+ * tapping it opened tracking, which had nothing to track and bounced straight
+ * back to the map.
+ *
+ * The state machine stays the first choice, because it writes the TripEvent
+ * that every downstream consumer replays. But a trip that cannot be
+ * transitioned must still not be left looking live, so the fallback writes the
+ * terminal status directly and cancels the seat with it.
+ */
+async function failTripHard(tripId, reason, error) {
+  try {
+    await tripState.applyTransition(tripId, S.NO_DRIVERS_FOUND, {
+      actor: ACTOR.SYSTEM,
+      payload: { reason, error },
+    });
+    return;
+  } catch (transitionErr) {
+    logger.error(
+      `applyTransition to NO_DRIVERS_FOUND failed for trip ${tripId}: ` +
+        `${transitionErr.message}. Forcing the terminal status directly.`,
+    );
+  }
+
+  await prisma
+    .$transaction(async (tx) => {
+      await tx.trip.update({
+        where: { id: tripId },
+        data: {
+          status: S.NO_DRIVERS_FOUND,
+          cancelledAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      await tx.booking.updateMany({
+        where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED', 'REFUNDED'] } },
+        data: { status: 'CANCELLED' },
+      });
+    })
+    .catch((forceErr) => {
+      // Nothing left to try. Log loudly: this is a trip that will need sweeping.
+      logger.error(`Could not force trip ${tripId} terminal: ${forceErr.message}`);
+    });
+}
+
+/**
  * Create the ride and start dispatch.
  *
  * The Trip row exists before any driver does. Dispatch is awaited far enough to
@@ -157,6 +210,16 @@ async function requestRide(userId, body) {
     // Redeeming the quote is what makes the quoted price the charged price —
     // and it is single-use, so a replayed quote cannot buy a second ride.
     const quote = await fareQuote.redeemQuote(quoteId, userId);
+
+    /**
+     * Everything below this line has already spent the quote, and any of it can
+     * still fail. A failure that leaves the quote spent is not recoverable from
+     * the rider's side: they retry, the server says the price expired, and the
+     * only way out is to back all the way to the map and re-quote. So every
+     * failure path from here on hands the quote back before it rethrows.
+     */
+    const giveQuoteBack = () =>
+      fareQuote.restoreQuote(quoteId, quote).catch(() => false);
 
     const trip = await prisma.$transaction(async (tx) => {
       const created = await tx.trip.create({
@@ -237,6 +300,12 @@ async function requestRide(userId, body) {
       });
 
       return created;
+    }).catch(async (err) => {
+      // Nothing was written, so the quote bought nothing. Hand it back before
+      // the error leaves — otherwise the retry fails as FARE_EXPIRED instead of
+      // as whatever actually went wrong, and the rider is stuck.
+      await giveQuoteBack();
+      throw err;
     });
 
     // Awaited. If dispatch cannot start the rider finds out now, rather than
@@ -246,12 +315,8 @@ async function requestRide(userId, body) {
       await cascade.startCascade(trip.id, { kind: 'ON_DEMAND' });
     } catch (err) {
       logger.error(`Dispatch failed to start for trip ${trip.id}: ${err.message}`);
-      await tripState
-        .applyTransition(trip.id, S.NO_DRIVERS_FOUND, {
-          actor: ACTOR.SYSTEM,
-          payload: { reason: 'DISPATCH_START_FAILED', error: err.message },
-        })
-        .catch(() => {});
+      await failTripHard(trip.id, 'DISPATCH_START_FAILED', err.message);
+      await giveQuoteBack();
       throw new AppError('We could not start looking for a driver. Please try again.', 503, 'DISPATCH_UNAVAILABLE');
     }
 

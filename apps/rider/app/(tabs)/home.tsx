@@ -294,11 +294,41 @@ export default function HomeScreen() {
   // cached response, or a ride the DRIVER cancelled while this screen sat in the
   // background. So the terminal states are filtered here too, on both the
   // booking and its trip.
-  const TERMINAL_BOOKING = ['CANCELLED', 'COMPLETED', 'NO_SHOW', 'REFUNDED'];
-  const TERMINAL_TRIP = ['CANCELLED', 'COMPLETED', 'EXPIRED', 'NO_SHOW'];
+  const TERMINAL_BOOKING = ['CANCELLED', 'COMPLETED', 'NO_SHOW', 'REFUNDED', 'EXPIRED'];
+  // NO_DRIVERS_FOUND was missing from this list, and it is the single most
+  // likely way an on-demand ride ends. A request that nobody took therefore
+  // read as live and drew the card. REASSIGNING is here for the opposite
+  // reason: it is not terminal, but the driver has dropped out and the card
+  // would name one who is no longer coming.
+  const TERMINAL_TRIP = [
+    'CANCELLED', 'COMPLETED', 'EXPIRED', 'NO_SHOW', 'NO_DRIVERS_FOUND', 'REASSIGNING',
+  ];
   const activeBookingRaw = (activeBookings as any)?.data?.data?.booking ?? null;
+  /**
+   * A DRIVER IS WHAT MAKES THIS CARD TRUE.
+   *
+   * The rule is now the one the card actually claims: show it only once the
+   * rider and a driver are on the same trip. Everything the card renders —
+   * the driver's name, the vehicle, "on the way" — is a statement about a
+   * driver, so without one attached every field falls through to its `??`
+   * placeholder and the card says "Your driver" and "your destination" about a
+   * ride that does not exist. Tapping it opened tracking, which had nothing to
+   * track, and bounced the rider to the map.
+   *
+   * This also makes the terminal lists belt-and-braces rather than the only
+   * defence: a REQUESTED trip whose dispatch died before it could be marked
+   * terminal has no driver either, so it cannot reach the card by any route.
+   *
+   * A ride still being searched for is not lost by this — it has its own
+   * surface, the pending-request card below, which is honest about having no
+   * driver yet. Group and bus trips are unaffected: the driver creates those,
+   * so `driverId` is set from the moment the trip exists.
+   */
+  const activeTripDriverId =
+    activeBookingRaw?.trip?.driverId ?? activeBookingRaw?.trip?.driver?.id ?? null;
   const activeBooking =
     activeBookingRaw &&
+    activeTripDriverId != null &&
     // A LIVE CARD NEEDS A LIVE TRIP.
     //
     // "I cancelled, then landed on the index page with the live trip card

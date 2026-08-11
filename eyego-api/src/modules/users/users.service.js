@@ -14,9 +14,34 @@ async function getMe(userId) {
     },
   });
   if (!user) throw new NotFoundError('User');
+
+  /**
+   * The rider's own rating.
+   *
+   * The profile screen reads `rating` off this payload and hides its chip when
+   * the value is missing — which it always was, because `User` has no `rating`
+   * column and nothing here ever computed one. Riders are rated: drivers write
+   * `PassengerRating` rows after every trip. Nobody was reading them back, so
+   * "I can't view my ratings" was literally true — the number existed in the
+   * database and had no route to the app.
+   *
+   * Aggregated on read rather than denormalised onto User: ratings arrive a
+   * handful of times per rider per week and this is one indexed aggregate, so
+   * a cached column would buy nothing and could go stale.
+   */
+  const agg = await prisma.passengerRating.aggregate({
+    where: { userId },
+    _avg: { stars: true },
+    _count: { stars: true },
+  });
+
   return {
     ...user,
     avatarUrl: user.profilePhoto,
+    // Null, never 0, when nobody has rated yet — the client treats 0 as "no
+    // rating" too, but a real 0 and an absent one should not look the same.
+    rating: agg._count.stars > 0 ? Number(agg._avg.stars.toFixed(2)) : null,
+    ratingCount: agg._count.stars,
   };
 }
 

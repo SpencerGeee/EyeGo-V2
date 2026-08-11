@@ -243,8 +243,22 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * double-tap safe, and reusing it here would replay the cached 409 instead of
    * sending the second ride the rider just explicitly asked for.
    */
+  type SendRequestOpts = {
+    allowConcurrent?: boolean;
+    passenger?: { name: string; phone: string } | null;
+    /** Set on the one automatic re-entry after a spent quote. Stops a loop. */
+    refreshedFare?: boolean;
+  };
+
+  /**
+   * Self-reference, so the fare-expired path below can re-enter with a fresh
+   * price. A `useCallback` cannot name itself without capturing a stale
+   * closure, and the recovery has to run the CURRENT one.
+   */
+  const sendRequestRef = React.useRef<((opts?: SendRequestOpts) => Promise<void>) | null>(null);
+
   const sendRequest = React.useCallback(
-    async (opts?: { allowConcurrent?: boolean; passenger?: { name: string; phone: string } | null }) => {
+    async (opts?: SendRequestOpts) => {
       if (origin?.latitude == null || origin?.longitude == null) return;
       if (storeDestination?.latitude == null || storeDestination?.longitude == null) return;
 
@@ -304,6 +318,28 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           setLocalStatus('error');
           return;
         }
+
+        /**
+         * The quote was spent on a ride that did not happen.
+         *
+         * A quote is single-use and the server claims it before it does any of
+         * the work that can still fail. So the rider could be shown "this price
+         * has expired — please confirm the new fare" seconds after being quoted,
+         * for a price they never actually used and cannot re-confirm: the only
+         * way out was backing all the way to the map. The server now hands the
+         * quote back on its own failure paths, but a retry at the transport
+         * layer can still spend one underneath us.
+         *
+         * Re-entering is the whole recovery, because `sendRequest` prices from
+         * scratch on every attempt — the rider sees one spinner, not an error.
+         * Once only, and with a new idempotency key so the retry is not answered
+         * out of the cache with the failure it is trying to escape.
+         */
+        if ((code === 'FARE_EXPIRED' || code === 'FARE_ALREADY_USED') && !opts?.refreshedFare) {
+          idempotencyKeyRef.current = `ride-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          await sendRequestRef.current?.({ ...opts, refreshedFare: true });
+          return;
+        }
         // Surface what the server actually said. Swallowing this is what made
         // every distinct failure — an expired quote, a rejected fare, an
         // out-of-zone pickup, a genuine network drop — look like the same
@@ -327,6 +363,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [origin?.latitude, origin?.longitude, storeDestination?.latitude, storeDestination?.longitude, destination],
   );
+  sendRequestRef.current = sendRequest;
 
   /** "Book it anyway, and it's for me." */
   const bookConcurrentForSelf = React.useCallback(() => {

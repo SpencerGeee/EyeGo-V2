@@ -208,10 +208,41 @@ async function redeemQuote(quoteId, userId) {
   return quote;
 }
 
+/**
+ * Un-redeem a quote whose ride did not happen.
+ *
+ * WHY THIS EXISTS. Redemption is destructive and it runs BEFORE the work it
+ * pays for can fail. `requestRide` redeemed the quote, wrote the Trip, then
+ * awaited dispatch — and when dispatch could not start, the rider got
+ * "we could not start looking for a driver", tapped Confirm again, and the
+ * retry sent the same quoteId at a key that no longer existed. The second
+ * error was "this price has expired — please confirm the new fare", on a quote
+ * that had another ninety seconds left and had never bought anything. The
+ * rider could not get out of the loop, because every retry burned nothing and
+ * still failed the same way.
+ *
+ * Restoring is safe precisely because the id is an HMAC of the priced inputs:
+ * putting the same body back under the same key cannot mint a different price,
+ * and the remaining TTL is carried from the original `expiresAtMs` so a
+ * restore can never extend the window a rider was quoted.
+ *
+ * Returns false when the quote had already aged out anyway — the caller has
+ * nothing to apologise for in that case, the price really did expire.
+ */
+async function restoreQuote(quoteId, quote) {
+  if (!quoteId || !quote || !Number.isFinite(quote.expiresAtMs)) return false;
+  const ttlSeconds = Math.ceil((quote.expiresAtMs - Date.now()) / 1000);
+  if (ttlSeconds <= 0) return false;
+  const written = await redis
+    .set(quoteKey(quoteId), JSON.stringify(quote), 'EX', ttlSeconds)
+    .catch(() => null);
+  return written !== null;
+}
+
 /** Peek without redeeming — for showing the rider what they are about to pay. */
 async function readQuote(quoteId) {
   const raw = await redis.get(quoteKey(quoteId)).catch(() => null);
   return raw ? JSON.parse(raw) : null;
 }
 
-module.exports = { createQuote, redeemQuote, readQuote, QUOTE_TTL_SECONDS };
+module.exports = { createQuote, redeemQuote, restoreQuote, readQuote, QUOTE_TTL_SECONDS };

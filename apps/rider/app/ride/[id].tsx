@@ -523,7 +523,7 @@ export default function RideDetailScreen() {
       <FareBreakdownSheet
         visible={showFareBreakdown}
         onClose={() => setShowFareBreakdown(false)}
-        fare={computedFare ?? trip?.farePerSeatPesewas ?? 0}
+        farePesewas={computedFare ?? trip?.farePerSeatPesewas ?? 0}
         seats={trip?.maxSeats ?? 4}
         surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
       />

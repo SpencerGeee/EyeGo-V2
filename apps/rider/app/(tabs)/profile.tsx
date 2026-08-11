@@ -105,7 +105,22 @@ export default function ProfileScreen() {
     staleTime: 60_000,
   });
   const riderRating = freshProfile?.rating ?? (user as any)?.rating ?? null;
+  const ratingCount = freshProfile?.ratingCount ?? 0;
+  /**
+   * Hiding the chip was the whole of "I can't see my ratings".
+   *
+   * The server never sent a `rating` at all — `User` has no such column and
+   * nothing aggregated the `PassengerRating` rows drivers write — so the
+   * condition below was false for every rider on every load and the chip did
+   * not exist. That is now fixed server-side, but the chip still has to render
+   * for a rider nobody has rated yet: vanishing entirely reads as a broken
+   * screen, where "New" reads as an answer.
+   */
   const rating = typeof riderRating === 'number' && riderRating > 0 ? riderRating.toFixed(1) : null;
+  const ratingLabel = rating ?? 'New';
+  const ratingA11y = rating
+    ? `Your rating: ${rating} out of 5, from ${ratingCount} ${ratingCount === 1 ? 'rating' : 'ratings'}`
+    : 'You have no ratings yet';
 
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
@@ -305,12 +320,17 @@ export default function ProfileScreen() {
               <View style={styles.memberChip}>
                 <Text style={styles.memberChipText}>Member</Text>
               </View>
-              {rating && (
-                <View style={styles.ratingChip}>
-                  <Ionicons name="star" size={11} color={colors.tierPremium} />
-                  <Text style={styles.ratingChipText}>{rating}</Text>
-                </View>
-              )}
+              <View
+                style={styles.ratingChip}
+                accessibilityRole="text"
+                accessibilityLabel={ratingA11y}
+              >
+                <Ionicons name="star" size={11} color={colors.tierPremium} />
+                <Text style={styles.ratingChipText}>{ratingLabel}</Text>
+                {ratingCount > 0 && (
+                  <Text style={styles.ratingChipCount}>({ratingCount})</Text>
+                )}
+              </View>
             </View>
           </View>
         </View>
@@ -426,6 +446,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 2,
   },
   ratingChipText: { fontFamily: fonts.bold, fontSize: 10, lineHeight: 14, color: colors.tierPremium },
+  ratingChipCount: {
+    fontFamily: fonts.regular,
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.tierPremium,
+    opacity: 0.7,
+  },
   editBtn: {
     width: 40,
     height: 40,

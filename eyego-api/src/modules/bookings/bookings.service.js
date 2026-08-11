@@ -738,7 +738,19 @@ async function applyPromoCode(userId, bookingId, code) {
  * Derive it by exclusion so a newly-added mid-trip status can never silently
  * fall out of it again: everything that is not terminal is live.
  */
-const TERMINAL_TRIP_STATUSES = ['COMPLETED', 'CANCELLED', 'EXPIRED'];
+/*
+ * Deriving "live" by exclusion only works if the exclusion list is complete,
+ * and it was not: NO_DRIVERS_FOUND and NO_SHOW are both absorbing terminal
+ * states in TripStatus and neither was here. So the ride nobody accepted — the
+ * most common way an on-demand request ends — came back from this endpoint as
+ * the rider's ACTIVE booking, forever. That is the trip-less live card on the
+ * home screen and the tracking screen that immediately bounces to the map.
+ *
+ * Keep in step with the terminal block of `enum TripStatus` in schema.prisma.
+ */
+const TERMINAL_TRIP_STATUSES = [
+  'COMPLETED', 'CANCELLED', 'EXPIRED', 'NO_DRIVERS_FOUND', 'NO_SHOW',
+];
 
 async function getActiveBooking(userId) {
   const booking = await prisma.booking.findFirst({

@@ -3,6 +3,9 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii } from '@eyego/config';
 import { Text, PanelSheet } from '@eyego/ui';
+// The same formatter the Base fare / Total rows behind this sheet use, so the
+// headline here cannot drift from them again.
+import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../utils/useColors';
 
 /**
@@ -19,7 +22,17 @@ import { useColors, Colors } from '../utils/useColors';
 export interface FareBreakdownSheetProps {
   visible: boolean;
   onClose: () => void;
-  fare: number;
+  /**
+   * PESEWAS, like every other fare in the codebase.
+   *
+   * This was `fare: number` with no unit in the name, and the caller passed
+   * pesewas — the same value it hands to `formatGhs()` for the Base fare and
+   * Total rows right behind this sheet. Rendered raw it read "GH₵720" over a
+   * page saying 7.20, so the one control whose entire job is to explain the
+   * price was the only place that got it wrong by a factor of a hundred.
+   * Named for its unit so a caller cannot make that mistake silently again.
+   */
+  farePesewas: number;
   seats: number;
   /** show the "prices temporarily higher" banner (surgeMultiplier > 1) */
   surge?: boolean;
@@ -27,7 +40,8 @@ export interface FareBreakdownSheetProps {
   /** presentational config — override per market/tier when backend exposes them */
   waitTimeRate?: number; // GH₵ per minute
   bookingFeePct?: number;
-  platformFeePesewas?: number; // fixed GH₵
+  /** Cedis, not pesewas — this was misnamed and read as a fixed GH₵ amount. */
+  platformFeeCedis?: number;
 }
 
 const gh = (n: number, dp = 2) => `GH₵${n.toFixed(dp)}`;
@@ -35,13 +49,13 @@ const gh = (n: number, dp = 2) => `GH₵${n.toFixed(dp)}`;
 export function FareBreakdownSheet({
   visible,
   onClose,
-  fare,
+  farePesewas,
   seats,
   surge = false,
   promotionPct = 10,
   waitTimeRate = 0.98,
   bookingFeePct = 6.1,
-  platformFeePesewas = 1.0,
+  platformFeeCedis = 1.0,
 }: FareBreakdownSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -69,13 +83,13 @@ export function FareBreakdownSheet({
       <View style={styles.fareHeader}>
         <Text variant="titleLarge">Fare</Text>
         <Text variant="fareMedium" color={colors.onSurface} style={{ fontWeight: '700' }}>
-          {gh(fare, 0)}
+          {formatGhs(farePesewas)}
         </Text>
       </View>
 
       <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
       <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
-      <DottedRow label="Platform Fee" value={gh(platformFeePesewas)} colors={colors} styles={styles} />
+      <DottedRow label="Platform Fee" value={gh(platformFeeCedis)} colors={colors} styles={styles} />
       <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
       <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
 
