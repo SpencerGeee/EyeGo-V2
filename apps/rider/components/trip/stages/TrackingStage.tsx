@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, InlayPanel, RollingDigits, Avatar, GradientGlowBorder } from '@eyego/ui';
+import { Text, GlassSurface, InlayPanel, RollingDigits, Avatar, GradientGlowBorder, CardAuroraGlow } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
@@ -79,6 +79,15 @@ function TrackingStageImpl() {
         sheetStyle={styles.sheet}
         grabberColor={colors.outline}
       >
+        {/*
+          The green wash. Anchored to the sheet's bottom edge, capped well below
+          the point where it would compete with the text, and static — this
+          screen already runs the map and the panel's gesture physics, and a
+          breathing gradient would be the third thing asking for the same frame.
+          See CardAuroraGlow for why each of those is a hard constraint rather
+          than a default.
+        */}
+        <CardAuroraGlow color={colors.primary} intensity={0.15} reach={0.5} />
         <View style={styles.sheetBody}>
           <View style={styles.headline}>
             <View style={{ flex: 1 }}>

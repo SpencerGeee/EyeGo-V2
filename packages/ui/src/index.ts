@@ -49,6 +49,8 @@ export { GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, RING_P
 export type { GradientGlowBorderHandle, RingPalette } from './effects/GradientGlowBorder';
 export { LightfallBackground } from './effects/LightfallBackground';
 export type { LightfallBackgroundProps } from './effects/LightfallBackground';
+export { CardAuroraGlow } from './effects/CardAuroraGlow';
+export type { CardAuroraGlowProps } from './effects/CardAuroraGlow';
 export { LightPillarBackground } from './effects/LightPillarBackground';
 export type { LightPillarBackgroundProps } from './effects/LightPillarBackground';
 export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbientRotation';

@@ -26,6 +26,7 @@ import { useChatUnread } from '../../../stores/chatUnread.store';
 import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
+import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { openExternalNavigation } from '../../../utils/externalNav';
 // The ONE map in the driver trip flow. It owns the MapView, the map style, the
@@ -563,17 +564,19 @@ export default function ActiveTripScreen() {
         </Pressable>
       </View>
 
-      {/* Draggable bottom sheet */}
-      <InlayPanel
-        // 0.38 opened below this sheet's own content — the same tab-bar-clears
-        // problem as home and tracking. The manage screen's route card, step
-        // chips and swipe action all belong above the fold on arrival.
-        snapPointsPct={[0.55, 0.85]}
-        initialState="collapsed"
-        sheetStyle={styles.sheetBackground}
-        grabberColor={colors.outline}
-      >
-        <View style={styles.sheetContent}>
+      {/*
+        The shared shell — same component the tracking screen renders. These two
+        are the screens a driver moves between mid-trip and they had nothing in
+        common structurally: different snap points, different sheet padding, no
+        connection chip on either. Geometry now descends from the rider's
+        tracking screen in one place.
+
+        Slightly taller collapsed snap than tracking, because this sheet has to
+        clear the route card, the status chips AND the swipe action on arrival —
+        tracking only has to clear its ETA card.
+      */}
+      <TripSurfaceShell snapPointsPct={[0.52, 0.85]}>
+        <View style={styles.sheetInner}>
           {/* Route summary — the screen's headline fact, now a lit surface
               rather than bare text on the sheet. Same ring family as the
               tracking screen's ETA card and the rider's trip cards, so the two
@@ -876,7 +879,7 @@ export default function ActiveTripScreen() {
             </Entrance>
           )}
         </View>
-      </InlayPanel>
+      </TripSurfaceShell>
 
       {/* Payment QR — lets a boarding rider scan straight into this trip's payment
           screen instead of the driver having no way to hand off a payable code at all. */}
@@ -1072,6 +1075,11 @@ const makeStyles = (colors: DriverColors) =>
       backgroundColor: colors.outline,
       width: 40,
       height: 4,
+    },
+    /** Content rhythm only — padding and the top glow gap come from the shared
+     *  shell now, so manage and tracking cannot space themselves differently. */
+    sheetInner: {
+      gap: spacing.lg,
     },
     sheetContent: {
       paddingHorizontal: spacing['2xl'],

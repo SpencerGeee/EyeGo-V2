@@ -3,6 +3,7 @@ import { connectDriverSocket, disconnectDriverSocket, driverSocketEvents, getDri
 import { useQueryClient } from '@tanstack/react-query';
 import { useDriverLocation, lastKnownReportedFix } from './useDriverLocation';
 import { useDriverStore } from '../stores/driver.store';
+import { useDriverConnection } from '../stores/connection.store';
 
 interface Options {
   tripId?: string;
@@ -28,6 +29,9 @@ export function useDriverSocket({ tripId, enabled = false }: Options) {
 
     const cleanConnect = driverSocketEvents.onConnect(() => {
       console.log('[DriverSocket] Connected');
+      // Presentation only — drives the "Reconnecting…" chip on the trip
+      // screens. Nothing else reads it. See stores/connection.store.ts.
+      useDriverConnection.getState().setConnected(true);
       // DM3: reset reconnect counter on successful connect
       reconnectAttemptsRef.current = 0;
       // D3: join the trip room on (re)connect so seat_update events are received
@@ -61,6 +65,7 @@ export function useDriverSocket({ tripId, enabled = false }: Options) {
     });
     const cleanDisconnect = driverSocketEvents.onDisconnect(() => {
       console.log('[DriverSocket] Disconnected');
+      useDriverConnection.getState().setConnected(false);
     });
 
     // D11: handle auth failure / token expiry on socket connect

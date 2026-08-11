@@ -21,6 +21,7 @@ import { fonts, fontSizes, spacing, radii, springs, durations } from '@eyego/con
 import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
@@ -485,18 +486,19 @@ export default function DriverTrackingScreen() {
         </Animated.View>
       )}
 
-      {/* Bottom sheet */}
-      <InlayPanel
-        // Same fix as the home panel: 0.32 put the card's own content below the
-        // fold on open, so the driver had to drag the sheet up before they
-        // could read their ETA or reach the action. The resting snap now fits
-        // the card.
-        snapPointsPct={[0.5, 0.8]}
-        initialState="collapsed"
-        sheetStyle={styles.sheetBackground}
-        grabberColor={colors.outline}
-      >
-        <View style={styles.sheetContent}>
+      {/*
+        Bottom sheet, now the shared shell — see components/trip/TripSurfaceShell.
+        This screen and the manage screen each built their own panel with their
+        own snap points, padding and (absent) connection chip, which is why
+        moving between them mid-trip felt like two different apps. The geometry
+        below is the rider tracking screen's, which is the one that reads right.
+      */}
+      <TripSurfaceShell snapPointsPct={[0.38, 0.72]}>
+        {/* No inner padding wrapper: the shell's own sheet body owns the
+            horizontal inset, the top gap that keeps a card's glow off the
+            sheet edge, and the vertical rhythm between cards. Keeping a second
+            padded container here is how the two screens drifted apart before. */}
+        <View style={styles.sheetInner}>
           {/* ETA + Status — the screen's hero data gets the driver-blue premium ring */}
           <Entrance animation="slideDown">
             <GradientGlowBorder
@@ -711,7 +713,7 @@ export default function DriverTrackingScreen() {
             </Entrance>
           )}
         </View>
-      </InlayPanel>
+      </TripSurfaceShell>
     </View>
   );
 }
@@ -906,11 +908,14 @@ const makeStyles = (colors: DriverColors) =>
       borderTopRightRadius: radii['3xl'],
     },
     sheetHandle: { backgroundColor: colors.outline, width: 40, height: 4 },
+    /** Content spacing only. Padding and the top glow gap now live in the
+     *  shared shell (components/trip/TripSurfaceShell), so both driver trip
+     *  screens get them from one place. */
+    sheetInner: {
+      gap: spacing.lg,
+    },
     sheetContent: {
       paddingHorizontal: spacing['2xl'],
-      // Top padding gives the ETA card's GradientGlowBorder room for its
-      // shadow-based glow to bleed upward — without it, the ScrollView's
-      // implicit overflow clips the glow flush at the top edge.
       paddingTop: spacing.lg,
       paddingBottom: spacing['2xl'],
       gap: spacing.base,
