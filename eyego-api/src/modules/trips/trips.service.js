@@ -15,6 +15,7 @@ const logger = require('../../utils/logger');
 const mapboxService = require('../../services/mapbox.service');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 const tripState = require('../../services/trip-state.service');
+const routeGeometry = require('../../services/route-geometry.service');
 
 async function createTrip(driverId, data) {
   const {
@@ -1401,6 +1402,38 @@ async function getTrackingData(shortId) {
   });
   if (!trip) throw new NotFoundError('Trip');
 
+  /**
+   * THE ROAD LINE AND THE REAL ETA.
+   *
+   * This payload used to carry neither, and the public page did the only two
+   * things it could with what it had: it drew a two-point LineString between
+   * origin and destination — a line straight through buildings, reported as
+   * "the route is giving me a straight line, not following the road" — and it
+   * counted down to `departureTime`, which is a completely different quantity
+   * from the driver's ETA. That is the "64 mins on the web, 16 mins in the
+   * apps" discrepancy: not a miscalculation, two different clocks.
+   *
+   * Both now come from `route-geometry`, the same service the apps read, so
+   * the shared link cannot disagree with the app that produced it. `peek` —
+   * not `get` — because this endpoint is unauthenticated and polled: it serves
+   * whatever the trip's own traffic has already computed and never issues a
+   * billable Directions call of its own.
+   */
+  let path = null;
+  try {
+    const cached = await routeGeometry.peekRouteForTrip(trip);
+    if (cached) {
+      path = {
+        leg: cached.leg,
+        geometry: cached.geometry,
+        distanceKm: cached.distanceKm,
+        etaMinutes: cached.durationMin != null ? Math.max(1, Math.round(cached.durationMin)) : null,
+      };
+    }
+  } catch {
+    // A missing line is a cosmetic loss; never fail the page over it.
+  }
+
   return {
     tripId: trip.id,
     shortId: trip.shortId,
@@ -1409,6 +1442,13 @@ async function getTrackingData(shortId) {
     departureTime: trip.departureTime,
     arrivedAt: trip.arrivedAt,
     route: trip.route,
+    /**
+     * The live leg: road geometry plus the ETA in minutes.
+     * `leg` is 'toPickup' while the driver is fetching the rider and
+     * 'toDropoff' once they are aboard — the page labels itself from it, so it
+     * cannot claim "arriving at destination" while the driver is still coming.
+     */
+    path,
     driver: trip.driver ? {
       name: trip.driver.name,
       profilePhoto: trip.driver.profilePhoto,
