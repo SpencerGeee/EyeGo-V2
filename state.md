@@ -49,10 +49,24 @@ fdc4524 pickup propagation + complete-screen 0 + perf
 - `node --check` clean on all changed backend files.
 - **Nothing device-tested.**
 
+## Carry-overs — both CLOSED 2026-08-11
+- Migration `20260810120000_driver_destination_mode` **APPLIED** to the live
+  Neon DB (`prisma migrate deploy`); all six `Driver.destination*` columns
+  verified present, `migrate status` = "Database schema is up to date!".
+- Dispatch convergence **DONE** (1fcb5f2). The two surfaces now share one
+  clock and cannot both hold an offer:
+  - legacy screen counted down on the DEVICE clock → now `useDriverTripStore.now()`
+  - home's `trip:assigned` handler stands down while a cascade offer is live
+  - socket type said `estimatedEarnings`; server sends `estimatedEarningsPesewas`
+    (so the earnings card had never once rendered)
+  - `ADMIN_TRIP_ASSIGNED` had no nav case → fell to the active-trip catch-all
+  - copy is kind-aware (assigned vs reassignment vs request)
+  The legacy screen is KEPT on purpose: admin-assigned scheduled trips
+  (`admin.controller.js`) and reassignment claims (`drivers.service.js`) are
+  live, genuinely different flows. Only the cascade's on-demand offers use the
+  sheet. Nothing creates `TripRequest`s any more, so `kind=REQUEST` is dormant.
+
 ## Open Issues
-- Migration `20260810120000_driver_destination_mode` still NOT applied.
-- `(trip)/dispatch/[id].tsx` is still the legacy scheduled/route offer screen;
-  `DispatchOfferSheet` handles on-demand only.
 - Perf changes need a device pass to confirm the thermal fix.
 - `runOnJS` deprecation in SwipeToConfirm left alone deliberately — this repo
   has a history of SIGABRTs from gesture-callback worklet changes.
