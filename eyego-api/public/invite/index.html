@@ -6,8 +6,27 @@
   <meta name="description" content="Join a shared EyeGo ride" />
   <meta name="theme-color" content="#08090B" />
   <title>Join an EyeGo Ride</title>
+  <!--
+    THE MAP MUST NOT HOLD UP THE PAGE.
+
+    BUGFIX ("it takes a while to load as well, you need to make sure it's very
+    smooth and fast").
+
+    This was a synchronous script tag from unpkg: the parser stopped dead until
+    ~800 KB of MapLibre arrived, and everything after it — the stylesheet, the
+    markup, the fetch for the ride itself — waited on a third-party CDN. On a
+    Ghanaian mobile connection that is most of the wait, and it buys nothing,
+    because the ride sheet is HTML and needs no map to render.
+
+    `defer` lets parsing continue and `preconnect` warms the TLS handshake to
+    both CDNs while the HTML is still being read. `fetchData()` no longer waits
+    on the map either (see the DOM-ready handler at the bottom) — the sheet
+    paints from the API, and the map draws whenever MapLibre turns up.
+  -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+  <script defer src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -338,17 +357,77 @@
    */
   let map = null;
   const mapEl = document.getElementById('map');
-  try {
-    if (typeof maplibregl === 'undefined') throw new Error('maplibre-gl failed to load');
-    map = buildMap();
-  } catch (mapErr) {
-    console.warn('Map unavailable — showing ride details only', mapErr);
-    if (mapEl) mapEl.style.display = 'none';
+  /**
+   * Built LATE, on purpose.
+   *
+   * MapLibre is now `defer`red (see <head>) so it cannot block parsing or the
+   * ride fetch. That means it is genuinely not loaded yet at this point in the
+   * file — this inline script runs during parsing, deferred scripts run after
+   * it — so constructing the map here would fail every single time and disable
+   * the map permanently, which is a worse bug than the one `defer` fixes.
+   *
+   * `window.load` fires after deferred scripts have executed. If MapLibre still
+   * is not there, the CDN really did fail and the page stays exactly as useful
+   * as it was: the ride sheet does not need a map.
+   */
+  let lastRenderedData = null;
+  function initMapWhenReady() {
+    if (map || typeof maplibregl === 'undefined') {
+      if (!map) {
+        console.warn('Map unavailable — showing ride details only');
+        if (mapEl) mapEl.style.display = 'none';
+      }
+      return;
+    }
+    try {
+      map = buildMap();
+      // The data almost always beats the map now. Redraw with whatever the
+      // fetch already returned, or the map comes up empty and stays empty.
+      if (lastRenderedData) {
+        const r = (lastRenderedData.trip || lastRenderedData).route;
+        const drawLate = () => { try { updateMap(r, lastRenderedData.path); } catch (e) { console.warn('Map draw failed', e); } };
+        if (!map.isStyleLoaded()) map.once('idle', drawLate);
+        else drawLate();
+      }
+    } catch (mapErr) {
+      console.warn('Map unavailable — showing ride details only', mapErr);
+      if (mapEl) mapEl.style.display = 'none';
+    }
   }
+  if (document.readyState === 'complete') initMapWhenReady();
+  else window.addEventListener('load', initMapWhenReady);
+
+  /**
+   * THE SAME MAP THE APPS DRAW. See the matching note in tracking/index.html.
+   *
+   * The inline style below is a six-layer hand copy of
+   * `@eyego/map-styles/eyego-dark.json`, which is the twenty-layer style both
+   * apps actually render. `/map-style/dark.json` serves that real file, so the
+   * web and the apps cannot drift; the inline object stays as the fallback for
+   * a failed fetch, because a plain map beats no map.
+   */
+  const STYLE_URL = (CONFIG.apiBase || '') + '/map-style/dark.json';
 
   function buildMap() {
     const m = new maplibregl.Map({
       container: 'map',
+      style: STYLE_URL,
+      center: [-0.186964, 5.603717],
+      zoom: 12,
+      attributionControl: false,
+    });
+    m.on('error', function (e) {
+      if (m.__fellBack || m.isStyleLoaded()) return;
+      m.__fellBack = true;
+      try { m.setStyle(FALLBACK_STYLE); } catch (_) {}
+    });
+    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    return m;
+  }
+
+  var FALLBACK_STYLE = null;
+  function buildMapLegacyStyle() {
+    return {
       style: {
         version: 8,
         name: 'EyeGo Onyx',
@@ -373,13 +452,9 @@
           { id: 'road-highway', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'motorway', 'trunk'], paint: { 'line-color': '#2C3A2E', 'line-width': ['interpolate',['linear'],['zoom'],8,1.5,16,6], 'line-opacity': 0.85 } }
         ]
       },
-      center: [-0.186964, 5.603717],
-      zoom: 12,
-      attributionControl: false,
-    });
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    return m;
+    };
   }
+  FALLBACK_STYLE = buildMapLegacyStyle().style;
 
   // ── Draggable sheet ──────────────────────────────────────────
   const sheet = document.getElementById('sheet');
@@ -592,7 +667,13 @@
     // fetchData's catch, and replace a perfectly good ride sheet with
     // "Could not load ride details".
     if (!map) return;
-    const drawSafely = () => { try { updateMap(route); } catch (err) { console.warn('Map draw failed', err); } };
+    // Kept so `initMapWhenReady` can draw once MapLibre finishes loading — the
+    // ride data now routinely arrives before the deferred map script does.
+    lastRenderedData = data;
+    // `data.path` is the server-computed road geometry for this trip's leg. See
+    // updateMap: present means draw the real route, absent means fall back to
+    // the two-point dashed hint.
+    const drawSafely = () => { try { updateMap(route, data.path); } catch (err) { console.warn('Map draw failed', err); } };
     if (!map.isStyleLoaded()) map.once('idle', drawSafely);
     else drawSafely();
   }
@@ -606,7 +687,7 @@
     return el;
   }
 
-  function updateMap(route) {
+  function updateMap(route, path) {
     if (!map || !route || route.originLng == null || route.destLng == null) return;
 
     if (!originMarker) {
@@ -622,29 +703,55 @@
         .addTo(map);
     }
 
-    // A DASHED line, deliberately — this is an invite, not live tracking, and
-    // no road geometry has been computed for an unstarted trip. Dashes read as
-    // "roughly this way" rather than claiming to be the route the car will
-    // drive, which a solid line would.
+    /**
+     * THE REAL ROAD when the server has it, a dashed hint only when it does not.
+     *
+     * The comment that used to be here said no road geometry is computed for an
+     * unstarted trip. That was true of this page, not of the system: the trip's
+     * pickup→dropoff leg is exactly what `route-geometry.service` computes, and
+     * `/join/:token/data` now returns it as `path.geometry` (see
+     * getTripByShareToken). Drawing a straight dashed line through buildings and
+     * water while the server held the actual polyline is what the report was
+     * about.
+     *
+     * Solid when it is the real route, dashed when it is a two-point guess, so
+     * the line never claims more accuracy than it has.
+     */
+    var roadCoords = path && path.geometry && Array.isArray(path.geometry.coordinates)
+      && path.geometry.coordinates.length > 1
+      ? path.geometry.coordinates
+      : null;
+    var lineCoords = roadCoords || [[route.originLng, route.originLat], [route.destLng, route.destLat]];
+
     if (!map.getSource('route-hint')) {
       map.addSource('route-hint', {
         type: 'geojson',
         data: {
           type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: [[route.originLng, route.originLat], [route.destLng, route.destLat]],
-          },
+          geometry: { type: 'LineString', coordinates: lineCoords },
         },
       });
       map.addLayer({
         id: 'route-hint', type: 'line', source: 'route-hint',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#4be277', 'line-width': 3, 'line-dasharray': [1.5, 2], 'line-opacity': 0.65 },
+        paint: roadCoords
+          ? { 'line-color': '#4be277', 'line-width': 5, 'line-opacity': 0.95 }
+          : { 'line-color': '#4be277', 'line-width': 3, 'line-dasharray': [1.5, 2], 'line-opacity': 0.65 },
+      });
+    } else {
+      // The geometry arrives with the data fetch, which can land after the map
+      // is ready. Without this the first (straight) line was permanent.
+      map.getSource('route-hint').setData({
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: lineCoords },
       });
     }
 
-    const bounds = new maplibregl.LngLatBounds()
+    // Fit the ROUTE, not just its endpoints — a road that loops out around a
+    // lagoon leaves the bbox of its two ends entirely.
+    const bounds = new maplibregl.LngLatBounds();
+    lineCoords.forEach(function (c) { bounds.extend(c); });
+    bounds
       .extend([route.originLng, route.originLat])
       .extend([route.destLng, route.destLat]);
     // A degenerate bbox (origin === destination) makes fitBounds throw.

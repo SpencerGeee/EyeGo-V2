@@ -6,8 +6,14 @@
   <meta name="description" content="Track your EyeGo ride in real time" />
   <meta name="theme-color" content="#08090B" />
   <title>Track Your EyeGo Ride</title>
+  <!-- Deferred and preconnected for the same reason as the invite page: a
+       synchronous ~800 KB CDN script stopped the parser before any of this
+       page's own markup, styles or data fetch could start. See the note in
+       public/invite/index.html. -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin />
   <link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+  <script defer src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -128,6 +134,9 @@
       font-size: 34px; font-weight: 800; letter-spacing: -1.5px; line-height: 1;
       color: var(--primary); font-variant-numeric: tabular-nums;
     }
+    /* "Now" / "Soon" in place of a number — same slot, but a word at 34px with
+       -1.5px tracking reads as a squeeze, so it gets its own scale. */
+    #eta-num.eta-word { font-size: 24px; letter-spacing: -0.5px; }
     #eta-unit { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
     #eta-label { font-size: 14px; font-weight: 650; }
     #eta-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
@@ -327,17 +336,79 @@
   // and the trip details — which are the point of the page — still render.
   let map = null;
   const mapEl = document.getElementById('map');
-  try {
-    if (typeof maplibregl === 'undefined') throw new Error('maplibre-gl failed to load');
-    map = buildMap();
-  } catch (mapErr) {
-    console.warn('Map unavailable — showing trip details only', mapErr);
-    if (mapEl) mapEl.style.display = 'none';
+  /**
+   * Built on `window.load`, not here.
+   *
+   * MapLibre is now deferred (see <head>) so it cannot block the parser or the
+   * first data fetch. Deferred scripts run AFTER this inline one, so building
+   * the map at this point would fail on every load and disable it permanently.
+   * `window.load` is the first moment it is guaranteed to have executed.
+   *
+   * The page polls every few seconds, so a map that appears a beat late is
+   * populated by the next tick regardless — but the immediate redraw below
+   * means the visitor does not have to wait for one.
+   */
+  function initMapWhenReady() {
+    if (map) return;
+    if (typeof maplibregl === 'undefined') {
+      console.warn('Map unavailable — showing trip details only');
+      if (mapEl) mapEl.style.display = 'none';
+      return;
+    }
+    try {
+      map = buildMap();
+      if (typeof fetchAndRender === 'function') fetchAndRender();
+    } catch (mapErr) {
+      console.warn('Map unavailable — showing trip details only', mapErr);
+      if (mapEl) mapEl.style.display = 'none';
+    }
   }
+  if (document.readyState === 'complete') initMapWhenReady();
+  else window.addEventListener('load', initMapWhenReady);
+
+  /**
+   * THE SAME MAP THE APPS DRAW.
+   *
+   * BUGFIX ("the maps don't tally with the rider app map at all — that misses
+   * the consistency and brand, it should be the same one so everyone viewing it
+   * knows it's eyego").
+   *
+   * The style below is a hand-written six-layer imitation of the real thing.
+   * The apps render `@eyego/map-styles/eyego-dark.json` — twenty layers, with
+   * the labels, landuse and transit tinting this copy never had — so a rider
+   * following their own share link saw a visibly different, flatter map than the
+   * one they had just been looking at.
+   *
+   * `/map-style/dark.json` serves that exact file (see app.js). It is fetched
+   * rather than inlined so the two can never drift again, and the inline object
+   * stays as the immediate-paint fallback for a failed fetch: a plain map beats
+   * no map.
+   */
+  const STYLE_URL = (CONFIG.apiBase || '') + '/map-style/dark.json';
 
   function buildMap() {
     const m = new maplibregl.Map({
       container: 'map',
+      style: STYLE_URL,
+      center: [-0.186964, 5.603717],
+      zoom: 12,
+      attributionControl: false,
+    });
+    // A style URL that 404s leaves MapLibre with no style at all — a blank
+    // rectangle. Fall back to the inline one so the page always has a map.
+    m.on('error', function onStyleError(e) {
+      if (m.__fellBack || (e && e.error && !/style/i.test(String(e.error.message || '')))) return;
+      if (m.isStyleLoaded()) return;
+      m.__fellBack = true;
+      try { m.setStyle(FALLBACK_STYLE); } catch (_) {}
+    });
+    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    return m;
+  }
+
+  var FALLBACK_STYLE = null;
+  function buildMapLegacyStyle() {
+    return {
       style: {
         version: 8,
         name: 'EyeGo Onyx',
@@ -362,13 +433,9 @@
           { id: 'road-highway', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'motorway', 'trunk'], paint: { 'line-color': '#2C3A2E', 'line-width': ['interpolate',['linear'],['zoom'],8,1.5,16,6], 'line-opacity': 0.85 } }
         ]
       },
-      center: [-0.186964, 5.603717],
-      zoom: 12,
-      attributionControl: false,
-    });
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    return m;
+    };
   }
+  FALLBACK_STYLE = buildMapLegacyStyle().style;
 
   // ── Draggable sheet ──────────────────────────────────────────
   //
@@ -550,14 +617,42 @@
         (toPickup ? (data.route ? data.route.originName : 'your pickup') : (data.route ? data.route.destinationName : 'your destination'))
         + (path.distanceKm != null ? ` · ${path.distanceKm} km` : '');
     } else if (data.departureTime && status !== 'IN_PROGRESS') {
-      // No live leg yet (nobody assigned). Say plainly that this is a
-      // scheduled departure rather than dressing it up as an ETA.
+      /*
+       * No live leg yet (nobody assigned). Say plainly that this is a scheduled
+       * departure rather than dressing it up as an ETA.
+       *
+       * BUGFIX ("on the share trip view in the browser, the eta departs is --").
+       * A departure time that has PASSED gave `mins <= 0`, and the card printed
+       * a bare "--" in 44px type under the word "Departs" — the largest element
+       * on the page saying nothing at all. That is the normal state for a
+       * driver-created trip whose departure slot has arrived but who has not
+       * swiped Start yet, so it was not an edge case.
+       *
+       * A time in the past is information: the trip is due. Say that, and keep
+       * the clock time in the subtitle either way.
+       */
       const dep = new Date(data.departureTime);
+      const valid = !isNaN(dep.getTime());
       etaCard.style.display = 'flex';
-      const mins = Math.round((dep.getTime() - Date.now()) / 60000);
-      document.getElementById('eta-num').textContent = mins > 0 ? String(mins) : '--';
-      document.getElementById('eta-label').textContent = 'Departs';
-      document.getElementById('eta-sub').textContent = dep.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const mins = valid ? Math.round((dep.getTime() - Date.now()) / 60000) : null;
+      const numEl = document.getElementById('eta-num');
+      if (mins != null && mins > 0) {
+        numEl.textContent = String(mins);
+        numEl.classList.remove('eta-word');
+        document.getElementById('eta-label').textContent = 'Departs in (min)';
+      } else if (mins != null) {
+        // Due, or overdue. "Now" is honest and readable; a dash is neither.
+        numEl.textContent = 'Now';
+        numEl.classList.add('eta-word');
+        document.getElementById('eta-label').textContent = 'Departing';
+      } else {
+        numEl.textContent = 'Soon';
+        numEl.classList.add('eta-word');
+        document.getElementById('eta-label').textContent = 'Departing';
+      }
+      document.getElementById('eta-sub').textContent = valid
+        ? 'Scheduled ' + dep.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Waiting for the driver to start';
     } else {
       etaCard.style.display = 'none';
     }

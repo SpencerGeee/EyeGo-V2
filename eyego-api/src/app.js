@@ -226,6 +226,56 @@ function makePublicPageHandler(relPath, tokenParam) {
 app.get('/track/:shortId', makePublicPageHandler('../public/tracking/index.html', 'shortId'));
 app.get('/invite/:shareToken', makePublicPageHandler('../public/invite/index.html', 'shareToken'));
 
+/**
+ * THE APPS' OWN MAP STYLE, served to the web pages.
+ *
+ * BUGFIX ("the maps don't tally with the rider app map at all — that misses the
+ * consistency and brand, it should be the same one so everyone viewing it knows
+ * it's eyego").
+ *
+ * Both public pages carried their own hand-written inline style object. Two
+ * copies of a brand, edited independently, drifting — and the shared style in
+ * `@eyego/map-styles` (the one both apps actually render) was the copy nobody
+ * was looking at. A rider following a share link saw a different map from the
+ * one they had just been using.
+ *
+ * Serving the real file makes the apps and the web the same map by construction.
+ * Cached hard: it is a build artefact that changes only on deploy, and it is on
+ * the critical path of a page whose load speed was itself reported.
+ */
+const MAP_STYLE_CACHE = new Map();
+app.get('/map-style/:variant.json', (req, res) => {
+  const variant = req.params.variant === 'light' ? 'eyego-light' : 'eyego-dark';
+  if (!MAP_STYLE_CACHE.has(variant)) {
+    /*
+     * Read from disk rather than `require('@eyego/map-styles')`: the API does
+     * not declare that workspace package as a dependency, so requiring it works
+     * only by accident of hoisting and would throw in a deployed bundle. Both
+     * layouts are tried — the monorepo checkout and a build that copies the
+     * styles in next to the API.
+     */
+    const candidates = [
+      path.join(__dirname, '../../packages/map-styles', `${variant}.json`),
+      path.join(__dirname, '../map-styles', `${variant}.json`),
+      path.join(__dirname, '../public/map-styles', `${variant}.json`),
+    ];
+    let loaded = null;
+    for (const p of candidates) {
+      try { loaded = JSON.parse(fs.readFileSync(p, 'utf8')); break; } catch { /* next */ }
+    }
+    if (!loaded) logger.error(`Map style ${variant} not found in: ${candidates.join(', ')}`);
+    MAP_STYLE_CACHE.set(variant, loaded);
+  }
+  const style = MAP_STYLE_CACHE.get(variant);
+  if (!style) {
+    // The pages keep a minimal inline fallback, so this degrades the map rather
+    // than breaking the page.
+    return res.status(404).json({ error: 'style unavailable' });
+  }
+  res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+  res.json(style);
+});
+
 // ── Admin Dashboard SPA ──────────────────────────────────────────
 app.use('/admin', express.static(path.join(__dirname, '../public')));
 app.get('/admin/*', (req, res) => {

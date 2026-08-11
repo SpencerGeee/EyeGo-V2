@@ -358,7 +358,37 @@ async function getTripByShareToken(shareToken) {
   group.trip.farePerSeatPesewas = fare.farePerPersonPesewas;
   group.trip.totalTripCostPesewas = fare.totalTripCostPesewas;
 
-  return { group, trip: group.trip, fareEstimate: fare };
+  /**
+   * THE ROAD, NOT A STRAIGHT LINE.
+   *
+   * BUGFIX ("on the invite page, when i share the link and open it in the
+   * browser, the pickup and destination show a straight line and it doesn't
+   * follow the road polyline").
+   *
+   * This returned `route.origin*` / `route.dest*` and nothing else, so the
+   * invite page had no geometry and did the only thing two points allow: a
+   * dashed line through whatever lay between them — buildings, water, the wrong
+   * side of a motorway. Someone deciding whether to join was being shown a
+   * route no vehicle can take.
+   *
+   * The geometry already exists: `route-geometry.service` computes and caches
+   * the live leg of every trip, and an unstarted group trip (SCHEDULED /
+   * FILLING) has a well-defined one — pickup to dropoff. Nothing asked for it.
+   *
+   * `getRouteForTrip`, not `peekRouteForTrip`: an invite link is often the FIRST
+   * thing to look at this trip, so a peek would miss on a cold cache and hand
+   * back the straight line again — the bug itself. This writes through, so
+   * every later viewer of the same link is served from cache, which is also
+   * most of the "it takes a while to load".
+   *
+   * Best-effort — a trip whose line cannot be drawn is still joinable, and the
+   * page keeps its straight-line fallback for exactly that case.
+   */
+  const path = await routeGeometry
+    .getRouteForTrip(group.trip, group.trip.driver ?? null)
+    .catch(() => null);
+
+  return { group, trip: group.trip, fareEstimate: fare, path };
 }
 
 /**
