@@ -241,7 +241,25 @@ function buildTripSnapshot(trip, viewer = {}) {
       paymentStatus: myBooking ? myBooking.paymentStatus : null,
     },
     booking: myBooking
-      ? { id: myBooking.id, status: myBooking.status, seatNumber: myBooking.seatNumber }
+      ? {
+          id: myBooking.id,
+          status: myBooking.status,
+          seatNumber: myBooking.seatNumber,
+          /**
+           * "Verify My Ride" — the code the rider shows their driver.
+           *
+           * Sits on `myBooking`, which is resolved from `forUserId`, so it is
+           * only ever present in the snapshot built FOR the rider who owns the
+           * booking. The driver's snapshot has no `myBooking` at all, which is
+           * the point: a driver who could read the code would not have to be
+           * told it, and the whole check would prove nothing.
+           *
+           * Dropped once verified so the rider's screen stops showing a code
+           * that has already been used.
+           */
+          boardingPin: myBooking.pinVerifiedAt ? null : myBooking.boardingPin ?? null,
+          pinVerified: !!myBooking.pinVerifiedAt,
+        }
       : null,
 
     /**

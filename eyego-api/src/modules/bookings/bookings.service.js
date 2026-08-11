@@ -6,6 +6,7 @@ const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurchar
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const routeGeometry = require('../../services/route-geometry.service');
+const boardingPin = require('../../services/boarding-pin.service');
 const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
 // Invite links follow the origin the API is being reached at, not the baked-in
 // APP_URL — see utils/publicUrl.js.
@@ -332,6 +333,14 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           payload: { firstBookingId: booking.id },
         });
       }
+
+      /*
+       * "Verify My Ride" — same transaction as the seat, for the same reason
+       * as the on-demand path in rides.service.js. On a shared van this matters
+       * more, not less: every passenger boards separately and each one needs
+       * their own answer to "is this my car".
+       */
+      await boardingPin.issuePinForBooking(tx, { bookingId: booking.id, userId });
 
       return { booking, fareData, holdExpiry, transition };
     },

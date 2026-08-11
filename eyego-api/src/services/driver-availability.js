@@ -89,6 +89,10 @@ function availableDriverWhere({ ids = null, excludeId = null } = {}) {
   const where = {
     status: 'ACTIVE',
     isOnline: true,
+    // "Pause requests" — online, finishing the current trip, not taking the
+    // next one. Enforced here because this file is the only eligibility source;
+    // a pause honoured anywhere else is a pause that leaks offers.
+    requestsPaused: false,
     trips: { none: busyTripFilter() },
   };
   if (Array.isArray(ids) && ids.length > 0) where.id = { in: ids };

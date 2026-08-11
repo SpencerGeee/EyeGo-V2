@@ -281,8 +281,29 @@ export const driverApi = {
   verifyPassengerOtp: (tripId: string, data: { bookingId: string; otp: string }) =>
     apiClient.post<ApiResponse<{ verified: boolean }>>(`/driver/trips/${tripId}/verify-otp`, data),
 
-  boardPassenger: (tripId: string, bookingId: string) =>
-    apiClient.post<ApiResponse<{ boarded: boolean }>>(`/driver/trips/${tripId}/board/${bookingId}`),
+  /**
+   * Mark a passenger aboard.
+   *
+   * `pin` is "Verify My Ride" — required only for bookings whose rider turned
+   * the setting on. The server rejects a missing or wrong code with
+   * PIN_REQUIRED / PIN_INCORRECT; it is enforced there, not here, because a
+   * check that lives only in the client is not a check.
+   */
+  boardPassenger: (tripId: string, bookingId: string, pin?: string) =>
+    apiClient.post<ApiResponse<{ boarded: boolean }>>(
+      `/driver/trips/${tripId}/board/${bookingId}`,
+      pin ? { pin } : {},
+    ),
+
+  /**
+   * Stop or resume back-to-back offers without going offline.
+   *
+   * Distinct from the online toggle: going offline for a break costs the driver
+   * their place in the supply index, so they decline instead and pay for it in
+   * acceptance rate. Read by driver-availability.js.
+   */
+  setRequestsPaused: (paused: boolean) =>
+    apiClient.patch<ApiResponse<{ paused: boolean }>>('/driver/requests-paused', { paused }),
 
   // Cancel a self-created trip (only allowed before COMPLETED/CANCELLED)
   cancelTrip: (tripId: string, reason?: string, note?: string) =>

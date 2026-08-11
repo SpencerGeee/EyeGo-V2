@@ -106,6 +106,12 @@ model User {
   privacySettings       String?  // JSON blob: { shareData, personalizedAds, locationHistory }
   preferences           String?  // JSON blob: { theme } — mirrors Driver.preferences
   businessMode          Boolean  @default(false)
+
+  /// "Verify My Ride". Off by default: it adds a step to every boarding, and a
+  /// safety feature nobody chose is a safety feature people learn to skip.
+  /// When on, every booking this rider makes gets a `boardingPin` the driver
+  /// must enter before marking them aboard.
+  requireBoardingPin    Boolean  @default(false)
   businessCompanyName   String?
   businessTaxId         String?
   businessExpenseEmail  String?
@@ -214,6 +220,18 @@ model Driver {
   status          String @default("PENDING_REVIEW")
   rejectionReason String?
   isOnline        Boolean      @default(false)
+
+  /// "Pause requests" — stop back-to-back offers while mid-ride, without
+  /// going offline.
+  ///
+  /// Distinct from `isOnline` on purpose. Going offline to get a break costs
+  /// the driver their place in the supply index and, on some platforms, their
+  /// streak; drivers work around that by declining, which costs them
+  /// acceptance rate instead. This is the honest version of what they are
+  /// already doing: still online, still finishing this trip, not taking the
+  /// next one. Read by driver-availability.js, which is the ONLY eligibility
+  /// source (see the note at the top of that file).
+  requestsPaused  Boolean      @default(false)
   currentLat      Float?
   currentLng      Float?
   currentHeading  Float?
@@ -255,6 +273,11 @@ model Driver {
   onlineSessions      OnlineSession[]
   emergencyContact    String?         // JSON: { name, phone, relationship }
   preferences         String?         // JSON: { emailNotifications, pushNotifications, ... }
+
+  /// Dispatch filters on exactly this pair on every candidate lookup — see
+  /// availableDriverWhere() in services/driver-availability.js, which is the
+  /// only place eligibility is decided.
+  @@index([isOnline, requestsPaused])
 }
 
 
@@ -510,6 +533,23 @@ model Booking {
   // Seat + money state ONLY. Lifecycle ("is the driver here yet") lives on
   // Trip.status. Do not add movement states here.
   status              BookingStatus @default(PENDING)
+
+  /// "Verify My Ride" — a 4-digit code shown on the rider's screen once a
+  /// driver is assigned, which the driver must type in before this rider is
+  /// marked aboard. It exists to stop someone getting into the wrong vehicle,
+  /// which is the failure the whole feature is named after.
+  ///
+  /// PER BOOKING, not per trip: on a shared van each passenger boards
+  /// separately and each one needs their own answer to "is this my car".
+  ///
+  /// Generated only when the rider has the setting on (User.requireBoardingPin)
+  /// — a code nobody asked for is a code the driver has to chase.
+  boardingPin         String?
+  /// Set when the driver enters the matching code. Null with a non-null
+  /// `boardingPin` means "still to verify"; the two together are what the
+  /// driver's seat map reads to decide whether boarding is allowed.
+  pinVerifiedAt       DateTime?
+
   cancelledAt         DateTime?
   cancellationReason  String?
   cancellationFeePesewas Int?

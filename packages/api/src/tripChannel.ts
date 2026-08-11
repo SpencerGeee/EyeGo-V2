@@ -107,7 +107,19 @@ export interface TripSnapshot {
     basePesewas: number; perKmPesewas: number; surge: number;
     amountPesewas: number | null; paymentMethod: string | null; paymentStatus: string | null;
   };
-  booking: { id: string; status: string; seatNumber: number | null } | null;
+  booking: {
+    id: string;
+    status: string;
+    seatNumber: number | null;
+    /**
+     * "Verify My Ride" — the code this rider shows their driver.
+     *
+     * Only ever populated in the snapshot built FOR the rider who owns the
+     * booking; the driver's snapshot has no `booking` at all. Null once used.
+     */
+    boardingPin?: string | null;
+    pinVerified?: boolean;
+  } | null;
   timestamps: Record<string, string | null>;
   cancellation: { by: string | null; reason: string | null } | null;
   redispatchCount: number;

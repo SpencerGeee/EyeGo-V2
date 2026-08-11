@@ -100,8 +100,26 @@ const verifyOfflineOtp = async (req, res) => {
 };
 
 const boardPassenger = async (req, res) => {
-  await driversService.boardPassenger(req.user.userId, req.params.id, req.params.bookingId);
+  // `pin` is only consulted for bookings that carry one ("Verify My Ride").
+  // Everyone else boards exactly as before — see boardPassenger's own note.
+  await driversService.boardPassenger(req.user.userId, req.params.id, req.params.bookingId, {
+    pin: req.body?.pin ?? null,
+  });
   ok(res, null, 'Passenger boarded');
+};
+
+/**
+ * Pause / resume incoming offers without going offline.
+ *
+ * Separate from the online toggle deliberately: going offline for a breather
+ * costs the driver their place in the supply index, so they decline instead and
+ * take the hit on acceptance rate. This is the honest version of what they are
+ * already doing.
+ */
+const setRequestsPaused = async (req, res) => {
+  const paused = req.body?.paused === true;
+  await driversService.setRequestsPaused(req.user.userId, paused);
+  ok(res, { paused }, paused ? 'Requests paused' : 'Requests resumed');
 };
 
 const getAllTrips = async (req, res) => {
@@ -509,7 +527,7 @@ module.exports = {
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
-  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger,
+  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences,
   createTrip, ratePassenger, getFareEstimate,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,

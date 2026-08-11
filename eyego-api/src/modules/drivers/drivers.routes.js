@@ -105,6 +105,10 @@ router.post(
 );
 
 router.post('/trips/:id/board/:bookingId', requireActiveDriver, controller.boardPassenger);
+// Pause/resume back-to-back offers without going offline. Not gated on
+// requireActiveDriver: a driver whose documents have lapsed still gets to stop
+// the pings.
+router.patch('/requests-paused', controller.setRequestsPaused);
 router.post('/trips/:id/cancel', controller.cancelTrip);
 router.post(
   '/trips/:id/report',

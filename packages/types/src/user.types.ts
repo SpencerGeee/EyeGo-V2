@@ -26,6 +26,8 @@ export interface User {
   businessMode?: boolean;
   businessCompanyName?: string | null;
   businessTaxId?: string | null;
+  /** "Verify My Ride": the driver must enter a 4-digit code before this rider is marked aboard. Opt-in. */
+  requireBoardingPin?: boolean;
   businessExpenseEmail?: string | null;
 }
 
@@ -52,5 +54,7 @@ export interface UpdateProfileRequest {
   businessMode?: boolean;
   businessCompanyName?: string | null;
   businessTaxId?: string | null;
+  /** "Verify My Ride": the driver must enter a 4-digit code before this rider is marked aboard. Opt-in. */
+  requireBoardingPin?: boolean;
   businessExpenseEmail?: string | null;
 }

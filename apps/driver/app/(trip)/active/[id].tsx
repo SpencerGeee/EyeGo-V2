@@ -8,6 +8,7 @@ import {
   Alert,
   Linking,
   Modal,
+  TextInput,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -106,6 +107,60 @@ export default function ActiveTripScreen() {
   const { setActiveTripId } = useDriverStore();
   const { addNotification } = useNotificationsStore();
   const [showPaymentQr, setShowPaymentQr] = useState(false);
+  /** Local mirror of Driver.requestsPaused — see the toggle's note below for
+   *  why this is optimistic rather than read back from the server. */
+  const [requestsPaused, setRequestsPaused] = useState(false);
+
+  /**
+   * "VERIFY MY RIDE" — the driver's side.
+   *
+   * Server-driven on purpose. The driver's app does NOT decide whether a code
+   * is needed: it boards, and if the server answers PIN_REQUIRED it asks for
+   * one and retries. That keeps the rule in exactly one place (the server, the
+   * only place it can actually be enforced) and means a driver never sees a
+   * keypad for a rider who did not turn the setting on.
+   */
+  const [pinPrompt, setPinPrompt] = useState<
+    { bookingId: string; seatNumber: number; name: string } | null
+  >(null);
+  const [pinValue, setPinValue] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinBusy, setPinBusy] = useState(false);
+
+  const boardWithPin = React.useCallback(
+    async (bookingId: string, seatNumber: number, name: string, pin?: string) => {
+      try {
+        setPinBusy(true);
+        await driverApi.boardPassenger(id, bookingId, pin);
+        setPinPrompt(null);
+        setPinValue('');
+        setPinError(null);
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+      } catch (err: any) {
+        const code = err?.response?.data?.code ?? err?.response?.data?.error?.code;
+        const msg = err?.response?.data?.message ?? 'Failed';
+        if (code === 'PIN_REQUIRED') {
+          // First contact with a verified rider — open the keypad.
+          setPinValue('');
+          setPinError(null);
+          setPinPrompt({ bookingId, seatNumber, name });
+          return;
+        }
+        if (code === 'PIN_INCORRECT') {
+          // Keep the keypad open. Closing it here would make a mistyped digit
+          // feel like a rejection of the whole boarding.
+          setPinError(msg);
+          setPinValue('');
+          return;
+        }
+        setPinPrompt(null);
+        Alert.alert('Error', msg);
+      } finally {
+        setPinBusy(false);
+      }
+    },
+    [id, qc],
+  );
   const unreadChats = useChatUnread((s) => (id ? s.counts[id] ?? 0 : 0));
 
   const { data: trip, isLoading } = useQuery({
@@ -702,9 +757,7 @@ export default function ActiveTripScreen() {
                       text: 'Mark Boarded',
                       onPress: () => {
                         if (!seat.bookingId) return;
-                        driverApi.boardPassenger(id, seat.bookingId)
-                          .then(() => qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] }))
-                          .catch((err: any) => Alert.alert('Error', err?.response?.data?.message ?? 'Failed'));
+                        void boardWithPin(seat.bookingId, seat.seatNumber, name);
                       },
                     },
                     { text: 'Cancel', style: 'cancel' },
@@ -814,6 +867,61 @@ export default function ActiveTripScreen() {
               road, where a single accidental tap is entirely plausible. Uber and
               Bolt both moved these exact steps to a slide gesture for that
               reason. See @eyego/ui SwipeToConfirm. */}
+          {/*
+            PAUSE REQUESTS — mid-trip, without going offline.
+
+            Lives on this screen because that is when it is needed: the pings
+            that matter are the back-to-back offers arriving while the driver is
+            still carrying someone. Going offline to stop them costs their place
+            in the supply index, so drivers decline instead and pay for it in
+            acceptance rate. This is the honest version of what they already do.
+
+            Optimistic: the toggle flips immediately and reverts only if the
+            write fails. A switch that waits on a round trip before moving reads
+            as broken, and this one gets tapped in traffic.
+          */}
+          <Entrance animation="slideDown" delay={160}>
+            <Pressable
+              style={styles.pauseRow}
+              onPress={async () => {
+                const next = !requestsPaused;
+                setRequestsPaused(next);
+                try {
+                  await driverApi.setRequestsPaused(next);
+                } catch {
+                  setRequestsPaused(!next);
+                  Alert.alert(
+                    'Could not change that',
+                    "We couldn't reach the server. Your request settings are unchanged.",
+                  );
+                }
+              }}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: requestsPaused }}
+              accessibilityLabel="Pause incoming trip requests"
+            >
+              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+              <Ionicons
+                name={requestsPaused ? 'pause-circle' : 'notifications-outline'}
+                size={18}
+                color={requestsPaused ? colors.primary : colors.onSurfaceVariant}
+              />
+              <View style={{ flex: 1 }}>
+                <Text variant="bodySmall" style={{ color: colors.onSurface }}>
+                  {requestsPaused ? 'Requests paused' : 'Accepting new requests'}
+                </Text>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {requestsPaused
+                    ? "You'll stay online and finish this trip — no new offers"
+                    : 'Pause to stop offers arriving while you finish this trip'}
+                </Text>
+              </View>
+              <View style={[styles.pausePill, requestsPaused && { backgroundColor: colors.primary }]}>
+                <View style={[styles.pauseKnob, requestsPaused && { alignSelf: 'flex-end' }]} />
+              </View>
+            </Pressable>
+          </Entrance>
+
           {statusInfo.next && (
             <Entrance animation="slideDown" delay={200}>
               {/* Ringed, like the route card above it and the ETA card on the
@@ -883,6 +991,74 @@ export default function ActiveTripScreen() {
 
       {/* Payment QR — lets a boarding rider scan straight into this trip's payment
           screen instead of the driver having no way to hand off a payable code at all. */}
+      {/*
+        The "Verify My Ride" keypad. Only ever opened by a PIN_REQUIRED from the
+        server — see boardWithPin. Four digits, numeric keyboard, and the rider's
+        name in the prompt so a driver boarding a full van knows which passenger
+        they are asking.
+      */}
+      <Modal
+        visible={pinPrompt != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPinPrompt(null)}
+      >
+        <View style={styles.pinBackdrop}>
+          <View style={styles.pinSheet}>
+            <Text variant="titleSmall" style={{ color: colors.onSurface }}>
+              Verify {pinPrompt?.name ?? 'passenger'}
+            </Text>
+            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
+              Ask them to read out the 4-digit code on their screen.
+            </Text>
+
+            <TextInput
+              value={pinValue}
+              onChangeText={(t) => {
+                setPinValue(t.replace(/[^0-9]/g, '').slice(0, 4));
+                if (pinError) setPinError(null);
+              }}
+              keyboardType="number-pad"
+              maxLength={4}
+              autoFocus
+              placeholder="––––"
+              placeholderTextColor={colors.outline}
+              style={styles.pinInput}
+              accessibilityLabel="Enter the rider's 4-digit code"
+            />
+
+            {pinError && (
+              <Text variant="bodySmall" style={{ color: colors.error, textAlign: 'center' }}>
+                {pinError}
+              </Text>
+            )}
+
+            <View style={styles.pinActions}>
+              <Pressable
+                style={styles.pinCancel}
+                onPress={() => { setPinPrompt(null); setPinValue(''); setPinError(null); }}
+                accessibilityRole="button"
+              >
+                <Text style={{ color: colors.onSurfaceVariant }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.pinConfirm, (pinValue.length !== 4 || pinBusy) && { opacity: 0.5 }]}
+                disabled={pinValue.length !== 4 || pinBusy}
+                onPress={() =>
+                  pinPrompt &&
+                  void boardWithPin(pinPrompt.bookingId, pinPrompt.seatNumber, pinPrompt.name, pinValue)
+                }
+                accessibilityRole="button"
+              >
+                <Text style={{ color: colors.onPrimary ?? '#0A0D14', fontFamily: fonts.semiBold }}>
+                  {pinBusy ? 'Checking…' : 'Confirm'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showPaymentQr} transparent animationType="fade" onRequestClose={() => setShowPaymentQr(false)}>
         <Pressable style={styles.qrModalBackdrop} onPress={() => setShowPaymentQr(false)}>
           <Pressable style={styles.qrModalCard} onPress={(e) => e.stopPropagation()}>
@@ -1080,6 +1256,84 @@ const makeStyles = (colors: DriverColors) =>
      *  shell now, so manage and tracking cannot space themselves differently. */
     sheetInner: {
       gap: spacing.lg,
+    },
+
+    // ── Pause requests ──
+    pauseRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      borderRadius: radii.xl,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.md,
+      overflow: 'hidden',
+    },
+    pausePill: {
+      width: 40,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceContainerHighest,
+      padding: 3,
+      justifyContent: 'center',
+    },
+    pauseKnob: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: colors.onSurface,
+    },
+
+    // ── "Verify My Ride" keypad ──
+    pinBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.72)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: spacing['2xl'],
+    },
+    pinSheet: {
+      width: '100%',
+      maxWidth: 340,
+      borderRadius: radii['2xl'],
+      backgroundColor: colors.surfaceContainerHigh,
+      borderWidth: 1,
+      borderColor: colors.outline,
+      padding: spacing['2xl'],
+      gap: spacing.md,
+      alignItems: 'center',
+    },
+    /** Big and widely tracked — the driver is reading this back against a code
+     *  being spoken to them, often through a window. */
+    pinInput: {
+      fontFamily: fonts.displayBold,
+      fontSize: fontSizes.headlineMedium,
+      letterSpacing: 12,
+      textAlign: 'center',
+      color: colors.onSurface,
+      paddingVertical: spacing.md,
+      minWidth: 180,
+    },
+    pinActions: {
+      flexDirection: 'row',
+      gap: spacing.md,
+      alignSelf: 'stretch',
+    },
+    pinCancel: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.base,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.outline,
+    },
+    pinConfirm: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.base,
+      borderRadius: radii.full,
+      backgroundColor: colors.primary,
     },
     sheetContent: {
       paddingHorizontal: spacing['2xl'],

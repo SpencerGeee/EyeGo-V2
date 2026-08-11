@@ -1161,7 +1161,22 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
   });
 }
 
-async function boardPassenger(driverId, tripId, bookingId) {
+/**
+ * Pause or resume incoming offers.
+ *
+ * Writes one boolean. Eligibility itself is decided in driver-availability.js,
+ * which is the ONLY source of truth for who can be offered a trip — putting the
+ * decision anywhere else is how busy drivers started seeing offers again.
+ */
+async function setRequestsPaused(driverId, paused) {
+  await prisma.driver.update({
+    where: { id: driverId },
+    data: { requestsPaused: !!paused },
+  });
+  return { paused: !!paused };
+}
+
+async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) {
   // Same invalid `include: { trip: { where } }` as verifyOfflineOtp above —
   // Prisma rejected it outright, so boarding any passenger 500'd. See the note
   // there; ownership is expressed as a relation filter instead.
@@ -1170,6 +1185,43 @@ async function boardPassenger(driverId, tripId, bookingId) {
     include: { trip: true },
   });
   if (!booking) throw new NotFoundError('Booking');
+
+  /**
+   * "VERIFY MY RIDE" — the PIN gate.
+   *
+   * Enforced HERE, in the service, rather than in the driver's UI, because a
+   * check that lives only on the client is not a security feature: this is the
+   * single call that puts a passenger aboard, so it is the only place the
+   * guarantee can actually hold.
+   *
+   * Only bookings that HAVE a pin are gated. A rider who never turned the
+   * setting on has `boardingPin: null` and boards exactly as before, so this
+   * cannot strand the drivers and riders who never asked for it.
+   *
+   * Compared as trimmed strings: the pin is stored as text (leading zeroes are
+   * real — "0421" is not 421) and the driver's keypad sends text.
+   */
+  if (booking.boardingPin && !booking.pinVerifiedAt) {
+    const supplied = typeof pin === 'string' ? pin.trim() : '';
+    if (!supplied) {
+      throw new AppError(
+        'This rider has ride verification on. Ask them for their 4-digit code.',
+        400,
+        'PIN_REQUIRED',
+      );
+    }
+    if (supplied !== booking.boardingPin) {
+      throw new AppError(
+        "That code doesn't match. Check the rider is showing you the code for this trip.",
+        400,
+        'PIN_INCORRECT',
+      );
+    }
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data: { pinVerifiedAt: new Date() },
+    });
+  }
 
   // In-app riders who chose CASH never trigger a payment webhook, so unlike
   // card/MoMo bookings their commission is never deducted at confirmPayment
@@ -1696,7 +1748,7 @@ module.exports = {
   getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
   getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
-  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger,
+  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
   startShift, endShift, getCurrentShift, getShiftHistory,

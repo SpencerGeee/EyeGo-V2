@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, DriverInfoCard, InlayPanel, RollingDigits } from '@eyego/ui';
+import { Text, GlassSurface, DriverInfoCard, InlayPanel, RollingDigits, GradientGlowBorder } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
@@ -64,6 +64,10 @@ function AssignedStageImpl() {
   // minutes away" — it is the length of your ride, and showing it here is
   // exactly the confusion the per-leg field was added to end.
   const etaMinutes = eta && eta.leg === 'toPickup' ? eta.minutes : null;
+
+  /** "Verify My Ride". Present only for riders who turned the setting on, and
+   *  only until the driver enters it — the server nulls it once verified. */
+  const boardingPin = snapshot?.booking?.boardingPin ?? null;
   const copy = phaseCopy(status, etaMinutes);
 
   const arrived = status === 'ARRIVED_AT_PICKUP';
@@ -109,6 +113,47 @@ function AssignedStageImpl() {
         grabberColor={colors.outline}
       >
         <View style={styles.sheetBody}>
+          {/*
+            "VERIFY MY RIDE" — the code, on the stage where it matters.
+
+            This sits above everything else deliberately. It is only useful in
+            the seconds before the rider opens a car door, which is exactly this
+            stage, and it has to be readable at a glance in the dark at the
+            kerb — hence the size and the letter spacing.
+
+            The instruction is phrased as "read it to your driver", not "show
+            your driver", because the check only proves anything if the DRIVER
+            demonstrates they were told: a rider who hands over their phone has
+            verified nothing.
+
+            Disappears the moment the driver enters it (the server nulls the pin
+            once `pinVerifiedAt` is set), so a used code never lingers on screen.
+          */}
+          {boardingPin && (
+            <GradientGlowBorder
+              palette="brandGreen"
+              fillColor={colors.surfaceContainerHigh}
+              borderRadius={radii.xl}
+              thickness="thin"
+              glow
+              glowIntensity={0.8}
+              maxGlowRadius={16}
+              style={styles.pinCard}
+            >
+              <View style={{ flex: 1 }}>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  VERIFY YOUR RIDE
+                </Text>
+                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                  Read this code to your driver before you get in
+                </Text>
+              </View>
+              <Text style={styles.pinDigits} accessibilityLabel={`Your ride code is ${boardingPin.split('').join(' ')}`}>
+                {boardingPin}
+              </Text>
+            </GradientGlowBorder>
+          )}
+
           <View style={styles.headline}>
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>{copy.title}</Text>
@@ -253,6 +298,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sheet: { backgroundColor: colors.background },
   sheetBody: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing['2xl'], gap: spacing.lg },
+  pinCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.md,
+  },
+  /** Sized to be read out loud at a kerb, at night, at arm's length. Tabular
+   *  so the four digits do not shuffle width as they render. */
+  pinDigits: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.headlineMedium,
+    lineHeight: Math.round(fontSizes.headlineMedium * 1.15),
+    letterSpacing: 4,
+    color: colors.primary,
+    fontVariant: ['tabular-nums'],
+  },
   headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   title: {
     fontFamily: fonts.displayBold,

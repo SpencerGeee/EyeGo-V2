@@ -7,6 +7,7 @@ const { AppError, NotFoundError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const cascade = require('../../services/dispatch-cascade.service');
 const fareQuote = require('../../services/fare-quote.service');
+const boardingPin = require('../../services/boarding-pin.service');
 const scheduledTasks = require('../../services/scheduled-task.service');
 const supply = require('../../services/supply-index.service');
 const { isDriverAvailable } = require('../../services/driver-availability');
@@ -253,7 +254,7 @@ async function requestRide(userId, body) {
 
       // The rider's money-and-seat row. It carries no lifecycle: "where is my
       // driver" is answered by Trip.status and nothing else.
-      await tx.booking.create({
+      const bookingRow = await tx.booking.create({
         data: {
           tripId: created.id,
           userId,
@@ -271,6 +272,14 @@ async function requestRide(userId, body) {
           guestPhone,
         },
       });
+
+      /*
+       * "Verify My Ride". Minted inside the same transaction as the booking —
+       * a booking that exists without the pin it is supposed to have is one the
+       * driver cannot board. No-ops for riders who have the setting off, which
+       * is everyone by default.
+       */
+      await boardingPin.issuePinForBooking(tx, { bookingId: bookingRow.id, userId });
 
       await tx.tripEvent.create({
         data: {

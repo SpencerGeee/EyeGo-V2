@@ -112,6 +112,38 @@ export default function SafetyScreen() {
 
   const isEnabled = (id: SafetyToggleKey) => (settings[id] as boolean | undefined) ?? false;
 
+  /**
+   * "Verify My Ride" — a real column on the user, not part of the safety blob.
+   *
+   * Seeded from the profile so the switch shows the rider's actual setting on
+   * open rather than always starting off. Optimistic on tap, reverted if the
+   * write fails: a safety switch that silently fails to save is worse than one
+   * that says so.
+   */
+  const { data: profile } = useQuery({
+    queryKey: queryKeys.user.profile,
+    queryFn: () => userApi.getProfile(),
+    select: (r: any) => r.data?.data ?? r.data ?? null,
+    staleTime: 60_000,
+  });
+  const [pinOverride, setPinOverride] = useState<boolean | null>(null);
+  const requireBoardingPin = pinOverride ?? profile?.requireBoardingPin ?? false;
+
+  const togglePinVerification = async () => {
+    const next = !requireBoardingPin;
+    setPinOverride(next);
+    try {
+      await userApi.updateProfile({ requireBoardingPin: next } as any);
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.profile });
+    } catch {
+      setPinOverride(!next);
+      Alert.alert(
+        "Couldn't save that",
+        'We could not reach the server, so your ride verification setting is unchanged.',
+      );
+    }
+  };
+
   const uploadInsuranceMutation = useMutation({
     mutationFn: (uri: string) => userApi.uploadInsurance(uri),
     onSuccess: (insuranceCardUrl) => {
@@ -217,6 +249,40 @@ export default function SafetyScreen() {
                 {i < SAFETY_FEATURES.length - 1 && <View style={styles.divider} />}
               </View>
             ))}
+
+            {/*
+              VERIFY MY RIDE.
+
+              Kept out of SAFETY_FEATURES because it is not part of the same
+              settings blob: it is a real column on the user (the booking path
+              reads it server-side when minting a code), so it saves through
+              updateProfile rather than updateSafetySettings. Rendered here
+              because this is where a rider looks for it.
+            */}
+            <View style={styles.divider} />
+            <Pressable
+              style={styles.featureRow}
+              onPress={() => togglePinVerification()}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: requireBoardingPin }}
+              accessibilityLabel={`Verify My Ride. Your driver must enter a 4-digit code before your trip starts. ${requireBoardingPin ? 'Enabled' : 'Disabled'}`}
+            >
+              <View style={[styles.featureIcon, { backgroundColor: withOpacity(colors.primary, 0.1) }]}>
+                <Ionicons name="keypad-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text variant="bodyMedium">Verify My Ride</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  Show a 4-digit code your driver must enter before you board — so you never get into the wrong car
+                </Text>
+              </View>
+              <Switch
+                value={requireBoardingPin}
+                onValueChange={() => togglePinVerification()}
+                trackColor={{ false: colors.outlineVariant, true: withOpacity(colors.primary, 0.4) }}
+                thumbColor={requireBoardingPin ? colors.primary : colors.onSurfaceVariant}
+              />
+            </Pressable>
           </View>
         </View>
 
