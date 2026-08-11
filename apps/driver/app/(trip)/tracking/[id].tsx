@@ -55,7 +55,9 @@ export default function DriverTrackingScreen() {
     queryFn: () => driverApi.getTripById(id),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     select: (r: any) => r.data?.data?.trip ?? null,
-    refetchInterval: 8000,
+    // Safety net behind the trip channel, not the delivery mechanism — see the
+    // same note on the active screen. Live movement arrives over the socket.
+    refetchInterval: 30000,
     enabled: !!id,
   });
 
@@ -372,7 +374,6 @@ export default function DriverTrackingScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <AppBackground isDark={theme !== 'light'} />
         <View style={styles.loadingContainer}>
           {[80, 160, 120].map((w, i) => (
             <Skeleton key={i} width={w} height={16} borderRadius={radii.md} />
@@ -386,7 +387,15 @@ export default function DriverTrackingScreen() {
 
   return (
     <View style={styles.container}>
-      <AppBackground isDark={theme !== 'light'} />
+      {/*
+        THE SKIA BACKGROUND IS GONE FROM THIS SCREEN — deliberately, and it is
+        also free performance. It was mounted directly beneath a full-screen
+        opaque map, so not one of its pixels was ever visible; the phone was
+        running a full-screen raymarch, forever, underneath something that
+        completely covered it. On the screen a driver keeps open for an entire
+        trip, that was the single most expensive thing on it and the least
+        visible. The map is the background here.
+      */}
       {/* The map. One surface, one camera state machine, shared with the
           sibling active-trip screen and — through packages/maps — with the
           rider app. Everything that used to live inline here (a MapView, a
@@ -521,9 +530,20 @@ export default function DriverTrackingScreen() {
             </GradientGlowBorder>
           </Entrance>
 
-          {/* Passenger list */}
-          <Entrance animation="slideDown" delay={40} style={styles.passengerListCard}>
-            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+          {/* Passengers. Same ring as the ETA card above it, at lower
+              intensity — the two read as one family of live surfaces rather
+              than a lit hero card sitting on a flat grey one, which is the
+              inconsistency the rider redesign fixed on its side. */}
+          <Entrance animation="slideDown" delay={40}>
+            <GradientGlowBorder
+              palette="driver"
+              fillColor={colors.surfaceContainer}
+              borderRadius={radii.xl}
+              thickness="thin"
+              glow
+              glowIntensity={0.5}
+              style={styles.passengerListCard}
+            >
             <View style={styles.passengerListHeader}>
               <Text style={styles.passengerListTitle}>Passengers</Text>
               <Text variant="caption" color={colors.onSurfaceVariant}>{passengers}/{total}</Text>
@@ -568,6 +588,7 @@ export default function DriverTrackingScreen() {
                 </View>
               ))
             )}
+            </GradientGlowBorder>
           </Entrance>
 
           {/* Primary action button */}
@@ -917,12 +938,11 @@ const makeStyles = (colors: DriverColors) =>
       lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
       color: colors.onSurface,
     },
+    /* No border or fill of its own now: GradientGlowBorder paints both, and a
+       flat border under the ring reads as a doubled edge. */
     passengerListCard: {
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
-      borderWidth: 1,
-      borderColor: colors.outline,
-      padding: spacing.base,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.base,
       gap: spacing.sm,
     },
     passengerListHeader: {

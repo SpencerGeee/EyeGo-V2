@@ -5,6 +5,7 @@ const env = require('../../config/env');
 const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
+const routeGeometry = require('../../services/route-geometry.service');
 const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
 // Invite links follow the origin the API is being reached at, not the baked-in
 // APP_URL — see utils/publicUrl.js.
@@ -130,7 +131,43 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
       return tx.booking.findUnique({ where: { id: bookingId } });
     },
     { isolationLevel: 'Serializable', maxWait: 5000, timeout: 10000 },
-  );
+  ).then(async (updated) => {
+    /**
+     * TELL THE DRIVER. "I updated the pickup point on the group hub but it
+     * never updates on the driver app, so everything seems as though it's the
+     * same."
+     *
+     * It was: this wrote the new coordinates to the row and announced nothing.
+     * The driver's app has no reason to re-read a booking it already has, so
+     * it went on drawing — and driving to — the old point. A pickup the
+     * passenger has moved and the driver cannot see is the one kind of stale
+     * data on this screen that wastes somebody's fuel.
+     *
+     * The snapshot already carries each booking's own pickup (TRIP_INCLUDE
+     * selects pickupLat/Lng/Address), so publishing the event is the whole fix
+     * — there is nothing extra for the client to fetch.
+     */
+    if (updated?.tripId) {
+      await tripState
+        .recordEvent(updated.tripId, 'BOOKING_UPDATED', {
+          actor: tripState.ACTOR.RIDER,
+          payload: {
+            bookingId,
+            pickupLat: updated.pickupLat,
+            pickupLng: updated.pickupLng,
+            pickupAddress: updated.pickupAddress,
+            heavyCargo: updated.heavyCargo,
+          },
+        })
+        .catch(() => {});
+
+      // The cached leg to the OLD pickup is now a route to the wrong place.
+      // Dropping it forces the next ETA pass to re-route from scratch rather
+      // than serving a line that no longer ends where the passenger is.
+      await routeGeometry.clearRouteForTrip(updated.tripId).catch(() => {});
+    }
+    return updated;
+  });
 }
 
 async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, paymentMethod = null, guestName = null, guestPhone = null, joinerPickup = null) {

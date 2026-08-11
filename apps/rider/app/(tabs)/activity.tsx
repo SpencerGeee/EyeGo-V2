@@ -199,7 +199,10 @@ function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnTyp
     queryKey: ['trips', 'request-status', pendingTripRequestId],
     queryFn: () => tripsApi.getTripRequest(pendingTripRequestId!),
     enabled: !!pendingTripRequestId,
-    refetchInterval: 4000,
+    // Was 4s. On a tab a rider can leave open that is 900 requests an hour and
+    // a full list re-render each time, for a screen whose live rows are
+    // already kept current by the trip channel.
+    refetchInterval: 20000,
   });
 
   const req = (data as any)?.data?.data;

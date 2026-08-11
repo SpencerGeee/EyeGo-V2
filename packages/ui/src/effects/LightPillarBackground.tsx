@@ -292,14 +292,49 @@ export function LightPillarBackground({
   const clock = useSharedValue(0);
   const elapsed = useSharedValue(0);
   const sinceEmit = useSharedValue(0);
-  const frameMs = tier === 'high' ? 1000 / 24 : 1000 / 8;
+  const dwell = useSharedValue(0);
+  const baseFrameMs = tier === 'high' ? 1000 / 24 : 1000 / 8;
+
+  /**
+   * THE DUTY CYCLE — why the phone still got hot on a long shift.
+   *
+   * Everything above this made each ambient FRAME cheap. Nothing made the
+   * total number of frames finite. A driver leaves this app open for eight
+   * hours, so the raymarch was running at 24fps for eight hours: ~700,000
+   * full-screen shader passes for a background nobody has looked at since the
+   * first minute. That is not a frame-cost problem, it is a duration problem,
+   * and it is what "the app still seems slow when I'm using it extendedly"
+   * describes — sustained GPU load raises the die temperature until the SoC
+   * throttles, and then EVERYTHING is slow, including the map and the lists.
+   *
+   * So the ambient field now decays. It is fully alive when a screen appears
+   * and for the first stretch after — which is when a person is actually
+   * looking at it, and the whole reason the effect exists — then steps down as
+   * the screen goes untouched. `dwell` resets whenever this instance becomes
+   * topmost again, so every navigation, every return from background, every
+   * new screen is full-rate. Someone moving through the app sees no difference
+   * at all; only a phone left staring at one screen backs off.
+   *
+   * The phase keeps accumulating at every vsync regardless of the emit rate,
+   * so stepping down slows how often the image is REDRAWN, never how fast the
+   * beam appears to travel — no snapping, no visible gear change.
+   */
+  useEffect(() => {
+    // A screen the user just arrived at is worth the full frame rate again.
+    dwell.value = 0;
+  }, [visible, dwell]);
 
   useFrameCallback((frame) => {
     'worklet';
     const dt = frame.timeSincePreviousFrame ?? 0;
     elapsed.value += dt / 1000;
+    dwell.value += dt;
     sinceEmit.value += dt;
-    if (sinceEmit.value >= frameMs) {
+
+    // Untouched for 20s → half rate. Two minutes → a slow simmer that costs
+    // almost nothing but keeps the field from reading as a frozen image.
+    const decay = dwell.value > 120_000 ? 4 : dwell.value > 20_000 ? 2 : 1;
+    if (sinceEmit.value >= baseFrameMs * decay) {
       sinceEmit.value = 0;
       clock.value = elapsed.value;
     }

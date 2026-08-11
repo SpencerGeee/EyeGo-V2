@@ -138,12 +138,28 @@ export default function TripCompleteScreen() {
    * the trip is really loaded (it carries the per-passenger breakdown the rest
    * of the receipt needs), and show a skeleton rather than a fabricated zero
    * when neither is available yet.
+   *
+   * STILL SHOWING ZERO after the fix above, and this is why: the branch was
+   * `completedTrip ? driverNetTotal : …`, which prefers the derived total the
+   * instant the trip object exists — including when its own numbers are not
+   * ready. `['driver','trips','all']` is a CACHED list, so `completedTrip` is
+   * very often present immediately, populated from before this ride was paid
+   * out: every booking reduce sums to zero and the headline announces ₵0.00
+   * while a perfectly good figure sits unused in the route params.
+   *
+   * The rule is not "which source" but "which is a real number". A positive
+   * total wins wherever it comes from, the derived one takes over as soon as it
+   * has substance, and zero is only ever shown when both sources agree the trip
+   * genuinely paid nothing.
    */
-  const headlineNetPesewas = completedTrip
-    ? driverNetTotal
-    : hasParamEarnings
-      ? paramEarnings
-      : null;
+  const headlineNetPesewas =
+    driverNetTotal > 0
+      ? driverNetTotal
+      : hasParamEarnings
+        ? paramEarnings
+        : completedTrip
+          ? driverNetTotal
+          : null;
 
   return (
     <SafeAreaView style={styles.safe}>

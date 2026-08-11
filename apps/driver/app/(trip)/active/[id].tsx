@@ -113,7 +113,12 @@ export default function ActiveTripScreen() {
     // return the WRONG trip if the driver has more than one active trip.
     queryFn: () => driverApi.getTripById(id!),
     select: (r) => r.data.data?.trip ?? null,
-    refetchInterval: 8000,
+    // 8s was ~450 requests an hour on the screen a driver sits on for an
+    // entire trip, and every one of them re-rendered this whole screen. The
+    // trip channel already pushes a complete snapshot on every change, so this
+    // poll is a SAFETY NET for a missed socket frame, not the delivery
+    // mechanism — it does not need to run at socket cadence.
+    refetchInterval: 30000,
     enabled: !!id && typeof id === 'string',
   });
 
@@ -523,14 +528,29 @@ export default function ActiveTripScreen() {
 
       {/* Draggable bottom sheet */}
       <InlayPanel
-        snapPointsPct={[0.38, 0.75]}
+        // 0.38 opened below this sheet's own content — the same tab-bar-clears
+        // problem as home and tracking. The manage screen's route card, step
+        // chips and swipe action all belong above the fold on arrival.
+        snapPointsPct={[0.55, 0.85]}
         initialState="collapsed"
         sheetStyle={styles.sheetBackground}
         grabberColor={colors.outline}
       >
         <View style={styles.sheetContent}>
-          {/* Route summary */}
+          {/* Route summary — the screen's headline fact, now a lit surface
+              rather than bare text on the sheet. Same ring family as the
+              tracking screen's ETA card and the rider's trip cards, so the two
+              apps read as one product across the same moment of a ride. */}
           <Entrance animation="slideDown">
+            <GradientGlowBorder
+              palette="driver"
+              fillColor={colors.surfaceContainer}
+              borderRadius={radii.xl}
+              thickness="thin"
+              glow
+              glowIntensity={0.6}
+              style={styles.routeCard}
+            >
             <View style={styles.routeSummary}>
               <View style={styles.routeDot} />
               <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
@@ -538,7 +558,7 @@ export default function ActiveTripScreen() {
               </Text>
             </View>
             <View style={styles.routeLine} />
-            <View style={[styles.routeSummary, { marginBottom: spacing.xl }]}>
+            <View style={styles.routeSummary}>
               <View style={[styles.routeDot, { backgroundColor: colors.secondary ?? '#7DD8F5', borderRadius: 3 }]} />
               <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
                 {trip.route?.destinationName ?? '—'}
@@ -556,6 +576,7 @@ export default function ActiveTripScreen() {
                 </Text>
               </View>
             </View>
+            </GradientGlowBorder>
           </Entrance>
 
           {/* Step progress chips */}
@@ -999,6 +1020,12 @@ const makeStyles = (colors: DriverColors) =>
       gap: spacing.lg,
     },
     // Route summary
+    /** The lit surface the origin/destination pair sits on. */
+    routeCard: {
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.base,
+      marginBottom: spacing.lg,
+    },
     routeSummary: {
       flexDirection: 'row',
       alignItems: 'center',
