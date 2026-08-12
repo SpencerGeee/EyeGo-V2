@@ -1009,11 +1009,27 @@ async function completeTrip(tripId) {
   });
 }
 
+/**
+ * The rider's receipt for a trip — ALL of it.
+ *
+ * `Receipt` is per-BOOKING, and one rider routinely has several bookings on one
+ * trip: their own seat plus a seat per guest, or every seat on the vehicle when
+ * they chose "I'm paying for everyone". This used `findFirst` and returned an
+ * arbitrary one of them, so the receipt for a 12-seat cover-all purchase showed
+ * a single seat's fare — the tail of "the trip complete page says the gross fare
+ * was 1 seat at 8 cedis when the ride was 36 paid".
+ *
+ * Now every receipt the rider holds for this trip is summed into one figure, and
+ * `seatCount` says how many seats it covers so the breakdown can be honest about
+ * what the number is. Identity fields (driver, vehicle, route) come from the
+ * newest receipt — they are the same trip on every row.
+ */
 async function getTripReceipt(tripId, userId) {
-  const receipt = await prisma.receipt.findFirst({
+  const receipts = await prisma.receipt.findMany({
     where: {
       booking: { tripId, userId },
     },
+    orderBy: { createdAt: 'desc' },
     include: {
       booking: {
         include: {
@@ -1028,18 +1044,27 @@ async function getTripReceipt(tripId, userId) {
       },
     },
   });
-  if (!receipt) throw new NotFoundError('Receipt not found for this trip');
+  if (receipts.length === 0) throw new NotFoundError('Receipt not found for this trip');
+
+  const receipt = receipts[0];
+  const sum = (pick) => receipts.reduce((total, r) => total + (pick(r) || 0), 0);
 
   const trip = receipt.booking.trip;
   return {
     receiptNumber: receipt.receiptNumber,
-    farePesewas: receipt.totalPaidPesewas,
-    platformFeePesewas: receipt.platformFeePesewas,
-    driverEarningsPesewas: receipt.driverEarningsPesewas,
-    discountAppliedPesewas: receipt.discountAppliedPesewas,
+    farePesewas: sum((r) => r.totalPaidPesewas),
+    platformFeePesewas: sum((r) => r.platformFeePesewas),
+    driverEarningsPesewas: sum((r) => r.driverEarningsPesewas),
+    discountAppliedPesewas: sum((r) => r.discountAppliedPesewas),
+    /** How many seats the total above covers — 1 for a normal ride, N for cover-all. */
+    seatCount: receipts.length,
+    /** Only meaningful when seatCount === 1; kept for older clients. */
+    farePerSeatPesewas: Math.round(sum((r) => r.totalPaidPesewas) / receipts.length),
     paymentMethod: receipt.paymentMethod,
     paidAt: receipt.paidAt,
     seatNumber: receipt.booking.seatNumber,
+    /** Every seat this rider paid for, so a breakdown can list them. */
+    seatNumbers: receipts.map((r) => r.booking.seatNumber).filter((n) => n != null),
     origin: trip.route?.originName,
     destination: trip.route?.destinationName,
     departureTime: trip.departureTime,

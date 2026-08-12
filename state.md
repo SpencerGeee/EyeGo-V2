@@ -26,11 +26,19 @@ Verified correct, so these do NOT need stress-testing:
 - **`confirmedSeats` counter symmetry — my drift hypothesis was WRONG.** I suspected the 3 increments vs 1 decrement would drift. They do not: `cancellation.service` decrements only when `paymentStatus === 'PAID'`, and BOTH `drivers.service` increment sites (cash-passenger boarded :1249, offline-OTP verified :1300) set `paymentStatus: 'PAID'` in the same transaction. Increment and decrement are gated on the same condition. Decrement is also floored via `updateMany` + `gt: 0`.
 - **Cash settlement semantics** — cash commission is debited from the driver wallet with a matching `WalletTransaction` ledger row (balanceBefore/After recorded), and the auto-settle-on-arrival path filters to unsettled cash only, matching `completeTrip`'s PAID-only filter so it cannot double-charge.
 
-### Booking flow — STILL NOT AUDITED (pass 3 backlog)
-- Guest bookings end to end (multiple guests per account; the `samePassenger` keying is subtle and has regressed twice).
-- Group cover-all beyond the `syncCoveredSeatsTx` fixes already made.
-- Trip-completion receipt vs actual settlement reconciliation (an agent died mid-edit in this area; the floor fix and receipt fix were verified present, the whole path was not re-derived).
-- Promo codes / tips / disputes / ratings interaction with cancelled and refunded bookings.
+### Booking flow — pass 3 DONE (5 bugs fixed)
+1. **`rateBooking` had NO state check** — existence, ownership and the 1-5 range were the only gates. A rider could rate a driver on a trip CANCELLED before the driver arrived, or on a seat they were NO_SHOW for. Ratings feed `rating-integrity.service`, which gates the go-online check AND dispatch ranking, so a one-star on a ride that never happened suppressed real work. Griefing vector: cancel, rate one star, repeat. Now requires `trip.status === 'COMPLETED'` and a non-releasing booking status. (Double-rating was already safe — upsert on `userId_tripId`.)
+2. **`rateBooking` accepted fractional stars** — the message promised an integer, the check was `isNaN(stars) || <1 || >5`. Now `Number.isInteger`.
+3. **`tipDriver` had NO state check** — same hole, but it moves real money: a rider whose trip was cancelled or refunded could be charged a MoMo tip for a driver who never carried them. Same gate.
+4. **Guest seat collision** — the stale-hold release was an `updateMany` keyed on `{ guestName, guestPhone }`, which is NOT unique: two guests can share a name and `guestPhone` is optional. Booking a second seat for a second same-named guest with no phone cancelled the first one's seat. Now releases AT MOST ONE row (most recent); ambiguous matches leave older rows alone to expire on their own timer.
+5. **THE REAL item-22 root cause, finally.** `getBooking` — the endpoint the trip-complete screen calls — returned the bare `Booking` row with no `fareBreakdown`, though the client's API type has always declared one. So the screen fell through to its own fallback: one booking's `fareAmountPesewas` (the "8", floored to the per-seat minimum) with `seatCount` hardcoded to 1 — because a cover-all host owns ONE BOOKING PER COVERED SEAT and this endpoint only looked at one. Now attaches `fareBreakdown` built from `getTripFareForRider`, the single fare derivation the group hub / tracking / cancellation quote already share. Field names mapped to the client's contract (`total`, not `totalPesewas`) — that mismatch is why even the cancellation path's `fareBreakdown` was being silently ignored.
+6. Also fixed in pass 1-scope: `getTripReceipt` used `findFirst` over a per-BOOKING `Receipt` table, returning one arbitrary seat's receipt for a cover-all host. Now sums all of the rider's receipts for the trip and reports `seatCount` + `seatNumbers`.
+
+Verified sound in pass 3, no change needed: `applyPromoCode` (guards `paymentStatus === 'PAID'` + duplicate promo), `recomputeBookingAddons` (guards status ∈ {SEAT_HELD, PENDING} both before and inside its write), `syncCoveredSeatsTx` (releases with `seatNumber: null`, re-derives free seats from `seatOccupyingWhere()`, prices on the `maxSeats` denominator). `submitDispute` has no status guard deliberately — disputing a charge on a cancelled booking is legitimate.
+
+### Booking flow — residual risk (not blocking)
+- Nothing is device-tested.
+- `getBooking` now does an extra fare derivation per call; it is best-effort and degrades to the client fallback, but it adds a query to a hot endpoint.
 
 ### Superseded pass 2 backlog (kept for context)
 - Payment: Paystack callback idempotency, cash settlement, refund paths on each cancel type.

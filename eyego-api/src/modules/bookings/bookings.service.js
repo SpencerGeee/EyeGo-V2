@@ -5,13 +5,14 @@ const env = require('../../config/env');
 const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
-const { seatOccupyingWhere } = require('../../utils/booking-status');
+const { seatOccupyingWhere, SEAT_RELEASING_STATUSES } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
 const boardingPin = require('../../services/boarding-pin.service');
 const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
 // Invite links follow the origin the API is being reached at, not the baked-in
 // APP_URL — see utils/publicUrl.js.
 const { inviteUrl } = require('../../utils/publicUrl');
+const logger = require('../../utils/logger');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
@@ -255,10 +256,32 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       const samePassenger = guestName
         ? { guestName, guestPhone: guestPhone ?? null }
         : { guestName: null, isCoveredByLead: false };
-      await tx.booking.updateMany({
+      /**
+       * AT MOST ONE ROW. This was an `updateMany`, and the identity it matches on
+       * is not unique: two guests can share a name, and `guestPhone` is optional,
+       * so booking a second seat for a second "Ama" with no phone number matched
+       * BOTH rows and cancelled the first Ama's seat along with the stale hold it
+       * was meant to clear. Booking several seats for people you only have first
+       * names for is the normal case for this feature, not an edge case.
+       *
+       * The intent here is narrow — "this passenger is moving to a different
+       * seat, drop the seat they were holding" — and that is exactly one row. So
+       * take the most recent matching hold and release only that. If the match is
+       * ambiguous the older rows are left alone; the worst case becomes a stale
+       * hold that expires on its own timer, instead of a paid guest silently
+       * losing their seat.
+       */
+      const staleHold = await tx.booking.findFirst({
         where: { tripId, userId, status: 'SEAT_HELD', ...samePassenger },
-        data: { status: 'CANCELLED', seatNumber: null },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
       });
+      if (staleHold) {
+        await tx.booking.update({
+          where: { id: staleHold.id },
+          data: { status: 'CANCELLED', seatNumber: null },
+        });
+      }
 
       // ── Capacity guard: ensure there's still room ───────────────────────
       // Counted AFTER the release above, so this is the number of seats held by
@@ -789,7 +812,57 @@ async function getBooking(bookingId, userId) {
   });
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new ForbiddenError();
-  return booking;
+
+  /**
+   * THE RECEIPT'S NUMBERS, FROM THE ONE DERIVATION.
+   *
+   * This is the endpoint the rider's trip-complete screen calls, and it returned
+   * the bare `Booking` row. The screen wants a `fareBreakdown` — its API type has
+   * declared one all along — so with none present it fell through to its own
+   * fallback: one booking's `fareAmountPesewas`, with `seatCount` defaulting to 1.
+   *
+   * That is, precisely, "the trip complete page says the gross fare was 1 seat
+   * priced at 8 cedis, meanwhile the ride is 36 paid". The 8 was a single seat's
+   * fare (floored to the per-seat minimum) and the "1 seat" was the client's
+   * hardcoded default — because a cover-all host owns ONE BOOKING PER COVERED
+   * SEAT, and this endpoint only ever looked at one of them.
+   *
+   * `getTripFareForRider` is the single fare derivation the group hub, the
+   * tracking page and the cancellation quote all already use, so attaching it
+   * here is what makes the receipt agree with every other screen instead of
+   * being a fifth opinion. Field names match the client's declared contract
+   * (`total`, not `totalPesewas`) — the mismatch is why even the cancellation
+   * path's `fareBreakdown` was being ignored.
+   *
+   * Best-effort: a receipt that cannot price itself is still a valid receipt, and
+   * the client keeps its fallback for exactly that case.
+   */
+  let fareBreakdown = null;
+  try {
+    const f = await getTripFareForRider(booking.tripId, userId, { bookingId });
+    const surcharges = (f.cargoSurchargePesewas || 0) + (f.deviationSurchargePesewas || 0);
+    fareBreakdown = {
+      total: f.totalPesewas,
+      seatCount: f.seatCount,
+      perSeatPesewas: f.perSeatPesewas,
+      surcharges,
+      baseFarePesewas: f.totalPesewas - surcharges,
+      cargoSurchargePesewas: f.cargoSurchargePesewas,
+      deviationSurchargePesewas: f.deviationSurchargePesewas,
+      seatNumbers: f.seatNumbers,
+      isCoverAll: f.isCoverAll,
+      // The rider is not billed a platform fee — commission is taken from the
+      // driver's side — so this is 0 rather than a number invented to fill a field.
+      platformFeePesewas: 0,
+      discount: 0,
+      tip: 0,
+      currency: f.currency,
+    };
+  } catch (err) {
+    logger.warn(`[bookings] fareBreakdown unavailable for ${bookingId}: ${err.message}`);
+  }
+
+  return { ...booking, fareBreakdown };
 }
 
 async function rateBooking(userId, bookingId, { rating, comment }) {
@@ -800,8 +873,44 @@ async function rateBooking(userId, bookingId, { rating, comment }) {
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new ForbiddenError('Not authorized');
 
+  /**
+   * YOU MAY ONLY RATE A RIDE THAT HAPPENED.
+   *
+   * There was no state check here at all — existence, ownership and the 1-5
+   * range were the only gates. So a rider could rate a driver on a trip that was
+   * CANCELLED before the driver ever arrived, on a request that expired with no
+   * driver attached, or on a seat they were marked NO_SHOW for.
+   *
+   * That is not a cosmetic data-quality problem. `rating-integrity.service`
+   * feeds driver averages into the go-online gate AND the dispatch ranking, so a
+   * one-star rating on a ride that never took place can suppress a driver's
+   * eligibility for real work. It is also the obvious griefing vector: cancel,
+   * rate one star, repeat.
+   *
+   * `trip.status === 'COMPLETED'` is the authority — `Trip.status` is the
+   * lifecycle, per the state-machine contract. The booking is checked separately
+   * because a trip can complete while THIS passenger never travelled (their seat
+   * was released as NO_SHOW, cancelled or refunded).
+   */
+  if (booking.trip?.status !== 'COMPLETED') {
+    throw new AppError(
+      'You can only rate a trip after it has been completed',
+      400,
+      'TRIP_NOT_COMPLETED',
+    );
+  }
+  if (SEAT_RELEASING_STATUSES.includes(booking.status)) {
+    throw new AppError(
+      'This booking was not travelled, so it cannot be rated',
+      400,
+      'BOOKING_NOT_TRAVELLED',
+    );
+  }
+
   const stars = Number(rating);
-  if (isNaN(stars) || stars < 1 || stars > 5) {
+  // `Number.isInteger` — the message promised an integer and the check never
+  // enforced it, so 4.5 stars was accepted and stored.
+  if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
     throw new AppError('Stars must be an integer between 1 and 5', 400);
   }
 
@@ -988,6 +1097,28 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
     });
     if (!booking) throw new NotFoundError('Booking');
     if (booking.userId !== userId) throw new ForbiddenError();
+
+    /**
+     * A TIP IS FOR A RIDE THAT HAPPENED. This had no state check either, and
+     * unlike a stray rating this one moves real money: a rider whose trip was
+     * cancelled — or who was marked NO_SHOW, or whose seat was refunded — could
+     * be charged a MoMo tip for a driver who never carried them. Same gate as
+     * `rateBooking`, for the same reason.
+     */
+    if (booking.trip?.status !== 'COMPLETED') {
+      throw new AppError(
+        'You can only tip after the trip has been completed',
+        400,
+        'TRIP_NOT_COMPLETED',
+      );
+    }
+    if (SEAT_RELEASING_STATUSES.includes(booking.status)) {
+      throw new AppError(
+        'This booking was not travelled, so it cannot be tipped',
+        400,
+        'BOOKING_NOT_TRAVELLED',
+      );
+    }
 
     const reference = `eyego_tip_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
     const email = booking.user?.email || `${booking.user.phone}@eyego.app`;
