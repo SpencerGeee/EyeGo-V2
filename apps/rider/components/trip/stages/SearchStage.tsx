@@ -472,13 +472,31 @@ function SearchStageImpl() {
                 focus is what makes the suggestions below fill the right field
                 if the rider backs out of the picker and taps Home instead.
               */}
+              {/*
+                `fillColor` MUST be opaque, and the palette MUST be the brand's.
+                Both were wrong here and together they produced the "the glow
+                border is inward, everything is bad" screenshot: a transparent
+                fill means the ring's own rotating LinearGradient — which is a
+                full-size sweep sitting BEHIND the punched centre — is no longer
+                punched out at all, so it washes the entire inside of the card
+                instead of showing as a thin edge. And with no `palette` the
+                sweep defaults to the blue/orange premium arcs, which is where
+                the brown/orange gradient across the pickup and destination rows
+                came from on a green-brand screen.
+
+                Opaque fill + `brandGreen` (sampled from the Skia pillar) + a
+                deliberately faint intensity: the ring should read as the
+                background quietly lighting the card's edge, not as a light
+                source of its own.
+              */}
               <GradientGlowBorder
+                palette="brandGreen"
                 borderRadius={radii.xl}
                 thickness="thin"
-                fillColor="transparent"
+                fillColor={colors.surfaceCard}
                 glow
-                glowIntensity={1.1}
-                maxGlowRadius={18}
+                glowIntensity={0.5}
+                maxGlowRadius={12}
               >
                 <View style={styles.fieldsGroup}>
                   <Pressable
@@ -760,11 +778,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.background,
   },
 
-  /** The two location rows as one unit, inside the glow ring. */
+  /** The two location rows as one unit, inside the glow ring.
+   *  Transparent on purpose: the ring's opaque `fillColor` is the surface now.
+   *  A translucent colour here is what let the ring's sweep gradient tint the
+   *  rows through it. */
   fieldsGroup: {
     borderRadius: radii.xl,
     overflow: 'hidden',
-    backgroundColor: withOpacity(colors.surfaceContainer, 0.55),
+    backgroundColor: 'transparent',
   },
   /** Mirrors the driver's `locationRow` — glass, dot, text, trailing icon. */
   locationRow: {

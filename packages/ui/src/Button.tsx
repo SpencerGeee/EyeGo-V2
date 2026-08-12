@@ -2,12 +2,14 @@ import React, { useRef } from 'react';
 import { StyleSheet, ViewStyle } from 'react-native';
 import { Pressable } from './Pressable';
 import { Text } from './Text';
+import { ShinyText } from './ShinyText';
 import { Loader } from './Loader';
 import {
   GradientGlowBorder,
   type GradientGlowBorderHandle,
   PREMIUM_RING_COLORS,
   PREMIUM_RING_LOCATIONS,
+  RING_PALETTES,
 } from './effects/GradientGlowBorder';
 import { radii, spacing, fonts, fontSizes, type ColorTokens } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
@@ -30,6 +32,19 @@ interface ButtonProps {
   /** variant="glow" only — overrides the default green/blue ring sweep.
    * e.g. [colors.tertiary, colors.statusError] for a SOS/urgent CTA. */
   glowColors?: readonly [string, string, ...string[]];
+  /** variant="glow" only — a named ring palette (`'gold'`, `'comfort'`, …).
+   * Lower precedence than `glowColors`. Use this to make a CTA carry the tier
+   * the rider just picked rather than the generic blue/orange premium sweep. */
+  palette?: keyof typeof RING_PALETTES;
+  /**
+   * Sweeps a shine across the label. The step CTA in the rider's book-a-ride
+   * flow is a hero moment and read flat and generic without it ("no shiny
+   * text"). Kept opt-in — a masked gradient per button is not free, and body
+   * buttons should stay plain.
+   */
+  shiny?: boolean;
+  /** `shiny` only — the resting label colour under the sweep. */
+  shinyBaseColor?: string;
 }
 
 function getVariantStyles(colors: ColorTokens): Record<ButtonVariant, { container: ViewStyle; textColor: string }> {
@@ -108,6 +123,9 @@ export function Button({
   fullWidth = true,
   icon,
   glowColors,
+  palette,
+  shiny = false,
+  shinyBaseColor,
 }: ButtonProps) {
   const colors = useThemedColors();
   const vStyle = getVariantStyles(colors)[variant];
@@ -124,6 +142,13 @@ export function Button({
     else resolvedStyle.push(style);
   }
 
+  const labelStyle = {
+    fontFamily: fonts.semiBold,
+    fontSize: sStyle.fontSize,
+    lineHeight: sStyle.lineHeight,
+    color: vStyle.textColor,
+  };
+
   const content = loading ? (
     // The app's own loader, at a size that fits inside the button's line box —
     // so a pending button and a pending screen are visibly the same product.
@@ -131,16 +156,16 @@ export function Button({
   ) : (
     <>
       {icon}
-      <Text
-        style={{
-          fontFamily: fonts.semiBold,
-          fontSize: sStyle.fontSize,
-          lineHeight: sStyle.lineHeight,
-          color: vStyle.textColor,
-        }}
-      >
-        {label}
-      </Text>
+      {shiny ? (
+        <ShinyText
+          baseColor={shinyBaseColor ?? vStyle.textColor}
+          textStyle={labelStyle}
+        >
+          {label}
+        </ShinyText>
+      ) : (
+        <Text style={labelStyle}>{label}</Text>
+      )}
     </>
   );
 
@@ -155,13 +180,17 @@ export function Button({
       >
         <GradientGlowBorder
           ref={glowRef}
-          colors={glowColors ?? PREMIUM_RING_COLORS}
-          locations={glowColors ? undefined : PREMIUM_RING_LOCATIONS}
+          // Precedence: explicit colours > named palette > the default premium
+          // sweep. `palette` handles its own glow tints, so the explicit
+          // glowColor props are only passed when there is no palette to respect.
+          palette={glowColors ? undefined : palette}
+          colors={glowColors ?? (palette ? undefined : PREMIUM_RING_COLORS)}
+          locations={glowColors || palette ? undefined : PREMIUM_RING_LOCATIONS}
           fillColor={colors.surfaceContainerHigh}
           borderRadius={radii.full}
           glow
-          glowColor={glowColors ? glowColors[0] : colors.premiumBlue}
-          glowColorSecondary={glowColors ? undefined : colors.premiumOrange}
+          glowColor={glowColors ? glowColors[0] : palette ? undefined : colors.premiumBlue}
+          glowColorSecondary={glowColors || palette ? undefined : colors.premiumOrange}
           style={resolvedStyle}
         >
           {content}

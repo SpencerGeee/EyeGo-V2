@@ -17,7 +17,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -472,32 +472,47 @@ export default function CreateTripScreen() {
             {/* Service tier — sets pricing band; ECONOMY is the shared/pooled
                 default, COMFORT is the premium band riders pay a surcharge for. */}
             <Text style={styles.tierLabel}>Service Tier</Text>
+            {/* Each tier carries its own ring and its own colour — Eco green,
+                Comfort blue, Premium gold — from the same shared `getTierTheme`
+                the rider's picker and the tier badge use, so a driver setting up
+                a Premium trip and a rider looking at one see the same gold. The
+                ring only glows on the selected card: three glowing rings side by
+                side is noise, and three shadow passes per frame. */}
             <View style={styles.tierRow}>
               {TIER_OPTIONS.map((opt) => {
                 const active = tier === opt.value;
+                const t = getTierTheme(colors, opt.value);
                 return (
-                  <Pressable
+                  <GradientGlowBorder
                     key={opt.value}
-                    style={[styles.tierCard, active && styles.tierCardActive]}
-                    onPress={() => setTier(opt.value)}
+                    palette={t.ringPalette}
+                    borderRadius={radii.lg}
+                    thickness={active ? 'regular' : 'thin'}
+                    fillColor={colors.surfaceContainerHigh}
+                    glow={active}
+                    glowIntensity={0.7}
+                    maxGlowRadius={14}
+                    disabled={!active}
+                    style={styles.tierCardWrap}
                   >
-                    <View style={[styles.tierIconWrap, active && { backgroundColor: `${colors.primary}22` }]}>
-                      <Ionicons
-                        name={opt.icon}
-                        size={20}
-                        color={active ? colors.primary : colors.onSurfaceVariant}
-                      />
-                    </View>
-                    <Text style={[styles.tierName, active && { color: colors.primary }]}>{opt.name}</Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant} style={styles.tierDesc}>
-                      {opt.desc}
-                    </Text>
-                    {active && (
-                      <View style={styles.tierCheck}>
-                        <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+                    <Pressable
+                      style={[styles.tierCard, active && { backgroundColor: t.softBg }]}
+                      onPress={() => setTier(opt.value)}
+                    >
+                      <View style={[styles.tierIconWrap, { backgroundColor: t.iconBg }]}>
+                        <Ionicons name={opt.icon} size={20} color={t.accent} />
                       </View>
-                    )}
-                  </Pressable>
+                      <Text style={[styles.tierName, active && { color: t.accent }]}>{opt.name}</Text>
+                      <Text variant="caption" color={colors.onSurfaceVariant} style={styles.tierDesc}>
+                        {opt.desc}
+                      </Text>
+                      {active && (
+                        <View style={styles.tierCheck}>
+                          <Ionicons name="checkmark-circle" size={18} color={t.accent} />
+                        </View>
+                      )}
+                    </Pressable>
+                  </GradientGlowBorder>
                 );
               })}
             </View>
@@ -765,18 +780,15 @@ const makeStyles = (colors: DriverColors) =>
       marginBottom: spacing.md,
     },
     tierRow: { flexDirection: 'row', gap: spacing.md },
+    /** The GLOW RING owns the flex and the outer radius; the card inside it owns
+     *  the padding. Splitting them is required — GradientGlowBorder routes layout
+     *  props to its outer wrapper and everything else to its clipped content box,
+     *  so a single style object here would put `flex: 1` in the right place but
+     *  the padding in the wrong one. */
+    tierCardWrap: { flex: 1 },
     tierCard: {
-      flex: 1,
-      backgroundColor: colors.surfaceContainer,
-      borderRadius: radii.xl,
-      borderWidth: 1.5,
-      borderColor: colors.outline,
       padding: spacing.base,
       gap: 6,
-    },
-    tierCardActive: {
-      borderColor: colors.primary,
-      backgroundColor: `${colors.primary}12`,
     },
     tierIconWrap: {
       width: 40,

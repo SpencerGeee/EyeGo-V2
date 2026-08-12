@@ -48,6 +48,18 @@ export default function TripCompleteScreen() {
   } : undefined);
 
   const totalFare = fareBreakdown?.total ?? activeBooking?.fareAmountPesewas ?? activeBooking?.fare ?? selectedTrip?.farePerSeatPesewas ?? 0;
+  /**
+   * How many seats that total bought.
+   *
+   * BUGFIX. A `Receipt` row is per booking, and a rider who paid for the whole
+   * group owns one booking per seat — so this screen announced one seat's fare for
+   * a ride they had paid the van's price for. The server now returns the whole
+   * obligation plus the seat count behind it (cancellation.service `getReceipt`);
+   * saying "N seats" is what makes a bigger-than-expected total legible instead of
+   * looking like an overcharge.
+   */
+  const fareSeatCount = fareBreakdown?.seatCount ?? 1;
+  const farePerSeat = fareBreakdown?.perSeatPesewas ?? null;
 
   // Auto-navigate to rating after 4 s — but not when this screen was opened
   // to view an OLD completed trip's receipt from Activity (viewOnly=1). This
@@ -139,6 +151,12 @@ export default function TripCompleteScreen() {
             <View style={styles.fareCardInner}>
           <Text style={styles.fareLabel}>Total Fare</Text>
           <Text style={styles.fareAmountPesewas}>{formatGhs(totalFare)}</Text>
+          {fareSeatCount > 1 && (
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              {fareSeatCount} seats{farePerSeat != null ? ` · ${formatGhs(farePerSeat)} each` : ''}
+              {(fareBreakdown?.surcharges ?? 0) > 0 ? ` + ${formatGhs(fareBreakdown?.surcharges ?? 0)} surcharges` : ''}
+            </Text>
+          )}
 
           {/* Route timeline */}
           <View style={styles.routeRow}>

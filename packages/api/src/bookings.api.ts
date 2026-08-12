@@ -113,7 +113,23 @@ export const bookingsApi = {
       bookingId: string;
       tripId: string;
       routeName: string;
-      fareBreakdown: { baseFarePesewas: number; platformFeePesewas: number; surcharges: number; discount: number; tip: number; total: number };
+      /**
+       * The rider's WHOLE obligation for the trip, not one seat of it — a
+       * cover-all host owns one booking per covered seat, so `seatCount` is how
+       * many seats `total` buys and `perSeatPesewas` is `total` with the
+       * surcharges taken back out. Never multiply `perSeatPesewas` to reach a
+       * total; `total` is the total.
+       */
+      fareBreakdown: {
+        baseFarePesewas: number;
+        platformFeePesewas: number;
+        surcharges: number;
+        discount: number;
+        tip: number;
+        total: number;
+        seatCount?: number;
+        perSeatPesewas?: number;
+      };
       paymentMethod: string;
       paidAt: string;
       receiptNumber: string;

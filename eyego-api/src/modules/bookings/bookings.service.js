@@ -34,6 +34,17 @@ function normalizePaymentMethod(method) {
 // update endpoints so there is exactly one place that combines these add-ons —
 // applying them independently in multiple spots is what let the old client-only
 // "heavy cargo" toggle drift out of sync with the actual charge.
+/**
+ * The heavy-cargo surcharge for one booking, in one place.
+ *
+ * `Booking.heavyCargo` is a boolean; the money it means is env-driven. Deriving
+ * it in more than one spot is how the group hub ended up showing a total that
+ * did not contain a surcharge the booking row had already been charged.
+ */
+function cargoSurchargeFor(booking) {
+  return booking?.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
+}
+
 function applyFareAddons(baseFarePerPerson, { trip, pickupLat, pickupLng, heavyCargo }) {
   let deviationSurchargePesewas = 0;
   if (pickupLat != null && pickupLng != null && Number.isFinite(pickupLat) && Number.isFinite(pickupLng) && trip.route) {
@@ -44,7 +55,7 @@ function applyFareAddons(baseFarePerPerson, { trip, pickupLat, pickupLng, heavyC
     });
     deviationSurchargePesewas = calculateDeviationSurcharge({ extraKm, perKmRatePesewas: trip.perKmRatePesewas });
   }
-  const cargoSurcharge = heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
+  const cargoSurcharge = cargoSurchargeFor({ heavyCargo });
   // All three terms are already whole pesewas, so the sum is exact — no
   // rounding step, and therefore no place for a rounding disagreement.
   const fareAmountPesewas = sum(baseFarePerPerson, deviationSurchargePesewas, cargoSurcharge);
@@ -226,9 +237,24 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
       // The unit of "same seat request" is the PASSENGER, not the account: a
       // guest is identified by the name/phone the booker entered, and the
       // booker themselves is the row with no guest attached.
+      //
+      // BUGFIX ("I chose pay for everyone, the hub said 36, then the tracking
+      // page said 8 and the driver's receipt said one seat"). A COVERED SEAT IS
+      // NOT THIS PASSENGER RE-PICKING A SEAT. `{ guestName: null }` alone matches
+      // every seat the host is holding on the group's behalf — those rows carry
+      // the host's userId and no guest — so the next `bookSeat` on the trip
+      // cancelled all of them. And there is always a next one: the group hub
+      // creates a booking whenever it mounts without one, and the payment screen
+      // creates one whenever the stored hold does not match its checkout.
+      //
+      // So the flow "turn on pay-for-everyone → go to payment" silently
+      // destroyed eleven of the twelve seats it had just claimed, which is why
+      // every downstream number was one seat's worth: the snapshot summed one
+      // booking, and the driver's receipt counted one passenger. Cover-all seats
+      // are released by `syncCoveredSeatsTx` and nothing else.
       const samePassenger = guestName
         ? { guestName, guestPhone: guestPhone ?? null }
-        : { guestName: null };
+        : { guestName: null, isCoveredByLead: false };
       await tx.booking.updateMany({
         where: { tripId, userId, status: 'SEAT_HELD', ...samePassenger },
         data: { status: 'CANCELLED', seatNumber: null },
@@ -539,6 +565,106 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
     })),
     skipDuplicates: true,
   });
+}
+
+/**
+ * WHAT THIS RIDER OWES FOR THIS TRIP. One number, one derivation.
+ *
+ * BUGFIX (reported three ways: "heavy cargo doesn't change the total", "the hub
+ * said 36 and the tracking page said 8", "the receipt says one seat at 8 while
+ * the ride was 36"). Every surface was inventing its own answer:
+ *
+ *   group hub      trip.totalTripCostPesewas, or perSeat × members — client math
+ *                  that structurally CANNOT contain a per-booking surcharge, so
+ *                  the heavy-cargo line said "includes surcharge" next to a
+ *                  number that did not
+ *   payment screen the same client guess, while `initiatePayment` charged
+ *                  booking + siblings — display and charge were two numbers
+ *   tracking       Σ of the rider's booking rows (correct, and the only one)
+ *   receipt        the driver's own reduce over whatever rows it could see
+ *
+ * The rider's obligation is not derivable from the trip; it is the SUM OF THE
+ * BOOKING ROWS THEY OWN, which is where every surcharge, discount and covered
+ * seat already lives. This returns exactly that, plus the components broken out
+ * so a screen can name them WITHOUT adding anything up itself. No caller may
+ * re-derive a total from a per-seat price again.
+ *
+ * `seatOccupyingWhere()` and not "not cancelled": a released hold, a no-show or
+ * a refund is not money this rider owes.
+ */
+async function getTripFareForRider(tripId, userId, { tx = prisma, bookingId = null } = {}) {
+  const SELECT = {
+    id: true,
+    userId: true,
+    seatNumber: true,
+    fareAmountPesewas: true,
+    deviationSurchargePesewas: true,
+    heavyCargo: true,
+    isCoveredByLead: true,
+    paymentStatus: true,
+    paymentMethod: true,
+    status: true,
+  };
+  const group = await tx.rideGroup.findUnique({
+    where: { tripId },
+    select: { isCoverAll: true, leadPassengerId: true },
+  });
+  const isCoverAll = !!(group?.isCoverAll && group.leadPassengerId === userId);
+
+  /**
+   * The rows this rider is settling — THE SAME SET `initiatePayment` charges for
+   * and `confirmPayment` marks paid (payments.service.js: the booking in hand,
+   * plus every other still-held seat on the trip when its owner is the cover-all
+   * lead). It has to be the same set, or the group hub shows one number and the
+   * gateway takes another, which is the whole class of defect this function
+   * exists to end.
+   *
+   * `bookingId` scopes it to one checkout — pass it wherever a specific booking
+   * is about to be paid for. Omitted (the tracking page, a receipt), the answer is
+   * the rider's whole obligation on the trip, which for anyone who is not booking
+   * for guests is the same rows.
+   */
+  const own = bookingId
+    ? { id: bookingId, userId, ...seatOccupyingWhere() }
+    : { userId, ...seatOccupyingWhere() };
+  const bookings = await tx.booking.findMany({
+    where: isCoverAll ? { tripId, OR: [own, { status: 'SEAT_HELD' }] } : { tripId, ...own },
+    select: SELECT,
+  });
+
+  const totalPesewas = sum(...bookings.map((b) => b.fareAmountPesewas || 0));
+  const cargoSurchargePesewas = sum(...bookings.map(cargoSurchargeFor));
+  const deviationSurchargePesewas = sum(...bookings.map((b) => b.deviationSurchargePesewas || 0));
+  const seatCount = bookings.length;
+  // The clean unit price: the total with the extras taken back out. Derived FROM
+  // the total rather than the total being derived from it, so the two can never
+  // disagree by a rounding step.
+  const baseTotal = totalPesewas - cargoSurchargePesewas - deviationSurchargePesewas;
+  const perSeatPesewas = seatCount > 0 ? Math.round(baseTotal / seatCount) : 0;
+
+  // "Committed" is the honest word for a cash seat: the rider has confirmed the
+  // booking and owes the driver on boarding, but no money has moved yet. A
+  // SEAT_HELD row is neither — it is a reservation with a timer on it.
+  const isCommitted = (b) =>
+    b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
+
+  return {
+    currency: 'GHS',
+    /** THE number. What this rider owes / has paid for this trip. */
+    totalPesewas,
+    seatCount,
+    perSeatPesewas,
+    cargoSurchargePesewas,
+    deviationSurchargePesewas,
+    committedSeatCount: bookings.filter(isCommitted).length,
+    paidSeatCount: bookings.filter((b) => b.paymentStatus === 'PAID').length,
+    heldSeatCount: bookings.filter((b) => b.status === 'SEAT_HELD').length,
+    coveredSeatCount: bookings.filter((b) => b.isCoveredByLead).length,
+    seatNumbers: bookings.map((b) => b.seatNumber).filter((n) => n != null).sort((a, b) => a - b),
+    isCoverAll,
+    /** Seats on this trip owned by somebody else that this rider is covering. */
+    seatsCoveredForOthers: bookings.filter((b) => b.userId !== userId).length,
+  };
 }
 
 async function cancelBooking(bookingId, userId, { reason, note } = {}) {
@@ -1039,6 +1165,14 @@ async function getGroup(bookingId, userId) {
   const group = booking.trip.group;
   const inviteLink = group ? inviteUrl(group.shareToken) : '';
 
+  // The group hub's money, computed here rather than on the phone. See
+  // getTripFareForRider — the hub used to multiply a per-seat price by the
+  // member count, which is why toggling heavy cargo moved a booking row and
+  // nothing on screen.
+  // Scoped to THIS booking, so the figure is exactly what pressing Pay will
+  // charge for it (see getTripFareForRider).
+  const fare = await getTripFareForRider(booking.tripId, userId, { bookingId });
+
   const members = booking.trip.bookings
     .filter(b => b.userId !== userId) // exclude the requesting user (shown as "You")
     .map(b => ({
@@ -1056,6 +1190,9 @@ async function getGroup(bookingId, userId) {
     hostBookingId: bookingId,
     members,
     maxSize: booking.trip.maxSeats,
+    isCoverAll: !!group?.isCoverAll,
+    // Every number the hub renders, already added up. Integer pesewas.
+    fare,
   };
 }
 
@@ -1078,4 +1215,4 @@ async function joinGroup(shareToken) {
   return { tripId: group.tripId, trip: group.trip };
 }
 
-module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons };
+module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };

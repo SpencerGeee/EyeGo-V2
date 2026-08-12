@@ -115,12 +115,9 @@ function calculateFare({
   // a real measurement, not a currency — so it is rounded to the pesewa the
   // moment it becomes money and stays integral from there on.
   const distanceComponent = Math.round(perKmRatePesewas * distanceKm);
-  const totalTripCostPesewas =
-    Math.round((baseFarePesewas + distanceComponent) * surgeMultiplier) +
-    doorstepSurcharge +
-    heavyLoadSurcharge;
+  const baseTripCostPesewas = Math.round((baseFarePesewas + distanceComponent) * surgeMultiplier);
   const seats = Math.max(Math.trunc(seatCount) || 1, 1);
-  const farePerPersonPesewas = Math.round(totalTripCostPesewas / seats);
+  const farePerPersonPesewas = Math.round(baseTripCostPesewas / seats);
 
   // Floor: one small platform-wide minimum, NOT the tier's base fare.
   //
@@ -136,7 +133,23 @@ function calculateFare({
   const tierFloorMultiplier =
     env.ECO_BASE_FARE_PESEWAS > 0 ? tierBaseFare / env.ECO_BASE_FARE_PESEWAS : 1;
   const minFarePerSeatPesewas = Math.round(env.MIN_FARE_PER_SEAT_PESEWAS * tierFloorMultiplier);
-  const finalFare = Math.max(farePerPersonPesewas, minFarePerSeatPesewas);
+  /**
+   * THE FLOOR APPLIES TO THE RIDE, NOT TO THE SURCHARGES.
+   *
+   * BUGFIX ("ticking heavy cargo doesn't add its price to the total"). The
+   * surcharges used to be folded into the trip cost BEFORE the division and the
+   * floor, so on a shared van they were divided by the seat count and then, when
+   * the floor bound — which on a 12-seater it almost always does — thrown away
+   * entirely by `Math.max`. A GH₵8 cargo charge spread over twelve seats is 67
+   * pesewas per seat, far below the floor, so the floor won and the price did not
+   * move by a single pesewa no matter how heavy the load.
+   *
+   * The floor exists to stop the DISTANCE component pricing a ride at nothing. It
+   * has no business swallowing an explicit extra charge, so the extras are added
+   * after it and the total is re-derived from the result.
+   */
+  const surchargePerSeatPesewas = Math.round((doorstepSurcharge + heavyLoadSurcharge) / seats);
+  const finalFare = Math.max(farePerPersonPesewas, minFarePerSeatPesewas) + surchargePerSeatPesewas;
 
   // Commission is taken from the per-seat fare and the driver gets the
   // REMAINDER, not an independently-rounded 85%. Rounding both sides
@@ -161,6 +174,9 @@ function calculateFare({
     commissionRate: env.PLATFORM_COMMISSION,
     minFarePerSeatPesewas,
     floorApplied: farePerPersonPesewas < minFarePerSeatPesewas,
+    // The extras, as a per-seat figure, so a caller can show `finalFare` minus
+    // this as the clean unit price without re-deriving either.
+    surchargePerSeatPesewas,
     // Surfaced so the rider's price breakdown can name the extras instead of
     // showing a total that is larger than its own visible line items.
     doorstepSurchargePesewas: doorstepSurcharge,

@@ -253,8 +253,31 @@ export function TripStatusListener() {
         if (computedTripId) {
           setTripLiveActivityStatus(computedTripId, 'IN_PROGRESS', 'Trip in progress');
         }
-      } else if (data.status === 'CANCELLED' || data.status === 'NO_SHOW' || data.status === 'REFUNDED') {
-        showBanner('Trip was cancelled', 'close-circle');
+      } else if (
+        data.status === 'CANCELLED' ||
+        data.status === 'NO_SHOW' ||
+        data.status === 'REFUNDED' ||
+        // NO_DRIVERS_FOUND and EXPIRED are terminal server-side and were handled
+        // NOWHERE on the client. That is the "I've been requesting a ride for a
+        // very long time and nothing happens" ending: dispatch exhausts its
+        // candidates (NO_DRIVERS_FOUND) or the request ages out (EXPIRED), the
+        // server moves the trip to a final state and publishes it — and the
+        // rider's app had no branch for either, so no banner fired, the Live
+        // Activity was never torn down, the caches were never invalidated and
+        // the request screen sat there spinning against a trip that was already
+        // dead. Terminal statuses must ALWAYS release the UI.
+        data.status === 'NO_DRIVERS_FOUND' ||
+        data.status === 'EXPIRED'
+      ) {
+        const noDrivers = data.status === 'NO_DRIVERS_FOUND';
+        showBanner(
+          noDrivers
+            ? 'No drivers available right now'
+            : data.status === 'EXPIRED'
+              ? 'Ride request expired'
+              : 'Trip was cancelled',
+          'close-circle',
+        );
         endTripLiveNotification();
         endTripLiveActivity('CANCELLED');
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });

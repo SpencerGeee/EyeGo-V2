@@ -4,7 +4,7 @@ const prisma = require('../config/database');
 const logger = require('../utils/logger');
 const supply = require('./supply-index.service');
 const { etaMatrix } = require('./eta.service');
-const { availableDriverWhere } = require('./driver-availability');
+const { availableDriverWhere, explainIneligible } = require('./driver-availability');
 const destinationMode = require('./destination-mode.service');
 
 /**
@@ -41,16 +41,70 @@ const MAX_PICKUP_ETA_SECONDS = parseInt(process.env.DISPATCH_MAX_PICKUP_ETA_SECO
  * @returns {Promise<Array<{id, fcmToken, currentLat, currentLng, distanceKm,
  *                          etaSeconds, etaDegraded}>>}
  */
-async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId = null, tier = null, trip = null }) {
-  if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) return [];
+async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, excludeDriverId = null, tier = null, trip = null }) {
+  /**
+   * THE DISPATCH FUNNEL, WRITTEN DOWN.
+   *
+   * "The rider requested and no offer ever reached the driver phone" has now been
+   * reported enough times to be treated as a logging defect as much as a logic
+   * one: this function is where every candidate is lost, and it used to `return
+   * []` from five different places without saying which. Every stage below
+   * records its count and every drop records its reason, so the next occurrence
+   * is answered from the log line instead of a guess.
+   *
+   * `logFunnel` is INFO on success and WARN when the funnel empties — an empty
+   * funnel means a rider is watching a spinner, which is not routine.
+   */
+  const funnel = { tripId, radiusKm, tier: tier ?? null };
+  const logFunnel = (stage, extra = {}) => {
+    const line = { stage, ...funnel, ...extra };
+    if (stage === 'ok' && (extra.candidates ?? 0) > 0) logger.info('Dispatch funnel', line);
+    else logger.warn('Dispatch funnel — no candidates', line);
+  };
+
+  if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng)) {
+    logFunnel('bad_pickup_coords', { pickupLat, pickupLng });
+    return [];
+  }
 
   // 1. Geo narrows.
-  const nearby = await supply.nearbyDrivers(pickupLat, pickupLng, radiusKm, GEO_FETCH_LIMIT);
-  if (nearby.length === 0) return [];
+  //
+  // `withCoords` is not cosmetic. Everything downstream — the pickup ETA, the
+  // driver pin the rider watches during dispatch — used `Driver.currentLat/Lng`
+  // from Postgres, and that column is written at most every 15 s or 60 m of
+  // movement (see sockets/driver.socket.js DB_PERSIST_*), deliberately, because
+  // it is the COLD copy. The geo index is written on every single fix. Ranking a
+  // driver by a position up to a minute old, while holding their live one in
+  // hand, is the "the location dispatch uses is inaccurate" complaint.
+  const nearby = await supply.nearbyDrivers(pickupLat, pickupLng, radiusKm, GEO_FETCH_LIMIT, {
+    withCoords: true,
+  });
+  if (nearby.length === 0) {
+    // The supply index is what dispatch searches, and an empty answer has two
+    // very different causes. `poolSize` separates them: 0 means nothing is
+    // pinging at all (driver app not emitting `driver:location_update`, or every
+    // presence key expired), non-zero means drivers ARE live but none within
+    // `radiusKm` of this pickup.
+    const poolSize = await supply.poolSize();
+    logFunnel('geo_empty', { poolSize, pickupLat, pickupLng });
+    return [];
+  }
 
   const distanceById = new Map(nearby.map((n) => [n.driverId, n.distanceKm]));
+  // Live position per driver, straight from the index that answered the search.
+  const livePosById = new Map(
+    nearby
+      .filter((n) => Number.isFinite(n.lat) && Number.isFinite(n.lng))
+      .map((n) => [n.driverId, { lat: n.lat, lng: n.lng }]),
+  );
+  // The live fix wins; the DB column is the fallback for a driver the index
+  // somehow has no coordinate for.
+  const posFor = (d) => livePosById.get(d.id) ?? { lat: d.currentLat, lng: d.currentLng };
   const ids = nearby.map((n) => n.driverId).filter((id) => id !== excludeDriverId);
-  if (ids.length === 0) return [];
+  if (ids.length === 0) {
+    logFunnel('only_excluded_driver_nearby', { geo: nearby.length, excludeDriverId });
+    return [];
+  }
 
   // 2. Postgres decides. `availableDriverWhere` is the single eligibility
   //    source (approved + online + not busy) and stays that way — this is a
@@ -68,7 +122,22 @@ async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId 
       vehicles: { where: { isActive: true, isVerified: true }, select: { id: true, tier: true, seaterCount: true } },
     },
   });
-  if (eligible.length === 0) return [];
+
+  // Anything the geo index offered that Postgres rejected, with the reason. This
+  // is the query that answers "there is a driver online right on top of me, why
+  // did nobody get the offer" — the answer is almost always one of four things
+  // and `explainIneligible` names which.
+  if (eligible.length < ids.length) {
+    const dropped = await explainIneligible(
+      prisma,
+      ids.filter((id) => !eligible.some((d) => d.id === id)),
+    ).catch(() => []);
+    logger.info('Dispatch dropped ineligible drivers', { tripId, dropped });
+  }
+  if (eligible.length === 0) {
+    logFunnel('none_eligible', { geo: nearby.length, considered: ids.length });
+    return [];
+  }
 
   const tierMatched = tier
     ? eligible.filter((d) => d.vehicles.some((v) => v.tier === tier))
@@ -87,7 +156,15 @@ async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId 
   //     the pool entirely, it is dropped: one driver's preference must not turn
   //     into a rider seeing "no drivers available" when there plainly are some.
   if (trip) {
-    const withDestination = pool.filter((d) => destinationMode.headingTowards(d, trip));
+    // Judged from the LIVE position too — "am I heading towards my destination"
+    // answered from a minute-old fix is how a driver gets sent the wrong way.
+    const withDestination = pool.filter((d) => {
+      const pos = posFor(d);
+      return destinationMode.headingTowards(
+        { ...d, currentLat: pos.lat, currentLng: pos.lng },
+        trip,
+      );
+    });
     if (withDestination.length > 0) {
       if (withDestination.length !== pool.length) {
         logger.info('Destination mode filtered candidates', {
@@ -101,14 +178,21 @@ async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId 
   // 3. Rank by ROAD ETA, not straight-line distance.
   const etas = await etaMatrix(
     { lat: pickupLat, lng: pickupLng },
-    pool.map((d) => ({ driverId: d.id, lat: d.currentLat, lng: d.currentLng })),
+    pool.map((d) => ({ driverId: d.id, ...posFor(d) })),
   );
 
-  return pool
+  const ranked = pool
     .map((d) => {
       const eta = etas.get(d.id);
+      const pos = posFor(d);
       return {
         ...d,
+        // Overwrites the Postgres columns on the candidate object on purpose:
+        // dispatch-cascade puts these straight into the rider's DISPATCH_PROGRESS
+        // payload as the offered driver's pin, so the pin now sits where the car
+        // actually is rather than where it last happened to be persisted.
+        currentLat: pos.lat,
+        currentLng: pos.lng,
         vehicleId: d.vehicles[0]?.id ?? null,
         distanceKm: distanceById.get(d.id) ?? null,
         etaSeconds: eta?.seconds ?? null,
@@ -120,6 +204,20 @@ async function rankCandidates({ pickupLat, pickupLng, radiusKm, excludeDriverId 
     .filter((d) => d.etaSeconds == null || d.etaSeconds <= MAX_PICKUP_ETA_SECONDS)
     .sort((a, b) => (a.etaSeconds ?? Number.MAX_SAFE_INTEGER) - (b.etaSeconds ?? Number.MAX_SAFE_INTEGER))
     .slice(0, MAX_CANDIDATES);
+
+  logFunnel('ok', {
+    geo: nearby.length,
+    eligible: eligible.length,
+    afterTier: tierMatched.length,
+    afterDestinationMode: pool.length,
+    candidates: ranked.length,
+    // The whole point of ranking by road ETA — if this is empty while `pool`
+    // is not, everyone in range was further out than MAX_PICKUP_ETA_SECONDS.
+    nearestEtaSeconds: ranked[0]?.etaSeconds ?? null,
+    etaDegraded: ranked[0]?.etaDegraded ?? null,
+  });
+
+  return ranked;
 }
 
 /**

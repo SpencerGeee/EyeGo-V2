@@ -1,8 +1,9 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Pressable as RNPressable,
   PressableProps,
   ViewStyle,
+  StyleProp,
   Platform,
   type GestureResponderEvent,
 } from 'react-native';
@@ -18,8 +19,25 @@ import { springs, pressScale as pressScaleToken } from '@eyego/config';
 
 const AnimatedPressable = Animated.createAnimatedComponent(RNPressable);
 
-interface EyeGoPressableProps extends Omit<PressableProps, 'onPressIn' | 'onPressOut'> {
-  style?: ViewStyle | ViewStyle[];
+interface EyeGoPressableProps extends Omit<PressableProps, 'onPressIn' | 'onPressOut' | 'style'> {
+  /**
+   * Object, array, OR the React Native function form `({ pressed }) => style`.
+   *
+   * The function form used to be silently discarded here, and that is not a
+   * cosmetic bug: a function inside a style array is not a valid style, so RN
+   * flattened it away and the row lost EVERY declaration it owned — including
+   * `flexDirection: 'row'`, its height and its padding. That is why the Set
+   * your trip / Where To rows rendered as a bare column with the dot, the
+   * label, the value and the trailing icon each on their own line, flush to
+   * the card edge. Any screen written in the idiomatic `({ pressed }) => [...]`
+   * style was laid out as if it had no style at all.
+   *
+   * Resolved against local pressed state below rather than handed to
+   * `AnimatedPressable` as a function, because Reanimated only scans an
+   * object/array `style` prop for shared values — passing the function through
+   * would fix layout and break the press-scale animation instead.
+   */
+  style?: StyleProp<ViewStyle> | ((state: { pressed: boolean }) => StyleProp<ViewStyle>);
   haptic?: 'light' | 'medium' | 'heavy' | 'none';
   scaleOnPress?: number;
   /** Called in addition to the built-in press-scale animation (does not replace it). */
@@ -39,6 +57,10 @@ export function Pressable({
   ...props
 }: EyeGoPressableProps) {
   const scale = useSharedValue(1);
+  const isFnStyle = typeof style === 'function';
+  // Only tracked when a function style actually needs it — an object style must
+  // not pay for a re-render on every press.
+  const [pressed, setPressed] = useState(false);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -50,17 +72,19 @@ export function Pressable({
         duration: 100,
         easing: Easing.out(Easing.quad),
       });
+      if (isFnStyle) setPressed(true);
       onPressIn?.(e);
     },
-    [scale, scaleOnPress, onPressIn]
+    [scale, scaleOnPress, onPressIn, isFnStyle]
   );
 
   const handlePressOut = useCallback(
     (e: GestureResponderEvent) => {
       scale.value = withSpring(1, springs.press);
+      if (isFnStyle) setPressed(false);
       onPressOut?.(e);
     },
-    [scale, onPressOut]
+    [scale, onPressOut, isFnStyle]
   );
 
   const handlePress = useCallback(
@@ -79,15 +103,25 @@ export function Pressable({
     [haptic, onPress]
   );
 
+  const resolvedStyle = isFnStyle
+    ? (style as (s: { pressed: boolean }) => StyleProp<ViewStyle>)({ pressed })
+    : (style as StyleProp<ViewStyle>);
+
   return (
     <AnimatedPressable
       onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      style={[animatedStyle, style as ViewStyle]}
+      style={[animatedStyle, resolvedStyle]}
       {...props}
     >
-      {children}
+      {/* Cast: `PressableStateCallbackType` carries a `hovered` field in some
+          RN type versions in this monorepo and not others, so spelling it out
+          breaks one tsconfig or the other. `pressed` is the only field a native
+          press state can meaningfully report. */}
+      {typeof children === 'function'
+        ? children({ pressed } as Parameters<Extract<PressableProps['children'], Function>>[0])
+        : children}
     </AnimatedPressable>
   );
 }

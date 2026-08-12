@@ -38,7 +38,9 @@ interface RideState {
   pendingTripRequestDestination: string | null;
 
   // Tier & computed fare
-  selectedTier: 'ECONOMY' | 'COMFORT' | null;
+  /** Premium is a real ride type — this union used to stop at Comfort, so a
+   *  premium trip could not even be stored, let alone displayed. */
+  selectedTier: 'ECONOMY' | 'COMFORT' | 'PREMIUM' | 'ROYAL' | null;
   computedFare: number | null;
 
   // Promo
@@ -67,7 +69,7 @@ interface RideState {
   setGuestInfo: (info: { name: string; phone: string } | null) => void;
   setScheduledTime: (time: string | null) => void;
   setPendingTripRequest: (id: string | null, destination?: string | null) => void;
-  setSelectedTier: (tier: 'ECONOMY' | 'COMFORT', fare: number) => void;
+  setSelectedTier: (tier: 'ECONOMY' | 'COMFORT' | 'PREMIUM' | 'ROYAL', fare: number) => void;
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
   setRequestSeats: (count: number, coverAll: boolean) => void;

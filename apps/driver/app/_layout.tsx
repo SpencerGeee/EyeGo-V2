@@ -26,9 +26,9 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
-import { configureApiClient, configureSocket, getDriverSocket, driverApi, driverSocketEvents } from '@eyego/api';
+import { configureApiClient, configureSocket, getDriverSocket, driverApi, driverSocketEvents, refreshDriverSocketAuth, setAuthReadyGate } from '@eyego/api';
 import { useDriverStore } from '../stores/driver.store';
-import { useDriverTripStore } from '../stores/trip.store';
+import { useDriverTripStore, subscribeDriverStatusToCaches } from '../stores/trip.store';
 import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
@@ -210,6 +210,13 @@ export default function RootLayout() {
       getRefreshToken: () => useDriverStore.getState().refreshToken,
       onTokenRefreshed: ({ accessToken, refreshToken }) => {
         useDriverStore.getState().refreshTokens({ accessToken, refreshToken });
+        // The rider app has always done this and the driver app never did. The
+        // socket's `auth` is a callback, so a RECONNECT picks up the rotated
+        // token on its own — but a socket that is already down after failing to
+        // authenticate with the expired one will not retry itself once
+        // socket.io has run out of attempts. Nudging it here is what turns a
+        // permanent "Reconnecting…" back into a live trip channel.
+        refreshDriverSocketAuth();
       },
       onLogout: () => {
         useDriverStore.getState().logout();
@@ -219,9 +226,16 @@ export default function RootLayout() {
 
     configureSocket({
       getToken: () => useDriverStore.getState().accessToken,
+      // A driver token is not allowed on `/user/me`, and a 403 never reaches the
+      // refresh interceptor — so the socket's stale-token recovery has to probe
+      // an endpoint this role can actually call.
+      authProbeUrl: '/driver/me',
     });
 
-    loadFromStorage();
+    // Same cold-start race the rider app had: requests must not go out before
+    // SecureStore has been read, or a token-less 401 is mistaken for an ended
+    // session and signs the driver out mid-shift. See setAuthReadyGate.
+    setAuthReadyGate(loadFromStorage());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -357,7 +371,23 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isLoggedIn) return;
     void useDriverTripStore.getState().hydrate();
-    return useDriverTripStore.getState().listenForOffers();
+    const stopOffers = useDriverTripStore.getState().listenForOffers();
+    /**
+     * SERVER-DRIVEN STATUS RECONCILIATION.
+     *
+     * The other half of the optimistic write in `applyDriverTripStatus`: the
+     * sequenced `trip:event` channel is the authority, and this pushes whatever
+     * it says into every screen's query cache from ONE place. Before this, each
+     * screen discovered status changes by its own 30-second poll, so a
+     * transition made anywhere else — the other screen, an admin correction, the
+     * rider cancelling — took up to half a minute to appear and could appear on
+     * the two screens at different times.
+     */
+    const stopStatusSync = subscribeDriverStatusToCaches(queryClient);
+    return () => {
+      stopOffers();
+      stopStatusSync();
+    };
   }, [isLoggedIn]);
 
   // Reconnect driver socket when app returns to foreground (e.g. after phone lock)

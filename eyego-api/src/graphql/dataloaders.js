@@ -2,6 +2,7 @@
 
 const DataLoader = require('dataloader');
 const prisma = require('../config/database');
+const { seatOccupyingWhere } = require('../utils/booking-status');
 
 /**
  * createDataLoaders — call once per request, never share across requests.
@@ -21,6 +22,20 @@ function createDataLoaders() {
           driver: {
             select: { id: true, name: true, phone: true, profilePhoto: true, walletBalancePesewas: true },
           },
+          /**
+           * SEAT-OCCUPYING BOOKINGS, so `availableSeats` below can be the same
+           * number the REST payload reports.
+           *
+           * This loader used to answer `maxSeats - confirmedSeats`, and the
+           * "ONE ANSWER TO HOW MANY SEATS ARE LEFT" note in
+           * modules/trips/trips.service.js names this exact file as one of the
+           * four divergent formulas it was written to replace — but this one was
+           * never actually changed. `confirmedSeats` counts PAID seats only, so
+           * it ignores holds; sharing a group invite holds every remaining seat,
+           * which means GraphQL reported a full trip as wide open. Anything
+           * booking off this number can overbook the vehicle.
+           */
+          bookings: { where: seatOccupyingWhere(), select: { id: true } },
         },
       });
 
@@ -37,7 +52,9 @@ function createDataLoaders() {
           departureTime: trip.departureTime.toISOString(),
           route: trip.route,
           driver: trip.driver,
-          availableSeats: Math.max(0, trip.maxSeats - trip.confirmedSeats),
+          // Holds included — see the `bookings` include above.
+          availableSeats: Math.max(0, trip.maxSeats - trip.bookings.length),
+          occupiedSeats: trip.bookings.length,
           baseFarePesewas: trip.baseFarePesewas,
           maxSeats: trip.maxSeats,
         };

@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Share, ScrollView, Alert } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect, type Href } from 'expo-router';
 import { MotiView } from '@eyego/ui';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { bookingsApi, tripsApi } from '@eyego/api';
@@ -25,6 +25,7 @@ import { formatGhs } from '@eyego/utils';
 type LinkState = 'generating' | 'ready' | 'error';
 
 export default function InviteScreen() {
+  const queryClient = useQueryClient();
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -177,6 +178,48 @@ export default function InviteScreen() {
 
   const members = groupData?.data?.data?.members ?? [];
 
+  /**
+   * THE MONEY, AS THE SERVER ADDED IT UP.
+   *
+   * BUGFIX ("tapping heavy cargo doesn't add its price to the total, even though
+   * the line under it says the surcharge is included"; and the same defect seen
+   * from the tracking page as "the hub said 36 and the ride page said 8").
+   *
+   * This screen used to compute its own totals — `trip.totalTripCostPesewas`, or
+   * a per-seat price multiplied by the member count. Neither expression can
+   * contain a per-booking surcharge, because neither reads a booking: heavy cargo
+   * and the pickup detour live on the rows the server writes, so toggling either
+   * one moved real money and could not move this number. Meanwhile the caption
+   * underneath was driven by the raw toggle state and claimed the surcharge was
+   * in there.
+   *
+   * `GET /bookings/:id/group` now returns `fare` — the sum of exactly the rows
+   * `POST /payments/initiate` will charge for, with the surcharges broken out so
+   * they can be NAMED without being added up here. There is no fare arithmetic on
+   * this screen any more, which is the only way the caption and the number cannot
+   * disagree again.
+   */
+  const groupFare = groupData?.data?.data?.fare ?? null;
+  const myTotalPesewas = groupFare?.totalPesewas ?? null;
+  const cargoInTotalPesewas = groupFare?.cargoSurchargePesewas ?? 0;
+  const detourInTotalPesewas = groupFare?.deviationSurchargePesewas ?? 0;
+  // What the whole van costs, for the "if I covered everyone" line. Still a
+  // server figure (trips.service attaches it from the one fare formula).
+  const tripTotalPesewas = (selectedTrip as { totalTripCostPesewas?: number })?.totalTripCostPesewas ?? null;
+
+  // The toggles rewrite booking rows, so the totals above are stale the moment
+  // one fires. Refetch rather than guess at the new number locally.
+  const refreshGroupFare = useCallback(() => {
+    if (bookingId) queryClient.invalidateQueries({ queryKey: ['group', bookingId] });
+  }, [queryClient, bookingId]);
+
+  // Reflect the group's real server-side cover-all flag — the rider may be
+  // returning to a hub where they already turned it on.
+  const serverCoverAll = groupData?.data?.data?.isCoverAll;
+  useEffect(() => {
+    if (serverCoverAll != null) setPayForEveryone(!!serverCoverAll);
+  }, [serverCoverAll]);
+
   // R4: enforce the group member limit on the client. The trip's totalSeats is
   // the hard cap (server rejects over-booking at seat-claim time); here we stop
   // advertising the invite link once host + joined members fill the trip, so we
@@ -188,22 +231,40 @@ export default function InviteScreen() {
   const groupSize = members.length + 1; // +1 for the host
   const groupFull = seatLimit > 0 && groupSize >= seatLimit;
 
+  /**
+   * Cover-all is a SERVER fact, so the checkbox follows the server.
+   *
+   * BUGFIX. This flipped local state, wrote a Zustand flag, fired the request
+   * fire-and-forget and swallowed any failure into a `console.warn`. Turning it on
+   * claims every free seat on the trip as real bookings (`syncCoveredSeatsTx`), so
+   * when that write failed the rider was left looking at a ticked box, a total
+   * derived from it, and a trip where none of those seats existed — then paid for
+   * one seat. A tick that might be a lie is worse than a tick that can fail.
+   */
+  const setCoverAll = useMutation({
+    mutationFn: (next: boolean) => {
+      if (!id) return Promise.reject(new Error('This trip is still loading — try again in a moment.'));
+      return tripsApi.createGroup(id, next);
+    },
+    onSuccess: (_res, next) => {
+      setPayForEveryone(next);
+      setSelectedTrip({
+        ...selectedTrip,
+        payForEveryone: next,
+        selectedSeatCount: members.length + 1,
+      } as Trip & { payForEveryone?: boolean; selectedSeatCount?: number; heavyCargo?: boolean });
+      refreshGroupFare();
+    },
+    onError: (err: any) => {
+      Alert.alert(
+        "Couldn't update who's paying",
+        err?.response?.data?.message ?? err?.message ?? 'Please try again.',
+      );
+    },
+  });
   const togglePayForEveryone = () => {
-    const next = !payForEveryone;
-    setPayForEveryone(next);
-    setSelectedTrip({
-      ...selectedTrip,
-      payForEveryone: next,
-      selectedSeatCount: members.length + 1,
-    } as Trip & { payForEveryone?: boolean; selectedSeatCount?: number; heavyCargo?: boolean });
-    // Persist isCoverAll server-side — without this call the toggle was
-    // purely cosmetic and the host's payment only ever settled their own
-    // seat, never the rest of the group's held seats.
-    if (id) {
-      tripsApi.createGroup(id, next).catch((err: any) => {
-        console.warn('[Invite] Failed to update group cover-all flag:', err?.message ?? err);
-      });
-    }
+    if (setCoverAll.isPending) return;
+    setCoverAll.mutate(!payForEveryone);
   };
 
   // BUGFIX: this used to only flip local state + a client-only Zustand flag that
@@ -216,6 +277,8 @@ export default function InviteScreen() {
     onSuccess: (res, next) => {
       setActiveBooking(res.data.data);
       setHeavyCargo(next);
+      // The surcharge is now on the booking row; re-read the total that contains it.
+      refreshGroupFare();
     },
     onError: (err: any) => {
       Alert.alert("Couldn't update", err?.response?.data?.message ?? 'Please try again.');
@@ -252,6 +315,7 @@ export default function InviteScreen() {
       const updated = res.data.data;
       setActiveBooking(updated);
       setPickupOverride({ name: place.name, deviationSurchargePesewas: updated?.deviationSurchargePesewas ?? 0 });
+      refreshGroupFare();
     },
     onError: (err: any) => {
       Alert.alert(
@@ -580,42 +644,44 @@ export default function InviteScreen() {
           transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 280 }}
           style={[styles.fareSummary, { flexDirection: 'column', alignItems: 'stretch', gap: spacing.xs }]}
         >
-          {/* Total Fare */}
+          {/* Whole-van cost, straight off the server's one fare formula. */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text variant="caption" color={colors.onSurfaceVariant}>Total Group Fare</Text>
+            <Text variant="caption" color={colors.onSurfaceVariant}>Whole Trip ({seatLimit || '—'} seats)</Text>
             <Text variant="titleMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
-              {formatGhs(
-                (selectedTrip as any)?.totalTripCostPesewas
-                  ?? (computedFare ?? selectedTrip?.farePerSeatPesewas ?? 0) * (members.length + 1)
-              )}
+              {tripTotalPesewas != null ? formatGhs(tripTotalPesewas) : '—'}
             </Text>
           </View>
 
           <View style={{ height: 1, backgroundColor: colors.outlineVariant, marginVertical: 4, opacity: 0.5 }} />
 
-          {/* Split / Your Share — read from the booking's real, server-recomputed
-              fareAmountPesewas (already includes heavy-cargo + pickup-deviation surcharges)
-              instead of re-deriving them client-side, so what's shown always matches
-              what's actually charged. */}
+          {/* What THIS rider owes — one server figure, no client arithmetic. */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>
-              {payForEveryone ? "Your Share (You pay for all)" : "Your Split Share"}
+              {payForEveryone
+                ? `You pay for ${groupFare?.seatCount ?? 0} seat${(groupFare?.seatCount ?? 0) === 1 ? '' : 's'}`
+                : 'Your Seat'}
             </Text>
-            <AnimatedFareText
-              pesewas={
-                payForEveryone
-                  ? ((selectedTrip as any)?.totalTripCostPesewas
-                      ?? (computedFare ?? selectedTrip?.farePerSeatPesewas ?? 0) * (members.length + 1))
-                    + (activeBooking?.deviationSurchargePesewas ?? 0)
-                  : (activeBooking?.fareAmountPesewas ?? computedFare ?? selectedTrip?.farePerSeatPesewas ?? 0)
-              }
-              variant="fareMedium"
-            />
+            {myTotalPesewas != null
+              ? <AnimatedFareText pesewas={myTotalPesewas} variant="fareMedium" />
+              : <Loader size={18} color={colors.primary} />}
           </View>
-          {((pickupOverride?.deviationSurchargePesewas ?? 0) > 0 || heavyCargo) && (
+          {/* Only names surcharges that are GENUINELY inside the number above —
+              these come from the same server response the total does, so the copy
+              cannot advertise a charge the total is missing. */}
+          {(detourInTotalPesewas > 0 || cargoInTotalPesewas > 0) && (
             <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'right' }}>
-              includes{pickupOverride && pickupOverride.deviationSurchargePesewas > 0 ? ` +${formatGhs(pickupOverride.deviationSurchargePesewas)} pickup detour` : ''}
-              {heavyCargo ? ' + heavy cargo surcharge' : ''}
+              includes
+              {detourInTotalPesewas > 0 ? ` +${formatGhs(detourInTotalPesewas)} pickup detour` : ''}
+              {detourInTotalPesewas > 0 && cargoInTotalPesewas > 0 ? ' and' : ''}
+              {cargoInTotalPesewas > 0 ? ` +${formatGhs(cargoInTotalPesewas)} heavy cargo` : ''}
+            </Text>
+          )}
+          {/* A hub seat is a HOLD until the payment page confirms it. Saying so is
+              the honest counterpart to the driver no longer counting it as paid. */}
+          {(groupFare?.heldSeatCount ?? 0) > 0 && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'right' }}>
+              Not charged yet — {groupFare?.heldSeatCount} seat
+              {(groupFare?.heldSeatCount ?? 0) === 1 ? ' is' : 's are'} held until you confirm payment.
             </Text>
           )}
         </MotiView>

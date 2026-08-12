@@ -45,7 +45,7 @@
 const prisma = require('../config/database');
 const redis = require('../config/redis');
 const logger = require('../utils/logger');
-const { isDriverAvailable } = require('./driver-availability');
+const { isDriverAvailable, explainIneligible } = require('./driver-availability');
 const { sendMulticastPush } = require('./push.service');
 const scheduledTasks = require('./scheduled-task.service');
 const matcher = require('./matcher.service');
@@ -234,7 +234,15 @@ async function offerNext(tripId) {
 
       const free = await isDriverAvailable(prisma, candidate.id).catch(() => false);
       if (!free) {
-        logger.info('Dispatch skipped busy candidate', { tripId, driverId: candidate.id });
+        // The re-check between building the list and reaching this candidate is
+        // deliberate, but "skipped" on its own is useless when the whole list
+        // gets skipped and the rider sees nothing. Name the reason.
+        const [why] = await explainIneligible(prisma, [candidate.id]).catch(() => []);
+        logger.info('Dispatch skipped candidate', {
+          tripId,
+          driverId: candidate.id,
+          reason: why?.reason ?? 'UNKNOWN',
+        });
         continue;
       }
 
@@ -602,8 +610,25 @@ async function startCascade(tripId, opts = {}) {
     totalCandidates: candidates.length,
   });
 
+  // The head of every dispatch investigation: what the search actually started
+  // with. `matcher.rankCandidates` logs WHY the list is the length it is; this
+  // logs WHO is on it, so a specific driver's absence is traceable to a specific
+  // trip rather than inferred.
+  logger.info('Dispatch cascade started', {
+    tripId,
+    kind,
+    radiusKm: DISPATCH_RADIUS_KM,
+    candidates: candidates.length,
+    driverIds: candidates.map((c) => c.id),
+    pickup: { lat: trip.pickupLat, lng: trip.pickupLng },
+    tier: trip.tier,
+  });
   if (candidates.length === 0) {
-    logger.info('No drivers in initial radius', { tripId, radiusKm: DISPATCH_RADIUS_KM });
+    logger.warn('No drivers in initial radius — search will wait for supply', {
+      tripId,
+      radiusKm: DISPATCH_RADIUS_KM,
+      searchTimeoutSeconds: SEARCH_TIMEOUT_SECONDS,
+    });
   }
   await offerNext(tripId);
 }

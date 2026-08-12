@@ -241,3 +241,14 @@ DB + end-to-end payment test. `money.js` hardened instead.
 
 **Open:** never run against a live database or device. `docker compose up -d`,
 migrate, request a ride, watch `GET /health/dispatch`.
+
+## 2026-08-12 [saved]
+Goal: 22-item stress sweep, then booking-flow invariant audit (pass 1).
+Decisions:
+- Shared `TripStatus` must mirror the Prisma enum exactly; it had 8 of 15 values plus a phantom `'BOARDING'`, so no client switch could ever be exhaustive.
+- `recordEvent` is the sole version bumper — never bump `Trip.version` in a sibling write, or `seq === version` breaks and client replay gaps.
+- One shared `packages/ui/src/tierTheme.ts` owns tier colour/label/icon/ring; server says `ECO`, UI said `ECONOMY`, and the cast hid it.
+- `AppBackground` shader is a single-slot singleton (`effects/shaderSlot.ts`), newest mount wins; per-screen mounting stacked 3-4 raymarch canvases.
+- Admin rebuild approved: `apps/admin` Next.js on Vercel, adminAuth JWT + RBAC + audit log, parity-first over the 46 existing endpoints.
+Rejected: passing a function `style` through to Reanimated's AnimatedPressable (fixes layout, breaks press-scale — resolve against local pressed state instead). Resolution *fractions* for shader downscale (use an absolute pixel budget; 0.5x is 3x more work on a flagship than a cheap Android). First-come shader slot (pins it to the root layout, no screen shows the effect).
+Open: booking-flow pass 2 unaudited (payments/refunds, seat-race concurrency, guest+offline, confirmedSeats column drift). Nothing committed; nothing device-tested.

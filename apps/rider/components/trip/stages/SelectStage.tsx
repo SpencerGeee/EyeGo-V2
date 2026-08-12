@@ -26,7 +26,7 @@ import { useTripFlow } from '../../../stores/tripFlow.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
-import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance } from '@eyego/ui';
+import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance, getTierTheme, normalizeTier } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
@@ -511,8 +511,28 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             </Text>
             <View style={styles.resultsList}>
               {displayTrips.map((trip, i) => {
-                const tier = (trip.tier as TripTier) ?? 'ECONOMY';
-                const info = TIER_INFO[tier];
+                /**
+                 * NORMALIZED, so each card is actually its own tier's colour.
+                 *
+                 * This was `(trip.tier as TripTier) ?? 'ECONOMY'`, and the cast is
+                 * the bug: the server sends `ECO`, which is not a `TripTier`, so
+                 * the cast silently produced a key `TIER_INFO` has no entry for.
+                 * `info` came back undefined, every `info.color` below resolved to
+                 * undefined, and the tint helpers fell through to the default
+                 * green — which is the report that the ride cards "all show up as
+                 * the shade of green it is now" regardless of the ride type.
+                 *
+                 * `??` could never have caught it either: `'ECO'` is not nullish.
+                 */
+                const tier = normalizeTier(trip.tier);
+                const theme = getTierTheme(colors, tier);
+                const info = TIER_INFO[tier as TripTier] ?? {
+                  icon: theme.icon,
+                  label: theme.label,
+                  description: theme.blurb,
+                  color: theme.accent,
+                  minFare: 0,
+                };
                 const fullFare = trip.farePerSeatPesewas ?? 0;
                 const selectedStop = selectedStopByTrip[trip.id ?? ''];
                 const displayFare = selectedStop ? selectedStop.fare : fullFare;
@@ -556,6 +576,17 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     <Pressable
                       style={({ pressed }) => [
                         styles.tripCard,
+                        // "That card theme should be the colour" — the rim carries
+                        // the tier now, not just Premium's left edge. The fill is
+                        // left alone: `tripCardGlow` below already lays the tier
+                        // tint OVER the card's own surface, and replacing
+                        // `surfaceCard` here instead would strip the surface and
+                        // leave a washed-out tint floating on the background.
+                        //
+                        // A rim rather than an animated glow ring on purpose: this
+                        // is a scrolling list, and one ring per row is one shadow
+                        // pass per row per frame.
+                        { borderColor: theme.rim },
                         tier === 'PREMIUM' && { borderLeftWidth: 2, borderLeftColor: info.color },
                         pressed && { opacity: 0.88 },
                       ]}

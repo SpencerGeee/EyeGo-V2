@@ -30,6 +30,8 @@ export type { CarMarkerProps } from './CarMarker';
 export { SwipeToConfirm } from './SwipeToConfirm';
 export type { SwipeToConfirmProps } from './SwipeToConfirm';
 export { TierBadge } from './TierBadge';
+export { getTierTheme, normalizeTier, tierToWire, RIDER_TIERS } from './tierTheme';
+export type { TierId, TierTheme } from './tierTheme';
 export { StatusBadge, BOOKING_STATUS_LABELS, bookingStatusLabel } from './StatusBadge';
 export { SeatBadge } from './SeatBadge';
 
@@ -61,6 +63,7 @@ export { usePerformanceTier } from './effects/usePerformanceTier';
 export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
 export { setBackgroundBusy, subscribeBackgroundBusy, backgroundScrollPauseProps } from './effects/backgroundActivity';
+export { useShaderSlot, shaderSlotWaiters } from './effects/shaderSlot';
 export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
 export type { MorphRect, MorphSourceHandle } from './morph';
 export { PulseRing } from './effects/PulseRing';

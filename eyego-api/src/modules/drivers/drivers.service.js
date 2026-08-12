@@ -18,6 +18,7 @@ const { seatOccupyingWhere } = require('../../utils/booking-status');
 const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
 const routeGeometry = require('../../services/route-geometry.service');
+const tripPublisher = require('../../services/trip-events.publisher');
 const {
   expireStaleTrips,
   liveUnstartedTripFilter,
@@ -118,6 +119,92 @@ function attachFarePerSeat(trip) {
     commissionRate: fareInfo.commissionRate,
     driverEarningsPerSeatPesewas: fareInfo.driverEarningsPerSeatPesewas,
   };
+}
+
+/**
+ * SAY WHOSE SEATS THESE ARE, AND WHETHER THE MONEY IS IN.
+ *
+ * BUGFIX ("when a rider chooses to pay for the entire trip, the driver app
+ * doesn't show that the seats are mapped to that group or that the whole trip is
+ * paid"). The covered seats were real booking rows the whole time, but nothing in
+ * the driver's payload said they belonged to one party — so twelve seats bought
+ * by one host were indistinguishable from twelve strangers, and there was no
+ * field anywhere that meant "this trip is settled".
+ *
+ * Mirrors `groupSummary` in services/trip-view.js: same rule, same words, so the
+ * REST payload and the socket snapshot cannot tell the driver different things.
+ * `settled` is deliberately not `paymentStatus === 'PAID'` alone — a confirmed
+ * cash seat is owed to the driver in hand, which is settled from the platform's
+ * point of view and is exactly what a group host paying cash produces.
+ */
+function attachGroupSummary(trip) {
+  if (!trip) return trip;
+  const bookings = trip.bookings ?? [];
+  const isSettled = (b) =>
+    b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
+
+  const paidSeatCount = bookings.filter((b) => b.paymentStatus === 'PAID').length;
+  const settledSeatCount = bookings.filter(isSettled).length;
+
+  /**
+   * WHAT WAS ACTUALLY SOLD, AND THE UNIT PRICE THAT MATCHES IT.
+   *
+   * BUGFIX ("the trip-complete receipt says one seat at 8 cedis; the ride was 36
+   * and the seat is 3"). Both numbers on that line were computed independently of
+   * the money: the count came from "not cancelled" (so a held-and-abandoned seat
+   * counted as a passenger) and the unit price came from
+   * `trip.farePerSeatPesewas`, a separate derivation that cannot see a surcharge
+   * sitting on a booking row.
+   *
+   * Sold seats are settled seats. The unit price is the gross with the per-booking
+   * surcharges taken back out, so `seatCount × perSeatPesewas + surchargesPesewas
+   * === grossPesewas` holds by construction and the receipt cannot contradict
+   * itself again.
+   */
+  const sold = bookings.filter(isSettled);
+  const grossPesewas = sold.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
+  const surchargesPesewas = sold.reduce(
+    (n, b) =>
+      n +
+      (b.deviationSurchargePesewas || 0) +
+      (b.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0),
+    0,
+  );
+  const soldSummary = {
+    seatCount: sold.length,
+    grossPesewas,
+    surchargesPesewas,
+    perSeatPesewas: sold.length > 0 ? Math.round((grossPesewas - surchargesPesewas) / sold.length) : null,
+    commissionPesewas: sold.reduce(
+      (n, b) =>
+        n +
+        (b.commissionAmountPesewas != null
+          ? b.commissionAmountPesewas
+          : percentOf(b.fareAmountPesewas || 0, env.PLATFORM_COMMISSION)),
+      0,
+    ),
+  };
+
+  let group = null;
+  if (trip.group) {
+    const covered = trip.group.isCoverAll
+      ? bookings
+      : bookings.filter((b) => b.isCoveredByLead || b.userId === trip.group.leadPassengerId);
+    group = {
+      id: trip.group.id,
+      coverAll: !!trip.group.isCoverAll,
+      leadUserId: trip.group.leadPassengerId,
+      leadName: trip.group.leadPassenger?.name ?? null,
+      seatCount: covered.length,
+      seatNumbers: covered.map((b) => b.seatNumber).filter((n) => n != null).sort((a, b) => a - b),
+      totalPesewas: covered.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0),
+      settledSeatCount: covered.filter(isSettled).length,
+      settled: covered.length > 0 && covered.every(isSettled),
+      paymentMethod: covered[0]?.paymentMethod ?? null,
+    };
+  }
+
+  return { ...trip, group, paidSeatCount, settledSeatCount, sold: soldSummary };
 }
 
 async function getMe(driverId) {
@@ -370,14 +457,16 @@ async function getActiveTrip(driverId) {
     include: {
       route: { include: { virtualStops: { where: { isActive: true }, orderBy: { sequence: 'asc' } } } },
       vehicle: true,
+      // Who is paying for whom — see attachGroupSummary.
+      group: { include: { leadPassenger: { select: { id: true, name: true } } } },
       bookings: {
         where: { ...seatOccupyingWhere() },
-        include: { user: { select: { name: true, phone: true, profilePhoto: true } } },
+        include: { user: { select: { id: true, name: true, phone: true, profilePhoto: true } } },
       },
     },
     orderBy: { createdAt: 'desc' },
   });
-  return trip ? attachFarePerSeat(trip) : null;
+  return trip ? attachGroupSummary(attachFarePerSeat(trip)) : null;
 }
 
 async function getAllTrips(driverId) {
@@ -386,15 +475,26 @@ async function getAllTrips(driverId) {
     include: {
       route: true,
       vehicle: true,
+      group: { include: { leadPassenger: { select: { id: true, name: true } } } },
       bookings: {
         where: { ...seatOccupyingWhere() },
-        select: { id: true, seatNumber: true, fareAmountPesewas: true, commissionAmountPesewas: true, paymentStatus: true, status: true, isOffline: true },
+        // `isCoveredByLead`/`userId`/`paymentMethod` are what tell a seat the
+        // group's host bought apart from a seat somebody booked themselves —
+        // without them the trip-complete receipt could only count rows, which is
+        // how "one seat at 8 cedis" was printed for a 36-cedi twelve-seat ride.
+        select: {
+          id: true, userId: true, seatNumber: true, fareAmountPesewas: true,
+          commissionAmountPesewas: true, paymentStatus: true, paymentMethod: true,
+          status: true, isOffline: true, isCoveredByLead: true, heavyCargo: true,
+          deviationSurchargePesewas: true, guestName: true,
+          user: { select: { id: true, name: true } },
+        },
       },
     },
     orderBy: { departureTime: 'asc' },
   });
   // Compute farePerSeatPesewas using the same estimateFare formula the rider home screen uses
-  return trips.map(attachFarePerSeat);
+  return trips.map((t) => attachGroupSummary(attachFarePerSeat(t)));
 }
 
 async function devActivate(driverId) {
@@ -634,7 +734,19 @@ async function uploadDocument(driverId, file, type) {
 const PICKUP_ARRIVAL_RADIUS_M = parseInt(process.env.PICKUP_ARRIVAL_RADIUS_M, 10) || 150;
 
 async function startTrip(driverId, tripId) {
-  const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
+  const trip = await prisma.trip.findFirst({
+    where: { id: tripId, driverId },
+    // `bookings` is what lets `effectivePickup` see a lone joiner's own moved
+    // pin. Without it the arrival check below measures the driver against the
+    // trip's original pickup, and a driver standing exactly on the rider's
+    // chosen point is told they are still "heading to pickup".
+    include: {
+      bookings: {
+        where: { ...seatOccupyingWhere() },
+        select: { pickupLat: true, pickupLng: true },
+      },
+    },
+  });
   if (!trip) throw new NotFoundError('Trip');
 
   // Where the driver actually is, as of their last ping.
@@ -648,14 +760,17 @@ async function startTrip(driverId, tripId) {
    * tapped. Unknown location falls through to EN_ROUTE: claiming the driver
    * has arrived on the strength of a missing coordinate is the one error here
    * that strands a rider waiting at the kerb.
+   *
+   * Measured against `effectivePickup`, NOT `trip.pickupLat/Lng` — a rider who
+   * moved their own pin from the group hub page is collected from the point they
+   * chose (and is surcharged for it), so that point is what "already there"
+   * means. Measuring against the trip's original pickup is what produced
+   * "heading to pickup" for a driver parked exactly where the rider asked.
+   * `metersFromPickup` returns null when either end is unknown, which keeps the
+   * same fall-through-to-EN_ROUTE behaviour the note above describes.
    */
-  const atPickup =
-    Number.isFinite(driver?.currentLat) &&
-    Number.isFinite(driver?.currentLng) &&
-    Number.isFinite(trip.pickupLat) &&
-    Number.isFinite(trip.pickupLng) &&
-    haversineMeters(driver.currentLat, driver.currentLng, trip.pickupLat, trip.pickupLng) <=
-      PICKUP_ARRIVAL_RADIUS_M;
+  const metersToPickup = routeGeometry.metersFromPickup(trip, driver);
+  const atPickup = metersToPickup != null && metersToPickup <= PICKUP_ARRIVAL_RADIUS_M;
 
   /**
    * ARRIVED_AT_PICKUP is only reachable FROM DRIVER_EN_ROUTE — see the
@@ -707,7 +822,12 @@ async function startTrip(driverId, tripId) {
   // next GPS ping. Awaited deliberately: it costs one Directions call (~300ms)
   // and it is the difference between the swipe feeling instant and feeling
   // stuck. Never throws — see warmRouteForTrip.
-  await routeGeometry.warmRouteForTrip(tripId);
+  //
+  // ...and then TELL everyone. Computing it only filled the cache, which serves
+  // the next client to ASK; nobody watching the trip was pushed anything, so the
+  // rider's screen kept the "Calculating ETA" it had just been reset to until the
+  // driver physically moved 50 m. See publishRouteForTrip.
+  tripPublisher.publishRouteForTrip(tripId, await routeGeometry.warmRouteForTrip(tripId));
 
   // Push notifications — non-blocking
   setImmediate(async () => {
@@ -749,8 +869,9 @@ async function departTrip(driverId, tripId) {
 
   // Departing switches the live leg from `toPickup` to `toDropoff`, whose cache
   // has never been written. Compute it now rather than leaving both apps with
-  // no route line and no ETA until the next location ping. See startTrip.
-  await routeGeometry.warmRouteForTrip(tripId);
+  // no route line and no ETA until the next location ping — and publish it, or
+  // the recompute only benefits whoever asks next. See startTrip.
+  tripPublisher.publishRouteForTrip(tripId, await routeGeometry.warmRouteForTrip(tripId));
 
   // Departure push moved to trip-notify.service.js — see arriveAtPickup above.
   // Note this one also only reached bookings that were CONFIRMED *and* PAID, so
@@ -848,10 +969,28 @@ async function arriveTrip(driverId, tripId) {
       }
     }
 
-    // Complete ALL active bookings (CONFIRMED, SEAT_HELD, PAID, BOARDED)
-    // This ensures cash riders (SEAT_HELD) also show up in the rider's past trips
+    /**
+     * Close the bookings that were actually RIDDEN.
+     *
+     * BUGFIX ("I opened the group hub and closed the app without paying, and the
+     * driver still saw a paid passenger in their earnings"). This promoted every
+     * non-terminal row — SEAT_HELD included — to COMPLETED, and a COMPLETED
+     * booking is a passenger who travelled as far as every receipt, seat map and
+     * earnings figure is concerned. The group hub creates a hold the moment it
+     * mounts, so an abandoned invite became a completed fare on the driver's
+     * receipt with nobody in the seat and no money anywhere.
+     *
+     * A hold is a reservation with a timer on it. When the trip ends without it
+     * ever being paid for, the honest outcome is EXPIRED with the seat given
+     * back — `seatNumber: null`, or the row keeps blocking @@unique([tripId,
+     * seatNumber]) for the life of the trip.
+     */
     await tx.booking.updateMany({
-      where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] } },
+      where: { tripId, status: { in: ['PENDING', 'SEAT_HELD'] } },
+      data: { status: 'EXPIRED', seatNumber: null },
+    });
+    await tx.booking.updateMany({
+      where: { tripId, status: { in: ['CONFIRMED', 'PAID', 'BOARDED'] } },
       data: { status: 'COMPLETED' },
     });
 

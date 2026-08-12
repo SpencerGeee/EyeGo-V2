@@ -151,13 +151,32 @@ export default function PaymentScreen() {
   // the rider what they saw, but it was GHS 10 more than the actual server charge
   // would have been before this fix — the display and the charge are now the same
   // single number, with no client-side fare math at all.
-  // "Paying for everyone" means this rider covers the *entire* trip cost — not perSeat × group size.
-  // The server attaches `totalTripCostPesewas` to trip detail / group hub responses for this exact purpose.
-  const payForEveryone = !!(selectedTrip as { payForEveryone?: boolean })?.payForEveryone;
-  const totalTripCostPesewas = (selectedTrip as { totalTripCostPesewas?: number })?.totalTripCostPesewas ?? null;
-  const fareAmountPesewas = payForEveryone && totalTripCostPesewas
-    ? totalTripCostPesewas
-    : serverPerSeat;
+  /**
+   * WHAT THIS SCREEN CHARGES IS WHAT THIS SCREEN SHOWS.
+   *
+   * BUGFIX. "Paying for everyone" used to display `trip.totalTripCostPesewas` — the
+   * whole van at the listed per-seat price. But `POST /payments/initiate` charges
+   * the rider's booking PLUS every held sibling seat, and those rows carry the
+   * heavy-cargo and pickup-detour surcharges the trip-level figure knows nothing
+   * about. So the group host was shown 36 and charged 44, and the tracking page
+   * (which sums the same rows the gateway did) then disagreed with both.
+   *
+   * `GET /bookings/:id/group` returns that exact sum as `fare.totalPesewas`. It is
+   * the same helper `getTripFareForRider` the hub renders, so hub, payment screen,
+   * gateway and tracking page are now four readings of ONE number.
+   */
+  const { data: groupFareData } = useQuery({
+    queryKey: ['group', activeBooking?.id ?? ''],
+    queryFn: () => bookingsApi.getGroup(activeBooking?.id ?? ''),
+    enabled: !!activeBooking?.id && bookingIsForThisCheckout,
+    staleTime: 10_000,
+  });
+  const groupFare = groupFareData?.data?.data?.fare ?? null;
+  const groupTotalPesewas = groupFare?.totalPesewas ?? null;
+  const fareAmountPesewas =
+    groupTotalPesewas != null && groupTotalPesewas > 0 ? groupTotalPesewas : serverPerSeat;
+  // How many seats this one figure buys — shown, not multiplied.
+  const fareSeatCount = groupTotalPesewas != null && groupTotalPesewas > 0 ? groupFare?.seatCount ?? 1 : 1;
 
   // Free a SEAT_HELD booking immediately on a hard payment failure instead of
   // waiting up to ~15 min for the server seat-hold sweep. Best-effort and
@@ -617,6 +636,17 @@ export default function PaymentScreen() {
           >
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Amount to pay</Text>
             <AnimatedFareText pesewas={fareAmountPesewas} variant="fareLarge" />
+            {/* What the one figure above actually buys. Cover-all pays for the
+                whole party, and a host who cannot see that is a host who thinks
+                they are being overcharged for one seat. */}
+            {fareSeatCount > 1 && (
+              <Text variant="caption" color={colors.primary}>
+                {fareSeatCount} seats
+                {(groupFare?.cargoSurchargePesewas ?? 0) > 0
+                  ? ` · includes ${formatGhs(groupFare?.cargoSurchargePesewas ?? 0)} heavy cargo`
+                  : ''}
+              </Text>
+            )}
             <Text variant="caption" color={colors.onSurfaceVariant}>
               Seat #{selectedSeat?.number ?? '—'} · {selectedTrip?.origin?.address?.split(',')[0] ?? ''} → {selectedTrip?.destination?.address?.split(',')[0] ?? ''}
             </Text>

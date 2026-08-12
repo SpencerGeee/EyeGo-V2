@@ -89,6 +89,39 @@ export interface GroupBooking {
   hostBookingId: string;
   members: GroupMember[];
   maxSize: number;
+  /** Whether the group's lead passenger is settling every seat on the trip. */
+  isCoverAll: boolean;
+  /**
+   * What the requesting rider owes for this trip, added up by the server from the
+   * exact booking rows `POST /payments/initiate` will charge for.
+   *
+   * Every field is integer pesewas. Do NOT multiply `perSeatPesewas` by anything
+   * to reach a total — a per-seat price cannot carry a per-booking surcharge, and
+   * deriving the total that way is what made the group hub show a figure the
+   * heavy-cargo toggle could not move. `totalPesewas` IS the total.
+   */
+  fare: RiderTripFare;
+}
+
+export interface RiderTripFare {
+  currency: 'GHS';
+  /** THE number: what this rider owes / has paid for this trip. Pesewas. */
+  totalPesewas: number;
+  /** How many seats that total covers. */
+  seatCount: number;
+  /** `totalPesewas` with the surcharges taken back out, per seat. */
+  perSeatPesewas: number;
+  cargoSurchargePesewas: number;
+  deviationSurchargePesewas: number;
+  /** Seats with money behind them — paid outright, or a confirmed cash seat. */
+  committedSeatCount: number;
+  paidSeatCount: number;
+  /** Seats still only RESERVED. Nothing has been charged for these. */
+  heldSeatCount: number;
+  coveredSeatCount: number;
+  seatNumbers: number[];
+  isCoverAll: boolean;
+  seatsCoveredForOthers: number;
 }
 
 export interface GroupMember {

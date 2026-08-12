@@ -618,13 +618,21 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             element on the screen during the wait, and it is what makes the
             stage read as active rather than stalled. Dropped once a driver is
             found, so the ring means "still looking" and nothing else. */}
+        {/* Opaque fill + the brand palette, same fix as SearchStage: a
+            transparent `fillColor` leaves the ring's rotating sweep unpunched, so
+            it washes the whole inside of the card instead of showing as an edge —
+            the "same inverted glow border" on the requesting-a-driver page. With
+            no `palette` it also swept blue/orange over a green-brand screen.
+            Faint on purpose ("or better still make it faint"): it only has to say
+            "still looking". */}
         <GradientGlowBorder
+          palette="brandGreen"
           borderRadius={radii.lg}
           thickness="thin"
-          fillColor="transparent"
+          fillColor={colors.surfaceCard}
           glow={status === 'searching'}
-          glowIntensity={0.9}
-          maxGlowRadius={16}
+          glowIntensity={0.5}
+          maxGlowRadius={12}
           style={{ width: '100%' }}
         >
           <View style={styles.infoCard}>

@@ -23,7 +23,7 @@
  * Every dispatch path now goes through here. Do not inline a new one.
  */
 
-const { staleCutoff } = require('./stale-trips');
+const { staleCutoff, IN_FLIGHT_IDLE_HOURS } = require('./stale-trips');
 
 /**
  * Statuses that make a driver unconditionally unavailable — they are actively
@@ -62,7 +62,31 @@ function busyTripFilter(now = new Date()) {
   const imminent = new Date(now.getTime() + IMMINENT_DEPARTURE_MINUTES * 60 * 1000);
   return {
     OR: [
-      { status: { in: [...HARD_BUSY_STATUSES] } },
+      {
+        status: { in: [...HARD_BUSY_STATUSES] },
+        /**
+         * BUGFIX — the hard-busy branch had NO time bound at all, which is the
+         * same permanent-lockout bug the PENDING branch below already documents,
+         * just on the statuses that matter more.
+         *
+         * A trip only leaves DRIVER_ASSIGNED / DRIVER_EN_ROUTE /
+         * ARRIVED_AT_PICKUP / IN_PROGRESS when somebody explicitly moves it. Kill
+         * the driver app mid-test, reinstall it, hand the phone to someone else —
+         * the row stays exactly where it was, and this filter counted it as "on a
+         * trip right now" forever. One abandoned trip and that driver silently
+         * received no dispatch offer ever again, while their own app showed a
+         * clear home screen. Reported (again) as "the rider requests and nothing
+         * arrives on the driver phone".
+         *
+         * `updatedAt` is the right clock: `applyTransition` writes the trip row on
+         * every status change, so a genuinely live ride is touched continuously
+         * and is never within a thousand miles of this bound. The window is the
+         * SAME one `stale-trips`/`trip-lifecycle` use to declare an in-flight trip
+         * abandoned, so this filter and the sweeper that expires the row cannot
+         * disagree about whether a driver is busy.
+         */
+        updatedAt: { gte: new Date(now.getTime() - IN_FLIGHT_IDLE_HOURS * 60 * 60 * 1000) },
+      },
       {
         status: { in: [...PENDING_BUSY_STATUSES] },
         // BUGFIX: the upper bound alone (`lte: imminent`) is satisfied by ANY
@@ -114,6 +138,69 @@ async function isDriverAvailable(prisma, driverId) {
   return !!driver;
 }
 
+/**
+ * WHY these drivers are not getting offers — one row per id, in this file
+ * because this file owns the rules.
+ *
+ * Dispatch failures were, until now, undiagnosable from logs: `rankCandidates`
+ * could only report "0 eligible" because the eligibility test is a `where`
+ * clause, and a `where` clause that matches nothing cannot say which of its four
+ * conditions did the excluding. Every investigation therefore started with
+ * someone opening a psql session and guessing. That is the whole reason this bug
+ * keeps coming back.
+ *
+ * Deliberately a SEPARATE query, run only when the funnel actually lost drivers,
+ * and deliberately NOT a second eligibility predicate — it re-uses
+ * `busyTripFilter()` for the busy check and reads the same three columns
+ * `availableDriverWhere()` filters on, so it cannot drift from the rule it
+ * explains.
+ *
+ * @returns {Promise<Array<{id: string, reason: string}>>}
+ */
+async function explainIneligible(prisma, ids, now = new Date()) {
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const drivers = await prisma.driver.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      status: true,
+      isOnline: true,
+      requestsPaused: true,
+      trips: {
+        where: busyTripFilter(now),
+        select: { id: true, status: true, updatedAt: true },
+        take: 1,
+      },
+    },
+  });
+
+  const found = new Set(drivers.map((d) => d.id));
+  const out = ids
+    .filter((id) => !found.has(id))
+    // In the geo index but not in the drivers table: a deleted account, or a
+    // stale index entry no `removeDriver` ever cleaned up.
+    .map((id) => ({ id, reason: 'NO_SUCH_DRIVER' }));
+
+  for (const d of drivers) {
+    if (d.status !== 'ACTIVE') {
+      // The single most common "dispatch is broken" report that is not a bug:
+      // a driver who signed up but was never approved is invisible to dispatch
+      // and their app says nothing about it.
+      out.push({ id: d.id, reason: `NOT_ACTIVE(status=${d.status})` });
+    } else if (!d.isOnline) {
+      out.push({ id: d.id, reason: 'OFFLINE' });
+    } else if (d.requestsPaused) {
+      out.push({ id: d.id, reason: 'REQUESTS_PAUSED' });
+    } else if (d.trips.length > 0) {
+      out.push({
+        id: d.id,
+        reason: `BUSY(trip=${d.trips[0].id} status=${d.trips[0].status} updated=${d.trips[0].updatedAt.toISOString()})`,
+      });
+    }
+  }
+  return out;
+}
+
 module.exports = {
   HARD_BUSY_STATUSES,
   PENDING_BUSY_STATUSES,
@@ -121,4 +208,5 @@ module.exports = {
   busyTripFilter,
   availableDriverWhere,
   isDriverAvailable,
+  explainIneligible,
 };

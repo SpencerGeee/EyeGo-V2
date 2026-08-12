@@ -153,9 +153,45 @@ async function publishById(tripId, event) {
  * envelope so the client has exactly one handler and one staleness rule.
  */
 function publishOfferToDriver(driverId, payload) {
-  if (!io) return;
+  if (!io) {
+    // Worth an error, not a shrug: an offer published before the socket server
+    // is wired is an offer no driver can ever receive, and the cascade will
+    // still burn its twenty seconds waiting for an answer.
+    logger.error(`OFFER for driver ${driverId} dropped — socket server not wired yet`);
+    return;
+  }
+  const room = `driver:${driverId}`;
+
+  /**
+   * DID IT LAND ANYWHERE?
+   *
+   * An offer is a fire-and-forget frame into a room, and the two historical
+   * failures on this hop — the driver socket never dialling out, and the room
+   * being joined under a different id — are both invisible from the server side
+   * unless someone counts the sockets in the room. `fetchSockets()` goes through
+   * the Redis adapter, so the count spans every API instance rather than just
+   * this one. Async and detached: the emit below must not wait on it.
+   */
   io.of('/driver')
-    .to(`driver:${driverId}`)
+    .in(room)
+    .fetchSockets()
+    .then((sockets) => {
+      if (sockets.length === 0) {
+        logger.warn(
+          `OFFER for trip ${payload.tripId} published to an EMPTY room ${room} — ` +
+            'the driver app is not connected to /driver. Only the FCM push and the ' +
+            'driver-state REST hydrate can deliver this offer.',
+        );
+      } else {
+        logger.info(`OFFER delivered to ${sockets.length} socket(s) in ${room}`, {
+          tripId: payload.tripId,
+        });
+      }
+    })
+    .catch((err) => logger.debug(`offer room probe failed for ${room}: ${err.message}`));
+
+  io.of('/driver')
+    .to(room)
     .emit('trip:event', {
       tripId: payload.tripId,
       seq: null, // not a lifecycle fact; carries no trip sequence
@@ -172,6 +208,54 @@ function publishOfferToDriver(driverId, payload) {
       priority: 'HIGH',
       dedupeKey: `offer:${driverId}`,
     });
+}
+
+/**
+ * Push a freshly-computed leg to everyone watching the trip, right now.
+ *
+ * BUGFIX ("after the driver swipes to start, the rider's page sits on
+ * Calculating ETA for ages").
+ *
+ * `warmRouteForTrip` already ran on every transition — it COMPUTED and CACHED
+ * the new leg — but computing is not telling. Nothing emitted the result, and
+ * the two channels that could have carried it both decline to:
+ *
+ *   - `publish()` above builds its snapshot with `buildTripSnapshot`, the
+ *     synchronous variant, which has no `path`. So the `trip:event` announcing
+ *     the transition arrives with `path: null`.
+ *   - the location handler in driver.socket.js is throttled on BOTH time
+ *     (~10 s) and distance moved (~50 m), and a driver who has just swiped to
+ *     start is by definition stationary at the kerb, so it satisfies neither
+ *     gate and does not fire.
+ *
+ * Meanwhile the clients correctly DISCARD what they were holding, because the
+ * live leg just changed and a `toDropoff` line is not an answer to "where is my
+ * driver". So both apps blanked their ETA and their polyline and then waited for
+ * a message that only the driver pulling into traffic would trigger.
+ *
+ * A transition is exactly when the answer changes, so it is exactly when it must
+ * be sent. Best-effort and never thrown: a trip whose line could not be drawn is
+ * still a started trip.
+ *
+ * NOT a notification. This carries no push, no Live Activity and no GraphQL
+ * publish — trip-notify.service.js remains the sole owner of all three. It is
+ * the same geometry event the location handler already emits, from the one other
+ * moment it is known to be stale.
+ */
+function publishRouteForTrip(tripId, route) {
+  if (!io || !route || !route.geometry) return;
+  try {
+    const { etaPayloadFor, routePayloadFor } = require('./route-geometry.service');
+    const etaPayload = etaPayloadFor(tripId, route);
+    const routePayload = routePayloadFor(tripId, route);
+    const room = `trip:${tripId}`;
+    for (const ns of ['/passenger', '/driver']) {
+      io.of(ns).to(room).emit('trip:eta', etaPayload);
+      io.of(ns).to(room).emit('trip:route', routePayload);
+    }
+  } catch (err) {
+    logger.warn(`publishRouteForTrip failed for ${tripId}: ${err.message}`);
+  }
 }
 
 /** Tell a driver an offer is no longer theirs (taken, cancelled, timed out). */
@@ -199,6 +283,7 @@ module.exports = {
   setIo,
   publish,
   publishById,
+  publishRouteForTrip,
   publishOfferToDriver,
   publishOfferRevoked,
   buildEnvelope,

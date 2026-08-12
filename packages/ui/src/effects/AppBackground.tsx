@@ -9,9 +9,11 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
 import { LightPillarBackground } from './LightPillarBackground';
+import { useShaderSlot } from './shaderSlot';
 
 interface BlobConfig {
   color: string;
@@ -49,9 +51,19 @@ interface AppBackgroundProps {
  * gradient blobs drift/pulse slowly via worklet-driven Reanimated. Mounted
  * once in the root layout so every "bare background" screen inherits it.
  */
+/** `#RRGGBB` + a 0-1 alpha as an 8-digit hex, tolerant of non-hex inputs. */
+function withAlpha(hex: string, alpha: number): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return hex;
+  const byte = Math.round(Math.max(0, Math.min(1, alpha)) * 255)
+    .toString(16)
+    .padStart(2, '0');
+  return `${hex}${byte}`;
+}
+
 export function AppBackground({ style, variant = 'animated', isDark = true, paused = false }: AppBackgroundProps) {
   const colors = useThemedColors();
   const tier = usePerformanceTier();
+  const ownsShader = useShaderSlot();
   const { width, height } = Dimensions.get('window');
 
   const animated = variant === 'animated' && tier !== 'low' && !paused;
@@ -82,6 +94,35 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
   // alpha-fade approach) — it stays the on-brand deep gradient color in both
   // themes, so the glow itself is identical between modes; only the base it
   // sits on changes.
+  // Only ONE instance in the whole app paints a Skia canvas — see shaderSlot.ts.
+  // Everything else paints the gradient below, which is the same brand
+  // composition as a native view and costs nothing per frame.
+  if (!ownsShader) {
+    return (
+      <View
+        pointerEvents="none"
+        style={[
+          StyleSheet.absoluteFillObject,
+          styles.container,
+          { backgroundColor: colors.backgroundDeep },
+          style,
+        ]}
+      >
+        <LinearGradient
+          colors={[
+            withAlpha(colors.primary, isDark ? 0.26 : 0.14),
+            withAlpha(colors.onPrimaryFixedVariant, isDark ? 0.34 : 0.16),
+            colors.backgroundDeep,
+          ]}
+          locations={[0, 0.45, 1]}
+          start={{ x: 0.35, y: 0 }}
+          end={{ x: 0.65, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+    );
+  }
+
   if (tier !== 'low') {
     return (
       <View

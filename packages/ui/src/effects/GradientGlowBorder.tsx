@@ -116,23 +116,34 @@ export const RING_PALETTES: Record<'default' | 'gold' | 'royal' | 'economy' | 'c
     glowColor: '#7000FF',
     glowColorSecondary: '#B14BFF',
   },
+  /**
+   * The three tier rings below are sampled DIRECTLY from the tier tokens
+   * (`tierEconomy` / `tierComfort` / `tierPremium` in @eyego/config) so a tier's
+   * ring, its badge and its text can never drift apart: eco is green, comfort is
+   * blue, premium is gold.
+   *
+   * `economy` used to be cyan (#00F0FF), which is not a colour the tier owns
+   * anywhere else in the product — the eco card's ring and the eco badge beside
+   * it were two different greens-that-weren't. Same story for `comfort`, which
+   * sat on the premium blue (#3D7EFF) rather than the tier's electric blue.
+   */
   economy: {
     colors: [
-      '#0A0A0C', '#0A0A0C', '#00F0FF', '#B8FBFF', '#00F0FF', '#0A0A0C',
-      '#0A0A0C', '#00C2CC', '#9CF2F7', '#00C2CC', '#0A0A0C', '#0A0A0C',
+      '#0A0A0C', '#0A0A0C', '#4BE277', '#D6FFE4', '#4BE277', '#0A0A0C',
+      '#0A0A0C', '#1FAE52', '#9CFFC2', '#1FAE52', '#0A0A0C', '#0A0A0C',
     ],
     locations: PREMIUM_RING_LOCATIONS,
-    glowColor: '#00F0FF',
-    glowColorSecondary: '#00C2CC',
+    glowColor: '#4BE277',
+    glowColorSecondary: '#1FAE52',
   },
   comfort: {
     colors: [
-      '#0A0A0C', '#0A0A0C', '#3D7EFF', '#9CC5FF', '#3D7EFF', '#0A0A0C',
-      '#0A0A0C', '#2A5FD6', '#8FB4F2', '#2A5FD6', '#0A0A0C', '#0A0A0C',
+      '#0A0A0C', '#0A0A0C', '#00B2FF', '#B8E8FF', '#00B2FF', '#0A0A0C',
+      '#0A0A0C', '#0080D6', '#8FD4F2', '#0080D6', '#0A0A0C', '#0A0A0C',
     ],
     locations: PREMIUM_RING_LOCATIONS,
-    glowColor: '#3D7EFF',
-    glowColorSecondary: '#2A5FD6',
+    glowColor: '#00B2FF',
+    glowColorSecondary: '#0080D6',
   },
   /** Driver-native two-arc sweep — cool blue → cyan, no orange. Use for the
    * single hero glow per driver screen (replaces the rider blue/orange combo,

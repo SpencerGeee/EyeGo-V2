@@ -87,34 +87,43 @@ async function removeDriver(driverId) {
  * fall-back-to-full-table-scan turned an empty local supply into a
  * nationwide broadcast.
  */
-async function nearbyDrivers(lat, lng, radiusKm, limit = 50) {
+async function nearbyDrivers(lat, lng, radiusKm, limit = 50, { withCoords = false } = {}) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
   let raw;
   try {
-    raw = await redis.geosearch(
-      GEO_KEY,
-      'FROMLONLAT',
-      lng,
-      lat,
-      'BYRADIUS',
-      radiusKm,
-      'km',
-      'ASC',
-      'COUNT',
-      limit,
-      'WITHDIST',
-    );
+    // Argument order is fixed by the GEOSEARCH grammar:
+    // ... BYRADIUS r unit [ASC|DESC] [COUNT n] [WITHCOORD] [WITHDIST].
+    const args = [
+      GEO_KEY, 'FROMLONLAT', lng, lat, 'BYRADIUS', radiusKm, 'km', 'ASC', 'COUNT', limit,
+    ];
+    if (withCoords) args.push('WITHCOORD');
+    args.push('WITHDIST');
+    raw = await redis.geosearch(...args);
   } catch (err) {
     logger.warn(`supply-index geosearch failed: ${err.message}`);
     return [];
   }
   if (!Array.isArray(raw) || raw.length === 0) return [];
 
-  const candidates = raw.map((entry) =>
-    Array.isArray(entry)
-      ? { driverId: entry[0], distanceKm: Number(entry[1]) }
-      : { driverId: entry, distanceKm: null },
-  );
+  // Reply shape is [member, dist, [lng, lat]] with both modifiers. Redis fixes
+  // that order itself (distance, hash, coordinates) regardless of the order the
+  // modifiers were written, so the coordinate pair is located by shape — the only
+  // nested array in the entry — rather than by a hard-coded index.
+  //
+  // The pair is ALWAYS [lng, lat], never [lat, lng]. Reading it backwards is the
+  // classic way a driver on top of you gets plotted hundreds of km away, so the
+  // unpacking happens exactly once, here, and callers only ever see named
+  // `lat`/`lng` fields.
+  const candidates = raw.map((entry) => {
+    if (!Array.isArray(entry)) return { driverId: entry, distanceKm: null, lat: null, lng: null };
+    const coords = withCoords ? entry.slice(1).find((v) => Array.isArray(v)) : null;
+    return {
+      driverId: entry[0],
+      distanceKm: Number(entry[1]),
+      lng: coords ? Number(coords[0]) : null,
+      lat: coords ? Number(coords[1]) : null,
+    };
+  });
 
   // A stale geo entry outlives its presence key — the position is still in the
   // sorted set but the driver has gone quiet. Presence is the liveness test.
@@ -141,6 +150,23 @@ async function countNearby(lat, lng, radiusKm) {
   return drivers.length;
 }
 
+/**
+ * How many positions the index holds at all, ignoring geography.
+ *
+ * Purely diagnostic, and it earns its keep: "nobody nearby" and "nobody at all"
+ * look identical from `nearbyDrivers`, and they have completely different fixes
+ * (widen the radius vs. work out why no driver app is pinging). Dispatch logs
+ * this whenever a search comes back empty. Includes entries whose presence key
+ * has expired — that gap is itself the signal that pings stopped.
+ */
+async function poolSize() {
+  try {
+    return await redis.zcard(GEO_KEY);
+  } catch {
+    return -1;
+  }
+}
+
 module.exports = {
   GEO_KEY,
   PRESENCE_TTL_SECONDS,
@@ -148,4 +174,5 @@ module.exports = {
   removeDriver,
   nearbyDrivers,
   countNearby,
+  poolSize,
 };

@@ -128,8 +128,126 @@ let socket: Socket | null = null;
 let getToken: () => string | null = () => null;
 let socketRefs = 0;
 
-export function configureSocket(opts: { getToken: () => string | null }) {
+/**
+ * A cheap authenticated GET used ONLY to provoke the HTTP client's 401 refresh
+ * interceptor when the socket handshake was refused for a stale token. Must be
+ * an endpoint the CURRENT role is allowed to call, or it 403s and never reaches
+ * the refresh path — hence configurable per app rather than hard-coded.
+ */
+let authProbeUrl = '/user/me';
+
+export function configureSocket(opts: {
+  getToken: () => string | null;
+  authProbeUrl?: string;
+}) {
   getToken = opts.getToken;
+  if (opts.authProbeUrl) authProbeUrl = opts.authProbeUrl;
+}
+
+/**
+ * Reconnection policy, shared by both namespaces.
+ *
+ * BUGFIX ("the driver tapped I've arrived, i switched to the rider app and it
+ * just says Reconnecting forever").
+ *
+ * `reconnectionAttempts: 10` is what made that "forever" literal. socket.io
+ * counts an attempt whether it failed on the network OR on the handshake, and
+ * with the 1s→30s backoff ladder ten of them are spent in about two minutes —
+ * after which socket.io emits `reconnect_failed`, sets the socket aside and
+ * NEVER dials again on its own. Nothing in either app listened for that event,
+ * so the trip screen's `connected` flag stayed false for the rest of the ride
+ * and the chip that renders off the back of it ("Reconnecting…") had nothing
+ * left that could ever clear it.
+ *
+ * Two things routinely burn all ten attempts on a phone in a car:
+ *   - the app is suspended in the background (iOS) and the socket is torn down
+ *     while the reconnect timers keep running;
+ *   - the 15-minute access token expired, so `socketAuth` rejects the handshake
+ *     with "Invalid or expired token" — and every retry presents the SAME
+ *     expired token, so all ten are guaranteed to fail. See `recoverSocketAuth`.
+ *
+ * A rider in a live trip must never stop trying to hear about it, so the ceiling
+ * comes off. The backoff already keeps a genuinely offline phone from busy-
+ * looping; giving up is not the same thing as backing off.
+ */
+const RECONNECT_OPTS = {
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 30000,
+  randomizationFactor: 0.5,
+} as const;
+
+/** Handshake rejections that mean "your access token is stale", not "no network". */
+function isAuthHandshakeError(message: string | undefined): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes('token') ||
+    m.includes('authentication') ||
+    m.includes('unauthor') ||
+    m.includes('revoked')
+  );
+}
+
+let authRecoveryInFlight = false;
+
+/**
+ * Get a fresh access token when the socket handshake was refused for having a
+ * stale one.
+ *
+ * The socket cannot refresh anything itself — refresh lives on the HTTP client,
+ * behind the 401 interceptor. So we deliberately provoke that path with one
+ * cheap authenticated GET: if the access token really is expired the request
+ * 401s, `client.ts` rotates the pair (with its own retry ladder and its own
+ * "only a definitive 401 ends the session" rule), and its `onTokenRefreshed`
+ * hook calls `refreshSocketAuth`/`refreshDriverSocketAuth`, which redials. If
+ * the token was fine after all, the GET simply succeeds and costs nothing.
+ *
+ * Guarded by a flag because `connect_error` fires on EVERY reconnection attempt
+ * and this must not become one refresh per attempt.
+ */
+function recoverSocketAuth(): void {
+  if (authRecoveryInFlight) return;
+  authRecoveryInFlight = true;
+  const { apiClient } = require('./client') as typeof import('./client');
+  void apiClient
+    .get(authProbeUrl)
+    .catch(() => {
+      // Either the refresh worked (and the redial has already been kicked off by
+      // onTokenRefreshed) or the session is genuinely over (and client.ts has
+      // already logged out). Nothing left for the socket layer to decide.
+    })
+    .finally(() => {
+      authRecoveryInFlight = false;
+    });
+}
+
+/**
+ * Redial whichever sockets are supposed to be up when the app returns to the
+ * foreground.
+ *
+ * A suspended app's socket is closed by the OS without JS ever running, and the
+ * reconnect timers that would have noticed were suspended too. Foregrounding is
+ * the moment to check, and it is the exact moment the rider looks at the screen
+ * and judges whether the app is working.
+ */
+let appStateBound = false;
+function bindForegroundRedial(): void {
+  if (appStateBound) return;
+  appStateBound = true;
+  try {
+    // Required lazily: this package is also imported by non-RN consumers.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { AppState } = require('react-native');
+    AppState.addEventListener('change', (state: string) => {
+      if (state !== 'active') return;
+      if (socketRefs > 0 && socket && !socket.connected) socket.connect();
+      if (driverSocketRefs > 0 && driverSocket && !driverSocket.connected) driverSocket.connect();
+    });
+  } catch (_) {
+    appStateBound = false;
+  }
 }
 
 export function getSocket(): Socket {
@@ -140,15 +258,15 @@ export function getSocket(): Socket {
       autoConnect: false,
       transports: ['websocket', 'polling'],
       auth: (cb: (data: { token: string | null }) => void) => cb({ token: getToken() }),
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 30000,
-      randomizationFactor: 0.5,
+      ...RECONNECT_OPTS,
     });
     socket!.on('connect_error', (err: Error) => {
       console.warn('[Socket] Connection error:', err.message);
+      // An expired token fails identically on every retry until somebody
+      // refreshes it. Nobody was.
+      if (isAuthHandshakeError(err?.message)) recoverSocketAuth();
     });
+    bindForegroundRedial();
     startPassengerLeakMonitoring();
   }
   return socket!;
@@ -216,6 +334,25 @@ export function refreshSocketAuth(tripId?: string, driverId?: string): void {
       _socket.once('connect', rejoin);
     }
   }
+}
+
+/**
+ * The driver-namespace twin of `refreshSocketAuth`.
+ *
+ * Nothing called the driver socket back up after a token rotation, because this
+ * function did not exist — so a driver whose access token expired while the
+ * socket happened to be down stayed down, and both the trip channel and the
+ * dispatch-offer channel went silent for the rest of the session. Same
+ * mechanism as the rider bug; the driver app just never got the fix.
+ *
+ * As with the rider version there is nothing to ASSIGN: `auth` is a callback
+ * that already reads the newest token on every attempt. All that is missing is
+ * somebody to dial.
+ */
+export function refreshDriverSocketAuth(): void {
+  const _socket = driverSocket;
+  if (!_socket) return;
+  if (!_socket.connected) _socket.connect();
 }
 
 const driverCallbacks = new Map<((data: DriverLocationEvent) => void), (...args: any[]) => void>();
@@ -459,15 +596,13 @@ export function getDriverSocket(): Socket {
       autoConnect: false,
       transports: ['websocket', 'polling'],
       auth: (cb: (data: { token: string | null }) => void) => cb({ token: getToken() }),
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 30000,
-      randomizationFactor: 0.5,
+      ...RECONNECT_OPTS,
     });
     driverSocket!.on('connect_error', (err: Error) => {
       console.warn('[DriverSocket] Connection error:', err.message);
+      if (isAuthHandshakeError(err?.message)) recoverSocketAuth();
     });
+    bindForegroundRedial();
     startDriverLeakMonitoring();
   }
   return driverSocket!;

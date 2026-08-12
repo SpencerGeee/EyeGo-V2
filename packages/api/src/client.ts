@@ -70,6 +70,40 @@ export function configureApiClient(opts: {
 }
 
 /**
+ * The cold-start gate: hold every request until the session has been read back
+ * out of SecureStore.
+ *
+ * BUGFIX (same report as the query-cache note in the rider's `_layout.tsx`:
+ * "reopening the app mid-trip made me sign in again"). Both apps configure this
+ * client and THEN call `loadFromStorage()`, which is asynchronous — SecureStore
+ * has no synchronous read. For the handful of hundreds of milliseconds in
+ * between, `getAccessToken()` and `getRefreshToken()` both answer `null` even
+ * though a perfectly valid 30-day session is sitting on disk.
+ *
+ * Any request that went out in that window carried no Authorization header,
+ * came back 401, and hit the refresh path — where "no refresh token available"
+ * is classified as a DEFINITIVE rejection (`AuthRefreshRejected`) and logs the
+ * user out. A store that had not finished loading was indistinguishable from a
+ * store with nothing in it, so the app concluded the session had ended on the
+ * strength of not having looked yet.
+ *
+ * "I have not read it yet" must never be reported as "there is nothing there".
+ * The gate is one-shot: once it resolves the reference is dropped, so the steady
+ * state costs nothing per request.
+ */
+let authReady: Promise<void> | null = null;
+export function setAuthReadyGate(promise: Promise<void>): void {
+  // Never let a rejected/hung bootstrap wedge the whole client: a 5 s ceiling
+  // means the worst case is the old behaviour, not a permanently mute app.
+  authReady = Promise.race([
+    promise.catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+  ]).then(() => {
+    authReady = null;
+  });
+}
+
+/**
  * Override the API base URL at runtime (e.g. from SecureStore).
  * Used in sideloaded production builds where the PC LAN IP isn't known at
  * build time. Call before any API requests are made.
@@ -87,8 +121,12 @@ export const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Attach JWT to every request
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+// Attach JWT to every request. Async so the auth-ready gate above can hold the
+// very first requests of a cold start until the stored session is in memory —
+// see setAuthReadyGate for why sending one token-less request is enough to log
+// a mid-trip rider out.
+apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
+  if (authReady) await authReady;
   const token = getAccessToken();
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;

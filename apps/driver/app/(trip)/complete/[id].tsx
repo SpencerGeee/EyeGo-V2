@@ -75,10 +75,29 @@ export default function TripCompleteScreen() {
   });
 
   const completedTrip = trips?.find((t: DriverTrip) => t.id === id);
-  const allActiveBookings = (completedTrip?.bookings as Booking[] | undefined)?.filter((b: Booking) => b.status !== 'CANCELLED') ?? [];
-  // Include all non-cancelled bookings regardless of payment status — cash bookings have PENDING payment
-  // D24: guard the reduce with a safe bookings array
-  const bookings = allActiveBookings;
+  /**
+   * THE RECEIPT IS THE PAID SEATS, NOTHING ELSE.
+   *
+   * BUGFIX ("the receipt says a gross fare of one seat at 8 cedis — the ride was
+   * 36 cedis paid and the seat price is 3"). Both halves of that came from here.
+   *
+   *   • `status !== 'CANCELLED'` counted seats that released themselves — an
+   *     EXPIRED hold, a NO_SHOW, a REFUND — as passengers who rode and paid, and
+   *     a SEAT_HELD row (which the group hub creates on open) as revenue. Money
+   *     lines use `paidBookings`; only the seat MAP may show a reservation.
+   *   • the unit price was read off `trip.farePerSeatPesewas`, a second,
+   *     independently-computed figure that cannot know about a surcharge sitting
+   *     on a booking row. It is now derived from the total the rows add up to, so
+   *     seats × unit price + surcharges IS the gross, by construction.
+   */
+  const RELEASED = ['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'];
+  const allActiveBookings =
+    (completedTrip?.bookings as Booking[] | undefined)?.filter((b: Booking) => !RELEASED.includes(b.status)) ?? [];
+  // A seat with money behind it: paid outright, or a confirmed/ridden cash seat.
+  // A bare hold is neither, and must never reach an earnings figure.
+  const isSettled = (b: any) =>
+    b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
+  const bookings = allActiveBookings.filter(isSettled);
   const grossEarnings = bookings.reduce((sum: number, b: any) => sum + (parseFloat(b.fareAmountPesewas) || 0), 0);
   // commissionRate should come from backend — fallback to 15% if not provided
   const commissionRate = (completedTrip as any)?.commissionRate ?? 0.15;
@@ -106,20 +125,38 @@ export default function TripCompleteScreen() {
    */
   const paramEarnings = earningsParam != null ? parseFloat(earningsParam) : NaN;
   const hasParamEarnings = Number.isFinite(paramEarnings) && paramEarnings > 0;
-  const boarded = allActiveBookings.length;
+  /**
+   * The sold-seat summary, computed by the server (`attachGroupSummary` in
+   * drivers.service.js) so the receipt's seat count and unit price come from the
+   * same place its gross does. The heavy-cargo surcharge is an env-driven amount
+   * behind a boolean column — it is not derivable on the phone, which is exactly
+   * why the unit price used to be fetched from an unrelated field and disagreed.
+   */
+  const sold = (completedTrip as { sold?: { seatCount: number; perSeatPesewas: number | null; surchargesPesewas: number } } | undefined)?.sold ?? null;
+  // Seats that were actually sold — the number the gross above belongs to.
+  const boarded = sold?.seatCount ?? bookings.length;
   const total = completedTrip?.maxSeats ?? 14;
-  const farePerSeatPesewas = completedTrip?.farePerSeatPesewas ?? 0;
+  const surchargesPesewas = sold?.surchargesPesewas ?? 0;
+  const farePerSeatPesewas =
+    sold?.perSeatPesewas ??
+    (boarded > 0
+      ? Math.round((grossEarnings - surchargesPesewas) / boarded)
+      : completedTrip?.farePerSeatPesewas ?? 0);
 
   // Receipt breakdown per passenger
-  const paidBookings = allActiveBookings.filter((b: any) => b.paymentStatus === 'PAID');
-  const cashBookings = allActiveBookings.filter((b: any) => b.paymentStatus !== 'PAID');
+  const paidBookings = bookings.filter((b: any) => b.paymentStatus === 'PAID');
+  const cashBookings = bookings.filter((b: any) => b.paymentStatus !== 'PAID');
   const totalPaidPesewas = paidBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmountPesewas) || 0), 0);
   const totalCash = cashBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmountPesewas) || 0), 0);
-  const commissionTotal = allActiveBookings.reduce((s: number, b: any) => {
+  const commissionTotal = bookings.reduce((s: number, b: any) => {
     const c = parseFloat(b.commissionAmountPesewas);
     return s + (isNaN(c) ? (parseFloat(b.fareAmountPesewas) || 0) * commissionRate : c);
   }, 0);
   const driverNetTotal = grossEarnings - commissionTotal;
+  /** Who is paying for whom — see attachGroupSummary in drivers.service.js. */
+  const groupInfo = (completedTrip as {
+    group?: { coverAll: boolean; leadName: string | null; seatCount: number; totalPesewas: number } | null;
+  } | undefined)?.group ?? null;
 
   /**
    * What the headline actually shows.
@@ -244,13 +281,30 @@ export default function TripCompleteScreen() {
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
           <Text style={styles.receiptTitle}>Earnings Breakdown</Text>
 
+          {/* Reads as an equation the driver can check: seats × unit + extras = gross. */}
           <View style={styles.receiptRow}>
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Gross fare × {boarded} seats</Text>
-            <Text variant="bodyMedium">{formatGhs(grossEarnings)}</Text>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
+              {boarded} seat{boarded === 1 ? '' : 's'} × {formatGhs(farePerSeatPesewas)}
+            </Text>
+            <Text variant="bodyMedium">{formatGhs(Math.max(0, grossEarnings - surchargesPesewas))}</Text>
           </View>
+          {surchargesPesewas > 0 && (
+            <View style={styles.receiptRow}>
+              <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Surcharges (cargo / detour)</Text>
+              <Text variant="bodyMedium">{formatGhs(surchargesPesewas)}</Text>
+            </View>
+          )}
+          {groupInfo?.coverAll && (
+            <View style={styles.receiptRow}>
+              <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
+                Paid by {groupInfo.leadName ?? 'group host'} ({groupInfo.seatCount} seats)
+              </Text>
+              <Text variant="bodyMedium" color={colors.online}>{formatGhs(groupInfo.totalPesewas)}</Text>
+            </View>
+          )}
 
           <View style={styles.passengerList}>
-            {allActiveBookings.map((b: any, i: number) => (
+            {bookings.map((b: any, i: number) => (
               <View key={b.id ?? i} style={styles.passengerRow}>
                 <View style={styles.passengerAvatar}>
                   <Text style={styles.passengerInitial}>

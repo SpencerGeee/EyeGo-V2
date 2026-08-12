@@ -300,7 +300,12 @@ export function subscribeToTrip({
     onEvent?.(event);
   };
 
+  /** Have we been up at least once? A first connect needs no catch-up. */
+  let hasConnectedBefore = socket.connected;
+
   const handleConnect = () => {
+    const isRedial = hasConnectedBefore;
+    hasConnectedBefore = true;
     state = { ...state, connected: true };
     // Report the connection BEFORE asking to subscribe, not inside the
     // subscribe ack. The ack is a server round-trip that can be slow, can be
@@ -310,6 +315,25 @@ export function subscribeToTrip({
     // — and indefinitely if it never did.
     emit();
     subscribe();
+    /**
+     * REJOIN **AND** REFETCH. `subscribe()` alone was not enough.
+     *
+     * BUGFIX ("the driver tapped I've arrived and my app never showed it").
+     * The replay `trip:subscribe` triggers is served over the SAME socket that
+     * just came back, so any of the ways it can fail to land — a handshake that
+     * succeeds but whose ack is lost, a room join the server rejects, a redial
+     * that races the server's own cleanup of the old session — leaves the client
+     * connected, out of the room, and holding a snapshot from before the gap,
+     * with nothing scheduled that would ever notice.
+     *
+     * The HTTP snapshot is a second, independent path to the same truth, and it
+     * is free of correctness risk: `recover()` writes only if the server's copy
+     * is what it says it is, and `shouldApply` discards it the moment a newer
+     * socket event overtakes it. Only on a REDIAL — a first connect already gets
+     * a snapshot from the subscribe, and paying for both there would double the
+     * cost of every screen open.
+     */
+    if (isRedial) void recover();
   };
   const handleDisconnect = () => {
     state = { ...state, connected: false };

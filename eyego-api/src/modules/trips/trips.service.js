@@ -764,11 +764,24 @@ async function completeTrip(tripId) {
       expectedVersion: trip.version,
     });
 
-    // Batch-update all active bookings to COMPLETED so rider Past tab reflects correctly
+    /**
+     * Close the bookings that were actually RIDDEN — see the identical note in
+     * drivers.service.js `arriveTrip`.
+     *
+     * BUGFIX ("closed the app on the group hub without paying and the driver
+     * still saw a paid passenger"). SEAT_HELD was in this list, so an unpaid hold
+     * — which the group hub creates the instant it opens — graduated to
+     * COMPLETED, i.e. to a passenger who rode, on every receipt and earnings
+     * screen. A hold that was never paid for expires and gives its seat back.
+     */
+    await tx.booking.updateMany({
+      where: { tripId, status: { in: ['PENDING', 'SEAT_HELD'] } },
+      data: { status: 'EXPIRED', seatNumber: null },
+    });
     await tx.booking.updateMany({
       where: {
         tripId,
-        status: { in: ['CONFIRMED', 'SEAT_HELD', 'BOARDED', 'PAID'] },
+        status: { in: ['CONFIRMED', 'BOARDED', 'PAID'] },
       },
       data: { status: 'COMPLETED' },
     });

@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, BackHandler, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { ridesApi } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground, GradientGlowBorder } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground, GradientGlowBorder, getTierTheme } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { useRideStore } from '../../../stores/ride.store';
@@ -52,14 +52,19 @@ const MAX_SEATS = 6;
 
 type Tier = 'ECO' | 'COMFORT' | 'PREMIUM';
 
-const TIERS: { id: Tier; label: string; blurb: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { id: 'ECO', label: 'Eco', blurb: 'Everyday, best price', icon: 'car-outline' },
-  { id: 'COMFORT', label: 'Comfort', blurb: 'More room, AC', icon: 'car-sport-outline' },
-  { id: 'PREMIUM', label: 'Premium', blurb: 'Top-rated drivers', icon: 'diamond-outline' },
-];
+/**
+ * The wire values, in listing order. Everything the rider SEES about a tier —
+ * its label, blurb, icon, colour and glow ring — comes from `getTierTheme` so
+ * this screen cannot disagree with the tier badge on the tracking card or with
+ * the driver's create-trip tier step. Previously all three rows were painted in
+ * `colors.primary`, which is why Eco, Comfort and Premium were three identical
+ * green cards.
+ */
+const TIER_ORDER: Tier[] = ['ECO', 'COMFORT', 'PREMIUM'];
 
 function ConfigureStageImpl() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -124,13 +129,13 @@ function ConfigureStageImpl() {
       heavyLoad,
     };
     Promise.all(
-      TIERS.map((t) =>
+      TIER_ORDER.map((id) =>
         ridesApi
-          .quote({ ...base, tier: t.id })
-          .then((q) => [t.id, q?.amountPesewas ?? null] as const)
+          .quote({ ...base, tier: id })
+          .then((q) => [id, q?.amountPesewas ?? null] as const)
           // A failed preview must not block booking — the request path quotes
           // again for real and surfaces its own error.
-          .catch(() => [t.id, null] as const),
+          .catch(() => [id, null] as const),
       ),
     )
       .then((pairs) => {
@@ -158,6 +163,9 @@ function ConfigureStageImpl() {
     }
   }, [step, seats, coverAll, setRequestSeats, goStage]);
 
+  /** The selected tier's colours — used by the footer CTA and the review row. */
+  const tierTheme = getTierTheme(colors, rideTier);
+
   const stepTitle =
     step === 3 ? 'Choose your ride' : step === 4 ? 'Seats and extras' : 'Review and confirm';
   const stepBlurb =
@@ -177,7 +185,20 @@ function ConfigureStageImpl() {
         than the panel-over-map arrangement it replaces.
       */}
       <AppBackground isDark={isDark} />
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      {/*
+        Insets applied by hand rather than by `SafeAreaView edges={['top','bottom']}`.
+
+        This is the "the continue button has no padding down so it's literally
+        below the screen" fix. A `SafeAreaView` only pads to the safe area when it
+        is the one measuring against the window; this stage is rendered inside the
+        trip surface's absolutely-positioned stage container, so its bottom edge
+        resolved to nothing and the footer sat flush against — and on tall-gesture
+        phones under — the home indicator.
+
+        `insets.bottom || spacing.md` keeps a floor of breathing room on hardware
+        with no inset at all, where a bare `insets.bottom` is zero.
+      */}
+      <View style={[styles.safe, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Pressable
             onPress={back}
@@ -186,10 +207,10 @@ function ConfigureStageImpl() {
             accessibilityRole="button"
             accessibilityLabel={step > STEP_FIRST ? 'Previous step' : 'Back to destination'}
           >
-            <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+            <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
           </Pressable>
           <Text style={styles.headerTitle}>Book a ride</Text>
-          <View style={{ width: 36 }} />
+          <View style={{ width: 44 }} />
         </View>
 
         <StepRail step={step} colors={colors} />
@@ -206,48 +227,69 @@ function ConfigureStageImpl() {
             </Text>
           </Entrance>
 
+          {/*
+            EACH TIER WEARS ITS OWN COLOUR AND ITS OWN RING.
+
+            Eco green, Comfort blue, Premium gold — the ring palette, the icon,
+            the label, the price and the selected card's tint all come from the
+            single `getTierTheme` entry, which is also what paints the tier badge
+            on the tracking card. So there is no way for the card the rider taps
+            and the badge they see afterwards to be different colours.
+
+            The ring is always present (a tier without one looked unfinished next
+            to the services page) but it only GLOWS on the selected card: three
+            glowing rings stacked in a list is noise, and it is also three
+            shadow passes per frame.
+          */}
           {step === 3 && (
             <Entrance key="step3" animation="slideRight" style={styles.list}>
-              {TIERS.map((t) => {
-                const active = rideTier === t.id;
-                const price = fares[t.id];
+              {TIER_ORDER.map((id) => {
+                const t = getTierTheme(colors, id);
+                const active = rideTier === id;
+                const price = fares[id];
                 return (
-                  <Pressable
-                    key={t.id}
-                    onPress={() => {
-                      void Haptics.selectionAsync();
-                      setRideOptions({ rideTier: t.id });
-                    }}
-                    style={[
-                      styles.option,
-                      active && { borderColor: colors.primary, backgroundColor: `${colors.primary}12` },
-                    ]}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: active }}
-                    accessibilityLabel={`${t.label} — ${t.blurb}${price != null ? `, ${formatGhs(price)}` : ''}`}
+                  <GradientGlowBorder
+                    key={id}
+                    palette={t.ringPalette}
+                    borderRadius={radii.xl}
+                    thickness={active ? 'regular' : 'thin'}
+                    fillColor={colors.surfaceContainerHigh}
+                    glow={active}
+                    glowIntensity={0.75}
+                    maxGlowRadius={16}
+                    disabled={!active}
                   >
-                    <View style={[styles.optionIcon, { backgroundColor: `${colors.primary}1A` }]}>
-                      <Ionicons
-                        name={t.icon}
-                        size={22}
-                        color={active ? colors.primary : colors.onSurfaceVariant}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.optionLabel}>{t.label}</Text>
-                      <Text variant="caption" color={colors.onSurfaceVariant}>
-                        {t.blurb}
-                      </Text>
-                    </View>
-                    <View style={styles.optionTrailing}>
-                      <Text style={[styles.optionPrice, active && { color: colors.primary }]}>
-                        {price != null ? formatGhs(price) : quoting ? '···' : '—'}
-                      </Text>
-                      {active && (
-                        <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
-                      )}
-                    </View>
-                  </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        void Haptics.selectionAsync();
+                        setRideOptions({ rideTier: id });
+                      }}
+                      style={[styles.option, active && { backgroundColor: t.softBg }]}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${t.label} — ${t.blurb}${price != null ? `, ${formatGhs(price)}` : ''}`}
+                    >
+                      <View style={[styles.optionIcon, { backgroundColor: t.iconBg }]}>
+                        <Ionicons name={t.icon} size={22} color={t.accent} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.optionLabel, active && { color: t.accent }]}>
+                          {t.label}
+                        </Text>
+                        <Text variant="caption" color={colors.onSurfaceVariant}>
+                          {t.blurb}
+                        </Text>
+                      </View>
+                      <View style={styles.optionTrailing}>
+                        <Text style={[styles.optionPrice, active && { color: t.accent }]}>
+                          {price != null ? formatGhs(price) : quoting ? '···' : '—'}
+                        </Text>
+                        {active && (
+                          <Ionicons name="checkmark-circle" size={18} color={t.accent} />
+                        )}
+                      </View>
+                    </Pressable>
+                  </GradientGlowBorder>
                 );
               })}
             </Entrance>
@@ -350,7 +392,8 @@ function ConfigureStageImpl() {
 
                 <Row
                   label="Ride"
-                  value={TIERS.find((t) => t.id === rideTier)?.label ?? rideTier}
+                  value={getTierTheme(colors, rideTier).label}
+                  valueColor={getTierTheme(colors, rideTier).accent}
                   styles={styles}
                   colors={colors}
                 />
@@ -386,14 +429,21 @@ function ConfigureStageImpl() {
           )}
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: (insets.bottom || spacing.md) + spacing.md }]}>
+          {/* Shiny + tier-tinted: this is the one hero CTA on the screen, and
+              the ring carries the tier the rider has selected so the button
+              agrees with the card above it. */}
           <Button
             label={step === STEP_LAST ? 'Confirm ride' : 'Continue'}
             onPress={next}
+            variant="glow"
+            palette={tierTheme.ringPalette}
+            shiny
+            shinyBaseColor={tierTheme.accent}
             disabled={step === STEP_LAST && !destination}
           />
         </View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -454,11 +504,15 @@ function RailConnector({ filled, colors }: { filled: boolean; colors: Colors }) 
 function Row({
   label,
   value,
+  valueColor,
   styles,
   colors,
 }: {
   label: string;
   value: string;
+  /** Tints the value — the review step's "Ride" row uses the tier's colour so
+   *  the tier is recognisable here too, not only on the picker. */
+  valueColor?: string;
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
@@ -467,7 +521,7 @@ function Row({
       <Text variant="caption" color={colors.onSurfaceVariant}>
         {label}
       </Text>
-      <Text style={styles.reviewValue} numberOfLines={1}>
+      <Text style={[styles.reviewValue, valueColor && { color: valueColor }]} numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -540,14 +594,24 @@ const makeStyles = (colors: Colors) =>
       paddingTop: spacing.md,
       paddingBottom: spacing.lg,
     },
+    /**
+     * "There's no way to go back" — there WAS a back button here, it just could
+     * not be seen: a 36 pt circle with a hairline outline border and no fill,
+     * sitting on the lit green Skia background. A hairline of `colors.outline`
+     * over a moving green gradient is invisible on a real phone.
+     *
+     * Now the same 44 pt filled glass affordance SearchStage uses, so the back
+     * control looks identical on both halves of the flow.
+     */
     backBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       alignItems: 'center',
       justifyContent: 'center',
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.outline,
+      backgroundColor: `${colors.surfaceCard}CC`,
+      borderWidth: 1,
+      borderColor: colors.rimLight,
     },
     headerTitle: {
       fontFamily: fonts.displaySemiBold,

@@ -16,7 +16,13 @@
       "Bash(ls eyego *)",
       "Bash(ls \"current screens \\(rider\\)\")",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(ls -la eyego-api)",
+      "Bash(ls -la eyego/eyego-api)",
+      "Bash(diff /tmp_check1.txt /tmp_check2.txt)",
+      "Bash(rm -f /tmp_check1.txt /tmp_check2.txt)",
+      "Bash(node node_modules/typescript/lib/tsc.js --noEmit -p apps/driver)",
+      "Bash(node node_modules/typescript/lib/tsc.js --noEmit -p apps/rider)"
     ]
   }
 }

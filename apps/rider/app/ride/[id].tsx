@@ -13,7 +13,7 @@ import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs } from 
 import { useColors, Colors } from '../../utils/useColors';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, type TierId } from '@eyego/ui';
 
 import { formatGhs, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
@@ -30,12 +30,25 @@ import { fetchRoute, type RouteResult } from '../../utils/routing';
 // killing the app the instant this screen mounted for ANY trip.
 const CAMERA_FALLBACK_CENTER: [number, number] = [-0.187, 5.6037];
 
-// Emoji tier marks replaced with Ionicons (vector) for consistent, crisp icons.
-const TIERS = [
-  { key: 'ECONOMY', label: 'Economy', icon: 'leaf' },
-  { key: 'COMFORT', label: 'Comfort', icon: 'sparkles' },
-] as const;
-type TierKey = typeof TIERS[number]['key'];
+/**
+ * Tiers come from the shared `getTierTheme` now, which is what fixes two things
+ * at once on this screen.
+ *
+ * PREMIUM WAS MISSING. This list held Economy and Comfort only, so a premium
+ * trip had no chip to select and no way to be shown.
+ *
+ * AND EVERY CHIP WENT GREY. `isLocked` was `t.key !== tripTier`, and `tripTier`
+ * arrives from the server as `ECO` — which equals neither `ECONOMY` nor
+ * `COMFORT`. So on a locked trip BOTH chips satisfied the predicate and both
+ * dropped to 0.3 opacity: "the top part of the card that shows the ride type is
+ * grayed out, so the user wouldn't be able to see if the ride is economy or
+ * comfort." `normalizeTier` is what makes the comparison mean what it reads as.
+ *
+ * A locked trip now renders ONE solid chip in that tier's colour instead of
+ * three chips with two dimmed — there is no choice to offer, so showing
+ * disabled alternatives was only ever noise.
+ */
+type TierKey = TierId;
 
 export default function RideDetailScreen() {
   const colors = useColors();
@@ -53,9 +66,7 @@ export default function RideDetailScreen() {
   const { user } = useAuthStore();
   const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare, guestInfo } = useRideStore();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [selectedTier, setSelectedTier] = useState<TierKey>(
-    (tierParam?.toUpperCase() as TierKey) ?? 'ECONOMY'
-  );
+  const [selectedTier, setSelectedTier] = useState<TierKey>(() => normalizeTier(tierParam));
   const [showFareBreakdown, setShowFareBreakdown] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.rides.detail(id ?? ''),
@@ -63,8 +74,11 @@ export default function RideDetailScreen() {
     enabled: !!id,
   });
 
-  // Lock tier once we get the trip data — rider can't change it from what the driver set
-  const tripTier = ((data?.data?.data as any)?.trip?.tier as TierKey | undefined);
+  // Lock tier once we get the trip data — rider can't change it from what the
+  // driver set. Normalized, because the server's spelling (`ECO`) is not the
+  // UI's (`ECONOMY`) and comparing them raw is what greyed out every chip.
+  const rawTripTier = (data?.data?.data as any)?.trip?.tier as string | undefined;
+  const lockedTier: TierKey | null = rawTripTier ? normalizeTier(rawTripTier) : null;
 
   const trip = useMemo(() => {
     const rawTrip = (data?.data?.data as any)?.trip;
@@ -187,12 +201,12 @@ export default function RideDetailScreen() {
   useEffect(() => {
     if (!trip) return;
     // Lock selectedTier to the trip's tier once data loads
-    if (tripTier && tripTier !== selectedTier) {
-      setSelectedTier(tripTier);
+    if (lockedTier && lockedTier !== selectedTier) {
+      setSelectedTier(lockedTier);
     }
     const serverFare = trip.farePerSeatPesewas ?? trip.fare ?? 0;
     setStoreTier(selectedTier, serverFare);
-  }, [selectedTier, trip, tripTier, setStoreTier]);
+  }, [selectedTier, trip, lockedTier, setStoreTier]);
 
   // `?? 10` was an invented capacity — a 14-seater rendered as 10 and a 4-seater
   // as 10, and the occupancy bar was wrong in both directions with nothing to
@@ -348,21 +362,19 @@ export default function RideDetailScreen() {
             transition={{ type: 'spring', ...springs.snappy }}
             style={styles.tierRow}
           >
-            {TIERS.map((t) => {
-              const isActive = selectedTier === t.key;
-              const activeColor = t.key === 'COMFORT' ? colors.secondary : colors.primary;
-              // If the trip has a set tier, disable the non-matching option
-              const isLocked = !!tripTier && t.key !== tripTier;
+            {/* Locked to the driver's tier -> one chip. Otherwise all three. */}
+            {(lockedTier ? [lockedTier] : RIDER_TIERS).map((key) => {
+              const t = getTierTheme(colors, key);
+              const isActive = !!lockedTier || selectedTier === t.id;
               return (
                 <Pressable
-                  key={t.key}
+                  key={t.id}
                   style={[
                     styles.tierChip,
-                    isActive && { backgroundColor: activeColor, borderColor: activeColor },
-                    isLocked && { opacity: 0.3 },
+                    isActive && { backgroundColor: t.accent, borderColor: t.accent },
                   ]}
-                  onPress={() => !isLocked && setSelectedTier(t.key)}
-                  disabled={isLocked}
+                  onPress={() => !lockedTier && setSelectedTier(t.id)}
+                  disabled={!!lockedTier}
                 >
                   <Ionicons
                     name={t.icon}

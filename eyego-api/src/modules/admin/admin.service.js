@@ -785,12 +785,51 @@ async function assignDriverToTrip(tripId, driverId, adminId) {
   // matched or aboard), where forcing the trip back into "gathering
   // passengers via acceptDispatch" would be wrong. The new driver picks up
   // the trip exactly where it was; only driverId changes.
+  // No `version` bump here on purpose: `recordEvent` below owns it, and every
+  // version MUST have exactly one TripEvent with `seq === version` or the
+  // clients' "replay everything above lastSeq" leaves a permanent gap.
   const claim = await prisma.trip.updateMany({
     where: { id: tripId, status: trip.status },
     data: { driverId },
   });
   if (claim.count === 0) {
     throw new AppError('Trip was already reassigned by another admin action', 409, 'ASSIGNMENT_CONFLICT');
+  }
+
+  /**
+   * TELL THE APPS. A reassignment nobody is told about did not happen.
+   *
+   * The claim above swapped `driverId` with a bare `updateMany` — no version
+   * bump, no `TripEvent`, no realtime publish. Both apps are event-driven off
+   * `trip:event` and arbitrate on `Trip.version`, so an admin moving a live trip
+   * to a new driver produced ZERO state change on either side: the rider kept
+   * watching the old driver's puck and phone number, and the new driver's app
+   * never learned it owned a trip (the push notification alone cannot populate
+   * the trip surface). Worse, with the version unchanged, the next genuine event
+   * carried a snapshot whose driver had silently changed under a seq the clients
+   * had already seen — so even a later refresh could be discarded as stale.
+   *
+   * `recordEvent` rather than `applyTransition`: the status deliberately does
+   * NOT move here (see the note above), and `applyTransition` requires a
+   * from → to edge. This appends an event at the version the swap just produced
+   * and fans out the snapshot WITH relations, which is what repaints both apps.
+   *
+   * Best-effort: the reassignment is already committed and correct. A failed
+   * fan-out must not turn a successful swap into a 500 — it degrades to the
+   * clients picking the change up on their next refetch.
+   */
+  try {
+    const tripState = require('../../services/trip-state.service');
+    await tripState.recordEvent(tripId, 'DRIVER_REASSIGNED', {
+      actor: tripState.ACTOR.ADMIN,
+      actorId: adminId ?? null,
+      payload: { driverId, previousDriverId: trip.driverId ?? null, status: trip.status },
+    });
+  } catch (err) {
+    logger.warn(
+      `[admin] driver reassigned on ${tripId} but the trip:event fan-out failed ` +
+        `(the swap IS committed): ${err.message}`,
+    );
   }
 
   const updated = await prisma.trip.findUnique({

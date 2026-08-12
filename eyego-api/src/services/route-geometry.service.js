@@ -6,6 +6,7 @@ const env = require('../config/env');
 const logger = require('../utils/logger');
 const { getDirections } = require('./mapbox.service');
 const { haversineMeters, distanceToPolyline } = require('../utils/geo');
+const { seatOccupyingWhere } = require('../utils/booking-status');
 
 /**
  * The route line, owned by the server.
@@ -102,6 +103,56 @@ function usable(v) {
 }
 
 /**
+ * WHERE THE DRIVER IS ACTUALLY GOING TO FETCH THIS RIDE'S PASSENGER.
+ *
+ * BUGFIX ("it says heading to pickup but the pickup is exactly where the driver
+ * put it" / a rider who moves their own pin from the group hub page is still
+ * routed to the trip's original point).
+ *
+ * `Booking.pickupLat/Lng` exists precisely so a group-hub joiner can board
+ * somewhere other than the trip's main pickup — the schema comment says so, and
+ * `deviationSurchargePesewas` right below it means the rider is CHARGED for the
+ * detour. Nothing then routed to it. Every consumer of "the pickup" read
+ * `Trip.pickupLat/Lng` only, so the rider paid a deviation surcharge to be
+ * collected from a point the driver was never sent to, and the arrival check
+ * measured the driver against the wrong place as well.
+ *
+ * The rule, deliberately narrow: a booking's own pickup wins only when it is
+ * the ONLY seat-occupying booking on the trip, because then "the pickup" is
+ * unambiguous. With several scattered joiners the driver has an ordered set of
+ * stops, which is a routing problem this function has no business inventing an
+ * answer to — so it keeps the trip's main pickup (the shared hub), which is the
+ * existing, correct behaviour for that case.
+ *
+ * Degrades safely: callers that did not select `bookings` get the old answer
+ * rather than a wrong one.
+ */
+function effectivePickup(trip) {
+  const fallback = { lat: trip.pickupLat, lng: trip.pickupLng };
+  const bookings = Array.isArray(trip.bookings) ? trip.bookings : null;
+  if (!bookings || bookings.length !== 1) return fallback;
+  const own = bookings[0];
+  if (!usable(own?.pickupLat) || !usable(own?.pickupLng)) return fallback;
+  return { lat: own.pickupLat, lng: own.pickupLng };
+}
+
+/**
+ * Metres between the driver and the point they are being sent to, or null when
+ * either end is unknown. Shared so the "is the driver already there?" question
+ * has ONE answer across the arrival check and the status copy.
+ */
+function metersFromPickup(trip, driver) {
+  const pickup = effectivePickup(trip);
+  if (!usable(pickup.lat) || !usable(pickup.lng)) return null;
+  // Through `driverPos` so this accepts either shape callers hold — a plain
+  // `{ lat, lng }` or a Prisma `driver` row with `currentLat`/`currentLng`.
+  // Hoisted; declared below next to legEndpoints, its other consumer.
+  const pos = driverPos(driver);
+  if (!pos) return null;
+  return haversineMeters(pos.lat, pos.lng, pickup.lat, pickup.lng);
+}
+
+/**
  * Origin and destination for a leg.
  *
  * `toPickup` starts wherever the driver is NOW, so it is the only leg whose
@@ -113,18 +164,42 @@ function usable(v) {
  * that, which is why on-demand rides used to get no route at all: the old ETA
  * code read `trip.route.destLat` only, and an on-demand trip has no route.
  */
+/**
+ * A driver's live position, whatever shape the caller had it in.
+ *
+ * Callers pass two different things here. The socket/tracking paths pass a
+ * plain `{ lat, lng }` snapshot; `getTripByShareToken` passes `trip.driver`
+ * straight off Prisma, where the columns are `currentLat` / `currentLng`. Only
+ * the first shape was read, so for the invite link every `driver.lat` was
+ * `undefined` — silently, because the code's next move is a fallback.
+ *
+ * On `toDropoff` that fallback is harmless (an unstarted trip should start its
+ * line at the pickup anyway). On `toPickup` it is the difference between a route
+ * and `null`, i.e. between a road line and no line at all.
+ */
+function driverPos(driver) {
+  if (!driver) return null;
+  const lat = usable(driver.lat) ? driver.lat : driver.currentLat;
+  const lng = usable(driver.lng) ? driver.lng : driver.currentLng;
+  return usable(lat) && usable(lng) ? { lat, lng } : null;
+}
+
 function legEndpoints(trip, leg, driver) {
+  const pos = driverPos(driver);
   const destLat = usable(trip.dropoffLat) ? trip.dropoffLat : trip.route?.destLat;
   const destLng = usable(trip.dropoffLng) ? trip.dropoffLng : trip.route?.destLng;
 
   if (leg === 'toPickup') {
-    if (!driver || !usable(driver.lat) || !usable(driver.lng)) return null;
-    if (!usable(trip.pickupLat) || !usable(trip.pickupLng)) return null;
+    if (!pos) return null;
+    driver = pos;
+    // The rider's OWN pickup point when they moved it — see effectivePickup.
+    const pickup = effectivePickup(trip);
+    if (!usable(pickup.lat) || !usable(pickup.lng)) return null;
     return {
       originLat: driver.lat,
       originLng: driver.lng,
-      destLat: trip.pickupLat,
-      destLng: trip.pickupLng,
+      destLat: pickup.lat,
+      destLng: pickup.lng,
     };
   }
 
@@ -132,8 +207,16 @@ function legEndpoints(trip, leg, driver) {
   // Once underway the line should start from the driver, not from the pickup
   // the driver has already left — otherwise the rider watches the puck run
   // alongside a line it is no longer on.
-  const originLat = usable(driver?.lat) ? driver.lat : trip.pickupLat;
-  const originLng = usable(driver?.lng) ? driver.lng : trip.pickupLng;
+  //
+  // `route.originLat` is the third fallback and it matters for ad-hoc trips: a
+  // map-pin trip created by a driver can carry its endpoints on its Route rather
+  // than on the Trip row, and with only `trip.pickupLat` to fall back on this
+  // returned null — which is what left the invite page drawing its two-point
+  // dashed hint even though the server was being asked for the real road.
+  const pickupLat = usable(trip.pickupLat) ? trip.pickupLat : trip.route?.originLat;
+  const pickupLng = usable(trip.pickupLng) ? trip.pickupLng : trip.route?.originLng;
+  const originLat = pos ? pos.lat : pickupLat;
+  const originLng = pos ? pos.lng : pickupLng;
   if (!usable(originLat) || !usable(originLng)) return null;
   return { originLat, originLng, destLat, destLng };
 }
@@ -320,6 +403,12 @@ async function warmRouteForTrip(tripId) {
         id: true, status: true, driverId: true,
         pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true,
         route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } },
+        // Needed by `effectivePickup`: a lone joiner who moved their own pin is
+        // routed to THAT point, not to the trip's original one.
+        bookings: {
+          where: { ...seatOccupyingWhere() },
+          select: { pickupLat: true, pickupLng: true },
+        },
       },
     });
     if (!trip || !activeLeg(trip.status)) return null;
@@ -344,6 +433,41 @@ async function warmRouteForTrip(tripId) {
   }
 }
 
+/**
+ * Build the `trip:eta` payload for a computed route.
+ *
+ * Lives here — next to the thing that produces `route` — rather than inside one
+ * socket file, because three separate publishers now send this event (the
+ * location handler, the tracking-room join, and the status transition below).
+ * Two of them used to build the shape independently, which is the mechanism
+ * behind "the ETA on the driver app is not consistent with the rider app".
+ */
+function etaPayloadFor(tripId, route) {
+  const etaMinutes = Math.round(route.durationMin);
+  return {
+    tripId,
+    leg: route.leg,
+    etaMinutes,
+    distanceKm: Math.round(route.distanceKm * 10) / 10,
+    message: route.durationMin < 2
+      ? (route.leg === 'toPickup' ? 'Arriving now' : 'Almost there')
+      : `${etaMinutes} min ${route.leg === 'toPickup' ? 'away' : 'to destination'}`,
+    geometry: route.geometry,
+    rerouted: route.rerouted === true,
+  };
+}
+
+/** The narrower "the line changed" payload, same single-source-of-shape rule. */
+function routePayloadFor(tripId, route) {
+  return {
+    tripId,
+    leg: route.leg,
+    geometry: route.geometry,
+    distanceKm: route.distanceKm,
+    durationMin: route.durationMin,
+  };
+}
+
 /** Drop both legs — call when a trip ends or is reassigned to another driver. */
 async function clearRouteForTrip(tripId) {
   try {
@@ -363,4 +487,8 @@ module.exports = {
   peekRouteForTrip,
   warmRouteForTrip,
   clearRouteForTrip,
+  etaPayloadFor,
+  routePayloadFor,
+  effectivePickup,
+  metersFromPickup,
 };

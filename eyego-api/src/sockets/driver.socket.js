@@ -9,6 +9,8 @@ const {
   warmRouteForTrip,
   deviationMeters,
   clearRouteForTrip,
+  etaPayloadFor,
+  routePayloadFor,
 } = require('../services/route-geometry.service');
 const { completeTrip } = require('../modules/trips/trips.service');
 const { sendMulticastPush, sendPush } = require('../services/push.service');
@@ -42,26 +44,12 @@ const LIVE_ACTIVITY_STATUS_TEXT = {
 };
 
 /**
- * Build the `trip:eta` payload for a trip's live leg.
- *
- * Extracted so the join handler and the location handler cannot drift into
- * publishing different shapes for the same fact — which is the mechanism behind
- * "the ETA on the driver app is not consistent with the rider app".
+ * `etaPayloadFor` used to be defined here. It now lives in
+ * route-geometry.service.js next to the code that produces `route`, because a
+ * THIRD publisher of this event was added — the status transition in
+ * drivers.service.js — and a shape that has to be kept in step by hand across
+ * three files is a shape that will drift.
  */
-function etaPayloadFor(tripId, route) {
-  const etaMinutes = Math.round(route.durationMin);
-  return {
-    tripId,
-    leg: route.leg,
-    etaMinutes,
-    distanceKm: Math.round(route.distanceKm * 10) / 10,
-    message: route.durationMin < 2
-      ? (route.leg === 'toPickup' ? 'Arriving now' : 'Almost there')
-      : `${etaMinutes} min ${route.leg === 'toPickup' ? 'away' : 'to destination'}`,
-    geometry: route.geometry,
-    rerouted: route.rerouted === true,
-  };
-}
 
 /**
  * Send whoever just joined the current line and ETA, straight away.
@@ -78,6 +66,10 @@ async function emitRouteSnapshotTo(socket, tripId) {
       pickupLat: true, pickupLng: true,
       dropoffLat: true, dropoffLng: true,
       route: { select: { destLat: true, destLng: true } },
+      bookings: {
+        where: { ...seatOccupyingWhere() },
+        select: { pickupLat: true, pickupLng: true },
+      },
     },
   });
   if (!trip) return;
@@ -87,13 +79,7 @@ async function emitRouteSnapshotTo(socket, tripId) {
   if (!route || !route.geometry) return;
 
   socket.emit('trip:eta', etaPayloadFor(tripId, route));
-  socket.emit('trip:route', {
-    tripId,
-    leg: route.leg,
-    geometry: route.geometry,
-    distanceKm: route.distanceKm,
-    durationMin: route.durationMin,
-  });
+  socket.emit('trip:route', routePayloadFor(tripId, route));
 }
 
 async function pushLiveActivityUpdate(tripId, { status, etaMinutes, distanceKm, driverLat, driverLng } = {}) {
@@ -410,6 +396,12 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
             pickupLat: true, pickupLng: true,
             dropoffLat: true, dropoffLng: true,
             route: { select: { destLat: true, destLng: true } },
+            // See `effectivePickup` in route-geometry.service.js — a lone
+            // joiner's own pickup point is the one the toPickup leg routes to.
+            bookings: {
+              where: { ...seatOccupyingWhere() },
+              select: { pickupLat: true, pickupLng: true },
+            },
           },
         });
       } catch (err) {
@@ -442,7 +434,7 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
       // having to treat every ETA tick as a geometry change. The driver app
       // listens to this for turn-by-turn re-routing.
       if (route.rerouted) {
-        const reroutePayload = { tripId, leg: route.leg, geometry: route.geometry, distanceKm: route.distanceKm, durationMin: route.durationMin };
+        const reroutePayload = routePayloadFor(tripId, route);
         io.of('/passenger').to(TRIP_ROOM(tripId)).emit('trip:route', reroutePayload);
         driverNamespace.to(TRIP_ROOM(tripId)).emit('trip:route', reroutePayload);
         logger.info('[route] re-routed', { tripId, leg: route.leg });

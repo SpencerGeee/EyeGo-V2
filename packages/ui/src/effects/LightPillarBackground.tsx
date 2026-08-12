@@ -37,8 +37,11 @@ uniform float uRotationSpeed;
 uniform float uOpacity;
 uniform float3 uBaseColor;
 
-const float STEP_MULT = 1.35;
-const int MAX_ITER = 28;
+// Raymarch cost is LINEAR in MAX_ITER. 28 -> 20, with a slightly longer step so
+// the march still covers the same distance: the beam is a soft volumetric glow,
+// so coarser sampling reads as a marginally softer edge rather than as banding.
+const float STEP_MULT = 1.6;
+const int MAX_ITER = 20;
 const int WAVE_ITER = 2;
 
 float3 tanhv(float3 x) {
@@ -342,11 +345,25 @@ export function LightPillarBackground({
 
   const EFFECT = tier === 'low' ? EFFECT_LOW : EFFECT_HIGH;
 
-  // Render the canvas at reduced resolution and scale it up — raymarch cost
-  // scales with pixel count, so 0.5x res ≈ 4x less GPU work. The effect is a
-  // soft glow field; the upscale is imperceptible.
-  // Low tier (incl. Low Power Mode) drops to 0.35x for ~8x less GPU fill.
-  const RES_SCALE = tier === 'high' ? 0.5 : 0.35;
+  /**
+   * A PIXEL BUDGET, NOT A RESOLUTION FRACTION.
+   *
+   * This used to be a flat `0.5` of the window, and a fraction is the wrong
+   * unit for a fill-rate problem: half of a 1290×2796 phone is ~900k pixels,
+   * half of a 720×1600 Android is ~290k. The expensive device got three times
+   * the work — so the shader was tuned smooth on whatever phone it was tested
+   * on and janky on the next one up. "Smooth on every phone" is only possible
+   * if every phone raymarches roughly the same NUMBER of pixels.
+   *
+   * The budget is deliberately small. This is a soft, low-frequency glow field
+   * with no detail finer than a few dozen points, so it survives being computed
+   * at ~200k pixels and bilinearly upscaled — the upscale actually flatters it,
+   * because the hardware filter smooths the film grain that the shader adds
+   * back per pixel anyway. Aspect ratio is preserved so the beam is never
+   * stretched.
+   */
+  const PIXEL_BUDGET = tier === 'high' ? 200_000 : 110_000;
+  const RES_SCALE = Math.min(0.5, Math.sqrt(PIXEL_BUDGET / Math.max(1, width * height)));
   const cw = Math.ceil(width * RES_SCALE);
   const ch = Math.ceil(height * RES_SCALE);
 

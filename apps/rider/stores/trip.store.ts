@@ -336,6 +336,33 @@ export function stageForStatus(status: TripStatus | null | undefined): TripStage
     case 'MATCHING':
     case 'REASSIGNING':
       return 'request';
+    /**
+     * A GROUP TRIP THAT HAS NOT SET OFF IS STILL A REAL STAGE.
+     *
+     * BUGFIX ("i joined the trip and the tracking page immediately said the
+     * driver was confirmed and drew the route, but the driver's app still said
+     * filling up").
+     *
+     * These three statuses used to fall through to `default: null`, and a null
+     * derivation means `trip.tsx` never calls `syncFromServer` — so the stage
+     * stayed on whatever the ROUTE PARAM seeded, and every entry point into a
+     * joined trip seeds `?stage=assigned`. The rider was therefore shown the
+     * "driver is coming for you" stage on the strength of a query string, with
+     * the server's actual status (FILLING) having no way to contradict it.
+     *
+     * That is the whole class of bug: a projection with holes in it is not a
+     * projection, it is a default. Mapping every live status means the seeded
+     * stage is always overwritten by the truth on the first snapshot, so the two
+     * apps cannot describe the same trip differently.
+     *
+     * NOTE: the panel still needs its own wording for these — see
+     * `phaseCopy` in components/trip/stages/AssignedStage.tsx, whose `default`
+     * branch is what actually renders the words "Driver confirmed". The
+     * projection being right is necessary but not sufficient.
+     */
+    case 'SCHEDULED':
+    case 'FILLING':
+    case 'CONFIRMED':
     case 'DRIVER_ASSIGNED':
     case 'DRIVER_EN_ROUTE':
     case 'ARRIVED_AT_PICKUP':

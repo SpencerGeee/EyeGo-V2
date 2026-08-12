@@ -3,6 +3,8 @@
 const prisma = require('../config/database');
 const { LIVE_STATUSES } = require('./trip-state.service');
 const { peekRouteForTrip } = require('./route-geometry.service');
+const { SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
+const env = require('../config/env');
 
 /**
  * The one shape both apps read a ride in.
@@ -35,7 +37,34 @@ const TRIP_INCLUDE = Object.freeze({
     select: { id: true, plateNumber: true, make: true, model: true, year: true, tier: true },
   },
   route: { select: { id: true, name: true, originName: true, destinationName: true, distanceKm: true } },
+  /**
+   * The ride group, so the DRIVER's snapshot can say "these seats belong to one
+   * party and the whole trip is paid for".
+   *
+   * BUGFIX ("when a rider pays for the entire trip the driver app doesn't show
+   * that the seats are mapped to that group, or that the trip is paid"). The
+   * covered seats were real bookings all along — but with the group nowhere in
+   * the payload the driver's seat map had no way to tell twelve strangers apart
+   * from one host with eleven guests, and no way to tell that the money was in.
+   */
+  group: {
+    select: {
+      id: true,
+      isCoverAll: true,
+      leadPassengerId: true,
+      leadPassenger: { select: { id: true, name: true } },
+    },
+  },
   bookings: {
+    /**
+     * SEAT-OCCUPYING ROWS ONLY.
+     *
+     * Unfiltered, this handed every consumer the trip's cancelled history too:
+     * `fare.amountPesewas` summed released holds and cover-all-off rows into the
+     * rider's total, and the seat data carried passengers who are not coming.
+     * Same predicate as every other occupancy query — see utils/booking-status.js.
+     */
+    where: { status: { in: SEAT_OCCUPYING_STATUSES } },
     select: {
       id: true,
       userId: true,
@@ -48,6 +77,10 @@ const TRIP_INCLUDE = Object.freeze({
       // in, so the snapshot can sum their money without also claiming they are
       // four passengers.
       isCoveredByLead: true,
+      // Part of the money, so part of the payload: a total whose own line items
+      // are missing is a total the rider cannot check.
+      heavyCargo: true,
+      deviationSurchargePesewas: true,
       guestName: true,
       guestPhone: true,
       pickupLat: true,
@@ -92,14 +125,49 @@ function buildTripSnapshot(trip, viewer = {}) {
    * page says 4.80". Their own seat stays the identity of the ride; the money
    * is the sum across all of them.
    */
-  const myBookings = forUserId ? (trip.bookings || []).filter((b) => b.userId === forUserId) : [];
+  const allBookings = trip.bookings || [];
+  /**
+   * Seats this viewer is settling.
+   *
+   * BUGFIX ("I paid for everyone, the hub totalled 36, the tracking page said
+   * 8"). Under cover-all the host also settles any seat a joiner had already
+   * taken before the switch went on — that is what `initiatePayment` charges for
+   * and what `confirmPayment` marks paid. Counting only rows with the host's own
+   * userId therefore showed a number smaller than the one they were charged.
+   * Same predicate as bookings.service `getTripFareForRider`, deliberately.
+   */
+  const isCoverAllLead = !!(
+    forUserId && trip.group?.isCoverAll && trip.group.leadPassengerId === forUserId
+  );
+  const myBookings = forUserId
+    ? allBookings.filter(
+        (b) => b.userId === forUserId || (isCoverAllLead && b.status === 'SEAT_HELD'),
+      )
+    : [];
   // Prefer the seat they actually sit in over one they merely bought.
   const myBooking =
-    myBookings.find((b) => !b.isCoveredByLead) ?? myBookings[0] ?? null;
+    myBookings.find((b) => b.userId === forUserId && !b.isCoveredByLead) ??
+    myBookings.find((b) => b.userId === forUserId) ??
+    myBookings[0] ??
+    null;
   const myFarePesewas = myBookings.length
     ? myBookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0)
     : null;
   const mySeatsPaidFor = myBookings.length;
+  const myCargoSurchargePesewas = myBookings.reduce(
+    (n, b) => n + (b.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0),
+    0,
+  );
+  const myDeviationSurchargePesewas = myBookings.reduce(
+    (n, b) => n + (b.deviationSurchargePesewas || 0),
+    0,
+  );
+
+  /** A seat with money behind it: paid outright, or a confirmed cash seat. */
+  const isSettled = (b) =>
+    b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
+  const paidSeatCount = allBookings.filter((b) => b.paymentStatus === 'PAID').length;
+  const settledSeatCount = allBookings.filter(isSettled).length;
 
   return {
     // ── identity + the two fields that make every client decision total ──
@@ -220,7 +288,48 @@ function buildTripSnapshot(trip, viewer = {}) {
         }
       : null,
 
-    seats: { confirmed: trip.confirmedSeats, max: trip.maxSeats },
+    // `paid`/`settled` are derived from the booking rows, not from the
+    // `confirmedSeats` counter, so a driver reading this cannot be told a seat is
+    // sold by a counter that a held-then-abandoned booking nudged.
+    seats: {
+      confirmed: trip.confirmedSeats,
+      max: trip.maxSeats,
+      occupied: allBookings.length,
+      paid: paidSeatCount,
+      settled: settledSeatCount,
+    },
+
+    /**
+     * WHO IS PAYING FOR WHOM — the driver's answer to a van full of one party.
+     *
+     * Present only when a ride group exists. `coverAll` means one passenger is
+     * settling the seats in `seatNumbers`; `settled` is true once every one of
+     * them has money behind it, which is the "the whole trip is paid" the driver
+     * needs before departing on a single passenger's word.
+     */
+    group: trip.group
+      ? (() => {
+          const leadSeats = allBookings.filter(
+            (b) => b.userId === trip.group.leadPassengerId || b.isCoveredByLead,
+          );
+          const covered = trip.group.isCoverAll ? allBookings : leadSeats;
+          return {
+            id: trip.group.id,
+            coverAll: !!trip.group.isCoverAll,
+            leadUserId: trip.group.leadPassengerId,
+            leadName: trip.group.leadPassenger?.name ?? null,
+            seatCount: covered.length,
+            seatNumbers: covered
+              .map((b) => b.seatNumber)
+              .filter((n) => n != null)
+              .sort((a, b) => a - b),
+            totalPesewas: covered.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0),
+            settledSeatCount: covered.filter(isSettled).length,
+            settled: covered.length > 0 && covered.every(isSettled),
+            paymentMethod: covered[0]?.paymentMethod ?? null,
+          };
+        })()
+      : null,
 
     // Every number in here is an INTEGER NUMBER OF PESEWAS, hence the suffixes.
     // The client formats with `formatGhs` and never does arithmetic on them —
@@ -237,6 +346,24 @@ function buildTripSnapshot(trip, viewer = {}) {
       amountPesewas: myFarePesewas,
       /** How many seats that total covers. 1 for an ordinary rider. */
       seatsPaidFor: mySeatsPaidFor || null,
+      /**
+       * The per-seat price implied by the total, with the extras taken back out.
+       *
+       * BUGFIX ("the receipt says one seat at 8 cedis; it was 36 and the seat is
+       * 3"). Every receipt that showed a unit price read it off a separately
+       * computed `trip.farePerSeatPesewas`, so a total that carried a surcharge
+       * disagreed with its own unit price. Derived FROM the total here: seats ×
+       * this + the surcharges below is the total, by construction.
+       */
+      perSeatPesewas:
+        mySeatsPaidFor > 0
+          ? Math.round(
+              (myFarePesewas - myCargoSurchargePesewas - myDeviationSurchargePesewas) /
+                mySeatsPaidFor,
+            )
+          : null,
+      cargoSurchargePesewas: myCargoSurchargePesewas,
+      deviationSurchargePesewas: myDeviationSurchargePesewas,
       paymentMethod: myBooking ? myBooking.paymentMethod : null,
       paymentStatus: myBooking ? myBooking.paymentStatus : null,
     },

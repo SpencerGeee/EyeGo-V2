@@ -237,6 +237,110 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
 }));
 
 /**
+ * Every driver query cache that holds a copy of a trip's status.
+ *
+ * Three screens each keep their own `useQuery` for the same trip under a
+ * different key, which is why the list has to exist at all: `active/[id]` is the
+ * manage page, `tracking/[id]` is the live map, and `activeTrip` feeds home.
+ */
+const TRIP_STATUS_QUERY_KEYS = (tripId: string): unknown[][] => [
+  ['driver', 'trip', 'active', tripId],
+  ['driver', 'trip', 'tracking', tripId],
+  ['driver', 'activeTrip'],
+];
+
+/** Minimal surface of QueryClient we need — avoids importing react-query here. */
+type StatusCacheWriter = {
+  setQueryData: (key: unknown[], updater: (old: any) => any) => unknown;
+  invalidateQueries: (filters: { queryKey: unknown[] }) => unknown;
+};
+
+/**
+ * ONE WRITE, EVERY SCREEN.
+ *
+ * BUGFIX ("i tapped I've arrived on the tracking page, went to the manage page,
+ * and it still said heading to pickup — it corrects eventually but takes
+ * excruciatingly long").
+ *
+ * The two screens were entirely independent caches. `tracking/[id]`'s success
+ * handler invalidated `['driver','trip','tracking',id]` and — this is the actual
+ * bug — never touched `['driver','trip','active',id]`, which is the key the
+ * manage page reads. (Its ERROR handler invalidated 'active', the exact inverse
+ * of what was needed.) So after a successful arrival the manage page's cache was
+ * simply never told. With the app-wide `staleTime: 5 min` it would not even
+ * refetch on being navigated to, leaving its own 30-second `refetchInterval` as
+ * the only thing that could ever correct it: up to half a minute of a driver
+ * looking at a status they had personally changed, and up to five minutes if the
+ * interval tick had just passed.
+ *
+ * Patching one screen's key from the other screen's handler would just be the
+ * same mistake with a longer list. Instead, a status transition writes to ALL of
+ * them through here — optimistically, so it is instant — and the invalidation
+ * underneath reconciles each against the server. Callers no longer need to know
+ * which other screens exist.
+ *
+ * Patches the RAW axios payload because that is what these queries cache;
+ * their `select` extracts `.data.data.trip` on read.
+ */
+export function applyDriverTripStatus(
+  qc: StatusCacheWriter,
+  tripId: string,
+  status: string,
+): void {
+  for (const key of TRIP_STATUS_QUERY_KEYS(tripId)) {
+    qc.setQueryData(key, (old: any) => {
+      const trip = old?.data?.data?.trip;
+      // `activeTrip` legitimately holds null once a trip ends, and a cache we
+      // have never populated must not be conjured into existence here.
+      if (!trip) return old;
+      // Never patch a DIFFERENT trip's cache (activeTrip is not id-scoped).
+      if (trip.id && trip.id !== tripId) return old;
+      if (trip.status === status) return old;
+      return {
+        ...old,
+        data: { ...old.data, data: { ...old.data.data, trip: { ...trip, status } } },
+      };
+    });
+  }
+  // The store the home screen and the dispatch screen read. Keeping it in step
+  // is what stops a driver seeing the new status on one screen and the old one
+  // on another — the complaint this whole function exists to answer.
+  useDriverTripStore.setState((s) =>
+    s.snapshot && s.snapshot.tripId === tripId && s.snapshot.status !== status
+      ? { snapshot: { ...s.snapshot, status: status as TripStatus } }
+      : s,
+  );
+}
+
+/**
+ * Reconcile the query caches from the SERVER's versioned snapshot.
+ *
+ * The other half of the optimistic write above: `trip:event` is the authority,
+ * so when one arrives (including for a transition this device did not make —
+ * an admin correction, or the rider cancelling) every screen's cache is brought
+ * into line without each one having to poll for it. Wired once, in `_layout`.
+ */
+export function subscribeDriverStatusToCaches(qc: StatusCacheWriter): () => void {
+  let lastSeen: string | null = null;
+  return useDriverTripStore.subscribe((state) => {
+    const snap = state.snapshot;
+    if (!snap) {
+      lastSeen = null;
+      return;
+    }
+    const fingerprint = `${snap.tripId}:${snap.status}`;
+    if (fingerprint === lastSeen) return;
+    lastSeen = fingerprint;
+    applyDriverTripStatus(qc, snap.tripId, snap.status);
+    // Then let the server's full row land — the snapshot carries status, but the
+    // screens read plenty of fields it does not (passenger list, fare, seats).
+    for (const key of TRIP_STATUS_QUERY_KEYS(snap.tripId)) {
+      qc.invalidateQueries({ queryKey: key });
+    }
+  });
+}
+
+/**
  * Which screen this trip belongs on. The mirror image of the rider's
  * `stageForStatus` — same source of truth, so the two apps cannot be showing
  * different phases of the same ride.

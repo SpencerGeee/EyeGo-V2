@@ -64,9 +64,26 @@ function liveUnstartedTripFilter(now = new Date()) {
   };
 }
 
-/** Statuses of a trip that is genuinely under way. */
+/**
+ * Statuses of a trip that is genuinely under way.
+ *
+ * BUGFIX: `DRIVER_ASSIGNED` was missing, and this list is what decides which
+ * abandoned trips ever get swept to EXPIRED. `tripState.ACTIVE_STATUSES` has
+ * always included it — so the cron sweep in trip-lifecycle.service cleaned those
+ * rows up and the read-path sweep here did not, which is precisely the "private
+ * copies of which-statuses-are-which" drift this codebase keeps paying for. A
+ * driver who accepted an offer and then force-quit the app sat in
+ * DRIVER_ASSIGNED, counted as busy by driver-availability, and received no
+ * further dispatch offer on any read path that only ever ran THIS sweep.
+ *
+ * Kept as a literal rather than imported from trip-state.service on purpose:
+ * driver-availability requires this module, and trip-state pulls in the
+ * publisher and the scheduler behind it. See the lazy require in
+ * `expireStaleTrips` below for the same reason.
+ */
 const IN_FLIGHT_STATUSES = Object.freeze([
   'CONFIRMED',
+  'DRIVER_ASSIGNED',
   'DRIVER_EN_ROUTE',
   'ARRIVED_AT_PICKUP',
   'IN_PROGRESS',

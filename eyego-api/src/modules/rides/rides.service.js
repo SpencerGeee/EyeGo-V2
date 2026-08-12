@@ -139,7 +139,14 @@ async function failTripHard(tripId, reason, error) {
       });
       await tx.booking.updateMany({
         where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED', 'REFUNDED'] } },
-        data: { status: 'CANCELLED' },
+        // `seatNumber: null` — this was the ONE seat-release site in the codebase
+        // that did not null it (see utils/booking-status.js, and the twelve other
+        // release sites that all do). `Booking` carries
+        // `@@unique([tripId, seatNumber])`, so a cancelled row that keeps its
+        // seat number permanently blocks that seat from being re-sold. It matters
+        // even on a dead trip: this same trip row is what a re-dispatch or an
+        // admin recovery would reuse, and the blocked seat would follow it.
+        data: { status: 'CANCELLED', seatNumber: null },
       });
     })
     .catch((forceErr) => {

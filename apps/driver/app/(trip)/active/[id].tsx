@@ -24,6 +24,7 @@ import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
+import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { SeatMap } from '../../../components/SeatMap';
@@ -353,21 +354,13 @@ export default function ActiveTripScreen() {
        * reconciles against the server's own snapshot, so this is a head start,
        * not a competing source of truth.
        *
-       * Patches the RAW axios payload because that is what this query caches —
-       * `select` extracts `.data.data.trip` on read.
+       * Writes through `applyDriverTripStatus` rather than patching this screen's
+       * own key, so the tracking screen and the home card learn about it at the
+       * same instant this screen does. Patching only our own key is what left
+       * the SIBLING screen stale for minutes — see that function.
        */
       if (toStatus) {
-        qc.setQueryData(['driver', 'trip', 'active', id], (old: any) => {
-          const currentTrip = old?.data?.data?.trip;
-          if (!currentTrip) return old;
-          return {
-            ...old,
-            data: {
-              ...old.data,
-              data: { ...old.data.data, trip: { ...currentTrip, status: toStatus } },
-            },
-          };
-        });
+        applyDriverTripStatus(qc, id, toStatus);
       }
 
       /*
@@ -525,27 +518,73 @@ export default function ActiveTripScreen() {
   // driverEarningsPerSeatPesewas directly instead of guessing a split client-side.
   const fullFare      = trip.farePerSeatPesewas ?? 0;
   const commissionRate = trip.commissionRate ?? 0.15;
-  // Integer pesewas: take the commission and keep the REMAINDER, exactly as
-  // the server does, so the fallback can never disagree with the receipt by a
-  // pesewa. `parseFloat(x.toFixed(2))` was the cedis-era way of saying this and
-  // is now both wrong (the values are pesewas) and unnecessary.
-  const fare          = trip.driverEarningsPerSeatPesewas ?? fullFare - Math.round(fullFare * commissionRate);
-  const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
+  // `driverEarningsPerSeatPesewas` is no longer read here: earnings are summed
+  // from the booking rows below rather than multiplied out of a per-seat figure,
+  // so there is nothing left for a per-seat net to be multiplied by.
+  //
+  // Seat-occupying rows only — the server already filters these with
+  // seatOccupyingWhere(), and "not CANCELLED" would let an EXPIRED hold, a
+  // NO_SHOW and a REFUND back in as passengers.
+  const activeBookings = rawBookings.filter(
+    (b: any) => !['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'].includes(b.status),
+  );
+  /** Who is paying for whom — see attachGroupSummary in drivers.service.js. */
+  const groupInfo = (trip as {
+    group?: {
+      coverAll: boolean;
+      leadName: string | null;
+      seatCount: number;
+      seatNumbers: number[];
+      totalPesewas: number;
+      settledSeatCount: number;
+      settled: boolean;
+      paymentMethod: string | null;
+    } | null;
+  }).group ?? null;
   // A HELD seat is reserved, not sold: the rider has picked it but not paid,
   // and it releases itself if they never do. It must be visible on the map (a
   // driver needs to know the seat isn't free) but it must NOT be counted as
   // revenue, or the earnings card promises money that may never arrive.
+  //
+  // BUGFIX ("I opened the group hub and closed the app without picking a payment
+  // method, and the driver's earnings already showed one person paid").
+  //
+  // `b.paymentMethod !== 'CASH'` was the hole. A booking's payment METHOD says
+  // nothing about whether anyone committed to it — and the group hub pre-creates
+  // its hold with `paymentMethod: 'CASH'` as a placeholder before the rider has
+  // chosen anything at all. So every abandoned invite read as a settled cash
+  // passenger and went straight into `grossEarnings`.
+  //
+  // Commitment is a STATUS. `SEAT_HELD`/`PENDING` is a reservation with a timer
+  // on it; `CONFIRMED` and beyond is a rider who said yes, which for cash means
+  // the fare is owed to the driver in hand. Paid outright counts regardless, and
+  // so does a seat the driver added themselves.
   const isHeld = (b: any) =>
-    b.status !== 'BOARDED' &&
-    b.paymentStatus !== 'PAID' &&
     !b.isOffline &&
-    b.paymentMethod !== 'CASH';
+    b.paymentStatus !== 'PAID' &&
+    !['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
   const paidBookings = activeBookings.filter((b: any) => !isHeld(b));
   const heldCount = activeBookings.length - paidBookings.length;
   const passengers = paidBookings.length;
-  const grossEarnings = passengers * fullFare;
-  const platformFeePesewas   = passengers * (fullFare - fare);
-  const netEarnings   = passengers * fare;
+  /**
+   * ONE FARE DENOMINATOR. Sum the seats that were actually sold, at the price
+   * each was actually sold for.
+   *
+   * `passengers × trip.farePerSeatPesewas` was a SECOND derivation of the same
+   * money, and it disagreed with the first the moment any booking carried a
+   * surcharge: a group host's seat with heavy cargo on it is genuinely worth more
+   * than the listed per-seat price, so the driver was quoted a gross that no
+   * booking row supported. The rows are the record.
+   */
+  const grossEarnings = paidBookings.reduce(
+    (s: number, b: any) => s + (Number(b.fareAmountPesewas) || fullFare),
+    0,
+  );
+  const platformFeePesewas = paidBookings.reduce((s: number, b: any) => {
+    const c = Number(b.commissionAmountPesewas);
+    return s + (Number.isFinite(c) ? c : Math.round((Number(b.fareAmountPesewas) || fullFare) * commissionRate));
+  }, 0);
+  const netEarnings = Math.max(0, grossEarnings - platformFeePesewas);
   const seats = activeBookings.map((b: any) => ({
     seatNumber: b.seatNumber,
     // BUGFIX: an unpaid hold used to fall through to 'EMPTY', so the seat map
@@ -795,6 +834,61 @@ export default function ActiveTripScreen() {
               ))}
             </View>
           </Entrance>
+
+          {/*
+            WHOSE SEATS THESE ARE.
+
+            BUGFIX ("when a rider chooses to pay for the entire trip, the driver
+            app doesn't show that the seats are mapped to that group or that the
+            whole trip is paid"). The covered seats were always real bookings, but
+            nothing on this screen said they belonged to one party — a van bought
+            by one host looked exactly like a van of strangers, and there was no
+            "this trip is settled" anywhere to read. `group` comes from
+            drivers.service `attachGroupSummary`, which is the same rule the socket
+            snapshot uses, so the two cannot say different things.
+          */}
+          {groupInfo && groupInfo.coverAll && (
+            <Entrance animation="slideDown" delay={110}>
+              <GradientGlowBorder
+                palette="driver"
+                fillColor={colors.surfaceContainer}
+                borderRadius={radii['2xl']}
+                style={styles.earningsCard}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                  <Ionicons name="people" size={18} color={colors.primary} />
+                  <Text variant="label" style={{ flex: 1 }}>
+                    {groupInfo.leadName ?? 'One passenger'} is paying for the whole trip
+                  </Text>
+                  <View
+                    style={[
+                      styles.groupPaidBadge,
+                      { backgroundColor: groupInfo.settled ? `${colors.online}22` : `${colors.warning}22` },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.groupPaidBadgeText,
+                        { color: groupInfo.settled ? colors.online : colors.warning },
+                      ]}
+                    >
+                      {groupInfo.settled
+                        ? groupInfo.paymentMethod === 'CASH'
+                          ? 'Cash on board'
+                          : 'Paid'
+                        : `${groupInfo.settledSeatCount}/${groupInfo.seatCount} settled`}
+                    </Text>
+                  </View>
+                </View>
+                <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs }}>
+                  {groupInfo.seatCount} seat{groupInfo.seatCount === 1 ? '' : 's'}
+                  {groupInfo.seatNumbers.length > 0 ? ` — #${groupInfo.seatNumbers.join(', #')}` : ''}
+                  {' · '}
+                  {formatGhs(groupInfo.totalPesewas)}
+                </Text>
+              </GradientGlowBorder>
+            </Entrance>
+          )}
 
           {/* Earnings card — the screen's hero money surface gets the premium ring */}
           <Entrance animation="slideDown" delay={120}>
@@ -1443,6 +1537,16 @@ const makeStyles = (colors: DriverColors) =>
     earningsCard: {
       borderRadius: radii['2xl'],
       padding: spacing.xl,
+    },
+    groupPaidBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radii.full,
+    },
+    groupPaidBadgeText: {
+      fontFamily: fonts.semiBold,
+      fontSize: 10,
+      lineHeight: 14,
     },
     cardHeader: {
       flexDirection: 'row',

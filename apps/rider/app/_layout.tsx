@@ -10,7 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform, View, Animated, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
-import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import {
   useFonts,
@@ -27,7 +27,7 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore, registerLogoutCleanup } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
-import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, userApi } from '@eyego/api';
+import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, setAuthReadyGate, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
 import { useColors } from '../utils/useColors';
 import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
@@ -148,16 +148,39 @@ const detailPush = {
 };
 
 const queryClient = new QueryClient({
-  queryCache: new QueryCache({
-    onError: (error: any) => {
-      const status = error?.response?.status ?? error?.status;
-      if (status === 401) {
-        // Token expired or invalid — clear auth state so the redirect
-        // useEffect in RootLayout sends the user back to the phone screen.
-        useAuthStore.getState().logout().catch(() => {});
-      }
-    },
-  }),
+  /**
+   * NO LOGOUT LIVES HERE ANY MORE.
+   *
+   * BUGFIX ("i force-closed the app while my driver was coming and it made me
+   * sign in with my number and the OTP all over again").
+   *
+   * This cache used to call `logout()` — which DELETES all three SecureStore
+   * keys — on ANY query that ended in a 401. That single line quietly overrode
+   * the whole of the refresh interceptor's carefully-drawn distinction between
+   * "the server rejected your session" and "we could not reach the server", and
+   * it did so from the one place that sees only the FINAL error of a query.
+   *
+   * The mechanism, exactly:
+   *   1. The rider had the app open for a while, so the 15-minute access token
+   *      was expired by the time they force-quit and reopened.
+   *   2. The first authenticated query on cold start 401s. The interceptor takes
+   *      over and tries to refresh — correctly, and with its own 3-attempt
+   *      ladder.
+   *   3. That refresh could not reach the server (this rider's network was bad
+   *      enough that the tracking page was stuck reconnecting — see bug 19).
+   *      Per its own contract the interceptor then leaves the credentials ALONE
+   *      and rejects with the ORIGINAL error, which is a 401.
+   *   4. React Query saw a 401, landed here, and wiped the session that step 3
+   *      had just deliberately preserved. The refresh token was valid for 30
+   *      days the whole time.
+   *
+   * `client.ts` is the single authority on session death: it is the only code
+   * that knows whether the server actually answered, and it already calls
+   * `onLogout()` (wired below) on a definitive 401/403 from `/auth/refresh`.
+   * A 401 seen out here is either that same event arriving second-hand, or a
+   * transient failure — and in neither case is tearing down the session this
+   * layer's decision to make.
+   */
   defaultOptions: {
     queries: {
       retry: (failureCount, error: any) => {
@@ -288,7 +311,12 @@ export default function RootLayout() {
       setSentryUser(null);
     });
 
-    loadFromStorage();
+    // Hold outgoing requests until the stored session is back in memory. Without
+    // this the first query of a cold start races SecureStore, goes out with no
+    // Authorization header, 401s, and the refresh path reads the not-yet-loaded
+    // refresh token as "there isn't one" — a definitive rejection, i.e. a
+    // logout. See setAuthReadyGate.
+    setAuthReadyGate(loadFromStorage());
     loadTheme();
 
     // RM4: Flush after configureApiClient so queued requests have auth headers

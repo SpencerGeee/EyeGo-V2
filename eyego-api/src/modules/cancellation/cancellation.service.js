@@ -287,7 +287,37 @@ async function getReceipt(bookingId, userId) {
 
   if (!receipt) throw new NotFoundError('Receipt');
 
-  return receipt;
+  /**
+   * WHAT THE RIDER ACTUALLY PAID FOR THIS TRIP, not what one seat cost.
+   *
+   * BUGFIX. A `Receipt` row is per BOOKING, and a rider who chose "I'm paying for
+   * everyone" owns one booking per covered seat — so the rider's trip-complete
+   * screen read a single row and announced one seat's fare for a ride they had
+   * paid the whole van's price for. Same defect as the driver's receipt, from the
+   * other side of the same rows.
+   *
+   * `fareBreakdown` is the whole obligation, from the one derivation every other
+   * surface now reads (bookings.service `getTripFareForRider`). The per-seat row
+   * is still there underneath it, unchanged, for anyone who wants the single seat.
+   */
+  const { getTripFareForRider } = require('../bookings/bookings.service');
+  const tripFare = await getTripFareForRider(receipt.booking.tripId, userId).catch(() => null);
+
+  return {
+    ...receipt,
+    fareBreakdown: tripFare
+      ? {
+          baseFarePesewas: tripFare.totalPesewas - tripFare.cargoSurchargePesewas - tripFare.deviationSurchargePesewas,
+          surcharges: tripFare.cargoSurchargePesewas + tripFare.deviationSurchargePesewas,
+          platformFeePesewas: receipt.platformFeePesewas,
+          discount: receipt.discountAppliedPesewas ?? 0,
+          tip: 0,
+          total: tripFare.totalPesewas,
+          seatCount: tripFare.seatCount,
+          perSeatPesewas: tripFare.perSeatPesewas,
+        }
+      : undefined,
+  };
 }
 
 /**

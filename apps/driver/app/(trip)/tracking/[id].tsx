@@ -20,6 +20,7 @@ import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSoc
 import { fonts, fontSizes, spacing, radii, springs, durations, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
 import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
 import { useChatUnread } from '../../../stores/chatUnread.store';
+import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -265,6 +266,28 @@ export default function DriverTrackingScreen() {
        * clients announce status: it can only ever be fixed one screen at a time,
        * and there is no way to tell which screens are still wrong.
        */
+      /**
+       * INSTANT, AND ON EVERY SCREEN — not just this one.
+       *
+       * BUGFIX ("i tapped I've arrived here, went to the manage page, and it
+       * still said heading to pickup").
+       *
+       * This handler used to invalidate only `['driver','trip','tracking',id]`
+       * (below) and never `['driver','trip','active',id]` — the manage page's
+       * key. Its `onError` handler invalidated 'active', which is the exact
+       * inverse of what was needed. So a SUCCESSFUL arrival was the one case
+       * that left the sibling screen with no idea, and the app-wide 5-minute
+       * `staleTime` meant navigating to it did not even trigger a refetch: its
+       * own 30-second `refetchInterval` was the only thing that would ever
+       * correct it.
+       *
+       * One write, all three caches, optimistically — the server's `trip:event`
+       * reconciles them underneath. See `applyDriverTripStatus`.
+       */
+      if (toStatus) {
+        applyDriverTripStatus(qc, id, toStatus);
+      }
+
       if (toStatus === 'DRIVER_EN_ROUTE') {
         driverSocketEvents.emitTripStarted(id); // room join only
         showBanner('Trip started — en route to pickup');
@@ -298,6 +321,8 @@ export default function DriverTrackingScreen() {
       }
 
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', id] });
+      // The manage page's own key. Its absence here is the whole of bug 20.
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
     // A 409 means this step already landed — see the long note on the same

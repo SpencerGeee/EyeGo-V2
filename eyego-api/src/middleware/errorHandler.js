@@ -7,6 +7,26 @@ const sentry = require('../config/sentry');
 /** Mirrors the transient set in config/database.js — see the note there. */
 const DB_UNREACHABLE_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024']);
 
+/**
+ * Every Prisma client error class. A raw Prisma error's `.message` is not a
+ * sentence — it is a multi-line dump of the failed invocation, the model, the
+ * arguments and the SQL. Recognising the class is more reliable than pattern
+ * matching the text, but we check both, because a Prisma error that has been
+ * re-thrown or wrapped loses its constructor name and keeps its message.
+ */
+const PRISMA_ERROR_NAMES = new Set([
+  'PrismaClientKnownRequestError',
+  'PrismaClientUnknownRequestError',
+  'PrismaClientValidationError',
+  'PrismaClientInitializationError',
+  'PrismaClientRustPanicError',
+]);
+
+const isPrismaError = (err) =>
+  PRISMA_ERROR_NAMES.has(err?.name) ||
+  PRISMA_ERROR_NAMES.has(err?.constructor?.name) ||
+  (typeof err?.message === 'string' && err.message.includes('Invalid `prisma.'));
+
 // eslint-disable-next-line no-unused-vars
 const errorHandler = (err, req, res, next) => {
   let { statusCode = 500, message, code = 'INTERNAL_ERROR', errors } = err;
@@ -61,12 +81,39 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
+  /**
+   * A USER NEVER SEES A DATABASE ERROR. NOT EVEN OUTSIDE PRODUCTION.
+   *
+   * This used to send `err.message` straight to the client whenever
+   * `NODE_ENV !== 'production'`, and that is how a rider cancelling a trip was
+   * shown a Prisma statement instead of "your trip was cancelled": the cancel
+   * threw an unmapped Prisma error, and a raw Prisma `.message` is the whole
+   * failed invocation — model, arguments, SQL and all — as its text.
+   *
+   * The environment check was the wrong axis. Whether a message is safe to show
+   * a user has nothing to do with where the server is running; it depends on
+   * whether a human wrote it. `AppError` messages are authored for display and
+   * are marked `isOperational`, so they pass through unchanged in every
+   * environment. Anything else gets a sentence, and the real text goes to the
+   * logger and Sentry above, which is where a developer was going to look
+   * anyway. It also closes the information leak this had on any non-production
+   * deployment — staging included.
+   */
+  const safeMessage = (() => {
+    if (err.isOperational && typeof message === 'string' && message) return message;
+    if (isPrismaError(err)) {
+      // Something in the write went wrong in a way we have not mapped. Say so
+      // plainly; the action did NOT take effect, which is what the user needs.
+      return "We couldn't complete that just now. Please try again.";
+    }
+    if (statusCode >= 500) return 'An unexpected error occurred. Please try again.';
+    return typeof message === 'string' && message ? message : 'Request could not be completed';
+  })();
+
   const body = {
     success: false,
-    code,
-    message: statusCode >= 500 && process.env.NODE_ENV === 'production'
-      ? 'An unexpected error occurred'
-      : message,
+    code: isPrismaError(err) && code === 'INTERNAL_ERROR' ? 'DB_WRITE_FAILED' : code,
+    message: safeMessage,
   };
 
   if (errors) body.errors = errors;

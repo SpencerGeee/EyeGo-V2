@@ -1,31 +1,29 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii, letterSpacings, type ColorTokens } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, letterSpacings } from '@eyego/config';
 import { Text } from './Text';
 import { ShinyText } from './ShinyText';
 import { useThemedColors } from './ColorsContext';
+import { getTierTheme } from './tierTheme';
 
-type Tier = 'ECONOMY' | 'COMFORT' | 'PREMIUM' | 'ROYAL';
 type BadgeSize = 'sm' | 'md';
 
 interface TierBadgeProps {
-  tier: Tier;
+  /**
+   * Any spelling the wire might carry. Deliberately a plain `string`: the server
+   * sends `ECO` for the economy tier and this component's old union only listed
+   * `ECONOMY`, so callers passing the real value hit the undefined branch and the
+   * badge rendered greyed-out — "I can't tell if the ride is economy or comfort".
+   * `getTierTheme` normalizes instead of the type pretending the problem away.
+   */
+  tier: string | null | undefined;
   size?: BadgeSize;
-}
-
-function getTierConfig(colors: ColorTokens): Record<Tier, { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; color: string }> {
-  return {
-    ECONOMY:  { label: 'Economy',  icon: 'leaf-outline',    color: colors.tierEconomy },
-    COMFORT:  { label: 'Comfort',  icon: 'star-outline',    color: colors.tierComfort },
-    PREMIUM:  { label: 'Premium',  icon: 'diamond-outline', color: colors.tierPremium },
-    ROYAL:    { label: 'Royal',    icon: 'ribbon-outline',  color: colors.tierRoyal  },
-  };
 }
 
 export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
   const colors = useThemedColors();
-  const config = getTierConfig(colors)[tier] ?? getTierConfig(colors).ECONOMY;
+  const config = getTierTheme(colors, tier);
   const isSmall = size === 'sm';
   const iconSize = isSmall ? 10 : 12;
   const fontSize = isSmall ? 10 : fontSizes.bodySmall;
@@ -35,18 +33,18 @@ export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
       style={[
         styles.badge,
         {
-          backgroundColor: config.color + '26',
-          borderColor: config.color + '4D',
+          backgroundColor: config.accent + '26',
+          borderColor: config.accent + '4D',
           paddingHorizontal: isSmall ? spacing.xs : spacing.sm,
           paddingVertical: isSmall ? 2 : spacing.xs,
         },
       ]}
     >
-      <Ionicons name={config.icon} size={iconSize} color={config.color} />
-      {tier === 'PREMIUM' || tier === 'ROYAL' ? (
+      <Ionicons name={config.icon} size={iconSize} color={config.accent} />
+      {config.shiny ? (
         <ShinyText
           style={{ marginLeft: 3 }}
-          baseColor={config.color}
+          baseColor={config.accent}
           textStyle={{
             fontFamily: fonts.labelCaps,
             fontSize,
@@ -63,7 +61,7 @@ export function TierBadge({ tier, size = 'sm' }: TierBadgeProps) {
             fontFamily: fonts.labelCaps,
             fontSize,
             lineHeight: Math.round(fontSize * 1.4),
-            color: config.color,
+            color: config.accent,
             letterSpacing: letterSpacings.label,
             marginLeft: 3,
             textTransform: 'uppercase',

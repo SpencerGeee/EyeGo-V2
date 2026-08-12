@@ -1,4 +1,4 @@
-export { apiClient, configureApiClient, setApiBaseUrl } from './client';
+export { apiClient, configureApiClient, setApiBaseUrl, setAuthReadyGate } from './client';
 export { authApi } from './auth.api';
 export { userApi } from './user.api';
 export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace } from './user.api';
@@ -29,7 +29,7 @@ export type {
 } from './tripChannel';
 export { bookingsApi } from './bookings.api';
 export { paymentsApi } from './payments.api';
-export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth } from './socket';
+export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth, refreshDriverSocketAuth } from './socket';
 export { notificationsApi } from './notifications.api';
 export type { Notification as AppNotification } from './notifications.api';
 export { routesApi } from './routes.api';

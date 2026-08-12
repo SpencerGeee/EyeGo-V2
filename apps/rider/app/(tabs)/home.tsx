@@ -40,13 +40,24 @@ const DEFAULT_MAP_CENTER: [number, number] = [-0.187, 5.6037];
  */
 function activeBookingStatusLabel(status: string | undefined): string | null {
   switch (status) {
-    case 'DRIVER_EN_ROUTE': return 'DRIVER ON THE WAY';
+    // ── no driver yet. These were all missing, so the live-trip card showed a
+    // ride with NO status line for the entire dispatch window — the exact span
+    // where the rider is most anxious and most likely to be staring at it.
+    case 'REQUESTED': return 'REQUESTING…';
+    case 'MATCHING': return 'FINDING A DRIVER…';
+    case 'REASSIGNING': return 'FINDING A NEW DRIVER…';
+    // ── pre-departure
+    case 'SCHEDULED': return 'SCHEDULED';
+    case 'FILLING': return 'CONFIRMED · FILLING';
+    case 'CONFIRMED': return 'CONFIRMED';
+    // ── driver attached
     case 'DRIVER_ASSIGNED': return 'DRIVER ASSIGNED';
+    case 'DRIVER_EN_ROUTE': return 'DRIVER ON THE WAY';
     case 'ARRIVED_AT_PICKUP': return 'DRIVER ARRIVED';
     case 'IN_PROGRESS': return 'TRIP IN PROGRESS';
-    case 'FILLING': return 'CONFIRMED · FILLING';
-    case 'MATCHED':
-    case 'CONFIRMED': return 'CONFIRMED';
+    // Terminal statuses deliberately fall through to null — a finished or dead
+    // ride should not be occupying the "active booking" card at all, and
+    // labelling one here would paper over whatever failed to clear it.
     default: return null;
   }
 }
@@ -457,13 +468,54 @@ export default function HomeScreen() {
   return (
     <View style={[styles.root, { backgroundColor: 'transparent' }]}>
       {/* ── Header ───────────────────────────────────────── */}
+      {/*
+        A SCRIM, NOT A PANEL.
+
+        Two problems, one cause. The header had no background of its own, so
+        (a) the greeting, the bell and the avatar were reading directly against
+        a moving green light beam, which is the "make the text very legible…
+        so they don't look faint" note, and (b) the Where-To bar's halo below is
+        an iOS shadow clipped flat by the ScrollView's top edge, and with nothing
+        over that boundary the slice showed as a hard horizontal line — "it's
+        visibly showing the cutout of the glow intensity which makes it weird".
+
+        A solid header bar would fix the legibility and make (b) worse, by
+        turning a soft seam into a hard one. So this is a gradient scrim that is
+        opaque at the very top and fades to nothing past the header's bottom
+        edge: the type always has ground underneath it, the clip line lands
+        inside the fade where there is no edge to see, and the background is
+        still visibly the brand background rather than a grey bar.
+
+        It extends `SCRIM_OVERHANG` past the header so the fade finishes BELOW
+        the seam rather than at it.
+      */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={[
+          colors.backgroundDeep,
+          withOpacity(colors.backgroundDeep, 0.82),
+          withOpacity(colors.backgroundDeep, 0),
+        ]}
+        locations={[0, 0.62, 1]}
+        style={[styles.headerScrim, { height: insets.top + 12 + HEADER_H + 12 + SCRIM_OVERHANG }]}
+      />
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        {/* THE UPLOADED PHOTO, NOT ALWAYS THE INITIAL.
+            This rendered `<Text>{initials}</Text>` unconditionally, so a rider
+            who had uploaded a profile picture saw it on the profile tab and a
+            generic letter here. `Avatar` already owns the uri-then-initials
+            fallback that the profile screen open-codes, so the two screens now
+            answer the same question the same way. */}
         <Pressable
           style={styles.avatarBtn}
           onPress={() => router.push('/(tabs)/account' as any)}
           accessibilityLabel="Account"
         >
-          <Text style={styles.avatarInitials}>{initials}</Text>
+          {user?.avatarUrl ? (
+            <Avatar uri={user.avatarUrl} name={firstName} size={AVATAR_SIZE} />
+          ) : (
+            <Text style={styles.avatarInitials}>{initials}</Text>
+          )}
         </Pressable>
 
         <Text style={styles.greetingHeadline} numberOfLines={1}>
@@ -475,7 +527,7 @@ export default function HomeScreen() {
           onPress={() => router.push('/(tabs)/notifications' as any)}
           accessibilityLabel="Notifications"
         >
-          <Ionicons name="notifications-outline" size={22} color={colors.onSurface} />
+          <Ionicons name="notifications" size={21} color={colors.onSurface} />
           {hasUnread && <View style={styles.notifDot} />}
         </Pressable>
       </View>
@@ -760,11 +812,29 @@ export default function HomeScreen() {
   );
 }
 
+/** Header control height — avatar and bell are both this tall. */
+const HEADER_H = 40;
+const AVATAR_SIZE = 40;
+/** How far the header scrim fades past the header's own bottom edge, so the
+ *  Where-To halo's clip line lands inside the fade instead of at its end. */
+const SCRIM_OVERHANG = 28;
+
 const makeStyles = (colors: Colors) => StyleSheet.create({
   root: { flex: 1 },
 
+  /** See the render site. Opaque at the status bar, gone by `SCRIM_OVERHANG`. */
+  headerScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 0,
+  },
+
   // ─── Header ──────────────────────────────────────────────
   header: {
+    // Above the scrim it sits on.
+    zIndex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -788,16 +858,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingBottom: 12,
     gap: 10,
   },
+  /**
+   * The avatar and bell used a ~13 %-alpha brand tint on a ~20 %-alpha brand
+   * rim, which over the lit green background left both reading as faint smudges
+   * ("make the bell/profile picture ok as well so they don't look faint"). They
+   * are now on the app's own card surface with a real rim, so they read as
+   * controls at any point in the background's cycle rather than only over the
+   * dark part of it. `overflow: 'hidden'` clips a square uploaded photo to the
+   * circle.
+   */
   avatarBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: `${colors.primary}22`,
-    borderWidth: 2,
-    borderColor: `${colors.primary}33`,
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    backgroundColor: withOpacity(colors.surfaceCard, 0.92),
+    borderWidth: 1.5,
+    borderColor: withOpacity(colors.primary, 0.55),
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    overflow: 'hidden',
   },
   avatarInitials: {
     fontFamily: fonts.semiBold,
@@ -812,12 +892,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: 25,
     color: colors.onSurface,
     letterSpacing: -0.2,
+    // Belt and braces with the scrim: a tight dark halo keeps the greeting
+    // readable even at the moment the light beam sweeps directly behind it.
+    textShadowColor: 'rgba(0,0,0,0.55)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   notifBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: withOpacity(colors.surfaceContainer, 0.5),
+    width: HEADER_H,
+    height: HEADER_H,
+    borderRadius: HEADER_H / 2,
+    // Was 50 % of an already-translucent container colour, i.e. barely there.
+    backgroundColor: withOpacity(colors.surfaceCard, 0.92),
     borderWidth: 1,
     borderColor: colors.rimLight,
     alignItems: 'center',
