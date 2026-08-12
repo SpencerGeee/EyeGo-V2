@@ -49,6 +49,11 @@ google-services.json
 # Sentry
 sentry.properties
 
+# Next.js (apps/admin)
+.next/
+next-env.d.ts
+.vercel
+
 # IDE
 .idea/
 *.swp

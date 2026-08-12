@@ -71,6 +71,11 @@ const getDriverDetail = async (req, res) => {
   ok(res, { driver });
 };
 
+const getTripDetail = async (req, res) => {
+  const trip = await adminService.getTripDetail(req.params.id);
+  ok(res, { trip });
+};
+
 const getDriverTrips = async (req, res) => {
   const result = await adminService.getDriverTrips(req.params.id, req.query);
   ok(res, result);
@@ -271,13 +276,84 @@ const getLiveDriversMap = async (req, res) => {
   ok(res, { drivers });
 };
 
+// ── Console identity ─────────────────────────────────────────────
+// Tokens are returned in the JSON body, not as Set-Cookie. The Next.js console
+// is the only browser client and it keeps them in httpOnly cookies it sets
+// itself, so the API stays a pure bearer-token service and needs no CORS
+// credential dance or cookie parser.
+const adminAuthService = require('./adminAuth.service');
+
+const login = async (req, res) => {
+  const { email, password } = req.body;
+  const result = await adminAuthService.login({
+    email,
+    password,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+  ok(res, result, 'Signed in');
+};
+
+const refreshSession = async (req, res) => {
+  const result = await adminAuthService.refresh(req.body.refreshToken);
+  ok(res, result);
+};
+
+const logout = async (req, res) => {
+  // Prefer the caller's own session over a body-supplied id so one admin can
+  // never revoke another admin's session by guessing a token id.
+  await adminAuthService.logout(req.admin?.tokenId || req.body.tokenId);
+  ok(res, null, 'Signed out');
+};
+
+const me = async (req, res) => {
+  ok(res, { admin: req.admin });
+};
+
+const changePassword = async (req, res) => {
+  if (!req.admin?.id) {
+    throw new (require('../../utils/errors').ForbiddenError)(
+      'The legacy shared-secret session has no password to change.'
+    );
+  }
+  const result = await adminAuthService.changePassword(req.admin.id, req.body);
+  ok(res, result, 'Password changed. Sign in again.');
+};
+
+const listAdmins = async (req, res) => {
+  const admins = await adminAuthService.listAdmins();
+  ok(res, { admins });
+};
+
+const createAdmin = async (req, res) => {
+  const admin = await adminAuthService.createAdmin(req.body, req.admin?.id || null);
+  created(res, { admin }, 'Admin created');
+};
+
+const updateAdmin = async (req, res) => {
+  const admin = await adminAuthService.updateAdmin(req.params.id, req.body, req.admin?.id || null);
+  ok(res, { admin }, 'Admin updated');
+};
+
+const resetAdminPassword = async (req, res) => {
+  const result = await adminAuthService.resetAdminPassword(req.params.id, req.body.newPassword);
+  ok(res, result, 'Password reset. The admin must change it at next sign-in.');
+};
+
+const getAuditLogs = async (req, res) => {
+  const result = await adminAuthService.getAuditLogs(req.query);
+  ok(res, result);
+};
+
 module.exports = {
+  login, refreshSession, logout, me, changePassword,
+  listAdmins, createAdmin, updateAdmin, resetAdminPassword, getAuditLogs,
   reviewDriverDocument,
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
   getMetrics, getActiveTrips, setSurge,
   getPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getTrips, getBookings, getPendingDrivers, getAllDrivers, getAllUsers,
-  getDriverDetail, getDriverTrips,
+  getDriverDetail, getDriverTrips, getTripDetail,
   getUserDetail, getUserTrips,
   getSupportTickets, getSupportTicketDetail, getTripReports, resolveTripReport, respondToTicket, closeTicket,
   getPromotions, createPromotion, togglePromotion,

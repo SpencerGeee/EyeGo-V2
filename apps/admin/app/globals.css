@@ -1,0 +1,894 @@
+@import 'tailwindcss';
+
+/* ══════════════════════════════════════════════════════════════════
+   GRAPHITE — the EyeGo console design system
+   ══════════════════════════════════════════════════════════════════
+
+   Deliberately NOT the mobile "Onyx" look. The apps are lit, glassy and
+   shader-heavy because they sell a feeling to a consumer in three seconds.
+   A console is the opposite job: someone reads it for eight hours and has to
+   spot the one wrong number in a table of four hundred. So:
+
+   - Structure comes from hairline borders, not shadows. Shadow means
+     "floating above" (modal, popover) and nothing else, so elevation still
+     carries information.
+   - Exactly one accent (the brand green). Every other colour is semantic:
+     amber warns, red endangers, blue informs. If a colour appears, it means
+     something — nothing is coloured for decoration.
+   - Numbers are tabular everywhere. Proportional digits make a column of
+     cedi amounts jitter as it updates, which is how you misread a total.
+   - Dark is the default, not a variant: dispatch watches this at 2am.
+
+   Theming works by swapping CSS variables, and `@theme inline` maps the
+   Tailwind utilities onto those variables rather than copying their values.
+   That means `bg-surface` follows the theme at runtime with no `dark:`
+   variant on any element — impossible to forget one.
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Ground. Near-black with a cool cast; pure #000 smears on OLED and
+        reads as cheap next to real content. ── */
+  --bg: #0a0c0f;
+  --bg-inset: #07090b;
+  --surface: #111419;
+  --surface-2: #171b21;
+  --surface-3: #1e232b;
+
+  /* Hairlines. --line is structural, --line-strong separates major regions. */
+  --line: #222831;
+  --line-strong: #2c333d;
+
+  --text: #e9eef5;
+  --text-dim: #98a3b3;
+  --text-faint: #64707f;
+  --text-inverse: #0a0c0f;
+
+  /* ── The one accent. Deeper than the mobile #4BE277: at small sizes on a
+        dark ground that green vibrates, and a console is all small sizes. ── */
+  --accent: #2fd46b;
+  --accent-hover: #3ee079;
+  --accent-soft: #0f2f1e;
+  --accent-rim: #1d5f38;
+  --on-accent: #04120a;
+
+  /* ── Semantic. Each has a soft background and a rim so a state can be shown
+        as a filled chip without inventing new colours per component. ── */
+  --info: #4a9eff;
+  --info-soft: #10243d;
+  --info-rim: #1e4a7a;
+
+  --warn: #f5a524;
+  --warn-soft: #33240a;
+  --warn-rim: #6b4a12;
+
+  --danger: #f5334f;
+  --danger-soft: #3a0e17;
+  --danger-rim: #7a1f2e;
+
+  /* Reserved for SOS only, so it can never be confused with an ordinary
+     error. Nothing else in the console is allowed to use it. */
+  --critical: #ff2d6f;
+  --critical-soft: #400a1e;
+
+  --radius-sm: 4px;
+  --radius: 7px;
+  --radius-lg: 11px;
+  --radius-xl: 16px;
+
+  /* Elevation = floating only. Two levels; a third would stop meaning anything. */
+  --shadow-pop: 0 4px 12px -2px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --shadow-modal: 0 24px 48px -12px rgb(0 0 0 / 0.7), 0 8px 16px -8px rgb(0 0 0 / 0.5);
+
+  /* The 1px top highlight that gives a surface a physical edge. Cheaper than
+     a blur and it survives on every GPU. */
+  --edge: inset 0 1px 0 0 rgb(255 255 255 / 0.04);
+
+  --font-ui: 'Segoe UI Variable Display', 'Segoe UI', -apple-system,
+    BlinkMacSystemFont, Inter, system-ui, 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', ui-monospace, 'SF Mono',
+    Menlo, Consolas, monospace;
+
+  /* Motion. Exit is faster than enter so dismissal feels immediate. */
+  --t-enter: 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --t-exit: 100ms cubic-bezier(0.4, 0, 1, 1);
+
+  --sidebar-w: 244px;
+  --topbar-h: 56px;
+
+  color-scheme: dark;
+}
+
+/* Light theme. Present because finance prints and screenshots in daylight,
+   and because an "internal tool" that only works in one theme is unfinished.
+   Roles are re-mapped, not inverted — inverting a dark palette yields the
+   grey-on-grey mush that makes light-mode admin tools unreadable. */
+:root[data-theme='light'] {
+  --bg: #f6f7f9;
+  --bg-inset: #eceef2;
+  --surface: #ffffff;
+  --surface-2: #f8f9fb;
+  --surface-3: #eff1f5;
+
+  --line: #e2e5ea;
+  --line-strong: #cfd4dc;
+
+  --text: #10151c;
+  --text-dim: #56616f;
+  --text-faint: #7d8794;
+  --text-inverse: #ffffff;
+
+  --accent: #12924a;
+  --accent-hover: #0e7a3d;
+  --accent-soft: #e6f6ec;
+  --accent-rim: #a8dcbc;
+  --on-accent: #ffffff;
+
+  --info: #1667cf;
+  --info-soft: #e7f0fd;
+  --info-rim: #b3d0f5;
+
+  --warn: #9a6209;
+  --warn-soft: #fdf3e0;
+  --warn-rim: #edd3a1;
+
+  --danger: #c8102e;
+  --danger-soft: #fdeaed;
+  --danger-rim: #f3bcc5;
+
+  --critical: #c2003f;
+  --critical-soft: #fde8ef;
+
+  --shadow-pop: 0 4px 12px -2px rgb(16 21 28 / 0.1), 0 2px 4px -2px rgb(16 21 28 / 0.06);
+  --shadow-modal: 0 24px 48px -12px rgb(16 21 28 / 0.18), 0 8px 16px -8px rgb(16 21 28 / 0.1);
+  --edge: inset 0 1px 0 0 rgb(255 255 255 / 0.8);
+
+  color-scheme: light;
+}
+
+/* Honour the OS only when the user has made no explicit choice. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']):not([data-theme='light']) {
+    --bg: #f6f7f9;
+    --bg-inset: #eceef2;
+    --surface: #ffffff;
+    --surface-2: #f8f9fb;
+    --surface-3: #eff1f5;
+    --line: #e2e5ea;
+    --line-strong: #cfd4dc;
+    --text: #10151c;
+    --text-dim: #56616f;
+    --text-faint: #7d8794;
+    --text-inverse: #ffffff;
+    --accent: #12924a;
+    --accent-hover: #0e7a3d;
+    --accent-soft: #e6f6ec;
+    --accent-rim: #a8dcbc;
+    --on-accent: #ffffff;
+    --info: #1667cf;
+    --info-soft: #e7f0fd;
+    --info-rim: #b3d0f5;
+    --warn: #9a6209;
+    --warn-soft: #fdf3e0;
+    --warn-rim: #edd3a1;
+    --danger: #c8102e;
+    --danger-soft: #fdeaed;
+    --danger-rim: #f3bcc5;
+    --critical: #c2003f;
+    --critical-soft: #fde8ef;
+    --edge: inset 0 1px 0 0 rgb(255 255 255 / 0.8);
+    color-scheme: light;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-inset: var(--bg-inset);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-rim: var(--accent-rim);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+}
+
+/* ── Base ──────────────────────────────────────────────────────── */
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Console copy is dense; slab-flat digits stop columns from shifting. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'cv05' 1;
+}
+
+/* Never remove the focus ring — replace it with a better one. Keyboard is how
+   dispatch actually moves through a queue. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Typography scale ──────────────────────────────────────────── */
+
+.t-display {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.021em;
+}
+.t-title {
+  font-size: 18px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.013em;
+}
+.t-heading {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+  letter-spacing: -0.006em;
+}
+.t-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.t-small {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+/* Section eyebrow. Wide tracking is what makes an all-caps micro-label read as
+   deliberate rather than shouted. */
+.t-eyebrow {
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.t-metric {
+  font-size: 27px;
+  line-height: 1.05;
+  font-weight: 640;
+  letter-spacing: -0.028em;
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  letter-spacing: -0.015em;
+}
+
+/* ── Surfaces ──────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--edge);
+}
+.card-flush {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--edge);
+  overflow: hidden;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.card-body {
+  padding: 16px;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background var(--t-exit),
+    border-color var(--t-exit),
+    color var(--t-exit),
+    opacity var(--t-exit);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Icon-only controls stay clickable at a comfortable size without growing the
+   visual mark. */
+.btn-icon {
+  width: 34px;
+  padding: 0;
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+.btn-lg {
+  height: 40px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Destructive actions are outlined until hovered, so the dangerous button is
+   never the loudest thing on screen — but it is unmistakably red. */
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger-rim);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+/* ── Badges / status chips ─────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 11.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  letter-spacing: -0.004em;
+}
+.badge-neutral {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+  color: var(--text-dim);
+}
+.badge-accent {
+  background: var(--accent-soft);
+  border-color: var(--accent-rim);
+  color: var(--accent);
+}
+.badge-info {
+  background: var(--info-soft);
+  border-color: var(--info-rim);
+  color: var(--info);
+}
+.badge-warn {
+  background: var(--warn-soft);
+  border-color: var(--warn-rim);
+  color: var(--warn);
+}
+.badge-danger {
+  background: var(--danger-soft);
+  border-color: var(--danger-rim);
+  color: var(--danger);
+}
+.badge-critical {
+  background: var(--critical-soft);
+  border-color: var(--critical);
+  color: var(--critical);
+}
+
+/* Status is never carried by colour alone — every chip pairs its hue with a
+   glyph or the status word, so it survives colour blindness and greyscale
+   printing. */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
+  background: currentColor;
+}
+.dot-live {
+  position: relative;
+}
+.dot-live::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  opacity: 0.5;
+  animation: pulse-ring 2s ease-out infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* ── Forms ─────────────────────────────────────────────────────── */
+
+.label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.input,
+.select,
+.textarea {
+  width: 100%;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 0 11px;
+  height: 34px;
+  transition:
+    border-color var(--t-exit),
+    background var(--t-exit);
+}
+.textarea {
+  height: auto;
+  min-height: 84px;
+  padding: 9px 11px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.select {
+  appearance: none;
+  padding-right: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+    linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 15px,
+    calc(100% - 11px) 15px;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+.input:hover,
+.textarea:hover,
+.select:hover {
+  border-color: var(--text-faint);
+}
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-faint);
+}
+.input[aria-invalid='true'],
+.textarea[aria-invalid='true'],
+.select[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+/* Helper text is persistent, not a placeholder that vanishes the moment the
+   field is needed most. */
+.hint {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 5px;
+}
+.error-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--danger);
+  margin-top: 5px;
+}
+
+/* ── Tables ────────────────────────────────────────────────────── */
+
+/* Wide tables scroll inside their own container. The page body must never
+   scroll horizontally. */
+.table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-strong);
+  padding: 9px 14px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.table tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+.table tbody tr {
+  transition: background var(--t-exit);
+}
+.table tbody tr:hover {
+  background: var(--surface-2);
+}
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.th-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.th-sortable:hover {
+  color: var(--text-dim);
+}
+
+/* ── Overlays ──────────────────────────────────────────────────── */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(2px);
+  animation: fade-in var(--t-enter);
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+  animation: modal-in var(--t-enter);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+.popover {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+
+/* ── Loading ───────────────────────────────────────────────────── */
+
+/* A shimmer that reserves the final layout, so nothing shifts when data
+   lands. Spinners on a data table are how you get a jumping page. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.spin {
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Navigation ────────────────────────────────────────────────── */
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    background var(--t-exit),
+    color var(--t-exit);
+  position: relative;
+}
+.nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+/* Current location is marked three ways at once — weight, colour and a rail
+   marker — so it reads instantly and never depends on hue alone. */
+.nav-item[aria-current='page'] {
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 600;
+}
+.nav-item[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 15px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ── Utility ───────────────────────────────────────────────────── */
+
+.divider {
+  height: 1px;
+  background: var(--line);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+/* Long ids and addresses truncate with the full value available on hover. */
+.truncate-1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+/* Keyboard users get to the table without tabbing the whole sidebar. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+}
+.skip-link:focus {
+  left: 12px;
+  top: 12px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: var(--radius);
+}
+
+/* ── Fleet map markers ─────────────────────────────────────────────
+   Drawn as DOM elements rather than a symbol layer so each one is a real
+   focusable button — the map is operable from the keyboard, and the driver
+   list beside it carries the same information as text.
+
+   Free is accent, busy is info, and the two are also different sizes with the
+   busy one carrying a heading arrow, so the distinction survives greyscale. */
+.map-pin {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  position: relative;
+}
+.map-pin-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+.map-pin[data-busy='yes'] .map-pin-dot {
+  background: var(--info);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--info) 55%, transparent);
+}
+/* Heading arrow sits outside the dot and rotates with the GPS course. */
+.map-pin-arrow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.map-pin-arrow::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  margin-left: -3px;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 5px solid var(--text);
+}
+.map-pin[data-selected='yes'] {
+  z-index: 5;
+}
+.map-pin[data-selected='yes'] .map-pin-dot {
+  width: 16px;
+  height: 16px;
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--accent);
+}
+.map-pin:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+/* MapLibre's own chrome has to obey the console's palette, or the one third
+   party widget on the page is the only thing that ignores the theme. */
+.maplibregl-ctrl-group {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: none !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--line) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  /* The shipped icons are dark-on-transparent, so they need inverting on a dark
+     surface. Follows the same three-way theme resolution as the palette. */
+  filter: invert(1) brightness(1.4);
+}
+:root[data-theme='light'] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: none;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']):not([data-theme='light'])
+    .maplibregl-ctrl-group
+    button
+    .maplibregl-ctrl-icon {
+    filter: none;
+  }
+}
+.maplibregl-ctrl-attrib {
+  background: color-mix(in oklab, var(--surface) 88%, transparent) !important;
+  color: var(--text-faint) !important;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--text-dim) !important;
+}

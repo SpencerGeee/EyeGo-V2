@@ -58,7 +58,18 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1),
   CLOUDINARY_API_SECRET: z.string().min(1),
 
+  // Legacy shared secret for the old vanilla console in eyego-api/public.
+  // Superseded by real AdminUser accounts + JWT (see adminAuth.service.js).
   ADMIN_SECRET_KEY: z.string().min(16),
+
+  // Set to 'false' once the old console is retired. While it is 'true', one
+  // leaked ADMIN_SECRET_KEY is still unattributable full superadmin access.
+  ADMIN_LEGACY_SECRET: z.enum(['true', 'false']).default('true'),
+
+  // Comma-separated origins allowed to call the admin API from a browser
+  // (the apps/admin deployment). Only needed if the console ever calls the API
+  // directly; the Next.js app proxies server-side, so this is normally unset.
+  ADMIN_CORS_ORIGINS: z.string().optional(),
 
   // ── OTA deploy console (all optional — the admin OTA page degrades to
   // read-only/unconfigured messaging when unset) ──

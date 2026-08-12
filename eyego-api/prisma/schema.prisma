@@ -193,6 +193,9 @@ model RefreshToken {
   tokenId   String   @unique
   userId    String?
   driverId  String?
+  /// Set for console sessions. Kept in the same table as rider/driver tokens so
+  /// rotation, revocation and the expiry sweep have exactly one implementation.
+  adminId   String?
   role      String
   expiresAt DateTime
   revokedAt DateTime?
@@ -200,6 +203,7 @@ model RefreshToken {
 
   @@index([userId])
   @@index([driverId])
+  @@index([adminId])
 }
 
 // ─────────────────────────────────────────
@@ -1129,4 +1133,94 @@ model OnlineSession {
 
   @@index([driverId])
   @@index([driverId, startTime])
+}
+
+// ─────────────────────────────────────────
+// ADMIN CONSOLE IDENTITY
+//
+// Before this existed the console authenticated with ONE shared static secret
+// (x-admin-secret) and took the acting admin's name from an unverified
+// x-admin-name request header. That meant: no way to revoke one person without
+// rotating everyone, no way to scope what someone could do, and an audit trail
+// that any caller could forge by changing a header. Every mutating console
+// action now resolves to a real row here.
+// ─────────────────────────────────────────
+
+enum AdminRole {
+  /// Full access, including managing other admins and publishing OTA builds.
+  SUPERADMIN
+  /// Day-to-day dispatch: live map, assignment, driver approval, surge.
+  OPS
+  /// Money: payouts, receipts, promotions, revenue reporting. Read-only on ops.
+  FINANCE
+  /// Tickets, disputes, SOS triage. Read-only on money and fleet config.
+  SUPPORT
+  /// Sees everything, changes nothing. For auditors and observers.
+  VIEWER
+}
+
+model AdminUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         AdminRole @default(VIEWER)
+
+  /// Soft-disable. Preferred over deletion so audit rows keep a real actor to
+  /// point at — a deleted admin would orphan its own history.
+  isActive     Boolean   @default(true)
+
+  /// Forces a password change on next login (set for seeded/reset accounts).
+  mustChangePassword Boolean @default(false)
+
+  lastLoginAt  DateTime?
+  lastLoginIp  String?
+
+  /// Consecutive failed logins; cleared on success. Drives lockUntil.
+  failedLoginCount Int      @default(0)
+  lockedUntil      DateTime?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  createdById  String?
+
+  auditLogs    AdminAuditLog[]
+
+  @@index([role])
+  @@index([isActive])
+}
+
+/// Append-only. Never updated, never deleted — the same discipline TripEvent
+/// follows. Written by the adminAudit middleware AFTER the handler succeeds, so
+/// a failed action does not leave a log row claiming it happened.
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+
+  adminId    String?
+  admin      AdminUser? @relation(fields: [adminId], references: [id])
+  /// Denormalised so the log stays readable if the account is later renamed.
+  adminEmail String
+  adminRole  String
+
+  /// Stable machine name, e.g. "driver.approve", "trip.assign", "promo.create".
+  action     String
+  /// What kind of thing was acted on: Driver | User | Trip | Promotion | ...
+  targetType String?
+  targetId   String?
+
+  method     String
+  path       String
+  /// Request body with credentials and tokens stripped. JSON string.
+  payload    String?
+  statusCode Int
+
+  ip         String?
+  userAgent  String?
+
+  createdAt  DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }

@@ -8,6 +8,42 @@ const mapboxService = require('../../services/mapbox.service');
 const { haversineMeters } = require('../../utils/geo');
 const { NotFoundError, AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
+// Admin previously counted seats with `status: { notIn: ['CANCELLED'] }` in ten
+// places. BookingStatus has FOUR seat-releasing terminals (CANCELLED, EXPIRED,
+// REFUNDED, NO_SHOW), so every one of those counts treated an expired hold, a
+// refund and a no-show as a passenger — inflating occupancy on the trip list,
+// the driver detail, the live map and, worst, the capacity check inside
+// assignDriverToTrip. Use the shared predicate, never an inline list.
+const { seatOccupyingWhere } = require('../../utils/booking-status');
+
+/**
+ * Trip statuses that still tie up a driver.
+ *
+ * ARRIVED_AT_PICKUP must be in here. A driver waiting at the pickup point is
+ * not free, and omitting it reports them as available — which invites a second
+ * dispatch to a vehicle that already has a rider walking up to it.
+ */
+const DRIVER_OCCUPYING_TRIP_STATUSES = [
+  'REQUESTED',
+  'MATCHING',
+  'REASSIGNING',
+  'SCHEDULED',
+  'FILLING',
+  'CONFIRMED',
+  'DRIVER_ASSIGNED',
+  'DRIVER_EN_ROUTE',
+  'ARRIVED_AT_PICKUP',
+  'IN_PROGRESS',
+];
+
+/** Absorbing states. A trip in one of these needs no admin intervention ever. */
+const TERMINAL_TRIP_STATUSES = [
+  'COMPLETED',
+  'CANCELLED',
+  'NO_DRIVERS_FOUND',
+  'EXPIRED',
+  'NO_SHOW',
+];
 
 async function approveDriver(driverId) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
@@ -185,11 +221,13 @@ async function getAllTrips({ page = 1, limit = 20, status }) {
       where,
       include: {
         route: true,
-        driver: { select: { name: true, phone: true, walletBalancePesewas: true } },
+        // `id` was missing, so the console could show a driver's name on the
+        // trip list but had nothing to link to their record with.
+        driver: { select: { id: true, name: true, phone: true, walletBalancePesewas: true } },
         vehicle: true,
         bookings: {
-          where: { status: { notIn: ['CANCELLED'] } },
-          include: { user: { select: { name: true, phone: true, walletBalancePesewas: true } } },
+          where: seatOccupyingWhere(),
+          include: { user: { select: { id: true, name: true, phone: true, walletBalancePesewas: true } } },
           orderBy: { seatNumber: 'asc' },
         },
       },
@@ -210,7 +248,7 @@ async function getAllBookings({ page = 1, limit = 20 }) {
     prisma.booking.findMany({
       include: {
         trip: { include: { route: true } },
-        user: { select: { name: true, phone: true, walletBalancePesewas: true } },
+        user: { select: { id: true, name: true, phone: true, walletBalancePesewas: true } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
@@ -233,20 +271,46 @@ async function getPendingDrivers() {
 // renders the whole fleet in one table with client-side search (no pagination
 // UI), so the old 100-cap — and especially the unpassed default of 20 —
 // silently hid every driver beyond the first page.
-async function getAllDrivers({ page = 1, limit = 20 } = {}) {
+/**
+ * MISSING FUNCTIONALITY, now added: this took only page/limit, so the console
+ * could not search for a driver at all. Support taking a call from a driver had
+ * no way to find that driver except paging through the whole fleet, which is why
+ * the old console asked for limit=500 and hoped.
+ *
+ * `q` matches name, phone or Ghana Card. `status` filters on the Driver.status
+ * enum, and `onlineOnly` narrows to drivers currently connected.
+ */
+async function getAllDrivers({ page = 1, limit = 20, q, status, onlineOnly } = {}) {
   const take = Math.min(Math.max(1, parseInt(limit) || 20), 500);
   const skip = (Math.max(1, parseInt(page) || 1) - 1) * take;
+
+  const where = {};
+  if (q && String(q).trim()) {
+    const term = String(q).trim();
+    where.OR = [
+      { name: { contains: term, mode: 'insensitive' } },
+      { phone: { contains: term } },
+      { ghanaCardNumber: { contains: term, mode: 'insensitive' } },
+    ];
+  }
+  if (status) where.status = String(status);
+  if (onlineOnly === true || onlineOnly === 'true') where.isOnline = true;
+
   const [data, total] = await Promise.all([
     prisma.driver.findMany({
+      where,
       include: {
         vehicles: true,
-        _count: { select: { trips: true } },
+        // Completed trips only. Counting every Trip row inflated the figure with
+        // cancelled and expired ones, so a driver who had never finished a job
+        // could still show a healthy trip count.
+        _count: { select: { trips: { where: { status: 'COMPLETED' } } } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
       take,
     }),
-    prisma.driver.count(),
+    prisma.driver.count({ where }),
   ]);
 
   // AD3: the admin drivers table reads a per-driver average rating, but the
@@ -266,19 +330,38 @@ async function getAllDrivers({ page = 1, limit = 20 } = {}) {
   return { data: withRatings, total, page: Math.max(1, parseInt(page) || 1), limit: take };
 }
 
-async function getAllUsers({ page = 1, limit = 20 } = {}) {
+/**
+ * Same missing-search fix as getAllDrivers. Support cannot help a rider they
+ * cannot find, and a rider is identified over the phone by their number.
+ */
+async function getAllUsers({ page = 1, limit = 20, q, bannedOnly } = {}) {
   const take = Math.min(Math.max(1, parseInt(limit) || 20), 500);
   const skip = (Math.max(1, parseInt(page) || 1) - 1) * take;
+
+  const where = {};
+  if (q && String(q).trim()) {
+    const term = String(q).trim();
+    where.OR = [
+      { name: { contains: term, mode: 'insensitive' } },
+      { phone: { contains: term } },
+      { email: { contains: term, mode: 'insensitive' } },
+    ];
+  }
+  if (bannedOnly === true || bannedOnly === 'true') where.isBanned = true;
+
   const [data, total] = await Promise.all([
     prisma.user.findMany({
+      where,
       include: {
-        _count: { select: { bookings: true } },
+        // Seat-occupying bookings only, so a cancelled or expired hold does not
+        // count as a ride this rider took.
+        _count: { select: { bookings: { where: seatOccupyingWhere() } } },
       },
       orderBy: { createdAt: 'desc' },
       skip,
       take,
     }),
-    prisma.user.count(),
+    prisma.user.count({ where }),
   ]);
   return { data, total, page: Math.max(1, parseInt(page) || 1), limit: take };
 }
@@ -299,8 +382,13 @@ async function getDriverDetail(driverId) {
     prisma.trip.count({ where: { driverId, status: 'COMPLETED' } }),
     prisma.trip.count({ where: { driverId, status: 'CANCELLED' } }),
     prisma.driverRating.aggregate({ where: { driverId }, _avg: { stars: true }, _count: { stars: true } }),
+    // BUGFIX: this excluded only CANCELLED and PENDING, so REFUNDED, EXPIRED
+    // and NO_SHOW bookings were all counted as money this driver earned. A
+    // refunded fare is not earnings. Settlement truth on this platform is
+    // paymentStatus === 'PAID', which both the cash and the card paths set —
+    // the same rule the revenue KPI now uses.
     prisma.booking.aggregate({
-      where: { trip: { driverId }, status: { notIn: ['CANCELLED', 'PENDING'] } },
+      where: { trip: { driverId }, paymentStatus: 'PAID' },
       _sum: { fareAmountPesewas: true, commissionAmountPesewas: true },
     }),
   ]);
@@ -343,7 +431,7 @@ async function getDriverTrips(driverId, { page = 1, limit = 20 }) {
       include: {
         route: true,
         bookings: {
-          where: { status: { notIn: ['CANCELLED'] } },
+          where: seatOccupyingWhere(),
           include: { user: { select: { name: true, phone: true } } },
         },
       },
@@ -361,7 +449,7 @@ async function getUserDetail(userId) {
     where: { id: userId },
     include: {
       bookings: {
-        where: { status: { notIn: ['CANCELLED'] } },
+        where: seatOccupyingWhere(),
         include: {
           trip: { include: { route: true, driver: { select: { name: true, phone: true } } } },
         },
@@ -374,13 +462,74 @@ async function getUserDetail(userId) {
   return user;
 }
 
+/**
+ * MISSING ENDPOINT, now added.
+ *
+ * There was no way to fetch ONE trip. Admin could list trips and could list a
+ * driver's or a rider's trips, but every "open this trip" path — from an SOS
+ * alert, a trip report, a support ticket or the dispatch board — had nowhere to
+ * go. Investigating an incident meant paging the trip list looking for an id.
+ *
+ * Returns the full picture an investigation needs: the seat map, who is in each
+ * seat, the money on each booking, and the append-only TripEvent history, which
+ * is the authoritative record of how the trip moved through its lifecycle.
+ */
+async function getTripDetail(tripId) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    include: {
+      route: true,
+      vehicle: true,
+      driver: {
+        select: {
+          id: true, name: true, phone: true, status: true,
+          isOnline: true, currentLat: true, currentLng: true,
+        },
+      },
+      requester: { select: { id: true, name: true, phone: true } },
+      // ALL bookings here, not just seat-occupying ones: an investigation needs
+      // to see the cancelled and refunded rows too. The UI distinguishes them by
+      // status rather than the query hiding them.
+      bookings: {
+        include: { user: { select: { id: true, name: true, phone: true } } },
+        orderBy: [{ seatNumber: 'asc' }, { createdAt: 'asc' }],
+      },
+      events: { orderBy: { seq: 'asc' } },
+    },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+
+  // Occupancy derived from the one predicate, so this can never disagree with
+  // the availableSeats the apps are shown.
+  const { SEAT_OCCUPYING_STATUSES } = require('../../utils/booking-status');
+  const occupied = trip.bookings.filter((b) => SEAT_OCCUPYING_STATUSES.includes(b.status));
+  const settled = trip.bookings.filter((b) => b.paymentStatus === 'PAID');
+
+  return {
+    ...trip,
+    occupancy: {
+      maxSeats: trip.maxSeats,
+      occupiedSeats: occupied.length,
+      availableSeats: Math.max(0, (trip.maxSeats || 0) - occupied.length),
+      seatNumbers: occupied.map((b) => b.seatNumber).filter((n) => n !== null),
+    },
+    money: {
+      settledBookings: settled.length,
+      // Settlement truth is paymentStatus === 'PAID' — this platform is mostly
+      // cash, so counting PaymentTransaction rows would report near zero.
+      settledPesewas: settled.reduce((sum, b) => sum + (b.fareAmountPesewas || 0), 0),
+      commissionPesewas: settled.reduce((sum, b) => sum + (b.commissionAmountPesewas || 0), 0),
+    },
+  };
+}
+
 async function getUserTrips(userId, { page = 1, limit = 20 }) {
   const p = parseInt(page) || 1;
   const l = parseInt(limit) || 20;
   const skip = (p - 1) * l;
   const [bookings, total] = await Promise.all([
     prisma.booking.findMany({
-      where: { userId, status: { notIn: ['CANCELLED'] } },
+      where: { userId, ...seatOccupyingWhere() },
       include: {
         trip: { include: { route: true, driver: { select: { name: true, phone: true } } } },
       },
@@ -388,7 +537,7 @@ async function getUserTrips(userId, { page = 1, limit = 20 }) {
       skip,
       take: l,
     }),
-    prisma.booking.count({ where: { userId, status: { notIn: ['CANCELLED'] } } }),
+    prisma.booking.count({ where: { userId, ...seatOccupyingWhere() } }),
   ]);
   return { bookings, total, page: p, totalPages: Math.ceil(total / l) };
 }
@@ -665,16 +814,27 @@ async function getMetrics() {
   ] = await Promise.all([
     prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } } }),
     prisma.driver.count({ where: { isOnline: true } }),
-    prisma.paymentTransaction.aggregate({
-      where: { status: 'SUCCESS', createdAt: { gte: today } },
-      _sum: { amountPesewas: true },
+    // BUGFIX — this read PaymentTransaction.status === 'SUCCESS'.
+    //
+    // EyeGo is a cash-majority platform: most fares are settled in the car and
+    // never create a PaymentTransaction row at all. Counting transactions
+    // therefore reported only the Paystack/MoMo minority, so today's revenue
+    // read near zero on a normal trading day and the commission derived from it
+    // was wrong by the same factor.
+    //
+    // Settlement truth is Booking.paymentStatus === 'PAID', which both the cash
+    // and the card paths set. Anything reporting money in this console must use
+    // that and nothing else.
+    prisma.booking.aggregate({
+      where: { paymentStatus: 'PAID', updatedAt: { gte: today } },
+      _sum: { fareAmountPesewas: true },
     }),
     prisma.user.count(),
     prisma.driver.count(),
     prisma.driver.count({ where: { status: 'PENDING_REVIEW' } }),
   ]);
 
-  const todayRevenuePesewas = todayPayments._sum.amountPesewas ?? 0;
+  const todayRevenuePesewas = todayPayments._sum.fareAmountPesewas ?? 0;
   const env = require('../../config/env');
   const todayCommissionPesewas = percentOf(todayRevenuePesewas, env.PLATFORM_COMMISSION);
 
@@ -691,11 +851,17 @@ async function getMetrics() {
 
 async function getActiveTrips() {
   return prisma.trip.findMany({
-    where: { status: { in: ['DRIVER_EN_ROUTE', 'IN_PROGRESS'] } },
+    // BUGFIX: this listed only DRIVER_EN_ROUTE and IN_PROGRESS while the
+    // activeTrips KPI right above counted ARRIVED_AT_PICKUP as well. The two
+    // disagreed, so a driver waiting at the pickup point was counted in the
+    // headline number but vanished from the list an operator actually works —
+    // the trip disappeared from view at the exact moment it most often needs
+    // attention. Both now derive from one constant.
+    where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } },
     include: {
       driver: { select: { id: true, name: true, currentLat: true, currentLng: true, phone: true } },
       route: { select: { originName: true, destinationName: true } },
-      _count: { select: { bookings: { where: { status: { notIn: ['CANCELLED'] } } } } },
+      _count: { select: { bookings: { where: seatOccupyingWhere() } } },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -740,12 +906,17 @@ async function getLiveDrivers() {
   const activeTrips = await prisma.trip.findMany({
     where: {
       driverId: { in: driverIds },
-      status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] },
+      // BUGFIX: this list omitted REQUESTED, MATCHING, REASSIGNING, CONFIRMED
+      // and DRIVER_ASSIGNED. A driver who had just accepted a trip but not yet
+      // started moving carried no active trip on the live map, so the console
+      // drew them as free and an operator could assign them a second one —
+      // double-dispatching a vehicle that already had a rider waiting.
+      status: { in: DRIVER_OCCUPYING_TRIP_STATUSES },
     },
     select: {
       id: true, shortId: true, driverId: true, status: true,
       route: { select: { originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
-      _count: { select: { bookings: { where: { status: { notIn: ['CANCELLED'] } } } } },
+      _count: { select: { bookings: { where: seatOccupyingWhere() } } },
       maxSeats: true, confirmedSeats: true,
     },
   });
@@ -838,7 +1009,7 @@ async function assignDriverToTrip(tripId, driverId, adminId) {
       route: true,
       driver: { select: { id: true, name: true, phone: true } },
       bookings: {
-        where: { status: { notIn: ['CANCELLED'] } },
+        where: seatOccupyingWhere(),
         include: { user: { select: { name: true } } },
       },
     },
@@ -924,13 +1095,18 @@ async function getUnassignedTrips() {
   // needs to intervene on and hand off to another online driver.
   return prisma.trip.findMany({
     where: {
-      status: { notIn: ['COMPLETED', 'CANCELLED'] },
+      // BUGFIX: excluding only COMPLETED and CANCELLED left the other three
+      // terminals in — NO_DRIVERS_FOUND, EXPIRED and NO_SHOW. Those trips are
+      // over and their driver is very often offline, so they accumulated in the
+      // "needs intervention" queue permanently, burying the handful of live
+      // trips that genuinely needed a hand-off.
+      status: { notIn: TERMINAL_TRIP_STATUSES },
       driver: { isOnline: false },
     },
     include: {
       route: { select: { id: true, name: true, originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
       driver: { select: { id: true, name: true, isOnline: true } },
-      _count: { select: { bookings: { where: { status: { notIn: ['CANCELLED'] } } } } },
+      _count: { select: { bookings: { where: seatOccupyingWhere() } } },
     },
     orderBy: { departureTime: 'asc' },
     take: 50,
@@ -1025,7 +1201,9 @@ async function resolveSosEvent(id) {
 // All functions guard against empty tables (return zeros, never throw).
 // ─────────────────────────────────────────────────────────────────
 
-const ACTIVE_TRIP_STATUSES = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
+// Analytics used its own shorter list, which disagreed with both the KPI count
+// and the live map. One definition now, at the top of this file.
+const ACTIVE_TRIP_STATUSES = DRIVER_OCCUPYING_TRIP_STATUSES;
 
 function startOfToday() {
   const d = new Date();
@@ -1112,7 +1290,7 @@ async function getAnalyticsOverview() {
     prisma.driver.count({ where: { status: 'SUSPENDED' } }),
     prisma.user.count(),
     prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
-    prisma.booking.aggregate({ where: { status: { notIn: ['CANCELLED'] } }, _avg: { fareAmountPesewas: true } }),
+    prisma.booking.aggregate({ where: seatOccupyingWhere(), _avg: { fareAmountPesewas: true } }),
     prisma.booking.count({ where: { paymentMethod: 'CASH' } }),
     prisma.booking.count({ where: { paymentMethod: 'CARD' } }),
   ]);
@@ -1324,7 +1502,7 @@ module.exports = {
   getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops,
   getAllPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,
-  getDriverDetail, getDriverTrips,
+  getDriverDetail, getDriverTrips, getTripDetail,
   getUserDetail, getUserTrips,
   getSupportTickets, getSupportTicketDetail, getTripReports, resolveTripReport, respondToTicket, closeTicket,
   getPromotions, createPromotion, togglePromotion,
