@@ -18,7 +18,7 @@ import {
   StatCard,
 } from '@/components/ui/primitives';
 import { apiGetSafe, getAdmin } from '@/lib/api';
-import { dateTime, ghs, num, phone as fmtPhone, relative, shortId } from '@/lib/format';
+import { dateTime, ghs, num, phone as fmtPhone, relative, shortId, tripRef } from '@/lib/format';
 import { can, isReadOnly } from '@/lib/roles';
 import { bookingStatusMeta, paymentStatusMeta, tierMeta, tripStatusMeta } from '@/lib/status';
 
@@ -185,7 +185,7 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
                         <td>
                           {b.trip ? (
                             <Link href={`/trips/${b.trip.id}`} className="mono hover:text-accent">
-                              {shortId(b.trip.shortId || b.trip.id)}
+                              {tripRef(b.trip)}
                             </Link>
                           ) : (
                             <span className="text-text-faint">—</span>

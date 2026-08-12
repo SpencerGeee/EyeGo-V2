@@ -3,8 +3,9 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Map as MlMap, Marker as MlMarker, StyleSpecification } from 'maplibre-gl';
+import type { Map as MlMap, Marker as MlMarker } from 'maplibre-gl';
 
+import { mapStyleFor, useThemeMode } from './useMapStyle';
 import { Icon } from '@/components/ui/Icon';
 
 export type MapDriver = {
@@ -23,25 +24,6 @@ export type MapDriver = {
  * one does, the camera fits the fleet instead.
  */
 const HOME: [number, number] = [-0.187, 5.6037];
-
-/**
- * A basemap needs a tile provider, and every provider worth using needs a key.
- * Rather than hard-wire someone's quota or ship a provider that rate-limits in
- * production, the style URL is configuration. With it unset the map still works:
- * MapLibre renders the background layer and places every marker at its true
- * position, so relative geography, spacing and movement are all correct — you
- * just have no streets behind them. A degraded map that tells the truth beats a
- * blank panel.
- */
-const BLANK_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {},
-  // Transparent so the holder's themed background shows through and the blank
-  // map is not a dark rectangle in light mode.
-  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': 'rgba(0,0,0,0)' } }],
-};
-
-const STYLE_URL = process.env.NEXT_PUBLIC_MAP_STYLE_URL;
 
 type Payload = { drivers: MapDriver[]; at: string };
 
@@ -65,6 +47,7 @@ export function FleetMap({
   const [ready, setReady] = useState(false);
   const [live, setLive] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
+  const mode = useThemeMode();
 
   const located = useMemo(
     () => drivers.filter((d) => typeof d.lat === 'number' && typeof d.lng === 'number'),
@@ -85,10 +68,9 @@ export function FleetMap({
 
       const instance = new maplibre.Map({
         container: holder.current,
-        style: STYLE_URL || BLANK_STYLE,
+        style: mapStyleFor(mode),
         center: HOME,
         zoom: 11,
-        attributionControl: STYLE_URL ? undefined : false,
         // Rotating an ops map serves no purpose and makes north ambiguous.
         pitchWithRotate: false,
         dragRotate: false,
@@ -117,6 +99,13 @@ export function FleetMap({
       map.current = null;
     };
   }, []);
+
+  // Follow the console's theme. DOM markers survive setStyle, so the pins stay
+  // where they are while the basemap under them swaps.
+  useEffect(() => {
+    if (!map.current || !ready) return;
+    map.current.setStyle(mapStyleFor(mode));
+  }, [mode, ready]);
 
   // ── Polling ────────────────────────────────────────────────────
   const load = useCallback(async () => {
@@ -245,12 +234,18 @@ export function FleetMap({
           aria-label="Live fleet map"
         />
 
-        {!STYLE_URL ? (
-          <p className="absolute bottom-2 left-2 right-2 t-small text-text-faint bg-surface/90 border border-line rounded-md px-2 py-1.5 pointer-events-none">
-            No basemap configured — positions are accurate, streets are not drawn. Set
-            <span className="mono"> NEXT_PUBLIC_MAP_STYLE_URL</span> to add one.
-          </p>
-        ) : null}
+        {/* Legend. Colour alone never carries the busy/free distinction — the
+            words are here and the driver list repeats both as text. */}
+        <div className="absolute bottom-2 right-2 glass rounded-md px-2.5 py-1.5 flex items-center gap-3 pointer-events-none">
+          <span className="flex items-center gap-1.5 t-small">
+            <span className="w-2 h-2 rounded-full bg-accent" aria-hidden="true" />
+            Free
+          </span>
+          <span className="flex items-center gap-1.5 t-small">
+            <span className="w-2 h-2 rounded-full bg-info" aria-hidden="true" />
+            On a trip
+          </span>
+        </div>
 
         {chosen ? (
           <div className="absolute top-2 left-2 card p-3 max-w-[260px]">

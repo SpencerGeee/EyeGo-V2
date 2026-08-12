@@ -12,8 +12,11 @@ type Response = { drivers: DriverRow[]; total: number; page: number; limit: numb
 
 const STATUS_OPTIONS = [
   { value: 'PENDING_REVIEW', label: 'Pending review' },
-  { value: 'APPROVED', label: 'Approved' },
+  // 'ACTIVE' is the API's word for approved (see lib/status.ts) — filtering on
+  // 'APPROVED' matched no rows at all.
+  { value: 'ACTIVE', label: 'Approved' },
   { value: 'SUSPENDED', label: 'Suspended' },
+  { value: 'REJECTED', label: 'Rejected' },
   { value: 'REJECTED', label: 'Rejected' },
 ];
 

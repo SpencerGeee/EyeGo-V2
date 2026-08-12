@@ -46,6 +46,133 @@ async function getMe(userId) {
   };
 }
 
+/**
+ * ACCOUNT COMPLETENESS — "is there anything I still need to fill in?"
+ *
+ * Uber and Bolt both answer this without being asked, because the fields that go
+ * unfilled are exactly the ones that matter when something goes wrong: no email
+ * means no receipt and no way back into a locked account, no emergency contact
+ * means SOS has nobody to notify, no photo means the driver cannot confirm who
+ * they are collecting. Reported here as "the email field is empty but there's no
+ * way for me to add it" — the field existed, buried two screens deep, and nothing
+ * ever prompted for it.
+ *
+ * Server-side on purpose: the same answer then drives the rider app's prompt, the
+ * admin console's view of an account, and anything added later. A client-side
+ * checklist would drift from what the server actually requires.
+ *
+ * `severity` is what the UI sorts and colours by:
+ *   required    — the account is not safe to operate without it
+ *   recommended — a real gap, but the rider can ride today
+ *   optional    — a feature they may simply not want
+ */
+async function getAccountChecklist(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true, name: true, phone: true, email: true, profilePhoto: true,
+      preferredTier: true, requireBoardingPin: true,
+      authProvider: true, createdAt: true,
+    },
+  });
+  if (!user) throw new NotFoundError('User');
+
+  const [savedPlaces, paidBookings, contactRows, firstContact] = await Promise.all([
+    prisma.savedPlace.count({ where: { userId } }).catch(() => 0),
+    prisma.booking.count({ where: { userId, paymentStatus: 'PAID' } }).catch(() => 0),
+    // A RIDER's emergency contacts live in the `EmergencyContact` relation, not
+    // in a JSON column — `emergencyContact String?` is on the DRIVER model. This
+    // read is the only correct source for a rider.
+    prisma.emergencyContact.count({ where: { userId } }).catch(() => 0),
+    prisma.emergencyContact
+      .findFirst({ where: { userId }, select: { name: true }, orderBy: { createdAt: 'asc' } })
+      .catch(() => null),
+  ]);
+
+  const hasEmergency = contactRows > 0;
+
+  const items = [
+    {
+      id: 'phone',
+      label: 'Phone number verified',
+      description: 'You signed in with a one-time code sent to this number.',
+      severity: 'required',
+      done: !!user.phone,
+      // Nothing to do: verifying the phone IS the sign-in.
+      route: null,
+      value: user.phone,
+    },
+    {
+      id: 'name',
+      label: 'Your name',
+      description: 'Drivers see this when they come to collect you.',
+      severity: 'required',
+      done: !!user.name && user.name.trim().length > 1,
+      route: '/profile/edit',
+      value: user.name,
+    },
+    {
+      id: 'email',
+      label: 'Email address',
+      description:
+        'Where trip receipts are sent, and how you recover the account if you lose this number.',
+      severity: 'recommended',
+      done: !!user.email,
+      route: '/profile/edit',
+      value: user.email,
+    },
+    {
+      id: 'photo',
+      label: 'Profile photo',
+      description: 'Helps your driver confirm they have the right passenger.',
+      severity: 'recommended',
+      done: !!user.profilePhoto,
+      route: '/profile/edit',
+      value: null,
+    },
+    {
+      id: 'emergency_contact',
+      label: 'Emergency contact',
+      description: 'Who we notify if you raise an SOS during a trip.',
+      severity: 'required',
+      done: hasEmergency,
+      route: '/profile/emergency-contacts',
+      value: firstContact?.name ?? null,
+    },
+    {
+      id: 'saved_places',
+      label: 'Home and work saved',
+      description: 'One tap to book your two most common trips.',
+      severity: 'optional',
+      done: savedPlaces > 0,
+      route: '/profile/saved-places',
+      value: savedPlaces ? `${savedPlaces} saved` : null,
+    },
+    {
+      id: 'boarding_pin',
+      label: 'Verify My Ride PIN',
+      description: 'Your driver must enter a PIN before the trip starts. Optional, and off by default.',
+      severity: 'optional',
+      done: !!user.requireBoardingPin,
+      route: '/profile/safety',
+      value: user.requireBoardingPin ? 'on' : 'off',
+    },
+  ];
+
+  // Completeness counts required + recommended only. Padding the number with
+  // optional features would tell a rider they are incomplete for declining one.
+  const counted = items.filter((i) => i.severity !== 'optional');
+  const done = counted.filter((i) => i.done).length;
+
+  return {
+    completeness: Math.round((done / counted.length) * 100),
+    outstandingRequired: items.filter((i) => i.severity === 'required' && !i.done).length,
+    outstandingRecommended: items.filter((i) => i.severity === 'recommended' && !i.done).length,
+    items,
+    context: { paidTrips: paidBookings, memberSince: user.createdAt, authProvider: user.authProvider },
+  };
+}
+
 async function updateMe(userId, data) {
   const allowed = {};
   if (data.name) allowed.name = data.name;
@@ -280,4 +407,4 @@ async function deleteSavedPlace(userId, placeId) {
 }
 
 module.exports = {
-  getPreferences, updatePreferences, getMe, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

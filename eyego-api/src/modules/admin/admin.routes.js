@@ -91,6 +91,9 @@ router.post('/surge/:zoneId', requireRole(ROLE.OPS), adminActionLimiter, audit('
 
 // ── Dispatch / Live Map ─────────────────────────────────────────
 router.get('/live/drivers', controller.getLiveDrivers);
+// Why dispatch is or is not matching: the Redis supply pool vs what Postgres
+// considers eligible, per driver, with the reason for every exclusion.
+router.get('/dispatch/health', controller.getDispatchHealth);
 router.get('/trips/unassigned', controller.getUnassignedTrips);
 router.post('/trips/:id/assign', requireRole(ROLE.OPS), adminActionLimiter, audit('trip.assign', { targetType: 'Trip' }), controller.assignDriver);
 

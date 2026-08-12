@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { FilterSelect, Pagination, RefreshControl, ResetFilters } from '@/components/ui/Filters';
 import { Badge, Card, EmptyState, ErrorPanel, PageHeader, Toolbar } from '@/components/ui/primitives';
 import { apiGetSafe } from '@/lib/api';
-import { dateTime, ghs, num, relative, shortId } from '@/lib/format';
+import { dateTime, ghs, num, relative, shortId, tripRef } from '@/lib/format';
 import { TRIP_STATUSES, tripStatusMeta, isLiveTrip, tierMeta } from '@/lib/status';
 
 export const metadata: Metadata = { title: 'Trips' };
@@ -104,7 +104,7 @@ export default async function TripsPage({
                       <tr key={t.id}>
                         <td>
                           <Link href={`/trips/${t.id}`} className="mono hover:text-accent">
-                            {shortId(t.shortId || t.id)}
+                            {tripRef(t)}
                           </Link>
                         </td>
                         <td>

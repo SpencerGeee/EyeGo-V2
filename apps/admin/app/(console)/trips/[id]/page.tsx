@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { StaticMap } from '@/components/map/StaticMap';
 import { Icon } from '@/components/ui/Icon';
 import {
   Badge,
@@ -15,7 +16,17 @@ import {
   StatCard,
 } from '@/components/ui/primitives';
 import { apiGetSafe } from '@/lib/api';
-import { dateTime, ghs, humanise, num, phone as fmtPhone, relative, shortId } from '@/lib/format';
+import {
+  dateTime,
+  ghs,
+  humanise,
+  num,
+  phone as fmtPhone,
+  relative,
+  shortId,
+  tripRef,
+  tripTitle,
+} from '@/lib/format';
 import {
   bookingStatusMeta,
   isLiveTrip,
@@ -31,8 +42,36 @@ type Trip = {
   tier?: string | null;
   version?: number;
   maxSeats?: number;
-  farePerSeatPesewas?: number;
   departureTime?: string | null;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+  surgeMultiplier?: number;
+  /**
+   * Derived server-side by fare.calculator from the rates the trip locked in.
+   * There is no `farePerSeatPesewas` COLUMN — reading one is why this tile used
+   * to render "—" on every trip.
+   */
+  pricing?: {
+    farePerSeatPesewas: number;
+    totalTripCostPesewas: number;
+    driverEarningsPerSeatPesewas: number;
+    commissionPerSeatPesewas: number;
+    distanceKm: number;
+    floorApplied: boolean;
+    surchargePerSeatPesewas: number;
+    heavyLoadSurchargePesewas: number;
+    doorstepSurchargePesewas: number;
+    distanceSource: 'ROUTE' | 'STRAIGHT_LINE';
+  } | null;
+  geometry?: {
+    pickup?: { lat: number; lng: number; address?: string | null } | null;
+    dropoff?: { lat: number; lng: number; address?: string | null } | null;
+    driver?: { lat: number; lng: number } | null;
+    line?: { type: 'LineString'; coordinates: [number, number][] } | null;
+    lineSource?: 'DIRECTIONS' | 'NONE';
+    roadDistanceKm?: number;
+    roadDurationMin?: number;
+  } | null;
   createdAt: string;
   cancelledBy?: string | null;
   cancellationReason?: string | null;
@@ -93,7 +132,7 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  return { title: `Trip ${shortId(id)}` };
+  return { title: `Trip ${tripRef(id)}` };
 }
 
 /**
@@ -145,16 +184,24 @@ export default async function TripDetailPage({ params }: { params: Promise<{ id:
         </Link>
       </nav>
 
+      {/* The journey is the title; the reference is for looking it up. "Trip
+          cmspzwr6" told an operator nothing — and because cuids lead with a
+          timestamp, it also looked identical to every other id created that day
+          (it was mistaken for a rider id, which shared the same prefix). */}
       <PageHeader
-        title={`Trip ${shortId(trip.shortId || trip.id)}`}
+        title={tripTitle(trip) ?? `Trip ${tripRef(trip)}`}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             <Badge tone={meta.tone} live={isLiveTrip(trip.status)}>
               {meta.label}
             </Badge>
             {tier ? <Badge tone={tier.tone}>{tier.label}</Badge> : null}
+            <span className="mono" title="Trip reference">
+              {tripRef(trip)}
+            </span>
+            <span className="text-text-faint">·</span>
             <span>created {relative(trip.createdAt)}</span>
-            {trip.route?.isAdHoc ? <Badge tone="info">Ad-hoc route</Badge> : null}
+            {trip.route?.isAdHoc ? <Badge tone="info">On-demand</Badge> : null}
           </span>
         }
       />
@@ -205,11 +252,86 @@ export default async function TripDetailPage({ params }: { params: Promise<{ id:
         />
         <StatCard
           label="Fare per seat"
-          value={trip.farePerSeatPesewas ? ghs(trip.farePerSeatPesewas) : '—'}
-          hint={trip.route?.distanceKm ? `${trip.route.distanceKm.toFixed(1)} km` : undefined}
+          value={trip.pricing ? ghs(trip.pricing.farePerSeatPesewas) : '—'}
+          hint={
+            trip.pricing
+              ? `${trip.pricing.distanceKm.toFixed(1)} km${
+                  trip.pricing.distanceSource === 'STRAIGHT_LINE' ? ' (straight line)' : ''
+                }${trip.pricing.floorApplied ? ' · at the floor' : ''}`
+              : 'no distance recorded'
+          }
           icon="route"
         />
       </section>
+
+      {/* ── Where it went ── */}
+      <Card flush className="mb-4">
+        <CardHead
+          title="Route"
+          subtitle={
+            trip.geometry?.lineSource === 'DIRECTIONS'
+              ? `Road route${
+                  trip.geometry.roadDistanceKm ? ` · ${trip.geometry.roadDistanceKm.toFixed(1)} km by road` : ''
+                }${trip.geometry.roadDurationMin ? ` · ~${Math.round(trip.geometry.roadDurationMin)} min` : ''}`
+              : 'Straight line between pickup and destination — the road route could not be retrieved'
+          }
+          icon="pin"
+        />
+        <StaticMap
+          label={`Route for trip ${tripRef(trip)}`}
+          height={340}
+          line={trip.geometry?.line ?? null}
+          points={[
+            ...(trip.geometry?.pickup
+              ? [{
+                  lat: trip.geometry.pickup.lat,
+                  lng: trip.geometry.pickup.lng,
+                  glyph: 'A',
+                  tone: 'accent' as const,
+                  label: `Pickup — ${trip.geometry.pickup.address ?? 'unnamed'}`,
+                }]
+              : []),
+            ...(trip.geometry?.dropoff
+              ? [{
+                  lat: trip.geometry.dropoff.lat,
+                  lng: trip.geometry.dropoff.lng,
+                  glyph: 'B',
+                  tone: 'info' as const,
+                  label: `Destination — ${trip.geometry.dropoff.address ?? 'unnamed'}`,
+                }]
+              : []),
+            ...(trip.geometry?.driver && isLiveTrip(trip.status)
+              ? [{
+                  lat: trip.geometry.driver.lat,
+                  lng: trip.geometry.driver.lng,
+                  glyph: '▲',
+                  tone: 'neutral' as const,
+                  label: 'Driver, last known position',
+                }]
+              : []),
+          ]}
+        />
+        <div className="px-4 py-3 border-t border-line grid gap-2 sm:grid-cols-2">
+          <div className="flex items-start gap-2">
+            <span className="map-pin-static tone-accent flex-none mt-0.5">A</span>
+            <span className="min-w-0">
+              <span className="block t-eyebrow">Pickup</span>
+              <span className="block t-small text-text-dim">
+                {trip.geometry?.pickup?.address || trip.pickupAddress || trip.route?.originName || 'not recorded'}
+              </span>
+            </span>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="map-pin-static tone-info flex-none mt-0.5">B</span>
+            <span className="min-w-0">
+              <span className="block t-eyebrow">Destination</span>
+              <span className="block t-small text-text-dim">
+                {trip.geometry?.dropoff?.address || trip.dropoffAddress || trip.route?.destinationName || 'not recorded'}
+              </span>
+            </span>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* ── Seat map / bookings ── */}

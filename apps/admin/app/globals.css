@@ -38,9 +38,16 @@
   --line: #222831;
   --line-strong: #2c333d;
 
-  --text: #e9eef5;
-  --text-dim: #98a3b3;
-  --text-faint: #64707f;
+  /* ── Text. Three weights of emphasis, and ALL THREE must be readable.
+        --text-faint was #64707f, which is 4.0:1 on --surface: it passes as a
+        large-text colour and fails as what it was actually used for — hints,
+        timestamps, secondary identifiers, whole table columns. Reported as
+        "way too faint and cant be seen", correctly. It is now 6.3:1, still
+        clearly recessive against --text-dim but legible on a laptop screen in
+        daylight. Nothing in this console is allowed to go below --text-faint. ── */
+  --text: #eaeff6;
+  --text-dim: #a7b2c1;
+  --text-faint: #8e9aab;
   --text-inverse: #0a0c0f;
 
   /* ── The one accent. Deeper than the mobile #4BE277: at small sizes on a
@@ -95,6 +102,27 @@
   --sidebar-w: 244px;
   --topbar-h: 56px;
 
+  /* ── BRAND LAYER ──────────────────────────────────────────────────
+     The original Graphite palette was correct about restraint and wrong about
+     identity: with the accent reserved for primary actions only, a console full
+     of neutral tables reads as "a dark grey admin panel" and nothing on screen
+     says EyeGo. Reported as "bland — I don't see the green anywhere".
+
+     The fix is not to colour more components. It is to put the brand into the
+     ground and the edges — a green-tinted veil behind the whole page, glass
+     chrome that lets it through, and an accent rim on the surfaces that matter —
+     so the green is continuously present while every semantic colour keeps
+     meaning exactly what it meant before. */
+  --glass: rgb(17 20 25 / 0.72);
+  --glass-line: rgb(255 255 255 / 0.06);
+  /* Rim + bloom. One shadow so a glow can be applied in a single declaration. */
+  --glow-accent: 0 0 0 1px var(--accent-rim), 0 8px 28px -12px rgb(47 212 107 / 0.4);
+  --glow-critical: 0 0 0 1px rgb(255 45 111 / 0.45), 0 8px 28px -12px rgb(255 45 111 / 0.45);
+  /* The veil. Three wide, low-opacity radials — cheap, static, no animation. */
+  --veil-a: rgb(47 212 107 / 0.13);
+  --veil-b: rgb(74 158 255 / 0.08);
+  --veil-c: rgb(47 212 107 / 0.06);
+
   color-scheme: dark;
 }
 
@@ -113,14 +141,17 @@
   --line-strong: #cfd4dc;
 
   --text: #10151c;
-  --text-dim: #56616f;
-  --text-faint: #7d8794;
+  --text-dim: #4d5765;
+  /* 4.9:1 on white — the light-mode counterpart of the fix above. */
+  --text-faint: #66707e;
   --text-inverse: #ffffff;
 
-  --accent: #12924a;
-  --accent-hover: #0e7a3d;
-  --accent-soft: #e6f6ec;
-  --accent-rim: #a8dcbc;
+  /* Brand green, darkened only as far as contrast demands. #12924a on white is
+     4.6:1, so it can carry text and icons, not just fills. */
+  --accent: #0f9950;
+  --accent-hover: #0b7f41;
+  --accent-soft: #e4f7ec;
+  --accent-rim: #93d6ae;
   --on-accent: #ffffff;
 
   --info: #1667cf;
@@ -142,6 +173,16 @@
   --shadow-modal: 0 24px 48px -12px rgb(16 21 28 / 0.18), 0 8px 16px -8px rgb(16 21 28 / 0.1);
   --edge: inset 0 1px 0 0 rgb(255 255 255 / 0.8);
 
+  /* Same brand layer, tuned for a light ground: the veil has to be visible
+     against white without turning the page mint. */
+  --glass: rgb(255 255 255 / 0.72);
+  --glass-line: rgb(16 21 28 / 0.08);
+  --glow-accent: 0 0 0 1px var(--accent-rim), 0 6px 22px -10px rgb(15 153 80 / 0.45);
+  --glow-critical: 0 0 0 1px rgb(194 0 63 / 0.35), 0 6px 22px -10px rgb(194 0 63 / 0.35);
+  --veil-a: rgb(15 153 80 / 0.1);
+  --veil-b: rgb(22 103 207 / 0.07);
+  --veil-c: rgb(15 153 80 / 0.05);
+
   color-scheme: light;
 }
 
@@ -156,14 +197,20 @@
     --line: #e2e5ea;
     --line-strong: #cfd4dc;
     --text: #10151c;
-    --text-dim: #56616f;
-    --text-faint: #7d8794;
+    --text-dim: #4d5765;
+    --text-faint: #66707e;
     --text-inverse: #ffffff;
-    --accent: #12924a;
-    --accent-hover: #0e7a3d;
-    --accent-soft: #e6f6ec;
-    --accent-rim: #a8dcbc;
+    --accent: #0f9950;
+    --accent-hover: #0b7f41;
+    --accent-soft: #e4f7ec;
+    --accent-rim: #93d6ae;
     --on-accent: #ffffff;
+    --glass: rgb(255 255 255 / 0.72);
+    --glass-line: rgb(16 21 28 / 0.08);
+    --glow-accent: 0 0 0 1px var(--accent-rim), 0 6px 22px -10px rgb(15 153 80 / 0.45);
+    --veil-a: rgb(15 153 80 / 0.1);
+    --veil-b: rgb(22 103 207 / 0.07);
+    --veil-c: rgb(15 153 80 / 0.05);
     --info: #1667cf;
     --info-soft: #e7f0fd;
     --info-rim: #b3d0f5;
@@ -233,6 +280,32 @@ body {
   /* Console copy is dense; slab-flat digits stop columns from shifting. */
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1, 'cv05' 1;
+}
+
+/**
+ * THE BRAND VEIL.
+ *
+ * A fixed, non-interactive layer of three wide radial gradients in brand green
+ * and one cool blue, sitting behind everything. It is what makes the console
+ * read as EyeGo rather than as a dark admin template, and it costs one painted
+ * element — no canvas, no shader, no animation frame. (The mobile apps use Skia
+ * for this; Skia is a React Native renderer and does not exist on the web, and a
+ * WebGL equivalent would burn a laptop battery all day for a background.)
+ *
+ * `position: fixed` so it does not scroll — a moving gradient behind a data
+ * table is a distraction — and `pointer-events: none` so it can never intercept
+ * a click on the content above it.
+ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 55% at 12% -8%, var(--veil-a), transparent 60%),
+    radial-gradient(ellipse 70% 50% at 92% 4%, var(--veil-b), transparent 62%),
+    radial-gradient(ellipse 90% 60% at 50% 108%, var(--veil-c), transparent 65%);
 }
 
 /* Never remove the focus ring — replace it with a better one. Keyboard is how
@@ -329,17 +402,105 @@ body {
 /* ── Surfaces ──────────────────────────────────────────────────── */
 
 .card {
-  background: var(--surface);
+  /* Slightly translucent so the veil shows through and every card picks up a
+     trace of the brand ground instead of sitting on it as a flat grey block. */
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--edge);
 }
 .card-flush {
-  background: var(--surface);
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--edge);
   overflow: hidden;
+}
+
+/* ── Brand surfaces ────────────────────────────────────────────────
+   Three treatments, each with a rule about when it may be used. Applying them
+   everywhere would flatten the hierarchy they exist to create. */
+
+/**
+ * GLASS. For CHROME that floats over content the operator is still reading:
+ * the sidebar, the topbar, a map overlay. Never for a data card — blurring what
+ * is behind a table of numbers is decoration paid for in legibility.
+ */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--glass-line);
+}
+/* Blur is the one effect that genuinely costs on a weak GPU, and a translucent
+   panel with no blur is unreadable — so drop the transparency with it. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--surface);
+  }
+}
+
+/**
+ * GLOW. An accent rim and a soft bloom, for the ONE card on a screen that is the
+ * point of the screen — the live-trip panel, the KPI being watched, the primary
+ * action's container. A second glow on the same screen halves the meaning of the
+ * first.
+ */
+.card-glow {
+  border-color: var(--accent-rim);
+  box-shadow: var(--glow-accent), var(--edge);
+}
+/* SOS and nothing else. */
+.card-glow-critical {
+  border-color: color-mix(in oklab, var(--critical) 55%, var(--line));
+  box-shadow: var(--glow-critical), var(--edge);
+}
+
+/**
+ * A hairline of brand at the top edge of a card. Cheaper than a glow and
+ * repeatable — this is what carries the accent across a grid of KPI tiles
+ * without any of them shouting.
+ */
+.card-brand-edge {
+  position: relative;
+  overflow: hidden;
+}
+.card-brand-edge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--accent) 70%, transparent) 22%,
+    color-mix(in oklab, var(--accent) 40%, transparent) 62%,
+    transparent
+  );
+}
+
+/* Opt out, for a tile whose own semantic colour must not compete with brand. */
+.card-brand-edge-off::after {
+  display: none;
+}
+
+/* Brand wash for a hero/summary strip. Subtle enough to sit under text. */
+.brand-wash {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--accent) 7%, transparent), transparent 70%),
+    color-mix(in oklab, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent-rim) 55%, var(--line));
+}
+
+/* The wordmark and any single number that IS the headline. Gradient text is a
+   one-per-screen device; it stops working the moment it repeats. */
+.brand-gradient-text {
+  background: linear-gradient(135deg, var(--text) 20%, var(--accent) 120%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .card-head {
   display: flex;
@@ -397,13 +558,22 @@ body {
 }
 
 .btn-primary {
-  background: var(--accent);
+  /* A slight vertical gradient and a bloom, so the one primary action on a
+     screen looks lit rather than filled. The bloom is what makes it read as the
+     brand's button and not a green rectangle. */
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
   color: var(--on-accent);
-  border-color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 80%, black);
+  box-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.14) inset,
+    0 4px 14px -6px color-mix(in oklab, var(--accent) 65%, transparent);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent-hover));
   border-color: var(--accent-hover);
+  box-shadow:
+    0 1px 0 0 rgb(255 255 255 / 0.18) inset,
+    0 6px 18px -6px color-mix(in oklab, var(--accent) 75%, transparent);
 }
 
 .btn-secondary {
@@ -741,9 +911,19 @@ body {
 /* Current location is marked three ways at once — weight, colour and a rail
    marker — so it reads instantly and never depends on hue alone. */
 .nav-item[aria-current='page'] {
-  background: var(--surface-3);
+  /* Brand-tinted, not neutral grey: the nav is the one element visible on every
+     screen, so it is where a continuous accent earns its place. */
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--accent) 16%, transparent),
+    color-mix(in oklab, var(--accent) 4%, transparent)
+  );
   color: var(--text);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent-rim) 60%, transparent);
+}
+.nav-item[aria-current='page'] svg {
+  color: var(--accent);
 }
 .nav-item[aria-current='page']::before {
   content: '';
@@ -755,6 +935,7 @@ body {
   height: 15px;
   border-radius: 2px;
   background: var(--accent);
+  box-shadow: 0 0 8px 0 color-mix(in oklab, var(--accent) 70%, transparent);
 }
 
 /* ── Utility ───────────────────────────────────────────────────── */
@@ -859,6 +1040,34 @@ body {
   outline-offset: 2px;
   border-radius: 999px;
 }
+/* Pins for the static maps (trip route, SOS location). Labelled with a glyph so
+   pickup, dropoff and the driver are told apart without reference to colour. */
+.map-pin-static {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--text-faint);
+  border: 2px solid var(--bg);
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.5);
+}
+.map-pin-static.tone-accent {
+  background: var(--accent);
+}
+.map-pin-static.tone-info {
+  background: var(--info);
+  color: #fff;
+}
+.map-pin-static.tone-critical {
+  background: var(--critical);
+  color: #fff;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--critical) 30%, transparent);
+}
+
 /* MapLibre's own chrome has to obey the console's palette, or the one third
    party widget on the page is the only thing that ignores the theme. */
 .maplibregl-ctrl-group {

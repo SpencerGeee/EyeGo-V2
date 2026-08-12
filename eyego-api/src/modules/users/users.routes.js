@@ -14,6 +14,10 @@ router.use(authenticate);
 
 router.get('/me', controller.getMe);
 
+// "Is anything missing from my account?" — drives the rider app's completion
+// prompt. Read-only and cheap; safe to call on every profile visit.
+router.get('/me/account-checklist', controller.getAccountChecklist);
+
 router.post('/avatar', upload.single('avatar'), controller.uploadAvatar);
 
 router.patch(

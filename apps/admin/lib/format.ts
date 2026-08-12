@@ -118,6 +118,45 @@ export function duration(minutes: number | null | undefined): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+/**
+ * A HUMAN-READABLE REFERENCE FOR A TRIP — never `id.slice(0, 8)`.
+ *
+ * cuids are `c` + a base-36 TIMESTAMP + a counter + a fingerprint + randomness.
+ * The timestamp comes first, so the leading characters of every record created
+ * in the same period are nearly identical: "Trip cmspzwr6" and the rider id
+ * "cmspzwr6…" looked like the same thing to the operator who reported this,
+ * because for eight characters they genuinely were. Truncating from the front
+ * also cannot distinguish two trips created seconds apart.
+ *
+ * Taking the TAIL uses the random half, which is what actually differs, and
+ * uppercase grouping makes it readable over the phone. `EY-` marks it as an
+ * EyeGo reference rather than a raw database id.
+ */
+export function tripRef(trip: { shortId?: string | null; id?: string | null } | string | null | undefined): string {
+  const raw = typeof trip === 'string' ? trip : (trip?.shortId || trip?.id || '');
+  if (!raw) return '—';
+  const tail = raw.replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase();
+  return `EY-${tail}`;
+}
+
+/**
+ * What to call a trip in a heading or a table when there is somewhere to go and
+ * somewhere to arrive: "Accra Mall → Kotoka Terminal 3". The reference stays
+ * beside it for lookups, but the human reads the journey.
+ */
+export function tripTitle(trip: {
+  route?: { originName?: string | null; destinationName?: string | null } | null;
+  pickupAddress?: string | null;
+  dropoffAddress?: string | null;
+} | null | undefined): string | null {
+  const from = trip?.pickupAddress || trip?.route?.originName || null;
+  const to = trip?.dropoffAddress || trip?.route?.destinationName || null;
+  if (from && to) return `${from} → ${to}`;
+  if (from) return `From ${from}`;
+  if (to) return `To ${to}`;
+  return null;
+}
+
 /** Ids are cuids; the first 8 characters are enough to match against a log. */
 export function shortId(id: string | null | undefined): string {
   if (!id) return '—';

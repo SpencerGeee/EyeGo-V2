@@ -271,6 +271,11 @@ const getAnalyticsScheduled = async (req, res) => {
 };
 
 // ── Live driver positions (admin map) ────────────────────────────
+const getDispatchHealth = async (req, res) => {
+  const health = await adminService.getDispatchHealth();
+  ok(res, health);
+};
+
 const getLiveDriversMap = async (req, res) => {
   const drivers = await adminService.getLiveDriversMap();
   ok(res, { drivers });
@@ -363,4 +368,5 @@ module.exports = {
   getOtaOverview, publishOta, getOtaRuns,
   getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
   getLiveDriversMap,
+  getDispatchHealth,
 };

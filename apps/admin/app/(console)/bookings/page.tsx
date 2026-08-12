@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Pagination, RefreshControl } from '@/components/ui/Filters';
 import { Badge, Card, EmptyState, ErrorPanel, PageHeader, Toolbar } from '@/components/ui/primitives';
 import { apiGetSafe } from '@/lib/api';
-import { dateTime, ghs, num, phone as fmtPhone, relative, shortId } from '@/lib/format';
+import { dateTime, ghs, num, phone as fmtPhone, relative, shortId, tripRef } from '@/lib/format';
 import { bookingStatusMeta, paymentStatusMeta } from '@/lib/status';
 
 export const metadata: Metadata = { title: 'Bookings' };
@@ -130,7 +130,7 @@ export default async function BookingsPage({
                         <td className="hidden lg:table-cell">
                           {b.trip ? (
                             <Link href={`/trips/${b.trip.id}`} className="mono hover:text-accent">
-                              {shortId(b.trip.shortId || b.trip.id)}
+                              {tripRef(b.trip)}
                             </Link>
                           ) : (
                             <span className="text-text-faint">—</span>

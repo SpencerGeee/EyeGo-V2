@@ -2,6 +2,7 @@
 
 import { ActionButton } from '@/components/ui/ActionButton';
 import { approveDriver, rejectDriver, suspendDriver } from '@/lib/actions';
+import { isDriverApproved } from '@/lib/status';
 
 /**
  * Which moderation actions apply depends on where the driver currently is.
@@ -19,25 +20,30 @@ export function DriverModeration({
   name: string;
   status: string;
 }) {
+  // 'ACTIVE' is what approveDriver writes and what dispatch tests for — see the
+  // note in lib/status.ts. Testing 'APPROVED' here meant the Suspend button
+  // never appeared for a working driver.
   const pending = status === 'PENDING_REVIEW';
-  const approved = status === 'APPROVED';
+  const approved = isDriverApproved(status);
   const suspended = status === 'SUSPENDED';
+  const rejected = status === 'REJECTED';
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {pending || suspended ? (
+      {pending || suspended || rejected ? (
         <ActionButton
           action={() => approveDriver(driverId)}
-          label={suspended ? 'Reinstate' : 'Approve'}
+          label={suspended || rejected ? 'Reinstate' : 'Approve'}
           icon="check"
           variant="primary"
           size="md"
           confirm={{
-            title: suspended ? `Reinstate ${name}?` : `Approve ${name}?`,
-            body: suspended
-              ? 'They can go back online and accept trips immediately.'
-              : 'Approve only once every compliance document below is verified. They can go online at once.',
-            confirmLabel: suspended ? 'Reinstate driver' : 'Approve driver',
+            title: suspended || rejected ? `Reinstate ${name}?` : `Approve ${name}?`,
+            body:
+              suspended || rejected
+                ? 'They can go back online and accept trips immediately.'
+                : 'Approve only once every compliance document below is verified. They can go online at once.',
+            confirmLabel: suspended || rejected ? 'Reinstate driver' : 'Approve driver',
           }}
         />
       ) : null}

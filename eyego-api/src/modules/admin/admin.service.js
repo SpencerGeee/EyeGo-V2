@@ -5,6 +5,7 @@ const { formatGhs, percentOf, assertPesewas, wholePesewas } = require('../../uti
 const prisma = require('../../config/database');
 const pushService = require('../../services/push.service');
 const mapboxService = require('../../services/mapbox.service');
+const redis = require('../../config/redis');
 const { haversineMeters } = require('../../utils/geo');
 const { NotFoundError, AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
@@ -474,6 +475,118 @@ async function getUserDetail(userId) {
  * seat, the money on each booking, and the append-only TripEvent history, which
  * is the authoritative record of how the trip moved through its lifecycle.
  */
+/**
+ * WHY DISPATCH IS OR IS NOT WORKING, RIGHT NOW.
+ *
+ * Every "the rider requested and nothing reached the driver phone" report has so
+ * far been answered by someone opening a psql session and a redis-cli and
+ * guessing. The information needed is small and it is all here:
+ *
+ *   - the SUPPLY POOL is Redis (`supply:drivers:geo` + a 90s presence key). A
+ *     driver is only dispatchable while they are pinging; `isOnline` in Postgres
+ *     is NOT the pool. A driver whose app is open but whose socket has stopped
+ *     emitting location falls out of the pool silently, and that difference is
+ *     invisible everywhere else in this console.
+ *   - eligibility is Postgres, and `explainIneligible` already names the exact
+ *     reason per driver (NOT_ACTIVE / OFFLINE / REQUESTS_PAUSED / BUSY).
+ *   - a driver with no `fcmToken` can only be reached over an open socket, so a
+ *     backgrounded app never sees the offer at all.
+ *
+ * Read-only: it inspects, it never dispatches.
+ */
+async function getDispatchHealth() {
+  const supply = require('../../services/supply-index.service');
+  const { availableDriverWhere, explainIneligible, busyTripFilter } = require('../../services/driver-availability');
+
+  const [poolSize, drivers, awaitingTrips] = await Promise.all([
+    supply.poolSize(),
+    prisma.driver.findMany({
+      select: {
+        id: true, name: true, phone: true, status: true, isOnline: true,
+        requestsPaused: true, currentLat: true, currentLng: true, fcmToken: true,
+        vehicles: { where: { isActive: true }, select: { tier: true, isVerified: true, plateNumber: true } },
+        trips: { where: busyTripFilter(), select: { id: true, status: true }, take: 1 },
+      },
+      orderBy: { name: 'asc' },
+    }),
+    // Trips dispatch still owes a driver, oldest first — the queue an operator
+    // would act on.
+    prisma.trip.findMany({
+      where: { status: { in: ['REQUESTED', 'MATCHING', 'REASSIGNING'] } },
+      select: {
+        id: true, shortId: true, status: true, tier: true, createdAt: true,
+        pickupLat: true, pickupLng: true, pickupAddress: true,
+        events: { where: { type: 'DISPATCH_PROGRESS' }, orderBy: { seq: 'desc' }, take: 1 },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 20,
+    }),
+  ]);
+
+  // Who Postgres would allow an offer to go to at all, ignoring geography.
+  const eligibleIds = new Set(
+    (await prisma.driver.findMany({ where: availableDriverWhere(), select: { id: true } })).map((d) => d.id),
+  );
+
+  // The reason each non-eligible driver is out, straight from the rule that
+  // excluded them, so this panel cannot drift from the dispatch decision.
+  const reasons = Object.fromEntries(
+    (await explainIneligible(prisma, drivers.filter((d) => !eligibleIds.has(d.id)).map((d) => d.id)).catch(() => []))
+      .map((r) => [r.id, r.reason]),
+  );
+
+  // Membership of the Redis pool, per driver. Checked against the driver's own
+  // last known position so a driver in the pool is reported as in the pool even
+  // if they have since moved.
+  const inPool = new Set();
+  for (const d of drivers) {
+    if (!Number.isFinite(d.currentLat) || !Number.isFinite(d.currentLng)) continue;
+    const hit = await supply
+      .nearbyDrivers(d.currentLat, d.currentLng, 25, 200)
+      .catch(() => []);
+    if (hit.some((h) => h.driverId === d.id)) inPool.add(d.id);
+  }
+
+  return {
+    pool: {
+      size: poolSize,
+      presenceTtlSeconds: supply.PRESENCE_TTL_SECONDS,
+    },
+    drivers: drivers.map((d) => ({
+      id: d.id,
+      name: d.name,
+      phone: d.phone,
+      status: d.status,
+      isOnline: d.isOnline,
+      requestsPaused: d.requestsPaused,
+      hasGps: Number.isFinite(d.currentLat) && Number.isFinite(d.currentLng),
+      inSupplyPool: inPool.has(d.id),
+      dispatchable: eligibleIds.has(d.id) && inPool.has(d.id),
+      // Not decoration: with no token, an offer only ever arrives on an open
+      // socket, so a backgrounded driver app is unreachable.
+      canBeWoken: !!d.fcmToken,
+      activeTrip: d.trips[0] ?? null,
+      vehicle: d.vehicles[0]
+        ? { tier: d.vehicles[0].tier, plateNumber: d.vehicles[0].plateNumber, isVerified: d.vehicles[0].isVerified }
+        : null,
+      // Present only when they are NOT eligible.
+      reason: reasons[d.id] ?? null,
+    })),
+    awaiting: awaitingTrips.map((t) => ({
+      id: t.id,
+      shortId: t.shortId,
+      status: t.status,
+      tier: t.tier,
+      createdAt: t.createdAt,
+      pickupAddress: t.pickupAddress,
+      hasPickupCoords: Number.isFinite(t.pickupLat) && Number.isFinite(t.pickupLng),
+      // The cascade's own last word on this trip: SEARCHING / OFFERED /
+      // WIDENING / WAITING_FOR_SUPPLY, with its counts.
+      lastProgress: t.events[0]?.payload ?? null,
+    })),
+  };
+}
+
 async function getTripDetail(tripId) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
@@ -505,8 +618,121 @@ async function getTripDetail(tripId) {
   const occupied = trip.bookings.filter((b) => SEAT_OCCUPYING_STATUSES.includes(b.status));
   const settled = trip.bookings.filter((b) => b.paymentStatus === 'PAID');
 
+  /**
+   * PRICING, DERIVED THE ONE WAY IT IS ALLOWED TO BE DERIVED.
+   *
+   * `Trip` stores the rates it locked in (baseFarePesewas, perKmRatePesewas,
+   * surgeMultiplier) but NOT the resulting per-seat price — that is computed by
+   * fare.calculator from the rates, the distance and the seat count. The console
+   * used to read a `trip.farePerSeatPesewas` column that has never existed,
+   * which is why every trip showed "—" for the seat fare.
+   *
+   * Re-deriving it here with the STORED rates (never the current env rates) is
+   * what makes this number the same one the rider was charged. Distance comes
+   * from the Route when there is one, and from the trip's own pickup/dropoff
+   * when it was an on-demand ride with no Route row.
+   */
+  let pricing = null;
+  try {
+    const { calculateFare, haversineKm } = require('../trips/fare.calculator');
+    const distanceKm = Number.isFinite(trip.route?.distanceKm)
+      ? trip.route.distanceKm
+      : Number.isFinite(trip.pickupLat) && Number.isFinite(trip.dropoffLat)
+        ? haversineKm(trip.pickupLat, trip.pickupLng, trip.dropoffLat, trip.dropoffLng)
+        : null;
+
+    if (distanceKm != null) {
+      const fare = calculateFare({
+        tier: trip.tier,
+        distanceKm,
+        seatCount: trip.maxSeats,
+        doorstepPickup: trip.doorstepPickup,
+        heavyLoad: trip.heavyLoad,
+        surgeMultiplier: trip.surgeMultiplier ?? 1,
+        storedBaseFarePesewas: trip.baseFarePesewas,
+        storedPerKmRatePesewas: trip.perKmRatePesewas,
+      });
+      pricing = {
+        farePerSeatPesewas: fare.farePerPersonPesewas,
+        totalTripCostPesewas: fare.totalTripCostPesewas,
+        driverEarningsPerSeatPesewas: fare.driverEarningsPerSeatPesewas,
+        commissionPerSeatPesewas: fare.commissionPerSeatPesewas,
+        distanceKm: fare.distanceKm,
+        // `true` means the platform minimum set the price, not the distance —
+        // worth showing, because it explains a short trip costing "too much".
+        floorApplied: fare.floorApplied,
+        surchargePerSeatPesewas: fare.surchargePerSeatPesewas,
+        heavyLoadSurchargePesewas: fare.heavyLoadSurchargePesewas,
+        doorstepSurchargePesewas: fare.doorstepSurchargePesewas,
+        // Whether the distance is measured road distance or a straight line, so
+        // the console never presents an estimate as a measurement.
+        distanceSource: Number.isFinite(trip.route?.distanceKm) ? 'ROUTE' : 'STRAIGHT_LINE',
+      };
+    }
+  } catch (err) {
+    // A pricing display must never take the investigation page down with it.
+    logger.warn(`[admin] trip pricing derivation failed for ${tripId}: ${err.message}`);
+  }
+
+  /**
+   * GEOMETRY FOR THE MAP. Pickup, dropoff and — where it can be had — the road
+   * line between them, so an admin can see the actual route rather than guess
+   * from two place names.
+   *
+   * Cached in Redis for a day and best-effort: a Directions failure or a missing
+   * Mapbox token leaves `line` null and the console falls back to drawing the
+   * straight line between the two pins, clearly labelled as such.
+   */
+  const geometry = {
+    pickup:
+      Number.isFinite(trip.pickupLat) && Number.isFinite(trip.pickupLng)
+        ? { lat: trip.pickupLat, lng: trip.pickupLng, address: trip.pickupAddress ?? trip.route?.originName ?? null }
+        : trip.route
+          ? { lat: trip.route.originLat, lng: trip.route.originLng, address: trip.route.originName }
+          : null,
+    dropoff:
+      Number.isFinite(trip.dropoffLat) && Number.isFinite(trip.dropoffLng)
+        ? { lat: trip.dropoffLat, lng: trip.dropoffLng, address: trip.dropoffAddress ?? trip.route?.destinationName ?? null }
+        : trip.route
+          ? { lat: trip.route.destLat, lng: trip.route.destLng, address: trip.route.destinationName }
+          : null,
+    driver:
+      trip.driver && Number.isFinite(trip.driver.currentLat)
+        ? { lat: trip.driver.currentLat, lng: trip.driver.currentLng }
+        : null,
+    line: null,
+    lineSource: 'NONE',
+  };
+
+  if (geometry.pickup && geometry.dropoff) {
+    const cacheKey = `admin:trip-line:${tripId}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        geometry.line = JSON.parse(cached);
+        geometry.lineSource = 'DIRECTIONS';
+      } else {
+        const directions = await mapboxService.getDirections(
+          geometry.pickup.lng, geometry.pickup.lat,
+          geometry.dropoff.lng, geometry.dropoff.lat,
+        );
+        if (directions?.geometry) {
+          geometry.line = directions.geometry;
+          geometry.lineSource = 'DIRECTIONS';
+          geometry.roadDistanceKm = directions.distanceKm;
+          geometry.roadDurationMin = directions.durationMin;
+          await redis.set(cacheKey, JSON.stringify(directions.geometry), 'EX', 86400);
+        }
+      }
+    } catch (err) {
+      logger.debug(`[admin] trip line unavailable for ${tripId}: ${err.message}`);
+    }
+  }
+
   return {
     ...trip,
+    pricing,
+    geometry,
     occupancy: {
       maxSeats: trip.maxSeats,
       occupiedSeats: occupied.length,
@@ -1510,4 +1736,5 @@ module.exports = {
   getSosEvents, resolveSosEvent,
   getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
   getLiveDriversMap,
+  getDispatchHealth,
 };

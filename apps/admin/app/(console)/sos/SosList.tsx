@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 
+import { StaticMap } from '@/components/map/StaticMap';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { Icon } from '@/components/ui/Icon';
 import { Badge, EmptyState, ErrorPanel } from '@/components/ui/primitives';
 import { resolveSosEvent } from '@/lib/actions';
-import { dateTime, minutesSince, phone as fmtPhone, relative, shortId } from '@/lib/format';
+import { dateTime, minutesSince, phone as fmtPhone, relative, tripRef } from '@/lib/format';
 import { tripStatusMeta } from '@/lib/status';
 
 export type SosEvent = {
@@ -121,7 +122,7 @@ export function SosList({
                   <span>
                     Trip{' '}
                     <Link href={`/trips/${e.tripId}`} className="mono text-accent hover:underline">
-                      {shortId(e.tripId)}
+                      {tripRef(e.tripId)}
                     </Link>
                     {tripMeta ? (
                       <>
@@ -173,6 +174,45 @@ export function SosList({
                   <p className="t-small text-text-faint mt-1.5">
                     Cleared {dateTime(e.resolvedAt)}
                   </p>
+                ) : null}
+
+                {/* WHERE IT WAS RAISED, ON A MAP.
+                    Coordinates read aloud are what emergency services need, but
+                    "5.62890, -0.17084" tells the operator nothing about whether
+                    that is a motorway or a market. Unresolved alerts show the map
+                    expanded; resolved ones keep it collapsed so a long history
+                    stays scannable. */}
+                {typeof e.lat === 'number' && typeof e.lng === 'number' ? (
+                  open ? (
+                    <div className="mt-3 rounded-lg overflow-hidden border border-critical/40">
+                      <StaticMap
+                        label={`Location of the SOS raised by ${e.reporter?.name ?? 'unknown reporter'}`}
+                        height={200}
+                        points={[
+                          {
+                            lat: e.lat,
+                            lng: e.lng,
+                            glyph: '!',
+                            tone: 'critical',
+                            label: 'SOS location',
+                          },
+                        ]}
+                      />
+                    </div>
+                  ) : (
+                    <details className="mt-2">
+                      <summary className="t-small text-text-dim cursor-pointer hover:text-text">
+                        Show location on a map
+                      </summary>
+                      <div className="mt-2 rounded-lg overflow-hidden border border-line">
+                        <StaticMap
+                          label="SOS location"
+                          height={180}
+                          points={[{ lat: e.lat, lng: e.lng, glyph: '!', tone: 'critical', label: 'SOS location' }]}
+                        />
+                      </div>
+                    </details>
+                  )
                 ) : null}
               </div>
 

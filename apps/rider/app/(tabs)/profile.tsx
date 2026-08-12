@@ -104,6 +104,15 @@ export default function ProfileScreen() {
     select: (r: any) => r.data?.data ?? null,
     staleTime: 60_000,
   });
+  // What the account is still missing. Cheap read; refreshed when the rider
+  // comes back to this tab after filling something in.
+  const { data: checklist } = useQuery({
+    queryKey: ['user', 'account-checklist'],
+    queryFn: () => userApi.getAccountChecklist(),
+    select: (r: any) => r.data?.data ?? null,
+    staleTime: 30_000,
+  });
+
   const riderRating = freshProfile?.rating ?? (user as any)?.rating ?? null;
   const ratingCount = freshProfile?.ratingCount ?? 0;
   /**
@@ -231,6 +240,63 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         </Animated.View>
+
+        {/* ── FINISH SETTING UP ──
+            The server decides what is missing (GET /user/me/account-checklist),
+            so this cannot disagree with the console's view of the same account.
+            Hidden entirely once nothing is outstanding — a permanent "you're all
+            set" card is clutter, and a checklist nobody can clear is worse. */}
+        {checklist && checklist.outstandingRequired + checklist.outstandingRecommended > 0 ? (
+          <Animated.View entering={FadeIn.delay(90).duration(200)} style={styles.setupCard}>
+            <View style={styles.setupHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.setupTitle}>Finish setting up</Text>
+                <Text style={styles.setupSubtitle}>
+                  {checklist.outstandingRequired > 0
+                    ? `${checklist.outstandingRequired} thing${
+                        checklist.outstandingRequired === 1 ? '' : 's'
+                      } we need before your next trip`
+                    : 'A couple of details worth adding'}
+                </Text>
+              </View>
+              <Text style={styles.setupPercent}>{checklist.completeness}%</Text>
+            </View>
+
+            {/* Progress. Width is the only signal that changes, so it stays
+                readable without colour. */}
+            <View style={styles.setupTrack}>
+              <View style={[styles.setupFill, { width: `${Math.max(4, checklist.completeness)}%` }]} />
+            </View>
+
+            {checklist.items
+              .filter((i: any) => !i.done && i.severity !== 'optional')
+              .map((item: any) => (
+                <Pressable
+                  key={item.id}
+                  haptic="light"
+                  scaleOnPress={0.99}
+                  disabled={!item.route}
+                  onPress={() => item.route && router.push(item.route as RiderRoute)}
+                  style={styles.setupRow}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.label}. ${item.description}`}
+                >
+                  <Ionicons
+                    name={item.severity === 'required' ? 'alert-circle' : 'add-circle-outline'}
+                    size={18}
+                    color={item.severity === 'required' ? colors.statusWarning : colors.primary}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.setupRowLabel}>{item.label}</Text>
+                    <Text style={styles.setupRowHint}>{item.description}</Text>
+                  </View>
+                  {item.route ? (
+                    <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+                  ) : null}
+                </Pressable>
+              ))}
+          </Animated.View>
+        ) : null}
 
         {/* ── Menu sections (staggered reveal) ── */}
         {menuSections.map((section, sIdx) => (
@@ -525,6 +591,55 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 64,
     backgroundColor: withOpacity(colors.tierRoyal, 0.1),
   },
+  // ── Finish setting up ──
+  setupCard: {
+    backgroundColor: colors.surfaceCard ?? colors.surfaceContainer,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.35),
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+    gap: spacing.sm,
+  },
+  setupHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  setupTitle: {
+    fontFamily: fonts.displaySemiBold,
+    fontSize: fontSizes.bodyLarge,
+    color: colors.onSurface,
+  },
+  setupSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurfaceVariant,
+    marginTop: 2,
+  },
+  setupPercent: {
+    fontFamily: fonts.displaySemiBold,
+    fontSize: fontSizes.bodyLarge,
+    color: colors.primary,
+    fontVariant: ['tabular-nums'],
+  },
+  setupTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: withOpacity(colors.onSurfaceVariant, 0.18),
+    overflow: 'hidden',
+  },
+  setupFill: { height: 4, borderRadius: 2, backgroundColor: colors.primary },
+  setupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  setupRowLabel: { fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, color: colors.onSurface },
+  setupRowHint: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+
   walletRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   walletLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
   walletLabel: {

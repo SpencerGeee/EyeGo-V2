@@ -18,9 +18,15 @@ import {
   StatCard,
 } from '@/components/ui/primitives';
 import { apiGetSafe, getAdmin } from '@/lib/api';
-import { dateTime, ghs, num, pct, phone as fmtPhone, relative, shortId } from '@/lib/format';
+import { dateTime, ghs, num, pct, phone as fmtPhone, relative, shortId, tripRef } from '@/lib/format';
 import { can, isReadOnly } from '@/lib/roles';
-import { driverStatusMeta, tierMeta, tripStatusMeta } from '@/lib/status';
+import {
+  driverAccountMeta,
+  driverStatusMeta,
+  isDriverApproved,
+  tierMeta,
+  tripStatusMeta,
+} from '@/lib/status';
 
 type Driver = {
   id: string;
@@ -69,8 +75,22 @@ type Driver = {
   documents?: DriverDocument[];
 };
 
+/**
+ * Matches getDriverTrips exactly: `{ trips, total, page, totalPages }`, and each
+ * trip carries a `bookings` ARRAY of seat-occupying rows, not a `_count`. Reading
+ * `data` here is what threw "Cannot read properties of undefined (reading
+ * 'length')" — and a `_count` read would have quietly rendered 0 seats on every
+ * row, which is worse than a crash because nobody notices it.
+ */
 type TripsResponse = {
-  data: { id: string; shortId?: string; status: string; createdAt: string; route?: { originName?: string; destinationName?: string } | null; _count?: { bookings: number } }[];
+  trips: {
+    id: string;
+    shortId?: string;
+    status: string;
+    createdAt: string;
+    route?: { originName?: string; destinationName?: string } | null;
+    bookings?: unknown[];
+  }[];
   total: number;
 };
 
@@ -115,11 +135,11 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
   if (!driver) notFound();
 
   const status = driverStatusMeta({
-    isApproved: driver.status === 'APPROVED',
-    isSuspended: driver.status === 'SUSPENDED',
+    status: driver.status,
     isOnline: driver.isOnline,
-    isAvailable: driver.isAvailable,
+    requestsPaused: driver.requestsPaused,
   });
+  const account = driverAccountMeta(driver.status);
 
   const vehicle = driver.vehicles?.find((v) => v.isActive) ?? driver.vehicles?.[0];
   const canModerate = can(admin?.role, ['OPS']) && !isReadOnly(admin?.role);
@@ -141,6 +161,11 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
             <Badge tone={status.tone} live={status.label === 'Available'}>
               {status.label}
             </Badge>
+            {/* Presence and standing are different questions. An approved driver
+                who is simply offline must not read as an approval problem. */}
+            {status.label !== account.label ? (
+              <Badge tone={account.tone}>{account.label}</Badge>
+            ) : null}
             <span className="mono">{fmtPhone(driver.phone)}</span>
             <span className="text-text-faint">·</span>
             <span>Joined {relative(driver.createdAt)}</span>
@@ -163,6 +188,30 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
           )
         }
       />
+
+      {/* APPROVED BUT NOT COMPLIANT.
+          In development the API auto-approves a new driver (auth.service.js sets
+          status ACTIVE when NODE_ENV === 'development') and goOnline() skips the
+          document, rating and acceptance-rate gates entirely. That is why a
+          driver with no licence and no Ghana Card on file can take trips locally
+          and could not in production. Worth saying on the page rather than
+          leaving an operator to conclude the approval queue is broken. */}
+      {isDriverApproved(driver.status) &&
+      (driver.documents ?? []).some(
+        (d) => (d.type === 'DRIVERS_LICENSE' || d.type === 'GHANA_CARD') && d.status !== 'VERIFIED',
+      ) ? (
+        <div role="note" className="p-3.5 mb-4 rounded-lg bg-warn-soft border border-warn-rim">
+          <p className="t-heading text-warn">Approved with unverified documents</p>
+          <p className="t-small text-text-dim mt-1 max-w-[86ch]">
+            This account is ACTIVE, so dispatch will offer it trips, but its licence or
+            Ghana Card is not verified. In production <span className="mono">goOnline()</span>{' '}
+            would refuse this driver — the gate is skipped when the API runs with{' '}
+            <span className="mono">NODE_ENV=development</span>, which also auto-approves new
+            sign-ups. Verify the documents below before this account is used on a real
+            deployment.
+          </p>
+        </div>
+      ) : null}
 
       {/* ── Performance ── */}
       {stats ? (
@@ -288,7 +337,7 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
           />
           {!trips ? (
             <ErrorPanel message="Could not load this driver's trips." />
-          ) : trips.data.length === 0 ? (
+          ) : trips.trips.length === 0 ? (
             <EmptyState icon="route" title="No trips yet" body="This driver has not run a trip." />
           ) : (
             <div className="table-scroll">
@@ -304,13 +353,13 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
                   </tr>
                 </thead>
                 <tbody>
-                  {trips.data.map((t) => {
+                  {trips.trips.map((t) => {
                     const meta = tripStatusMeta(t.status);
                     return (
                       <tr key={t.id}>
                         <td>
                           <Link href={`/trips/${t.id}`} className="mono hover:text-accent">
-                            {(t.shortId || t.id).slice(0, 8)}
+                            {tripRef(t)}
                           </Link>
                         </td>
                         <td>
@@ -319,7 +368,7 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
                         <td className="hidden md:table-cell text-text-dim truncate-1 max-w-[280px]">
                           {t.route?.originName || '—'} → {t.route?.destinationName || '—'}
                         </td>
-                        <td className="num">{num(t._count?.bookings ?? 0)}</td>
+                        <td className="num">{num(t.bookings?.length ?? 0)}</td>
                         <td className="num text-text-faint">{relative(t.createdAt)}</td>
                       </tr>
                     );

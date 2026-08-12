@@ -137,14 +137,30 @@ export function StatCard({
   const deltaColor = flat ? 'text-text-faint' : good ? 'text-accent' : 'text-danger';
 
   const body = (
-    <div className="card p-4 h-full flex flex-col gap-2.5 transition-colors hover:border-line-strong">
+    /* `card-brand-edge` is the repeatable accent: a 1px brand hairline along the
+       top of every KPI tile. Applied here rather than per page so the whole
+       console picks it up, and quiet enough that a row of eight tiles still
+       reads as one row. A tile carrying a real warning drops the brand edge —
+       amber and green competing on the same tile is how a warning gets missed. */
+    <div
+      className={`card card-brand-edge p-4 h-full flex flex-col gap-2.5 transition-colors hover:border-line-strong ${
+        tone === 'danger' || tone === 'warn' ? 'card-brand-edge-off' : ''
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="t-eyebrow">{label}</span>
         {icon ? (
           <Icon
             name={icon}
             size={15}
-            className={tone === 'danger' ? 'text-danger' : tone === 'warn' ? 'text-warn' : 'text-text-faint'}
+            className={
+              tone === 'danger'
+                ? 'text-danger'
+                : tone === 'warn'
+                  ? 'text-warn'
+                  : // The accent, at icon scale, on every ordinary tile.
+                    'text-accent'
+            }
           />
         ) : null}
       </div>

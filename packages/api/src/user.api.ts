@@ -76,9 +76,35 @@ const unwrapUser = <T extends { data?: any }>(res: T): T => {
   return res;
 };
 
+/**
+ * What the account is still missing, decided by the server so the app and the
+ * console cannot disagree about it. See users.service#getAccountChecklist.
+ */
+export interface AccountChecklistItem {
+  id: string;
+  label: string;
+  description: string;
+  severity: 'required' | 'recommended' | 'optional';
+  done: boolean;
+  /** Where to send the rider to fix it, or null when there is nothing to do. */
+  route: string | null;
+  value: string | null;
+}
+
+export interface AccountChecklist {
+  completeness: number;
+  outstandingRequired: number;
+  outstandingRecommended: number;
+  items: AccountChecklistItem[];
+  context: { paidTrips: number; memberSince: string; authProvider?: string | null };
+}
+
 export const userApi = {
   getProfile: () =>
     apiClient.get<ApiResponse<User>>('/user/me').then(unwrapUser),
+
+  getAccountChecklist: () =>
+    apiClient.get<ApiResponse<AccountChecklist>>('/user/me/account-checklist'),
 
   updateProfile: (data: UpdateProfileRequest) =>
     apiClient.patch<ApiResponse<User>>('/user/me', data).then(unwrapUser),

@@ -54,7 +54,7 @@ export function Topbar({
 
   return (
     <header
-      className="sticky top-0 z-40 flex items-center gap-3 px-4 lg:px-6 bg-surface/95 backdrop-blur border-b border-line flex-none"
+      className="glass sticky top-0 z-40 flex items-center gap-3 px-4 lg:px-6 border-x-0 border-t-0 border-b border-line flex-none"
       style={{ height: 'var(--topbar-h)' }}
     >
       <div className="lg:hidden w-9" aria-hidden="true" />

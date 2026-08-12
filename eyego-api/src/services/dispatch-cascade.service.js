@@ -47,6 +47,7 @@ const redis = require('../config/redis');
 const logger = require('../utils/logger');
 const { isDriverAvailable, explainIneligible } = require('./driver-availability');
 const { sendMulticastPush } = require('./push.service');
+const { formatGhs } = require('../utils/money');
 const scheduledTasks = require('./scheduled-task.service');
 const matcher = require('./matcher.service');
 const destinationMode = require('./destination-mode.service');
@@ -168,14 +169,46 @@ async function withLock(tripId, fn) {
 
 // ── offering ─────────────────────────────────────────────────────────────────
 
-async function pushToDriver(driver, trip, expiresAtMs) {
-  if (!driver.fcmToken) return;
-  try {
-    await sendMulticastPush([driver.fcmToken], 'New trip nearby', 'A rider needs a trip', {
-      type: 'TRIP_OFFER',
+async function pushToDriver(driver, trip, expiresAtMs, offer = {}) {
+  if (!driver.fcmToken) {
+    // Worth a line in the log: with no token the ONLY way this driver sees the
+    // offer is an open socket, so a backgrounded app misses it entirely. That is
+    // "the request never showed up on the driver phone" with a knowable cause.
+    logger.warn('Dispatch offer cannot be pushed — driver has no FCM token', {
+      driverId: driver.id,
       tripId: trip.id,
-      expiresAt: new Date(expiresAtMs).toISOString(),
     });
+    return;
+  }
+  try {
+    /**
+     * Say what the job IS. "A rider needs a trip" told the driver nothing they
+     * could act on from the lock screen — not where, not how far, not what it
+     * pays — so the only way to judge an offer was to open the app, by which
+     * time the countdown had eaten several of its seconds.
+     *
+     * Everything here is already computed for the socket payload, so this costs
+     * nothing extra.
+     */
+    const parts = [];
+    if (Number.isFinite(offer.etaSeconds)) parts.push(`${Math.max(1, Math.round(offer.etaSeconds / 60))} min away`);
+    if (Number.isFinite(offer.driverEarningsPesewas) && offer.driverEarningsPesewas > 0) {
+      parts.push(`you earn ${formatGhs(offer.driverEarningsPesewas)}`);
+    }
+    const where = trip.pickupAddress || offer.pickupAddress || null;
+
+    await sendMulticastPush(
+      [driver.fcmToken],
+      where ? `New trip from ${where}` : 'New trip nearby',
+      parts.length
+        ? `${parts.join(' · ')} — tap to accept before it expires`
+        : 'Tap to accept before it expires',
+      {
+        type: 'TRIP_OFFER',
+        tripId: trip.id,
+        expiresAt: new Date(expiresAtMs).toISOString(),
+      },
+    );
   } catch (err) {
     logger.warn(`Dispatch push failed for driver ${driver.id}: ${err.message}`);
   }
@@ -297,7 +330,7 @@ async function offerNext(tripId) {
       // to hydrate — which must already be able to see this.
       await rememberOffer(candidate.id, offerPayload, expiresAtMs);
       publisher.publishOfferToDriver(candidate.id, offerPayload);
-      pushToDriver(candidate, trip, expiresAtMs).catch(() => {});
+      pushToDriver(candidate, trip, expiresAtMs, offerPayload).catch(() => {});
 
       await emitProgress(tripId, 'DISPATCH_PROGRESS', {
         phase: 'OFFERED',

@@ -191,16 +191,62 @@ export function paymentStatusMeta(status: string | null | undefined): StatusMeta
   }
 }
 
+/**
+ * DRIVER ACCOUNT STATUS — the API's approved value is 'ACTIVE', not 'APPROVED'.
+ *
+ * This is not cosmetic and it is not a guess: `middleware/driverAuth.js`,
+ * `drivers.service#goOnline`, `services/driver-availability.js` and the fleet
+ * KPIs all test `status === 'ACTIVE'`, and `admin.service#approveDriver` writes
+ * exactly that. `Driver.status` is a free-form String column with the default
+ * 'PENDING_REVIEW', so there is no enum to catch a wrong literal.
+ *
+ * Testing for 'APPROVED' — which this console did — makes every working driver
+ * render as "Pending approval" while the approvals queue (which correctly filters
+ * PENDING_REVIEW) shows nothing. Both halves of that report were this one string.
+ */
+export const DRIVER_STATUSES = ['PENDING_REVIEW', 'ACTIVE', 'SUSPENDED', 'REJECTED'] as const;
+export type DriverStatus = (typeof DRIVER_STATUSES)[number];
+
+/** The one value that means "cleared to drive". */
+export const DRIVER_ACTIVE_STATUS: DriverStatus = 'ACTIVE';
+
+const DRIVER_ACCOUNT_META: Record<DriverStatus, StatusMeta> = {
+  PENDING_REVIEW: { label: 'Pending review', tone: 'warn' },
+  ACTIVE: { label: 'Approved', tone: 'accent' },
+  SUSPENDED: { label: 'Suspended', tone: 'danger' },
+  REJECTED: { label: 'Rejected', tone: 'danger' },
+};
+
+/** The account's standing, independent of whether they happen to be online. */
+export function driverAccountMeta(status: string | null | undefined): StatusMeta {
+  if (status && status in DRIVER_ACCOUNT_META) return DRIVER_ACCOUNT_META[status as DriverStatus];
+  // An unrecognised value is a real problem — dispatch will not offer to this
+  // driver — so it is surfaced rather than smoothed over.
+  return { label: status ? `Unknown (${status})` : 'Unknown', tone: 'danger' };
+}
+
+export function isDriverApproved(status: string | null | undefined): boolean {
+  return status === DRIVER_ACTIVE_STATUS;
+}
+
+/**
+ * The live, operational state an operator scans a fleet list for. Account
+ * standing wins over presence: a suspended driver is not "offline", they are
+ * suspended.
+ *
+ * `requestsPaused` is the driver's own "still finishing this one, don't send me
+ * another" switch, honoured by dispatch, so it must not read as available.
+ */
 export function driverStatusMeta(driver: {
-  isApproved?: boolean;
-  isSuspended?: boolean;
+  status?: string | null;
   isOnline?: boolean;
-  isAvailable?: boolean;
+  requestsPaused?: boolean;
+  hasActiveTrip?: boolean;
 }): StatusMeta {
-  if (driver.isSuspended) return { label: 'Suspended', tone: 'danger' };
-  if (!driver.isApproved) return { label: 'Pending approval', tone: 'warn' };
+  if (driver.status !== DRIVER_ACTIVE_STATUS) return driverAccountMeta(driver.status);
   if (!driver.isOnline) return { label: 'Offline', tone: 'neutral' };
-  if (driver.isAvailable === false) return { label: 'On a trip', tone: 'info' };
+  if (driver.hasActiveTrip) return { label: 'On a trip', tone: 'info' };
+  if (driver.requestsPaused) return { label: 'Paused', tone: 'warn' };
   return { label: 'Available', tone: 'accent' };
 }
 

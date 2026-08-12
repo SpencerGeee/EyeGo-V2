@@ -8,7 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Badge, Card, CardHead, EmptyState, ReadOnlyNote } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/Toast';
 import { assignDriverToTrip } from '@/lib/actions';
-import { num, relative, shortId } from '@/lib/format';
+import { num, relative, shortId, tripRef } from '@/lib/format';
 import { tripStatusMeta } from '@/lib/status';
 
 export type LiveDriver = {
@@ -93,7 +93,7 @@ export function DispatchBoard({
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <Link href={`/trips/${t.id}`} className="mono hover:text-accent">
-                          {shortId(t.shortId || t.id)}
+                          {tripRef(t)}
                         </Link>
                         <Badge tone={meta.tone}>{meta.label}</Badge>
                         {t._count?.bookings ? (
@@ -278,7 +278,7 @@ function AssignDialog({
     <Modal
       open={!!trip}
       onClose={close}
-      title={trip ? `Reassign trip ${shortId(trip.shortId || trip.id)}` : ''}
+      title={trip ? `Reassign trip ${tripRef(trip)}` : ''}
       description="The chosen driver is notified immediately and has two minutes to accept."
       width={560}
       footer={

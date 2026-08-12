@@ -318,10 +318,15 @@ export default function ChatScreen() {
         isPrivate: true,
         senderRole: isMine ? 'PASSENGER' : 'DRIVER',
       };
-      // Notify when the driver sends a private message
+      // Notify when the driver sends a private message.
+      //
+      // The title used to be `msg.senderName ?? 'Driver'`, and senderName is
+      // frequently absent — an empty title makes iOS fall back to the app name,
+      // which is why every chat notification read "EyeGo / hello" with no hint
+      // of who sent it or what it was about. Say what happened, then who.
       if (!isMine) {
         scheduleLocalNotification(
-          msg.senderName ?? 'Driver',
+          `New message from ${msg.senderName?.trim() || 'your driver'}`,
           msg.text,
           { tripId: id, type: 'chat' },
         );
@@ -360,7 +365,7 @@ export default function ChatScreen() {
       // Notify rider when driver (or another user) sends a message
       if (!isMine) {
         scheduleLocalNotification(
-          msg.senderName ?? 'Driver',
+          `New message from ${msg.senderName?.trim() || 'your driver'}`,
           msg.text,
           { tripId: id, type: 'chat' },
         );

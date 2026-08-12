@@ -163,23 +163,31 @@ export async function resolveTripReport(reportId: string): Promise<ActionResult>
 
 // ─── Money ────────────────────────────────────────────────────────
 
+/**
+ * Field names here are the API's, exactly: `discountPercent`, `maxDiscountGhs`
+ * (the service accepts cedis or pesewas and normalises), `expiry`,
+ * `maxRedemptions`. Sending `discountValue`/`expiresAt` — as this action used to
+ * — reached the API as `undefined` and failed validation, which is exactly what
+ * the audit log recorded as a 400.
+ */
 export async function createPromotion(payload: {
   code: string;
-  description?: string;
-  discountType: string;
-  discountValue: number;
-  maxUses?: number;
-  expiresAt?: string;
-  minFarePesewas?: number;
+  discountPercent: number;
+  maxDiscountGhs: number;
+  maxRedemptions?: number;
+  expiry: string;
 }): Promise<ActionResult> {
   if (!payload.code || payload.code.trim().length < 3) {
     return fail('A promo code needs at least 3 characters.');
   }
-  if (!Number.isFinite(payload.discountValue) || payload.discountValue <= 0) {
-    return fail('Enter a discount greater than zero.');
+  if (!Number.isInteger(payload.discountPercent) || payload.discountPercent < 1 || payload.discountPercent > 100) {
+    return fail('The discount must be a whole number between 1 and 100.');
   }
-  if (payload.discountType === 'PERCENTAGE' && payload.discountValue > 100) {
-    return fail('A percentage discount cannot exceed 100%.');
+  if (!Number.isFinite(payload.maxDiscountGhs) || payload.maxDiscountGhs <= 0) {
+    return fail('Set a maximum discount greater than zero — an uncapped percentage is unbounded.');
+  }
+  if (!payload.expiry || Number.isNaN(new Date(payload.expiry).getTime())) {
+    return fail('Pick a valid expiry date.');
   }
   const result = await run('Promotion created', () =>
     apiPost('/promotions', { ...payload, code: payload.code.trim().toUpperCase() })

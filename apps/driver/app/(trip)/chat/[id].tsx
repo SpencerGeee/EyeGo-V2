@@ -233,8 +233,10 @@ export default function TripChatScreen() {
       });
       // Local notification so driver sees the message even when screen is not focused
       if (isFromPassenger) {
+        // Name the event and the sender. A bare name as the title left iOS
+        // showing the app name when senderName was missing.
         scheduleLocalNotification(
-          msg.senderName ?? 'Passenger',
+          `New message from ${msg.senderName?.trim() || 'your passenger'}`,
           msg.text,
           { tripId: id, type: 'chat' },
         );
@@ -246,7 +248,7 @@ export default function TripChatScreen() {
       const isFromPassenger = msg.senderId !== driverId;
       if (isFromPassenger) {
         scheduleLocalNotification(
-          `${msg.senderName ?? 'Passenger'} (private)`,
+          `Private message from ${msg.senderName?.trim() || 'your passenger'}`,
           msg.text,
           { tripId: id, type: 'chat_private' },
         );

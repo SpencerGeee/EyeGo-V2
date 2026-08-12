@@ -5,7 +5,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Avatar, Badge, EmptyState } from '@/components/ui/primitives';
 import { approveDriver, suspendDriver } from '@/lib/actions';
 import { num, phone as fmtPhone, relative } from '@/lib/format';
-import { driverStatusMeta, tierMeta } from '@/lib/status';
+import { driverStatusMeta, isDriverApproved, tierMeta } from '@/lib/status';
 
 export type DriverRow = {
   id: string;
@@ -14,7 +14,8 @@ export type DriverRow = {
   profilePhoto?: string | null;
   status: string;
   isOnline?: boolean;
-  isAvailable?: boolean;
+  /** The driver's own "finishing this one, don't send me another" switch. */
+  requestsPaused?: boolean;
   rating?: number | null;
   walletBalancePesewas?: number;
   createdAt: string;
@@ -57,10 +58,9 @@ export function DriversTable({
         // Derived from the same helper the rest of the console uses, so a driver
         // is never described as free here and busy elsewhere.
         const meta = driverStatusMeta({
-          isApproved: d.status === 'APPROVED',
-          isSuspended: d.status === 'SUSPENDED',
+          status: d.status,
           isOnline: d.isOnline,
-          isAvailable: d.isAvailable,
+          requestsPaused: d.requestsPaused,
         });
         return (
           <Badge tone={meta.tone} live={meta.label === 'Available'}>
@@ -159,7 +159,7 @@ export function DriversTable({
                 }}
               />
             ) : null}
-            {d.status === 'APPROVED' ? (
+            {isDriverApproved(d.status) ? (
               <ActionButton
                 action={(reason) => suspendDriver(d.id, reason)}
                 label="Suspend"

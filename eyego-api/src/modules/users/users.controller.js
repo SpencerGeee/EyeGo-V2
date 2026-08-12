@@ -8,6 +8,11 @@ const getMe = async (req, res) => {
   ok(res, { user });
 };
 
+const getAccountChecklist = async (req, res) => {
+  const checklist = await usersService.getAccountChecklist(req.user.userId);
+  ok(res, checklist);
+};
+
 const updateMe = async (req, res) => {
   const user = await usersService.updateMe(req.user.userId, req.body);
   ok(res, { user }, 'Profile updated');
@@ -130,4 +135,5 @@ const deleteSavedPlace = async (req, res) => {
   ok(res, {}, 'Place removed');
 };
 
-module.exports = { getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+module.exports = {
+  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

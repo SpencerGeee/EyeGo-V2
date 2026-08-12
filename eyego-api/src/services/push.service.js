@@ -171,7 +171,14 @@ const notifications = {
     sendPush(token, 'You\'re approved!', 'Your EyeGo Driver account is now active. You can start accepting trips.', { type: 'DRIVER_APPROVED' }),
 
   chatMessage: (token, senderName, text, tripId) =>
-    sendPush(token, `💬 ${senderName}`, text.length > 80 ? text.slice(0, 77) + '…' : text, { type: 'CHAT_MESSAGE', tripId: tripId || '' }),
+    // Named event, not a bare name: an absent senderName made the whole title
+    // collapse to the emoji, and on iOS an empty title shows the app name.
+    sendPush(
+      token,
+      `New message from ${String(senderName || '').trim() || 'your driver'}`,
+      text.length > 80 ? text.slice(0, 77) + '…' : text,
+      { type: 'CHAT_MESSAGE', tripId: tripId || '' },
+    ),
 
   tripCancelledNoShow: (tokens, route, tripId) =>
     sendMulticastPush(tokens, 'Trip cancelled — driver no-show', `Your EyeGo trip (${route}) was cancelled. A full refund will be issued.`, { type: 'TRIP_CANCELLED_NO_SHOW', tripId: tripId || '' }),
