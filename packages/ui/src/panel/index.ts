@@ -5,3 +5,12 @@ export { PanelSheet } from './PanelSheet';
 export type { PanelSheetProps } from './PanelSheet';
 export { InlayPanel } from './InlayPanel';
 export type { InlayPanelProps } from './InlayPanel';
+export { MorphSheet, MORPH_SHEET_SPRING } from './MorphSheet';
+export type { MorphSheetProps } from './MorphSheet';
+export {
+  SheetMetricsProvider,
+  useSheetMetrics,
+  useCreateSheetMetrics,
+  createSheetMetrics,
+} from './sheetMetrics';
+export type { SheetMetrics } from './sheetMetrics';

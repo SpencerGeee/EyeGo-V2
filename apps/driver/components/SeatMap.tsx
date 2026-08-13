@@ -1,6 +1,9 @@
 import React from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
-import { Text } from '@eyego/ui';
+import { View, StyleSheet } from 'react-native';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See the note in rider SearchStage.tsx.
+import { Text, Pressable } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { driverColors } from '../utils/useColors';
 import * as Haptics from 'expo-haptics';

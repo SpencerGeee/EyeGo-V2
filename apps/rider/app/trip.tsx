@@ -1,16 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, BackHandler } from 'react-native';
+import { StyleSheet, BackHandler, useWindowDimensions } from 'react-native';
 import Animated, {
   FadeIn,
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
-  Easing,
+  withSpring,
   runOnJS,
 } from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { withOpacity } from '@eyego/config';
+import { withOpacity, springs } from '@eyego/config';
+import { SheetMetricsProvider, useCreateSheetMetrics } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
@@ -22,10 +22,30 @@ import { SelectStage } from '../components/trip/stages/SelectStage';
 import { RequestStage } from '../components/trip/stages/RequestStage';
 import { AssignedStage } from '../components/trip/stages/AssignedStage';
 import { TrackingStage } from '../components/trip/stages/TrackingStage';
+import { TripSheetHost } from '../components/trip/TripSheetHost';
 
-// Yango-style slow ease: 700ms with a gentle ease-out so the crossfade
-// spans as a continuous, perceptible morph rather than a quick snap.
-const STAGE_TRANSITION_CFG = { duration: 700, easing: Easing.out(Easing.cubic) };
+/**
+ * ONE SPRING, NOT A DURATION.
+ *
+ * This was `withTiming(700ms, Easing.out(Easing.cubic))`. A fixed duration is
+ * the wrong instrument for a surface that is physically changing shape: the
+ * outgoing stage, the incoming stage and the panel geometry underneath them all
+ * have to arrive together, and a curve has no way to absorb the fact that the
+ * swap can start while the previous one is still settling. Restarting a timing
+ * curve mid-flight snaps `progress` back to 0 and the whole panel visibly jumps;
+ * restarting a spring hands it the current position AND velocity, so a stage
+ * change during a stage change is continuous.
+ *
+ * `springs.morph` is the established container-transform token — the same spring
+ * MorphTarget uses to grow the Where-To card into this surface — so a stage swap
+ * reads as the one panel continuing to deform rather than as a second, unrelated
+ * animation. (`MOTION_PROFILES.FLUID_MORPH` is the role-named alias for this
+ * same spring, ζ ≈ 1.0 at response ≈ 0.46 s; the token is used directly here to
+ * keep every surface in the flow reading from one name.) Critically damped, so
+ * `progress` never leaves [0, 1] and the opacity it drives cannot overshoot into
+ * a flash.
+ */
+const STAGE_TRANSITION_CFG = springs.morph;
 
 
 /**
@@ -60,6 +80,14 @@ function renderStage(stage: TripStage) {
 
 export default function TripScreen() {
   const colors = useColors();
+  const { height: screenHeight } = useWindowDimensions();
+  /**
+   * The channel the sheet publishes its top edge on and the map reads its
+   * camera padding from. Scoped to this surface rather than global: a module
+   * singleton would be shared with any other map in the process, and the
+   * rider's sheet would silently pad someone else's camera.
+   */
+  const sheetMetrics = useCreateSheetMetrics(screenHeight);
   const params = useLocalSearchParams<{
     stage?: string; tier?: string; type?: string; morphId?: string; bookingId?: string;
     /**
@@ -259,7 +287,8 @@ export default function TripScreen() {
     if (stage === renderedRef.current.current) return;
     setRendered({ current: stage, previous: renderedRef.current.current });
     progress.value = 0;
-    progress.value = withTiming(1, STAGE_TRANSITION_CFG, (finished) => {
+    progress.value = withSpring(1, STAGE_TRANSITION_CFG, (finished?: boolean) => {
+      'worklet';
       if (finished) runOnJS(setRendered)({ current: stage, previous: null });
     });
   }, [stage, progress]);
@@ -308,6 +337,7 @@ export default function TripScreen() {
     // of racing it. The card itself is no longer part of this story — its
     // reveal is driven by morph progress in MorphTarget.
     <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
+      <SheetMetricsProvider value={sheetMetrics}>
       {/* One persistent map for every stage — until the trip ends. See
           `surfaceRetired`: past that point this view is not a map any more,
           it is the home screen's background. */}
@@ -340,6 +370,26 @@ export default function TripScreen() {
       <Animated.View style={[StyleSheet.absoluteFill, incomingStyle]} pointerEvents="box-none">
         {renderStage(rendered.current)}
       </Animated.View>
+
+      {/*
+        THE ONE SHEET, hosted above every stage.
+
+        It takes stage NAMES, never nodes: names are strings, so this component
+        re-rendering when a panel's content changes cannot re-render the trip
+        surface, and therefore cannot re-render the stages that publish into it.
+        The stages hand their panel bodies to `SheetContent`, which routes them
+        here through the slot store.
+
+        It is rendered last so it sits above the stage chrome — the sheet is the
+        foreground object in this scene, and the headers and chips float on the
+        map behind it.
+      */}
+      <TripSheetHost
+        current={rendered.current}
+        previous={rendered.previous}
+        retired={surfaceRetired}
+      />
+      </SheetMetricsProvider>
     </Animated.View>
   );
 }

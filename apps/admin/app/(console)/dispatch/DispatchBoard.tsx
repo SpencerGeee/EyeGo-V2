@@ -75,14 +75,14 @@ export function DispatchBoard({
         <Card flush>
           <CardHead
             title="Needs a driver"
-            subtitle="Non-terminal trips whose assigned driver went offline"
+            subtitle="Live trips still searching, or whose driver went offline"
             icon="alert"
           />
           {stranded.length === 0 ? (
             <EmptyState
               icon="check"
               title="Nothing stranded"
-              body="Every live trip has an online driver attached."
+              body="No live trip is waiting on dispatch or on an offline driver."
             />
           ) : (
             <ul className="divide-y divide-line">
@@ -107,17 +107,27 @@ export function DispatchBoard({
                       <p className="t-small text-text-dim truncate-1">
                         {t.route?.originName || '—'} → {t.route?.destinationName || '—'}
                       </p>
+                      {/* Two different failures reach this list and they need
+                          different words. A trip with no driver is still in
+                          dispatch and nobody has taken it; a trip with one has
+                          been abandoned by a driver who dropped off the network.
+                          Saying "Driver unknown is offline" for the first case
+                          — which is what this did — described a driver that
+                          does not exist and hid the real problem. */}
                       <p className="t-small text-text-faint mt-0.5">
-                        Driver{' '}
                         {t.driver ? (
-                          <Link href={`/drivers/${t.driver.id}`} className="hover:text-accent">
-                            {t.driver.name}
-                          </Link>
+                          <>
+                            Driver{' '}
+                            <Link href={`/drivers/${t.driver.id}`} className="hover:text-accent">
+                              {t.driver.name}
+                            </Link>{' '}
+                            is offline
+                          </>
                         ) : (
-                          'unknown'
-                        )}{' '}
-                        is offline
+                          <>No driver assigned — still searching</>
+                        )}
                         {t.departureTime ? ` · departs ${relative(t.departureTime)}` : ''}
+                        {t.createdAt ? ` · requested ${relative(t.createdAt)}` : ''}
                       </p>
                     </div>
 

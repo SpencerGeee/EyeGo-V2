@@ -1,9 +1,12 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, GlassSurface } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
+import { Text, Button, Pressable, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { walletApi } from '@eyego/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

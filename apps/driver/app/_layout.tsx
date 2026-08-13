@@ -384,7 +384,47 @@ export default function RootLayout() {
      * the two screens at different times.
      */
     const stopStatusSync = subscribeDriverStatusToCaches(queryClient);
+
+    /**
+     * THE OFFER SAFETY NET — and the reason the driver side now syncs fast.
+     *
+     * BUGFIX ("i requested the trip on the rider app but on the driver app it's
+     * not showing anything, even though i'm online and live… on the looking for
+     * a driver page it says asking driver 1 of 1 but nothing shows on the driver
+     * side"), and the direct answer to "increase the speed that it takes to sync
+     * the driver side".
+     *
+     * An offer has exactly one live delivery path — a `trip:event` frame into
+     * the `driver:<id>` room — and unlike every lifecycle event it carries no
+     * trip seq, so there is NO replay for it. Anything that costs the socket
+     * those twenty seconds (a carrier handover, a token rotation mid-flight, a
+     * doze on Android, the app foregrounding a beat late) loses the offer
+     * outright, and the rider watches "asking driver 1 of 1" count down against
+     * a phone that was never told. The server logs this as "OFFER published to
+     * an EMPTY room" — see trip-events.publisher.js — but the driver has no way
+     * to recover from it, because the only other reads of `/rides/driver/state`
+     * happen on cold start and on socket reconnect.
+     *
+     * So: while logged in and not already on a trip, ASK. `getDriverState` is
+     * one indexed query plus a Redis GET, it is the same call the app already
+     * makes on every foreground, and `hydrate` no-ops when the answer has not
+     * changed (it only adopts an offer with real time left on it, and only if it
+     * is not the one already held). At this cadence a socket-dropped offer costs
+     * a few seconds of a twenty-second window instead of the whole ride.
+     *
+     * Deliberately stopped once a trip is live: a driver mid-ride cannot take an
+     * offer, `getDriverState` suppresses them in that case anyway, and the
+     * sequenced `trip:event` channel is authoritative for a trip in progress.
+     */
+    const OFFER_POLL_MS = 5000;
+    const poll = setInterval(() => {
+      const s = useDriverTripStore.getState();
+      if (s.snapshot) return;
+      void s.hydrate();
+    }, OFFER_POLL_MS);
+
     return () => {
+      clearInterval(poll);
       stopOffers();
       stopStatusSync();
     };

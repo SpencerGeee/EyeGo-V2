@@ -62,6 +62,29 @@ export default function RatePassengersScreen() {
   const currentPassenger = passengers[currentIndex];
   const currentRating = currentPassenger ? (ratings[currentPassenger.bookingId]?.stars ?? 0) : 0;
 
+  /**
+   * BACK TO THE TRIP SUMMARY.
+   *
+   * BUGFIX ("on the driver complete page you need to add a button to take the
+   * user back to the complete page — when i choose to rate a user and i want to
+   * go back to the complete page, i can't unless i go to the homepage").
+   *
+   * This screen had exactly two exits and both of them were the home tab: the
+   * "Skip" link, and the redirect after the last rating. There was no header and
+   * nothing to press, so the earnings breakdown the driver had just been reading
+   * was unreachable the moment they tapped Rate Passengers.
+   *
+   * `router.back()` is deliberately NOT used. The receipt reaches this screen by
+   * `push`, so back would usually work — but the receipt itself is reached by
+   * `router.replace` from two different trip screens, and a rating flow resumed
+   * from a notification has no receipt underneath it at all. Naming the
+   * destination works from every entry point; `replace` keeps the pair from
+   * stacking up if a driver bounces between them.
+   */
+  const backToReceipt = useCallback(() => {
+    router.replace(`/(trip)/complete/${id}`);
+  }, [router, id]);
+
   const submitRating = useMutation({
     mutationFn: async (data: { bookingId: string; stars: number; comment: string; compliments: string[] }) => {
       if (data.stars === 0) {
@@ -82,8 +105,11 @@ export default function RatePassengersScreen() {
       if (currentIndex < passengers.length - 1) {
         setCurrentIndex((prev) => prev + 1);
       } else {
-        // All passengers rated — go home
-        router.replace('/(tabs)/home');
+        // Back to the RECEIPT, not straight home. Rating passengers is a detour
+        // off the trip summary, and ending it three screens away from the
+        // earnings the driver was just looking at is what made the receipt feel
+        // unreachable — see `backToReceipt`. The receipt owns the way home.
+        backToReceipt();
       }
     },
     onError: (err: any) => {
@@ -129,7 +155,9 @@ export default function RatePassengersScreen() {
           <Text variant="bodyLarge" color={colors.onSurfaceVariant} style={{ marginTop: spacing.lg, textAlign: 'center' }}>
             No passengers to rate
           </Text>
-          <Button label="Back to Home" onPress={() => router.replace('/(tabs)/home')} style={{ marginTop: spacing.xl }} />
+          {/* The trip summary, not the home tab. Landing here is a dead end the
+              driver did not choose, and the receipt is where they came from. */}
+          <Button label="Back to trip summary" onPress={backToReceipt} style={{ marginTop: spacing.xl }} />
         </View>
       </SafeAreaView>
     );
@@ -138,6 +166,23 @@ export default function RatePassengersScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
+      {/* The way back. See `backToReceipt` — this screen had no header at all,
+          so the trip summary behind it was unreachable without going home. */}
+      <View style={styles.header}>
+        <Pressable
+          onPress={backToReceipt}
+          style={styles.headerBack}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trip summary"
+        >
+          <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        </Pressable>
+        <Text variant="bodyLarge">Rate passengers</Text>
+        {/* Balances the back button so the title stays optically centred. */}
+        <View style={styles.headerBack} />
+      </View>
+
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Progress indicator */}
         <View style={styles.progressRow}>
@@ -264,6 +309,20 @@ export default function RatePassengersScreen() {
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
     safe: { flex: 1, backgroundColor: 'transparent' },
+    /** Back arrow + title. See the render site — this screen had no header. */
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+    },
+    headerBack: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     scroll: {
       paddingHorizontal: spacing['2xl'],
       paddingTop: spacing['2xl'],

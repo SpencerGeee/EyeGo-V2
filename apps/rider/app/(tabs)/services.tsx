@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import { useRouter } from 'expo-router';
@@ -19,6 +19,10 @@ import {
   MorphSource,
   useMorph,
   backgroundScrollPauseProps,
+  // `Pressable` from @eyego/ui, never react-native — NativeWind's interop
+  // runtime drops the `({ pressed }) => style` function form on RN's Pressable,
+  // silently deleting the whole style. See the note in trip/stages/SearchStage.
+  Pressable,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 

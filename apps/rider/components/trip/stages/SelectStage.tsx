@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Pressable,
   Modal,
   BackHandler,
 } from 'react-native';
@@ -26,7 +25,10 @@ import { useTripFlow } from '../../../stores/tripFlow.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
-import { Text, Button, EmptyState, Avatar, AppBackground, MorphSource, useMorph, Entrance, getTierTheme, normalizeTier } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See the note in SearchStage.tsx.
+import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, useMorph, Entrance, getTierTheme, normalizeTier } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
@@ -386,12 +388,31 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           </ScrollView>
         </Entrance>
 
-        {/* Auto-search on mount if destination is set */}
-        {!searched && !searchTrips.isPending && !!destText && (
+        {/*
+          THE COMMIT BEAT.
+
+          This used to be gated on `!searchTrips.isPending`, so the instant the
+          rider pressed it the button UNMOUNTED and a loading state appeared
+          somewhere else — the exact swap that makes a flow feel like it lost
+          its train of thought. It also nested a Button inside a Pressable that
+          fired the same mutation, so a single tap could dispatch the search
+          twice.
+
+          One node now. It stays mounted while the search runs and contracts
+          into its own loading bubble, ring and all; when results land the list
+          replaces it, which is a change of subject rather than a change of
+          widget mid-thought.
+        */}
+        {!searched && !!destText && (
           <Entrance animation="fadeIn" duration={200}>
-            <Pressable style={styles.searchCta} onPress={() => searchTrips.mutate()}>
-              <Button variant="glow" label="Find Available Rides" onPress={() => searchTrips.mutate()} loading={searchTrips.isPending} />
-            </Pressable>
+            <MorphCTA
+              label="Find Available Rides"
+              onPress={() => searchTrips.mutate()}
+              loading={searchTrips.isPending}
+              loadingLabel="Finding available rides"
+              glow
+              style={styles.searchCta}
+            />
           </Entrance>
         )}
 

@@ -237,7 +237,24 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
           // Include SCHEDULED/FILLING — the boarding phase where chat is most used.
           // Without these, a reconnect during boarding left the driver out of the
           // trip room and dropped inbound chat messages.
-          status: { in: ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] },
+          //
+          // CONFIRMED and DRIVER_ASSIGNED were also missing, and they are the two
+          // statuses a driver sits in between accepting and setting off. A
+          // reconnect in that window left them outside the room, so the `trip:eta`
+          // frames the tracking screen renders never reached them and the ETA
+          // stayed on "Calculating ETA…". Keep this list in step with
+          // ACTIVE/LIVE statuses in services/trip-state.service.js.
+          status: {
+            in: [
+              'SCHEDULED',
+              'FILLING',
+              'CONFIRMED',
+              'DRIVER_ASSIGNED',
+              'DRIVER_EN_ROUTE',
+              'ARRIVED_AT_PICKUP',
+              'IN_PROGRESS',
+            ],
+          },
         },
         select: { id: true },
       });

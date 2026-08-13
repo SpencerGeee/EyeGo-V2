@@ -1,12 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { driverSocketEvents } from '@eyego/api';
-import { useMapCamera, useRouteReveal, paddingForSheet, type Coord } from '@eyego/maps';
+import { useMapCamera, useRouteReveal, paddingForSheet, paddingForSheetTop, type Coord } from '@eyego/maps';
 import { eyegoDriverDarkStyle } from '@eyego/map-styles';
-import { GlassSurface, PulseRing } from '@eyego/ui';
+import { GlassSurface, PulseRing, useSheetMetrics } from '@eyego/ui';
 import MapboxGL from '../../utils/mapbox';
 import { useColors } from '../../utils/useColors';
 
@@ -151,10 +151,31 @@ export function DriverTripMapImpl({
   // `followCourse` — up means ahead. This is the one place the driver app
   // deliberately differs from the rider's `overview`: the person driving needs
   // the navigation convention, the passenger finds it disorienting.
+  /**
+   * Padding as a getter, so the camera tracks the panel's LIVE top edge rather
+   * than a `sheetFraction` guess that is already wrong the moment the driver
+   * starts dragging. `TripSurfaceShell`'s panel publishes that edge on the
+   * shared channel; this reads it once per frame, straight off the shared
+   * value, with no render in between.
+   *
+   * The fraction survives as the fallback for the frames before anything has
+   * published — and for any caller that mounts this map without an interlocked
+   * panel.
+   */
+  const sheetMetrics = useSheetMetrics();
+  const getPadding = useCallback(() => {
+    const top = sheetMetrics.top.value;
+    const published =
+      !sheetMetrics.retired.value && Number.isFinite(top) && top > 0 && top < screenHeight;
+    return published
+      ? paddingForSheetTop({ screenHeight, sheetTop: top, safeTop: insets.top })
+      : paddingForSheet({ screenHeight, sheetFraction, safeTop: insets.top });
+  }, [sheetMetrics, screenHeight, sheetFraction, insets.top]);
+
   const camera = useMapCamera({
     mode: 'followCourse',
     center: target,
-    padding: paddingForSheet({ screenHeight, sheetFraction, safeTop: insets.top }),
+    padding: getPadding,
     active: active && isFocused,
   });
   const { pushSample, resetPuck } = camera;

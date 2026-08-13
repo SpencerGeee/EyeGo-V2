@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import Animated from 'react-native-reanimated';
+import Animated, { useAnimatedReaction } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassSurface } from '../effects/GlassSurface';
 import { usePanelMotion, type PanelState } from './usePanelMotion';
+import { useSheetMetrics } from './sheetMetrics';
 
 export interface InlayPanelProps {
   children: React.ReactNode;
@@ -15,6 +16,17 @@ export interface InlayPanelProps {
   onStateChange?: (state: PanelState) => void;
   /** Optional RefreshControl element for pull-to-refresh on the inner scroll view. */
   refreshControl?: React.ReactElement<import('react-native').RefreshControlProps>;
+  /**
+   * Publish this panel's top edge on the sheet-metrics channel, so a map behind
+   * it can pad its camera to the visible window as the panel moves.
+   *
+   * OPT-IN, because more than one InlayPanel can be mounted at a time — a tab
+   * screen's panel stays mounted underneath a pushed trip screen's — and two
+   * publishers on one channel means the covered screen can describe the
+   * visible screen's viewport. Only the panel a map is actually interlocked
+   * with should turn this on.
+   */
+  publishMetrics?: boolean;
 }
 
 export function InlayPanel({
@@ -25,9 +37,11 @@ export function InlayPanel({
   grabberColor = 'rgba(255,255,255,0.18)',
   onStateChange,
   refreshControl,
+  publishMetrics = false,
 }: InlayPanelProps) {
   const { height: screenH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const metrics = useSheetMetrics();
   
   const collapsed = screenH * (1 - snapPointsPct[0]);
   const expanded = screenH * (1 - snapPointsPct[1]);
@@ -45,6 +59,32 @@ export function InlayPanel({
     dismissible: false,
     onStateChange,
   });
+
+  /**
+   * Publish the edge on the UI thread. A reaction rather than a spring
+   * callback, because the panel is also moved by the finger — and a
+   * gesture-driven position has nothing to hang a completion on.
+   */
+  useAnimatedReaction(
+    () => (publishMetrics ? y.value : null),
+    (top) => {
+      if (top != null) metrics.top.value = top;
+    },
+    [publishMetrics, metrics],
+  );
+
+  useEffect(() => {
+    if (!publishMetrics) return undefined;
+    metrics.screenHeight.value = screenH;
+    metrics.retired.value = false;
+    // Seed immediately: the reaction only fires on CHANGE, so a panel that
+    // opens and then sits still would otherwise never publish anything.
+    metrics.top.value = y.value;
+    return () => {
+      metrics.retired.value = true;
+      metrics.top.value = metrics.screenHeight.value;
+    };
+  }, [publishMetrics, metrics, screenH, y]);
 
   return (
     <View style={styles.absoluteOverlay} pointerEvents="box-none">

@@ -10,9 +10,11 @@ import {
   useMapCamera,
   useRouteReveal,
   paddingForSheet,
+  paddingForSheetTop,
   type CameraMode,
   type Coord,
 } from '@eyego/maps';
+import { useSheetMetrics } from '@eyego/ui';
 import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
@@ -219,15 +221,45 @@ function TripMapImpl() {
   // so coming back re-frames from the real position rather than a stale one.
   const isFocused = useIsFocused();
 
+  /**
+   * THE INTERLOCK.
+   *
+   * `SHEET_FRACTION` was a table of guesses — one number per stage, applied the
+   * instant the stage changed. It was wrong twice over: the real sheet is as
+   * tall as its content (a fare with three extra rows is not 0.44 of any
+   * screen), and during a transition the camera had already re-framed for the
+   * destination height while the panel was still on its way there, so pins
+   * arrived before the sheet that was supposed to be uncovering them.
+   *
+   * A getter instead of a value. The frame loop calls this every tick and reads
+   * the sheet's live top edge straight off the shared value the sheet is
+   * springing — no React render, no bridge hop, no state. The padding is
+   * quantised inside `paddingForSheetTop`, so a 300 px travel becomes ~25
+   * instant re-frames rather than 30 animated ones fighting each other.
+   *
+   * `SHEET_FRACTION` survives as the fallback for the first frames, before the
+   * sheet has measured itself and published anything — without it the map would
+   * fit its subject against a full-height viewport and then jump.
+   */
+  const sheetMetrics = useSheetMetrics();
+  const getPadding = useCallback(() => {
+    const top = sheetMetrics.top.value;
+    const published =
+      !sheetMetrics.retired.value && Number.isFinite(top) && top > 0 && top < screenHeight;
+    return published
+      ? paddingForSheetTop({ screenHeight, sheetTop: top, safeTop: insets.top })
+      : paddingForSheet({
+          screenHeight,
+          sheetFraction: SHEET_FRACTION[stage] ?? 0.44,
+          safeTop: insets.top,
+        });
+  }, [sheetMetrics, screenHeight, insets.top, stage]);
+
   const camera = useMapCamera({
     mode,
     fit,
     fitIncludesPuck: true,
-    padding: paddingForSheet({
-      screenHeight,
-      sheetFraction: SHEET_FRACTION[stage] ?? 0.44,
-      safeTop: insets.top,
-    }),
+    padding: getPadding,
     active: isFocused,
   });
   const { pushSample, resetPuck } = camera;

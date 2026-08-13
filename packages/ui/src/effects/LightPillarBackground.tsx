@@ -295,49 +295,38 @@ export function LightPillarBackground({
   const clock = useSharedValue(0);
   const elapsed = useSharedValue(0);
   const sinceEmit = useSharedValue(0);
-  const dwell = useSharedValue(0);
-  const baseFrameMs = tier === 'high' ? 1000 / 24 : 1000 / 8;
+  const baseFrameMs = tier === 'high' ? 1000 / 30 : 1000 / 12;
 
   /**
-   * THE DUTY CYCLE — why the phone still got hot on a long shift.
+   * A CONSTANT FRAME RATE, AND THE DUTY CYCLE MOVED TO VISIBILITY.
    *
-   * Everything above this made each ambient FRAME cheap. Nothing made the
-   * total number of frames finite. A driver leaves this app open for eight
-   * hours, so the raymarch was running at 24fps for eight hours: ~700,000
-   * full-screen shader passes for a background nobody has looked at since the
-   * first minute. That is not a frame-cost problem, it is a duration problem,
-   * and it is what "the app still seems slow when I'm using it extendedly"
-   * describes — sustained GPU load raises the die temperature until the SoC
-   * throttles, and then EVERYTHING is slow, including the map and the lists.
+   * There used to be a `dwell` decay here: full rate for the first 20 s on a
+   * screen, then half rate, then a quarter after two minutes. The intent was
+   * thermal — a driver leaves this app open for a whole shift and sustained GPU
+   * load eventually throttles the SoC — but the mechanism was the wrong one,
+   * because it degrades exactly the case the effect exists for. Sitting on the
+   * home screen without touching anything is not evidence that nobody is
+   * looking; it is the most common way to look at it. Stepping a slow-moving
+   * glow from 24 fps down to 6 fps does not read as "power saving", it reads as
+   * the app stuttering, which is precisely the report: "the Skia background
+   * becomes laggy when it's on the homepage and I haven't touched anything".
    *
-   * So the ambient field now decays. It is fully alive when a screen appears
-   * and for the first stretch after — which is when a person is actually
-   * looking at it, and the whole reason the effect exists — then steps down as
-   * the screen goes untouched. `dwell` resets whenever this instance becomes
-   * topmost again, so every navigation, every return from background, every
-   * new screen is full-rate. Someone moving through the app sees no difference
-   * at all; only a phone left staring at one screen backs off.
-   *
-   * The phase keeps accumulating at every vsync regardless of the emit rate,
-   * so stepping down slows how often the image is REDRAWN, never how fast the
-   * beam appears to travel — no snapping, no visible gear change.
+   * So the rate is now constant while the background is on screen, and the duty
+   * cycle is enforced by `isAnimated` instead — which is false whenever the
+   * screen is not focused, the app is backgrounded, or a list is being
+   * scrolled. That still bounds total GPU time (a phone in a pocket or on any
+   * other screen costs nothing at all) without ever degrading the image the
+   * user is actually looking at. 30 fps rather than 24 for the same reason:
+   * this is the one surface with nothing else competing for the frame, and the
+   * pass is already capped to a ~200k pixel budget below.
    */
-  useEffect(() => {
-    // A screen the user just arrived at is worth the full frame rate again.
-    dwell.value = 0;
-  }, [visible, dwell]);
-
   useFrameCallback((frame) => {
     'worklet';
     const dt = frame.timeSincePreviousFrame ?? 0;
     elapsed.value += dt / 1000;
-    dwell.value += dt;
     sinceEmit.value += dt;
 
-    // Untouched for 20s → half rate. Two minutes → a slow simmer that costs
-    // almost nothing but keeps the field from reading as a frozen image.
-    const decay = dwell.value > 120_000 ? 4 : dwell.value > 20_000 ? 2 : 1;
-    if (sinceEmit.value >= baseFrameMs * decay) {
+    if (sinceEmit.value >= baseFrameMs) {
       sinceEmit.value = 0;
       clock.value = elapsed.value;
     }

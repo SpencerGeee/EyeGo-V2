@@ -36,14 +36,32 @@ import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 
+/**
+ * Must cover every status `advanceStatus` below can act on, and must agree with
+ * the copy on `(trip)/active/[id].tsx`. Both were false.
+ *
+ * `CONFIRMED` and `DRIVER_ASSIGNED` were missing, so the lookup at the render
+ * site fell through to its `?? STATUS_FLOW.FILLING` default and drew a "Start
+ * Trip" button for a status the mutation had no branch for — a button that
+ * looked right and threw as soon as it was tapped. That is the whole of "I
+ * tried to start the trip and it said cannot advance from the current status",
+ * and of "starting from the manage page worked but from the tracking page
+ * nothing happened".
+ */
 const STATUS_FLOW: Record<string, { label: string; next: string | null; action: string }> = {
-  SCHEDULED:          { label: 'Scheduled',          next: 'start',  action: 'Start Trip'    },
-  FILLING:            { label: 'Boarding Open',       next: 'start',  action: 'Start Trip'    },
-  DRIVER_EN_ROUTE:    { label: 'En Route to Stop',    next: 'arrive', action: "I've Arrived"  },
-  ARRIVED_AT_PICKUP:  { label: 'Arrived at Pickup',   next: 'depart', action: 'Depart Now'    },
-  IN_PROGRESS:        { label: 'In Progress',         next: 'finish', action: 'Mark Arrived'  },
-  COMPLETED:          { label: 'Completed',           next: null,     action: ''              },
-  CANCELLED:          { label: 'Cancelled',           next: null,     action: ''              },
+  CONFIRMED:          { label: 'Confirmed',           next: 'start',  action: 'Start Trip'     },
+  SCHEDULED:          { label: 'Scheduled',           next: 'start',  action: 'Start Trip'     },
+  FILLING:            { label: 'Boarding Open',       next: 'start',  action: 'Start Trip'     },
+  DRIVER_ASSIGNED:    { label: 'Assigned',            next: 'start',  action: 'Head to Pickup' },
+  DRIVER_EN_ROUTE:    { label: 'En Route to Stop',    next: 'arrive', action: "I've Arrived"   },
+  ARRIVED_AT_PICKUP:  { label: 'Arrived at Pickup',   next: 'depart', action: 'Start Ride'     },
+  // Not 'Mark Arrived'. `driverApi.arriveTrip` is IN_PROGRESS → COMPLETED, so
+  // this button ends the ride and opens the receipt. The manage page was
+  // corrected for exactly this ("i'm in the trip in progress state and when i
+  // swipe again, the trip is done") and this copy of the map was left behind.
+  IN_PROGRESS:        { label: 'In Progress',         next: 'finish', action: 'Complete Trip'  },
+  COMPLETED:          { label: 'Completed',           next: null,     action: ''               },
+  CANCELLED:          { label: 'Cancelled',           next: null,     action: ''               },
 };
 
 export default function DriverTrackingScreen() {
@@ -142,6 +160,32 @@ export default function DriverTrackingScreen() {
     if (!trip || !isActiveTrip) return;
 
     connectDriverSocket();
+
+    /**
+     * JOIN THE TRIP ROOM NOW, NOT ONLY ON THE NEXT `connect`.
+     *
+     * BUGFIX ("on the driver app the eta is stuck on calculating eta").
+     *
+     * `trip:eta` is emitted by the server into `trip:<tripId>`, and this screen
+     * is the only thing that asks to be in that room. The ask lived exclusively
+     * inside `onConnect`, which fires when the socket transitions to connected —
+     * and by the time a driver opens a trip the socket has been up since app
+     * launch (`listenForOffers` dials it as soon as they log in). So on the
+     * normal path the handler was registered and never called, the driver never
+     * joined, no `trip:eta` frame could ever be addressed to them, and the ETA
+     * sat on its placeholder for the life of the trip.
+     *
+     * The server does auto-rejoin the room on CONNECTION for a driver who
+     * already has an active trip, which is why this ever appeared to work — but
+     * that only helps if the socket connects AFTER the trip is assigned, i.e.
+     * only if the app was restarted mid-trip. Accepting a dispatch on a running
+     * app misses it every time.
+     *
+     * Joining is idempotent server-side (`socket.join` on a room you are already
+     * in is a no-op), so asking on mount AND on every reconnect is safe and
+     * covers both orderings.
+     */
+    driverSocketEvents.emitJoinTracking(id);
 
     const unsubConnect = driverSocketEvents.onConnect(() => {
       console.log('[DriverTracking] Socket connected');
@@ -247,19 +291,54 @@ export default function DriverTrackingScreen() {
   const pendingFromStatus = useRef<string | null>(null);
 
   const advanceStatus = useMutation({
+    /**
+     * THE SAME STEP LIST AS THE MANAGE PAGE. It was not, and that was bug 7.
+     *
+     * "i tried to start the trip on the driver app but it's telling me cannot
+     *  update the trip, cannot advance from the current status" — and then:
+     * "when I started from the manage page it actually worked, but when I start
+     *  from the tracking page nothing happens."
+     *
+     * Two screens drive one state machine, and this one knew about four of its
+     * statuses while `(trip)/active/[id].tsx` knew about six. `CONFIRMED` is
+     * what payments.service.js promotes a fully-paid trip to, and
+     * `DRIVER_ASSIGNED` is what an assigned-but-not-departed trip sits at —
+     * both perfectly ordinary, both legal starts server-side
+     * (`CONFIRMED → DRIVER_EN_ROUTE` and `DRIVER_ASSIGNED → DRIVER_EN_ROUTE`
+     * are in the transition table), and neither listed here. So the mutation
+     * threw before it ever reached the network, on a trip the manage page
+     * could start perfectly well.
+     *
+     * The throw at the bottom is now genuinely unreachable for any startable
+     * status, and says what to do if it is ever hit anyway.
+     */
     mutationFn: async () => {
       const status = trip?.status;
       pendingFromStatus.current = status ?? null;
-      if (status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
+      if (
+        status === 'CONFIRMED' ||
+        status === 'DRIVER_ASSIGNED' ||
+        status === 'SCHEDULED' ||
+        status === 'FILLING'
+      ) {
+        return driverApi.startTrip(id);
+      }
       if (status === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(id);
       if (status === 'ARRIVED_AT_PICKUP') return driverApi.departTrip(id);
       if (status === 'IN_PROGRESS') return driverApi.arriveTrip(id);
-      throw new Error('Cannot advance from current status');
+      throw new Error(
+        `This trip is ${driverStatusLabel(status ?? 'UNKNOWN').toLowerCase()} — there's no next step to take from here. Open Manage trip to see what's available.`,
+      );
     },
     onSuccess: (res) => {
       const fromStatus = pendingFromStatus.current;
       let toStatus: string | null = null;
-      if (fromStatus === 'SCHEDULED' || fromStatus === 'FILLING') toStatus = 'DRIVER_EN_ROUTE';
+      if (
+        fromStatus === 'CONFIRMED' ||
+        fromStatus === 'DRIVER_ASSIGNED' ||
+        fromStatus === 'SCHEDULED' ||
+        fromStatus === 'FILLING'
+      ) toStatus = 'DRIVER_EN_ROUTE';
       else if (fromStatus === 'DRIVER_EN_ROUTE') toStatus = 'ARRIVED_AT_PICKUP';
       else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
       else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
@@ -346,6 +425,30 @@ export default function DriverTrackingScreen() {
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (err as Error).message ??
         'Please try again.';
+
+      /**
+       * A DEAD END OFFERS THE WAY OUT, IT DOESN'T JUST NAME ITSELF.
+       *
+       * "you should make the message clear so they know what to do — or better
+       *  still, when they tap it, it should automatically take them to the
+       *  manage page for them to swipe it there."
+       *
+       * `response` is undefined only when the mutation threw locally, i.e. this
+       * screen decided there was no next step. Every other failure came from the
+       * server and belongs in a plain alert. In the local case the manage page
+       * is where the full set of actions lives, so offer to go there rather than
+       * leaving the driver holding a button that does nothing.
+       */
+      if (status == null) {
+        Alert.alert("Can't do that from here", message, [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Open Manage trip',
+            onPress: () => router.push({ pathname: '/(trip)/active/[id]', params: { id } } as Href),
+          },
+        ]);
+        return;
+      }
       Alert.alert("Couldn't update the trip", message);
     },
   });

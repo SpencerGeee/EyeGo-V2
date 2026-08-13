@@ -81,3 +81,20 @@ export { AnimatedCheckmark } from './effects/AnimatedCheckmark';
 export type { AnimatedCheckmarkProps } from './effects/AnimatedCheckmark';
 export { PanelSheet, InlayPanel, usePanelMotion, usePanelLifecycle, panelSpring } from './panel';
 export type { PanelSheetProps, InlayPanelProps, PanelState, PanelSnapPoints, PanelMotionOptions } from './panel';
+export {
+  MorphSheet,
+  MORPH_SHEET_SPRING,
+  SheetMetricsProvider,
+  useSheetMetrics,
+  useCreateSheetMetrics,
+  createSheetMetrics,
+} from './panel';
+export type { MorphSheetProps, SheetMetrics } from './panel';
+export { MorphCTA } from './MorphCTA';
+export type { MorphCTAProps } from './MorphCTA';
+export {
+  sheetContentLayout,
+  rowLayout,
+  contentEnter,
+  contentExit,
+} from './motion/layoutTransitions';

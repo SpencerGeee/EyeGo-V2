@@ -2,7 +2,6 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   StyleSheet,
-  Pressable,
   RefreshControl,} from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +12,10 @@ import { bookingsApi, notificationsApi, queryKeys } from '@eyego/api';
 import { relativeTime, formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
+import { Text, Pressable, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';

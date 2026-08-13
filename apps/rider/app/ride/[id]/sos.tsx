@@ -2,7 +2,6 @@
 import {
   View,
   StyleSheet,
-  Pressable,
   ScrollView,
   Switch,
   Linking,
@@ -12,7 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
+import { MotiView, Pressable } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';

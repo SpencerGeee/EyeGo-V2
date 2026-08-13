@@ -3,8 +3,9 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, DriverInfoCard, InlayPanel, RollingDigits, GradientGlowBorder } from '@eyego/ui';
+import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
+import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
@@ -106,12 +107,11 @@ function AssignedStageImpl() {
         </View>
       )}
 
-      <InlayPanel
-        snapPointsPct={[0.44, 0.72]}
-        initialState="collapsed"
-        sheetStyle={styles.sheet}
-        grabberColor={colors.outline}
-      >
+      {/* Published into the trip surface's ONE sheet — see TrackingStage for
+          the reasoning. The 0.44 resting detent moved to TripSheetHost, which
+          is also where the transition to tracking's 0.34 now happens as a
+          single spring on one surface rather than as two panels swapping. */}
+      <SheetContent stage="assigned">
         <View style={styles.sheetBody}>
           {/*
             "VERIFY MY RIDE" — the code, on the stage where it matters.
@@ -250,7 +250,7 @@ function AssignedStageImpl() {
             />
           </View>
         </View>
-      </InlayPanel>
+      </SheetContent>
     </View>
   );
 }
@@ -296,8 +296,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
     borderRadius: radii.lg, overflow: 'hidden',
   },
-  sheet: { backgroundColor: colors.background },
-  sheetBody: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing['2xl'], gap: spacing.lg },
+  // Gutter and bottom safe area belong to the shared sheet now — see the same
+  // note in TrackingStage.
+  sheetBody: { gap: spacing.lg },
   pinCard: {
     flexDirection: 'row',
     alignItems: 'center',

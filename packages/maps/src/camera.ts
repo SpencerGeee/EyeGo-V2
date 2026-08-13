@@ -292,6 +292,62 @@ function clampFraction(f: number): number {
 }
 
 /**
+ * How finely a moving sheet is allowed to re-frame the camera, in px.
+ *
+ * `paddingForSheet` takes a fraction that only changes when the stage does, so
+ * it produces one re-frame per stage. `paddingForSheetTop` takes the sheet's
+ * LIVE top edge, which moves every frame while the sheet springs — and the
+ * frame loop treats any padding change as a reason to re-frame immediately.
+ * Unquantised, that is sixty re-frames a second for half a second.
+ *
+ * Twelve px is below the threshold at which a shift in the framed area is
+ * visible, and turns a 300 px sheet travel into ~25 re-frames rather than ~30
+ * — each of which is an instant `fitBounds` (see `applyPlan`), so the visible
+ * result is the map tracking the sheet continuously while the sheet's own
+ * spring supplies all of the easing.
+ */
+export const SHEET_PADDING_QUANTUM = 12;
+
+/**
+ * Bottom padding derived from where the sheet's top edge ACTUALLY is, rather
+ * than from a table of per-stage fractions.
+ *
+ * The fraction table was a reasonable approximation and wrong in the two cases
+ * that matter: a sheet whose content is taller or shorter than the stage's
+ * nominal fraction (a fare breakdown with three extra rows, a driver card with
+ * no photo), and every moment DURING a stage change, when the real sheet is
+ * somewhere between two fractions and the camera has already jumped to the
+ * destination one. Reading the live edge makes the pins float up in lockstep
+ * with the panel instead of arriving before it.
+ */
+export function paddingForSheetTop(args: {
+  screenHeight: number;
+  /** The sheet's top edge, in px from the top of the screen. */
+  sheetTop: number;
+  safeTop: number;
+  /** Extra room at the top for a status banner, if one is showing. */
+  topChrome?: number;
+  quantum?: number;
+}): CameraPadding {
+  const {
+    screenHeight,
+    sheetTop,
+    safeTop,
+    topChrome = 0,
+    quantum = SHEET_PADDING_QUANTUM,
+  } = args;
+  const covered = Number.isFinite(sheetTop) ? screenHeight - sheetTop : 0;
+  const clamped = covered < 0 ? 0 : covered > screenHeight * 0.85 ? screenHeight * 0.85 : covered;
+  const step = quantum > 0 ? quantum : 1;
+  return {
+    paddingTop: safeTop + topChrome + 24,
+    paddingBottom: Math.round(clamped / step) * step + 24,
+    paddingLeft: 32,
+    paddingRight: 32,
+  };
+}
+
+/**
  * Has the user taken the camera?
  *
  * MapLibre reports every region change, including the ones this module caused,

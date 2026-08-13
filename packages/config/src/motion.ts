@@ -77,6 +77,103 @@ export const springs = {
 } as const;
 
 /**
+ * NAMED MOTION PROFILES — the three roles a spring plays in this product.
+ *
+ * READ THIS BEFORE SWITCHING A CALL SITE TO ONE OF THESE. A previous pass
+ * evaluated the same three profiles and REJECTED retuning `springs` to them,
+ * because the tokens above are already Apple-derived and the brief's numbers are
+ * within rounding of tokens that exist (`FLUID_MORPH` ≈ `emphasized`/`morph`).
+ * That decision stands: nothing above has been retuned. These are an additive,
+ * role-indexed VIEW of the same physics, provided so code that wants to name the
+ * role rather than the speed has a stable name to use.
+ *
+ * One of them deliberately breaks the system's own damping rule — see
+ * TACTILE_BUTTON below — so prefer the `springs` token unless the role name is
+ * genuinely what makes the call site clearer.
+ *
+ * `springs` above is a palette indexed by SPEED (press, micro, standard,
+ * emphasized…). That is the right axis for picking a token but the wrong one for
+ * enforcing consistency, because two developers reaching for "the sheet spring"
+ * have to agree independently that it is `emphasized`. These three are indexed
+ * by ROLE instead, and they are the only springs the continuous-morph
+ * architecture uses:
+ *
+ *   FLUID_MORPH       — anything changing SIZE or POSITION as a surface: sheet
+ *                       snap points, container transforms, stage swaps, the
+ *                       panel's own height. One profile for all of them is what
+ *                       makes a sheet growing and a card expanding read as the
+ *                       same physical system rather than two animations that
+ *                       happen to overlap.
+ *   TACTILE_BUTTON    — direct-manipulation feedback. The one place a trace of
+ *                       overshoot is correct: a control that springs back past
+ *                       its resting size reads as sprung, and a critically
+ *                       damped one reads as dead.
+ *   NODE_CONVERGENCE  — map furniture. Markers scaling, pins converging, the
+ *                       driver dot settling onto a new fix. Slightly OVERdamped
+ *                       on purpose: a marker that overshoots looks like the
+ *                       vehicle moved somewhere it never was.
+ *
+ * WHY THESE NUMBERS AND NOT THE ONES IN `springs`. They are the same physics —
+ * `stiffness = mass·(2π/response)²`, `damping = 2ζ√(k·mass)` — solved for the
+ * response and damping ratio each role wants, with mass varied rather than
+ * pinned at 1:
+ *
+ *   FLUID_MORPH       ζ = 1.04, response ≈ 0.475 s  (≈ springs.emphasized)
+ *   TACTILE_BUTTON    ζ = 0.78, response ≈ 0.328 s  (≈ springs.standard, sprung)
+ *   NODE_CONVERGENCE  ζ = 1.24, response ≈ 0.599 s  (≈ springs.system, damped)
+ *
+ * Lower mass on the first two is not decoration: mass is what the solver treats
+ * as inertia, and a lighter surface changes direction faster under the same
+ * stiffness, which is the difference between a sheet that tracks a flick and one
+ * that swims after it.
+ *
+ * `overshootClamping: false` is stated explicitly on FLUID_MORPH rather than
+ * left to default, because clamping a critically damped spring is a silent
+ * no-op that stops being one the moment someone retunes ζ below 1 — at which
+ * point the clamp turns a spring into a hard stop and nobody remembers why the
+ * morph started snapping.
+ *
+ * The rest thresholds are an order of magnitude tighter than Reanimated's
+ * defaults (0.01 vs 0.001/2 depending on version) for one reason: these springs
+ * drive LAYOUT, and a spring that declares itself finished half a pixel early
+ * leaves a surface permanently half a pixel off its snap point. Over a session
+ * of sheet drags that accumulates into visible drift.
+ */
+export const MOTION_PROFILES = {
+  /** Sheets, container transforms, stage swaps — anything with size. */
+  FLUID_MORPH: {
+    damping: 22,
+    stiffness: 140,
+    mass: 0.8,
+    overshootClamping: false,
+    restDisplacementThreshold: 0.01,
+    restSpeedThreshold: 0.01,
+  },
+  /**
+   * Press feedback, as specified in the brief — ζ ≈ 0.78.
+   *
+   * NOT used by `@eyego/ui`'s Pressable, which stays on `springs.press`
+   * (ζ = 1.0). This file's own rule is that everything spatial, buttons
+   * included, is critically damped and that overshoot belongs only to success
+   * moments; a press-scale that springs past its resting size breaks that on the
+   * most-repeated interaction in either app. Kept here because the brief asks
+   * for it by name and a control that genuinely wants to read as sprung — a
+   * toggle, a stamp — has somewhere to reach for.
+   */
+  TACTILE_BUTTON: {
+    damping: 18,
+    stiffness: 220,
+    mass: 0.6,
+  },
+  /** Map markers and pins. Overdamped so nothing lands where it never was. */
+  NODE_CONVERGENCE: {
+    damping: 26,
+    stiffness: 110,
+    mass: 1.0,
+  },
+} as const;
+
+/**
  * Timing-curve durations. 350 ms is the iOS canonical figure — Apple states it
  * identically on `easeIn`, `easeOut`, `easeInOut` and `linear`, and it is the
  * same number React Navigation's native stack uses.

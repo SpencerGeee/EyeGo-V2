@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Pressable, BackHandler, ScrollView, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, BackHandler, ScrollView, useWindowDimensions } from 'react-native';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -9,6 +9,18 @@ import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
 import { fonts, fontSizes, radii, spacing, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import {
   Text,
+  // NOT react-native's Pressable. NativeWind is configured with
+  // `jsxImportSource: 'nativewind'`, which routes every JSX element through
+  // react-native-css-interop's runtime, and that runtime registers RN's
+  // `Pressable` as an interop component whose `style` prop it resolves itself —
+  // it handles objects and arrays and silently DROPS the function form. So
+  // `style={({ pressed }) => [...]}` on an RN Pressable evaluates to no style at
+  // all, and the row loses every declaration it owns including
+  // `flexDirection: 'row'`, its height and its padding. That is the screenshot
+  // where PICKUP, "Current Location" and the chevron each sat on their own line
+  // flush to the card edge. @eyego/ui's Pressable wraps an animated component
+  // the interop runtime does not know about, and resolves the function itself.
+  Pressable,
   MorphTarget,
   useMorph,
   MorphBackSwipeDetector,
@@ -459,6 +471,10 @@ function SearchStageImpl() {
         <View>
           <MorphTarget id={activeMorphId} borderRadius={24} style={{ width: cardWidth }}>
             <View style={[styles.floatingCard, { width: cardWidth }]}>
+              {/* The card's actual surface. See `floatingCard` — the style
+                  itself is transparent so the ambient background reads through
+                  the whole flow instead of stopping at a grey slab. */}
+              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={24} intensity="high" />
 
               {/*
                 ── The two fields ───────────────────────────────────────────
@@ -649,6 +665,7 @@ function SearchStageImpl() {
               add it, not an absence — and once added it IS the row, so the
               prompt can never sit next to the address it was asking for. */}
           <View style={styles.sectionCard}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={20} intensity="high" />
             {showHome && (
               <SlotRow
                 styles={styles}
@@ -678,6 +695,7 @@ function SearchStageImpl() {
             <>
               <Text style={styles.sectionLabel}>Recent</Text>
               <View style={styles.sectionCard}>
+                <GlassSurface style={StyleSheet.absoluteFill} borderRadius={20} intensity="high" />
                 {relevantRecents.map((p, i) => (
                   <React.Fragment key={`${p.latitude},${p.longitude}`}>
                     {i > 0 && <View style={styles.rowDivider} />}
@@ -912,7 +930,24 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   // ─── Floating Card (glass panel) ─────────────────────
   floatingCard: {
-    backgroundColor: colors.surfaceCard,
+    /**
+     * TRANSPARENT ON PURPOSE — `GlassSurface` behind it is the surface.
+     *
+     * This was a flat opaque `colors.surfaceCard`, which is why the whole
+     * Set-your-trip flow read as a grey slab sitting on the brand background
+     * rather than as part of it ("make sure every card on that whole flow uses
+     * the glasssurface component so it has that glassy feel and blends with the
+     * skia background"). The rows inside already used GlassSurface, so the card
+     * around them was the one opaque layer breaking the effect.
+     *
+     * `overflow` is deliberately NOT hidden: the glow ring inside casts an iOS
+     * shadow that must be allowed to paint past this box, and clipping it here
+     * is exactly what turns a soft halo into the flat slice the report calls a
+     * cutout. The ring's reach is bounded by `maxGlowRadius` instead, which is
+     * kept under `CARD_PADDING` so it can never reach this edge in the first
+     * place.
+     */
+    backgroundColor: 'transparent',
     borderRadius: 24,
     borderWidth: 1,
     borderColor: colors.rimLight,
@@ -1080,10 +1115,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sectionCard: {
     borderRadius: 20,
-    // Fully opaque now that it sits on the sheet rather than on the map. At
-    // 0.94 every row had a faint wash of whatever was underneath it, which is
-    // half of why the Home/Work block read as unfinished.
-    backgroundColor: colors.surfaceCard,
+    // Transparent — the GlassSurface behind it is the surface. Same reasoning as
+    // `floatingCard`: this whole flow is meant to sit ON the brand background,
+    // not on top of a stack of opaque grey panels.
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: colors.rimLight,
     overflow: 'hidden',

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useScreenFocus } from './screenFocus';
 
 /**
  * ONE SHADER CANVAS IN THE APP. EVER.
@@ -9,43 +10,54 @@ import { useEffect, useState } from 'react';
  * SearchStage, ConfigureStage and RequestStage each mount one, on top of the
  * root layout's, and all of them are "visible" as far as navigation is
  * concerned. So the phone was compositing three or four independent
- * full-screen GPU surfaces, each running a 28-iteration-per-pixel raymarch.
+ * full-screen GPU surfaces, each running a raymarch per pixel.
  *
- * That is the whole of "you made both apps' Skia background very and extremely
- * laggy". Every per-frame optimisation in `LightPillarBackground` — the reduced
- * resolution, the 24 fps clock, the scroll pause, the dwell decay — makes ONE
- * canvas cheap. None of them stop N canvases from existing, and N was not 1.
+ * This is the structural fix rather than another constant to tune: exactly ONE
+ * mounted background paints a Canvas. Everyone else paints a static gradient in
+ * the same brand colours, which is a native view and costs nothing.
  *
- * This is the structural fix rather than another constant to tune: the FIRST
- * mounted background claims the single shader slot and is the only one that
- * paints a Canvas. Everyone else paints a static gradient in the same brand
- * colours, which is a native view and costs nothing. Visually the stack is
- * unchanged — the layers underneath were never visible through the topmost
- * opaque background anyway, which is exactly why the cost was invisible in
- * review and obvious on a device.
+ * THE OWNER IS THE MOST RECENTLY FOCUSED BACKGROUND — NOT THE LAST TO MOUNT.
  *
- * NEWEST WINS, IN BOTH DIRECTIONS. The instance that just mounted is the one on
- * top of the stack, so it is the one the user can actually see — it PREEMPTS the
- * current owner, which drops to the static gradient it was invisible behind
- * anyway. When it unmounts, the slot goes back to the most recent instance still
- * mounted, i.e. the screen now revealed underneath.
+ * The previous rule was mount order, and mount order is only a proxy for "on
+ * top" inside a stack. A tab navigator keeps every tab mounted forever, so the
+ * first visit to Services mounted its background last and owned the shader for
+ * the rest of the session; coming back to Home re-focused a screen that never
+ * remounted and therefore never reclaimed the slot. Home was left painting the
+ * static gradient — which is both flatter (read as "laggy"/dead) and darker
+ * than the live shader — while an invisible tab ran the only live canvas.
  *
- * If the slot were simply first-come, the root layout would hold it forever and
- * every pushed screen and trip stage would show the frozen gradient instead of
- * the live brand background — the effect would be paid for once and seen almost
- * nowhere.
+ * Claiming on FOCUS fixes both directions with one rule: every navigation, tab
+ * switch and stage change hands the canvas to whatever the user is now looking
+ * at, and hands it back when they return. A background with no navigation
+ * context above it (the root layout's) counts as focused and simply sits at the
+ * bottom of the claim order, so it owns the slot only when nothing else does.
  */
 
-/** Mount order, oldest first. The last entry is the owner. */
+/** Claim order, oldest first. The last entry is the owner. */
 const stack: symbol[] = [];
 const listeners = new Map<symbol, (isOwner: boolean) => void>();
 
-/** Tell the top of the stack it owns the slot; nobody else does. */
-function notifyOwner(previous: symbol | undefined) {
-  const next = stack[stack.length - 1];
-  if (previous === next) return;
-  if (previous) listeners.get(previous)?.(false);
-  if (next) listeners.get(next)?.(true);
+/** Recompute ownership and tell only the instances whose answer changed. */
+function notifyAll() {
+  const owner = stack[stack.length - 1];
+  listeners.forEach((notify, id) => notify(id === owner));
+}
+
+/** Move `id` to the top of the claim order (or add it there). */
+function claim(id: symbol) {
+  const i = stack.indexOf(id);
+  if (i === stack.length - 1 && i !== -1) return;
+  if (i !== -1) stack.splice(i, 1);
+  stack.push(id);
+  notifyAll();
+}
+
+/** Drop `id` out of contention without unmounting it. */
+function relinquish(id: symbol) {
+  const i = stack.indexOf(id);
+  if (i === -1) return;
+  stack.splice(i, 1);
+  notifyAll();
 }
 
 /**
@@ -54,24 +66,23 @@ function notifyOwner(previous: symbol | undefined) {
  */
 export function useShaderSlot(): boolean {
   const [id] = useState(() => Symbol('shaderSlot'));
-  // Optimistically true: a newly mounted background is about to become the top
-  // of the stack, and starting false would flash a frozen frame for one commit.
+  const focused = useScreenFocus();
+  // Optimistically true: a newly mounted background is about to claim the slot,
+  // and starting false would flash a frozen gradient for one commit.
   const [isOwner, setIsOwner] = useState(true);
 
   useEffect(() => {
     listeners.set(id, setIsOwner);
-    const previous = stack[stack.length - 1];
-    stack.push(id);
-    notifyOwner(previous);
-
     return () => {
-      const wasOwner = stack[stack.length - 1] === id;
-      const i = stack.indexOf(id);
-      if (i !== -1) stack.splice(i, 1);
       listeners.delete(id);
-      if (wasOwner) notifyOwner(undefined);
+      relinquish(id);
     };
   }, [id]);
+
+  useEffect(() => {
+    if (focused) claim(id);
+    else relinquish(id);
+  }, [id, focused]);
 
   return isOwner;
 }

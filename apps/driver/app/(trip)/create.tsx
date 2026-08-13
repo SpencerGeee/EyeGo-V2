@@ -475,9 +475,22 @@ export default function CreateTripScreen() {
             {/* Each tier carries its own ring and its own colour — Eco green,
                 Comfort blue, Premium gold — from the same shared `getTierTheme`
                 the rider's picker and the tier badge use, so a driver setting up
-                a Premium trip and a rider looking at one see the same gold. The
-                ring only glows on the selected card: three glowing rings side by
-                side is noise, and three shadow passes per frame. */}
+                a Premium trip and a rider looking at one see the same gold.
+
+                EVERY RING SWEEPS, ALWAYS — not just the selected one.
+
+                `disabled={!active}` used to freeze the two unselected rings, so
+                the last step of create-trip was one moving card between two dead
+                ones: "the glow borders should be constantly moving like the way
+                the create trip button is wired up on the homepage". They now
+                match that button exactly.
+
+                Rotation is free to hand out: every GradientGlowBorder reads ONE
+                shared clock (see effects/useAmbientRotation.tsx), so three
+                sweeping rings cost one animation, not three. The GLOW is what is
+                actually expensive — four shadow-casting layers per ring — so
+                that still belongs to the selected card alone. Three haloes side
+                by side is noise as well as three shadow passes a frame. */}
             <View style={styles.tierRow}>
               {TIER_OPTIONS.map((opt) => {
                 const active = tier === opt.value;
@@ -492,7 +505,6 @@ export default function CreateTripScreen() {
                     glow={active}
                     glowIntensity={0.7}
                     maxGlowRadius={14}
-                    disabled={!active}
                     style={styles.tierCardWrap}
                   >
                     <Pressable

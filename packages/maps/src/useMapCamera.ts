@@ -36,7 +36,19 @@ export interface UseMapCameraArgs {
   fit?: Coord[] | null;
   /** Follow target when there is no live puck (e.g. framing a fixed pickup). */
   center?: Coord | null;
-  padding: CameraPadding;
+  /**
+   * Either a fixed padding, or a getter the frame loop calls every tick.
+   *
+   * The getter form is what interlocks the camera with a morphing bottom sheet:
+   * the sheet publishes its top edge as a Reanimated shared value, and a shared
+   * value is readable synchronously from the JS thread — so the loop can sample
+   * the sheet's real, mid-spring position without a single React render. Pass
+   * `() => paddingForSheetTop({ sheetTop: metrics.top.value, ... })`.
+   *
+   * The getter runs at 60 Hz. Keep it arithmetic — no allocation beyond the
+   * padding object itself, no store reads.
+   */
+  padding: CameraPadding | (() => CameraPadding);
   /** Publish rate for `puck` state, in ms. The camera itself updates every frame. */
   publishEveryMs?: number;
   /** Set false to stop the frame loop entirely (screen not visible). */
@@ -101,7 +113,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   };
   const modeRef = useRef<CameraMode>(mode);
   modeRef.current = mode;
-  const paddingRef = useRef<CameraPadding>(padding);
+  const paddingRef = useRef<CameraPadding | (() => CameraPadding)>(padding);
   paddingRef.current = padding;
   const fitIncludesPuckRef = useRef(fitIncludesPuck);
   fitIncludesPuckRef.current = fitIncludesPuck;
@@ -173,6 +185,11 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
         ? [...(targetRef.current.fit ?? []), [state.longitude, state.latitude] as Coord]
         : targetRef.current.fit;
 
+      // Sampled per frame so a sheet that is mid-spring is framed where it
+      // actually is, not where it is going to end up.
+      const paddingNow =
+        typeof paddingRef.current === 'function' ? paddingRef.current() : paddingRef.current;
+
       const plan = planCamera(
         effectiveMode,
         {
@@ -182,7 +199,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
           bearing: state?.bearing ?? targetRef.current.bearing,
           fit: liveFit,
         },
-        paddingRef.current,
+        paddingNow,
         // The camera is re-commanded every frame while following, so each move
         // must be near-instant — a 450 ms animation restarted 60 times a second
         // never arrives anywhere and the map crawls.
@@ -265,14 +282,28 @@ function applyPlan(
     const now = Date.now();
     if (!stageChanged && now < fitSettlesAtRef.current) return;
 
+    /**
+     * A padding change used to mean "the sheet snapped to a new stage height",
+     * which happened once and deserved a 600 ms ease. With the padding sampled
+     * from the sheet's live top edge it now means "the sheet is mid-spring",
+     * and it fires ~25 times across one transition. Animating each of those
+     * over 600 ms restarts the camera before it has arrived anywhere: the map
+     * crawls, exactly as the follow path does when it is re-commanded every
+     * frame with a duration.
+     *
+     * So a padding-driven re-frame is issued INSTANTLY and the sheet's own
+     * spring becomes the only easing on screen — which is what makes the pins
+     * and the panel move as one object rather than as two things that happen
+     * to be animating. The first fit of a surface keeps its ease: there is no
+     * sheet motion to track yet, only an empty map arriving at its subject.
+     */
+    const firstFit = lastPaddingKeyRef.current === '';
+    const duration = stageChanged && !firstFit ? 0 : plan.animationDuration ?? 0;
+
     lastOverviewKeyRef.current = key;
     lastPaddingKeyRef.current = paddingKey;
-    fitSettlesAtRef.current = now + (plan.animationDuration ?? 0);
-    cameraRef.fitBounds?.(
-      [plan.bounds.ne, plan.bounds.sw],
-      plan.padding,
-      plan.animationDuration,
-    );
+    fitSettlesAtRef.current = now + duration;
+    cameraRef.fitBounds?.([plan.bounds.ne, plan.bounds.sw], plan.padding, duration);
     return;
   }
 

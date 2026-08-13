@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Pressable,
   Alert,
   Modal,
   Platform,
@@ -12,7 +11,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity , MAX_SEATS_PER_BOOKING, clampSeats } from '@eyego/config';
-import { Text, GlassCard, Button } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
+import { Text, GlassCard, Button, Pressable } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';

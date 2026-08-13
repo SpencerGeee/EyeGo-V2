@@ -53,6 +53,12 @@ const STATUS_FLOW: Record<string, { label: string; next: string | null; action: 
   CONFIRMED:          { label: 'Confirmed',            next: 'start',  action: 'Start Trip'    },
   SCHEDULED:          { label: 'Scheduled',           next: 'start',  action: 'Start Trip'    },
   FILLING:            { label: 'Boarding Open',        next: 'start',  action: 'Start Trip'    },
+  // A dispatched trip normally lands straight at DRIVER_EN_ROUTE, but the state
+  // machine still routes DRIVER_ASSIGNED → DRIVER_EN_ROUTE (an admin assignment,
+  // a reassignment, a scheduled trip a driver claimed), and with no entry here
+  // the screen fell through to the FILLING fallback — a "Start Trip" button that
+  // happened to work by accident. Spelled out so it works on purpose.
+  DRIVER_ASSIGNED:    { label: 'Assigned',             next: 'start',  action: 'Head to Pickup' },
   DRIVER_EN_ROUTE:    { label: 'Heading to Pickup',    next: 'arrive', action: "I've Arrived"  },
   // Not "Start Trip" — the trip is long since started by this point; this is
   // the passenger-is-aboard, pulling-off action. Two buttons reading "Start
@@ -100,6 +106,35 @@ const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> =
   );
 
 const STATUS_STEPS = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'COMPLETED'];
+
+/**
+ * Which step a status stands on — NOT `STATUS_STEPS.indexOf(status)`.
+ *
+ * BUGFIX ("on the tracking page it's showing Ready to Start at the top, but on
+ * the manage page the statuses are all greyed out").
+ *
+ * `indexOf` answers -1 for any status that is not literally one of the six
+ * labels above, and -1 makes every step render as neither done nor current —
+ * the whole progress rail goes grey. Two real statuses hit that: `CONFIRMED`,
+ * which payments.service.js promotes a fully-paid SCHEDULED trip to, and
+ * `DRIVER_ASSIGNED`, which a dispatched on-demand trip passes through. Both are
+ * states a driver spends real time in, and both drew an empty rail.
+ *
+ * They are not new steps — CONFIRMED is the scheduled trip waiting to set off,
+ * DRIVER_ASSIGNED is the driver about to head for pickup — so they ALIAS onto
+ * the step they belong to rather than lengthening the rail. Keep this in sync
+ * with `STATUS_FLOW` above and with the tracking screen's `advanceStatus`;
+ * those three are the same state machine seen from three angles.
+ */
+const STEP_ALIASES: Record<string, string> = {
+  CONFIRMED: 'SCHEDULED',
+  DRIVER_ASSIGNED: 'DRIVER_EN_ROUTE',
+};
+
+function stepIndexFor(status: string | undefined | null): number {
+  if (!status) return -1;
+  return STATUS_STEPS.indexOf(STEP_ALIASES[status] ?? status);
+}
 
 // The route line, the route COLOURS (amber core over a deep-brown casing —
 // the driver map style paints its roads blue, so a blue line disappeared into
@@ -299,7 +334,7 @@ export default function ActiveTripScreen() {
   // including on a resumed trip reopened from the home screen's "Resume Trip"
   // banner. Without it, "Start Trip" on a CONFIRMED trip threw client-side
   // instead of ever calling the backend.
-  const VALID_ADVANCE_STATUSES = ['CONFIRMED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
+  const VALID_ADVANCE_STATUSES = ['CONFIRMED', 'DRIVER_ASSIGNED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
 
   const advanceStatus = useMutation({
     /*
@@ -320,7 +355,7 @@ export default function ActiveTripScreen() {
       const status = trip?.status;
       if (!status || !VALID_ADVANCE_STATUSES.includes(status)) throw new Error(`Cannot advance from status: ${status ?? 'unknown'}`);
       pendingFromStatus.current = status;
-      if (status === 'CONFIRMED' || status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
+      if (status === 'CONFIRMED' || status === 'DRIVER_ASSIGNED' || status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
       if (status === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(id);
       if (status === 'ARRIVED_AT_PICKUP') return driverApi.departTrip(id);
       if (status === 'IN_PROGRESS') return driverApi.arriveTrip(id);
@@ -599,7 +634,7 @@ export default function ActiveTripScreen() {
     bookingId: b.id,
   }));
 
-  const currentStepIndex = STATUS_STEPS.indexOf(trip.status);
+  const currentStepIndex = stepIndexFor(trip.status);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 

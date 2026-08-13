@@ -11,8 +11,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
-  Easing,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { springs, pressScale as pressScaleToken } from '@eyego/config';
@@ -66,12 +64,29 @@ export function Pressable({
     transform: [{ scale: scale.value }],
   }));
 
+  /**
+   * BOTH HALVES OF A PRESS ARE THE SAME SPRING.
+   *
+   * Press-in used to be a 100 ms `withTiming` and press-out a spring, which is
+   * two different physical systems driving one property. It shows on exactly the
+   * interaction people notice: tap and release quickly and the release spring
+   * inherits a position the timing curve was still travelling through, with no
+   * velocity to hand over, so the control kicks. One spring on both ends means
+   * an interrupted press carries position AND velocity across and the scale
+   * simply reverses.
+   *
+   * `springs.press` and NOT `MOTION_PROFILES.TACTILE_BUTTON`, despite the latter
+   * being the role-named profile for this. TACTILE_BUTTON is ζ ≈ 0.78, and
+   * motion.ts states the system's rule outright: everything spatial — sheets,
+   * screens, maps, headers, lists, BUTTONS — is ζ = 1.0, and overshoot is
+   * reserved for the single semantic category of "something just succeeded".
+   * A press-scale that springs past its resting size breaks that invariant on
+   * the most-repeated interaction in the app. The timing/spring mismatch was the
+   * actual defect here; the damping ratio was already right.
+   */
   const handlePressIn = useCallback(
     (e: GestureResponderEvent) => {
-      scale.value = withTiming(scaleOnPress, {
-        duration: 100,
-        easing: Easing.out(Easing.quad),
-      });
+      scale.value = withSpring(scaleOnPress, springs.press);
       if (isFnStyle) setPressed(true);
       onPressIn?.(e);
     },

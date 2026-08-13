@@ -252,3 +252,60 @@ Decisions:
 - Admin rebuild approved: `apps/admin` Next.js on Vercel, adminAuth JWT + RBAC + audit log, parity-first over the 46 existing endpoints.
 Rejected: passing a function `style` through to Reanimated's AnimatedPressable (fixes layout, breaks press-scale — resolve against local pressed state instead). Resolution *fractions* for shader downscale (use an absolute pixel budget; 0.5x is 3x more work on a flagship than a cheap Android). First-come shader slot (pins it to the root layout, no screen shows the effect).
 Open: booking-flow pass 2 unaudited (payments/refunds, seat-race concurrency, guest+offline, confirmedSeats column drift). Nothing committed; nothing device-tested.
+
+## 2026-08-12 18:00 [saved]
+Goal: Rebuild the admin console as apps/admin, enterprise-grade and complete.
+Decisions:
+- Console is Next 15 server-components + Server Actions; `import 'server-only'` in lib/api.ts makes a client import a build error, so no admin token can reach the browser.
+- Server-to-server calls mean CORS never applies to the console — dropped from the plan.
+- Real AdminUser identity + 5 roles; lib/roles.ts gates navigation only, adminRbac.js is the gate.
+- AdminAuditLog is append-only, written on res.finish, and records refused attempts with their status code.
+- Settlement anywhere in admin reads Booking.paymentStatus === 'PAID'; PaymentTransaction is not settlement truth on a cash platform.
+Rejected: keeping the legacy shared secret as the auth model (one leaked string = anonymous superadmin). Inline booking/trip status lists in admin reads (use seatOccupyingWhere + DRIVER_OCCUPYING_TRIP_STATUSES).
+Open: nothing browser-tested against a live API. Migration SQL is gitignored, so schema travels by db push.
+
+## 2026-08-12 23:30 [saved]
+Goal: Fix 16 reported admin/rider/driver defects and confirm dispatch matches drivers.
+Decisions:
+- `Driver.status` approved value is `ACTIVE`; the column is a free-form String, so lib/status.ts owns the vocabulary and no literal may be inlined.
+- The dispatch pool is Redis (90s presence), not `Driver.isOnline`; diagnose via the new `/admin/dispatch/health` rather than psql.
+- Console maps use `@eyego/map-styles` over OpenFreeMap — same styles as both apps, no API key, so no map ever needs a token.
+- Per-seat fare is DERIVED by fare.calculator from stored rates; there is no `farePerSeatPesewas` column.
+- Trip identity = journey title + `EY-` + the random TAIL of the cuid; leading characters are a shared timestamp.
+- Brand lives in the ground and edges (veil + glass chrome + accent rims), not by colouring more components.
+Rejected: testing `status === 'APPROVED'` anywhere. A promo form with discountType/description/minFare — the Promotion model has none of them. Front-truncated cuids as references.
+Open: nothing browser-tested. Pushes still need the APNs key; chat works only because it is a LOCAL notification.
+
+## 2026-08-13 01:20 [saved]
+Goal: Duplicate key, missing route polyline, runtime config page, skeletons, animation pass.
+Decisions:
+- `PlatformSetting` + `src/config/settings.js` is the override layer for every commercial knob; env is only the default and secrets stay out of the registry.
+- Tunables must be read per call (getters), never captured in a module-level const from `process.env`.
+- MapLibre layers are rebuilt on `style.load`, never from `styledata` — `styledata` fires repeatedly and the add races its own removal, which silently killed the trip route line.
+- `?? 0` is for arithmetic, not display: an unloaded figure renders `SkeletonValue`, never a fake zero.
+- The existing spring tokens (all ζ=1.0, response-derived) already exceed the "damping 26–30 / stiffness 170–190" brief — `springs.emphasized` IS that spring. Do not retune them.
+- The map route reveal stays JS-driven with a fixed ~24-update budget; `ShapeSource` takes GeoJSON as a React prop, so a shared value cannot reach it.
+Rejected: animating `line-dasharray` per frame on the RN map. Retuning motion.ts to the prompt's numbers. Reading `env.X` inside fare.calculator.
+Open: /config not browser-tested; route reveal not device-tested. PlatformSetting table was created directly on the dev DB (migration file exists but repo gitignores migration SQL).
+
+## 2026-08-13 [saved]
+Goal: 13-item stress sweep — Skia lag, trip card, dispatch delivery, driver statuses, motion.
+Decisions:
+- Ambient-background ownership is navigation FOCUS, not mount order; tabs never remount so mount order stranded the shader on an invisible tab.
+- Dropped LightPillar's dwell frame-rate decay; duty cycle is now visibility (`isAnimated`), constant 30fps on screen.
+- `Pressable` must come from @eyego/ui, never react-native — NativeWind's css-interop registers RN's and drops `({pressed}) => style`.
+- Driver polls `/rides/driver/state` every 5s while idle: offers carry no seq and have no replay, so a dropped socket frame loses the ride.
+- `MOTION_PROFILES` added as an additive role-named view; existing `springs` tokens still NOT retuned (see 2026-08-06).
+Rejected: mount-order background registries. RN Pressable with function styles. TACTILE_BUTTON (ζ0.78) on press-scale — breaks motion.ts's own ζ=1.0 rule for buttons.
+Open: item-4 root cause unproven (poll is a safety net — check logs for "OFFER published to an EMPTY room"). NODE_CONVERGENCE not wired to map markers.
+
+## 2026-08-13 18:40 [saved]
+Goal: One morphing sheet across the rider trip stages, interlocked with the map camera.
+Decisions:
+- Sheet edge moves by translateY on a screen-tall container, never by animating height — layout props cost a Yoga pass per frame over a whole stage subtree.
+- useMapCamera now takes a padding GETTER; the 60 Hz loop samples the sheet's live top edge off a shared value, since MapLibre padding is a native prop and cannot be a Reanimated node.
+- Padding-driven fitBounds is issued with duration 0 — a live padding changes ~25x per transition and 600 ms eases restart forever.
+- Stages publish panel bodies into a zustand slot store, not React context: a provider is an ancestor of the stages, so context publishing loops.
+- MorphSheet reuses usePanelMotion; only new idea is a measured, re-snapped resting stop.
+Rejected: animating height/flexBasis per the brief; driving MapLibre padding from withSpring; portal-via-context for the sheet slot.
+Open: only assigned+tracking converted; MorphCTA has no caller yet.

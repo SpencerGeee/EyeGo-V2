@@ -1,5 +1,5 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Platform, Pressable, ScrollView, Alert, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, Platform, ScrollView, Alert, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, bookingsApi, paymentsApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
+import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
 
 // Green-accent variant of the premium ring sweep — two narrow emerald arcs

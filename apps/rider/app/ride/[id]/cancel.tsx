@@ -3,13 +3,15 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Pressable,
   TextInput,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView, AnimatePresence } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
+import { MotiView, AnimatePresence, Pressable } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
 import { Text, Radio, GlassSurface } from '@eyego/ui';

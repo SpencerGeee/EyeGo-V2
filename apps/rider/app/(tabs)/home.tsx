@@ -3,7 +3,6 @@ import { formatGhs } from '@eyego/utils';
 import {
   View,
   StyleSheet,
-  Pressable,
   ScrollView,
   RefreshControl,
 } from 'react-native';
@@ -18,7 +17,10 @@ import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
+// drops the `({ pressed }) => style` function form on RN's Pressable, which
+// silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
+import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
@@ -469,36 +471,33 @@ export default function HomeScreen() {
     <View style={[styles.root, { backgroundColor: 'transparent' }]}>
       {/* ── Header ───────────────────────────────────────── */}
       {/*
-        A SCRIM, NOT A PANEL.
+        NO SCRIM AT ALL. THE HEADER IS THE BACKGROUND.
 
-        Two problems, one cause. The header had no background of its own, so
-        (a) the greeting, the bell and the avatar were reading directly against
-        a moving green light beam, which is the "make the text very legible…
-        so they don't look faint" note, and (b) the Where-To bar's halo below is
-        an iOS shadow clipped flat by the ScrollView's top edge, and with nothing
-        over that boundary the slice showed as a hard horizontal line — "it's
-        visibly showing the cutout of the glow intensity which makes it weird".
+        This used to paint a gradient scrim that was fully OPAQUE at the status
+        bar and faded out past the header's bottom edge. It solved legibility,
+        and it cost the two things the header is sitting in front of:
 
-        A solid header bar would fix the legibility and make (b) worse, by
-        turning a soft seam into a hard one. So this is a gradient scrim that is
-        opaque at the very top and fades to nothing past the header's bottom
-        edge: the type always has ground underneath it, the clip line lands
-        inside the fade where there is no edge to see, and the background is
-        still visibly the brand background rather than a grey bar.
+          "make the header part of the homepage transparent. right now it's
+           having a visible black background which kills the skia background
+           from bleeding thru. if you remove the dark background, the where to
+           field glow border wouldn't be showing as cut out on the top part
+           since it's bleeding thru effortlessly."
 
-        It extends `SCRIM_OVERHANG` past the header so the fade finishes BELOW
-        the seam rather than at it.
+        Both halves of that are right. An opaque band across the top is a black
+        bar over a full-screen ambient shader, and it is also the hard edge the
+        Where-To halo appeared to be notched out of — a soft glow meeting an
+        opaque rectangle reads as a cut, whatever the rectangle is made of.
+
+        Legibility is now carried by the controls themselves rather than by the
+        ground behind them: the avatar and the bell are on the app's own card
+        surface with a real rim (see `avatarBtn` / `notifBtn`), and the greeting
+        keeps a tight dark halo via `textShadow*` on `greetingHeadline`. Type on
+        a shadow stays readable at every point in the beam's cycle without
+        putting a panel between the user and the background.
+
+        The halo's own headroom is handled where it belongs — inside the
+        ScrollView that clips it. See `scroll` / `scrollContent` below.
       */}
-      <LinearGradient
-        pointerEvents="none"
-        colors={[
-          colors.backgroundDeep,
-          withOpacity(colors.backgroundDeep, 0.82),
-          withOpacity(colors.backgroundDeep, 0),
-        ]}
-        locations={[0, 0.62, 1]}
-        style={[styles.headerScrim, { height: insets.top + 12 + HEADER_H + 12 + SCRIM_OVERHANG }]}
-      />
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         {/* THE UPLOADED PHOTO, NOT ALWAYS THE INITIAL.
             This rendered `<Text>{initials}</Text>` unconditionally, so a rider
@@ -815,46 +814,38 @@ export default function HomeScreen() {
 /** Header control height — avatar and bell are both this tall. */
 const HEADER_H = 40;
 const AVATAR_SIZE = 40;
-/** How far the header scrim fades past the header's own bottom edge, so the
- *  Where-To halo's clip line lands inside the fade instead of at its end. */
-const SCRIM_OVERHANG = 28;
+/**
+ * Headroom reserved INSIDE the ScrollView for the Where-To halo, and the
+ * matching negative offset that keeps the card where it has always sat.
+ *
+ * Must be >= `maxGlowRadius` on the GlowSearchPressable above (18), or the top
+ * of the halo is sliced flat at the scroll viewport's clip edge.
+ */
+const HALO_HEADROOM = 22;
+/** The card's original gap below the header. HALO_HEADROOM - this = the pull-up. */
+const WHERE_TO_GAP = 8;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   root: { flex: 1 },
 
-  /** See the render site. Opaque at the status bar, gone by `SCRIM_OVERHANG`. */
-  headerScrim: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 0,
-  },
-
   // ─── Header ──────────────────────────────────────────────
   header: {
-    // Above the scrim it sits on.
+    // Above the scroll view, which is pulled up underneath it so the Where-To
+    // halo has somewhere to paint.
     zIndex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     // The Where-To bar lives inside the ScrollView below, a ScrollView clips to
     // its own bounds, and the bar's glow is an iOS shadow that paints ABOVE the
-    // bar. If the halo reaches further than the gap here plus
-    // `scrollContent.paddingTop`, its top is sliced off flat at the viewport
-    // edge — and a hard horizontal line where a soft glow should be reads
-    // exactly like a notch cut out of the header.
+    // bar. If the halo reaches further than `scrollContent.paddingTop`, its top
+    // is sliced off flat at the viewport edge — and a hard horizontal line where
+    // a soft glow should be reads exactly like a notch cut out of the header.
     //
-    // That was previously solved by pushing the card 36 pt further down, which
-    // bought the room but moved the card:
-    //
-    //   "i know i told you to give a little space to the where to field on the
-    //    homepage but now it's looking awkward, revert it to the initial
-    //    position since it was looking nice then."
-    //
-    // So the card goes back to 12 + 8 pt, and the halo is sized to FIT that gap
-    // instead of the gap being sized to fit the halo — see `glowIntensity` on
-    // the GlowSearchPressable above. Nothing clips, and nothing moved.
+    // Solved by `HALO_HEADROOM` on the scroll view rather than by moving the
+    // card: the padding gives the halo room INSIDE the clip bounds and the
+    // matching negative `marginTop` puts the card back at its original 12 + 8 pt.
+    // Nothing clips, and nothing moved.
     paddingBottom: 12,
     gap: 10,
   },
@@ -892,11 +883,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: 25,
     color: colors.onSurface,
     letterSpacing: -0.2,
-    // Belt and braces with the scrim: a tight dark halo keeps the greeting
-    // readable even at the moment the light beam sweeps directly behind it.
-    textShadowColor: 'rgba(0,0,0,0.55)',
+    // The header paints no ground of its own any more (see the render site), so
+    // this halo is the whole of the greeting's legibility: it has to hold at the
+    // moment the light beam sweeps directly behind the text.
+    textShadowColor: 'rgba(0,0,0,0.7)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    textShadowRadius: 7,
   },
   notifBtn: {
     width: HEADER_H,
@@ -942,13 +934,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * amount keeps that headroom while putting the card back exactly where it
    * used to sit. 52 − 44 = 8 pt below the header, the original position.
    */
-  scroll: { flex: 1 },
+  scroll: {
+    flex: 1,
+    // Pulled up by exactly the headroom `scrollContent.paddingTop` adds, so the
+    // card's position on screen is unchanged while the halo gains room to paint
+    // inside the clip bounds. Now that the header paints nothing, the part of
+    // the glow that reaches up here bleeds behind it instead of being cut by it.
+    marginTop: -(HALO_HEADROOM - WHERE_TO_GAP),
+  },
   scrollContent: {
     paddingHorizontal: 20,
-    // Back to the original 8. Together with the header's 12 this is the 20 pt
-    // the halo now has to live within — see `glowIntensity` on the
-    // GlowSearchPressable and the note on `header`.
-    paddingTop: 8,
+    // >= the GlowSearchPressable's `maxGlowRadius` (18). This is the ONLY thing
+    // standing between the Where-To halo and a flat slice across its top edge.
+    paddingTop: HALO_HEADROOM,
     gap: 16,
     paddingBottom: 8,
   },

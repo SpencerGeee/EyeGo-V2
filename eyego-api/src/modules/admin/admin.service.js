@@ -1120,7 +1120,28 @@ async function getActiveTrips() {
     // headline number but vanished from the list an operator actually works —
     // the trip disappeared from view at the exact moment it most often needs
     // attention. Both now derive from one constant.
-    where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } },
+    //
+    // SECOND BUGFIX ("every live trip has a driver attached"). All three
+    // statuses above are post-assignment, so by construction this list could
+    // only ever contain trips WITH a driver — which is why a rider stuck on
+    // "looking for a driver" was invisible on the live board while being the
+    // most operationally interesting thing happening. The pre-driver statuses
+    // are live trips too: a trip in MATCHING is a rider waiting right now.
+    // `driver` is a nullable relation, so those rows come back with `driver:
+    // null` and the console renders them as searching rather than assigned.
+    where: {
+      status: {
+        in: [
+          'REQUESTED',
+          'MATCHING',
+          'REASSIGNING',
+          'DRIVER_ASSIGNED',
+          'DRIVER_EN_ROUTE',
+          'ARRIVED_AT_PICKUP',
+          'IN_PROGRESS',
+        ],
+      },
+    },
     include: {
       driver: { select: { id: true, name: true, currentLat: true, currentLng: true, phone: true } },
       route: { select: { originName: true, destinationName: true } },
@@ -1344,18 +1365,43 @@ async function expireUnansweredDispatchOffers() {
   return actioned;
 }
 
+/**
+ * How long a trip may sit in dispatch before an operator should know about it.
+ *
+ * Not zero: a healthy on-demand request spends a few seconds in MATCHING while
+ * the cascade walks its candidate list, and flagging those would make the panel
+ * noise rather than signal. Anything still searching past this has outlived a
+ * normal match by a wide margin.
+ */
+const STRANDED_SEARCHING_GRACE_MS = 90 * 1000;
+
+/**
+ * Trips that need a human. TWO different failures, one queue.
+ *
+ * BUGFIX ("on the live dispatch page it's showing that nothing is stranded and
+ * that every live trip has a driver attached" — said while a rider sat on
+ * "looking for a driver" and the trip was stuck in MATCHING).
+ *
+ * The old query was `status NOT IN terminal AND driver.isOnline = false`, built
+ * on a premise its own comment stated outright: "a genuinely driverless Trip row
+ * never exists". That stopped being true at the rewire — `Trip.driverId` is
+ * `String?` now, and the whole pre-driver half of the lifecycle (REQUESTED,
+ * MATCHING, REASSIGNING) is driverless by design. A relation filter on `driver`
+ * does not merely fail to match those rows, it EXCLUDES them: Prisma cannot
+ * satisfy `driver.isOnline = false` against a null relation. So the one case an
+ * operator most needs to see — a rider waiting with nobody assigned — was the
+ * exact case this query could never return, and the panel confidently reported
+ * "nothing stranded".
+ *
+ * Both meanings of stranded now count:
+ *   1. NO DRIVER, and dispatch has been trying longer than it should — the
+ *      cascade found nobody, or wedged. `updatedAt` is bumped by every
+ *      `applyTransition`, so it is the time the trip entered its current state.
+ *   2. A DRIVER WHO WENT OFFLINE mid-commitment — the original meaning, kept.
+ */
 async function getUnassignedTrips() {
-  // Every trip's driverId is set at creation (drivers self-create their own
-  // trips in the current on-demand model) — a genuinely driverless Trip row
-  // never exists, so the old "SCHEDULED/FILLING + driver offline" definition
-  // here was almost always empty by construction, leaving this admin panel
-  // permanently blank with nothing to act on.
-  //
-  // Repurposed: "unassigned" now means any non-terminal trip whose assigned
-  // driver has gone offline — SCHEDULED/FILLING (offline before departure)
-  // through DRIVER_EN_ROUTE/ARRIVED_AT_PICKUP/IN_PROGRESS (offline mid-trip,
-  // with riders already matched or aboard) — the actual scenario an admin
-  // needs to intervene on and hand off to another online driver.
+  const searchingSince = new Date(Date.now() - STRANDED_SEARCHING_GRACE_MS);
+
   return prisma.trip.findMany({
     where: {
       // BUGFIX: excluding only COMPLETED and CANCELLED left the other three
@@ -1364,14 +1410,21 @@ async function getUnassignedTrips() {
       // "needs intervention" queue permanently, burying the handful of live
       // trips that genuinely needed a hand-off.
       status: { notIn: TERMINAL_TRIP_STATUSES },
-      driver: { isOnline: false },
+      OR: [
+        // (1) Nobody attached, and it has been that way too long.
+        { driverId: null, updatedAt: { lt: searchingSince } },
+        // (2) Attached, but the driver is no longer reachable.
+        { driver: { isOnline: false } },
+      ],
     },
     include: {
       route: { select: { id: true, name: true, originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
       driver: { select: { id: true, name: true, isOnline: true } },
       _count: { select: { bookings: { where: seatOccupyingWhere() } } },
     },
-    orderBy: { departureTime: 'asc' },
+    // Longest-waiting first. `departureTime` is null for every on-demand trip,
+    // which sorted the urgent ones to whichever end the database felt like.
+    orderBy: { updatedAt: 'asc' },
     take: 50,
   });
 }

@@ -776,6 +776,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing['2xl'],
     gap: spacing.lg,
   },
+  /**
+   * NOT a sheet stage, deliberately.
+   *
+   * `assigned` and `tracking` publish their panels into the trip surface's one
+   * morphing sheet (see `sheetSlot.tsx`). This stage does not, and the reason
+   * is the `MorphTarget` above: it is the landing site for the home screen's
+   * "looking for a driver" card, so the thing that grows out of that card has
+   * to be the view this component renders. Move the body into a sheet hosted
+   * by the trip surface and the morph lands on an empty full-screen view while
+   * the real content appears, unannounced, somewhere else.
+   *
+   * The sheet takes over at `assigned`, which is the first stage with no
+   * inbound morph of its own.
+   */
   iconContainer: {
     width: 96,
     height: 96,

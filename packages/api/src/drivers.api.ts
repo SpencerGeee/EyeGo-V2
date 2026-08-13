@@ -130,11 +130,15 @@ export interface DriverTrip {
   commissionRate?: number;
   driverEarningsPerSeatPesewas?: number;
   baseFarePesewas: number;
-  // CONFIRMED (dispatch accepted, not yet departed) and REASSIGNING (driver
-  // bailed pre-boarding, awaiting another driver) exist in the Prisma schema
-  // and are returned by the API — they were just missing from this union, so
-  // screens comparing against them were flagged as impossible.
-  status: 'SCHEDULED' | 'FILLING' | 'CONFIRMED' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'REASSIGNING' | 'COMPLETED' | 'CANCELLED';
+  // CONFIRMED (dispatch accepted, not yet departed), DRIVER_ASSIGNED (a driver
+  // is attached but has not set off — an admin assignment, a reassignment, a
+  // claimed scheduled trip) and REASSIGNING (driver bailed pre-boarding,
+  // awaiting another driver) all exist in the Prisma schema and are returned by
+  // the API. They were missing from this union, so screens comparing against
+  // them were flagged as impossible comparisons — which is how a status a
+  // driver can genuinely sit in ends up with no button and a greyed-out
+  // progress rail. Keep in step with `TripStatus` in @eyego/types.
+  status: 'SCHEDULED' | 'FILLING' | 'CONFIRMED' | 'DRIVER_ASSIGNED' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP' | 'IN_PROGRESS' | 'REASSIGNING' | 'COMPLETED' | 'CANCELLED';
   totalEarningsPesewas?: number;
   bookings?: Array<{
     id: string;

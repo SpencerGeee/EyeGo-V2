@@ -3,8 +3,9 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, InlayPanel, RollingDigits, Avatar, GradientGlowBorder, CardAuroraGlow } from '@eyego/ui';
+import { Text, GlassSurface, RollingDigits, Avatar, GradientGlowBorder, CardAuroraGlow } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
+import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripStore } from '../../../stores/trip.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
@@ -70,15 +71,17 @@ function TrackingStageImpl() {
         </View>
       )}
 
-      {/* 0.34 collapsed, against AssignedStage's 0.44 — the map gets more room
-          once the rider is moving through it, and TripMap's SHEET_FRACTION for
-          this stage matches so the camera pads to the same visible window. */}
-      <InlayPanel
-        snapPointsPct={[0.34, 0.66]}
-        initialState="collapsed"
-        sheetStyle={styles.sheet}
-        grabberColor={colors.outline}
-      >
+      {/*
+        The panel body no longer renders here. It is published into the trip
+        surface's ONE sheet, which is mounted above every stage and deforms
+        between them — so moving from `assigned` to `tracking` is the same
+        surface changing shape rather than one panel unmounting and another
+        springing up in its place. Its detents (0.34 resting here, 0.44 while
+        assigned) live in TripSheetHost's SHEET_STYLE table, and the map's
+        camera padding is now read from the sheet's live edge rather than from
+        a matching table of guesses.
+      */}
+      <SheetContent stage="tracking">
         {/*
           The green wash. Anchored to the sheet's bottom edge, capped well below
           the point where it would compete with the text, and static — this
@@ -110,6 +113,49 @@ function TrackingStageImpl() {
                 <Text variant="caption" color={colors.onPrimary}>min</Text>
               </View>
             )}
+          </View>
+
+          {/*
+            THE JOURNEY, BOTH ENDS OF IT.
+
+            BUGFIX ("on the rider tracking page it doesn't show the pickup point
+            — placeholder only — it just shows the destination").
+
+            This panel rendered `snapshot.dropoff.address` under the headline and
+            nothing else, so the one thing a rider in a moving car cannot verify
+            from the window — that the driver is taking them from the right place
+            to the right place — was half missing. The pickup was not wrong here,
+            it was absent; the "placeholder" was the generic destination subtitle
+            standing in for a route.
+
+            `trip-view.js` already resolves `snapshot.pickup` to THIS rider's own
+            collection point (their booking's, not the group trip's — see the
+            note there), so the correct address is on the wire and was simply
+            never read. Rendered as the same dot → connector → pin vocabulary the
+            rider set the trip up with on the Where-To card, so the two screens
+            describe one journey the same way.
+          */}
+          <View style={styles.journey}>
+            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
+            <View style={styles.journeyTimeline}>
+              <View style={[styles.journeyDot, { backgroundColor: colors.onSurfaceVariant }]} />
+              <View style={[styles.journeyConnector, { backgroundColor: colors.outline }]} />
+              <Ionicons name="location" size={12} color={colors.primary} />
+            </View>
+            <View style={styles.journeyText}>
+              <View>
+                <Text style={styles.journeyLabel}>PICKUP</Text>
+                <Text variant="bodySmall" numberOfLines={1}>
+                  {snapshot?.pickup?.address ?? 'Your pickup point'}
+                </Text>
+              </View>
+              <View>
+                <Text style={styles.journeyLabel}>DROP-OFF</Text>
+                <Text variant="bodySmall" numberOfLines={1}>
+                  {snapshot?.dropoff?.address ?? 'Your destination'}
+                </Text>
+              </View>
+            </View>
           </View>
 
           {/* One compact row instead of the full driver card: who is driving is
@@ -221,7 +267,7 @@ function TrackingStageImpl() {
             </Pressable>
           </View>
         </View>
-      </InlayPanel>
+      </SheetContent>
     </View>
   );
 }
@@ -238,8 +284,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
     borderRadius: radii.lg, overflow: 'hidden',
   },
-  sheet: { backgroundColor: colors.background },
-  sheetBody: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing['2xl'], gap: spacing.lg },
+  // Horizontal gutter and bottom safe area belong to the shared sheet now
+  // (TripSheetHost's body style + MorphSheet's inset), so this is only the
+  // rhythm between the panel's own blocks. Keeping the old padding here as
+  // well would double every gutter.
+  sheetBody: { gap: spacing.lg },
   headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   title: {
     fontFamily: fonts.displayBold,
@@ -256,6 +305,31 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   /* No border or background of its own any more: GradientGlowBorder paints
      both, and a second flat border under the ring reads as a doubled edge. */
+  /** Pickup → drop-off. See the render site. */
+  journey: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    overflow: 'hidden',
+  },
+  /** The dot/line/pin rail, sized so each end lines up with its own text block. */
+  journeyTimeline: { alignItems: 'center', paddingTop: 5, width: 12 },
+  journeyDot: { width: 8, height: 8, borderRadius: 4 },
+  /** Explicit height rather than `flex: 1` — this is a cross-axis child of a row
+   *  whose height is intrinsic, and a flex here resolves to zero. */
+  journeyConnector: { width: 2, height: 26, marginVertical: 3 },
+  journeyText: { flex: 1, gap: spacing.md },
+  journeyLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 10,
+    lineHeight: 13,
+    letterSpacing: 0.7,
+    color: colors.onSurfaceVariant,
+  },
   driverRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.md,

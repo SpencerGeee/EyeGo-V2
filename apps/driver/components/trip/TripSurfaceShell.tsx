@@ -76,11 +76,20 @@ export function TripSurfaceShell({
         </View>
       )}
 
+      {/*
+        `publishMetrics` interlocks the panel with `DriverTripMap`'s camera: the
+        map pads to the window the panel is actually leaving visible, live,
+        instead of to a per-screen guess that was already wrong before the panel
+        finished moving. The rider's trip surface does the same thing through
+        `MorphSheet`, so both halves of a trip now frame it identically while
+        their sheets move — which was the point of this shell existing.
+      */}
       <InlayPanel
         snapPointsPct={snapPointsPct}
         initialState="collapsed"
         sheetStyle={styles.sheet}
         grabberColor={colors.outline}
+        publishMetrics
       >
         <View style={styles.sheetBody}>{children}</View>
       </InlayPanel>

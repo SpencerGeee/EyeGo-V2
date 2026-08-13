@@ -93,7 +93,7 @@ export default async function DispatchPage() {
         <StatCard
           label="Needs a driver"
           value={num(stranded?.trips.length ?? 0)}
-          hint={stranded?.trips.length ? 'assigned driver is offline' : 'nothing stranded'}
+          hint={stranded?.trips.length ? 'searching too long, or driver offline' : 'nothing stranded'}
           icon="alert"
           tone={stranded?.trips.length ? 'danger' : undefined}
         />
