@@ -7,7 +7,14 @@ import { Stack, useRouter, useSegments, type Href } from 'expo-router';
 import { ThemeProvider, DarkTheme, type Theme } from '@react-navigation/native';
 import { SplashAnimation } from '../components/SplashAnimation';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, View, Animated, AppState } from 'react-native';
+import { Platform, View, AppState } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { springs } from '@eyego/config';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -220,7 +227,19 @@ export default function RootLayout() {
   // depth ≤ 2 inside the root Stack; detailPush screens (profile/settings,
   // ride/[id]/seat, etc.) are at depth ≥ 3 — no blur layer behind them to run.
   const isOpaqueDetail = segments.length >= 3;
-  const offlineAnim = useRef(new Animated.Value(0)).current;
+  /**
+   * Offline banner, on Reanimated like everything else that moves in this app.
+   *
+   * It arrives on a spring and leaves on a timing curve: losing connectivity is
+   * an event the rider should feel, regaining it should just clear. `springs` is
+   * the shared token set, so this banner and the sheets it appears over move to
+   * the same physics — see packages/config/src/motion.ts.
+   */
+  const offlineProgress = useSharedValue(0);
+  const offlineBannerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -60 + offlineProgress.value * 60 }],
+    opacity: offlineProgress.value,
+  }));
 
   const [inAppBanner, setInAppBanner] = useState<{ title: string; body: string } | null>(null);
   const bannerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -236,15 +255,13 @@ export default function RootLayout() {
       const offline = !(state.isConnected ?? true);
       globalIsOffline = offline;
       setIsOffline(offline);
-      Animated.timing(offlineAnim, {
-        toValue: offline ? 1 : 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      offlineProgress.value = offline
+        ? withSpring(1, springs.standard)
+        : withTiming(0, { duration: 220 });
     });
     globalNetInfoUnsubscribe = unsub;
     return () => { unsub(); globalNetInfoUnsubscribe = null; };
-  }, [offlineAnim]);
+  }, [offlineProgress]);
 
   const [fontsLoaded] = useFonts({
     Geist_300Light,
@@ -668,20 +685,16 @@ export default function RootLayout() {
           </MorphProvider>
           {/* Connectivity banner — slides down from top when offline */}
           <Animated.View
-            style={{
-              position: 'absolute',
-              top: 54,
-              left: 16,
-              right: 16,
-              zIndex: 100,
-              transform: [{
-                translateY: offlineAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-60, 0],
-                }),
-              }],
-              opacity: offlineAnim,
-            }}
+            style={[
+              {
+                position: 'absolute',
+                top: 54,
+                left: 16,
+                right: 16,
+                zIndex: 100,
+              },
+              offlineBannerStyle,
+            ]}
             pointerEvents={isOffline ? 'auto' : 'none'}
           >
             <View

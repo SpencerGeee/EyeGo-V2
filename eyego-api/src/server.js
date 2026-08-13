@@ -66,6 +66,13 @@ async function start() {
     // Redis is a broken deploy, and it should look like one. See config/redis.js.
     await redis.assertReady();
 
+    // ── Runtime settings ───────────────────────────────────────────────
+    // Loads the admin-editable overrides (fares, commission, dispatch tuning)
+    // and subscribes to live changes, so every instance prices rides the same
+    // way. Deliberately BEFORE the listener binds: serving a request with env
+    // defaults when an override exists would quote the wrong fare.
+    await require('./config/settings').init();
+
     // ── Durable timers ─────────────────────────────────────────────────
     // Requiring these modules is what registers their ScheduledTask handlers;
     // the worker must not start before they are loaded or a due task would be

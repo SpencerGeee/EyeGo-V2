@@ -1,7 +1,23 @@
 'use strict';
 
 const env = require('../../config/env');
+const settings = require('../../config/settings');
 const { assertPesewas, percentOf } = require('../../utils/money');
+
+/**
+ * Every commercial number here is read through `settings.get()`, not straight off
+ * `env`, so an admin can change a fare, the commission or the floor from the
+ * console and the very next quote uses it — no deploy, no restart, no app-store
+ * release. `settings.get()` is a synchronous cache read backed by the env value,
+ * so this stays as cheap as it was and behaves identically when no override
+ * exists. See src/config/settings.js.
+ */
+const cfg = (key) => {
+  const value = settings.get(key);
+  // Belt and braces: if a key were ever removed from the registry, fall back to
+  // env rather than pricing a ride at `undefined`.
+  return value === undefined ? env[key] : value;
+};
 
 /**
  * FARE IS COMPUTED IN INTEGER PESEWAS, END TO END.
@@ -63,9 +79,9 @@ function calculateFare({
   storedPerKmRatePesewas,
 }) {
   const rates = {
-    ECO: [env.ECO_BASE_FARE_PESEWAS, env.ECO_PER_KM_RATE_PESEWAS],
-    COMFORT: [env.COMFORT_BASE_FARE_PESEWAS, env.COMFORT_PER_KM_RATE_PESEWAS],
-    PREMIUM: [env.PREMIUM_BASE_FARE_PESEWAS, env.PREMIUM_PER_KM_RATE_PESEWAS],
+    ECO: [cfg('ECO_BASE_FARE_PESEWAS'), cfg('ECO_PER_KM_RATE_PESEWAS')],
+    COMFORT: [cfg('COMFORT_BASE_FARE_PESEWAS'), cfg('COMFORT_PER_KM_RATE_PESEWAS')],
+    PREMIUM: [cfg('PREMIUM_BASE_FARE_PESEWAS'), cfg('PREMIUM_PER_KM_RATE_PESEWAS')],
   };
   // Normalize aliases (e.g. the driver app's 'ECONOMY' tier value) to the
   // canonical rate-table keys instead of silently falling back to ECO for
@@ -99,11 +115,11 @@ function calculateFare({
     ? 0
     : Number.isFinite(doorstepDetourKm) && doorstepDetourKm >= 0
       ? Math.max(
-          env.DOORSTEP_MIN_FEE_PESEWAS,
-          Math.round(env.DOORSTEP_PER_KM_PESEWAS * doorstepDetourKm),
+          cfg('DOORSTEP_MIN_FEE_PESEWAS'),
+          Math.round(cfg('DOORSTEP_PER_KM_PESEWAS') * doorstepDetourKm),
         )
-      : env.DOORSTEP_SURCHARGE_PESEWAS;
-  const heavyLoadSurcharge = heavyLoad ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0;
+      : cfg('DOORSTEP_SURCHARGE_PESEWAS');
+  const heavyLoadSurcharge = heavyLoad ? cfg('HEAVY_LOAD_SURCHARGE_PESEWAS') : 0;
 
   // ── The whole pricing model, in two lines ────────────────────────────────
   // The TRIP costs what the distance says it costs; a SEAT costs that divided by
@@ -131,8 +147,8 @@ function calculateFare({
   // where the floor binds — without the floor being large enough to flatten the
   // distance component the way `tierBaseFare` did.
   const tierFloorMultiplier =
-    env.ECO_BASE_FARE_PESEWAS > 0 ? tierBaseFare / env.ECO_BASE_FARE_PESEWAS : 1;
-  const minFarePerSeatPesewas = Math.round(env.MIN_FARE_PER_SEAT_PESEWAS * tierFloorMultiplier);
+    cfg('ECO_BASE_FARE_PESEWAS') > 0 ? tierBaseFare / cfg('ECO_BASE_FARE_PESEWAS') : 1;
+  const minFarePerSeatPesewas = Math.round(cfg('MIN_FARE_PER_SEAT_PESEWAS') * tierFloorMultiplier);
   /**
    * THE FLOOR APPLIES TO THE RIDE, NOT TO THE SURCHARGES.
    *
@@ -155,7 +171,7 @@ function calculateFare({
   // REMAINDER, not an independently-rounded 85%. Rounding both sides
   // separately can leave the two halves failing to add back up to the fare by
   // a pesewa, which is precisely how a ledger stops balancing.
-  const commissionPerSeatPesewas = percentOf(finalFare, env.PLATFORM_COMMISSION);
+  const commissionPerSeatPesewas = percentOf(finalFare, cfg('PLATFORM_COMMISSION'));
 
   return {
     // Re-derived from the (possibly floored) per-seat fare so the total shown to
@@ -171,7 +187,7 @@ function calculateFare({
     baseFarePesewas,
     perKmRatePesewas,
     surgeMultiplier,
-    commissionRate: env.PLATFORM_COMMISSION,
+    commissionRate: cfg('PLATFORM_COMMISSION'),
     minFarePerSeatPesewas,
     floorApplied: farePerPersonPesewas < minFarePerSeatPesewas,
     // The extras, as a per-seat figure, so a caller can show `finalFare` minus
@@ -261,7 +277,7 @@ function detourKm({ fromLat, fromLng, viaLat, viaLng, toLat, toLng }) {
 function calculateDeviationSurcharge({
   extraKm,
   perKmRatePesewas,
-  freeKm = env.FREE_DEVIATION_KM,
+  freeKm = cfg('FREE_DEVIATION_KM'),
 }) {
   assertPesewas(perKmRatePesewas, 'perKmRatePesewas');
   if (!(extraKm > freeKm)) return 0;

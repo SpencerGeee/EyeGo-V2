@@ -17,6 +17,8 @@ export type { ButtonVariant, ButtonSize } from './Button';
 export { Card } from './Card';
 export { GlassCard } from './GlassCard';
 export { Skeleton } from './Skeleton';
+// A figure that has not loaded must not render as zero — see the note in the file.
+export { SkeletonValue } from './SkeletonValue';
 export { Avatar } from './Avatar';
 export { Toggle } from './Toggle';
 export { Radio } from './Radio';

@@ -1,5 +1,11 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet } from 'react-native';
+import React, { useEffect } from 'react';
+import { Pressable, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useToastStore, type ToastType } from '../stores/toast.store';
@@ -16,29 +22,40 @@ const CONFIG: Record<ToastType, { bg: string; iconColor: string; name: React.Com
 export function GlobalToast() {
   const { visible, message, type, hide } = useToastStore();
   const insets = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(-120)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+  /**
+   * Migrated off the legacy `Animated` API to Reanimated.
+   *
+   * Both ran on the native thread, so this is not a frame-rate fix — it is a
+   * consistency one. Every other moving surface in this app is a shared value
+   * driven by the `springs` tokens, and a toast that arrives on a hand-written
+   * spring while the sheet beside it uses `springs.standard` reads as two
+   * different products. The exit stays a timing curve on purpose: a dismissal
+   * should leave immediately, and a spring on the way out looks like hesitation.
+   */
+  const translateY = useSharedValue(-120);
+  const opacity = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
-      Animated.parallel([
-        Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...springs.standard }),
-        Animated.timing(opacity, { toValue: 1, duration: durations.fast, useNativeDriver: true }),
-      ]).start();
+      translateY.value = withSpring(0, springs.standard);
+      opacity.value = withTiming(1, { duration: durations.fast });
     } else {
-      Animated.parallel([
-        Animated.timing(translateY, { toValue: -120, duration: durations.base, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: durations.fast, useNativeDriver: true }),
-      ]).start();
+      translateY.value = withTiming(-120, { duration: durations.base });
+      opacity.value = withTiming(0, { duration: durations.fast });
     }
   }, [visible, translateY, opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
 
   const { bg, iconColor, name } = CONFIG[type];
 
   return (
     <Animated.View
       pointerEvents={visible ? 'box-none' : 'none'}
-      style={[styles.container, { top: insets.top + 8, opacity, transform: [{ translateY }], backgroundColor: bg }]}
+      style={[styles.container, { top: insets.top + 8, backgroundColor: bg }, animatedStyle]}
     >
       <Ionicons name={name} size={20} color={iconColor} />
       <Text variant="bodySmall" style={[styles.message]}>{message}</Text>

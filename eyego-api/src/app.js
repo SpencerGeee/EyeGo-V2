@@ -40,6 +40,7 @@ const contactRoutes = require('./modules/contact/contact.routes');
 const cancellationRoutes = require('./modules/cancellation/cancellation.routes');
 const receiptsRoutes = require('./modules/receipts/receipts.routes');
 const geoRoutes = require('./modules/geo/geo.routes');
+const configRoutes = require('./modules/config/config.routes');
 const { yoga } = require('./graphql/index');
 
 const app = express();
@@ -178,6 +179,9 @@ app.use('/v1/receipts', receiptsRoutes);
 // Geocoding + routing proxy — keeps MAPBOX_SECRET_TOKEN off the clients.
 app.use('/v1/geo', geoRoutes);
 app.use('/v1/admin', adminRoutes);
+// Client-visible platform configuration (fares, announcement, support number).
+// Lets both apps pick up a change without a store release — see config/settings.js.
+app.use('/v1/config', configRoutes);
 
 // ── GraphQL ───────────────────────────────────────────────────────
 // Mounted alongside REST. Same JWT auth. GraphiQL available in non-production.

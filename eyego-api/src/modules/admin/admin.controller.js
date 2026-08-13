@@ -271,6 +271,19 @@ const getAnalyticsScheduled = async (req, res) => {
 };
 
 // ── Live driver positions (admin map) ────────────────────────────
+const getPlatformSettings = async (req, res) => {
+  const settings = await adminService.getPlatformSettings();
+  ok(res, settings);
+};
+
+const updatePlatformSettings = async (req, res) => {
+  const result = await adminService.updatePlatformSettings(req.body?.settings, {
+    id: req.admin?.id ?? null,
+    email: req.admin?.email ?? null,
+  });
+  ok(res, result, 'Settings applied — live immediately, no restart needed');
+};
+
 const getDispatchHealth = async (req, res) => {
   const health = await adminService.getDispatchHealth();
   ok(res, health);
@@ -369,4 +382,6 @@ module.exports = {
   getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
   getLiveDriversMap,
   getDispatchHealth,
+  getPlatformSettings,
+  updatePlatformSettings,
 };

@@ -55,11 +55,23 @@ const publisher = require('./trip-events.publisher');
 const tripState = require('./trip-state.service');
 const { TRIP_STATUS, ACTOR } = tripState;
 
+/**
+ * DISPATCH TUNING IS READ PER CALL, NOT PER PROCESS.
+ *
+ * These were module-level `const`s captured from `process.env` at require time,
+ * which meant every one of them needed a restart to change. They are now getters
+ * over the runtime settings registry, so an operator widening the search radius
+ * or lengthening the offer countdown from the console affects the very next
+ * dispatch. `settings.get()` is a synchronous cache read — see
+ * src/config/settings.js — so this costs nothing on the hot path.
+ */
+const settings = require('../config/settings');
+
 /** How long a single driver holds an exclusive offer before it moves on. */
-const OFFER_TTL_SECONDS = parseInt(process.env.DISPATCH_OFFER_TTL_SECONDS, 10) || 20;
+const offerTtlSeconds = () => settings.get('DISPATCH_OFFER_TTL_SECONDS') ?? 20;
 /** Nearest-first search radius, and the wider sweep used if nobody is close. */
-const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 5;
-const DISPATCH_EXTENDED_RADIUS_KM = parseFloat(process.env.DISPATCH_EXTENDED_RADIUS_KM) || 12;
+const dispatchRadiusKm = () => settings.get('DISPATCH_RADIUS_KM') ?? 5;
+const dispatchExtendedRadiusKm = () => settings.get('DISPATCH_EXTENDED_RADIUS_KM') ?? 12;
 
 /**
  * How long the search stays alive with nobody to offer it to.
@@ -68,9 +80,9 @@ const DISPATCH_EXTENDED_RADIUS_KM = parseFloat(process.env.DISPATCH_EXTENDED_RAD
  * actually fails the trip, and a search that gave up first would strand the
  * rider on a spinner until it fired.
  */
-const SEARCH_TIMEOUT_SECONDS =
-  parseInt(process.env.DISPATCH_SEARCH_TIMEOUT_SECONDS, 10) ||
-  parseInt(process.env.RIDE_REQUEST_EXPIRY_SECONDS, 10) ||
+const searchTimeoutSeconds = () =>
+  settings.get('DISPATCH_SEARCH_TIMEOUT_SECONDS') ??
+  parseInt(process.env.RIDE_REQUEST_EXPIRY_SECONDS, 10) ??
   300;
 /** Gap between re-scans while waiting for supply to appear. */
 const RESWEEP_INTERVAL_SECONDS =
@@ -279,7 +291,7 @@ async function offerNext(tripId) {
         continue;
       }
 
-      const expiresAtMs = Date.now() + OFFER_TTL_SECONDS * 1000;
+      const expiresAtMs = Date.now() + offerTtlSeconds() * 1000;
       state.currentDriverId = candidate.id;
       state.expiresAtMs = expiresAtMs;
       await writeState(state);
@@ -319,7 +331,7 @@ async function offerNext(tripId) {
         // with a skewed clock cannot show a different number of seconds.
         expiresAtServerMs: expiresAtMs,
         serverNowMs: Date.now(),
-        expiresInSeconds: OFFER_TTL_SECONDS,
+        expiresInSeconds: offerTtlSeconds(),
         etaSeconds: candidate.etaSeconds,
         attempt: state.index,
         totalCandidates: state.candidates.length,
@@ -362,7 +374,7 @@ async function offerNext(tripId) {
         tripId,
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
-        radiusKm: DISPATCH_EXTENDED_RADIUS_KM,
+        radiusKm: dispatchExtendedRadiusKm(),
         excludeDriverId: state.excludeDriverId,
         tier: trip.tier,
         // Destination mode reads the trip's dropoff to decide whether a
@@ -400,7 +412,7 @@ async function offerNext(tripId) {
     // So the search now has a DURATION. Until the deadline it keeps re-scanning
     // for drivers who have come online, come free, or driven into range.
     const elapsedMs = Date.now() - (state.startedAtMs ?? Date.now());
-    if (elapsedMs < SEARCH_TIMEOUT_SECONDS * 1000) {
+    if (elapsedMs < searchTimeoutSeconds() * 1000) {
       await scheduleResweep(tripId, state);
       return;
     }
@@ -442,7 +454,7 @@ async function scheduleResweep(tripId, state) {
     await emitProgress(tripId, 'DISPATCH_PROGRESS', {
       phase: 'WAITING_FOR_SUPPLY',
       totalCandidates: state.candidates.length,
-      searchTimeoutSeconds: SEARCH_TIMEOUT_SECONDS,
+      searchTimeoutSeconds: searchTimeoutSeconds(),
     });
   }
 }
@@ -473,7 +485,7 @@ async function resweep(tripId) {
         tripId,
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
-        radiusKm: DISPATCH_EXTENDED_RADIUS_KM,
+        radiusKm: dispatchExtendedRadiusKm(),
         excludeDriverId: state.excludeDriverId,
         tier: trip.tier,
         // Destination mode reads the trip's dropoff to decide whether a
@@ -503,7 +515,7 @@ async function resweep(tripId) {
 
     if (extra.length === 0) {
       const elapsedMs = Date.now() - (state.startedAtMs ?? Date.now());
-      if (elapsedMs < SEARCH_TIMEOUT_SECONDS * 1000) {
+      if (elapsedMs < searchTimeoutSeconds() * 1000) {
         await scheduleResweep(tripId, state);
         return;
       }
@@ -608,7 +620,7 @@ async function startCascade(tripId, opts = {}) {
     tripId,
     pickupLat: trip.pickupLat,
     pickupLng: trip.pickupLng,
-    radiusKm: DISPATCH_RADIUS_KM,
+    radiusKm: dispatchRadiusKm(),
     excludeDriverId,
     tier: trip.tier,
     // Destination mode reads the trip's dropoff to decide whether a
@@ -650,7 +662,7 @@ async function startCascade(tripId, opts = {}) {
   logger.info('Dispatch cascade started', {
     tripId,
     kind,
-    radiusKm: DISPATCH_RADIUS_KM,
+    radiusKm: dispatchRadiusKm(),
     candidates: candidates.length,
     driverIds: candidates.map((c) => c.id),
     pickup: { lat: trip.pickupLat, lng: trip.pickupLng },
@@ -659,8 +671,8 @@ async function startCascade(tripId, opts = {}) {
   if (candidates.length === 0) {
     logger.warn('No drivers in initial radius — search will wait for supply', {
       tripId,
-      radiusKm: DISPATCH_RADIUS_KM,
-      searchTimeoutSeconds: SEARCH_TIMEOUT_SECONDS,
+      radiusKm: dispatchRadiusKm(),
+      searchTimeoutSeconds: searchTimeoutSeconds(),
     });
   }
   await offerNext(tripId);
@@ -819,10 +831,12 @@ module.exports = {
   getCascadeState,
   getOfferForDriver,
   forgetOffer,
-  OFFER_TTL_SECONDS,
-  DISPATCH_RADIUS_KM,
-  DISPATCH_EXTENDED_RADIUS_KM,
-  SEARCH_TIMEOUT_SECONDS,
+  // Exported as functions, not values: a caller that captured a number would be
+  // holding a stale copy the moment an admin changed it.
+  offerTtlSeconds,
+  dispatchRadiusKm,
+  dispatchExtendedRadiusKm,
+  searchTimeoutSeconds,
   TASK_OFFER_TIMEOUT,
   TASK_RESWEEP,
 };

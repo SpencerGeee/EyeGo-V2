@@ -17,7 +17,6 @@ const STATUS_OPTIONS = [
   { value: 'ACTIVE', label: 'Approved' },
   { value: 'SUSPENDED', label: 'Suspended' },
   { value: 'REJECTED', label: 'Rejected' },
-  { value: 'REJECTED', label: 'Rejected' },
 ];
 
 export default async function DriversPage({

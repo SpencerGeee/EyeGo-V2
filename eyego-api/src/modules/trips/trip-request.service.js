@@ -9,7 +9,8 @@ const logger = require('../../utils/logger');
 const { AppError, NotFoundError } = require('../../utils/errors');
 const { calculateFare, haversineKm } = require('./fare.calculator');
 
-const DISPATCH_RADIUS_KM = 8;
+// Runtime-tunable: the console owns this number now (src/config/settings.js).
+const dispatchRadiusKm = () => require('../../config/settings').get('DISPATCH_RADIUS_KM') ?? 8;
 const GROUP_WINDOW_MINUTES = 60;
 const MAX_DRIVERS_TO_NOTIFY = 12;
 
@@ -122,7 +123,7 @@ async function notifyDriversOfScheduledRequest(tripRequest, destination, schedul
         nearbyDriverIds = await redis.geosearch(
           'drivers:online',
           'FROMLONLAT', tripRequest.pickupLng, tripRequest.pickupLat,
-          'BYRADIUS', DISPATCH_RADIUS_KM, 'km',
+          'BYRADIUS', dispatchRadiusKm(), 'km',
           'ASC', 'COUNT', 30
         );
       } catch (_) {
@@ -130,7 +131,7 @@ async function notifyDriversOfScheduledRequest(tripRequest, destination, schedul
         nearbyDriverIds = await redis.georadius(
           'drivers:online',
           tripRequest.pickupLng, tripRequest.pickupLat,
-          DISPATCH_RADIUS_KM, 'km',
+          dispatchRadiusKm(), 'km',
           'ASC', 'COUNT', 30
         ).catch(() => []);
       }
@@ -190,7 +191,7 @@ async function notifyDriversOfScheduledRequest(tripRequest, destination, schedul
       // the geo-set hits plus anyone provably in range; a driver with no known
       // position at all is still included rather than silently dropped —
       // missing telemetry must not cost a rider their ride.
-      .filter((d) => !hasPickup || d.inGeoSet || d.distanceKm == null || d.distanceKm <= DISPATCH_RADIUS_KM)
+      .filter((d) => !hasPickup || d.inGeoSet || d.distanceKm == null || d.distanceKm <= dispatchRadiusKm())
       // Closest first, geo-set hits ahead of position-less drivers.
       .sort((a, b) => (a.distanceKm ?? Number.MAX_SAFE_INTEGER) - (b.distanceKm ?? Number.MAX_SAFE_INTEGER))
       .slice(0, MAX_DRIVERS_TO_NOTIFY);

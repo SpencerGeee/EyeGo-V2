@@ -1146,6 +1146,24 @@ model OnlineSession {
 // action now resolves to a real row here.
 // ─────────────────────────────────────────
 
+/// Runtime configuration an admin can change without a deploy — tier fares, the
+/// commission, the fare floor, dispatch radii, the in-app announcement. A row
+/// here OVERRIDES the matching env default; deleting it restores that default,
+/// which is what the console's Reset does.
+///
+/// `value` is a string for the same reason a settings table always is: the
+/// registry in src/config/settings.js owns the type, the bounds and the parsing,
+/// so a new knob needs no migration. Money values are stored as integer pesewas.
+model PlatformSetting {
+  key             String   @id
+  value           String
+  updatedAt       DateTime @updatedAt
+  /// Denormalised so the console can show who changed a price after that admin
+  /// has been renamed or disabled.
+  updatedById     String?
+  updatedByEmail  String?
+}
+
 enum AdminRole {
   /// Full access, including managing other admins and publishing OTA builds.
   SUPERADMIN

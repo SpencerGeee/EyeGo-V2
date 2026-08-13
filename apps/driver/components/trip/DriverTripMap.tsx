@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { driverSocketEvents } from '@eyego/api';
-import { useMapCamera, paddingForSheet, type Coord } from '@eyego/maps';
+import { useMapCamera, useRouteReveal, paddingForSheet, type Coord } from '@eyego/maps';
 import { eyegoDriverDarkStyle } from '@eyego/map-styles';
 import { GlassSurface, PulseRing } from '@eyego/ui';
 import MapboxGL from '../../utils/mapbox';
@@ -182,11 +182,27 @@ export function DriverTripMapImpl({
   // Straight line only until the server's geometry lands — drawn dashed, so the
   // driver is never shown a fabricated road to follow.
   const isRoad = Array.isArray(line) && line.length >= 2;
+  const coords = isRoad ? line! : puckCoord && target ? [puckCoord, target] : null;
+
+  /**
+   * A real ROAD route draws itself on; a two-point straight-line estimate does
+   * not. Animating the estimate would be animating one segment, which reads as a
+   * glitch, and the estimate is also re-derived from the puck on every location
+   * ping — revealing it each time would make the line flicker continuously.
+   */
+  const revealed = useRouteReveal(isRoad ? (coords as [number, number][] | null) : null, {
+    durationMs: 800,
+  });
+  const drawCoords = isRoad ? revealed : coords;
+
   const shape = useMemo(() => {
-    const coords = isRoad ? line! : puckCoord && target ? [puckCoord, target] : null;
-    if (!coords) return null;
-    return { type: 'Feature' as const, properties: {}, geometry: { type: 'LineString' as const, coordinates: coords } };
-  }, [isRoad, line, puckCoord?.[0], puckCoord?.[1], target?.[0], target?.[1]]);
+    if (!drawCoords || drawCoords.length < 2) return null;
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: { type: 'LineString' as const, coordinates: drawCoords },
+    };
+  }, [drawCoords]);
 
   return (
     <View style={StyleSheet.absoluteFill}>

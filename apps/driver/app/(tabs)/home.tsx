@@ -19,6 +19,7 @@ import {
   GlassSurface,
   InlayPanel,
   GradientGlowBorder,
+  SkeletonValue,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -102,7 +103,7 @@ export default function HomeScreen() {
     } as any);
   }, [pendingRequestsData, router]);
 
-  const { data: walletData } = useQuery({
+  const { data: walletData, isPending: walletPending } = useQuery({
     queryKey: ['driver', 'me'],
     queryFn: () => driverApi.getMe(),
     select: (r) => {
@@ -113,7 +114,7 @@ export default function HomeScreen() {
     staleTime: 30_000,
   });
 
-  const { data: txData } = useQuery({
+  const { data: txData, isPending: txPending } = useQuery({
     queryKey: ['driver', 'wallet', 'transactions'],
     // Driver ledger lives at /driver/wallet/transactions and returns { transactions }.
     queryFn: () => driverApi.getWalletTransactions({ limit: 50 }),
@@ -514,21 +515,25 @@ export default function HomeScreen() {
             <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Today</Text>
-              <Text style={styles.statValue}>
-                {formatGhs(todayEarnings)}
-              </Text>
+              {/* A driver reading "GH₵0.00" for the day's earnings while the ledger
+                  is still loading has every reason to panic. Skeleton until real. */}
+              <SkeletonValue loading={txPending} width={78} height={22}>
+                <Text style={styles.statValue}>{formatGhs(todayEarnings)}</Text>
+              </SkeletonValue>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Trips</Text>
-              <Text style={styles.statValue}>{todayTrips}</Text>
+              <SkeletonValue loading={txPending} width={30} height={22}>
+                <Text style={styles.statValue}>{todayTrips}</Text>
+              </SkeletonValue>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statCard}>
               <Text variant="caption" color={colors.onSurfaceVariant}>Balance</Text>
-              <Text style={styles.statValue}>
-                {formatGhs(walletData?.balancePesewas ?? 0)}
-              </Text>
+              <SkeletonValue loading={walletPending} width={78} height={22}>
+                <Text style={styles.statValue}>{formatGhs(walletData?.balancePesewas ?? 0)}</Text>
+              </SkeletonValue>
             </View>
           </Entrance>
 

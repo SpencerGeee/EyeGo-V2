@@ -202,6 +202,24 @@ export async function togglePromotion(promotionId: string): Promise<ActionResult
   return result;
 }
 
+// ─── Platform configuration ───────────────────────────────────────
+
+/**
+ * Apply a batch of runtime settings. `null` for a key resets it to the deploy
+ * default. Sent as one request so the API's all-or-nothing validation applies:
+ * a half-saved pricing change is worse than a rejected one.
+ */
+export async function updatePlatformSettings(
+  settings: Record<string, number | string | boolean | null>,
+): Promise<ActionResult> {
+  if (!settings || Object.keys(settings).length === 0) return fail('Nothing to save.');
+  const result = await run('Settings applied', () => apiPatch('/settings', { settings }));
+  revalidatePath('/config');
+  // Fares appear on the dashboard and revenue pages too.
+  revalidatePath('/', 'layout');
+  return result;
+}
+
 // ─── Scheduling ───────────────────────────────────────────────────
 
 export async function createPulseSchedule(payload: Record<string, unknown>): Promise<ActionResult> {

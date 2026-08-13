@@ -1,0 +1,518 @@
+'use strict';
+
+const prisma = require('./database');
+const redis = require('./redis');
+const env = require('./env');
+const logger = require('../utils/logger');
+
+/**
+ * RUNTIME PLATFORM SETTINGS — the knobs an operator must be able to turn without
+ * a deploy and without an app-store release.
+ *
+ * ── THE PROBLEM THIS SOLVES ──────────────────────────────────────────────────
+ * Every commercial number in this platform lived in `.env`: tier base fares,
+ * per-km rates, the commission, the fare floor, seat-hold duration, dispatch
+ * radius, the driver wallet minimum. Changing any of them meant editing an env
+ * file and restarting the API — and because the mobile apps display several of
+ * them, some changes implied a store release too. That is the wrong cost for a
+ * decision a finance lead should be able to make on a Tuesday afternoon.
+ *
+ * ── HOW IT WORKS ─────────────────────────────────────────────────────────────
+ * `PlatformSetting` rows override the env defaults. Reads go through `get()`,
+ * which answers from an in-process cache, so this is as cheap as reading `env.X`
+ * and can sit on the fare path. The cache is filled at boot and refreshed when
+ * ANY instance publishes a change on the `settings:changed` Redis channel — so a
+ * change made on one API instance reaches every other instance within a round
+ * trip, rather than only after each one happens to restart.
+ *
+ * ── THE RULES ────────────────────────────────────────────────────────────────
+ * 1. MONEY IS STORED IN PESEWAS, always, exactly like every column and every env
+ *    `…_PESEWAS` key. The admin console converts the cedis an operator types.
+ *    There is no float money anywhere in this file.
+ * 2. Env is the DEFAULT, never the authority once a row exists. Deleting a row
+ *    restores the env default, which is what "Reset" does.
+ * 3. Every setting declares its own bounds and they are enforced on write. A
+ *    commission of 9.0 or a base fare of -500 must be impossible to save, not
+ *    merely unlikely: these numbers price real rides the moment they land.
+ * 4. Nothing here is secret. Tokens, keys and connection strings stay in env and
+ *    are deliberately absent from the registry — an admin console must not be
+ *    able to read or rotate a credential.
+ */
+
+/** Channel every instance listens on. Payload is ignored; it means "reload". */
+const CHANNEL = 'settings:changed';
+
+const TYPES = {
+  /** Integer pesewas. UI shows and accepts cedis. */
+  MONEY: 'money',
+  /** Ratio 0–1 (e.g. commission 0.15). UI shows and accepts percent. */
+  RATIO: 'ratio',
+  INT: 'int',
+  DECIMAL: 'decimal',
+  BOOLEAN: 'boolean',
+  TEXT: 'text',
+  ENUM: 'enum',
+};
+
+/**
+ * THE REGISTRY. One entry per knob; adding a knob here is all that is required
+ * for it to appear in the console, validate on write and take effect on read.
+ *
+ * `envKey` names the env variable that provides the default. `restartRequired`
+ * marks the few values that are captured at module load elsewhere in the
+ * codebase — the console says so rather than pretending the change is live.
+ */
+const REGISTRY = [
+  // ── Fares: ECO ────────────────────────────────────────────────
+  {
+    key: 'ECO_BASE_FARE_PESEWAS', group: 'pricing_eco', type: TYPES.MONEY,
+    label: 'Economy base fare', envKey: 'ECO_BASE_FARE_PESEWAS',
+    help: 'Charged on every Economy trip before distance. The trip cost is (base + per-km × km) × surge, divided by the seats on sale.',
+    min: 0, max: 100_00,
+  },
+  {
+    key: 'ECO_PER_KM_RATE_PESEWAS', group: 'pricing_eco', type: TYPES.MONEY,
+    label: 'Economy per-km rate', envKey: 'ECO_PER_KM_RATE_PESEWAS',
+    help: 'Multiplied by the road distance of the trip.',
+    min: 0, max: 100_00,
+  },
+  // ── Fares: COMFORT ────────────────────────────────────────────
+  {
+    key: 'COMFORT_BASE_FARE_PESEWAS', group: 'pricing_comfort', type: TYPES.MONEY,
+    label: 'Comfort base fare', envKey: 'COMFORT_BASE_FARE_PESEWAS', min: 0, max: 200_00,
+  },
+  {
+    key: 'COMFORT_PER_KM_RATE_PESEWAS', group: 'pricing_comfort', type: TYPES.MONEY,
+    label: 'Comfort per-km rate', envKey: 'COMFORT_PER_KM_RATE_PESEWAS', min: 0, max: 200_00,
+  },
+  // ── Fares: PREMIUM ────────────────────────────────────────────
+  {
+    key: 'PREMIUM_BASE_FARE_PESEWAS', group: 'pricing_premium', type: TYPES.MONEY,
+    label: 'Premium base fare', envKey: 'PREMIUM_BASE_FARE_PESEWAS', min: 0, max: 500_00,
+  },
+  {
+    key: 'PREMIUM_PER_KM_RATE_PESEWAS', group: 'pricing_premium', type: TYPES.MONEY,
+    label: 'Premium per-km rate', envKey: 'PREMIUM_PER_KM_RATE_PESEWAS', min: 0, max: 500_00,
+  },
+
+  // ── Fare rules that apply to every tier ───────────────────────
+  {
+    key: 'MIN_FARE_PER_SEAT_PESEWAS', group: 'pricing_rules', type: TYPES.MONEY,
+    label: 'Minimum fare per seat', envKey: 'MIN_FARE_PER_SEAT_PESEWAS',
+    help: 'The ONLY floor under a seat price, scaled by each tier’s position in the rate table. Raise it and short urban trips get more expensive; there is no other floor.',
+    min: 0, max: 100_00,
+  },
+  {
+    key: 'PLATFORM_COMMISSION', group: 'pricing_rules', type: TYPES.RATIO,
+    label: 'Platform commission', envKey: 'PLATFORM_COMMISSION',
+    help: 'Taken from each seat fare. The driver receives the remainder, so this and the driver’s share always add back to the fare exactly.',
+    min: 0, max: 0.5,
+  },
+  {
+    key: 'HEAVY_LOAD_SURCHARGE_PESEWAS', group: 'pricing_rules', type: TYPES.MONEY,
+    label: 'Heavy cargo surcharge', envKey: 'HEAVY_LOAD_SURCHARGE_PESEWAS',
+    help: 'Added per seat after the floor, so it is never swallowed by it.',
+    min: 0, max: 200_00,
+  },
+
+  // ── Door pickup ───────────────────────────────────────────────
+  {
+    key: 'DOORSTEP_MIN_FEE_PESEWAS', group: 'pricing_doorstep', type: TYPES.MONEY,
+    label: 'Door pickup minimum', envKey: 'DOORSTEP_MIN_FEE_PESEWAS',
+    help: 'A driver stops, waits and pulls out again even for a 100 m diversion; this is the floor under that.',
+    min: 0, max: 100_00,
+  },
+  {
+    key: 'DOORSTEP_PER_KM_PESEWAS', group: 'pricing_doorstep', type: TYPES.MONEY,
+    label: 'Door pickup per detour km', envKey: 'DOORSTEP_PER_KM_PESEWAS', min: 0, max: 100_00,
+  },
+  {
+    key: 'DOORSTEP_SURCHARGE_PESEWAS', group: 'pricing_doorstep', type: TYPES.MONEY,
+    label: 'Door pickup flat fallback', envKey: 'DOORSTEP_SURCHARGE_PESEWAS',
+    help: 'Used only when the detour cannot be measured. Pricing it at zero would make the most expensive option free.',
+    min: 0, max: 100_00,
+  },
+  {
+    key: 'DOORSTEP_MAX_DETOUR_KM', group: 'pricing_doorstep', type: TYPES.DECIMAL,
+    label: 'Maximum door detour', envKey: 'DOORSTEP_MAX_DETOUR_KM', unit: 'km',
+    help: 'Beyond this the diversion is a second trip, so it is refused rather than priced.',
+    min: 0, max: 20,
+  },
+  {
+    key: 'FREE_DEVIATION_KM', group: 'pricing_doorstep', type: TYPES.DECIMAL,
+    label: 'Free deviation allowance', envKey: 'FREE_DEVIATION_KM', unit: 'km',
+    help: 'A group joiner’s own pickup point costs nothing up to this diversion.',
+    min: 0, max: 20,
+  },
+
+  // ── Booking and seats ─────────────────────────────────────────
+  {
+    key: 'SEAT_HOLD_DURATION_MINUTES', group: 'booking', type: TYPES.INT,
+    label: 'Seat hold duration', envKey: 'SEAT_HOLD_DURATION_MINUTES', unit: 'minutes',
+    help: 'How long an unpaid seat stays reserved before it is released back to the pool.',
+    min: 1, max: 120,
+  },
+  {
+    key: 'MIN_OCCUPANCY_TO_DEPART', group: 'booking', type: TYPES.INT,
+    label: 'Minimum seats to depart', envKey: 'MIN_OCCUPANCY_TO_DEPART', unit: 'seats',
+    min: 1, max: 20,
+  },
+
+  // ── Driver economics ──────────────────────────────────────────
+  {
+    key: 'DRIVER_MIN_WALLET_BALANCE_PESEWAS', group: 'driver_economics', type: TYPES.MONEY,
+    label: 'Driver wallet warning level', envKey: 'DRIVER_MIN_WALLET_BALANCE_PESEWAS', min: 0, max: 1000_00,
+  },
+  {
+    key: 'DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS', group: 'driver_economics', type: TYPES.MONEY,
+    label: 'Wallet required to go online', envKey: 'DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS',
+    help: 'A driver below this cannot go online. Raising it takes drivers offline the moment they next try.',
+    min: 0, max: 1000_00,
+  },
+  {
+    key: 'DRIVER_MIN_WITHDRAWAL_PESEWAS', group: 'driver_economics', type: TYPES.MONEY,
+    label: 'Minimum withdrawal', envKey: 'DRIVER_MIN_WITHDRAWAL_PESEWAS', min: 0, max: 1000_00,
+  },
+
+  // ── Dispatch ──────────────────────────────────────────────────
+  {
+    key: 'DISPATCH_RADIUS_KM', group: 'dispatch', type: TYPES.DECIMAL,
+    label: 'Initial search radius', envDefault: 5, unit: 'km',
+    help: 'How far dispatch looks for a driver on the first pass.',
+    min: 0.5, max: 50,
+  },
+  {
+    key: 'DISPATCH_EXTENDED_RADIUS_KM', group: 'dispatch', type: TYPES.DECIMAL,
+    label: 'Widened search radius', envDefault: 10, unit: 'km',
+    help: 'Used once every driver in the initial radius has passed. A rider is better served by a driver 10 km away than by a failure screen.',
+    min: 1, max: 100,
+  },
+  {
+    key: 'DISPATCH_OFFER_TTL_SECONDS', group: 'dispatch', type: TYPES.INT,
+    label: 'Offer countdown', envDefault: 20, unit: 'seconds',
+    help: 'How long one driver has to accept before the offer moves to the next candidate.',
+    min: 5, max: 120,
+  },
+  {
+    key: 'DISPATCH_SEARCH_TIMEOUT_SECONDS', group: 'dispatch', type: TYPES.INT,
+    label: 'Total search window', envDefault: 180, unit: 'seconds',
+    help: 'The search keeps re-scanning for drivers who come online or come free until this expires, then the trip becomes NO_DRIVERS_FOUND.',
+    min: 30, max: 900,
+  },
+  {
+    key: 'DISPATCH_MAX_CANDIDATES', group: 'dispatch', type: TYPES.INT,
+    label: 'Candidates per search', envDefault: 8, unit: 'drivers',
+    min: 1, max: 50,
+  },
+  {
+    key: 'DISPATCH_MAX_PICKUP_ETA_SECONDS', group: 'dispatch', type: TYPES.INT,
+    label: 'Maximum pickup ETA', envDefault: 1500, unit: 'seconds',
+    help: 'A driver further out than this by road is not offered the trip.',
+    min: 120, max: 3600,
+  },
+  {
+    key: 'DISPATCH_BUSY_LEAD_MINUTES', group: 'dispatch', type: TYPES.INT,
+    label: 'Scheduled-trip lockout lead', envDefault: 45, unit: 'minutes',
+    help: 'How close to departure a driver’s own scheduled trip starts blocking new dispatch.',
+    min: 0, max: 240,
+  },
+
+  // ── What the apps show, changeable without a release ──────────
+  {
+    key: 'APP_ANNOUNCEMENT_TEXT', group: 'apps', type: TYPES.TEXT,
+    label: 'In-app announcement', envDefault: '',
+    help: 'Shown as a banner in both apps. Leave empty for no banner. Takes effect on the next app foreground — no store release.',
+    maxLength: 240,
+  },
+  {
+    key: 'APP_ANNOUNCEMENT_LEVEL', group: 'apps', type: TYPES.ENUM,
+    label: 'Announcement tone', envDefault: 'info', options: ['info', 'warning', 'critical'],
+  },
+  {
+    key: 'RIDER_BOOKING_ENABLED', group: 'apps', type: TYPES.BOOLEAN,
+    label: 'Rider booking enabled', envDefault: true,
+    help: 'Turning this off stops new bookings platform-wide. Trips already running are unaffected.',
+  },
+  {
+    key: 'DRIVER_ONLINE_ENABLED', group: 'apps', type: TYPES.BOOLEAN,
+    label: 'Drivers may go online', envDefault: true,
+    help: 'Off means no driver can go online. Use for a maintenance window, not for moderation.',
+  },
+  {
+    key: 'SUPPORT_PHONE', group: 'apps', type: TYPES.TEXT,
+    label: 'Support phone number', envDefault: '',
+    help: 'Shown on the help screens of both apps.',
+    maxLength: 32,
+  },
+];
+
+const BY_KEY = new Map(REGISTRY.map((d) => [d.key, d]));
+
+/** Groups, in the order the console renders them. */
+const GROUPS = [
+  { id: 'pricing_eco', label: 'Economy fares', help: 'What an Economy seat costs.' },
+  { id: 'pricing_comfort', label: 'Comfort fares' },
+  { id: 'pricing_premium', label: 'Premium fares' },
+  { id: 'pricing_rules', label: 'Fare rules', help: 'Applies to every tier.' },
+  { id: 'pricing_doorstep', label: 'Door pickup' },
+  { id: 'booking', label: 'Booking and seats' },
+  { id: 'driver_economics', label: 'Driver wallet' },
+  { id: 'dispatch', label: 'Dispatch' },
+  { id: 'apps', label: 'Apps', help: 'Changes both apps pick up without a store release.' },
+];
+
+/** Definition default, from env when it names one. */
+function defaultFor(def) {
+  if (def.envKey && env[def.envKey] !== undefined) return env[def.envKey];
+  if (def.envKey && process.env[def.envKey] !== undefined) return coerce(def, process.env[def.envKey]);
+  if (Object.prototype.hasOwnProperty.call(def, 'envDefault')) {
+    // A plain env var may still override a non-env-schema knob.
+    const raw = process.env[def.key];
+    return raw !== undefined ? coerce(def, raw) : def.envDefault;
+  }
+  return undefined;
+}
+
+/** Parse a stored/incoming raw value into the type the code expects. */
+function coerce(def, raw) {
+  switch (def.type) {
+    case TYPES.MONEY:
+    case TYPES.INT: {
+      const n = Number(raw);
+      return Number.isFinite(n) ? Math.round(n) : undefined;
+    }
+    case TYPES.RATIO:
+    case TYPES.DECIMAL: {
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : undefined;
+    }
+    case TYPES.BOOLEAN:
+      return raw === true || raw === 'true' || raw === 1 || raw === '1';
+    case TYPES.ENUM:
+    case TYPES.TEXT:
+      return raw == null ? '' : String(raw);
+    default:
+      return raw;
+  }
+}
+
+/**
+ * Validate one incoming value. Returns `{ value }` or `{ error }` — never throws,
+ * so a batch save can report every bad field at once instead of the first.
+ */
+function validate(def, raw) {
+  const value = coerce(def, raw);
+
+  if (def.type === TYPES.BOOLEAN) return { value };
+
+  if (def.type === TYPES.TEXT) {
+    if (def.maxLength && value.length > def.maxLength) {
+      return { error: `must be ${def.maxLength} characters or fewer` };
+    }
+    return { value };
+  }
+
+  if (def.type === TYPES.ENUM) {
+    if (!def.options.includes(value)) return { error: `must be one of ${def.options.join(', ')}` };
+    return { value };
+  }
+
+  if (value === undefined) return { error: 'must be a number' };
+  if (def.type === TYPES.MONEY && !Number.isInteger(value)) {
+    return { error: 'money must be a whole number of pesewas' };
+  }
+  if (def.min !== undefined && value < def.min) return { error: `must be at least ${def.min}` };
+  if (def.max !== undefined && value > def.max) return { error: `must be at most ${def.max}` };
+  return { value };
+}
+
+// ── The cache ──────────────────────────────────────────────────────
+let overrides = new Map();
+let loaded = false;
+let subscriber = null;
+
+async function reload() {
+  try {
+    const rows = await prisma.platformSetting.findMany();
+    const next = new Map();
+    for (const row of rows) {
+      const def = BY_KEY.get(row.key);
+      // A row for a key that no longer exists in the registry is ignored rather
+      // than deleted: a rollback should not lose the operator's value.
+      if (!def) continue;
+      const parsed = coerce(def, row.value);
+      if (parsed !== undefined) next.set(row.key, parsed);
+    }
+    overrides = next;
+    loaded = true;
+    logger.info(`[settings] loaded ${overrides.size} override${overrides.size === 1 ? '' : 's'}`);
+  } catch (err) {
+    // Never take the API down over this: env defaults are a complete, working
+    // configuration on their own.
+    logger.error(`[settings] load failed, using env defaults: ${err.message}`);
+    loaded = true;
+  }
+}
+
+/**
+ * Call once at boot. Loads overrides and subscribes to change notifications so
+ * every instance stays in step — without this, a change made on one instance
+ * would price rides differently from the others.
+ */
+async function init() {
+  await reload();
+  try {
+    subscriber = redis.duplicate();
+    await subscriber.subscribe(CHANNEL);
+    subscriber.on('message', (channel) => {
+      if (channel === CHANNEL) reload().catch(() => {});
+    });
+    logger.info('[settings] subscribed to live changes');
+  } catch (err) {
+    logger.warn(`[settings] live-change subscription failed: ${err.message}`);
+  }
+}
+
+/**
+ * Read a setting. Synchronous and cache-backed, so it is safe on the fare path.
+ * Falls back to the env default whenever there is no override — including before
+ * `init()` has finished, which is what keeps the first request after a restart
+ * correct instead of undefined.
+ */
+function get(key) {
+  const def = BY_KEY.get(key);
+  if (!def) {
+    logger.warn(`[settings] unknown key requested: ${key}`);
+    return undefined;
+  }
+  if (overrides.has(key)) return overrides.get(key);
+  return defaultFor(def);
+}
+
+/** Everything the console needs to render the page. */
+function snapshot(rows = []) {
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+  return {
+    groups: GROUPS.map((g) => ({
+      ...g,
+      settings: REGISTRY.filter((d) => d.group === g.id).map((d) => {
+        const row = byKey.get(d.key);
+        return {
+          key: d.key,
+          label: d.label,
+          help: d.help ?? null,
+          type: d.type,
+          unit: d.unit ?? null,
+          options: d.options ?? null,
+          min: d.min ?? null,
+          max: d.max ?? null,
+          maxLength: d.maxLength ?? null,
+          value: get(d.key),
+          defaultValue: defaultFor(d),
+          // 'override' means a row exists — which is also what makes Reset
+          // meaningful, since resetting deletes the row.
+          source: overrides.has(d.key) ? 'override' : 'default',
+          updatedAt: row?.updatedAt ?? null,
+          updatedByEmail: row?.updatedByEmail ?? null,
+        };
+      }),
+    })).filter((g) => g.settings.length > 0),
+    loaded,
+  };
+}
+
+/**
+ * Write a batch. Validates everything BEFORE writing anything, so a save either
+ * lands whole or not at all — a half-applied pricing change is a real hazard.
+ *
+ * `null` as a value RESETS that key to its env default by deleting the row.
+ */
+async function set(entries, actor = {}) {
+  const errors = {};
+  const writes = [];
+  const deletes = [];
+
+  for (const [key, raw] of Object.entries(entries)) {
+    const def = BY_KEY.get(key);
+    if (!def) {
+      errors[key] = 'unknown setting';
+      continue;
+    }
+    if (raw === null) {
+      deletes.push(key);
+      continue;
+    }
+    const { value, error } = validate(def, raw);
+    if (error) {
+      errors[key] = error;
+      continue;
+    }
+    writes.push({ key, value });
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+
+  const now = new Date();
+  await prisma.$transaction([
+    ...deletes.map((key) => prisma.platformSetting.deleteMany({ where: { key } })),
+    ...writes.map((w) =>
+      prisma.platformSetting.upsert({
+        where: { key: w.key },
+        create: {
+          key: w.key,
+          value: String(w.value),
+          updatedById: actor.id ?? null,
+          updatedByEmail: actor.email ?? null,
+        },
+        update: {
+          value: String(w.value),
+          updatedAt: now,
+          updatedById: actor.id ?? null,
+          updatedByEmail: actor.email ?? null,
+        },
+      }),
+    ),
+  ]);
+
+  await reload();
+  // Tell the other instances. Best-effort: this instance is already correct.
+  redis.publish(CHANNEL, String(Date.now())).catch(() => {});
+
+  return { ok: true, changed: writes.map((w) => w.key), reset: deletes };
+}
+
+/**
+ * The subset the mobile apps may read. Deliberately explicit: the apps get what
+ * they need to display and nothing else, so adding an internal knob to the
+ * registry can never leak it to a phone.
+ */
+function publicConfig() {
+  return {
+    announcement: get('APP_ANNOUNCEMENT_TEXT')
+      ? { text: get('APP_ANNOUNCEMENT_TEXT'), level: get('APP_ANNOUNCEMENT_LEVEL') || 'info' }
+      : null,
+    bookingEnabled: get('RIDER_BOOKING_ENABLED') !== false,
+    driverOnlineEnabled: get('DRIVER_ONLINE_ENABLED') !== false,
+    supportPhone: get('SUPPORT_PHONE') || null,
+    seatHoldMinutes: get('SEAT_HOLD_DURATION_MINUTES'),
+    minFarePerSeatPesewas: get('MIN_FARE_PER_SEAT_PESEWAS'),
+    driverRequiredWalletPesewas: get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS'),
+    driverMinWithdrawalPesewas: get('DRIVER_MIN_WITHDRAWAL_PESEWAS'),
+    tiers: {
+      ECO: {
+        baseFarePesewas: get('ECO_BASE_FARE_PESEWAS'),
+        perKmRatePesewas: get('ECO_PER_KM_RATE_PESEWAS'),
+      },
+      COMFORT: {
+        baseFarePesewas: get('COMFORT_BASE_FARE_PESEWAS'),
+        perKmRatePesewas: get('COMFORT_PER_KM_RATE_PESEWAS'),
+      },
+      PREMIUM: {
+        baseFarePesewas: get('PREMIUM_BASE_FARE_PESEWAS'),
+        perKmRatePesewas: get('PREMIUM_PER_KM_RATE_PESEWAS'),
+      },
+    },
+  };
+}
+
+module.exports = { TYPES, REGISTRY, GROUPS, init, reload, get, set, snapshot, publicConfig, defaultFor };

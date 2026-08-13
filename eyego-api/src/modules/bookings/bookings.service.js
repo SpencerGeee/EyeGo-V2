@@ -16,7 +16,7 @@ const logger = require('../../utils/logger');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 
-const SEAT_HOLD_MS = env.SEAT_HOLD_DURATION_MINUTES * 60 * 1000;
+const SEAT_HOLD_MS = require('../../config/settings').get('SEAT_HOLD_DURATION_MINUTES') * 60 * 1000;
 
 // Map the rider-facing method to a value we persist on the booking.
 // MoMo defaults to the MTN provider key Paystack expects; the rider can still

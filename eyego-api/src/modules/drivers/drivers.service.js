@@ -1764,7 +1764,9 @@ async function getNotifications(driverId, limit = 30) {
 // ─────────────────────────────────────────────────────────────────
 async function getPendingTripRequests(driverId, { lat, lng } = {}) {
   const { haversineKm } = require('../trips/fare.calculator');
-  const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 8;
+  // Same radius the cascade uses, read from the runtime settings so the two can
+  // never disagree about how far "nearby" is.
+  const DISPATCH_RADIUS_KM = require('../../config/settings').get('DISPATCH_RADIUS_KM') ?? 8;
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
 
   // BUSY-DRIVER LEAK FIX: this poll had no eligibility check at all, so even

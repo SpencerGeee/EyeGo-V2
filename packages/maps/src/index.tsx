@@ -1094,6 +1094,7 @@ function buildFallback(bgColor: string, fgColor: string) {
 export * from './camera';
 export * from './puck';
 export * from './useMapCamera';
+export * from './useRouteReveal';
 
 export const MapAvailable = !!(NativeMap && NativeCamera && NativeViewAnnotation && NativeGeoJSONSource && NativeLayer);
 

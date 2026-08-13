@@ -50,8 +50,10 @@ const HARD_BUSY_STATUSES = Object.freeze([
 const PENDING_BUSY_STATUSES = Object.freeze(['SCHEDULED', 'FILLING']);
 
 /** How close to departure a SCHEDULED/FILLING trip starts blocking dispatch. */
-const IMMINENT_DEPARTURE_MINUTES =
-  parseInt(process.env.DISPATCH_BUSY_LEAD_MINUTES, 10) || 45;
+// Read per call so an admin can retune it live (src/config/settings.js). Kept as
+// a function rather than a const for exactly that reason.
+const settings = require('./../config/settings');
+const imminentDepartureMinutes = () => settings.get('DISPATCH_BUSY_LEAD_MINUTES') ?? 45;
 
 /**
  * Prisma relation filter matching a driver who is NOT free.
@@ -59,7 +61,7 @@ const IMMINENT_DEPARTURE_MINUTES =
  * `trips: { none: busyTripFilter() }` to find free ones.
  */
 function busyTripFilter(now = new Date()) {
-  const imminent = new Date(now.getTime() + IMMINENT_DEPARTURE_MINUTES * 60 * 1000);
+  const imminent = new Date(now.getTime() + imminentDepartureMinutes() * 60 * 1000);
   return {
     OR: [
       {
@@ -204,7 +206,7 @@ async function explainIneligible(prisma, ids, now = new Date()) {
 module.exports = {
   HARD_BUSY_STATUSES,
   PENDING_BUSY_STATUSES,
-  IMMINENT_DEPARTURE_MINUTES,
+  imminentDepartureMinutes,
   busyTripFilter,
   availableDriverWhere,
   isDriverAvailable,

@@ -7,8 +7,14 @@ import {
   Alert,
   Linking,
   Platform,
-  Animated,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -221,17 +227,21 @@ export default function DriverTrackingScreen() {
 
   // ── In-app banner ──
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
-  const bannerAnim = useRef(new Animated.Value(-80)).current;
+  // Reanimated shared value — one animation system across both apps.
+  const bannerY = useSharedValue(-80);
+  const bannerStyle = useAnimatedStyle(() => ({ transform: [{ translateY: bannerY.value }] }));
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showBanner = useCallback((msg: string) => {
     setBannerMsg(msg);
-    Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true, ...springs.standard }).start();
+    bannerY.value = withSpring(0, springs.standard);
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, { toValue: -80, duration: durations.standard, useNativeDriver: true }).start(() => setBannerMsg(null));
+      bannerY.value = withTiming(-80, { duration: durations.standard }, (finished) => {
+        if (finished) runOnJS(setBannerMsg)(null);
+      });
     }, 4000);
-  }, [bannerAnim]);
+  }, [bannerY]);
 
   // ── Trip status management ──
   const pendingFromStatus = useRef<string | null>(null);
@@ -498,7 +508,7 @@ export default function DriverTrackingScreen() {
 
       {/* In-app banner */}
       {bannerMsg != null && (
-        <Animated.View style={[styles.statusBanner, { transform: [{ translateY: bannerAnim }] }]}>
+        <Animated.View style={[styles.statusBanner, bannerStyle]}>
           <BlurView intensity={80} tint="dark" style={styles.statusBannerBlur}>
             <View style={styles.statusBannerIcon}>
               <Ionicons name="notifications" size={16} color="#050508" />

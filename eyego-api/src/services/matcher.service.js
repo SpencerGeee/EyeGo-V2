@@ -29,11 +29,15 @@ const destinationMode = require('./destination-mode.service');
  * directions.
  */
 
-const MAX_CANDIDATES = parseInt(process.env.DISPATCH_MAX_CANDIDATES, 10) || 8;
+// Read per call, not per process, so the console can retune dispatch without a
+// restart. See src/config/settings.js.
+const settings = require('../config/settings');
+const maxCandidates = () => settings.get('DISPATCH_MAX_CANDIDATES') ?? 8;
 /** Drivers pulled from the geo index before eligibility filtering. */
 const GEO_FETCH_LIMIT = parseInt(process.env.DISPATCH_GEO_FETCH_LIMIT, 10) || 60;
+const maxPickupEtaSeconds = () => settings.get('DISPATCH_MAX_PICKUP_ETA_SECONDS') ?? 1500;
 /** A driver more than this far out by road is not worth offering. */
-const MAX_PICKUP_ETA_SECONDS = parseInt(process.env.DISPATCH_MAX_PICKUP_ETA_SECONDS, 10) || 1500;
+
 
 /**
  * Eligible, ranked drivers for one pickup point.
@@ -201,9 +205,9 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
     })
     // A driver with no computable ETA is kept, ranked last — missing telemetry
     // must never cost a rider their ride, but it should not win either.
-    .filter((d) => d.etaSeconds == null || d.etaSeconds <= MAX_PICKUP_ETA_SECONDS)
+    .filter((d) => d.etaSeconds == null || d.etaSeconds <= maxPickupEtaSeconds())
     .sort((a, b) => (a.etaSeconds ?? Number.MAX_SAFE_INTEGER) - (b.etaSeconds ?? Number.MAX_SAFE_INTEGER))
-    .slice(0, MAX_CANDIDATES);
+    .slice(0, maxCandidates());
 
   logFunnel('ok', {
     geo: nearby.length,
@@ -251,4 +255,6 @@ async function solve(requests, { allowDriverReuse = false } = {}) {
   return result;
 }
 
-module.exports = { rankCandidates, solve, MAX_CANDIDATES, MAX_PICKUP_ETA_SECONDS };
+// Exported as functions: these are runtime-tunable now, so a caller that
+// captured the number would be holding a value an admin has since changed.
+module.exports = { rankCandidates, solve, maxCandidates, maxPickupEtaSeconds };

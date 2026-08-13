@@ -1,6 +1,13 @@
 'use client';
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Animated, View, StyleSheet, Platform, Pressable } from 'react-native';
+import { View, StyleSheet, Platform, Pressable } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import { useRouter, useSegments, type Href } from 'expo-router';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
@@ -78,7 +85,10 @@ export function TripStatusListener() {
 
   const [bannerMsg, setBannerMsg] = useState<string | null>(null);
   const [bannerIcon, setBannerIcon] = useState<string>('notifications');
-  const bannerAnim = useRef(new Animated.Value(-120)).current;
+  // Reanimated shared value, not a legacy Animated.Value: same reason as the
+  // toast and the offline banner — one animation system, one set of springs.
+  const bannerY = useSharedValue(-120);
+  const bannerStyle = useAnimatedStyle(() => ({ transform: [{ translateY: bannerY.value }] }));
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks where tapping the banner should navigate ('chat' or null → tracking)
   const bannerDestinationRef = useRef<'chat' | null>(null);
@@ -116,24 +126,19 @@ export function TripStatusListener() {
   const showBanner = useCallback((msg: string, icon: string = 'notifications') => {
     setBannerMsg(msg);
     setBannerIcon(icon);
-    // Slide in. `bounciness: 6` is the legacy Animated API's own word for the
-    // problem — a status banner that overshoots its resting position reads as
-    // the notification bouncing rather than as the notification arriving.
-    Animated.spring(bannerAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      ...springs.standard,
-    }).start();
-    // Auto-dismiss after 5 s
+    // Slide in on the shared `standard` spring (ζ = 1.0, no overshoot). A status
+    // banner that overshoots reads as the notification bouncing rather than as
+    // the notification arriving.
+    bannerY.value = withSpring(0, springs.standard);
+    // Auto-dismiss after 5 s. `runOnJS` because clearing the message is React
+    // state and the animation completes on the UI thread.
     if (bannerTimer.current) clearTimeout(bannerTimer.current);
     bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, {
-        toValue: -120,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => setBannerMsg(null));
+      bannerY.value = withTiming(-120, { duration: 300 }, (finished) => {
+        if (finished) runOnJS(setBannerMsg)(null);
+      });
     }, 5000);
-  }, [bannerAnim]);
+  }, [bannerY]);
 
   // ── Socket connection: connect as soon as user is logged in ──
   // We do NOT gate on activeBooking?.id because the persisted Zustand
@@ -469,7 +474,7 @@ export function TripStatusListener() {
 
   return (
     <Animated.View
-      style={[styles.container, { transform: [{ translateY: bannerAnim }] }]}
+      style={[styles.container, bannerStyle]}
       pointerEvents="box-none"
     >
       <Pressable onPress={handleBannerPress} style={styles.pressable}>

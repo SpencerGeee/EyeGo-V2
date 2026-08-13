@@ -587,6 +587,43 @@ async function getDispatchHealth() {
   };
 }
 
+
+/**
+ * Runtime platform settings for the console: every knob, its current value, its
+ * env default, and who last changed it.
+ *
+ * The registry in src/config/settings.js is the single source of truth for what
+ * exists, what type it is and what bounds it has — this only joins it to the
+ * override rows so the page can show provenance.
+ */
+async function getPlatformSettings() {
+  const settings = require('../../config/settings');
+  const rows = await prisma.platformSetting.findMany();
+  return settings.snapshot(rows);
+}
+
+/**
+ * Write a batch of settings. Validation and the all-or-nothing transaction live
+ * in the settings module; a partially-applied pricing change is a real hazard, so
+ * nothing is written unless every field passes.
+ *
+ * A value of `null` resets that key to its env default.
+ */
+async function updatePlatformSettings(entries, actor) {
+  const settings = require('../../config/settings');
+  const result = await settings.set(entries || {}, actor || {});
+  if (!result.ok) {
+    throw new AppError(
+      'Some settings were rejected: ' +
+        Object.entries(result.errors).map((e) => e[0] + ' ' + e[1]).join('; '),
+      400,
+    );
+  }
+  logger.info('[ADMIN] platform settings updated', { changed: result.changed, reset: result.reset, by: actor?.email });
+  const rows = await prisma.platformSetting.findMany();
+  return { ...settings.snapshot(rows), changed: result.changed, reset: result.reset };
+}
+
 async function getTripDetail(tripId) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
@@ -1737,4 +1774,6 @@ module.exports = {
   getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
   getLiveDriversMap,
   getDispatchHealth,
+  getPlatformSettings,
+  updatePlatformSettings,
 };

@@ -133,6 +133,20 @@ router.post('/trip-reports/:id/resolve', requireRole(ROLE.SUPPORT, ROLE.OPS), ad
 router.get('/sos-events', controller.getSosEvents);
 router.post('/sos-events/:id/resolve', requireRole(ROLE.SUPPORT, ROLE.OPS), adminActionLimiter, audit('sos.resolve', { targetType: 'SosEvent' }), controller.resolveSosEvent);
 
+// ── Platform configuration ──────────────────────────────────────
+// Fares, commission, dispatch tuning and the in-app announcement, changeable
+// live. Reading is open to any console role (an operator should be able to see
+// what a ride costs); writing is superadmin or finance, because these numbers
+// price real rides the moment they land, and every write is audited.
+router.get('/settings', controller.getPlatformSettings);
+router.patch(
+  '/settings',
+  requireRole(ROLE.FINANCE),
+  adminActionLimiter,
+  audit('platform_settings.update', { targetType: 'PlatformSetting' }),
+  controller.updatePlatformSettings,
+);
+
 // ── Money ───────────────────────────────────────────────────────
 router.get('/promotions', controller.getPromotions);
 router.post('/promotions', requireRole(ROLE.FINANCE), audit('promotion.create', { targetType: 'Promotion' }), controller.createPromotion);

@@ -105,6 +105,9 @@ export const NAV: NavSection[] = [
   {
     title: 'Platform',
     items: [
+      // Readable by every role (an operator should be able to see what a ride
+      // costs); writes are gated to FINANCE/SUPERADMIN by the API.
+      { href: '/config', label: 'Platform config', icon: 'bolt', roles: ALL },
       { href: '/ota', label: 'App releases', icon: 'rocket', roles: ['SUPERADMIN'] },
       { href: '/admins', label: 'Admin accounts', icon: 'shield', roles: ['SUPERADMIN'] },
       { href: '/audit-logs', label: 'Audit log', icon: 'scroll', roles: ['SUPERADMIN', 'VIEWER'] },

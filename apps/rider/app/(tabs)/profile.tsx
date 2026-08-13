@@ -18,7 +18,7 @@ import { bookingsApi, walletApi, userApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Pressable, MorphSource, useMorph, setBackgroundBusy, backgroundScrollPauseProps } from '@eyego/ui';
+import { Text, Pressable, MorphSource, useMorph, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue } from '@eyego/ui';
 import { getInitials, formatGhs } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -84,7 +84,7 @@ export default function ProfileScreen() {
     select: (r) => (r.data as any)?.data?.total ?? (r.data as any)?.total ?? 0,
   });
 
-  const { data: walletBalancePesewas } = useQuery({
+  const { data: walletBalancePesewas, isPending: walletPending } = useQuery({
     queryKey: queryKeys.wallet.balance(),
     queryFn: () => walletApi.getBalance(),
     select: (r: any) => r.data?.data?.balance ?? r.data?.balance ?? 0,
@@ -227,7 +227,11 @@ export default function ProfileScreen() {
                 <Ionicons name="wallet-outline" size={16} color={colors.onSurfaceVariant} />
                 <Text style={styles.walletLabel}>EYEGO WALLET</Text>
               </View>
-              <Text style={styles.walletBalancePesewas}>{formatGhs(walletBalancePesewas ?? 0)}</Text>
+              {/* Never "GH₵0.00" while the balance is still in flight — a rider
+                  reads that as their actual balance. */}
+              <SkeletonValue loading={walletPending} width={128} height={30} borderRadius={8}>
+                <Text style={styles.walletBalancePesewas}>{formatGhs(walletBalancePesewas ?? 0)}</Text>
+              </SkeletonValue>
             </View>
             <Pressable
               onPress={() => router.push('/profile/wallet' as any)}

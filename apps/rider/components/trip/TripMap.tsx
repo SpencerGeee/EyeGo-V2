@@ -8,6 +8,7 @@ import MapboxGL from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
 import {
   useMapCamera,
+  useRouteReveal,
   paddingForSheet,
   type CameraMode,
   type Coord,
@@ -161,15 +162,26 @@ function TripMapImpl() {
   // is now the single subscriber and this reads its output.
   const path = useTripStore((s) => s.path);
 
+  /**
+   * The route DRAWS ITSELF from the pickup outwards rather than appearing whole.
+   *
+   * A route that snaps in gives the rider no sense of direction — the eye has to
+   * find the pickup end after the fact. Revealing it from the pickup answers
+   * "where is this going" in the same motion that shows the line, which is what
+   * every mapping app does when a route is assigned. `useRouteReveal` keys on the
+   * route's identity, so the line does not redraw every time the ETA refreshes.
+   */
+  const rawCoords = path?.geometry?.coordinates as [number, number][] | undefined;
+  const revealedCoords = useRouteReveal(rawCoords, { durationMs: 800 });
+
   const routeLine = useMemo(() => {
-    const coords = path?.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) return null;
+    if (!Array.isArray(revealedCoords) || revealedCoords.length < 2) return null;
     return {
       type: 'Feature' as const,
       properties: {},
-      geometry: { type: 'LineString' as const, coordinates: coords },
+      geometry: { type: 'LineString' as const, coordinates: revealedCoords },
     };
-  }, [path]);
+  }, [revealedCoords]);
 
   const driverPins = useMemo(
     () => nearbyDrivers.map((d) => [d.longitude, d.latitude] as Coord),
