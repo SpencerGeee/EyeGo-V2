@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { formatGhs } from '@eyego/utils';
 import {
   View,
@@ -12,7 +12,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { tripsApi, bookingsApi, queryKeys } from '@eyego/api';
+import { tripsApi, bookingsApi, ridesApi, queryKeys } from '@eyego/api';
 import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
@@ -74,9 +74,14 @@ function getTierColors(colors: Colors): Record<string, string> {
 }
 
 const QUICK_ACTIONS = [
+  // "Scan to Pay" existed end to end — a QR on the driver's manage screen and a
+  // working scanner at profile/scan-pay — with nothing anywhere pointing a rider
+  // at the scanner. The driver's own copy says "open the EyeGo app to pay",
+  // which was an instruction the app could not be followed on. This is that
+  // instruction's destination.
+  { id: 'scan',     label: 'Scan',     icon: 'qr-code-outline'    as const },
   { id: 'saved',    label: 'Saved',    icon: 'bookmark-outline'   as const },
   { id: 'schedule', label: 'Schedule', icon: 'calendar-outline'   as const },
-  { id: 'promos',   label: 'Promos',   icon: 'pricetag-outline'   as const },
   { id: 'wallet',   label: 'Wallet',   icon: 'wallet-outline'     as const },
 ];
 
@@ -425,8 +430,47 @@ export default function HomeScreen() {
   // A trip request the rider walked away from is still live on the server, so
   // the home screen has to surface it — otherwise Back from the request screen
   // looks like the request was abandoned.
-  const pendingRequestId = useRideStore((s) => s.pendingTripRequestId);
+  const storedPendingRequestId = useRideStore((s) => s.pendingTripRequestId);
   const pendingRequestDestination = useRideStore((s) => s.pendingTripRequestDestination);
+  const setPendingTripRequest = useRideStore((s) => s.setPendingTripRequest);
+
+  /**
+   * THE SERVER IS WHO KNOWS WHETHER THIS RIDER HAS A RIDE.
+   *
+   * BUGFIX ("on the homepage there's no live trip card saying the trip has been
+   * created and is actively looking for drivers"). The card below was gated
+   * purely on `pendingTripRequestId`, a value written into the local store by
+   * `RequestStage` immediately after a successful response. So it existed only
+   * when this device saw that response — and the reported case is precisely the
+   * one where it did not: the request timed out on the client while succeeding
+   * on the server. The trip was live, dispatch was cascading, and home showed a
+   * clean slate. Reinstalling the app or booking from another entry point had
+   * the same effect for the same reason.
+   *
+   * `/rides/active` already exists and is the one-call rehydration endpoint. Ask
+   * it, and adopt whatever it says — the local value is now a cache of the
+   * answer rather than the answer itself.
+   */
+  const { data: activeRideData } = useQuery({
+    queryKey: ['rides', 'active'],
+    queryFn: () => ridesApi.active(),
+    // Short: this is what tells the rider their request survived, so it should
+    // appear on the first poll after a timeout rather than the next screen.
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  });
+  const serverActiveTrip = (activeRideData as any)?.trip ?? null;
+  const serverActiveTripId: string | null = serverActiveTrip?.tripId ?? serverActiveTrip?.id ?? null;
+
+  useEffect(() => {
+    if (!serverActiveTripId || serverActiveTripId === storedPendingRequestId) return;
+    setPendingTripRequest(
+      serverActiveTripId,
+      serverActiveTrip?.dropoff?.address ?? null,
+    );
+  }, [serverActiveTripId, storedPendingRequestId, serverActiveTrip, setPendingTripRequest]);
+
+  const pendingRequestId = storedPendingRequestId ?? serverActiveTripId;
 
   const { data: scheduledData } = useQuery({
     queryKey: ['trips', 'scheduled'],
@@ -459,6 +503,7 @@ export default function HomeScreen() {
   const handleQuickAction = (id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const routes: Record<string, string> = {
+      scan:     '/profile/scan-pay',
       saved:    '/profile/saved-places',
       schedule: '/ride/schedule',
       promos:   '/profile/promotions',

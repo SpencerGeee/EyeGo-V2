@@ -184,4 +184,19 @@ const notifications = {
     sendMulticastPush(tokens, 'Trip cancelled — driver no-show', `Your EyeGo trip (${route}) was cancelled. A full refund will be issued.`, { type: 'TRIP_CANCELLED_NO_SHOW', tripId: tripId || '' }),
 };
 
-module.exports = { sendPush, sendMulticastPush, notifications };
+/**
+ * Can this server push at all?
+ *
+ * Every send in this file quietly returns `null` when Firebase failed to
+ * initialise, which is right for the call sites — a missing push must never
+ * break a trip — but it means a server with no credentials looks exactly like a
+ * server with nothing to say. That is not a small difference: with pushes off,
+ * a dispatch offer can only reach a driver whose app is open, and a
+ * backgrounded phone is unreachable by design. Exposed so the admin dispatch
+ * board states it as a fact instead of leaving it to be deduced.
+ */
+function isPushConfigured() {
+  return firebaseReady;
+}
+
+module.exports = { sendPush, sendMulticastPush, notifications, isPushConfigured };

@@ -856,10 +856,21 @@ export default function ActiveTripScreen() {
                 );
               }}
             />
+            {/*
+              "Reserved" is the correct STATE for a seat held against an
+              unverified passenger — including an offline one the driver just
+              added by phone, whose booking stays SEAT_HELD until they read back
+              the SMS code. Reported as "I added an offline passenger and it's
+              showing that seat as reserved instead of boarded — is that right?"
+              It is, but the old one-word label never said what it was waiting
+              for, which is the only reason it read as a bug. (A cash passenger
+              added with no phone has nothing to verify and is written straight
+              to BOARDED — see drivers.service addCashNoPhone.)
+            */}
             <View style={styles.legend}>
               {[
                 { color: colors.primary, label: 'Boarded' },
-                { color: `${colors.primary}55`, label: 'Reserved' },
+                { color: `${colors.primary}55`, label: 'Reserved · awaiting code' },
                 { color: colors.surfaceContainerHighest, label: 'Empty' },
               ].map(({ color, label }) => (
                 <View key={label} style={styles.legendItem}>
@@ -1217,7 +1228,12 @@ export default function ActiveTripScreen() {
               <QRCode value={`https://eyego.app/ride/${id}`} size={220} />
             </View>
             <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-              Passenger scans this with their camera or in the EyeGo app to pay their fare for this trip.
+              {/* "or open the EyeGo app to pay" was an instruction with no
+                  destination — the rider's scanner was real but reachable only
+                  from a profile sub-page nobody would guess at. It is on the
+                  rider's home screen now, so this can name it. */}
+              Passenger scans this with their phone camera, or taps Scan on the EyeGo
+              app's home screen, to pay their fare for this trip.
             </Text>
             <Pressable style={styles.qrCloseBtn} onPress={() => setShowPaymentQr(false)}>
               <Text variant="label" color={colors.onSurface}>Close</Text>

@@ -412,6 +412,40 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
     // trip. Without it an offer timeout could fire against a cancelled ride.
     if (isTerminal(to)) {
       await scheduledTasks.cancelAllForTripTx(tx, tripId);
+
+      /**
+       * THE BOOKINGS HAVE TO END TOO.
+       *
+       * A terminal transition disarmed the trip's timers and stopped there, so
+       * the Booking rows kept whatever status they had when the music stopped.
+       * A request that timed out left a trip at EXPIRED with its booking still
+       * CONFIRMED — and the activity list reads the BOOKING for its badge, so
+       * the rider saw "Confirmed" on a ride that had been dead for five
+       * minutes, tapped it, and got "trip not found" from an endpoint that
+       * correctly refuses to open a finished trip.
+       *
+       * COMPLETED is excluded deliberately: `completeTrip` settles fares and
+       * moves bookings to COMPLETED/PAID itself, and clobbering that here would
+       * cancel rides that were successfully driven. This is only for the ways a
+       * trip ends WITHOUT being driven.
+       *
+       * `seatNumber: null` is part of the same fact and not decoration — a seat
+       * is released by nulling it (see the seat-occupancy invariants), and a
+       * dead booking that still holds a numbered seat keeps that seat out of
+       * circulation on the driver's map for good.
+       */
+      if (to !== S.COMPLETED) {
+        await tx.booking.updateMany({
+          where: {
+            tripId,
+            status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED', 'COMPLETED', 'NO_SHOW'] },
+          },
+          data: {
+            status: to === S.NO_SHOW ? 'NO_SHOW' : to === S.CANCELLED ? 'CANCELLED' : 'EXPIRED',
+            seatNumber: null,
+          },
+        });
+      }
     }
 
     const hadSideEffects = Boolean(sideEffects) || tasks.length > 0 || isTerminal(to);

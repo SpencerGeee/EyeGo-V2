@@ -152,11 +152,32 @@ async function publishById(tripId, event) {
  * sequence and only one becomes a transition. They still ride the same
  * envelope so the client has exactly one handler and one staleness rule.
  */
+/**
+ * How many live driver sockets are sitting in a driver's personal room.
+ *
+ * Exported because the count is the single most useful fact about a dispatch
+ * that "did not arrive", and until now it existed only as a log line on the
+ * server. `offerNext` puts it on the DISPATCH_PROGRESS event so the admin
+ * dispatch board can say "offered to driver X, delivered to 0 sockets" instead
+ * of leaving an operator to guess between a broken cascade and a phone that was
+ * never connected. Resolves 0 rather than throwing — an unknown count and a
+ * count of zero lead to the same conclusion here.
+ */
+async function countDriverSockets(driverId) {
+  if (!io) return 0;
+  try {
+    const sockets = await io.of('/driver').in(`driver:${driverId}`).fetchSockets();
+    return sockets.length;
+  } catch {
+    return 0;
+  }
+}
+
 function publishOfferToDriver(driverId, payload) {
   if (!io) {
     // Worth an error, not a shrug: an offer published before the socket server
     // is wired is an offer no driver can ever receive, and the cascade will
-    // still burn its twenty seconds waiting for an answer.
+    // still burn its offer window waiting for an answer.
     logger.error(`OFFER for driver ${driverId} dropped — socket server not wired yet`);
     return;
   }
@@ -172,18 +193,16 @@ function publishOfferToDriver(driverId, payload) {
    * the Redis adapter, so the count spans every API instance rather than just
    * this one. Async and detached: the emit below must not wait on it.
    */
-  io.of('/driver')
-    .in(room)
-    .fetchSockets()
-    .then((sockets) => {
-      if (sockets.length === 0) {
+  countDriverSockets(driverId)
+    .then((count) => {
+      if (count === 0) {
         logger.warn(
           `OFFER for trip ${payload.tripId} published to an EMPTY room ${room} — ` +
             'the driver app is not connected to /driver. Only the FCM push and the ' +
             'driver-state REST hydrate can deliver this offer.',
         );
       } else {
-        logger.info(`OFFER delivered to ${sockets.length} socket(s) in ${room}`, {
+        logger.info(`OFFER delivered to ${count} socket(s) in ${room}`, {
           tripId: payload.tripId,
         });
       }
@@ -286,5 +305,6 @@ module.exports = {
   publishRouteForTrip,
   publishOfferToDriver,
   publishOfferRevoked,
+  countDriverSockets,
   buildEnvelope,
 };

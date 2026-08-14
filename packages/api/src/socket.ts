@@ -683,6 +683,23 @@ export const driverSocketEvents = {
     return () => getDriverSocket().off('trip:seat_update', cb);
   },
 
+  /**
+   * Somebody took a seat on this driver's trip.
+   *
+   * Distinct from `onSeatUpdate`, which is a silent data frame carrying a new
+   * seat map — it exists to repaint, not to announce. A direct booking from the
+   * rider's suggested-trip card produced only that, so a passenger appeared on
+   * the driver's seat map with nothing to draw their eye to it, while the
+   * invite flow (which ends in a payment) got a push. This is the announcement
+   * half for the path that has no payment yet.
+   */
+  onPassengerJoined: (
+    cb: (data: { tripId: string; seatNumber: number | null; passengerName: string }) => void,
+  ) => {
+    getDriverSocket().on('trip:passenger_joined', cb);
+    return () => getDriverSocket().off('trip:passenger_joined', cb);
+  },
+
   onConnect: (cb: () => void) => {
     getDriverSocket().on('connect', cb);
     return () => getDriverSocket().off('connect', cb);

@@ -191,6 +191,26 @@ export function DriverTripStatusListener() {
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
     });
 
+    /**
+     * Somebody just took a seat. The seat-map refresh above is silent by
+     * design; this is the half that tells the driver it happened.
+     *
+     * Reported as "when I book directly using the suggested trip card nothing
+     * happens, it just shows on the driver side" — against the invite flow,
+     * which ends in a payment and therefore got the payment push. The banner is
+     * suppressed on the screens that already show the passenger arriving.
+     */
+    const unsubPassengerJoined = driverSocketEvents.onPassengerJoined((data) => {
+      queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
+      const tId = safeRead(data, 'tripId');
+      if (tId) queryClient.invalidateQueries({ queryKey: ['driver', 'trip', tId] });
+      const segs = segmentsRef.current;
+      if (segs.some((s) => s === 'tracking' || s === 'active')) return;
+      const who = safeRead(data, 'passengerName') ?? 'A passenger';
+      const seat = safeRead(data, 'seatNumber');
+      showBanner(seat ? `${who} took seat ${seat}` : `${who} joined your trip`, 'person-add-outline');
+    });
+
     // Group chat banners (app-wide, except on the chat screen itself).
     const unsubChat = driverSocketEvents.onChatMessage((msg) => {
       const segs = segmentsRef.current;

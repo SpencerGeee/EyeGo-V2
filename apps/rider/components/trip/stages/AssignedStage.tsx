@@ -28,8 +28,33 @@ import { shareLiveTracking } from '../../../utils/safety';
  * through drop-off, which is the difference the rider actually feels.
  */
 
-/** What to call the phase, and what the rider should be doing about it. */
-function phaseCopy(status: string | null, etaMinutes: number | null) {
+/**
+ * What to call the phase, and what the rider should be doing about it.
+ *
+ * BUGFIX ("when the driver is filling up and hasn't started, the tracking page
+ * says driver confirmed and draws the route to the destination — the trip hasn't
+ * even started"). Exactly right, and it was this `default`. SCHEDULED, FILLING
+ * and CONFIRMED all fell through to the DRIVER_ASSIGNED copy, so a group trip
+ * still collecting passengers told the rider their driver was "setting off now".
+ * The rider then watched nothing happen until the trip moved to DRIVER_EN_ROUTE,
+ * at which point the screen finally started telling the truth — which is why it
+ * looked like it "goes back to normal" on the way to you.
+ *
+ * The pre-departure states now say what they are. `default` is deliberately no
+ * longer a catch-all for them.
+ */
+function phaseCopy(
+  status: string | null,
+  etaMinutes: number | null,
+  departsAt?: string | null,
+) {
+  const departureText = (() => {
+    if (!departsAt) return null;
+    const d = new Date(departsAt);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  })();
+
   switch (status) {
     case 'ARRIVED_AT_PICKUP':
       return { title: 'Your driver is here', sub: 'Check the plate before getting in.' };
@@ -37,6 +62,21 @@ function phaseCopy(status: string | null, etaMinutes: number | null) {
       return {
         title: etaMinutes != null ? `Arriving in ${etaMinutes} min` : 'On the way to you',
         sub: 'Head to your pickup point.',
+      };
+    case 'SCHEDULED':
+    case 'FILLING':
+      return {
+        title: 'Waiting to fill up',
+        sub: departureText
+          ? `Your driver is collecting passengers. Departure around ${departureText}.`
+          : 'Your driver is collecting passengers. You will be told when they set off.',
+      };
+    case 'CONFIRMED':
+      return {
+        title: 'Seat confirmed',
+        sub: departureText
+          ? `Your driver sets off around ${departureText}.`
+          : 'Your driver will set off shortly.',
       };
     case 'DRIVER_ASSIGNED':
     default:
@@ -69,7 +109,7 @@ function AssignedStageImpl() {
   /** "Verify My Ride". Present only for riders who turned the setting on, and
    *  only until the driver enters it — the server nulls it once verified. */
   const boardingPin = snapshot?.booking?.boardingPin ?? null;
-  const copy = phaseCopy(status, etaMinutes);
+  const copy = phaseCopy(status, etaMinutes, (snapshot as any)?.departureTime ?? null);
 
   const arrived = status === 'ARRIVED_AT_PICKUP';
 

@@ -67,8 +67,18 @@ const { TRIP_STATUS, ACTOR } = tripState;
  */
 const settings = require('../config/settings');
 
-/** How long a single driver holds an exclusive offer before it moves on. */
-const offerTtlSeconds = () => settings.get('DISPATCH_OFFER_TTL_SECONDS') ?? 20;
+/**
+ * How long a single driver holds an exclusive offer before it moves on.
+ *
+ * Was 20 s. That is a fine number when the offer reaches the phone instantly,
+ * and a hostile one when it does not: the driver-side fallback for a dropped
+ * socket frame is a REST poll, so a phone that misses the push has to poll,
+ * render, and be READ inside the window. Twenty seconds left roughly none of
+ * it for the human. Uber and Bolt both sit in the 30–60 s band; 45 s is the
+ * middle of it and still short enough that a pocketed phone does not hold a
+ * rider hostage.
+ */
+const offerTtlSeconds = () => settings.get('DISPATCH_OFFER_TTL_SECONDS') ?? 45;
 /** Nearest-first search radius, and the wider sweep used if nobody is close. */
 const dispatchRadiusKm = () => settings.get('DISPATCH_RADIUS_KM') ?? 5;
 const dispatchExtendedRadiusKm = () => settings.get('DISPATCH_EXTENDED_RADIUS_KM') ?? 12;
@@ -90,6 +100,22 @@ const RESWEEP_INTERVAL_SECONDS =
 
 const TASK_OFFER_TIMEOUT = 'DISPATCH_OFFER_TIMEOUT';
 const TASK_RESWEEP = 'DISPATCH_RESWEEP';
+/**
+ * "Start the search for this trip" as a durable row.
+ *
+ * `requestRide` used to AWAIT `startCascade` inside the HTTP handler. Measured
+ * against a remote Postgres that answers in ~300 ms, the request took fourteen
+ * seconds end to end — REQUESTED at :16, MATCHING at :20, SEARCHING at :25,
+ * OFFERED at :30 — against a fifteen-second client timeout. The rider saw
+ * "couldn't reach the server" for a trip that had in fact been created and was
+ * already being dispatched, then hit "you already have a ride in progress" on
+ * the retry. Every one of those symptoms is this one await.
+ *
+ * So the cascade is kicked off out of band. This row is what makes that safe:
+ * it is written INSIDE the creating transaction, so a process that dies between
+ * the commit and the `setImmediate` still has a search armed on disk.
+ */
+const TASK_DISPATCH_START = 'DISPATCH_START';
 /** Cascade state outlives any single offer but must not leak forever. */
 const STATE_TTL_SECONDS = 30 * 60;
 
@@ -344,9 +370,31 @@ async function offerNext(tripId) {
       publisher.publishOfferToDriver(candidate.id, offerPayload);
       pushToDriver(candidate, trip, expiresAtMs, offerPayload).catch(() => {});
 
+      /**
+       * WHETHER THE OFFER COULD POSSIBLY HAVE ARRIVED.
+       *
+       * Two independent delivery paths, both of which can be silently absent:
+       * an open socket in `driver:<id>`, and an FCM token to push to. When both
+       * are zero the driver's only remaining hope is their own 2 s REST poll,
+       * and the rider is watching a countdown against a phone that may never
+       * have been told. Recording it on the event means the admin dispatch board
+       * answers "did it reach the phone" without anyone reading server logs —
+       * which is how this bug has stayed alive across several sweeps.
+       */
+      const deliveredToSockets = await publisher.countDriverSockets(candidate.id).catch(() => 0);
+      if (deliveredToSockets === 0 && !candidate.fcmToken) {
+        logger.error('Dispatch offer has NO delivery path', {
+          tripId,
+          driverId: candidate.id,
+          reason: 'no open socket in driver room and no FCM token on the driver row',
+        });
+      }
+
       await emitProgress(tripId, 'DISPATCH_PROGRESS', {
         phase: 'OFFERED',
         driverId: candidate.id,
+        deliveredToSockets,
+        pushable: !!candidate.fcmToken,
         driverLat: candidate.currentLat ?? null,
         driverLng: candidate.currentLng ?? null,
         etaSeconds: candidate.etaSeconds,
@@ -608,6 +656,8 @@ async function startCascade(tripId, opts = {}) {
   // timer armed, or two chains would advance the same trip independently.
   await finish(tripId, 'restarted');
   await clearState(tripId);
+  // The recovery row has done its job the moment we get here.
+  await scheduledTasks.cancel(TASK_DISPATCH_START, tripId).catch(() => {});
 
   if (trip.status !== TRIP_STATUS.MATCHING) {
     await tripState.applyTransition(tripId, TRIP_STATUS.MATCHING, {
@@ -812,6 +862,27 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
   await offerNext(tripId);
 });
 
+/**
+ * Safety net for a search that was never actually started.
+ *
+ * Armed in the same transaction that creates the trip and cancelled by
+ * `startCascade` the moment the real search begins, so in the ordinary case it
+ * never runs. It exists for the case the in-process kick never happened — a
+ * crash, a deploy, an unhandled throw between commit and `setImmediate`.
+ */
+scheduledTasks.registerHandler(TASK_DISPATCH_START, async (task) => {
+  const { tripId, kind } = task.payload || {};
+  if (!tripId) return;
+  const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { status: true } });
+  if (!trip) return;
+  if (![TRIP_STATUS.REQUESTED, TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING].includes(trip.status)) return;
+  // A live cascade is already working this trip — nothing to recover.
+  const state = await readState(tripId);
+  if (state && !state.done) return;
+  logger.warn('Dispatch never started in-process — recovering from the durable task', { tripId });
+  await startCascade(tripId, { kind: kind || 'ON_DEMAND' });
+});
+
 /** Waiting-for-supply timer fired: look again. */
 scheduledTasks.registerHandler(TASK_RESWEEP, async (task) => {
   const { tripId } = task.payload || {};
@@ -839,4 +910,5 @@ module.exports = {
   searchTimeoutSeconds,
   TASK_OFFER_TIMEOUT,
   TASK_RESWEEP,
+  TASK_DISPATCH_START,
 };

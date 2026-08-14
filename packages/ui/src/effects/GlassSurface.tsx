@@ -74,7 +74,31 @@ export function GlassSurface({
   const effectiveIntensity = tier === 'low' ? 'low' : intensity;
   const effectiveChromaticHint = tier === 'low' ? false : chromaticHint;
   const blurIntensity = effectiveIntensity === 'high' ? 92 : 60;
-  const fallbackAlpha = effectiveIntensity === 'high' ? 0.4 : 0.6;
+
+  /**
+   * THE SCRIM — WHY GLASS IS NOT JUST BLUR.
+   *
+   * Reported as "the transparent background is really making things look messed
+   * up and busy" and, on the tier picker, "the map is bleeding into the
+   * selection so it's harder to read". Both are the same defect: the three
+   * material branches below each sample whatever is behind the card and tint it
+   * only lightly — Liquid Glass at 0.28 with `effect: 'clear'`, `BlurView` with
+   * no tint of its own at all. Blur reduces DETAIL behind a card; it does not
+   * reduce CONTRAST. Over a shader or a map, high-contrast content survives the
+   * blur as bright smears, and small text sitting on top of those smears is
+   * genuinely hard to read no matter how much blur you add.
+   *
+   * So every material now sits under one explicit tint. The card is a dark
+   * surface with the background showing through it, rather than the background
+   * with a card faintly implied over it — the ambient colour still reads at the
+   * edges and through the rim, which is the part that looked good, without the
+   * busyness underneath the words.
+   *
+   * `low` is the denser panel (sheets, anything holding a form); `high` is the
+   * lighter one used for cards floating over the map.
+   */
+  const scrimAlpha = effectiveIntensity === 'high' ? 0.78 : 0.88;
+  const scrimColor = withOpacity(dark ? colors.surfaceCard : '#FFFFFF', scrimAlpha);
 
   return (
     <View style={[{ borderRadius, overflow: 'hidden' }, style]}>
@@ -83,11 +107,15 @@ export function GlassSurface({
         // the PHONE's OS-level light/dark setting, not this app's theme, so
         // on a light-system-mode device it renders Apple's bright glass
         // material regardless of `dark`. Force it explicitly.
+        //
+        // `regular` in both intensities now: `clear` is Apple's most
+        // transparent material and the scrim below has to fight it for every
+        // point of contrast, which wastes the blur rather than using it.
         <LiquidGlassView
           style={StyleSheet.absoluteFill}
           colorScheme={dark ? 'dark' : 'light'}
-          tintColor={withOpacity(dark ? colors.surfaceCard : '#FFFFFF', effectiveIntensity === 'high' ? 0.28 : 0.42)}
-          effect={effectiveIntensity === 'high' ? 'clear' : 'regular'}
+          tintColor={withOpacity(dark ? colors.surfaceCard : '#FFFFFF', 0.2)}
+          effect="regular"
         />
       ) : Platform.OS === 'ios' ? (
         <BlurView
@@ -95,14 +123,13 @@ export function GlassSurface({
           tint={dark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
           style={StyleSheet.absoluteFill}
         />
-      ) : (
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: withOpacity(dark ? colors.surfaceCard : '#FFFFFF', fallbackAlpha) },
-          ]}
-        />
-      )}
+      ) : null}
+
+      {/* Painted OVER the material, not under it: the point is to darken the
+          blurred result, and a scrim behind a BlurView is simply blurred along
+          with everything else. On Android, where there is no material at all,
+          this is the whole surface. */}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: scrimColor }]} />
 
       <View
         pointerEvents="none"

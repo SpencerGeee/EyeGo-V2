@@ -33,6 +33,7 @@ import { driverColors, driverLightColors } from '../utils/useColors';
 import { initSentry, captureException } from '../lib/sentry';
 import { DriverTripStatusListener } from '../components/DriverTripStatusListener';
 import DispatchOfferSheet from '../components/DispatchOfferSheet';
+import { isLiveTripStatus } from '@eyego/utils';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useOtaUpdates } from '../hooks/useOtaUpdates';
 
@@ -410,16 +411,26 @@ export default function RootLayout() {
      * makes on every foreground, and `hydrate` no-ops when the answer has not
      * changed (it only adopts an offer with real time left on it, and only if it
      * is not the one already held). At this cadence a socket-dropped offer costs
-     * a few seconds of a twenty-second window instead of the whole ride.
+     * a few seconds of the offer window instead of the whole ride.
      *
      * Deliberately stopped once a trip is live: a driver mid-ride cannot take an
      * offer, `getDriverState` suppresses them in that case anyway, and the
      * sequenced `trip:event` channel is authoritative for a trip in progress.
+     *
+     * CADENCE. This was 5 s, chosen against a 20 s offer window. Both numbers
+     * moved: the offer window is 45 s now, and the measured failure was not a
+     * slow poll but a poll that never ran, so the interval is 2 s and the only
+     * thing that stops it is an actual live trip. Two seconds of one indexed
+     * query plus a Redis GET is nothing next to a driver missing the work.
      */
-    const OFFER_POLL_MS = 5000;
+    const OFFER_POLL_MS = 2000;
     const poll = setInterval(() => {
       const s = useDriverTripStore.getState();
-      if (s.snapshot) return;
+      // Only a genuinely live trip suppresses the poll. `snapshot` alone was too
+      // broad: it stays populated after a trip ends until something clears it,
+      // and a stale snapshot silently switched the safety net off for the rest
+      // of the session — which is the state a driver is in for most of a shift.
+      if (s.snapshot && isLiveTripStatus(s.snapshot.status)) return;
       void s.hydrate();
     }, OFFER_POLL_MS);
 

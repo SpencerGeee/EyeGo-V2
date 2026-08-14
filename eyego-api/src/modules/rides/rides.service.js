@@ -58,6 +58,14 @@ const MAX_REDISPATCH = parseInt(process.env.RIDE_MAX_REDISPATCH, 10) || 2;
 
 const TASK_REQUEST_EXPIRY = 'RIDE_REQUEST_EXPIRY';
 
+/**
+ * How long the durable dispatch-start row waits before assuming the in-process
+ * kick never happened. Long enough that it never races a healthy start (which
+ * happens on the next tick of the event loop), short enough that a rider whose
+ * request landed on a process that then died is not left watching nothing.
+ */
+const DISPATCH_START_RECOVERY_SECONDS = 8;
+
 // ── idempotency ──────────────────────────────────────────────────────────────
 
 /**
@@ -337,6 +345,24 @@ async function requestRide(userId, body) {
         payload: { tripId: created.id },
       });
 
+      /**
+       * The search, armed on disk before the response is written.
+       *
+       * This is what lets the cascade run OUT of the request (see below). If the
+       * in-process kick never happens — a crash, a deploy, a throw between the
+       * commit and the `setImmediate` — this row starts the search a couple of
+       * seconds later instead of leaving the rider on a spinner. `startCascade`
+       * cancels it the moment the real search begins, so it normally expires
+       * unused.
+       */
+      await scheduledTasks.enqueueTx(tx, {
+        type: cascade.TASK_DISPATCH_START,
+        dedupeKey: created.id,
+        tripId: created.id,
+        runAt: new Date(Date.now() + DISPATCH_START_RECOVERY_SECONDS * 1000),
+        payload: { tripId: created.id, kind: 'ON_DEMAND' },
+      });
+
       return created;
     }).catch(async (err) => {
       // Nothing was written, so the quote bought nothing. Hand it back before
@@ -346,17 +372,36 @@ async function requestRide(userId, body) {
       throw err;
     });
 
-    // Awaited. If dispatch cannot start the rider finds out now, rather than
-    // getting a 200 and an eternal spinner — which is exactly what the old
-    // `setImmediate` path did.
-    try {
-      await cascade.startCascade(trip.id, { kind: 'ON_DEMAND' });
-    } catch (err) {
-      logger.error(`Dispatch failed to start for trip ${trip.id}: ${err.message}`);
-      await failTripHard(trip.id, 'DISPATCH_START_FAILED', err.message);
-      await giveQuoteBack();
-      throw new AppError('We could not start looking for a driver. Please try again.', 503, 'DISPATCH_UNAVAILABLE');
-    }
+    /**
+     * DISPATCH RUNS AFTER THE RESPONSE, NOT INSIDE IT.
+     *
+     * This used to be `await cascade.startCascade(...)`, with a comment arguing
+     * that awaiting meant "the rider finds out now" instead of getting a 200 and
+     * a spinner. The argument was right about spinners and wrong about the cost.
+     * Measured against the production Postgres, whose round trip is ~300 ms, the
+     * awaited version put the whole funnel inside the HTTP call:
+     *
+     *     REQUESTED :16 → MATCHING :20 → SEARCHING :25 → OFFERED :30
+     *
+     * Fourteen seconds, against a fifteen-second client timeout. The rider was
+     * shown "we couldn't reach the server" for a request that had succeeded, and
+     * their retry hit "you already have a ride in progress" — because it did.
+     * Every ghost trip in the activity list came from this.
+     *
+     * The spinner the old comment feared is covered properly instead of by
+     * blocking: `TASK_DISPATCH_START` above guarantees the search starts even if
+     * this process dies, and `TASK_REQUEST_EXPIRY` guarantees it ends. A rider
+     * cannot be stranded by a dispatch that silently never began.
+     */
+    setImmediate(() => {
+      cascade.startCascade(trip.id, { kind: 'ON_DEMAND' }).catch(async (err) => {
+        logger.error(`Dispatch failed to start for trip ${trip.id}: ${err.message}`);
+        // The rider already has a 200 and a trip on screen, so failing has to be
+        // said on the trip's own channel rather than as an HTTP error.
+        await failTripHard(trip.id, 'DISPATCH_START_FAILED', err.message).catch(() => {});
+        await giveQuoteBack();
+      });
+    });
 
     const full = await prisma.trip.findUnique({ where: { id: trip.id }, include: TRIP_INCLUDE });
     return { tripId: trip.id, snapshot: buildTripSnapshot(full, { forUserId: userId }) };

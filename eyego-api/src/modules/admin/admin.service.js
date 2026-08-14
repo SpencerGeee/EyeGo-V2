@@ -535,22 +535,38 @@ async function getDispatchHealth() {
       .map((r) => [r.id, r.reason]),
   );
 
-  // Membership of the Redis pool, per driver. Checked against the driver's own
-  // last known position so a driver in the pool is reported as in the pool even
-  // if they have since moved.
-  const inPool = new Set();
-  for (const d of drivers) {
-    if (!Number.isFinite(d.currentLat) || !Number.isFinite(d.currentLng)) continue;
-    const hit = await supply
-      .nearbyDrivers(d.currentLat, d.currentLng, 25, 200)
-      .catch(() => []);
-    if (hit.some((h) => h.driverId === d.id)) inPool.add(d.id);
-  }
+  /**
+   * Membership of the Redis pool, per driver — asked directly.
+   *
+   * This used to GEOSEARCH a 25 km circle around each driver's POSTGRES
+   * coordinates and look for them in the answer. Those coordinates are the cold
+   * copy: written at most every 15 s or 60 m of movement, and null for a driver
+   * who has never persisted a fix. So a driver pinging perfectly well was
+   * reported as "online but not pinging" whenever their row was stale or empty,
+   * and an operator reading this panel during an incident concluded dispatch was
+   * broken when it was not. Presence is a key with a TTL; one MGET answers it
+   * exactly, for every driver at once, instead of N geo queries that answer it
+   * approximately.
+   */
+  const inPool = await supply.whichArePresent(drivers.map((d) => d.id));
 
   return {
     pool: {
       size: poolSize,
       presenceTtlSeconds: supply.PRESENCE_TTL_SECONDS,
+    },
+    /**
+     * Whether this server can wake a backgrounded driver app at all.
+     *
+     * `false` means Firebase Admin never initialised — no credentials, or a
+     * FIREBASE_PRIVATE_KEY that is not a PEM (a truncated one-line value in .env
+     * is the usual cause, and it fails the `BEGIN PRIVATE KEY` check silently).
+     * With this off, the ONLY delivery paths for a dispatch offer are an open
+     * socket and the driver app's own REST poll, so every driver whose app is
+     * backgrounded is unreachable no matter how healthy the cascade looks.
+     */
+    push: {
+      configured: require('../../services/push.service').isPushConfigured(),
     },
     drivers: drivers.map((d) => ({
       id: d.id,

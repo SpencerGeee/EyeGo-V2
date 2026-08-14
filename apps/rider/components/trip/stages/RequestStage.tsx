@@ -259,6 +259,26 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    */
   const sendRequestRef = React.useRef<((opts?: SendRequestOpts) => Promise<void>) | null>(null);
 
+  /**
+   * THE PARTY SIZE THE RIDER ACTUALLY CHOSE, HELD OUT OF REACH OF `clearRideState`.
+   *
+   * `requestSeatCount` lives in the ride store, and `clearRideState()` resets it
+   * to 1 along with everything else. Any path that clears between the rider
+   * picking their seats and the request landing — the "you already have a ride"
+   * prompt and its retry being the one that was reported — sent `seatCount: 1`
+   * for a party of three, and the trip was created with `maxSeats: 1`. The
+   * driver was then told to expect one passenger and the admin console showed
+   * the trip as 1/1, which is what made it look like a display bug rather than a
+   * lost value.
+   *
+   * The first non-default value this screen ever sees is the rider's answer, and
+   * it stays the answer for every retry of the same request.
+   */
+  const chosenSeatsRef = React.useRef<number | null>(null);
+  if (requestSeatCount > 1 && chosenSeatsRef.current == null) {
+    chosenSeatsRef.current = requestSeatCount;
+  }
+
   const sendRequest = React.useCallback(
     async (opts?: SendRequestOpts) => {
       if (origin?.latitude == null || origin?.longitude == null) return;
@@ -302,7 +322,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             // store and then never sent — see the note on `seatCount` in
             // rides.api.ts. Whole-car pricing is unaffected; the driver just
             // learns how many people to expect.
-            seatCount: requestSeatCount,
+            seatCount: chosenSeatsRef.current ?? requestSeatCount,
             ...(opts?.allowConcurrent ? { allowConcurrent: true } : {}),
             ...(opts?.passenger ? { passenger: opts.passenger } : {}),
           } as any,
@@ -347,6 +367,38 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           await sendRequestRef.current?.({ ...opts, refreshedFare: true });
           return;
         }
+        /**
+         * A TIMEOUT IS NOT A FAILURE — IT IS AN UNKNOWN.
+         *
+         * `POST /rides` is not idempotent from the client's point of view once
+         * the socket has been given up on: the server may well have created the
+         * trip and started dispatching it, and we simply stopped listening. That
+         * is exactly what happened in testing — the request took ~14 s against a
+         * 15 s timeout, the rider was told "we couldn't reach the server", and
+         * the retry came back "you already have a ride in progress", because
+         * they did. Two ghost trips per attempt, and a rider with no way back.
+         *
+         * The server side of this is fixed (dispatch no longer runs inside the
+         * request), but the client must not go back to guessing either. Ask who
+         * the authority is: if `getActiveRide` says a ride exists, adopt it and
+         * carry on into tracking as though the response had arrived.
+         */
+        if (!err?.response) {
+          try {
+            const active = await ridesApi.active();
+            const liveTripId = (active as any)?.trip?.id ?? (active as any)?.trip?.tripId ?? null;
+            if (liveTripId) {
+              tripIdRef.current = liveTripId;
+              setPendingTripRequest(liveTripId, destination ?? null);
+              watchTrip(liveTripId);
+              return;
+            }
+          } catch {
+            // Genuinely unreachable. Fall through to the offline message below,
+            // which is now telling the truth rather than covering a timeout.
+          }
+        }
+
         // Surface what the server actually said. Swallowing this is what made
         // every distinct failure — an expired quote, a rejected fare, an
         // out-of-zone pickup, a genuine network drop — look like the same

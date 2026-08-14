@@ -262,6 +262,30 @@ function AnimatedSegment({
   );
 }
 
+/**
+ * The first of these that is a real place name, or the fallback.
+ *
+ * BUGFIX ("on the activity page it's just showing Unknown for all the trips").
+ * The card read `trip.origin.address` and `trip.destination.address`. Neither
+ * field exists — the serializer emits `pickup` / `dropoff`, and the raw Prisma
+ * shape uses `pickupAddress` / `dropoffAddress`. So the optional chain resolved
+ * `undefined` every time and every row printed its placeholder, for on-demand
+ * and group trips alike. Reading all three shapes means the card cannot be
+ * broken again by which endpoint happened to serve it.
+ */
+function endpointLabel(...candidates: (string | null | undefined)[]): string {
+  const fallback = String(candidates[candidates.length - 1] ?? '—');
+  for (const c of candidates.slice(0, -1)) {
+    if (typeof c === 'string' && c.trim().length > 0) return c.split(',')[0].trim();
+  }
+  return fallback;
+}
+
+/** When this ride actually happened, for the activity list's timestamp. */
+function tripWhen(trip: any, booking: any): string | null {
+  return trip?.requestedAt ?? trip?.createdAt ?? booking?.createdAt ?? trip?.departureTime ?? null;
+}
+
 function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
   booking: Booking;
   showCancel?: boolean;
@@ -271,7 +295,10 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const trip = booking.trip;
+  // Widened deliberately: this list is served by more than one endpoint and the
+  // shapes differ (snapshot `pickup`/`dropoff` vs raw `pickupAddress`). See
+  // `endpointLabel`, which reads whichever arrived.
+  const trip = booking.trip as any;
 
   // If the trip itself is COMPLETED, show COMPLETED regardless of booking status
   // (handles stuck SEAT_HELD/CONFIRMED bookings on completed trips)
@@ -282,13 +309,25 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
       <View style={styles.cardHeader}>
         <View style={styles.routeRow}>
           <Text variant="titleSmall" numberOfLines={1} style={{ flex: 1 }}>
-            {trip?.route?.originName ?? trip?.origin?.address?.split(',')[0] ?? 'Origin'}
+            {endpointLabel(
+              trip?.route?.originName,
+              trip?.pickup?.address,
+              trip?.pickupAddress,
+              booking?.pickupAddress,
+              'Pickup',
+            )}
           </Text>
           <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginHorizontal: spacing.sm }}>
             →
           </Text>
           <Text variant="titleSmall" numberOfLines={1} style={{ flex: 1, textAlign: 'right' }}>
-            {trip?.route?.destinationName ?? trip?.destination?.address?.split(',')[0] ?? 'Destination'}
+            {endpointLabel(
+              trip?.route?.destinationName,
+              trip?.dropoff?.address,
+              trip?.dropoffAddress,
+              null,
+              'Destination',
+            )}
           </Text>
         </View>
         <StatusBadge status={displayStatus} />
@@ -296,7 +335,19 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
 
       <View style={styles.cardMeta}>
         <Text variant="caption" color={colors.onSurfaceVariant}>
-          {trip?.departureTime ? formatTripDate(trip.departureTime) : '—'}
+          {/*
+            WHEN THE RIDE HAPPENED, NOT WHEN IT WAS SCHEDULED TO.
+
+            BUGFIX ("one of the timestamps is showing as 3h ago and the other as
+            5m ago" for two trips booked a minute apart). This read
+            `departureTime` alone. For an on-demand ride that equals the request
+            time and looks right; for a driver-published group trip it is the
+            bus's DEPARTURE — often hours away from when the rider booked their
+            seat — so two entries created seconds apart legitimately printed
+            timestamps hours apart. `requestedAt`/`createdAt` is the fact the
+            activity list is actually reporting.
+          */}
+          {tripWhen(trip, booking) ? formatTripDate(tripWhen(trip, booking)) : '—'}
         </Text>
         <Text variant="fareSmall">
           {formatGhs(booking.fareAmountPesewas ?? booking.fare ?? 0)}

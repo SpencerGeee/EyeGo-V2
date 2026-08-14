@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
 import Animated, {
   FadeIn,
   useSharedValue,
@@ -10,8 +10,9 @@ import Animated, {
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { withOpacity, springs } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
+import { useThemeStore } from '../stores/theme.store';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
 import { consumeTripSurfaceReturn } from '../utils/tripSurfaceReturn';
@@ -125,6 +126,9 @@ function renderStage(stage: TripStage) {
 
 export default function TripScreen() {
   const colors = useColors();
+  // Drives this screen's own copy of the ambient background — see the note on
+  // `opaqueFloor` in the render for why it has one.
+  const isDark = useThemeStore((s) => s.isDark);
   const { height: screenHeight } = useWindowDimensions();
   /**
    * The channel the sheet publishes its top edge on and the map reads its
@@ -403,6 +407,33 @@ export default function TripScreen() {
     // reveal is driven by morph progress in MorphTarget.
     <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
       <SheetMetricsProvider value={sheetMetrics}>
+      {/*
+        THE FLOOR OF THIS SCREEN — AND WHY IT IS NOT SIMPLY TRANSPARENT.
+
+        BUGFIX ("on the set your trip page the background is transparent so the
+        homepage elements are bleeding into the page"). Exactly right, and the
+        layering explains it: `/trip` is a `transparentModal` over `(tabs)`, and
+        `(tabs)` is ITSELF transparent so the root `AppBackground` can show
+        through it. So the stack was, bottom to top, shader → the home screen's
+        real content → this screen. Being transparent did not reveal the shader,
+        it revealed the where-to card, the tab bar and the trip cards sitting in
+        between.
+
+        The brief was "these pages share the Skia background and nothing else",
+        so that is what this pair does: an opaque fill that ends the home screen,
+        and the same `AppBackground` painted back on top of it. The result is
+        pixel-identical to the ambient background the rest of the app shows,
+        with none of home's furniture in it.
+
+        The morph is unaffected — clones fly in the `MorphProvider` overlay,
+        which is mounted above the whole navigator, not between these layers.
+      */}
+      <View
+        style={[styles.opaqueFloor, { backgroundColor: colors.backgroundDeep }]}
+        pointerEvents="none"
+      />
+      <AppBackground isDark={isDark} />
+
       {/* The map, from the first stage that draws one until the trip ends. See
           MAP_STAGES for why it is not mounted before that, and `surfaceRetired`
           for why it must go at the end: past that point this view is not a map
@@ -462,6 +493,13 @@ export default function TripScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'transparent' },
+  /**
+   * Ends the home screen. `/trip` sits over `(tabs)` as a transparentModal and
+   * `(tabs)` is itself transparent, so without this the layer directly behind
+   * this screen is home's furniture rather than the shader. The colour is
+   * applied at the call site because this sheet is theme-less. See the render.
+   */
+  opaqueFloor: StyleSheet.absoluteFillObject,
   topScrim: {
     position: 'absolute',
     top: 0,

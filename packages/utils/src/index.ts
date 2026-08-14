@@ -11,6 +11,39 @@ export * from './money';
 export * from './errors';
 
 /**
+ * Trip statuses that are over, one way or another.
+ *
+ * Kept in step with TERMINAL_STATUSES in
+ * eyego-api/src/services/trip-state.service.js — that file is the authority and
+ * this is the client's copy of the same list. It lives here rather than in each
+ * app because both apps and several screens per app were each deciding
+ * "is this trip still happening" with their own ad-hoc status check, and they
+ * disagreed: the activity list called an EXPIRED trip "Confirmed" (reading the
+ * booking's status instead of the trip's), and the driver's offer poll treated
+ * a finished trip as a live one and switched itself off for the rest of the
+ * session.
+ */
+export const TERMINAL_TRIP_STATUSES = [
+  'COMPLETED',
+  'CANCELLED',
+  'NO_DRIVERS_FOUND',
+  'EXPIRED',
+  'NO_SHOW',
+  'REFUNDED',
+] as const;
+
+/** True while a trip is something a rider or driver would call "my ride". */
+export function isLiveTripStatus(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return !(TERMINAL_TRIP_STATUSES as readonly string[]).includes(status);
+}
+
+/** The inverse, for the many call sites that read better the other way round. */
+export function isTerminalTripStatus(status: string | null | undefined): boolean {
+  return !!status && (TERMINAL_TRIP_STATUSES as readonly string[]).includes(status);
+}
+
+/**
  * Format a date string to human-readable form
  * e.g. '2024-06-15T08:30:00Z' → 'Sat, 15 Jun · 8:30 AM'
  */

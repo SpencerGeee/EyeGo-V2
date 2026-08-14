@@ -479,8 +479,13 @@ export default function EarningsScreen() {
           KeyboardAvoidingView never resizes correctly). */}
       <PanelSheet
         visible={topUpOpen}
-        onDismiss={() => setTopUpOpen(false)}
-        maxHeightPct={0.62}
+        // Dismissing has to take the KEYBOARD with it. Tapping the backdrop with
+        // the amount field focused used to close the sheet underneath a keyboard
+        // that stayed up, and on iOS the still-presented input accessory made it
+        // look as though nothing had happened — reported as "dismissing it
+        // doesn't seem to go". Same call the Done button already made.
+        onDismiss={() => { Keyboard.dismiss(); setTopUpOpen(false); }}
+        maxHeightPct={0.85}
         sheetStyle={styles.sheetBg}
         scrollable={false}
       >
@@ -693,7 +698,10 @@ const makeStyles = (colors: DriverColors) =>
       borderColor: `${colors.error}44`,
       marginBottom: spacing.md,
     },
-    presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+    // No `marginBottom`: every parent of this row sets a `gap`, so the margin
+    // was a second helping of spacing and part of what pushed the top-up sheet
+    // past its own height cap. See `sheetContent`.
+    presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     presetChip: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
@@ -764,7 +772,29 @@ const makeStyles = (colors: DriverColors) =>
     },
     txAmount: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, lineHeight: Math.round(fontSizes.bodyMedium * 1.3) },
     sheetBg: { backgroundColor: colors.surfaceContainerHigh },
-    sheetContent: { padding: spacing['2xl'], gap: spacing.lg },
+    /**
+     * BUGFIX ("on the top up page the texts are all clipped and overlapped").
+     *
+     * The sheet was capped at 62% of the screen with `scrollable={false}` and
+     * this content is taller than that: title, subtitle, a WRAPPING row of five
+     * amount chips, a network label, a second wrapping row of network chips, an
+     * amount field and a button. Add it up against an 844pt phone and the
+     * content column runs about 540pt into a 523pt box — so the last rows were
+     * cut off, and the `KeyboardStickyView` holding the input and the button
+     * (which positions itself against the keyboard, not against its siblings)
+     * came to rest on top of the rows above it. Both symptoms, one cause.
+     *
+     * `2xl` padding on all four sides plus an `lg` gap between eight children
+     * was most of the excess, and the chip rows carried their own bottom margin
+     * on top of that gap. Tightened to a rhythm the content fits in, and the
+     * cap raised so it has room even at large accessibility text sizes.
+     */
+    sheetContent: {
+      paddingHorizontal: spacing['2xl'],
+      paddingTop: spacing.xl,
+      paddingBottom: spacing.lg,
+      gap: spacing.md,
+    },
     sheetTitleRow: {
       flexDirection: 'row',
       alignItems: 'center',

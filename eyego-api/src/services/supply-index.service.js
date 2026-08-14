@@ -144,6 +144,37 @@ async function nearbyDrivers(lat, lng, radiusKm, limit = 50, { withCoords = fals
   return live;
 }
 
+/**
+ * Are these drivers in the pool right now? One round trip, exact answer.
+ *
+ * The admin dispatch board used to work this out by GEOSEARCHing a 25 km circle
+ * around each driver's POSTGRES coordinates and looking for them in the result.
+ * That is the cold copy — written at most every 15 s or 60 m of movement, and
+ * null for a driver who has never persisted a fix — so a driver who was pinging
+ * perfectly well showed up as "online but not pinging" whenever their row was
+ * stale, empty, or their live position had drifted out of a circle drawn around
+ * an old one. An operator reading that panel concluded dispatch was broken when
+ * it was not, which is precisely the wrong call to make during an incident.
+ *
+ * Presence is a key with a TTL. Ask it.
+ *
+ * @param {string[]} driverIds
+ * @returns {Promise<Set<string>>} the subset that is currently dispatchable
+ */
+async function whichArePresent(driverIds) {
+  const ids = (driverIds || []).filter(Boolean);
+  if (ids.length === 0) return new Set();
+  try {
+    const values = await redis.mget(ids.map(presenceKey));
+    const live = new Set();
+    ids.forEach((id, i) => { if (values[i]) live.add(id); });
+    return live;
+  } catch (err) {
+    logger.warn(`supply-index presence probe failed: ${err.message}`);
+    return new Set();
+  }
+}
+
 /** How many dispatchable drivers are near a point — powers surge and heatmaps. */
 async function countNearby(lat, lng, radiusKm) {
   const drivers = await nearbyDrivers(lat, lng, radiusKm, 200);
@@ -173,6 +204,7 @@ module.exports = {
   upsertDriver,
   removeDriver,
   nearbyDrivers,
+  whichArePresent,
   countNearby,
   poolSize,
 };

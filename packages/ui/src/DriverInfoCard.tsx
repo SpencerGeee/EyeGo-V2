@@ -86,18 +86,44 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
 
   if (premium) {
     return (
+      /**
+       * BUGFIX ("when it moves to 'Your driver is here' there's a visible cut
+       * out on the left and right of the card which clips stuff").
+       *
+       * `premium` turns on exactly at ARRIVED_AT_PICKUP, which is why the seams
+       * appeared at that moment and not before. The cause is the one React
+       * Native trap this codebase has now hit twice (see the note on `background`
+       * in the rider's TripSheetHost): an `absoluteFill` child is laid out
+       * against its parent's PADDING box, not its border box. `LensSheen` is an
+       * absoluteFill with `overflow: 'hidden'`, and it used to sit directly
+       * inside this card's content box, which carries `padding: spacing.base`.
+       * So its clip rectangle was inset 16pt from every edge and the sweeping
+       * highlight stopped dead at two hard vertical lines 16pt in from the left
+       * and right — a bright band that visibly cuts off, over and over, as it
+       * sweeps.
+       *
+       * The padding now lives on an inner wrapper, so the sheen fills the whole
+       * card and is clipped only by the card's own rounded corners.
+       *
+       * `maxGlowRadius` is capped for the neighbouring half of the same report
+       * ("the cut out seems to affect the glow borders"): this glow was
+       * uncapped at a 28pt shadow radius, and the sheet it sits in clips at a
+       * 32pt gutter, so the outer halo reached the clip edge and was sliced off
+       * square. 18 keeps the whole falloff inside the gutter.
+       */
       <GradientGlowBorder
         colors={PREMIUM_RING_COLORS}
         locations={PREMIUM_RING_LOCATIONS}
         fillColor={colors.surfaceCard}
         borderRadius={radii.xl}
         glow
+        maxGlowRadius={18}
         glowColor={colors.premiumBlue}
         glowColorSecondary={colors.premiumOrange}
-        style={styles.cardLayout}
+        style={styles.cardShell}
       >
         <LensSheen />
-        {content}
+        <View style={styles.cardPadding}>{content}</View>
       </GradientGlowBorder>
     );
   }
@@ -111,6 +137,21 @@ function getStyles(colors: ColorTokens) {
       flexDirection: 'row',
       alignItems: 'center',
       borderRadius: radii.xl,
+      padding: spacing.base,
+      gap: spacing.md,
+    },
+    /**
+     * The premium card, split in two: the shell carries shape only, and the
+     * padding moves inside. Anything absolutely positioned against the shell —
+     * `LensSheen` above all — then covers the whole card rather than a rectangle
+     * inset by the padding. See the note in the `premium` branch.
+     */
+    cardShell: {
+      borderRadius: radii.xl,
+    },
+    cardPadding: {
+      flexDirection: 'row',
+      alignItems: 'center',
       padding: spacing.base,
       gap: spacing.md,
     },

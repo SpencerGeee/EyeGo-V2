@@ -25,6 +25,7 @@ import { StepIndicator } from '../../components/StepIndicator';
 import { haversineKm } from '../../utils/haversine';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import type { GeocodeResult } from '../../utils/geocoding';
+import { getRecentDestinations, rememberDestination } from '../../utils/recentDestinations';
 import { fetchRoute, type RouteResult } from '../../utils/routing';
 
 const MAX_STEPS = 4;
@@ -99,6 +100,18 @@ export default function CreateTripScreen() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * The last few places this driver published a trip to — see
+   * utils/recentDestinations.ts. Loaded once on mount; the list only changes on
+   * publish, and this screen unmounts at that point.
+   */
+  const [recentDestinations, setRecentDestinations] = useState<GeocodeResult[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    getRecentDestinations().then((list) => { if (!cancelled) setRecentDestinations(list); });
+    return () => { cancelled = true; };
   }, []);
 
   const openLocationPicker = useCallback((field: 'origin' | 'destination') => {
@@ -223,6 +236,10 @@ export default function CreateTripScreen() {
       }),
     onSuccess: (res) => {
       const tripId = res.data.data.trip.id;
+      // Remembered on PUBLISH, not on selection: the shortcut list should be
+      // routes this driver actually ran, not places they browsed and backed out
+      // of. Fire-and-forget — a failed write costs a shortcut, never a trip.
+      void rememberDestination(destination);
       setActiveTripId(tripId);
       // Without this, the Trips tab's ['driver','trips','all'] cache from
       // before publishing could still be showing when the driver navigates
@@ -317,6 +334,39 @@ export default function CreateTripScreen() {
               </View>
               <Ionicons name="map-outline" size={18} color={colors.primary} />
             </Pressable>
+
+            {/* RECENT DESTINATIONS — the shortcut this screen was missing.
+                Drivers republish the same handful of routes, and the only way
+                to set a destination was to open the picker and search for it
+                every single time. Hidden once a destination is chosen: at that
+                point it is clutter under the answer. */}
+            {!destination && recentDestinations.length > 0 && (
+              <View style={styles.recentBlock}>
+                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.recentLabel}>
+                  RECENT DESTINATIONS
+                </Text>
+                {recentDestinations.map((place) => (
+                  <Pressable
+                    key={`${place.placeId}-${place.latitude}-${place.longitude}`}
+                    style={styles.recentRow}
+                    onPress={() => setDestination(place)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use recent destination ${place.name}`}
+                  >
+                    <Ionicons name="time-outline" size={16} color={colors.onSurfaceVariant} />
+                    <View style={{ flex: 1 }}>
+                      <Text variant="bodyMedium" numberOfLines={1}>{place.name}</Text>
+                      {!!place.fullAddress && place.fullAddress !== place.name && (
+                        <Text variant="caption" color={colors.onSurfaceVariant} numberOfLines={1}>
+                          {place.fullAddress}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="arrow-forward" size={15} color={colors.primary} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             {origin && destination && (
               <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.md, textAlign: 'center' }}>
@@ -490,7 +540,24 @@ export default function CreateTripScreen() {
                 sweeping rings cost one animation, not three. The GLOW is what is
                 actually expensive — four shadow-casting layers per ring — so
                 that still belongs to the selected card alone. Three haloes side
-                by side is noise as well as three shadow passes a frame. */}
+                by side is noise as well as three shadow passes a frame.
+
+                REVISED ("the service tier glow borders aren't wired like the
+                other ones — it's supposed to illuminate the whole card the way
+                the Review & Publish card does, but in their respective
+                colours"). They were not the same treatment at all: the summary
+                card above takes an uncapped `glow` plus an inner bloom, while
+                these were capped to `glowIntensity={0.7}` / `maxGlowRadius={14}`
+                and switched off entirely unless selected. That reads as one lit
+                card between two flat ones, not as three tiers each wearing its
+                own colour.
+
+                So all three light up, each in its own tier colour, with the
+                selected one carrying the stronger halo and the inner bloom so
+                the choice is still obvious. The cost objection above stands, and
+                the answer is the resting intensity: an unselected ring at 0.55
+                over 16px is a fraction of the shadow work the selected one does,
+                and the ring sweep is still one shared clock for all three. */}
             <View style={styles.tierRow}>
               {TIER_OPTIONS.map((opt) => {
                 const active = tier === opt.value;
@@ -502,15 +569,26 @@ export default function CreateTripScreen() {
                     borderRadius={radii.lg}
                     thickness={active ? 'regular' : 'thin'}
                     fillColor={colors.surfaceContainerHigh}
-                    glow={active}
-                    glowIntensity={0.7}
-                    maxGlowRadius={14}
+                    glow
+                    glowIntensity={active ? 1 : 0.55}
+                    maxGlowRadius={active ? 22 : 16}
                     style={styles.tierCardWrap}
                   >
                     <Pressable
                       style={[styles.tierCard, active && { backgroundColor: t.softBg }]}
                       onPress={() => setTier(opt.value)}
                     >
+                      {/* The same inner bloom the Review & Publish card has,
+                          tinted to this tier rather than to the app's blue. It
+                          is what makes the card look lit from within instead of
+                          merely outlined. */}
+                      <View
+                        pointerEvents="none"
+                        style={[
+                          styles.tierGlow,
+                          { backgroundColor: t.accent, opacity: active ? 0.14 : 0.06 },
+                        ]}
+                      />
                       <View style={[styles.tierIconWrap, { backgroundColor: t.iconBg }]}>
                         <Ionicons name={opt.icon} size={20} color={t.accent} />
                       </View>
@@ -791,6 +869,18 @@ const makeStyles = (colors: DriverColors) =>
       marginTop: spacing.xl,
       marginBottom: spacing.md,
     },
+    // Recent destinations — see utils/recentDestinations.ts.
+    recentBlock: { marginTop: spacing.lg, gap: spacing.xs },
+    recentLabel: { letterSpacing: 0.6, marginBottom: spacing.xs },
+    recentRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.base,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceContainer,
+    },
     tierRow: { flexDirection: 'row', gap: spacing.md },
     /** The GLOW RING owns the flex and the outer radius; the card inside it owns
      *  the padding. Splitting them is required — GradientGlowBorder routes layout
@@ -801,6 +891,23 @@ const makeStyles = (colors: DriverColors) =>
     tierCard: {
       padding: spacing.base,
       gap: 6,
+      // The bloom below is absolutely positioned and deliberately oversized, so
+      // the card has to clip it or it bleeds over its neighbours.
+      overflow: 'hidden',
+    },
+    /**
+     * Inner bloom, per tier. Mirrors `summaryGlow` on the Review & Publish card
+     * — the colour is applied at the call site from `getTierTheme`, so Eco
+     * glows green, Comfort blue and Premium gold rather than all three glowing
+     * the app's primary.
+     */
+    tierGlow: {
+      position: 'absolute',
+      width: 140,
+      height: 140,
+      borderRadius: 70,
+      top: -50,
+      right: -50,
     },
     tierIconWrap: {
       width: 40,

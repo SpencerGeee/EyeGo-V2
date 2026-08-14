@@ -47,7 +47,29 @@ export default function TripCompleteScreen() {
     tip: 0,
   } : undefined);
 
-  const totalFare = fareBreakdown?.total ?? activeBooking?.fareAmountPesewas ?? activeBooking?.fare ?? selectedTrip?.farePerSeatPesewas ?? 0;
+  /**
+   * THE FARE, OR THE ADMISSION THAT WE DO NOT KNOW IT YET.
+   *
+   * BUGFIX ("I'm still seeing the 0 before it snaps to the actual price"). The
+   * `?? 0` at the end of this chain is what produced it: while the receipt query
+   * is in flight and the store has no booking to fall back on, every source is
+   * nullish, so the screen rendered a confident "GH₵ 0.00" and then replaced it
+   * a moment later. Zero is not a neutral placeholder for money — for the two
+   * hundred milliseconds it is on screen it reads as "your ride was free", and
+   * then as "you were just charged something you did not agree to".
+   *
+   * `null` here means unknown, and the render below shows a skeleton for it. The
+   * zero fallback is gone rather than made conditional: there is no state in
+   * which a completed ride genuinely costs nothing, so a real 0 would be a bug
+   * worth seeing rather than a value worth printing.
+   */
+  const totalFare: number | null =
+    fareBreakdown?.total ??
+    activeBooking?.fareAmountPesewas ??
+    activeBooking?.fare ??
+    selectedTrip?.farePerSeatPesewas ??
+    null;
+  const fareIsKnown = typeof totalFare === 'number';
   /**
    * How many seats that total bought.
    *
@@ -150,7 +172,14 @@ export default function TripCompleteScreen() {
             <GlassSurface borderRadius={radii['2xl'] - 3} intensity="high" dark style={styles.glassInset} />
             <View style={styles.fareCardInner}>
           <Text style={styles.fareLabel}>Total Fare</Text>
-          <Text style={styles.fareAmountPesewas}>{formatGhs(totalFare)}</Text>
+          {/* A shimmer bar rather than a number we do not have yet — see the
+              note on `totalFare`. Sized to the glyph box the real amount will
+              occupy so the card does not resize when the receipt lands. */}
+          {fareIsKnown ? (
+            <Text style={styles.fareAmountPesewas}>{formatGhs(totalFare as number)}</Text>
+          ) : (
+            <View style={styles.fareSkeleton} />
+          )}
           {fareSeatCount > 1 && (
             <Text variant="caption" color={colors.onSurfaceVariant}>
               {fareSeatCount} seats{farePerSeat != null ? ` · ${formatGhs(farePerSeat)} each` : ''}
@@ -286,6 +315,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     color: colors.onSurface,
     textAlign: 'center',
     letterSpacing: -1,
+    marginBottom: spacing.sm,
+  },
+  /**
+   * Placeholder for the fare while the receipt is still in flight. Matched to
+   * `fareAmountPesewas`'s line box (48) and bottom margin so the card is exactly
+   * the same height before and after the number arrives — a skeleton that
+   * reflows on resolve is its own kind of flicker.
+   */
+  fareSkeleton: {
+    height: 48,
+    width: '55%',
+    alignSelf: 'center',
+    borderRadius: radii.md,
+    backgroundColor: colors.surfaceVariant,
+    opacity: 0.5,
     marginBottom: spacing.sm,
   },
   routeRow: {

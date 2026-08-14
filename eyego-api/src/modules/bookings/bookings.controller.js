@@ -53,6 +53,34 @@ const bookSeat = async (req, res) => {
       io.of('/passenger').to(`trip:${tripId}`).emit('trip:seat_update', seatPayload);
       if (trip?.driverId) {
         io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', seatPayload);
+
+        /**
+         * TELL THE DRIVER SOMEBODY JUST GOT ON.
+         *
+         * BUGFIX ("when I booked using an invite the driver got a popup saying
+         * someone just paid, but when I book directly from the suggested trip
+         * card nothing happens — it just shows on the driver side"). Both halves
+         * were accurate. The invite flow ends in a payment, and payment
+         * settlement calls `notifyRideConfirmed` → `passengerJoined`. A direct
+         * booking settles later or not at all (cash), so the only thing this
+         * path ever emitted was `trip:seat_update` — a silent data frame whose
+         * entire job is to refresh a seat map. The seat quietly changed colour
+         * and nothing announced it.
+         *
+         * A named event rather than a second push: the driver is holding the
+         * phone in this scenario, and the payment push still fires later when
+         * the money actually arrives. Two banners for "reserved" and "paid" is
+         * two real events, not a duplicate.
+         */
+        io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:passenger_joined', {
+          tripId,
+          seatNumber: result?.booking?.seatNumber ?? seatNumber ?? null,
+          passengerName:
+            result?.booking?.guestName ||
+            result?.booking?.user?.name ||
+            guestName ||
+            'A passenger',
+        });
       }
     }
   } catch (err) {

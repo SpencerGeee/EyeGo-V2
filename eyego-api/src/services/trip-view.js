@@ -36,7 +36,29 @@ const TRIP_INCLUDE = Object.freeze({
   vehicle: {
     select: { id: true, plateNumber: true, make: true, model: true, year: true, tier: true },
   },
-  route: { select: { id: true, name: true, originName: true, destinationName: true, distanceKm: true } },
+  /**
+   * The route's own endpoints, which the snapshot falls back to for a group/bus
+   * trip — those trips carry NULL pickup/dropoff on the Trip row because the
+   * geography belongs to the Route.
+   *
+   * The four coordinate columns were missing from this select while the
+   * serializer below already read `trip.route.destLat` / `destLng`. Prisma
+   * simply does not return an unselected column, so those reads were
+   * `undefined` and the destination fell through to `null` — a group trip
+   * published a snapshot with no destination pin at all, and the rider's map
+   * drew a route line that stopped in mid-air. `originName` was selected but
+   * never consulted, which is the other half of the same bug: the activity list
+   * rendered "Unknown → Unknown" for every group trip.
+   */
+  route: {
+    select: {
+      id: true, name: true,
+      originName: true, destinationName: true,
+      originLat: true, originLng: true,
+      destLat: true, destLng: true,
+      distanceKm: true,
+    },
+  },
   /**
    * The ride group, so the DRIVER's snapshot can say "these seats belong to one
    * party and the whole trip is paid for".
@@ -199,18 +221,25 @@ function buildTripSnapshot(trip, viewer = {}) {
      * A rider is shown where THEY are being collected; the trip's own pickup
      * remains the answer for the driver (no `forUserId`) and for any rider who
      * never set one. `TRIP_INCLUDE` already selects these three booking fields.
+     *
+     * BUGFIX 2 ("on the activity page every trip just says Unknown"). The
+     * trip-level branch read `trip.pickupLat/Lng/Address` and stopped there. A
+     * group/bus trip has all three NULL — its geography is the Route's — so
+     * every such trip serialized a pickup of `{null, null, null}` and both apps
+     * printed their "Unknown" placeholder. The dropoff below already knew to
+     * fall back to the route; the pickup never did.
      */
     pickup:
       myBooking && myBooking.pickupLat != null && myBooking.pickupLng != null
         ? {
             lat: myBooking.pickupLat,
             lng: myBooking.pickupLng,
-            address: myBooking.pickupAddress ?? trip.pickupAddress,
+            address: myBooking.pickupAddress ?? trip.pickupAddress ?? trip.route?.originName ?? null,
           }
         : {
-            lat: trip.pickupLat,
-            lng: trip.pickupLng,
-            address: trip.pickupAddress,
+            lat: trip.pickupLat ?? trip.route?.originLat ?? null,
+            lng: trip.pickupLng ?? trip.route?.originLng ?? null,
+            address: trip.pickupAddress ?? trip.route?.originName ?? null,
           },
     // Destination is a property of the ride now, not of a Route. `route` is
     // only populated for the group/bus product — and for THOSE trips the

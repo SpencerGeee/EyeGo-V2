@@ -133,7 +133,6 @@ function calculateFare({
   const distanceComponent = Math.round(perKmRatePesewas * distanceKm);
   const baseTripCostPesewas = Math.round((baseFarePesewas + distanceComponent) * surgeMultiplier);
   const seats = Math.max(Math.trunc(seatCount) || 1, 1);
-  const farePerPersonPesewas = Math.round(baseTripCostPesewas / seats);
 
   // Floor: one small platform-wide minimum, NOT the tier's base fare.
   //
@@ -149,6 +148,35 @@ function calculateFare({
   const tierFloorMultiplier =
     cfg('ECO_BASE_FARE_PESEWAS') > 0 ? tierBaseFare / cfg('ECO_BASE_FARE_PESEWAS') : 1;
   const minFarePerSeatPesewas = Math.round(cfg('MIN_FARE_PER_SEAT_PESEWAS') * tierFloorMultiplier);
+
+  /**
+   * THE FLOOR IS A FLOOR ON THE RIDE, SO IT HAS TO BE APPLIED TO THE RIDE.
+   *
+   * BUGFIX ("I picked two different destinations and premium quoted GH₵7.20 for
+   * both"). It was true, and it was this. On a 14-seater the trip cost is
+   * divided by fourteen before it meets the floor, so the per-seat number is
+   * tiny and `Math.max` picks the floor essentially every time. Worked through
+   * with real numbers: a 10 km PREMIUM trip and a 20 km PREMIUM trip divide down
+   * to ~236 and ~414 pesewas a seat, and both are below the 720 floor — so both
+   * riders paid exactly 720 and the distance made no difference at all until the
+   * trip passed about 35 km. The comment above already identified the shape of
+   * this problem for `tierBaseFare` and then reintroduced it at a lower value:
+   * ANY per-seat floor multiplies by the seat count when you look at the trip.
+   *
+   * Applied to the trip total instead, the same number means what it says — a
+   * ride is never worth less than this — and the seat price is whatever the
+   * distance divides down to. Nothing changes for on-demand: those quote with
+   * `seatCount: 1`, where a trip floor and a seat floor are the same number.
+   *
+   * `absoluteMinPerSeatPesewas` stops the division from producing a rounding
+   * artefact on a large van — a seat should never cost 3 pesewas — without being
+   * anywhere near large enough to flatten the distance component again.
+   */
+  const minFareTripPesewas = minFarePerSeatPesewas;
+  const absoluteMinPerSeatPesewas = Math.min(
+    minFarePerSeatPesewas,
+    Math.round(cfg('MIN_FARE_PER_SEAT_PESEWAS') / 4),
+  );
   /**
    * THE FLOOR APPLIES TO THE RIDE, NOT TO THE SURCHARGES.
    *
@@ -164,8 +192,14 @@ function calculateFare({
    * has no business swallowing an explicit extra charge, so the extras are added
    * after it and the total is re-derived from the result.
    */
+  const flooredTripCostPesewas = Math.max(baseTripCostPesewas, minFareTripPesewas);
+  const farePerPersonPesewas = Math.max(
+    Math.round(flooredTripCostPesewas / seats),
+    absoluteMinPerSeatPesewas,
+  );
+
   const surchargePerSeatPesewas = Math.round((doorstepSurcharge + heavyLoadSurcharge) / seats);
-  const finalFare = Math.max(farePerPersonPesewas, minFarePerSeatPesewas) + surchargePerSeatPesewas;
+  const finalFare = farePerPersonPesewas + surchargePerSeatPesewas;
 
   // Commission is taken from the per-seat fare and the driver gets the
   // REMAINDER, not an independently-rounded 85%. Rounding both sides
@@ -189,7 +223,10 @@ function calculateFare({
     surgeMultiplier,
     commissionRate: cfg('PLATFORM_COMMISSION'),
     minFarePerSeatPesewas,
-    floorApplied: farePerPersonPesewas < minFarePerSeatPesewas,
+    // True when the ride was worth less than the minimum and the floor set the
+    // price. Now asked of the TRIP, which is where the floor is applied — asking
+    // it per seat reported "floored" on every shared trip regardless.
+    floorApplied: baseTripCostPesewas < minFareTripPesewas,
     // The extras, as a per-seat figure, so a caller can show `finalFare` minus
     // this as the clean unit price without re-deriving either.
     surchargePerSeatPesewas,
