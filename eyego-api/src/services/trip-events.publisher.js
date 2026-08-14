@@ -153,6 +153,78 @@ async function publishById(tripId, event) {
  * envelope so the client has exactly one handler and one staleness rule.
  */
 /**
+ * A seat changed hands. Tell both sides, and tell them ENOUGH.
+ *
+ * THE LATENCY BUG THIS FIXES. Three call sites each emitted `trip:seat_update`
+ * carrying `{ tripId, seatData }` — a seat map, which is exactly what the
+ * RIDER's seat picker renders. The DRIVER's trip screen does not read a seat
+ * map: it derives its passenger list from `trip.bookings` (see the `seats`
+ * memo in the driver's active-trip screen). So the frame arrived with nothing
+ * the driver screen could use, and the only thing the client could do with it
+ * was `invalidateQueries` — throw the push away and pull the whole trip back
+ * over HTTP.
+ *
+ * Against this database that refetch is not free. A trip fetch with its
+ * relations is several round trips at ~280 ms each, behind a 500 ms debounce,
+ * which is the "the driver side takes a very hot minute before it shows the
+ * seat was booked" report almost exactly.
+ *
+ * So the event now carries the booking rows too. The driver writes them
+ * straight into its cache and the refetch stops being on the critical path —
+ * the same push, carrying the data it should have carried all along.
+ */
+async function publishSeatUpdate(tripId) {
+  if (!io || !tripId) return;
+  try {
+    const prisma = require('../config/database');
+    const tripsService = require('../modules/trips/trips.service');
+    const [seatMap, trip] = await Promise.all([
+      tripsService.getSeatMap(tripId),
+      prisma.trip.findUnique({
+        where: { id: tripId },
+        select: {
+          driverId: true,
+          maxSeats: true,
+          confirmedSeats: true,
+          bookings: {
+            where: { status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED'] } },
+            select: {
+              id: true, seatNumber: true, status: true, paymentStatus: true,
+              fareAmountPesewas: true, commissionAmountPesewas: true,
+              guestName: true, isOffline: true, seatHeldUntil: true,
+              user: { select: { id: true, name: true } },
+            },
+            orderBy: { seatNumber: 'asc' },
+          },
+        },
+      }),
+    ]);
+    if (!trip) return;
+
+    const payload = {
+      tripId,
+      // Unchanged, for the rider's seat picker.
+      seatData: seatMap.seats,
+      // New, for the driver's passenger list — the same shape the trip endpoint
+      // returns, so the client can write it into the existing cache as-is.
+      bookings: trip.bookings,
+      maxSeats: trip.maxSeats,
+      confirmedSeats: trip.confirmedSeats,
+    };
+
+    io.of('/passenger').to(`trip:${tripId}`).emit('trip:seat_update', payload);
+    if (trip.driverId) {
+      io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', payload);
+      io.of('/driver').to(`trip:${tripId}`).emit('trip:seat_update', payload);
+    }
+  } catch (err) {
+    // A seat map that failed to broadcast must never fail the booking that
+    // caused it — the client's own refetch is still there as a backstop.
+    logger.warn(`publishSeatUpdate(${tripId}) failed: ${err.message}`);
+  }
+}
+
+/**
  * How many live driver sockets are sitting in a driver's personal room.
  *
  * Exported because the count is the single most useful fact about a dispatch
@@ -305,6 +377,7 @@ module.exports = {
   publishRouteForTrip,
   publishOfferToDriver,
   publishOfferRevoked,
+  publishSeatUpdate,
   countDriverSockets,
   buildEnvelope,
 };

@@ -31,6 +31,7 @@ import { SeatMap } from '../../../components/SeatMap';
 import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { openExternalNavigation } from '../../../utils/externalNav';
+import type { GeoPlace } from '@eyego/utils';
 // The ONE map in the driver trip flow. It owns the MapView, the map style, the
 // camera state machine and the server's route geometry, so nothing map-shaped is
 // imported here any more.
@@ -499,17 +500,38 @@ export default function ActiveTripScreen() {
   // What the external-navigation hand-off should aim at: the same phase rule as
   // the route line above, so tapping Navigate never contradicts the line the
   // driver is already following.
-  const externalNavTarget = useCallback(() => {
+  /**
+   * Where Navigate sends the driver, and — the part that was missing — what it
+   * CALLS the place.
+   *
+   * BUGFIX ("the navigate button takes you to Google Maps but pure coordinates
+   * so it's not searchable"). Two independent causes, both here:
+   *
+   *   1. `trip.route.*Name` is null for every ON-DEMAND trip — a route is the
+   *      group/bus product only — so the label fell through to the literal
+   *      strings "Destination" and "Pickup", which are not places.
+   *   2. Even a good label was thrown away downstream; see the note in
+   *      utils/externalNav.ts.
+   *
+   * The trip's own `pickupAddress`/`dropoffAddress` are the geocoded strings the
+   * rider actually chose, so they are what a driver should see and search. The
+   * route name is the fallback for group trips, and coordinates are the last
+   * resort — `searchableAddress` in @eyego/utils rejects placeholders like
+   * "Current Location" so they can never leak into another app.
+   */
+  const externalNavTarget = useCallback((): GeoPlace => {
     const inProgress = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED';
     const coord = (inProgress ? destCoord : pickupCoord) ?? destCoord ?? pickupCoord;
+    const t = trip as any;
     return {
       latitude: coord ? coord[1] : NaN,
       longitude: coord ? coord[0] : NaN,
-      label: inProgress
-        ? (trip?.route?.destinationName ?? 'Destination')
-        : (trip?.route?.originName ?? 'Pickup'),
+      address: inProgress
+        ? (t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null)
+        : (t?.pickup?.address ?? t?.pickupAddress ?? t?.route?.originName ?? null),
+      label: inProgress ? 'Destination' : 'Pickup',
     };
-  }, [trip?.status, trip?.route?.destinationName, trip?.route?.originName, destCoord, pickupCoord]);
+  }, [trip, destCoord, pickupCoord]);
 
   // ─── Loading skeleton ────────────────────────────────────────────────────
 

@@ -122,17 +122,44 @@ async function registerForPushNotifications() {
 
     if (finalStatus !== 'granted') return;
 
-    // The backend pushes via Firebase Admin (FCM), which requires the NATIVE
-    // device token — NOT an Expo push token. getDevicePushTokenAsync() returns
-    // the FCM registration token on Android / APNs token on iOS. (Requires a
-    // dev/EAS build with google-services.json — see NOTIFICATIONS_SETUP.md.)
-    const tokenData = await Notifications.getDevicePushTokenAsync();
-    if (tokenData?.data) {
-      await userApi.updateFcmToken?.({ fcmToken: tokenData.data }).catch(() => {
+    /**
+     * AN FCM TOKEN, NOT WHATEVER THE PLATFORM HANDS OUT.
+     *
+     * The comment this replaces described the bug without noticing it:
+     * `getDevicePushTokenAsync()` returns "the FCM registration token on
+     * Android / APNs token on iOS", and the backend pushes through Firebase
+     * Admin, which accepts only the former. So every iOS rider registered a
+     * token Firebase could not send to, and silently received no pushes — no
+     * "your driver has arrived", no trip updates — while the server logged a
+     * successful registration. The driver app had the identical defect, found
+     * first because a missed dispatch offer is louder than a missed arrival.
+     *
+     * `@react-native-firebase/messaging` does the APNs → FCM exchange. Required
+     * lazily and guarded because it is a native module: a JS-only OTA update
+     * landing on an older binary must fall back, not crash on import.
+     */
+    let pushToken: string | undefined;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const messaging = require('@react-native-firebase/messaging').default;
+      await messaging().registerDeviceForRemoteMessages?.();
+      pushToken = await messaging().getToken();
+    } catch {
+      const tokenData = await Notifications.getDevicePushTokenAsync();
+      pushToken = tokenData?.data as string | undefined;
+      if (Platform.OS === 'ios') {
+        console.warn(
+          '[PushNotifications] Falling back to the APNs device token — Firebase ' +
+            'Admin cannot send to this. Rebuild with @react-native-firebase/messaging.',
+        );
+      }
+    }
+    if (pushToken) {
+      await userApi.updateFcmToken?.({ fcmToken: pushToken }).catch(() => {
         // Without the token on the server the rider receives NO pushes at all.
         // Queue it for retry; last-write-wins so a stale queued token never
         // overwrites a newer one.
-        offlineQueue.enqueue('FCM_TOKEN', '/user/fcm-token', 'POST', { fcmToken: tokenData.data }, { replaceSameType: true });
+        offlineQueue.enqueue('FCM_TOKEN', '/user/fcm-token', 'POST', { fcmToken: pushToken }, { replaceSameType: true });
       });
     }
   } catch (err) {

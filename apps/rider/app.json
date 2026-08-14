@@ -24,6 +24,10 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.eyego.rider",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "entitlements": {
+        "aps-environment": "production"
+      },
       "associatedDomains": ["applinks:eyego.app"],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "EyeGo needs your location to show nearby rides.",
@@ -44,6 +48,7 @@
         "backgroundColor": "#0A0A0B"
       },
       "package": "com.eyego.rider",
+      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "intentFilters": [
         {
@@ -74,6 +79,8 @@
       "expo-router",
       "expo-font",
       "@maplibre/maplibre-react-native",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       [
         "expo-camera",
         {

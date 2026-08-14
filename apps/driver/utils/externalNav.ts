@@ -1,5 +1,6 @@
 import { Alert, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { navigationUrls, hasCoords, type GeoPlace, type NavApp } from '@eyego/utils';
 
 /**
  * Hand turn-by-turn navigation off to the driver's own map app.
@@ -15,42 +16,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  */
 const PREF_KEY = '@eyego_driver_nav_app';
 
-export type NavApp = 'google' | 'apple' | 'waze';
+/**
+ * The URL shapes live in `@eyego/utils/geo-links`, not here.
+ *
+ * They used to live in this file, and three of the four builders quietly
+ * dropped the `label` they were handed because their scheme had nowhere to put
+ * a coordinate pair AND a name. That is what put "5.628876, -0.170849" in the
+ * driver's destination field instead of a place they could read. The shared
+ * module sends the ADDRESS as the destination and keeps coordinates only as the
+ * fallback — see the rule written down at the top of that file.
+ *
+ * Everything below is unchanged: which app, remembering the choice, the chooser.
+ */
+export type { NavApp } from '@eyego/utils';
+type NavTarget = GeoPlace;
 
-interface NavTarget {
-  latitude: number;
-  longitude: number;
-  /** Shown as the pin's name in the external app where the scheme supports it. */
-  label?: string;
-}
-
-/** Deep links that start NAVIGATION (not just "show this pin"). */
-function urlsFor(app: NavApp, { latitude, longitude, label }: NavTarget): { primary: string; fallback: string } {
-  const q = encodeURIComponent(label ?? 'Destination');
-  switch (app) {
-    case 'apple':
-      // `dirflg=d` = drive. The https form is the fallback for the rare case the
-      // scheme is unavailable (it never is on iOS, but Android must not crash).
-      return {
-        primary: `maps://?daddr=${latitude},${longitude}&dirflg=d`,
-        fallback: `https://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=d`,
-      };
-    case 'waze':
-      return {
-        primary: `waze://?ll=${latitude},${longitude}&navigate=yes`,
-        fallback: `https://waze.com/ul?ll=${latitude},${longitude}&navigate=yes`,
-      };
-    case 'google':
-    default:
-      return {
-        // `google.navigation:` starts turn-by-turn immediately on Android;
-        // `comgooglemaps://` is the iOS equivalent scheme.
-        primary: Platform.OS === 'ios'
-          ? `comgooglemaps://?daddr=${latitude},${longitude}&directionsmode=driving&q=${q}`
-          : `google.navigation:q=${latitude},${longitude}`,
-        fallback: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&travelmode=driving`,
-      };
-  }
+function urlsFor(app: NavApp, target: NavTarget): { primary: string; fallback: string } {
+  return navigationUrls(app, target, Platform.OS);
 }
 
 async function launch(app: NavApp, target: NavTarget): Promise<boolean> {
@@ -124,7 +106,7 @@ export async function setPreferredNavApp(app: NavApp | null): Promise<void> {
  * re-ask, which is also how a driver switches away from a choice they regret.
  */
 export async function openExternalNavigation(target: NavTarget, opts?: { forceChooser?: boolean }): Promise<void> {
-  if (!Number.isFinite(target.latitude) || !Number.isFinite(target.longitude)) {
+  if (!hasCoords(target)) {
     Alert.alert('No coordinates', 'This stop has no location to navigate to yet.');
     return;
   }

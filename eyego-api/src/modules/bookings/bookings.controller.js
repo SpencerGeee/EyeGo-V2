@@ -43,16 +43,15 @@ const bookSeat = async (req, res) => {
   try {
     const io = req.app.get('io');
     if (io) {
-      const tripsService = require('../trips/trips.service');
       const prisma = require('../../config/database');
-      const [seatMap, trip] = await Promise.all([
-        tripsService.getSeatMap(tripId),
-        prisma.trip.findUnique({ where: { id: tripId }, select: { driverId: true } }),
-      ]);
-      const seatPayload = { tripId, seatData: seatMap.seats };
-      io.of('/passenger').to(`trip:${tripId}`).emit('trip:seat_update', seatPayload);
+      const publisher = require('../../services/trip-events.publisher');
+      // One publisher, so the frame carries the booking rows the driver screen
+      // actually reads and not just the rider's seat map — see the note on
+      // `publishSeatUpdate`. Not awaited: the rider's response should not wait
+      // on a broadcast.
+      publisher.publishSeatUpdate(tripId).catch(() => {});
+      const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { driverId: true } });
       if (trip?.driverId) {
-        io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', seatPayload);
 
         /**
          * TELL THE DRIVER SOMEBODY JUST GOT ON.

@@ -94,14 +94,56 @@ export function useDriverSocket({ tripId, enabled = false }: Options) {
       driverSocketEvents.emitJoinTracking(tripId);
     }
 
+    /**
+     * A SEAT CHANGED — APPLY IT, DO NOT GO AND ASK ABOUT IT.
+     *
+     * This used to debounce 500ms and then `invalidateQueries`, which is a full
+     * trip refetch: several database round trips at ~280ms each, on top of the
+     * debounce, before the driver's passenger list moved. That is the "the
+     * driver side takes a very hot minute before it shows the seat was booked"
+     * report, and none of it was necessary — the server knows exactly what
+     * changed and is already talking to this socket.
+     *
+     * The frame now carries the booking rows in the same shape the trip
+     * endpoint returns (see `publishSeatUpdate` server-side), so they go
+     * straight into the cache and the UI moves on the next frame. The refetch
+     * is kept as a slow reconciler rather than the delivery mechanism: it
+     * catches anything the payload does not carry without being on the path the
+     * driver is watching.
+     */
     let seatUpdateTimer: ReturnType<typeof setTimeout> | null = null;
-    const cleanSeatUpdate = driverSocketEvents.onSeatUpdate(() => {
-      if (tripId) {
-        if (seatUpdateTimer) clearTimeout(seatUpdateTimer);
-        seatUpdateTimer = setTimeout(() => {
-          qc.invalidateQueries({ queryKey: ['driver', 'trip', tripId] });
-        }, 500);
+    const cleanSeatUpdate = driverSocketEvents.onSeatUpdate((data: any) => {
+      if (!tripId) return;
+      const bookings = data?.bookings;
+      if (Array.isArray(bookings)) {
+        qc.setQueryData(['driver', 'trip', tripId], (old: any) => {
+          const trip = old?.data?.data?.trip;
+          if (!trip) return old;
+          if (trip.id && data?.tripId && trip.id !== data.tripId) return old;
+          return {
+            ...old,
+            data: {
+              ...old.data,
+              data: {
+                ...old.data.data,
+                trip: {
+                  ...trip,
+                  bookings,
+                  ...(Number.isFinite(data?.confirmedSeats)
+                    ? { confirmedSeats: data.confirmedSeats }
+                    : {}),
+                },
+              },
+            },
+          };
+        });
       }
+      // Reconciler, not the delivery path. Longer than the old debounce on
+      // purpose — nothing is waiting on it now.
+      if (seatUpdateTimer) clearTimeout(seatUpdateTimer);
+      seatUpdateTimer = setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', tripId] });
+      }, 2000);
     });
 
     return () => {

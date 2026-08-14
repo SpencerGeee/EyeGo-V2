@@ -473,7 +473,11 @@ const emergencyAlert = async (req, res) => {
         try {
           const contact = JSON.parse(driver.emergencyContact);
           if (contact?.phone) {
-            const googleMapsLink = lat && lng ? `https://maps.google.com/?q=${lat},${lng}` : 'Location unavailable';
+            // `lat && lng` was also a live bug: a driver sitting exactly on the
+            // equator or the prime meridian has a falsy-but-valid coordinate, and
+            // the old test would have told their emergency contact "Location
+            // unavailable". `describeLocation` checks for finite numbers.
+            const googleMapsLink = require('../../utils/geo-links').describeLocation({ lat, lng });
             await smsService.sendSms(
               contact.phone,
               `🚨 EMERGENCY: ${driver.name || 'Your contact'} (EyeGo driver) has triggered an SOS alert. Trip ID: ${tripId.slice(0, 8)}. Location: ${googleMapsLink}. Please contact them immediately.`,

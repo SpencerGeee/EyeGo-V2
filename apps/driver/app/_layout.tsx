@@ -117,11 +117,44 @@ async function registerForPushNotifications() {
     }
     if (finalStatus !== 'granted') return;
 
-    // Backend pushes via Firebase Admin (FCM) → needs the NATIVE device token,
-    // not an Expo push token. (Requires a dev/EAS build with google-services.json
-    // — see NOTIFICATIONS_SETUP.md.)
-    const tokenData = await Notifications.getDevicePushTokenAsync();
-    const token = tokenData?.data;
+    /**
+     * THE TOKEN HAS TO BE AN *FCM* TOKEN, AND ON iOS IT WAS NOT.
+     *
+     * The backend pushes through Firebase Admin, which only accepts FCM
+     * registration tokens. `Notifications.getDevicePushTokenAsync()` returns
+     * the platform's native token — on Android that IS the FCM token, so
+     * Android worked; on iOS it is an APNs device token, which Firebase Admin
+     * rejects. Combined with `Driver.fcmToken` sitting at null in the database,
+     * an iOS driver could only ever be reached over an open socket, so a
+     * backgrounded app missed every dispatch offer. That is the last remaining
+     * delivery gap behind "the driver never got it".
+     *
+     * `@react-native-firebase/messaging` performs the APNs → FCM exchange and
+     * hands back a token Firebase Admin can actually send to. It is required
+     * lazily and guarded: it is a native module, so it only exists in a build
+     * made after it was added, and a JS-only OTA update landing on an older
+     * binary must fall back rather than crash on import.
+     */
+    let token: string | undefined;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const messaging = require('@react-native-firebase/messaging').default;
+      // iOS will not issue an FCM token until APNs has registered the device.
+      await messaging().registerDeviceForRemoteMessages?.();
+      token = await messaging().getToken();
+    } catch {
+      // No native module in this binary (or the exchange failed). Android's
+      // device token is a valid FCM token, so this is a correct fallback there
+      // and a known-degraded one on iOS.
+      const tokenData = await Notifications.getDevicePushTokenAsync();
+      token = tokenData?.data as string | undefined;
+      if (Platform.OS === 'ios') {
+        console.warn(
+          '[PushNotifications] Falling back to the APNs device token — Firebase ' +
+            'Admin cannot send to this. Rebuild with @react-native-firebase/messaging.',
+        );
+      }
+    }
     if (!token) return;
 
     // Register token with the backend so the server can push to this device

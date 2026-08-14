@@ -24,17 +24,12 @@ const verifyPayment = async (req, res) => {
   try {
     const io = req.app.get('io');
     if (io && booking && booking.tripId) {
-      const tripsService = require('../trips/trips.service');
-      const prismaVerify = require('../../config/database');
-      const [seatMap, trip] = await Promise.all([
-        tripsService.getSeatMap(booking.tripId),
-        prismaVerify.trip.findUnique({ where: { id: booking.tripId }, select: { driverId: true } }),
-      ]);
-      const seatPayload = { tripId: booking.tripId, seatData: seatMap.seats };
-      io.of('/passenger').to(`trip:${booking.tripId}`).emit('trip:seat_update', seatPayload);
-      if (trip?.driverId) {
-        io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', seatPayload);
-      }
+      // Through the one publisher, so this frame carries the booking rows the
+      // driver's screen reads rather than only the rider's seat map. See the
+      // note on `publishSeatUpdate` in trip-events.publisher.js.
+      await require('../../services/trip-events.publisher')
+        .publishSeatUpdate(booking.tripId)
+        .catch(() => {});
     }
   } catch (err) {
     // Non-blocking
@@ -83,17 +78,10 @@ const webhook = async (req, res) => {
 
       // Emit seat update if tripId is available
       if (io && metadata?.tripId) {
-        const tripsService = require('../trips/trips.service');
-        const prismaWebhook = require('../../config/database');
-        const [seatMap, trip] = await Promise.all([
-          tripsService.getSeatMap(metadata.tripId),
-          prismaWebhook.trip.findUnique({ where: { id: metadata.tripId }, select: { driverId: true } }),
-        ]);
-        const seatPayload = { tripId: metadata.tripId, seatData: seatMap.seats };
-        io.of('/passenger').to(`trip:${metadata.tripId}`).emit('trip:seat_update', seatPayload);
-        if (trip?.driverId) {
-          io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', seatPayload);
-        }
+        // Same publisher as the verify path above — one shape, one owner.
+        await require('../../services/trip-events.publisher')
+          .publishSeatUpdate(metadata.tripId)
+          .catch(() => {});
       }
     }
   } catch (err) {

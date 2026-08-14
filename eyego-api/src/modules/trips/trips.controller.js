@@ -199,9 +199,10 @@ const emergencyAlert = async (req, res) => {
         }
 
         const riderName = user?.name || 'A rider';
-        const googleMapsLink = lat && lng
-          ? `https://maps.google.com/?q=${lat},${lng}`
-          : 'Location unavailable';
+        // Same helper the driver-side SOS uses — and the same reason `lat && lng`
+        // had to go: a coordinate of exactly 0 is valid and was being treated as
+        // "no location". See src/utils/geo-links.js.
+        const googleMapsLink = require('../../utils/geo-links').describeLocation({ lat, lng });
         const body = `🚨 EMERGENCY: ${riderName} has triggered an SOS alert on EyeGo! Trip ID: ${tripId.slice(0, 8)}. Location: ${googleMapsLink}. Please contact them immediately.`;
 
         // One failing number must not stop the rest being told.

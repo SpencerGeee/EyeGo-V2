@@ -10,6 +10,11 @@ export * from './money';
 // for why `err.message` must never reach a screen unfiltered.
 export * from './errors';
 
+// Every link that hands a place to another app — navigation, "view on maps",
+// share sheets. One implementation on purpose: the "Google Maps opens with bare
+// coordinates" bug was three URL builders each dropping the address separately.
+export * from './geo-links';
+
 /**
  * Trip statuses that are over, one way or another.
  *

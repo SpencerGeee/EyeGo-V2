@@ -10,6 +10,7 @@ import {
   AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { hasCoords, shareLocationText } from '@eyego/utils';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
@@ -236,9 +237,27 @@ export default function SOSScreen() {
       // simultaneous tel: here: firing tel: right after sms: cancels the
       // composer before the rider can send.
       if (emergencyContact?.phone) {
+        /**
+         * The link a frightened contact opens. It has to be exact AND readable:
+         * a bare `?q=lat,lng` drops them on a nameless pin, and a name alone is
+         * unactionable — so `shareLocationText` sends both, the place name on
+         * one line and the exact map link on the next. `0,0` is no longer a
+         * possible fallback either; the Gulf of Guinea is not a location to send
+         * anyone to in an emergency.
+         */
+        const where = hasCoords(currentCoords as any)
+          ? shareLocationText(
+              {
+                latitude: currentCoords!.latitude,
+                longitude: currentCoords!.longitude,
+                address: (currentCoords as any)?.address ?? null,
+              },
+              'Location:',
+            )
+          : 'Location: unavailable — please call them.';
         const msg = encodeURIComponent(
           `🚨 EMERGENCY: ${user?.name ?? 'An EyeGo rider'} has triggered an SOS alert. ` +
-          `Trip ID: ${id}. Location: https://maps.google.com/?q=${currentCoords?.latitude ?? 0},${currentCoords?.longitude ?? 0}. Please contact them immediately.`
+          `Trip ID: ${id}. ${where} Please contact them immediately.`
         );
         Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`).catch(() => {});
       }
@@ -433,9 +452,16 @@ export default function SOSScreen() {
               // yanked the rider into the SMS app repeatedly is gone.
               if (v && emergencyContact?.phone) {
                 const loc = locationRef.current?.coords ?? currentCoords;
+                // Same rule as the SOS message above: a named place plus an
+                // exact link, and nothing at all rather than a link to 0,0.
                 const msg = encodeURIComponent(
                   `${user?.name ?? 'An EyeGo rider'} is sharing their EyeGo trip with you. ` +
-                  `Live location: https://maps.google.com/?q=${loc?.latitude ?? 0},${loc?.longitude ?? 0}`
+                  (hasCoords(loc as any)
+                    ? shareLocationText(
+                        { latitude: loc!.latitude, longitude: loc!.longitude },
+                        'Live location:',
+                      )
+                    : 'Their location is not available yet.')
                 );
                 Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`).catch(() => {});
               }

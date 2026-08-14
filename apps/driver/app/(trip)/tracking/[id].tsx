@@ -28,6 +28,7 @@ import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, Inl
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { openExternalNavigation } from '../../../utils/externalNav';
 import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
@@ -475,20 +476,29 @@ export default function DriverTrackingScreen() {
     );
   };
 
+  /**
+   * A SECOND hand-rolled maps hand-off, which is how the coordinates bug
+   * survived the first fix.
+   *
+   * This built its own URLs and had all the same faults plus one of its own: on
+   * iOS it used `maps://?ll=` — drop a pin — rather than `daddr=`, so it did not
+   * even start navigation, and on Android it sent bare coordinates. It also read
+   * only `trip.route.*`, which is null on an on-demand trip.
+   *
+   * It now goes through the same `openExternalNavigation` the manage screen
+   * uses, so the driver's remembered choice of map app applies here too, and the
+   * destination arrives as a searchable address. Nothing in this app should
+   * build a maps URL by hand again — see @eyego/utils/geo-links.
+   */
   const handleOpenMaps = () => {
-    const destLat = trip?.route?.destLat;
-    const destLng = trip?.route?.destLng;
-    const label = encodeURIComponent(trip?.route?.destinationName ?? 'Destination');
-    if (!destLat || !destLng) {
-      Alert.alert('No destination', 'Destination coordinates are not available.');
-      return;
-    }
-    const url = Platform.OS === 'ios'
-      ? `maps://?ll=${destLat},${destLng}&q=${label}`
-      : `google.navigation:q=${destLat},${destLng}`;
-    Linking.openURL(url).catch(() =>
-      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`)
-    );
+    const t = trip as any;
+    void openExternalNavigation({
+      latitude: t?.dropoff?.lat ?? t?.dropoffLat ?? t?.route?.destLat ?? NaN,
+      longitude: t?.dropoff?.lng ?? t?.dropoffLng ?? t?.route?.destLng ?? NaN,
+      address:
+        t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null,
+      label: 'Destination',
+    });
   };
 
   // Navigate home when trip disappears (deleted/cancelled upstream).
