@@ -1,0 +1,86 @@
+# Postgres and Redis, on whatever machine the API is on.
+#
+# ONE FILE FOR BOTH PLACES — your laptop now, the VPS later. That is the point:
+# by the time you deploy, this exact configuration has been running for weeks and
+# go-live is a copy, not an experiment. See docs/DEPLOYMENT_TOPOLOGY.md for the
+# measurements that motivated it (281 ms per query against Neon in Frankfurt,
+# ~0.1 ms on loopback).
+#
+#   cp .env.docker.example .env.docker   # then edit the two passwords
+#   docker compose --env-file .env.docker up -d
+#
+# The API does NOT run in here. It stays where you run it today (npm run dev
+# locally, pm2/systemd on the VPS) so this file is only ever about the two
+# stateful things — which are the only two that care where they live.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eyego-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eyego}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.docker}
+      POSTGRES_DB: ${POSTGRES_DB:-eyego}
+    # ─────────────────────────────────────────────────────────────────────────
+    # 127.0.0.1 IS LOAD-BEARING. Publishing to 0.0.0.0 puts Postgres on the
+    # public internet the moment this runs on a VPS, and an exposed 5432 with a
+    # guessable password is the single most common way a self-hosted database
+    # gets found and ransomwared. It is bound to loopback in DEV too, so the
+    # habit is never learned wrong.
+    # ─────────────────────────────────────────────────────────────────────────
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c max_connections=100
+      -c random_page_cost=1.1
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eyego} -d ${POSTGRES_DB:-eyego}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: eyego-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    # appendonly: Redis is not a cache here. It holds the dispatch cascade
+    # state, the driver supply geo-index and the presence keys — see
+    # services/supply-index.service.js. A restart that loses those strands every
+    # in-flight search, so durability is worth the write amplification.
+    #
+    # noeviction: an evicted presence key is a driver silently dropped from
+    # dispatch. Refusing the write is a loud failure; evicting is a quiet one,
+    # and quiet failures in dispatch are what this whole sweep has been about.
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env.docker}
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # Named volumes, NOT bind mounts. On Windows a bind-mounted Postgres data
+  # directory goes through the filesystem translation layer and is dramatically
+  # slower — which would hide the very speedup this exists to deliver.
+  #
+  # The corollary: your data lives in Docker, not in the repo. `docker compose
+  # down -v` deletes it, and copying the repo does NOT copy it. That is correct
+  # — production should start from migrations and seeds, not from a laptop's
+  # test rows.
+  pgdata:
+  redisdata:
