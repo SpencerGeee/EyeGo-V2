@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, BackHandler, useWindowDimensions } from 'react-native';
+import { StyleSheet, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
 import Animated, {
   FadeIn,
   useSharedValue,
@@ -65,6 +65,51 @@ const STAGE_TRANSITION_CFG = springs.morph;
  * cares most about (a car approaching) was the one moment the map was torn
  * down and rebuilt. That route is no longer reachable from the flow.
  */
+/**
+ * ── THE ONE BACKGROUND, AND THE MAP THAT IS NOT ALWAYS THERE ────────────────
+ *
+ * WHAT WAS WRONG. Four of the six stages mounted their OWN `<AppBackground />`
+ * — a full-screen Skia canvas — on top of the root one this route already sits
+ * over. `/trip` is a `transparentModal` with a transparent `contentStyle` (see
+ * app/_layout.tsx), which means the app's ambient shader has been visible
+ * through this surface the whole time; every per-stage background was a second
+ * canvas painted over a first, opaquely, to hide it.
+ *
+ * The cost lands exactly where it hurts most. During a stage swap BOTH stages
+ * are mounted, so tapping "Order Ride" (search → configure) meant, in one
+ * frame: the root shader, a live MapLibre view underneath, the outgoing
+ * stage's static Skia canvas, and the incoming stage's ANIMATED one — four
+ * full-screen surfaces plus two React trees, competing for the frame the morph
+ * spring needed. That is the reported "very jumpy and laggy".
+ *
+ * WHAT IT IS NOW. Stages are transparent. The root `AppBackground` is the
+ * background for all of them, so a stage change composites two content trees
+ * and nothing else, and the shader is never torn down and rebuilt — which also
+ * means the ambient light does not visibly restart every time the flow moves
+ * forward.
+ *
+ * THE MAP. `search` and `configure` do not draw one — they covered it with an
+ * opaque backdrop, so MapLibre was rendering every frame to be looked at by
+ * nobody, through the two transitions the rider complained about most. From
+ * `select` onward the map IS the route preview and must be there.
+ *
+ * So it is mounted lazily — and once mounted it stays, because the one thing
+ * worse than a map you cannot see is a map torn down and rebuilt while a rider
+ * watches a car approach.
+ */
+const MAP_STAGES: readonly TripStage[] = ['select', 'request', 'assigned', 'tracking'];
+
+/**
+ * Where the map starts WARMING.
+ *
+ * `configure` is the last stage before the map is needed, and it is a static
+ * three-step form with no morph in flight, so MapLibre's initialisation lands
+ * in a quiet frame instead of on top of the configure→select transition. By the
+ * time `select` renders, the map is already alive and the crossfade is pure
+ * compositing.
+ */
+const MAP_WARM_STAGE: TripStage = 'configure';
+
 function renderStage(stage: TripStage) {
   switch (stage) {
     case 'search': return <SearchStage />;
@@ -293,6 +338,26 @@ export default function TripScreen() {
     });
   }, [stage, progress]);
 
+  /**
+   * Lazy, one-way map mount — see MAP_STAGES above.
+   *
+   * `runAfterInteractions` rather than a bare effect: the flag flips during the
+   * same commit that starts a stage spring, and mounting a MapLibre view is
+   * native work on the main thread, which is the one thread the spring cannot
+   * afford to share. Deferring it until the animation queue drains costs the
+   * map a few frames of head start and costs the transition nothing.
+   */
+  const mapNeededNow =
+    MAP_STAGES.includes(rendered.current) ||
+    (rendered.previous != null && MAP_STAGES.includes(rendered.previous)) ||
+    rendered.current === MAP_WARM_STAGE;
+  const [mapMounted, setMapMounted] = useState(false);
+  useEffect(() => {
+    if (!mapNeededNow || mapMounted) return;
+    const task = InteractionManager.runAfterInteractions(() => setMapMounted(true));
+    return () => task.cancel();
+  }, [mapNeededNow, mapMounted]);
+
   const incomingStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
     transform: [{ translateY: (1 - progress.value) * 16 }],
@@ -338,10 +403,11 @@ export default function TripScreen() {
     // reveal is driven by morph progress in MorphTarget.
     <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
       <SheetMetricsProvider value={sheetMetrics}>
-      {/* One persistent map for every stage — until the trip ends. See
-          `surfaceRetired`: past that point this view is not a map any more,
-          it is the home screen's background. */}
-      {!surfaceRetired && <TripMap />}
+      {/* The map, from the first stage that draws one until the trip ends. See
+          MAP_STAGES for why it is not mounted before that, and `surfaceRetired`
+          for why it must go at the end: past that point this view is not a map
+          any more, it is the home screen's background. */}
+      {!surfaceRetired && mapMounted && <TripMap />}
       <LinearGradient
         colors={scrimColors as unknown as readonly [string, string, ...string[]]}
         // Weighted toward the top so the fade is imperceptible rather than a

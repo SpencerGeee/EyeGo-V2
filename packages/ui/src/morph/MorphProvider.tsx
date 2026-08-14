@@ -442,11 +442,48 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       setCloneNode(entry.getClone());
       setPhase('reverse');
 
-      // Pop the screen, then spring progress back to 0
-      navigateBack();
-
-      morphProgress.value = withSpring(0, springs.morph, (finished) => {
-        if (finished) runOnJS(finishReverse)();
+      /**
+       * THE RETURN TRIP USED TO SKIP ITS OWN FIRST HALF.
+       *
+       * BUGFIX ("the morph on the where-to is smooth but when you click back to
+       * go to the homepage, it's laggy and jumpy — not smooth").
+       *
+       * Everything above is a React state update, so the clone does not exist
+       * on screen until the next commit. The three lines that used to follow —
+       * `navigateBack()` and then `withSpring(0)` — both ran in THIS tick, which
+       * meant two things went wrong at once and reinforced each other:
+       *
+       *   1. The spring started against a clone that had not been rendered yet.
+       *      By the time the overlay actually appeared, `morphProgress` had
+       *      already travelled a chunk of its way to 0, so the flight began
+       *      part-finished — visually, a jump.
+       *   2. `navigateBack()` tears down the trip surface, and until this pass
+       *      that included a live MapLibre view. Native view teardown happens on
+       *      the main thread, which on the new architecture is the same thread
+       *      Reanimated drives the spring on. So the first frames of the reverse
+       *      were being dropped by the very navigation that started it.
+       *
+       * The forward morph never had either problem, because `targetReady` fires
+       * from the destination's `onLayout` — by definition after a commit. This
+       * gives the reverse the same guarantee: paint the clone, let the pop's
+       * teardown take its frame, and only then hand the spring the screen.
+       *
+       * Two nested rAFs, not `setTimeout(0)` or `runAfterInteractions`: the
+       * first resolves after the commit that mounts the clone, the second after
+       * the frame the navigation dirties. `runAfterInteractions` would wait for
+       * the whole animation queue, which on a busy screen is long enough to read
+       * as an unresponsive back button.
+       */
+      requestAnimationFrame(() => {
+        navigateBack();
+        requestAnimationFrame(() => {
+          // The gesture may have taken over (or another morph started) in the
+          // two frames we waited. Only drive the flight we still own.
+          if (flightRef.current !== f) return;
+          morphProgress.value = withSpring(0, springs.morph, (finished) => {
+            if (finished) runOnJS(finishReverse)();
+          });
+        });
       });
     },
     [skipMorph, cleanup, sourceX, sourceY, sourceW, sourceH, sourceR,
@@ -506,7 +543,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         { translateY: y + h / 2 - (targetY.value + baseH / 2) },
         { scaleX: w / baseW },
         { scaleY: h / baseH },
-      ],
+      ] as const,
     };
   });
 

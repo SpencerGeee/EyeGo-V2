@@ -46,6 +46,21 @@ const goOffline = async (req, res) => {
   ok(res, null, 'You are now offline');
 };
 
+/**
+ * Keep a driver in the dispatch pool without a socket — see
+ * `driversService.recordPresence` for why this exists at all.
+ */
+const presence = async (req, res) => {
+  const { lat, lng, heading, speed } = req.body;
+  const result = await driversService.recordPresence(req.user.userId, {
+    lat: Number(lat),
+    lng: Number(lng),
+    heading: Number(heading) || 0,
+    speed: Number(speed) || 0,
+  });
+  ok(res, result);
+};
+
 const getTripHistory = async (req, res) => {
   const { page, limit } = req.query;
   const result = await driversService.getTripHistory(req.user.userId, Number(page) || 1, Number(limit) || 20);
@@ -525,7 +540,7 @@ const clearDestinationMode = async (req, res) => {
 module.exports = {
   getMe, updateMe, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getTripHistory, getActiveTrip, getAllTrips, devActivate,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, setRequestsPaused,

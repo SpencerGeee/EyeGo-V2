@@ -37,57 +37,109 @@ async function getWallet(driverId, transactionLimit = 50) {
   return { balancePesewas: driver.walletBalancePesewas, transactions };
 }
 
-async function topUp(driverId, amountPesewas) {
-  assertPesewas(amountPesewas, 'top-up amount');
+/** Nobody tops up a hundred thousand cedis by accident; a fat finger does. */
+const MAX_TOPUP_PESEWAS = 500_000; // ₵5,000
+
+async function topUp(driverId, amountPesewas, { method = 'MOMO_MTN' } = {}) {
+  const safeAmount = assertPesewas(amountPesewas, 'top-up amount');
+  if (safeAmount > MAX_TOPUP_PESEWAS) {
+    throw new AppError(`The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`, 400);
+  }
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
+
+  /**
+   * SIMULATED MODE — see env.PAYMENTS_SIMULATED for why this branch exists.
+   *
+   * The prefix is load-bearing twice over: `confirmTopUp` and the Paystack
+   * webhook both dedupe on `paystackRef`, so a simulated reference can never
+   * collide with a real charge; and any later reconciliation can find every
+   * cedi that was never actually collected with one `LIKE 'sim_%'`.
+   */
+  if (env.PAYMENTS_SIMULATED) {
+    const reference = `sim_topup_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
+    const credited = await creditTopUp(driverId, reference, safeAmount, {
+      description: `Wallet top-up (simulated — no payment gateway configured)`,
+    });
+    return {
+      reference,
+      simulated: true,
+      status: 'SUCCESS',
+      balancePesewas: credited.balanceAfterPesewas,
+      message: `${formatGhs(safeAmount)} added to your wallet.`,
+    };
+  }
 
   const reference = `wallet_topup_${uuidv4().replace(/-/g, '').slice(0, 16)}`;
 
   // Initiate Paystack charge for the driver's wallet top-up
   const result = await paystack.initiateMomoCharge({
     email: `${driver.phone}@eyego.app`,
-    amountPesewas,
+    amountPesewas: safeAmount,
     phone: driver.phone,
-    method: 'MOMO_MTN', // driver can choose on frontend
+    method,
     reference,
     metadata: { driverId, type: 'WALLET_TOPUP' },
   });
 
-  return { reference, ...result };
+  return { reference, simulated: false, ...result };
 }
 
-async function confirmTopUp(driverId, reference, amountPesewas) {
-  const safeAmount = assertPesewas(amountPesewas, 'top-up amount');
-  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
-  if (!driver) throw new NotFoundError('Driver');
-
+/**
+ * The credit itself — the one place a TOP_UP row is written.
+ *
+ * Extracted from `confirmTopUp` so the simulated path and the gateway path
+ * cannot drift: both take the same lock, write the same ledger shape and
+ * preserve the same `balanceAfter = balanceBefore + amount` identity. The
+ * balance is re-read INSIDE the transaction (the old `confirmTopUp` used the
+ * row it had fetched before it started, so two concurrent credits both recorded
+ * the same `balanceBefore` and the ledger stopped adding up).
+ */
+async function creditTopUp(driverId, reference, amountPesewas, { description } = {}) {
   return prisma.$transaction(async (tx) => {
-    // Idempotency guard: if a top-up for this Paystack reference was already
-    // credited, do not credit again (mirrors the webhook/verify paths).
     const existing = await tx.walletTransaction.findFirst({
       where: { paystackRef: reference, type: 'TOP_UP' },
-      select: { id: true },
+      select: { id: true, balanceAfterPesewas: true },
     });
-    if (existing) return;
+    if (existing) return existing;
+
+    const current = await tx.driver.findUnique({
+      where: { id: driverId },
+      select: { walletBalancePesewas: true },
+    });
+    if (!current) throw new NotFoundError('Driver');
+
+    const before = current.walletBalancePesewas;
+    const after = before + amountPesewas;
 
     await tx.driver.update({
       where: { id: driverId },
-      data: { walletBalancePesewas: { increment: safeAmount } },
+      data: { walletBalancePesewas: after },
     });
 
-    await tx.walletTransaction.create({
+    return tx.walletTransaction.create({
       data: {
         driverId,
         type: 'TOP_UP',
-        amountPesewas: safeAmount,
-        description: 'Wallet top-up via MoMo',
-        balanceBeforePesewas: driver.walletBalancePesewas,
-        balanceAfterPesewas: driver.walletBalancePesewas + safeAmount,
+        amountPesewas,
+        description: description ?? 'Wallet top-up via MoMo',
+        balanceBeforePesewas: before,
+        balanceAfterPesewas: after,
         paystackRef: reference,
       },
     });
   });
+}
+
+/**
+ * The gateway confirmed a charge. Delegates to `creditTopUp` so this and the
+ * simulated path write byte-identical ledger rows — and so the balanceBefore
+ * bug this used to carry (read outside the transaction, so two concurrent
+ * credits recorded the same "before") cannot come back on one of them only.
+ */
+async function confirmTopUp(driverId, reference, amountPesewas) {
+  const safeAmount = assertPesewas(amountPesewas, 'top-up amount');
+  return creditTopUp(driverId, reference, safeAmount);
 }
 
 async function withdraw(driverId, amountPesewas) {
@@ -247,4 +299,13 @@ async function updatePayoutAccount(driverId, data) {
   return payout;
 }
 
-module.exports = { getWallet, topUp, confirmTopUp, withdraw, getPayoutAccount, updatePayoutAccount };
+module.exports = {
+  getWallet,
+  topUp,
+  creditTopUp,
+  confirmTopUp,
+  withdraw,
+  getPayoutAccount,
+  updatePayoutAccount,
+  MAX_TOPUP_PESEWAS,
+};

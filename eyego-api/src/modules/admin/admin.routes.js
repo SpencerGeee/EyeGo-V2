@@ -87,6 +87,10 @@ router.get('/analytics/safety', controller.getAnalyticsSafety);
 router.get('/analytics/scheduled', controller.getAnalyticsScheduled);
 
 router.get('/trips/active', controller.getActiveTrips);
+// The zone directory. Declared BEFORE the `:zoneId` routes below so `zones` is
+// never captured as a zone id.
+router.get('/surge/zones', controller.getSurgeZones);
+router.get('/surge/resolve', controller.resolveSurgeZone);
 router.post('/surge/:zoneId', requireRole(ROLE.OPS), adminActionLimiter, audit('surge.set', { targetType: 'Zone', targetParam: 'zoneId' }), controller.setSurge);
 
 // ── Dispatch / Live Map ─────────────────────────────────────────

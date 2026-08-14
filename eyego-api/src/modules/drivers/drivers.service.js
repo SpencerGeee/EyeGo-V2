@@ -554,15 +554,116 @@ async function getTripHistory(driverId, page = 1, limit = 20) {
   return { trips, total, page, totalPages: Math.ceil(total / limit) };
 }
 
+/**
+ * PRESENCE OVER HTTP — the second way into the dispatch pool.
+ *
+ * "On the admin dispatch page the driver shows as not dispatchable and it's
+ * only socket. Is there another way to connect the driver apart from the
+ * socket?"
+ *
+ * There was not, and that was a single point of failure for the whole platform.
+ * `supply.upsertDriver` — the only thing that puts a driver in the Redis geo-set
+ * `matcher.service` searches, and the only thing that refreshes the 90-second
+ * presence key — was called from exactly two places: `goOnline`, once, and the
+ * `driver:location_update` socket handler. So a driver whose websocket was
+ * refused, blocked by a captive portal or carrier proxy, or simply dropped
+ * without reconnecting, aged out of the pool 90 seconds later and became
+ * invisible to dispatch while their app cheerfully showed them as online.
+ *
+ * This is the fallback: the same write, reachable over plain HTTP with the same
+ * bearer token. It is deliberately NOT a replacement — the socket is still how
+ * an offer REACHES a driver, and this endpoint says so in its response — but a
+ * driver who can make an HTTP request can now stay dispatchable, and the app can
+ * beat this on a slow timer whenever the socket is not connected.
+ *
+ * Returns the same eligibility verdict the admin dispatch panel computes, so
+ * the driver app can tell the driver why they are not getting trips instead of
+ * leaving them to guess.
+ */
+async function recordPresence(driverId, { lat, lng, heading = 0, speed = 0 } = {}) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new AppError('A valid location is required.', 400, 'INVALID_LOCATION');
+  }
+  // Same rule as `goOnline` above and as the socket's location handler — a
+  // driver must never get two different answers about the same coordinate. The
+  // development exemption matches `goOnline`'s, so a simulator location does not
+  // make half the platform untestable.
+  if (!isWithinGhana(lat, lng) && env.NODE_ENV !== 'development') {
+    throw new AppError(
+      'Location outside Ghana — you will not appear online or receive trip requests until GPS reports a location inside Ghana.',
+      400,
+      'GEO_OUT_OF_BOUNDS',
+    );
+  }
+
+  const driver = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { id: true, isOnline: true, status: true, requestsPaused: true },
+  });
+  if (!driver) throw new NotFoundError('Driver');
+
+  // Offline is a decision, not a network condition. Refreshing presence for a
+  // driver who has deliberately gone offline would put them back in the pool.
+  if (!driver.isOnline) {
+    return { inPool: false, reason: 'You are offline.', dispatchable: false };
+  }
+
+  const payload = JSON.stringify({ lat, lng, heading, speed, timestamp: Date.now() });
+  await Promise.all([
+    supply.upsertDriver(driverId, lat, lng),
+    redis.set(`driver:${driverId}:location`, payload, 'EX', 3600).catch(() => {}),
+    redis.geoadd('drivers:online', lng, lat, driverId).catch(() => {}),
+    // Same channel name the socket handler publishes on (driver.socket.js's
+    // LOCATION_UPDATE_CHANNEL) — riders subscribe to it by driver id, so an
+    // HTTP-kept-alive driver still moves on a rider's map.
+    redis.publish(`driver:${driverId}:location`, payload).catch(() => {}),
+    // The admin live map reads this channel; a driver kept alive over HTTP
+    // should still move on it.
+    redis
+      .publish(
+        'admin:driver_locations',
+        JSON.stringify({ driverId, lat, lng, heading, speed, timestamp: Date.now() }),
+      )
+      .catch(() => {}),
+    prisma.driver
+      .update({ where: { id: driverId }, data: { currentLat: lat, currentLng: lng, currentHeading: heading } })
+      .catch(() => {}),
+  ]);
+
+  const { explainIneligible } = require('../../services/driver-availability');
+  const [ineligible] = await explainIneligible(prisma, [driverId]).catch(() => []);
+
+  return {
+    inPool: true,
+    presenceTtlSeconds: supply.PRESENCE_TTL_SECONDS,
+    dispatchable: !ineligible,
+    reason: ineligible?.reason ?? null,
+    /**
+     * Presence is not delivery. This refresh keeps the driver in the candidate
+     * pool, but the OFFER itself is emitted to their socket room (and, failing
+     * that, an FCM data push). A driver polling this endpoint with no socket is
+     * findable but not reachable, and the app should say so rather than let them
+     * believe HTTP alone is enough.
+     */
+    note: 'Presence refreshed. Offers still arrive over the socket or a push notification.',
+  };
+}
+
 async function arriveAtPickup(driverId, tripId) {
-  const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
-  if (!trip) throw new NotFoundError('Trip');
+  // The ownership `findFirst` that used to open this function is gone —
+  // `requireDriverId` performs the same check inside the transaction, off the
+  // row the state machine already reads. See applyTransitionTx: it removes a
+  // full database round trip from the path between the driver's tap and the
+  // rider's screen, and it closes a small race the outside-the-transaction
+  // check had.
+  //
   // Was a bare `prisma.trip.update({ status: 'ARRIVED_AT_PICKUP' })` behind a
   // local, advisory guard. Now the one guarded write path: legality, actor
   // permission, version CAS, TripEvent and the realtime fan-out in one call.
   const { trip: updated } = await tripState.applyTransition(tripId, 'ARRIVED_AT_PICKUP', {
     actor: tripState.ACTOR.DRIVER,
     actorId: driverId,
+    requireDriverId: driverId,
   });
 
   // The "your driver has arrived" push is NOT sent here any more. It is sent by
@@ -1888,7 +1989,7 @@ module.exports = {
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   getNotifications,
-  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip,
+  startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence,
   getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,

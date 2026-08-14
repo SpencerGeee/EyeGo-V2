@@ -146,6 +146,27 @@ const envSchema = z.object({
   DRIVER_MIN_WALLET_BALANCE: z.coerce.number().default(5.0),
   DRIVER_REQUIRED_WALLET_TO_GO_ONLINE: z.coerce.number().default(20.0),
   DRIVER_MIN_WITHDRAWAL: z.coerce.number().default(20.0),
+
+  /**
+   * NO PAYMENT GATEWAY YET.
+   *
+   * Paystack is not live, so `wallet.topUp` — the only way a driver's balance
+   * can go UP other than earning a fare — called `initiateMomoCharge`, got an
+   * error or a charge nobody could ever complete, and the balance never moved.
+   * A driver whose wallet went negative (commission on a cash fare) was
+   * therefore permanently locked out of going online with no route back.
+   *
+   * When this is on, a top-up is credited immediately and the ledger row is
+   * marked `SIMULATED` in its description and reference so it can never be
+   * mistaken for money that actually arrived. Everything else about the path —
+   * the idempotency key, the transaction, the balanceBefore/After identity —
+   * is the real one, so wiring the gateway later is a change to this branch and
+   * nothing else.
+   *
+   * Defaults ON outside production and OFF in production, so shipping without
+   * setting it cannot invent money on a live platform.
+   */
+  PAYMENTS_SIMULATED: z.enum(['true', 'false']).optional(),
 });
 
 const _parsed = envSchema.safeParse(process.env);
@@ -188,11 +209,19 @@ const {
   DRIVER_MIN_WALLET_BALANCE,
   DRIVER_REQUIRED_WALLET_TO_GO_ONLINE,
   DRIVER_MIN_WITHDRAWAL,
+  PAYMENTS_SIMULATED,
   ...rest
 } = _parsed.data;
 
 module.exports = {
   ...rest,
+  // Unset means "simulate outside production" — see the schema note. Written as
+  // a resolved boolean so no caller has to repeat the NODE_ENV rule and get it
+  // subtly different.
+  PAYMENTS_SIMULATED:
+    PAYMENTS_SIMULATED != null
+      ? PAYMENTS_SIMULATED === 'true'
+      : rest.NODE_ENV !== 'production',
   ECO_BASE_FARE_PESEWAS: fromCedis(ECO_BASE_FARE),
   ECO_PER_KM_RATE_PESEWAS: fromCedis(ECO_PER_KM_RATE),
   COMFORT_BASE_FARE_PESEWAS: fromCedis(COMFORT_BASE_FARE),

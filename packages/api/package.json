@@ -5,6 +5,7 @@
   "types": "src/index.ts",
   "private": true,
   "dependencies": {
+    "@eyego/utils": "*",
     "axios": "^1.7.2",
     "socket.io-client": "^4.7.5"
   }

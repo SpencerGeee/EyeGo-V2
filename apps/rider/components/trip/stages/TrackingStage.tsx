@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, RollingDigits, Avatar, GradientGlowBorder, CardAuroraGlow } from '@eyego/ui';
+import { Text, GlassSurface, RollingDigits, Avatar, GradientGlowBorder } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -83,14 +83,13 @@ function TrackingStageImpl() {
       */}
       <SheetContent stage="tracking">
         {/*
-          The green wash. Anchored to the sheet's bottom edge, capped well below
-          the point where it would compete with the text, and static — this
-          screen already runs the map and the panel's gesture physics, and a
-          breathing gradient would be the third thing asking for the same frame.
-          See CardAuroraGlow for why each of those is a hard constraint rather
-          than a default.
+          The green wash has moved to TripSheetHost's `background`. It was here,
+          inside the panel body, where `absoluteFill` resolves against the body's
+          PADDING box — so the gradient's rectangle stopped ~32 pt short of each
+          edge and left two hard vertical seams up the card ("this visible cut on
+          the left and right"). See the note at its new home; the light belongs
+          to the sheet, not to whichever panel is inside it.
         */}
-        <CardAuroraGlow color={colors.primary} intensity={0.15} reach={0.5} />
         <View style={styles.sheetBody}>
           <View style={styles.headline}>
             <View style={{ flex: 1 }}>

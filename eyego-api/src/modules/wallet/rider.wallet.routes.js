@@ -186,7 +186,12 @@ router.post('/send', idempotency, async (req, res) => {
 router.post('/topup', idempotency, async (req, res) => {
   const { amountPesewas, method, momoPhone, email } = req.body;
 
-  if (!amount || amount <= 0) {
+  // BUGFIX: this guard read `amount`, which is not a binding in this file — the
+  // body was renamed to `amountPesewas` and the check was not. Under 'use
+  // strict' that is a ReferenceError, so EVERY rider top-up 500'd before it
+  // reached Paystack, and the rider was shown a raw server error for a request
+  // that never had anything wrong with it.
+  if (!Number.isInteger(amountPesewas) || amountPesewas <= 0) {
     throw new AppError('Amount must be greater than 0', 400, 'INVALID_AMOUNT');
   }
 

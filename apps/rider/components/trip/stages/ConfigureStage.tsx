@@ -7,9 +7,8 @@ import * as Haptics from 'expo-haptics';
 import { ridesApi } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground, GradientGlowBorder, getTierTheme } from '@eyego/ui';
+import { Text, Button, Entrance, GradientGlowBorder, getTierTheme } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
-import { useThemeStore } from '../../../stores/theme.store';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 
@@ -65,7 +64,6 @@ const TIER_ORDER: Tier[] = ['ECO', 'COMFORT', 'PREMIUM'];
 function ConfigureStageImpl() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const goStage = useTripFlow((s) => s.go);
@@ -178,13 +176,28 @@ function ConfigureStageImpl() {
   return (
     <View style={styles.root}>
       {/*
-        The brand background, opaque, over the persistent map.
-        The map stays MOUNTED underneath — this is a stage of the trip surface,
-        and tearing the map down here would mean rebuilding it on the way back
-        out. An idle occluded map redraws nothing, so covering it costs less
-        than the panel-over-map arrangement it replaces.
+        NO BACKGROUND OF ITS OWN. Two things were wrong with the one that was
+        here, and together they are the whole of "Order Ride is jumpy and laggy,
+        and I don't see the Skia background on Book a ride".
+
+        First, it was the ANIMATED variant — a full-screen Skia shader spun up at
+        the exact instant this stage mounts, which is the instant the stage
+        crossfade spring starts. The stage the rider is leaving is still mounted
+        with a Skia canvas of its own, so the transition ran three shaders and a
+        map at once and could not hold 60fps on any device.
+
+        Second, its own comment claimed "an idle occluded map redraws nothing".
+        That is not true of MapLibre: an attached map renders its frame whether
+        or not anything is on top of it. So the layer whose purpose was to make
+        the map cheap was in fact paying for the map AND for a shader.
+
+        `/trip` is a transparentModal over the root `AppBackground`
+        (app/_layout.tsx), and the trip surface no longer mounts a map on this
+        stage at all (MAP_STAGES in app/trip.tsx). So the ambient shader the
+        rider expected to see here is simply visible through a transparent
+        stage — which is also why this reads as ONE surface deforming from the
+        Where-To card rather than two screens each with its own backdrop.
       */}
-      <AppBackground isDark={isDark} />
       {/*
         Insets applied by hand rather than by `SafeAreaView edges={['top','bottom']}`.
 
@@ -584,7 +597,9 @@ const railStyles = StyleSheet.create({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    root: { flex: 1, backgroundColor: colors.backgroundDeep },
+    // Transparent, so the app's ambient background reads through the whole
+    // booking flow instead of stopping at this stage. See the render site.
+    root: { flex: 1, backgroundColor: 'transparent' },
     safe: { flex: 1, backgroundColor: 'transparent' },
     header: {
       flexDirection: 'row',

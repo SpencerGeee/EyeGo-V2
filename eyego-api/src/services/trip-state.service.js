@@ -302,6 +302,7 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
     expectedVersion = null,
     tasks = [],
     sideEffects = null,
+    requireDriverId = null,
   } = opts;
 
   if (!Object.values(ACTOR).includes(actor)) {
@@ -315,6 +316,25 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
     });
     if (!current) {
       throw new TransitionError(`Trip ${tripId} not found`, 'TRIP_NOT_FOUND', 404);
+    }
+    /**
+     * Ownership, checked HERE rather than by the caller.
+     *
+     * LATENCY. Every driver-facing transition used to open with its own
+     * `prisma.trip.findFirst({ where: { id, driverId } })` purely to prove the
+     * trip was theirs, and then this function immediately read the same row
+     * again. That is a whole extra network round trip to the database on the
+     * critical path of "the driver tapped I'm here" — before the transaction has
+     * even begun, and therefore before anything can be told to the rider.
+     *
+     * The read this function already performs selects `driverId`, so the check
+     * costs nothing here. It is also strictly SAFER: the caller's check happened
+     * outside the transaction and against an un-guarded row, so a reassignment
+     * landing between the two reads would have been checked against a driver who
+     * no longer owned the trip.
+     */
+    if (requireDriverId != null && current.driverId !== requireDriverId) {
+      throw new TransitionError(`Trip ${tripId} is not assigned to this driver`, 'TRIP_NOT_FOUND', 404);
     }
     if (expectedVersion !== null && current.version !== expectedVersion) {
       throw new TransitionError(
@@ -350,10 +370,26 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
       );
     }
 
-    // Append-only. seq === the version this transition produced, so the log is
-    // gap-free and strictly increasing and the realtime channel can replay
-    // "everything above lastSeq" with no ambiguity.
-    const event = await tx.tripEvent.create({
+    /**
+     * Append-only. seq === the version this transition produced, so the log is
+     * gap-free and strictly increasing and the realtime channel can replay
+     * "everything above lastSeq" with no ambiguity.
+     *
+     * LATENCY. This used to be awaited on its own, and the fully-included trip
+     * row at the bottom of this function was awaited after it. Neither depends
+     * on the other — the CAS above has already decided both outcomes — so they
+     * were two sequential round trips where one would do. On a managed Postgres
+     * a round trip is tens of milliseconds, and this function is on the path
+     * between a driver's tap and the rider seeing it, so every one of them is
+     * paid twice: once by the driver waiting for their button, once by the rider
+     * waiting for their screen.
+     *
+     * The read is deliberately issued from the same transaction so it still sees
+     * this transition's own write, and `sideEffects` still runs after both — a
+     * side effect that changes the trip must not race the snapshot that
+     * describes it, which is why the read is re-issued below when one ran.
+     */
+    const eventPromise = tx.tripEvent.create({
       data: {
         tripId,
         seq: nextVersion,
@@ -363,6 +399,10 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
         payload: { from: current.status, to, ...payload },
       },
     });
+    const { TRIP_INCLUDE: INCLUDE_FOR_SNAPSHOT } = require('./trip-view');
+    const tripPromise = tx.trip.findUnique({ where: { id: tripId }, include: INCLUDE_FOR_SNAPSHOT });
+
+    const [event, tripAfterSwap] = await Promise.all([eventPromise, tripPromise]);
 
     for (const task of tasks) {
       await scheduledTasks.enqueueTx(tx, { tripId, ...task });
@@ -374,6 +414,7 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
       await scheduledTasks.cancelAllForTripTx(tx, tripId);
     }
 
+    const hadSideEffects = Boolean(sideEffects) || tasks.length > 0 || isTerminal(to);
     if (sideEffects) await sideEffects(tx, { id: tripId, status: to, version: nextVersion });
 
     /**
@@ -393,9 +434,18 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
      *
      * Required lazily: `trip-view` imports LIVE_STATUSES from this module, so a
      * top-level require would close the cycle at load time.
+     *
+     * Normally this row was already fetched in parallel with the event write
+     * above and there is nothing left to ask for. It is re-read ONLY when
+     * something ran between then and now that could have changed it — a
+     * `sideEffects` block (seat release, wallet settlement, booking updates),
+     * an armed timer, or the terminal-state task cancellation. Those are the
+     * cases where the earlier snapshot would describe a trip that no longer
+     * exists in that shape; everything else pays nothing.
      */
-    const { TRIP_INCLUDE } = require('./trip-view');
-    const trip = await tx.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
+    const trip = hadSideEffects
+      ? await tx.trip.findUnique({ where: { id: tripId }, include: INCLUDE_FOR_SNAPSHOT })
+      : tripAfterSwap;
     return { trip, event, from: current.status };
   }
 }
@@ -407,14 +457,23 @@ async function applyTransitionTx(tx, tripId, to, opts = {}) {
  */
 function publishCommitted(result) {
   if (!result?.trip || !result?.event) return;
-  // A transition may have armed timers inside its transaction. Now that it has
-  // committed, wake the scheduler so a 20-second offer deadline is honoured to
-  // the second instead of waiting out whatever sleep the loop is in.
-  try {
-    scheduledTasks.wake();
-  } catch {
-    /* scheduler not started (tests, scripts) — nothing to wake */
-  }
+
+  /**
+   * THE SOCKET EMIT GOES FIRST. Everything else in this function waits.
+   *
+   * LATENCY ("when I show on the driver app that I'm here, it should show
+   * immediately on the rider app"). This used to call `scheduledTasks.wake()`
+   * and then publish. The wake is synchronous work on the same event loop, and
+   * the notification block below reaches for FCM, the APNs Live Activity socket
+   * and the GraphQL pubsub — so the one message that actually updates a rider
+   * who is LOOKING AT THE SCREEN was queued behind machinery aimed at riders
+   * who are not.
+   *
+   * Order now reflects who is waiting: the open app first, in this tick; the
+   * scheduler and the background channels afterwards, on the next one. Deferring
+   * them with `setImmediate` also means a slow push provider cannot hold the
+   * HTTP response the driver's own button is waiting on.
+   */
   try {
     // Lazy require breaks the cycle (the publisher reads trip view helpers).
     require('./trip-events.publisher').publish(result.trip, result.event);
@@ -423,6 +482,17 @@ function publishCommitted(result) {
       `trip:event publish failed for ${result.trip.id} (state IS committed): ${err.message}`,
     );
   }
+
+  // A transition may have armed timers inside its transaction. Now that it has
+  // committed, wake the scheduler so a 20-second offer deadline is honoured to
+  // the second instead of waiting out whatever sleep the loop is in.
+  setImmediate(() => {
+    try {
+      scheduledTasks.wake();
+    } catch {
+      /* scheduler not started (tests, scripts) — nothing to wake */
+    }
+  });
 
   /**
    * Sockets reach an app that is open. This reaches one that is not — the FCM
@@ -436,13 +506,15 @@ function publishCommitted(result) {
    * from every path notifies identically, and it is deduped on the trip
    * version so the overlap between the two paths cannot buzz a phone twice.
    */
-  try {
-    require('./trip-notify.service').notifyTransition(result.trip, result.event);
-  } catch (err) {
-    logger.warn(
-      `trip notify failed for ${result.trip.id} (state IS committed): ${err.message}`,
-    );
-  }
+  setImmediate(() => {
+    try {
+      require('./trip-notify.service').notifyTransition(result.trip, result.event);
+    } catch (err) {
+      logger.warn(
+        `trip notify failed for ${result.trip.id} (state IS committed): ${err.message}`,
+      );
+    }
+  });
 }
 
 /**

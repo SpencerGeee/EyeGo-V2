@@ -18,7 +18,16 @@ router.get('/transactions', controller.getTransactions);
 router.post(
   '/topup',
   idempotency, // safe retries: same Idempotency-Key never double-credits
-  body('amount').isFloat({ min: 1 }).withMessage('Amount must be at least GHS 1'),
+  // PESEWAS. The old validator asked for cedis (`amount`, isFloat min 1) while
+  // the service asserted integer pesewas, so the two disagreed about the unit
+  // and no request could satisfy both. 100 pesewas = ₵1, the same floor.
+  body('amountPesewas')
+    .isInt({ min: 100 })
+    .withMessage('The smallest top-up is GH₵1'),
+  body('method')
+    .optional()
+    .isIn(['MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO'])
+    .withMessage('Choose a mobile money network'),
   validate,
   controller.topUp
 );
@@ -27,7 +36,9 @@ router.post(
   '/withdraw',
   requireActiveDriver,
   idempotency, // safe retries: same Idempotency-Key never double-withdraws
-  body('amount').isFloat({ min: 20 }).withMessage('Minimum withdrawal is GHS 20'),
+  body('amountPesewas')
+    .isInt({ min: 1 })
+    .withMessage('Enter how much you want to withdraw'),
   validate,
   controller.withdraw
 );

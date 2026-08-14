@@ -11,8 +11,15 @@ const getWallet = async (req, res) => {
 
 const getBalance = async (req, res) => {
   const driverId = req.user?.userId;
-  const wallet = await walletService.getWallet(driverId);
-  ok(res, { balance: wallet.balance, currency: 'GHS', lastUpdated: new Date().toISOString() });
+  // `getWallet` returns `balancePesewas`; this used to read `wallet.balance`,
+  // a field that has not existed since the server moved to integer pesewas —
+  // so /driver/wallet/balance answered `{ balance: undefined }` every time.
+  const wallet = await walletService.getWallet(driverId, 1);
+  ok(res, {
+    balancePesewas: wallet.balancePesewas,
+    currency: 'GHS',
+    lastUpdated: new Date().toISOString(),
+  });
 };
 
 const getTransactions = async (req, res) => {
@@ -33,15 +40,29 @@ const getTransactions = async (req, res) => {
 
 const topUp = async (req, res) => {
   const driverId = req.user?.userId;
-  const { amount } = req.body;
-  const result = await walletService.topUp(driverId, amount);
-  ok(res, result, 'Top-up initiated. Check your phone for the MoMo prompt.');
+  // PESEWAS, like everywhere else on this server. This used to read `amount`
+  // and hand it straight to `assertPesewas`, so a driver sending cedis (which
+  // is what the route's own `isFloat({ min: 1 })` validator asked for) was
+  // rejected as a non-integer, and one sending pesewas failed the validator.
+  // There was no value that worked.
+  const { amountPesewas, method } = req.body;
+  const result = await walletService.topUp(driverId, amountPesewas, { method });
+  ok(
+    res,
+    result,
+    result.simulated
+      ? result.message
+      : 'Top-up started. Check your phone for the MoMo prompt.',
+  );
 };
 
 const withdraw = async (req, res) => {
   const driverId = req.user?.userId;
-  const { amount } = req.body;
-  const result = await walletService.withdraw(driverId, amount);
+  // Same unit mismatch as topUp above — the driver app has always sent
+  // `amountPesewas` (see drivers.api.ts), so `amount` was undefined and the
+  // route's own validator rejected every withdrawal before it got here.
+  const { amountPesewas } = req.body;
+  const result = await walletService.withdraw(driverId, amountPesewas);
   ok(res, result);
 };
 

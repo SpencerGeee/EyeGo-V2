@@ -6,6 +6,10 @@
 // needs `formatGhs`.
 export * from './money';
 
+// Every user-facing failure string in both apps comes from here. See errors.ts
+// for why `err.message` must never reach a screen unfiltered.
+export * from './errors';
+
 /**
  * Format a date string to human-readable form
  * e.g. '2024-06-15T08:30:00Z' → 'Sat, 15 Jun · 8:30 AM'

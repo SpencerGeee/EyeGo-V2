@@ -1173,6 +1173,70 @@ async function setSurgeMultiplier(zoneId, multiplier) {
   return { zoneId, multiplier: capped, expiresInSeconds: 3600 };
 }
 
+/**
+ * The zone directory the surge page said did not exist.
+ *
+ * Enriched with the ONE thing Redis cannot know: which of these cells riders
+ * are actually being picked up in, so an operator surging "5.61:-0.19" can see
+ * it is Osu rather than a pair of decimals. Derived from recent trip pickups
+ * rather than a geocoder call per cell — same rounding as `getGridKey`, so the
+ * label and the id cannot describe different places.
+ */
+async function getSurgeZones() {
+  const surge = require('../trips/surge.service');
+  const directory = await surge.listZones();
+
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const recent = await prisma.trip.findMany({
+    where: { createdAt: { gte: since }, pickupLat: { not: null }, pickupLng: { not: null } },
+    select: { pickupLat: true, pickupLng: true, pickupAddress: true },
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+  });
+
+  const labelByZone = new Map();
+  const tripsByZone = new Map();
+  for (const t of recent) {
+    const id = surge.zoneIdForCoords(t.pickupLat, t.pickupLng);
+    tripsByZone.set(id, (tripsByZone.get(id) ?? 0) + 1);
+    if (!labelByZone.has(id) && t.pickupAddress) labelByZone.set(id, t.pickupAddress);
+  }
+
+  // A cell with recent rides but no live supply/demand is still a zone worth
+  // offering — it is exactly where an operator would pre-emptively surge.
+  const known = new Set(directory.zones.map((z) => z.zoneId));
+  for (const [id, count] of tripsByZone) {
+    if (known.has(id)) continue;
+    const [lat, lng] = id.split(':').map(Number);
+    directory.zones.push({
+      zoneId: id,
+      lat,
+      lng,
+      supplyCount: 0,
+      demandCount: 0,
+      autoMultiplier: 1,
+      manualMultiplier: null,
+      manualExpiresInSeconds: null,
+      effectiveMultiplier: Math.max(1, directory.global.manualMultiplier ?? 1),
+      recentTrips: count,
+    });
+  }
+
+  for (const z of directory.zones) {
+    z.label = labelByZone.get(z.zoneId) ?? null;
+    z.recentTrips = z.recentTrips ?? tripsByZone.get(z.zoneId) ?? 0;
+  }
+
+  directory.zones.sort(
+    (a, b) =>
+      b.effectiveMultiplier - a.effectiveMultiplier ||
+      b.demandCount - a.demandCount ||
+      b.recentTrips - a.recentTrips,
+  );
+
+  return directory;
+}
+
 async function getLiveDrivers() {
   // Get all online drivers with their current locations and active trip info
   const drivers = await prisma.driver.findMany({
@@ -1814,7 +1878,7 @@ async function getLiveDriversMap() {
 
 module.exports = {
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
-  getMetrics, getActiveTrips, setSurgeMultiplier, expireUnansweredDispatchOffers,
+  getMetrics, getActiveTrips, setSurgeMultiplier, getSurgeZones, expireUnansweredDispatchOffers,
   getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops,
   getAllPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getAllTrips, getAllBookings, getPendingDrivers, getAllDrivers, getAllUsers,

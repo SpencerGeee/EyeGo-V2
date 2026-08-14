@@ -14,7 +14,8 @@ import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { walletApi, driverApi } from '@eyego/api';
+import { walletApi, driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/api';
+import { describeError } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import {
   Text,
@@ -60,6 +61,13 @@ const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING
  * pesewas balance was a comparison of two different units.
  */
 const MIN_WITHDRAWAL_PESEWAS = 2000;
+
+/** Mirrors the server's own top-up bounds (wallet.routes.js / wallet.service.js). */
+const MIN_TOPUP_PESEWAS = 100; // ₵1
+const MAX_TOPUP_PESEWAS = 500_000; // ₵5,000
+
+/** One tap instead of typing, for the amounts drivers actually add. */
+const TOPUP_PRESETS_PESEWAS = [2000, 5000, 10000, 20000];
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -107,6 +115,69 @@ export default function EarningsScreen() {
       return [];
     },
   });
+
+  /**
+   * PUTTING MONEY IN.
+   *
+   * There was no way to do this anywhere in the driver app. A driver working
+   * cash fares has their commission DEBITED from the wallet without any
+   * matching credit (see CREDIT_TYPES above — `CASH_EARNING` is income for
+   * reporting and deliberately does not move the balance), so a busy cash day
+   * drives the balance negative. `goOnline` then refuses them until the balance
+   * clears `DRIVER_REQUIRED_WALLET_TO_GO_ONLINE`, and the only screen it could
+   * point them at had a Withdraw button and nothing else. The app had a one-way
+   * valve on the driver's own money.
+   */
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState('');
+  const [momoNetwork, setMomoNetwork] = useState<MomoNetwork>('MOMO_MTN');
+
+  const topUp = useMutation({
+    mutationFn: () =>
+      driverApi.topUp({
+        amountPesewas: pesewasFromCedis(parseFloat(topUpAmount)),
+        method: momoNetwork,
+      }),
+    onSuccess: (res) => {
+      const data = (res.data as any)?.data ?? {};
+      const added = pesewasFromCedis(parseFloat(topUpAmount));
+      setTopUpOpen(false);
+      setTopUpAmount('');
+      qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
+      qc.invalidateQueries({ queryKey: ['driver', 'me'] });
+      if (data.simulated) {
+        // Say what actually happened. Claiming "check your phone for the MoMo
+        // prompt" when no gateway exists is how a driver ends up waiting for a
+        // prompt that is never coming.
+        Alert.alert(
+          'Wallet topped up',
+          `${formatGhs(added)} has been added to your wallet.\n\nNo payment was taken — the payment gateway is not live yet, so top-ups are credited directly for now.`,
+        );
+      } else {
+        Alert.alert(
+          'Approve on your phone',
+          `Approve the ${formatGhs(added)} mobile money prompt to finish topping up. Your balance updates once it clears.`,
+        );
+      }
+    },
+    onError: (err) => {
+      const { title, message } = describeError(err, 'We could not add money to your wallet.');
+      Alert.alert(title, message);
+    },
+  });
+
+  const handleTopUp = () => {
+    const amountPesewas = pesewasFromCedis(parseFloat(topUpAmount));
+    if (isNaN(amountPesewas) || amountPesewas < MIN_TOPUP_PESEWAS) {
+      Alert.alert('Enter an amount', `The smallest top-up is ${formatGhs(MIN_TOPUP_PESEWAS)}.`);
+      return;
+    }
+    if (amountPesewas > MAX_TOPUP_PESEWAS) {
+      Alert.alert('Too much at once', `The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`);
+      return;
+    }
+    topUp.mutate();
+  };
 
   const withdraw = useMutation({
     // The driver TYPES cedis ("50"), and every balance and limit on this screen
@@ -262,12 +333,43 @@ export default function EarningsScreen() {
               <Text style={styles.currencyText}>{currency}</Text>
             </View>
           </View>
-          <Button
-            label="Withdraw"
-            size="sm"
-            onPress={() => setSheetOpen(true)}
-            style={styles.withdrawBtn}
-          />
+          {/*
+            THE WAY BACK. A negative balance is not an edge case for a driver
+            working cash — commission is debited per trip and cash fares credit
+            nothing — and until this existed there was no screen in the app that
+            could clear it. Stated in the driver's own terms ("you owe"), with
+            the exact amount needed, because "top up your wallet" without a
+            number is a puzzle.
+          */}
+          {balance < 0 && (
+            <View style={styles.oweNotice}>
+              <Ionicons name="alert-circle" size={15} color={colors.error} />
+              <Text variant="caption" color={colors.error} style={{ flex: 1 }}>
+                You owe {formatGhs(Math.abs(balance))} in commission. Top up to go back online.
+              </Text>
+            </View>
+          )}
+          <View style={styles.balanceActions}>
+            <Button
+              label="Top up"
+              size="sm"
+              onPress={() => {
+                // Pre-fill enough to clear the debt AND meet the online floor,
+                // so the common case is one tap.
+                if (balance < 0) {
+                  setTopUpAmount(String(Math.ceil((Math.abs(balance) + 2000) / 100)));
+                }
+                setTopUpOpen(true);
+              }}
+            />
+            <Button
+              label="Withdraw"
+              size="sm"
+              variant="secondary"
+              onPress={() => setSheetOpen(true)}
+              disabled={balance < MIN_WITHDRAWAL_PESEWAS}
+            />
+          </View>
           <Pressable
             onPress={() => router.push('/(profile)/payout-account' as any)}
             style={styles.payoutLink}
@@ -371,6 +473,96 @@ export default function EarningsScreen() {
           })()}
         </Entrance>
       </ScrollView>
+
+      {/* Top-up sheet — same KeyboardStickyView treatment as Withdraw below,
+          for the same reason (PanelSheet renders inside a Modal, which
+          KeyboardAvoidingView never resizes correctly). */}
+      <PanelSheet
+        visible={topUpOpen}
+        onDismiss={() => setTopUpOpen(false)}
+        maxHeightPct={0.62}
+        sheetStyle={styles.sheetBg}
+        scrollable={false}
+      >
+        <View style={styles.sheetContent}>
+          <View style={styles.sheetTitleRow}>
+            <Text variant="titleLarge" style={styles.sheetTitle}>Top up wallet</Text>
+            <Pressable
+              onPress={() => { Keyboard.dismiss(); setTopUpOpen(false); }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Done, close top-up sheet"
+            >
+              <Text variant="label" color={colors.primary}>Done</Text>
+            </Pressable>
+          </View>
+          <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.sheetSub}>
+            {balance < 0
+              ? `You owe ${formatGhs(Math.abs(balance))}. Add at least that much to go back online.`
+              : `Balance: ${formatGhs(balance)}`}
+          </Text>
+
+          <View style={styles.presetRow}>
+            {TOPUP_PRESETS_PESEWAS.map((p) => (
+              <Pressable
+                key={p}
+                style={styles.presetChip}
+                onPress={() => setTopUpAmount(String(p / 100))}
+                accessibilityRole="button"
+                accessibilityLabel={`Top up ${formatGhs(p)}`}
+              >
+                <Text variant="label" color={colors.onSurface}>{formatGhs(p)}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text variant="caption" color={colors.onSurfaceVariant} style={styles.networkLabel}>
+            MOBILE MONEY NETWORK
+          </Text>
+          <View style={styles.presetRow}>
+            {MOMO_NETWORKS.map((n) => (
+              <Pressable
+                key={n.value}
+                style={[styles.presetChip, momoNetwork === n.value && styles.presetChipActive]}
+                onPress={() => setMomoNetwork(n.value)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: momoNetwork === n.value }}
+                accessibilityLabel={n.label}
+              >
+                <Text
+                  variant="label"
+                  color={momoNetwork === n.value ? colors.onPrimary : colors.onSurfaceVariant}
+                >
+                  {n.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <KeyboardStickyView style={styles.stickyGroup}>
+            <View style={styles.amountInputWrapper}>
+              <Text style={styles.ghsPrefix}>GHS</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={topUpAmount}
+                onChangeText={setTopUpAmount}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={colors.onSurfaceVariant}
+                selectionColor={colors.primary}
+                accessibilityLabel="Top-up amount in cedis"
+              />
+            </View>
+            <Button
+              label="Add money"
+              onPress={handleTopUp}
+              disabled={topUp.isPending}
+              loading={topUp.isPending}
+              style={styles.confirmBtn}
+            />
+          </KeyboardStickyView>
+        </View>
+      </PanelSheet>
 
       {/* Withdraw sheet */}
       {/* scrollable=false: content is short and doesn't need PanelSheet's own
@@ -488,6 +680,33 @@ const makeStyles = (colors: DriverColors) =>
       letterSpacing: 1,
     },
     withdrawBtn: { alignSelf: 'flex-start' },
+    balanceActions: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'flex-start' },
+    oweNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: radii.lg,
+      backgroundColor: `${colors.error}18`,
+      borderWidth: 1,
+      borderColor: `${colors.error}44`,
+      marginBottom: spacing.md,
+    },
+    presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+    presetChip: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.outlineVariant ?? `${colors.onSurface}22`,
+      backgroundColor: colors.surfaceContainer,
+    },
+    presetChipActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    networkLabel: { letterSpacing: 1, marginBottom: spacing.sm },
     payoutLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
     periodWrapper: { paddingHorizontal: spacing['2xl'], marginBottom: spacing.lg },
     periodContainer: {

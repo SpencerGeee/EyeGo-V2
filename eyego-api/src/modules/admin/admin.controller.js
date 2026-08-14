@@ -181,6 +181,26 @@ const setSurge = async (req, res) => {
   ok(res, result);
 };
 
+/** The zone directory — see admin.service.getSurgeZones. */
+const getSurgeZones = async (req, res) => {
+  ok(res, await adminService.getSurgeZones());
+};
+
+/**
+ * Which zone a map pin falls in. Lets the console offer "surge around here"
+ * rather than making an operator round coordinates to 2dp themselves — the
+ * exact hand-rounding that produces an id the fare path never reads.
+ */
+const resolveSurgeZone = async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new (require('../../utils/errors').AppError)('lat and lng are required', 400);
+  }
+  const surge = require('../trips/surge.service');
+  ok(res, { zoneId: surge.zoneIdForCoords(lat, lng), lat, lng });
+};
+
 const registerAdminFcmToken = async (req, res) => {
   const { fcmToken } = req.body;
   if (!fcmToken) throw new (require('../../utils/errors').AppError)('fcmToken required', 400);
@@ -368,7 +388,7 @@ module.exports = {
   listAdmins, createAdmin, updateAdmin, resetAdminPassword, getAuditLogs,
   reviewDriverDocument,
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
-  getMetrics, getActiveTrips, setSurge,
+  getMetrics, getActiveTrips, setSurge, getSurgeZones, resolveSurgeZone,
   getPulseSchedules, createPulseSchedule, deletePulseSchedule,
   getTrips, getBookings, getPendingDrivers, getAllDrivers, getAllUsers,
   getDriverDetail, getDriverTrips, getTripDetail,

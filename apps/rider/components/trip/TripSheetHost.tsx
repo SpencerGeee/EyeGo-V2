@@ -5,7 +5,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { GlassSurface, MorphSheet } from '@eyego/ui';
+import { CardAuroraGlow, GlassSurface, MorphSheet } from '@eyego/ui';
 import { springs, spacing } from '@eyego/config';
 import { useColors } from '../../utils/useColors';
 import type { TripStage } from '../../stores/tripFlow.store';
@@ -36,7 +36,7 @@ import { useSheetSlots } from './sheetSlot';
  */
 const SHEET_STYLE: Record<
   TripStage,
-  { radius: number; glass: boolean; collapsed?: number }
+  { radius: number; glass: boolean; collapsed?: number; aurora?: number }
 > = {
   // The search sheet is the tallest and the most "surface"-like — glass lets
   // the ambient shader read through the empty space below its content.
@@ -46,10 +46,10 @@ const SHEET_STYLE: Record<
   // Once a ride exists the panel carries money and identity: solid, so nothing
   // behind it competes with a fare or a plate number.
   request: { radius: 28, glass: false },
-  assigned: { radius: 28, glass: false, collapsed: 0.44 },
+  assigned: { radius: 28, glass: false, collapsed: 0.44, aurora: 0.13 },
   // Less than `assigned`: the map earns more room once the rider is moving
   // through it rather than waiting at a kerb.
-  tracking: { radius: 28, glass: false, collapsed: 0.34 },
+  tracking: { radius: 28, glass: false, collapsed: 0.34, aurora: 0.15 },
 };
 
 export interface TripSheetHostProps {
@@ -83,12 +83,44 @@ export function TripSheetHost({ current, previous, retired = false }: TripSheetH
   const incomingStyle = useAnimatedStyle(() => ({ opacity: swap.value }));
   const ghostStyle = useAnimatedStyle(() => ({ opacity: 1 - swap.value }));
 
+  /**
+   * THE SHEET'S OWN FILL — glass, and the green wash where a stage asks for one.
+   *
+   * BUGFIX ("on the rider tracking page there's this visible cut on the left and
+   * right of the card down there — it was clipping the left and right").
+   *
+   * The aurora used to be rendered by TrackingStage, inside the panel body. That
+   * body sits inside `styles.body` below, which carries `paddingHorizontal:
+   * spacing['2xl']` — and in React Native an `absoluteFill` child is laid out
+   * against its parent's PADDING box, not its border box. So the glow was a
+   * rectangle inset ~32 pt from each edge of a full-width sheet, and because a
+   * radial gradient painted into a rect stops dead at the rect's edge, it left
+   * two hard vertical seams running up the card. Exactly the reported cut.
+   *
+   * `background` is rendered by MorphSheet directly inside the sheet body,
+   * BEFORE the padding is applied to anything, so the wash now reaches the real
+   * edges and is clipped only by the sheet's own rounded corners
+   * (`overflow: 'hidden'`). It also belongs here on the merits: the light is a
+   * property of the surface, not of whichever panel is currently inside it,
+   * which is why it now survives a stage change instead of unmounting and
+   * repainting with the content.
+   */
   const background = useMemo(
-    () =>
-      chrome.glass ? (
-        <GlassSurface style={StyleSheet.absoluteFill} borderRadius={chrome.radius} intensity="low" />
-      ) : null,
-    [chrome.glass, chrome.radius],
+    () => (
+      <>
+        {chrome.glass ? (
+          <GlassSurface
+            style={StyleSheet.absoluteFill}
+            borderRadius={chrome.radius}
+            intensity="low"
+          />
+        ) : null}
+        {chrome.aurora != null ? (
+          <CardAuroraGlow color={colors.primary} intensity={chrome.aurora} reach={0.5} />
+        ) : null}
+      </>
+    ),
+    [chrome.glass, chrome.radius, chrome.aurora, colors.primary],
   );
 
   if (retired || currentNode == null) return null;

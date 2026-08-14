@@ -28,6 +28,10 @@ router.post('/dev-activate', controller.devActivate);
 // Online/offline
 router.post('/go-online', requireActiveDriver, controller.goOnline);
 router.post('/go-offline', controller.goOffline);
+// Presence over HTTP — the non-socket path into the dispatch pool. Beat this
+// from the driver app whenever the websocket is not connected; see
+// drivers.service.recordPresence.
+router.post('/presence', requireActiveDriver, controller.presence);
 
 // Performance & ratings
 router.get('/performance', controller.getPerformance);

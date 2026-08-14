@@ -6,7 +6,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
-import { fonts, fontSizes, radii, spacing, withOpacity , MAX_SEATS_PER_BOOKING } from '@eyego/config';
+import { fonts, fontSizes, radii, withOpacity } from '@eyego/config';
 import {
   Text,
   // NOT react-native's Pressable. NativeWind is configured with
@@ -24,12 +24,11 @@ import {
   MorphTarget,
   useMorph,
   MorphBackSwipeDetector,
-  AppBackground,
+
   GlassSurface,
   GradientGlowBorder,
 } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
-import { useThemeStore } from '../../../stores/theme.store';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { useRecentPlaces } from '../../../stores/recentPlaces.store';
@@ -138,7 +137,6 @@ const AT_PLACE_RADIUS_M = 250;
 
 function SearchStageImpl() {
   const colors = useColors();
-  const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -153,12 +151,11 @@ function SearchStageImpl() {
   );
   const fieldTextWidth = Math.max(60, fieldColWidth - FIELD_CHROME_W);
 
-  const { origin, setOrigin, setDestination, setRequestSeats } = useRideStore();
+  const { origin, setOrigin, setDestination } = useRideStore();
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
   const setSearchPlace = useTripFlow((s) => s.setSearchPlace);
   const goStage = useTripFlow((s) => s.go);
-  const [orderSeats, setOrderSeats] = useState(1);
   // The container-transform source that opened this surface. Home's search
   // pill uses 'where-to-pill'; services cards pass their own id so each
   // morphs from its own card. Falls back to the pill id for deep links.
@@ -285,29 +282,30 @@ function SearchStageImpl() {
     });
   }, [selectedPlace, origin, setOrigin, commitPlace]);
 
-  // Destination is confirmed by the picker, so there is no "find rides" browse
-  // step — go straight to the driver-matching/dispatch stage.
-  // Steps 1-2 end here. Rather than dispatching immediately, this hands over to
-  // ConfigureStage for ride type, seats/extras and a review — the paged shape
-  // the driver's create-trip flow already has. The seat count set on this card
-  // is carried forward as the flow's starting value.
+  /**
+   * Steps 1-2 end here — the two ends of the journey — and hand over to
+   * ConfigureStage for ride type, seats/extras and the review.
+   *
+   * Neither handler commits a seat count any more. This card used to carry a
+   * stepper and push its value into the ride store on the way out, so the
+   * seats-and-extras screen opened pre-answered by a control the rider had
+   * already forgotten about, and a rider who tapped Schedule instead skipped
+   * ConfigureStage entirely and departed on whatever the stepper happened to
+   * say. The store's own default (1) is the honest starting point; the screen
+   * that shows the price is the screen that asks.
+   */
   const handleOrderRide = useCallback(() => {
     haptic.medium();
-    setRequestSeats(orderSeats, true);
     goStage('configure');
-  }, [goStage, orderSeats, setRequestSeats]);
+  }, [goStage]);
 
-  // Same choice, later departure. Everything the rider set up here — pickup,
-  // destination, seat count — already lives in the ride/tripFlow stores, and
-  // the schedule screen seeds itself from them, so the only thing to do before
-  // navigating is commit the seat stepper (Order Ride does this too; the
-  // Schedule button used to skip it and drop the rider on an empty form).
+  // Same choice, later departure. Pickup and destination already live in the
+  // ride store and the schedule screen seeds itself from them.
   const handleSchedule = useCallback(() => {
     haptic.light();
-    setRequestSeats(orderSeats, true);
     expectTripSurfaceReturn();
     router.push('/ride/schedule' as any);
-  }, [orderSeats, setRequestSeats, router]);
+  }, [router]);
 
   // Reverse the container-transform back into the home pill. The route uses
   // animation 'none', so morphBack owns the entire exit choreography.
@@ -429,7 +427,12 @@ function SearchStageImpl() {
    */
   return (
     <View style={styles.screen}>
-      <AppBackground variant="static" isDark={isDark} />
+      {/* NO <AppBackground /> HERE ANY MORE. The app's ambient shader is already
+          behind this surface — `/trip` is a transparentModal over the root
+          AppBackground in app/_layout.tsx — so this mounted a SECOND Skia canvas
+          purely to paint over the first one. During the morph in from home that
+          canvas was competing with the very animation it was supposed to be the
+          backdrop for. See the note at the top of app/trip.tsx. */}
 
       {/* Header */}
       <View style={[styles.headerRow, { paddingTop: insets.top + 12 }]}>
@@ -585,34 +588,22 @@ function SearchStageImpl() {
                 </View>
               </GradientGlowBorder>
 
-              {/* Seats + CTAs, once a destination is confirmed */}
+              {/*
+                CTAs, once a destination is confirmed.
+
+                NO SEAT STEPPER. This card used to carry one, and the very next
+                screen — "Seats & extras", step 3 of the same five-step flow —
+                asks the same question again with more context (it knows the
+                tier, the vehicle's capacity and the per-seat price by then).
+                Asking twice is not a safety net; it is two controls that can
+                disagree, and the rider has to work out which one counted.
+
+                This screen's job is the two ends of the journey. Where the ride
+                is going, and when. Seats belong where the price is.
+              */}
               {selectedPlace && (
                 <>
                   <View style={styles.divider} />
-                  <View style={styles.seatPickerRow}>
-                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>Seats</Text>
-                    <View style={styles.seatStepper}>
-                      <Pressable
-                        style={styles.seatStepperBtn}
-                        onPress={() => setOrderSeats((n) => Math.max(1, n - 1))}
-                        accessibilityRole="button"
-                        accessibilityLabel="Decrease seat count"
-                        hitSlop={8}
-                      >
-                        <Ionicons name="remove" size={16} color={colors.onSurface} />
-                      </Pressable>
-                      <Text variant="labelLarge" style={{ minWidth: 24, textAlign: 'center' }}>{orderSeats}</Text>
-                      <Pressable
-                        style={styles.seatStepperBtn}
-                        onPress={() => setOrderSeats((n) => Math.min(MAX_SEATS_PER_BOOKING, n + 1))}
-                        accessibilityRole="button"
-                        accessibilityLabel="Increase seat count"
-                        hitSlop={8}
-                      >
-                        <Ionicons name="add" size={16} color={colors.onSurface} />
-                      </Pressable>
-                    </View>
-                  </View>
                   <View style={styles.ctaRow}>
                     <Pressable
                       style={styles.ctaPrimary}
@@ -785,15 +776,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     zIndex: 10,
   },
 
-  /** The stage, full-bleed. `AppBackground` paints it; nothing shows through.
-   *  `flex: 1` is safe HERE — this is the stage root and its parent is the
-   *  absolutely-positioned stage container, which has a definite size. The
-   *  layout contract at the top of this file applies to everything BELOW. */
+  /** The stage, full-bleed and TRANSPARENT — the root `AppBackground` is what
+   *  the rider sees through it, and the trip surface deliberately does not
+   *  mount a map on this stage (see MAP_STAGES in app/trip.tsx), so there is
+   *  nothing behind this that needs covering. It was `colors.background`, an
+   *  opaque fill whose only job was hiding a map and a shader that should not
+   *  have been running here in the first place. */
   screen: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
     zIndex: 10,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
 
   /** The two location rows as one unit, inside the glow ring.
@@ -836,10 +829,25 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   /** Connector + swap on one line, so the swap sits ON the journey line rather
    *  than beside it the way the old right-hand column did. */
+  /**
+   * Tall enough to HOLD the swap button.
+   *
+   * BUGFIX ("the swap button on the where-to field is literally overlapping the
+   * WHERE TO text"). This row was 22 pt tall (`ROW_STACK_GAP + 14`) and the
+   * button inside it is 38 pt, so the button already overflowed by 16 pt before
+   * anything else went wrong — and then `swapBtn` added a 47 pt `marginTop`
+   * (see there), pushing a 38 pt circle 47 pt down inside a 22 pt box. It
+   * landed squarely on the destination row's label.
+   *
+   * The row now sizes to the control it contains, and `alignItems: 'center'`
+   * does the centring that the margin was hand-computing. The rows sit 4 pt
+   * further apart than before, which is the honest cost of putting a 38 pt
+   * button between them.
+   */
   connectorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: ROW_STACK_GAP + 14,
+    height: SWAP_W + 4,
     paddingHorizontal: FIELD_PAD_H,
     gap: 12,
   },
@@ -1064,9 +1072,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.rimLight,
     alignItems: 'center',
     justifyContent: 'center',
-    // Vertically centred against the two-row column, computed rather than
-    // flexed for the same reason as everything else here.
-    marginTop: (COL_H - SWAP_W) / 2,
+    /*
+     * NO marginTop. It was `(COL_H - SWAP_W) / 2` — 47 pt — from back when the
+     * swap lived in a right-hand column spanning BOTH field rows and had to be
+     * pushed down to their shared centre. It now sits in `connectorRow`,
+     * between the two rows, where its own parent centres it; the leftover
+     * margin was pure downward displacement onto the destination row.
+     */
     flexShrink: 0,
   },
   swapBtnDisabled: { opacity: 0.4 },
@@ -1188,28 +1200,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   // ─── CTAs ─────────────────────────────────────────────
-  seatPickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    paddingBottom: 10,
-  },
-  seatStepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  seatStepperBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surfaceContainerHigh,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-  },
+  // The seat stepper's styles went with the stepper — see the render site for
+  // why this screen no longer asks a question the price screen asks better.
   ctaRow: {
     flexDirection: 'row',
     gap: 10,

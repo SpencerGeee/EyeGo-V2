@@ -1,4 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
+// Every failed request leaves this file wearing a message a rider can read.
+// See `humanize` at the bottom of the interceptor chain.
+import { describeError, looksMachineWritten } from '@eyego/utils';
 
 /**
  * Resolve the API base URL at runtime.
@@ -228,7 +231,7 @@ apiClient.interceptors.response.use(
             onLogout();
           }
         }
-        return Promise.reject(error);
+        return Promise.reject(humanize(error));
       }
     }
 
@@ -291,6 +294,61 @@ apiClient.interceptors.response.use(
       return apiClient(original);
     }
 
-    return Promise.reject(error);
+    return Promise.reject(humanize(error));
   }
 );
+
+/**
+ * THE LAST THING THAT HAPPENS TO A FAILED REQUEST.
+ *
+ * Both apps are full of `Alert.alert('Error', (err as Error).message)` and
+ * `err?.response?.data?.message ?? err.message ?? '…'` — around forty sites.
+ * Every one of them is correct right up to the moment the server does not
+ * answer in prose, at which point the rider is shown "Request failed with
+ * status code 409" or "Network Error". That is the whole of bug report #9, and
+ * patching forty call sites would leave the forty-first.
+ *
+ * So the fix is here, once: by the time an error escapes this interceptor its
+ * `message` is already the sentence we want a human to read. Existing call
+ * sites need no change and new ones cannot get it wrong by accident.
+ *
+ * Nothing is lost. The original string moves to `technicalMessage`, and the
+ * structured form lands on `friendly` for callers that want the title, the
+ * code, or `retryable` — see `describeError` in @eyego/utils.
+ */
+function humanize(error: any): any {
+  try {
+    if (!error || error.__humanized) return error;
+    const friendly = describeError(error);
+    // Keep the raw string reachable for logs and crash reporting.
+    error.technicalMessage = typeof error.message === 'string' ? error.message : null;
+    error.friendly = friendly;
+    error.message = friendly.message;
+    error.userTitle = friendly.title;
+    error.retryable = friendly.retryable;
+    error.__humanized = true;
+
+    /**
+     * The other half of the same problem. Many call sites read
+     * `err.response.data.message` FIRST and only fall back to `err.message`, so
+     * fixing `err.message` alone leaves them showing whatever the server sent.
+     *
+     * Server copy is usually prose (AppError messages are written for riders)
+     * and is left exactly as it is — it is more specific than anything we could
+     * substitute. It is replaced ONLY when it reads as machine output: a bare
+     * SCREAMING_SNAKE code, a Prisma message, a serialized payload. The raw
+     * value is preserved next to it.
+     */
+    const data = error.response?.data;
+    if (data && typeof data === 'object') {
+      const serverMsg = data.message ?? data.error;
+      if (typeof serverMsg === 'string' && looksMachineWritten(serverMsg)) {
+        data.technicalMessage = serverMsg;
+        data.message = friendly.message;
+      }
+    }
+  } catch {
+    // Never let the thing that formats an error become an error.
+  }
+  return error;
+}

@@ -185,6 +185,20 @@ export interface UpcomingScheduledTrip {
   pickupLng: number;
 }
 
+/**
+ * The three networks Paystack Ghana settles mobile money through, named on the
+ * wire exactly as `paystack.client.js` maps them (MOMO_TELECEL is the network
+ * formerly branded Vodafone). Shared so the top-up picker and the payout-account
+ * form cannot offer different sets.
+ */
+export type MomoNetwork = 'MOMO_MTN' | 'MOMO_TELECEL' | 'MOMO_AIRTELTIGO';
+
+export const MOMO_NETWORKS: ReadonlyArray<{ value: MomoNetwork; label: string }> = [
+  { value: 'MOMO_MTN', label: 'MTN MoMo' },
+  { value: 'MOMO_TELECEL', label: 'Telecel Cash' },
+  { value: 'MOMO_AIRTELTIGO', label: 'AirtelTigo Money' },
+];
+
 export const driverApi = {
   // Profile
   getMe: () =>
@@ -393,7 +407,9 @@ export const driverApi = {
   // walletApi (which targets /wallet/*) made withdraw 404 and earnings read the
   // wrong (rider) ledger.
   getWalletBalance: () =>
-    apiClient.get<ApiResponse<{ balance: number }>>('/driver/wallet/balance'),
+    apiClient.get<ApiResponse<{ balancePesewas: number; currency: string; lastUpdated: string }>>(
+      '/driver/wallet/balance',
+    ),
 
   getWalletTransactions: (params?: { page?: number; limit?: number }) =>
     apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amountPesewas: number; description: string; createdAt: string }> }>>(
@@ -411,6 +427,36 @@ export const driverApi = {
 
   withdraw: (data: { amountPesewas: number }) =>
     apiClient.post<ApiResponse<{ reference: string; message: string }>>('/driver/wallet/withdraw', data),
+
+  /**
+   * Put money IN. There was no client for this, so a driver whose wallet went
+   * negative (commission owed on cash fares) had no way back above zero and
+   * `goOnline` refused them forever with "Account suspended — top up your
+   * wallet", pointing at a screen that had no top-up on it.
+   *
+   * `simulated: true` in the response means no payment gateway is configured
+   * and the balance was credited immediately — see env.PAYMENTS_SIMULATED. The
+   * caller must SAY so rather than claiming a MoMo prompt is coming.
+   *
+   * Idempotency-Key is per attempt: a retried request never double-credits, a
+   * deliberate second top-up always does.
+   */
+  topUp: (data: { amountPesewas: number; method?: MomoNetwork }, idempotencyKey?: string) =>
+    apiClient.post<
+      ApiResponse<{
+        reference: string;
+        simulated: boolean;
+        status?: string;
+        balancePesewas?: number;
+        message?: string;
+        authorizationUrl?: string;
+      }>
+    >('/driver/wallet/topup', data, {
+      headers: {
+        'Idempotency-Key':
+          idempotencyKey ?? `topup_${Date.now()}_${Math.floor(Math.random() * 1e9).toString(36)}`,
+      },
+    }),
 
   // Support tickets — backend already had /driver/support-tickets wired
   // (drivers.routes.js) but no client ever called it; the driver app's help
