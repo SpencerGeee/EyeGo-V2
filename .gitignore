@@ -62,3 +62,9 @@ next-env.d.ts
 
 # Credentials for the local/VPS Postgres + Redis containers (docker-compose.yml).
 .env.docker
+
+# Database dumps. These contain real user data (names, phone numbers, trips)
+# and must never reach the repository.
+backups/
+*.dump
+eyego-api/.env.neon-backup

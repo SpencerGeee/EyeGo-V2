@@ -15,7 +15,13 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # 18, NOT 16 — matched to what Neon actually runs (`SHOW server_version`
+    # answers 18.4). This is not cosmetic: pg_dump refuses to dump a server
+    # newer than itself, so a 16 client against Neon aborts with a version
+    # error, and an 18 dump will not restore into a 16 server either. Pinning
+    # the major version to the source is what makes the migration a copy rather
+    # than a debugging session.
+    image: postgres:18-alpine
     container_name: eyego-postgres
     restart: unless-stopped
     environment:
