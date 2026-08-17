@@ -127,7 +127,20 @@ for (;;) {
   }
   if (pg === 'healthy' && rd === 'healthy') break;
   if (Date.now() > deadline) {
-    die('Containers did not become healthy in 2 minutes. Check `docker compose logs`.');
+    // Print the logs rather than naming the command that would print them. A
+    // container that refuses to start always says why on its own stdout, and
+    // making the operator go and fetch that separately is how a one-line cause
+    // turns into an afternoon.
+    for (const [name, status] of [['eyego-postgres', pg], ['eyego-redis', rd]]) {
+      if (status === 'healthy') continue;
+      console.error(`\n\x1b[33m─ ${name} (${status || 'not running'}) ─\x1b[0m`);
+      try {
+        sh(`docker logs --tail 30 ${name}`, { stdio: 'inherit' });
+      } catch {
+        /* container never existed */
+      }
+    }
+    die('Containers did not become healthy in 2 minutes. The cause is in the log above.');
   }
   sleep(2000);
 }

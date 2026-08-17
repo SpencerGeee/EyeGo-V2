@@ -37,8 +37,15 @@ services:
     # ─────────────────────────────────────────────────────────────────────────
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    # /var/lib/postgresql, NOT /var/lib/postgresql/data. 18 moved the data
+    # directory to a major-version-specific path (/var/lib/postgresql/18/docker)
+    # and the entrypoint aborts on startup if it finds anything mounted at the
+    # old location — it cannot tell an empty mount from a 17 cluster somebody
+    # forgot to pg_upgrade. Mounting the parent is the layout the image
+    # documents for 18+, and it is what makes `pg_upgrade --link` possible later
+    # without the two versions straddling a mount boundary.
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata18:/var/lib/postgresql
     command: >
       postgres
       -c shared_buffers=512MB
@@ -88,5 +95,11 @@ volumes:
   # down -v` deletes it, and copying the repo does NOT copy it. That is correct
   # — production should start from migrations and seeds, not from a laptop's
   # test rows.
-  pgdata:
+  # pgdata18, not pgdata: a volume is only seeded from the image when it is
+  # empty, so the volume the old /var/lib/postgresql/data mount created still
+  # contains that directory and would re-trigger the 18 startup abort if it were
+  # reused at the parent path. The name carries the major version for the same
+  # reason the image's directory does — the next major upgrade gets its own
+  # volume and a way back.
+  pgdata18:
   redisdata:
