@@ -32,6 +32,12 @@ module.exports = () => {
   const googleServicesInfoPath = path.join(__dirname, 'GoogleService-Info.plist');
   const hasGoogleServicesInfo = fs.existsSync(googleServicesInfoPath);
 
+  // KEEP googleServicesFile OUT OF app.json. Both keys below are spread from
+  // app.json first and only conditionally re-added, so a value written there
+  // survives the existsSync check and prebuild dies copying a file that is not
+  // in the repo — which is what happens on a CI runner, since both files are
+  // gitignored. This is the single place either path may be named.
+
   // Maps run entirely on @maplibre/maplibre-react-native v11 + OpenFreeMap
   // tiles (see @eyego/maps) — free, keyless, no Google Maps API key/Cloud
   // Billing account needed on either platform.

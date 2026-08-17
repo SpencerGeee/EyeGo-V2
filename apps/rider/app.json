@@ -24,7 +24,6 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.eyego.rider",
-      "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
         "aps-environment": "production"
       },
@@ -48,7 +47,6 @@
         "backgroundColor": "#0A0A0B"
       },
       "package": "com.eyego.rider",
-      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "intentFilters": [
         {

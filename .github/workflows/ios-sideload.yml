@@ -88,6 +88,36 @@ jobs:
           sed -i '' 's/#    define SENTRY_PROFILING_ENABLED 1/#    define SENTRY_PROFILING_ENABLED 0/' \
             node_modules/@sentry/react-native/ios/RNSentry.mm
 
+      # GoogleService-Info.plist is gitignored, so it is not on the runner and
+      # app.config.js simply leaves Firebase out — the build succeeds and push
+      # notifications no-op. If you want FCM working in the sideloaded build,
+      # add the file as a base64 repository secret and this step restores it:
+      #
+      #   base64 -i apps/rider/GoogleService-Info.plist | pbcopy      (macOS)
+      #   certutil -encode GoogleService-Info.plist tmp.b64           (Windows)
+      #
+      # → Settings → Secrets and variables → Actions → New repository secret
+      #   GOOGLE_SERVICE_INFO_PLIST_RIDER / GOOGLE_SERVICE_INFO_PLIST_DRIVER
+      #
+      # It is a secret rather than a committed file only because this repo is
+      # public. The plist ships inside every copy of the app, so it is not
+      # confidential — but publishing the API key invites quota abuse, and it
+      # should be restricted by bundle ID in the Google Cloud console either way.
+      - name: Restore GoogleService-Info.plist (optional)
+        working-directory: apps/${{ inputs.app }}
+        env:
+          PLIST_B64: ${{ inputs.app == 'driver' && secrets.GOOGLE_SERVICE_INFO_PLIST_DRIVER || secrets.GOOGLE_SERVICE_INFO_PLIST_RIDER }}
+        run: |
+          if [ -z "$PLIST_B64" ]; then
+            echo "No plist secret set — building without Firebase. Push notifications will not work in this build."
+            exit 0
+          fi
+          printf '%s' "$PLIST_B64" | base64 --decode > GoogleService-Info.plist
+          # Fail loudly rather than shipping a build whose Firebase is silently
+          # half-configured: a truncated or mis-pasted secret decodes to garbage.
+          plutil -lint GoogleService-Info.plist
+          echo "Restored GoogleService-Info.plist ($(wc -c < GoogleService-Info.plist) bytes)"
+
       - name: Generate native iOS project (prebuild)
         working-directory: apps/${{ inputs.app }}
         run: npx expo prebuild --platform ios --clean

@@ -24,7 +24,6 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.eyego.driver",
-      "googleServicesFile": "./GoogleService-Info.plist",
       "entitlements": {
         "aps-environment": "production"
       },
@@ -44,7 +43,6 @@
         "backgroundColor": "#0e151a"
       },
       "package": "com.eyego.driver",
-      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
