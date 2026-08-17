@@ -211,15 +211,36 @@ export default function CreateTripScreen() {
     select: (r) => {
       const d = (r.data as any).data?.driver ?? (r.data as any).data;
       const vehicle = d?.vehicles?.find((v: any) => v.isActive) ?? d?.vehicles?.[0];
-      return vehicle?.seaterCount ?? 14;
+      // `null`, not 14. See the note on `seatCap` below: an optimistic default
+      // is how the stepper offered seats the vehicle cannot hold.
+      return typeof vehicle?.seaterCount === 'number' ? vehicle.seaterCount : null;
     },
     staleTime: 60_000,
   });
-  const seatCap = maxVehicleSeats ?? 14;
+  /**
+   * WHAT THE VEHICLE CAN HOLD — AND NOTHING UNTIL WE KNOW IT.
+   *
+   * BUGFIX ("i chose 14 seats but the tracking page shows 12"). The fallback here
+   * was `?? 14`, which applies both while `getMe` is in flight AND permanently
+   * for a driver whose vehicle row has no `seaterCount` (or who has no ACTIVE
+   * vehicle for the `find` to match). In those cases the stepper let the driver
+   * choose 14, the server compared it against the real capacity, and the trip was
+   * published with the vehicle's number instead. The number the driver picked
+   * never existed anywhere.
+   *
+   * While the answer is still in flight the stepper keeps its default and simply
+   * cannot be advanced past it — clamping to a guess in either direction would
+   * either offer seats that do not exist or silently shrink a choice the driver
+   * had already made. The seat step also refuses to proceed until the real number
+   * has landed, and the server now rejects an over-capacity request outright, so
+   * the two ends cannot disagree.
+   */
+  const capacityKnown = typeof maxVehicleSeats === 'number';
+  const seatCap = capacityKnown ? maxVehicleSeats : seats;
 
   useEffect(() => {
-    if (seats > seatCap) setSeats(seatCap);
-  }, [seatCap, seats]);
+    if (capacityKnown && seats > seatCap) setSeats(seatCap);
+  }, [capacityKnown, seatCap, seats]);
 
   const publishTrip = useMutation({
     mutationFn: () =>
@@ -273,7 +294,10 @@ export default function CreateTripScreen() {
   const canProceed = () => {
     if (step === 1) return !!origin && !!destination;
     if (step === 2) return departureTime > new Date();
-    if (step === 3) return seats >= 1 && seats <= seatCap;
+    // `capacityKnown`: publishing a seat count we could not check against the
+    // vehicle is what produced a trip whose capacity disagreed with the driver's
+    // own choice. The server would now reject it anyway — better to hold here.
+    if (step === 3) return capacityKnown && seats >= 1 && seats <= seatCap;
     return true;
   };
 
@@ -457,7 +481,10 @@ export default function CreateTripScreen() {
           <Entrance key="step3" animation="slideRight">
             <Text style={styles.stepTitle}>Available Seats</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.stepDesc}>
-              How many passenger seats are available? (your vehicle seats {seatCap})
+              How many passenger seats are available?{' '}
+              {capacityKnown
+                ? `(your vehicle seats ${seatCap})`
+                : '(checking your vehicle’s capacity…)'}
             </Text>
             <View style={styles.seatsCard}>
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />

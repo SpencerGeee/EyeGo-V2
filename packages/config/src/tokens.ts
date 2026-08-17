@@ -85,6 +85,16 @@ export const colors = {
   // warm-orange duo reads as a crisp orbiting light against Onyx black in a
   // way the green/blue brand pair washes into a flat wash at ring-thickness.
   premiumRingDark: '#0A0A0C',
+  /**
+   * The dead segments of a GradientGlowBorder's conic sweep.
+   *
+   * The palettes in `RING_PALETTES` author these as '#0A0A0C' inline, which is
+   * correct here and wrong on any light surface — a near-black band around a
+   * white card is the "overshot glow border" a light theme ends up with. A theme
+   * overrides this token with its own surface colour and the ring's gaps become
+   * the card; dark themes leave it as the black the palettes were drawn against.
+   */
+  ringGap: '#0A0A0C',
   premiumBlue: '#3D7EFF',
   premiumBlueDim: '#0A56FF',
   premiumBlueBright: '#9CC5FF',
@@ -232,6 +242,8 @@ export const driverColors: DriverColorTokens = {
   glowError: 'rgba(248, 113, 113, 0.4)',
 
   premiumRingDark: '#050C16',
+  // Dark theme — the ring gaps stay the black the palettes were authored against.
+  ringGap: '#0A0A0C',
   premiumBlue: '#3D7EFF',
   premiumBlueDim: '#0A56FF',
   premiumBlueBright: '#9CC5FF',
@@ -314,6 +326,8 @@ export const driverLightColors: DriverColorTokens = {
   glowError: 'rgba(220, 38, 38, 0.25)',
 
   premiumRingDark: '#F1F5F9',
+  // Driver light theme — the ring's dead segments become the card, not black.
+  ringGap: '#FFFFFF',
   premiumBlue: '#2563EB',
   premiumBlueDim: '#1D4ED8',
   premiumBlueBright: '#93C5FD',

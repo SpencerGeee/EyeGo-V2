@@ -362,6 +362,22 @@ export default function TripScreen() {
     return () => task.cancel();
   }, [mapNeededNow, mapMounted]);
 
+  /**
+   * The map's visibility, crossfaded on the SAME spring as the stage swap.
+   *
+   * Driven off `rendered` rather than `stage` so it moves with the outgoing and
+   * incoming panels instead of snapping a frame ahead of them. When the previous
+   * stage also drew no map the fade has nothing to do and both ends are 0.
+   */
+  const currentStageDrawsMap = MAP_STAGES.includes(rendered.current);
+  const previousStageDrawsMap =
+    rendered.previous == null ? currentStageDrawsMap : MAP_STAGES.includes(rendered.previous);
+  const mapVeilStyle = useAnimatedStyle(() => {
+    const from = previousStageDrawsMap ? 1 : 0;
+    const to = currentStageDrawsMap ? 1 : 0;
+    return { opacity: from + (to - from) * progress.value };
+  }, [currentStageDrawsMap, previousStageDrawsMap]);
+
   const incomingStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
     transform: [{ translateY: (1 - progress.value) * 16 }],
@@ -438,7 +454,38 @@ export default function TripScreen() {
           MAP_STAGES for why it is not mounted before that, and `surfaceRetired`
           for why it must go at the end: past that point this view is not a map
           any more, it is the home screen's background. */}
-      {!surfaceRetired && mapMounted && <TripMap />}
+      {/*
+        THE MAP IS HIDDEN ON THE STAGES THAT ARE NOT ABOUT THE MAP.
+
+        BUGFIX ("the search stage has the map as its background and it's
+        confusing — the content isn't legible; replace it with the Skia
+        background like the driver's create-trip flow").
+
+        `MAP_STAGES` already says search and configure draw no map, and the
+        mount is deliberately ONE-WAY (see the note there: a map torn down and
+        rebuilt mid-ride is worse than an idle one). Those two facts contradict
+        each other the moment a rider steps BACKWARD — select → search to change
+        the destination, or any bounce through configure, which is also the map's
+        warm-up stage. From then on the map is mounted, the stages above it are
+        transparent by design, and the search card is floating over live
+        satellite-bright map tiles with no backdrop of its own.
+
+        Fading the map's own layer, rather than painting an opaque veil over it,
+        is what keeps this cheap: the `AppBackground` shader is ALREADY mounted
+        directly underneath, so hiding the map reveals it. A veil would need a
+        second full-screen Skia canvas to look the same, and stacked canvases are
+        the documented way this app cooks a phone.
+      */}
+      {!surfaceRetired && mapMounted && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, mapVeilStyle]}
+          // An invisible map must not eat the pan that belongs to the card
+          // sitting on it.
+          pointerEvents={currentStageDrawsMap ? 'auto' : 'none'}
+        >
+          <TripMap />
+        </Animated.View>
+      )}
       <LinearGradient
         colors={scrimColors as unknown as readonly [string, string, ...string[]]}
         // Weighted toward the top so the fade is imperceptible rather than a

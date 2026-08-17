@@ -16,6 +16,8 @@ export type SosEvent = {
   userId: string;
   lat?: number | null;
   lng?: number | null;
+  /** Reverse-geocoded place name for lat/lng. Null when it could not be resolved. */
+  address?: string | null;
   resolvedAt?: string | null;
   createdAt: string;
   reporter?: { role: string; id: string; name: string; phone: string };
@@ -149,17 +151,35 @@ export function SosList({
 
                   {e.lat && e.lng ? (
                     <a
-                      // Opens in whatever map app the operator has. Coordinates are
-                      // shown too, so they can be read aloud to emergency services.
+                      // Opens in whatever map app the operator has.
                       href={`https://www.google.com/maps/search/?api=1&query=${e.lat},${e.lng}`}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 text-accent hover:underline"
+                      // The coordinates are what gets read aloud to emergency
+                      // services, so they stay one hover away rather than gone.
+                      title={`${e.lat.toFixed(5)}, ${e.lng.toFixed(5)}`}
                     >
                       <Icon name="pin" size={12} />
-                      <span className="mono">
-                        {e.lat.toFixed(5)}, {e.lng.toFixed(5)}
-                      </span>
+                      {/*
+                        THE PLACE, NOT THE NUMBERS.
+
+                        BUGFIX ("on the admin side the sos is showing coordinates
+                        instead of the actual location"). "5.62890, -0.17084" does
+                        not tell an operator on a live safety call whether that is
+                        a motorway shoulder or a market, and working it out means
+                        leaving the console. The server now reverse-geocodes each
+                        event (`address`), and the coordinate pair falls back in
+                        only when it genuinely could not be resolved — where it is
+                        the honest answer rather than a stand-in for one.
+                      */}
+                      {e.address ? (
+                        <span>{e.address}</span>
+                      ) : (
+                        <span className="mono">
+                          {e.lat.toFixed(5)}, {e.lng.toFixed(5)}
+                        </span>
+                      )}
                       <Icon name="external" size={11} />
                     </a>
                   ) : (

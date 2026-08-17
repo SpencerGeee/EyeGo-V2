@@ -77,6 +77,9 @@ export const darkColors = {
   glowSecondary: 'rgba(5, 102, 217, 0.4)',
   glowError: 'rgba(255, 180, 171, 0.4)',
 
+  /** The "off" arc of a GradientGlowBorder sweep — see the light-mode note. */
+  ringGap: '#0A0A0C',
+
   // Premium glow accent — reserved for GradientGlowBorder-driven surfaces
   // (glow search bar, glow CTA, premium ride card ring).
   premiumRingDark: '#0A0A0C',
@@ -88,22 +91,57 @@ export const darkColors = {
   premiumOrangeBright: '#FFC59C',
 } as const;
 
+/**
+ * LIGHT MODE IS THE DARK COMPOSITION WITH THE GROUND INVERTED — NOT A WASH.
+ *
+ * BUGFIX ("the light mode is completely done wrong… the glass cards can barely
+ * be seen and the white isn't even a clearer shade of white, it's more like a
+ * tint of it").
+ *
+ * The old palette read as a tint for a structural reason, not a taste one. In
+ * DARK mode a card is LIGHTER than the page it sits on (#161618 on #0A0A0B), so
+ * elevation is a step towards the light and the eye reads it instantly. The
+ * light palette copied that direction and inverted only the numbers: page
+ * #FFFFFF, card #F7F7F8 — a 3% step, in the WRONG direction, on the brightest
+ * surface a phone can show. Every card was a faintly grey rectangle on white,
+ * and the ambient wave laid a further green film over all of it, which is the
+ * "tint" in the report.
+ *
+ * So the direction is flipped to match how light surfaces actually work:
+ *
+ *   - CARDS ARE PURE WHITE. `surfaceCard` is the cleanest white in the palette,
+ *     and it is the page that carries the tone — exactly the inverse of dark
+ *     mode, and the reason a white card reads as lifted rather than as a smudge.
+ *   - The elevation ladder now steps DOWN from white in perceptible increments
+ *     (~4–6% per step, versus the old ~3% total across four steps), so
+ *     `surfaceContainerHigh` is a different colour from `surfaceCard` rather
+ *     than a rounding error.
+ *   - Rims and outlines are roughly 40% stronger. On a dark surface a card edge
+ *     is carried by its own brightness; on a light one nothing but the edge
+ *     itself separates two whites, so the edge has to be able to be seen.
+ *
+ * `backgroundDeep` stays pure white on purpose: it is what the Skia wave
+ * composites ONTO (see AppBackground's `baseColor`), and that is what turns the
+ * shader's black valleys white while keeping its green crests — the inversion
+ * the brief actually asks for.
+ */
 export const lightColors = {
-  // Backgrounds — pure white with neutral gray elevation steps (no green tint)
+  // Backgrounds — white ground, white cards, tone in the steps between them.
   backgroundDeep: '#FFFFFF',
   background: '#FFFFFF',
-  surfaceDim: '#F7F7F8',
-  surfaceCard: '#F7F7F8',
-  surfaceContainer: '#EFEFF1',
-  surfaceContainerHigh: '#E7E7EA',
-  surfaceContainerHighest: '#DEDEE2',
-  surfaceVariant: '#DEDEE2',
-  surfaceBright: '#F2F2F4',
-  surfaceInput: '#F0F0F2',            // recedes toward base bg, same relative step as dark
+  surfaceDim: '#F1F2F5',
+  surfaceCard: '#FFFFFF',
+  surfaceContainer: '#FFFFFF',
+  surfaceContainerHigh: '#F4F5F8',
+  surfaceContainerHighest: '#E9EAEF',
+  surfaceVariant: '#DFE1E7',
+  surfaceBright: '#FFFFFF',
+  surfaceInput: '#F1F2F5',            // recedes from a white card, as inputs should
 
-  // Rim lighting — black-based on light surfaces (dark uses white-based)
-  rimLight: 'rgba(0, 0, 0, 0.10)',
-  rimLightSubtle: 'rgba(0, 0, 0, 0.06)',
+  // Rim lighting — black-based on light surfaces (dark uses white-based).
+  // Stronger than the old 0.10/0.06: on white, the rim IS the card edge.
+  rimLight: 'rgba(0, 0, 0, 0.14)',
+  rimLightSubtle: 'rgba(0, 0, 0, 0.08)',
 
   // Brand (darker green for contrast on light surfaces)
   primary: '#1a7a3c',
@@ -136,9 +174,10 @@ export const lightColors = {
   inverseOnSurface: '#F4F4F5',
   inverseSurface: '#111113',
 
-  // UI
-  outline: '#71717A',
-  outlineVariant: '#D4D4D8',
+  // UI. `outlineVariant` is the hairline around most cards — the old #D4D4D8 was
+  // invisible against the near-white surfaces it was drawn on.
+  outline: '#5F6068',
+  outlineVariant: '#C7C9D1',
   surfaceTint: '#1a7a3c',
   scrim: '#000000',
 
@@ -160,10 +199,24 @@ export const lightColors = {
   tierPremium: '#B8860B',
   tierRoyal: '#5B00CC',
 
-  // Glows
-  glowPrimary: 'rgba(26, 122, 60, 0.2)',
-  glowSecondary: 'rgba(40, 71, 119, 0.2)',
-  glowError: 'rgba(179, 38, 30, 0.2)',
+  // Glows. Raised from 0.2: a 20% wash of a mid-green over WHITE is a barely
+  // perceptible grey, where the same alpha over near-black in dark mode is an
+  // obvious halo. Same visual weight needs a bigger number on this ground.
+  glowPrimary: 'rgba(26, 122, 60, 0.3)',
+  glowSecondary: 'rgba(40, 71, 119, 0.3)',
+  glowError: 'rgba(179, 38, 30, 0.3)',
+
+  /**
+   * The "off" arc of a GradientGlowBorder sweep.
+   *
+   * BUGFIX ("the glow borders are overshot" in light mode). Every ring palette in
+   * `RING_PALETTES` interleaves its live colours with #0A0A0C — near-black — as
+   * the gap between the two arcs. That is invisible against a dark card and a
+   * hard black band around a white one, which is the whole of the "overshot"
+   * ring. The ring now reads this token for its gaps, so on a light card the gap
+   * is the card.
+   */
+  ringGap: '#FFFFFF',
 
   // Premium glow accent
   premiumRingDark: '#F0F0F2',

@@ -5,7 +5,8 @@ const redis = require('../config/redis');
 const env = require('../config/env');
 const logger = require('../utils/logger');
 const { getDirections } = require('./mapbox.service');
-const { haversineMeters, distanceToPolyline } = require('../utils/geo');
+const { haversineMeters, distanceToPolyline, realisticDurationMin } = require('../utils/geo');
+const supply = require('./supply-index.service');
 const { seatOccupyingWhere } = require('../utils/booking-status');
 
 /**
@@ -358,7 +359,14 @@ async function getRouteForTrip(trip, driver, opts = {}) {
     leg,
     geometry: computed.geometry,
     distanceKm: Math.round(computed.distanceKm * 100) / 100,
-    durationMin: Math.round(computed.durationMin * 10) / 10,
+    // Clamped to a speed a car can hold through a city — see
+    // `realisticDurationMin`. It only ever lengthens the number, and it is what
+    // stops a live "arriving in 22 min" for a 14.5 km leg whenever the routing
+    // provider has no congestion data and answers with posted limits.
+    durationMin:
+      Math.round(
+        (realisticDurationMin(computed.durationMin, computed.distanceKm) ?? computed.durationMin) * 10,
+      ) / 10,
     source: computed.source,
     computedAt: Date.now(),
   };
@@ -413,14 +421,34 @@ async function warmRouteForTrip(tripId) {
     });
     if (!trip || !activeLeg(trip.status)) return null;
 
+    /**
+     * WHERE THE DRIVER IS — FROM THE INDEX FIRST, THE ROW SECOND.
+     *
+     * BUGFIX ("the status is on heading to pickup but the tracking page is
+     * showing blank for the calculating eta"). This only ever read
+     * `Driver.currentLat/currentLng`, which is a COLD copy written at most every
+     * 15 s or 60 m of movement and NULL for a driver who has not yet crossed
+     * either threshold since the row was created. With no position there is no
+     * `toPickup` leg to compute, so nothing was cached, so the snapshot carried
+     * `eta: null`, so both apps sat on "Calculating ETA…" with, as the note above
+     * puts it, nobody calculating anything — until some later ping happened to
+     * move the driver far enough to persist a fix.
+     *
+     * The Redis supply index is refreshed on EVERY ping (and by the 25 s parked
+     * heartbeat), so it has an answer within seconds of the driver coming online.
+     * The column stays as the fallback for a driver who is offline entirely.
+     */
     let driverPos = null;
     if (trip.driverId) {
-      const d = await prisma.driver.findUnique({
-        where: { id: trip.driverId },
-        select: { currentLat: true, currentLng: true },
-      });
-      if (d && usable(d.currentLat) && usable(d.currentLng)) {
-        driverPos = { lat: d.currentLat, lng: d.currentLng };
+      driverPos = await supply.driverPosition(trip.driverId).catch(() => null);
+      if (!driverPos) {
+        const d = await prisma.driver.findUnique({
+          where: { id: trip.driverId },
+          select: { currentLat: true, currentLng: true },
+        });
+        if (d && usable(d.currentLat) && usable(d.currentLng)) {
+          driverPos = { lat: d.currentLat, lng: d.currentLng };
+        }
       }
     }
     // `force` because the cache we care about is the one for the leg that just

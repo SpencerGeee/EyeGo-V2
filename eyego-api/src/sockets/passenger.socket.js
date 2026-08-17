@@ -464,9 +464,39 @@ module.exports = function registerPassengerSocket(io, passengerNamespace) {
       try {
         if (!tripId || typeof latitude !== 'number' || typeof longitude !== 'number') return;
         const prisma = require('../config/database');
-        await prisma.sosEvent.create({
-          data: { tripId, userId, lat: latitude, lng: longitude },
+
+        /**
+         * A LOCATION FRAME IS NOT AN EMERGENCY.
+         *
+         * BUGFIX ("when i open the safety page on the rider tracking page it
+         * automatically sends an SOS to the admin, which is wrong").
+         *
+         * Precisely right, and this handler was the whole of it. The rider's
+         * safety screen starts streaming coordinates on MOUNT — that is its job,
+         * it is what lets ops follow a rider who is already in trouble — and this
+         * handler turned every one of those frames into `prisma.sosEvent.create`.
+         * So merely opening the page raised an alert on the admin console, and
+         * then raised another one every ten seconds for as long as the screen
+         * stayed open. The real SOS button (`POST /trips/:id/emergency`) was
+         * indistinguishable from a rider reading the safety page.
+         *
+         * The trail is only meaningful once an alert EXISTS, so that is the gate.
+         * And it updates the open incident in place rather than appending: an
+         * incident is one thing ops respond to, not one row per ten seconds of
+         * it. `createdAt` therefore still marks when the rider actually pressed
+         * the button, while lat/lng follow them.
+         */
+        const open = await prisma.sosEvent.findFirst({
+          where: { tripId, resolvedAt: null },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
         });
+        if (!open) return;
+        await prisma.sosEvent.update({
+          where: { id: open.id },
+          data: { lat: latitude, lng: longitude },
+        });
+
         const adminPayload = JSON.stringify({
           type: 'sos_location',
           tripId,

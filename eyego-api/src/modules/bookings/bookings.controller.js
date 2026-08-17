@@ -16,6 +16,73 @@ const updatePickup = async (req, res) => {
     pickupLng: lng != null ? Number(lng) : undefined,
     pickupAddress: address,
   });
+
+  /**
+   * THE DRIVER IS THE PERSON THIS CHANGE IS ABOUT.
+   *
+   * BUGFIX ("i chose to update the pickup point to my selected one, but it's not
+   * showing on the driver app that a new pickup point has been selected by the
+   * rider, so the driver knows to go to the updated pickup point").
+   *
+   * This handler recomputed the fare and returned 200, and that was the whole of
+   * it — no socket frame, no push, nothing written to any channel the driver app
+   * listens on. The rider moved their pickup, was charged the new deviation
+   * surcharge for it, and the driver kept navigating to the old point. The money
+   * side of the feature was wired and the operational side was not.
+   *
+   * Three deliveries, deliberately: the seat frame carries the new booking rows
+   * so the driver's passenger list repaints; the named event is the announcement
+   * (the seat frame is silent by design); and the push covers a driver whose app
+   * is backgrounded, which is most of the time while they are driving.
+   */
+  try {
+    const prisma = require('../../config/database');
+    const publisher = require('../../services/trip-events.publisher');
+    const full = await prisma.booking.findUnique({
+      where: { id: req.params.bookingId },
+      select: {
+        tripId: true,
+        seatNumber: true,
+        pickupLat: true,
+        pickupLng: true,
+        pickupAddress: true,
+        user: { select: { name: true } },
+        trip: { select: { driverId: true, driver: { select: { fcmToken: true } } } },
+      },
+    });
+
+    if (full?.tripId) {
+      publisher.publishSeatUpdate(full.tripId).catch(() => {});
+
+      const io = req.app.get('io');
+      const who = full.user?.name ?? 'A passenger';
+      const where = full.pickupAddress ?? 'a new pickup point';
+      if (io && full.trip?.driverId) {
+        io.of('/driver').to(`driver:${full.trip.driverId}`).emit('trip:pickup_changed', {
+          tripId: full.tripId,
+          bookingId: req.params.bookingId,
+          seatNumber: full.seatNumber ?? null,
+          passengerName: who,
+          pickupLat: full.pickupLat ?? null,
+          pickupLng: full.pickupLng ?? null,
+          pickupAddress: full.pickupAddress ?? null,
+        });
+      }
+      if (full.trip?.driver?.fcmToken) {
+        require('../../services/push.service')
+          .sendPush(
+            full.trip.driver.fcmToken,
+            'Pickup point changed',
+            `${who} is now waiting at ${where}`,
+            { type: 'PICKUP_CHANGED', tripId: full.tripId },
+          )
+          .catch(() => {});
+      }
+    }
+  } catch {
+    // Never fail the rider's own update because a notification could not go out.
+  }
+
   ok(res, booking);
 };
 
@@ -50,8 +117,36 @@ const bookSeat = async (req, res) => {
       // `publishSeatUpdate`. Not awaited: the rider's response should not wait
       // on a broadcast.
       publisher.publishSeatUpdate(tripId).catch(() => {});
-      const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { driverId: true } });
+      const trip = await prisma.trip.findUnique({
+        where: { id: tripId },
+        select: { driverId: true, driver: { select: { fcmToken: true } } },
+      });
       if (trip?.driverId) {
+        const who =
+          result?.booking?.guestName ||
+          result?.booking?.user?.name ||
+          guestName ||
+          'A passenger';
+        const seat = result?.booking?.seatNumber ?? seatNumber ?? null;
+
+        /**
+         * AND ON A PHONE THAT IS NOT IN THE DRIVER'S HAND.
+         *
+         * The socket frame below only lands if the app is foregrounded and
+         * connected — which for a driver waiting on passengers is the minority
+         * case, and is never true on the same handset the rider just booked
+         * from. A push is the only path that survives a suspended app.
+         */
+        if (trip.driver?.fcmToken) {
+          require('../../services/push.service')
+            .sendPush(
+              trip.driver.fcmToken,
+              'New passenger',
+              seat != null ? `${who} booked seat ${seat}` : `${who} booked a seat`,
+              { type: 'PASSENGER_JOINED', tripId },
+            )
+            .catch(() => {});
+        }
 
         /**
          * TELL THE DRIVER SOMEBODY JUST GOT ON.
@@ -73,12 +168,8 @@ const bookSeat = async (req, res) => {
          */
         io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:passenger_joined', {
           tripId,
-          seatNumber: result?.booking?.seatNumber ?? seatNumber ?? null,
-          passengerName:
-            result?.booking?.guestName ||
-            result?.booking?.user?.name ||
-            guestName ||
-            'A passenger',
+          seatNumber: seat,
+          passengerName: who,
         });
       }
     }

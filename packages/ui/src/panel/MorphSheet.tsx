@@ -270,6 +270,37 @@ export function MorphSheet({
     </View>
   );
 
+  /**
+   * PADDING BELONGS TO THE CONTENT, NOT TO THE SURFACE.
+   *
+   * BUGFIX ("on the rider tracking page there's things cut out on the left and
+   * right sides of the card — it's clipping the glow-border card and all that").
+   *
+   * This is the same defect an earlier pass tried to fix by MOVING the aurora
+   * from the stage into this component, and it did not work, because the cause
+   * was never where the node lived. In React Native an absolutely positioned
+   * child — `StyleSheet.absoluteFill`, which is what `background`, `GlassSurface`
+   * and `CardAuroraGlow` all use — is laid out against its parent's PADDING box,
+   * not its border box. The sheet body carries `paddingHorizontal: 32` from the
+   * caller, so the glass and the glow painted into a rectangle inset 32 pt from
+   * each side of a full-width sheet, and a gradient that stops dead at a rect
+   * edge leaves exactly the two hard vertical seams reported.
+   *
+   * So the padding comes off the surface and goes onto a plain content wrapper
+   * one level in. The body keeps its radius, its fill and its `overflow: hidden`
+   * — it is the surface — and the background layers now reach its real edges,
+   * clipped only by the rounded corners, which is what a card edge should be.
+   * Everything else measures the same: the wrapper still contributes the padding
+   * to the body's height, so `onBodyLayout` and the resting stop are unchanged.
+   */
+  const flattened = (StyleSheet.flatten(style) ?? {}) as Record<string, unknown>;
+  const sheetBox: Record<string, unknown> = {};
+  const contentPadding: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(flattened)) {
+    if (k.startsWith('padding')) contentPadding[k] = v;
+    else sheetBox[k] = v;
+  }
+
   return (
     /* `box-none` all the way down: this container is screen-tall and sits over
        the map, so without it every pan and pinch would land on empty sheet
@@ -281,17 +312,20 @@ export function MorphSheet({
           style={[styles.container, { height: screenH }, containerStyle]}
           pointerEvents="box-none"
         >
-          <Animated.View style={[styles.body, bodyStyle, style]} onLayout={onBodyLayout}>
+          <Animated.View style={[styles.body, bodyStyle, sheetBox]} onLayout={onBodyLayout}>
+            {/* Unpadded, and that is the entire point — see `sheetBox`. */}
             {background}
             {grabber && <View style={[styles.grabber, { backgroundColor: grabberColor }]} />}
-            {inner}
-            {/* Weightless: absolutely positioned, so it contributes nothing to
-                the measured height that decides where the top edge sits. */}
-            {ghost != null && (
-              <View style={styles.ghost} pointerEvents="none">
-                {ghost}
-              </View>
-            )}
+            <View style={contentPadding} pointerEvents="box-none">
+              {inner}
+              {/* Weightless: absolutely positioned, so it contributes nothing to
+                  the measured height that decides where the top edge sits. */}
+              {ghost != null && (
+                <View style={styles.ghost} pointerEvents="none">
+                  {ghost}
+                </View>
+              )}
+            </View>
           </Animated.View>
           {/* Fills the screen below the body so an over-travelled spring or a
               device with a tall safe area never shows map through the bottom. */}
@@ -305,8 +339,10 @@ export function MorphSheet({
 const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
   container: { position: 'absolute', left: 0, right: 0, top: 0 },
+  // No padding here, by design — this view is the SURFACE, and an absolutely
+  // positioned child (the background layers) is laid out against its padding
+  // box. The grabber carries its own top gap instead of taking it from here.
   body: {
-    paddingTop: 10,
     overflow: 'hidden',
   },
   grabber: {
@@ -314,6 +350,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 4,
     borderRadius: 2,
+    marginTop: 10,
     marginBottom: 12,
   },
   ghost: { position: 'absolute', left: 0, right: 0, top: 0 },

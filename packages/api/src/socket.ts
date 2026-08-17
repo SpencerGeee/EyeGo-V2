@@ -700,6 +700,29 @@ export const driverSocketEvents = {
     return () => getDriverSocket().off('trip:passenger_joined', cb);
   },
 
+  /**
+   * A passenger moved where they want to be collected.
+   *
+   * Separate from `onSeatUpdate` for the same reason `onPassengerJoined` is: the
+   * seat frame repaints a seat map and says nothing, and a driver already
+   * navigating to the old point will not notice a row quietly changing under
+   * them. This one is meant to interrupt.
+   */
+  onPickupChanged: (
+    cb: (data: {
+      tripId: string;
+      bookingId: string;
+      seatNumber: number | null;
+      passengerName: string;
+      pickupLat: number | null;
+      pickupLng: number | null;
+      pickupAddress: string | null;
+    }) => void,
+  ) => {
+    getDriverSocket().on('trip:pickup_changed', cb);
+    return () => getDriverSocket().off('trip:pickup_changed', cb);
+  },
+
   onConnect: (cb: () => void) => {
     getDriverSocket().on('connect', cb);
     return () => getDriverSocket().off('connect', cb);

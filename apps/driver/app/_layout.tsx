@@ -26,6 +26,7 @@ import {
 } from '@expo-google-fonts/jetbrains-mono';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
+import * as Haptics from 'expo-haptics';
 import { configureApiClient, configureSocket, getDriverSocket, driverApi, driverSocketEvents, refreshDriverSocketAuth, setAuthReadyGate } from '@eyego/api';
 import { useDriverStore } from '../stores/driver.store';
 import { useDriverTripStore, subscribeDriverStatusToCaches } from '../stores/trip.store';
@@ -393,6 +394,73 @@ export default function RootLayout() {
       if (bannerTimeoutRef.current) clearTimeout(bannerTimeoutRef.current);
     };
   }, [showInAppBanner]);
+
+  /**
+   * SOMEBODY JUST TOOK A SEAT — SAY SO.
+   *
+   * BUGFIX ("on the driver app, the driver should receive an alert when someone
+   * books the place"). The server has emitted `trip:passenger_joined` on the
+   * driver namespace since the invite-vs-direct-booking fix, and `@eyego/api`
+   * exposes `onPassengerJoined` for it — but nothing in this app ever
+   * subscribed. The only thing a booking produced on the driver phone was
+   * `trip:seat_update`, which by design repaints the seat map and announces
+   * nothing. A seat quietly changed colour on a screen the driver was probably
+   * not looking at.
+   *
+   * Mounted at the root, not on the trip screen: the driver is most likely on
+   * home or earnings when a passenger books, which is exactly the case the
+   * trip-screen-only listener could not cover.
+   */
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const off = driverSocketEvents.onPassengerJoined(({ tripId, seatNumber, passengerName }) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showInAppBanner(
+        'New passenger',
+        seatNumber != null
+          ? `${passengerName} booked seat ${seatNumber}`
+          : `${passengerName} booked a seat`,
+      );
+      // The seat frame carries the new rows, but the trip queries hold fare and
+      // occupancy the frame does not — reconcile them so the manage screen is
+      // right the moment the driver taps through from the banner.
+      if (tripId) {
+        queryClient.invalidateQueries({ queryKey: ['driver', 'trip', 'active', tripId] });
+        queryClient.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', tripId] });
+        queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+      }
+    });
+    return () => { off(); };
+  }, [isLoggedIn, showInAppBanner]);
+
+  /**
+   * A PASSENGER MOVED THEIR PICKUP POINT.
+   *
+   * BUGFIX ("i chose to update the pickup point to my selected one, but it's not
+   * showing on the driver app that a new pickup point has been selected"). The
+   * server now publishes `trip:pickup_changed` (see bookings.controller's
+   * `updatePickup`); this is the end that turns it into something the driver
+   * actually sees. Banner rather than a silent cache write, because the driver is
+   * very likely already driving to the OLD point when this arrives.
+   */
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const off = driverSocketEvents.onPickupChanged(({ tripId, passengerName, pickupAddress }) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      showInAppBanner(
+        'Pickup point changed',
+        pickupAddress
+          ? `${passengerName} is now waiting at ${pickupAddress}`
+          : `${passengerName} changed where they want to be collected`,
+      );
+      if (tripId) {
+        queryClient.invalidateQueries({ queryKey: ['driver', 'trip', 'active', tripId] });
+        queryClient.invalidateQueries({ queryKey: ['driver', 'trip', 'tracking', tripId] });
+        queryClient.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+      }
+    });
+    return () => { off(); };
+  }, [isLoggedIn, showInAppBanner]);
 
   /**
    * ONE-CALL REHYDRATION + the single offer listener.

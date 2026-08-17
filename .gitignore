@@ -68,3 +68,27 @@ next-env.d.ts
 backups/
 *.dump
 eyego-api/.env.neon-backup
+
+# ── Agent / tooling scratch ──────────────────────────────────────────────────
+# Working directories for the various AI coding tools. They hold session state,
+# caches and vendored copies of the repo, none of which is source.
+.agent/
+.codex/
+.vibe/
+.claude/worktrees/
+graphify-out/
+
+# A vendored second copy of the API tree. Committing it would put two versions
+# of every backend file in the repo, and a grep or a build could pick the wrong
+# one — see the SKIP_DIRS list in scripts/invariants.test.mjs.
+eyego/
+
+# ── Build artefacts ──────────────────────────────────────────────────────────
+# Compiled apps. These are large binaries produced from the source that is
+# already here, and GitHub rejects pushes over 100 MB.
+*.apk
+*.aab
+*.ipa
+
+# iOS crash reports captured while debugging sideloaded builds.
+*.ips

@@ -42,16 +42,58 @@ export default function RatePassengersScreen() {
     enabled: !!id,
   });
 
+  /**
+   * ONE CARD PER PERSON, NOT PER SEAT.
+   *
+   * BUGFIX ("on the rating page the passenger list shows all the seats as my
+   * name and i have to rate each seat, which is all me").
+   *
+   * A rider who chooses "I'm paying for everyone" owns one `Booking` row per
+   * covered seat — that is how the seat map, the fare and the refunds all work,
+   * and it is correct. This screen mapped those rows straight to rating cards,
+   * so covering twelve seats made the driver rate the same human being twelve
+   * times, and `PassengerRating` is keyed on (userId, tripId) anyway: eleven of
+   * those twelve writes were overwriting the first.
+   *
+   * Deduped on `user.id`, keeping the lowest seat number as the identity so the
+   * order is stable, and carrying the full seat list so the card can say what
+   * they actually booked.
+   */
   const passengers = useMemo(() => {
     const bookings: any[] = (tripData as any)?.bookings ?? [];
-    return bookings
-      .filter((b: any) => b.status !== 'CANCELLED' && b.user?.id)
-      .map((b: any) => ({
+    const byUser = new Map<string, {
+      bookingId: string;
+      userId: string;
+      name: string;
+      seatNumber: number | null;
+      seatNumbers: number[];
+    }>();
+
+    for (const b of bookings) {
+      if (b.status === 'CANCELLED' || !b.user?.id) continue;
+      const existing = byUser.get(b.user.id);
+      if (existing) {
+        if (typeof b.seatNumber === 'number') existing.seatNumbers.push(b.seatNumber);
+        // Keep the lowest seat as the anchor so the running order does not
+        // depend on which row the server happened to return first.
+        if (typeof b.seatNumber === 'number' && (existing.seatNumber == null || b.seatNumber < existing.seatNumber)) {
+          existing.seatNumber = b.seatNumber;
+          existing.bookingId = b.id;
+        }
+        continue;
+      }
+      byUser.set(b.user.id, {
         bookingId: b.id,
         userId: b.user.id,
         name: b.user.name ?? `Seat ${b.seatNumber}`,
-        seatNumber: b.seatNumber,
-      }));
+        seatNumber: typeof b.seatNumber === 'number' ? b.seatNumber : null,
+        seatNumbers: typeof b.seatNumber === 'number' ? [b.seatNumber] : [],
+      });
+    }
+
+    return [...byUser.values()]
+      .map((p) => ({ ...p, seatNumbers: [...p.seatNumbers].sort((a, b) => a - b) }))
+      .sort((a, b) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99));
   }, [tripData]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -206,7 +248,12 @@ export default function RatePassengersScreen() {
           </View>
           <Text style={styles.passengerName}>{currentPassenger?.name}</Text>
           <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-            Seat {currentPassenger?.seatNumber ?? '—'} · {currentIndex + 1} of {passengers.length}
+            {/* Says what they booked, so a group payer reads as one person with
+                many seats rather than a name that has mysteriously collapsed. */}
+            {(currentPassenger?.seatNumbers?.length ?? 0) > 1
+              ? `Seats ${currentPassenger.seatNumbers.join(', ')} · paid for the group`
+              : `Seat ${currentPassenger?.seatNumber ?? '—'}`}
+            {' · '}{currentIndex + 1} of {passengers.length}
           </Text>
         </Entrance>
 

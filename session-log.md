@@ -309,3 +309,14 @@ Decisions:
 - MorphSheet reuses usePanelMotion; only new idea is a measured, re-snapped resting stop.
 Rejected: animating height/flexBasis per the brief; driving MapLibre padding from withSpring; portal-via-context for the sheet slot.
 Open: only assigned+tracking converted; MorphCTA has no caller yet.
+
+## 2026-08-17 [saved]
+Goal: 20-item stress sweep across rider, driver, backend and admin.
+Decisions:
+- `resweep()` must REBUILD its candidate list from live supply and rewind `index`; filtering by "not already seen" made a missed 45 s offer permanent.
+- `supply.upsertDriver` reports the absent→present edge so a rejoining driver re-runs parked searches once, not per ping.
+- Absolutely positioned children lay out against the parent's PADDING box — sheet padding therefore belongs on a content wrapper, never on the surface.
+- Light mode inverts the elevation DIRECTION: cards pure white, tone in the page. Copying dark's "card lighter than page" gives a 3% step the wrong way.
+- Every ETA is floored by `realisticDurationMin` (ETA_MAX_AVG_KMH, 32): routing providers answer free-flow wherever they lack congestion data.
+Rejected: raising MIN_FARE_PER_SEAT to lift driver earnings (it flattens the distance curve — raise base + per-km). Silently clamping a driver's seat count to the vehicle row. Treating `safety:location` frames as SOS incidents.
+Open: item 1 fix is inferred from the code path, not a reproduced offer — watch for "Dispatch re-sweeping supply" in the log. Nothing device-tested.

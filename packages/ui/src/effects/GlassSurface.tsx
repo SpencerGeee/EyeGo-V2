@@ -97,11 +97,54 @@ export function GlassSurface({
    * `low` is the denser panel (sheets, anything holding a form); `high` is the
    * lighter one used for cards floating over the map.
    */
-  const scrimAlpha = effectiveIntensity === 'high' ? 0.78 : 0.88;
+  /**
+   * LIGHT GLASS IS NOT DARK GLASS WITH THE COLOURS SWAPPED.
+   *
+   * BUGFIX ("in light mode the glass cards can barely be seen, and the white
+   * isn't even a clearer shade of white — it's more like a tint of it").
+   *
+   * Both halves of that sentence are this line. In DARK mode a 0.78 scrim works
+   * because the card is near-black and the ground behind it is a green shader:
+   * whatever bleeds through is darker than the card and the card still reads as
+   * a card. In LIGHT mode the scrim is white and the ground is a white-based
+   * green shader, so 22% of an ambient green wash came through every card —
+   * that is the "tint", literally — and the card's own white was never clean
+   * enough to separate from the white page behind it.
+   *
+   * So light glass is nearly opaque. The material underneath still does its job
+   * at the very edges and through the rim, which is where glass reads anyway,
+   * and the card face is the clean white the design wants. The separation is
+   * then carried by the rim and the lift below rather than by a tonal step that
+   * does not exist between two whites.
+   */
+  const scrimAlpha = dark
+    ? (effectiveIntensity === 'high' ? 0.78 : 0.88)
+    : (effectiveIntensity === 'high' ? 0.94 : 0.97);
   const scrimColor = withOpacity(dark ? colors.surfaceCard : '#FFFFFF', scrimAlpha);
 
+  /**
+   * On a dark ground a card separates by being LIGHTER than the page. On a light
+   * one there is nothing above white to step to, so the separation has to come
+   * from elevation instead — the reason every light-mode design system has a
+   * shadow ramp and dark ones largely do not.
+   *
+   * Android only, and deliberately: this view carries `overflow: 'hidden'` so
+   * its rounded corners clip the blur material, and on iOS a clipped view does
+   * not cast its shadow — the two cannot both be on this node, and the clipping
+   * is load-bearing. iOS gets its separation from the rim below, which the light
+   * palette strengthens for exactly this reason.
+   */
+  const lift: ViewStyle = !dark && Platform.OS === 'android' ? { elevation: 3 } : {};
+
+  /**
+   * The card edge. On dark surfaces the rim is a highlight and can be subtle
+   * because the card's own brightness already separates it; on a light one the
+   * rim IS the separation between two whites, so it is drawn a step stronger.
+   */
+  const rimColor = dark ? colors.rimLight : withOpacity('#0B1220', 0.16);
+
   return (
-    <View style={[{ borderRadius, overflow: 'hidden' }, style]}>
+    <View style={[{ borderRadius, overflow: 'hidden' }, lift, style]}>
       {isLiquidGlassSupported && LiquidGlassView ? (
         // colorScheme defaults to 'system' — without it, the glass follows
         // the PHONE's OS-level light/dark setting, not this app's theme, so
@@ -133,7 +176,7 @@ export function GlassSurface({
 
       <View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, { borderRadius, borderWidth: 1, borderColor: colors.rimLight }]}
+        style={[StyleSheet.absoluteFill, { borderRadius, borderWidth: 1, borderColor: rimColor }]}
       />
 
       {effectiveChromaticHint && Platform.OS === 'ios' && (

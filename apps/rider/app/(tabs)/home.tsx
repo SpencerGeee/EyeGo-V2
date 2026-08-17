@@ -27,6 +27,7 @@ import MapboxGL from '../../utils/mapbox';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { useRideStore } from '../../stores/ride.store';
+import { useToastStore } from '../../stores/toast.store';
 
 // Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
 // when no coordinate is available.
@@ -197,6 +198,26 @@ function SuggestedTripCard({
     tier === 'COMFORT' ? 'AC · WIFI' :
     tier === 'PREMIUM' ? 'PREMIUM' : 'ROYAL';
 
+  /**
+   * THE RING IS THE TIER.
+   *
+   * BUGFIX ("suggested for you still shows the default green glow border but
+   * it's supposed to show the colour related to the trip type"). Every card in
+   * the rail was hard-coded to `palette="green"`, so the icon tile, the badge
+   * and the fare all spoke the tier's colour while the ring around them — the
+   * largest coloured element on the card — said "eco" for all four tiers.
+   *
+   * `RING_PALETTES` already carries these, sampled from the same `tierEconomy` /
+   * `tierComfort` / `tierPremium` tokens the badge uses, so the ring cannot
+   * drift from the chip inside it. `gold` is the PREMIUM ring; `economy` is the
+   * green one, which is what the rail was approximating before.
+   */
+  const ringPalette =
+    tier === 'COMFORT' ? 'comfort' as const :
+    tier === 'PREMIUM' ? 'gold' as const :
+    tier === 'ROYAL' ? 'royal' as const :
+    'economy' as const;
+
   return (
     <Pressable
       style={({ pressed }) => pressed && styles.pressed}
@@ -205,7 +226,7 @@ function SuggestedTripCard({
       accessibilityLabel={`Book ${tier} ride`}
     >
       <GradientGlowBorder
-        palette="green"
+        palette={ringPalette}
         fillColor={colors.surfaceCard}
         borderRadius={20}
         glow
@@ -451,7 +472,7 @@ export default function HomeScreen() {
    * it, and adopt whatever it says — the local value is now a cache of the
    * answer rather than the answer itself.
    */
-  const { data: activeRideData } = useQuery({
+  const { data: activeRideData, isSuccess: activeRideAnswered } = useQuery({
     queryKey: ['rides', 'active'],
     queryFn: () => ridesApi.active(),
     // Short: this is what tells the rider their request survived, so it should
@@ -470,7 +491,43 @@ export default function HomeScreen() {
     );
   }, [serverActiveTripId, storedPendingRequestId, serverActiveTrip, setPendingTripRequest]);
 
-  const pendingRequestId = storedPendingRequestId ?? serverActiveTripId;
+  /**
+   * …AND THE SERVER IS ALSO WHO KNOWS WHEN THE RIDE STOPPED EXISTING.
+   *
+   * BUGFIX ("i tap the live finding-your-driver card, it opens the requesting
+   * page then quickly redirects back to the homepage", and then "i came back and
+   * the card is gone"). The adoption effect above is one-directional: it copies
+   * the server's answer into the local store when there IS a ride, and never
+   * looks again when there is not. `pendingRequestId` then falls back to the
+   * stale stored id — so a request that expired, was cancelled, or found no
+   * driver kept its card on the home screen, pointing at a trip id the trip
+   * surface correctly refuses to open. Tap, flash, bounce.
+   *
+   * Gated on `isSuccess` rather than on `!serverActiveTripId` alone: a failed or
+   * still-loading `/rides/active` also has no trip in it, and clearing on those
+   * would delete a live request every time the rider opened home on a bad
+   * connection.
+   *
+   * The toast matters as much as the clear. A card that silently vanishes is the
+   * second half of the same report; the rider is owed the reason and the
+   * reassurance that they were not charged.
+   */
+  useEffect(() => {
+    if (!activeRideAnswered) return;
+    if (serverActiveTripId) return;
+    if (!storedPendingRequestId) return;
+    setPendingTripRequest(null, null);
+    useToastStore
+      .getState()
+      .show("That request ended without a driver — nothing was charged.", 'warning');
+  }, [activeRideAnswered, serverActiveTripId, storedPendingRequestId, setPendingTripRequest]);
+
+  // The stored id is a CACHE of the server's answer, so it may only be trusted
+  // while the server has not contradicted it. Once `/rides/active` has answered,
+  // its verdict wins outright.
+  const pendingRequestId = activeRideAnswered
+    ? serverActiveTripId
+    : (storedPendingRequestId ?? serverActiveTripId);
 
   const { data: scheduledData } = useQuery({
     queryKey: ['trips', 'scheduled'],

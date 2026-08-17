@@ -360,7 +360,33 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
        * `upsertDriver` refreshes position AND presence in one pipeline, so
        * putting it on the ping is the whole fix.
        */
-      await supply.upsertDriver(driverId, lat, lng);
+      const { rejoined } = await supply.upsertDriver(driverId, lat, lng);
+
+      /**
+       * REJOINING THE POOL IS A DISPATCH EVENT.
+       *
+       * BUGFIX, and the second half of "the rider says asking driver 1 of 1 and
+       * the driver app shows nothing". Presence has a 90 s TTL, and a driver app
+       * that the OS suspended — which is what happens the instant the rider app
+       * comes to the foreground on the SAME handset — stops pinging and drops out
+       * of the pool. Coming back is a silent event: the first ping after the
+       * switch re-adds them, but any search that gave up while they were gone is
+       * parked on a re-sweep timer up to ten seconds out, and before this the
+       * re-sweep could not re-offer to a driver it had already walked past at all.
+       *
+       * `notifySupplyAvailable` only touches searches that are actually parked, so
+       * it is a no-op in the ordinary case. Gated on the absent→present edge, so
+       * a driver pinging every few seconds pays for it exactly once per absence,
+       * not once per ping.
+       */
+      if (rejoined) {
+        // Required lazily: the cascade reaches back into the socket layer through
+        // trip-events.publisher, and a top-level require here would close that
+        // loop at module load.
+        require('../services/dispatch-cascade.service')
+          .notifySupplyAvailable(driverId)
+          .catch(() => {});
+      }
 
       // Resume a driver the grace timer took offline while they were in a
       // tunnel or on a dead cell. Only ever fires when the flag above is set,

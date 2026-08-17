@@ -136,4 +136,67 @@ async function nominatimForwardGeocode(query) {
   }
 }
 
-module.exports = { getDirections, roadDistanceKm, forwardGeocode, reverseGeocode, nominatimForwardGeocode, isWithinGhana };
+/**
+ * A PLACE NAME FOR A COORDINATE, OR NULL — NEVER A THROW, NEVER A FAKE.
+ *
+ * `reverseGeocode` above has two properties that make it unusable anywhere a
+ * page has to render: it throws when the request fails or the token is missing,
+ * and on an empty result it returns the coordinate pair back as a STRING. A
+ * caller that displays the result therefore cannot tell "this is where they are"
+ * from "we have no idea" — the two look identical, which is exactly how the
+ * admin SOS console ended up showing lat/lng as though it were an address.
+ *
+ * Nominatim is the fallback for the same reason `nominatimForwardGeocode`
+ * exists: MAPBOX_SECRET_TOKEN is frequently absent in a working deployment, and
+ * a safety console is the last screen that should degrade silently because of a
+ * billing key.
+ *
+ * Results are cached in Redis for a day. A coordinate's name does not change,
+ * and the SOS list re-renders on every operator poll.
+ */
+async function placeNameFor(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const key = `geo:rev:${lat.toFixed(4)},${lng.toFixed(4)}`;
+  let redis = null;
+  try {
+    redis = require('../config/redis');
+    const hit = await redis.get(key);
+    // Empty string is a cached MISS — distinct from no cache entry at all, so a
+    // coordinate in the sea is not re-queried on every poll.
+    if (hit != null) return hit || null;
+  } catch {
+    /* cache is optional */
+  }
+
+  let name = null;
+  const hasToken =
+    env.MAPBOX_SECRET_TOKEN && !/placeholder|your[-_]?token/i.test(env.MAPBOX_SECRET_TOKEN);
+  if (hasToken) {
+    try {
+      const url =
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+        `?types=address,place,poi&country=GH&access_token=${env.MAPBOX_SECRET_TOKEN}`;
+      const { data } = await axios.get(url, { timeout: 5000 });
+      name = data.features?.[0]?.place_name ?? null;
+    } catch (err) {
+      logger.warn(`reverse geocode (mapbox) failed for ${lat},${lng}: ${err.message}`);
+    }
+  }
+  if (!name) {
+    try {
+      const { data } = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+        params: { lat, lon: lng, format: 'json', zoom: 18, addressdetails: 1 },
+        headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' },
+        timeout: 5000,
+      });
+      name = data?.display_name ?? null;
+    } catch (err) {
+      logger.warn(`reverse geocode (nominatim) failed for ${lat},${lng}: ${err.message}`);
+    }
+  }
+
+  if (redis) await redis.set(key, name ?? '', 'EX', 86_400).catch(() => {});
+  return name;
+}
+
+module.exports = { getDirections, roadDistanceKm, forwardGeocode, reverseGeocode, placeNameFor, nominatimForwardGeocode, isWithinGhana };

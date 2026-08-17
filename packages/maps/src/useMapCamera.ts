@@ -132,6 +132,28 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const recenter = useCallback(() => {
     releasedAtRef.current = null;
     setReleased(false);
+    /**
+     * FORGET WHERE WE THINK THE CAMERA IS.
+     *
+     * BUGFIX ("i tap the gps button on the top right and it does nothing — it's
+     * supposed to snap back to the route").
+     *
+     * `applyPlan` will not re-issue a `fitBounds` whose quantised bounds+padding
+     * key matches the last one it issued, because in `overview` the same box is
+     * recomputed every single frame and re-fitting it forever means the map never
+     * settles. That memo is correct for the follow loop and exactly wrong here:
+     * a user pan moves the CAMERA without moving the BOUNDS, so on the frame
+     * after recenter the key is unchanged, `applyPlan` returns early, and the map
+     * stays precisely where the user dragged it. The chip cleared the override,
+     * the loop agreed there was nothing to do, and the tap looked inert.
+     *
+     * Clearing the memo is what makes the very next frame re-frame. Also clears
+     * the settle deadline so the re-frame is not made to queue behind a follow
+     * animation the user has just overruled by asking for this.
+     */
+    lastOverviewKeyRef.current = '';
+    lastPaddingKeyRef.current = '';
+    fitSettlesAtRef.current = 0;
   }, []);
 
   const onRegionChange = useCallback(

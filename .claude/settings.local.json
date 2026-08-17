@@ -22,7 +22,8 @@
       "Bash(diff /tmp_check1.txt /tmp_check2.txt)",
       "Bash(rm -f /tmp_check1.txt /tmp_check2.txt)",
       "Bash(node node_modules/typescript/lib/tsc.js --noEmit -p apps/driver)",
-      "Bash(node node_modules/typescript/lib/tsc.js --noEmit -p apps/rider)"
+      "Bash(node node_modules/typescript/lib/tsc.js --noEmit -p apps/rider)",
+      "Bash(node -e ' *)"
     ]
   }
 }

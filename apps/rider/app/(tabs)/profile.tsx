@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import Animated, {
   useSharedValue,
   useAnimatedScrollHandler,
@@ -106,12 +106,28 @@ export default function ProfileScreen() {
   });
   // What the account is still missing. Cheap read; refreshed when the rider
   // comes back to this tab after filling something in.
-  const { data: checklist } = useQuery({
+  const { data: checklist, refetch: refetchChecklist } = useQuery({
     queryKey: ['user', 'account-checklist'],
     queryFn: () => userApi.getAccountChecklist(),
     select: (r: any) => r.data?.data ?? null,
     staleTime: 30_000,
   });
+
+  /**
+   * RE-ASK EVERY TIME THIS TAB COMES BACK.
+   *
+   * The card's whole job is to send the rider somewhere else to fill something
+   * in, so the moment they return is exactly the moment it is most likely to be
+   * wrong. Tabs never unmount in this navigator, so without this the query only
+   * re-runs after its own `staleTime` — the rider adds their email, comes
+   * straight back, and is told to add their email. The screens that write these
+   * fields invalidate the key too; this covers the ones that forget.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      void refetchChecklist();
+    }, [refetchChecklist]),
+  );
 
   const riderRating = freshProfile?.rating ?? (user as any)?.rating ?? null;
   const ratingCount = freshProfile?.ratingCount ?? 0;

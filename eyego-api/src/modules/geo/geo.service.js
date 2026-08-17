@@ -18,6 +18,7 @@
 const axios = require('axios');
 const env = require('../../config/env');
 const logger = require('../../utils/logger');
+const { realisticDurationMin } = require('../../utils/geo');
 
 /** Accra — bias for autocomplete when the caller sends no proximity. */
 const DEFAULT_PROXIMITY = { lng: -0.187, lat: 5.6037 };
@@ -558,9 +559,13 @@ async function getRoute({ originLat, originLng, destLat, destLng, profile = 'dri
       });
       const route = data?.routes?.[0];
       if (route && Number.isFinite(route.distance) && Number.isFinite(route.duration)) {
+        const distanceKm = route.distance / 1000;
         return {
-          distanceKm: route.distance / 1000,
-          durationMin: route.duration / 60,
+          distanceKm,
+          // Even on the traffic profile, Mapbox falls back to posted limits where
+          // it has no congestion data — which is most of Ghana. See
+          // `realisticDurationMin`: this can only lengthen the answer.
+          durationMin: realisticDurationMin(route.duration / 60, distanceKm),
           geometry: route.geometry,
           source: profile,
         };

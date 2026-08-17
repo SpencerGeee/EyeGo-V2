@@ -46,11 +46,22 @@ const PRESENCE_TTL_SECONDS = parseInt(process.env.SUPPLY_PRESENCE_TTL_SECONDS, 1
 /**
  * Record/refresh a driver's position and presence.
  * Called from the location ping handler and from go-online.
+ *
+ * Returns `{ ok, rejoined }`. `rejoined` is true when this call put the driver
+ * back into the pool after an ABSENCE — a phone that was backgrounded past the
+ * presence TTL, a tunnel, an app the OS suspended while its human was in the
+ * other app on the same handset. That transition is the one moment a parked
+ * search should be re-run immediately rather than waiting out its next sweep,
+ * and it is the only cheap way to know it happened: the steady-state ping must
+ * not pay for a trip scan every few seconds.
  */
 async function upsertDriver(driverId, lat, lng, meta = {}) {
-  if (!driverId || !Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (!driverId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { ok: false, rejoined: false };
+  }
   try {
     const pipeline = redis.pipeline();
+    pipeline.exists(presenceKey(driverId));
     pipeline.geoadd(GEO_KEY, lng, lat, driverId);
     pipeline.set(presenceKey(driverId), '1', 'EX', PRESENCE_TTL_SECONDS);
     if (meta.tier || meta.seats) {
@@ -61,11 +72,37 @@ async function upsertDriver(driverId, lat, lng, meta = {}) {
         PRESENCE_TTL_SECONDS * 4,
       );
     }
-    await pipeline.exec();
-    return true;
+    const results = await pipeline.exec();
+    // ioredis pipeline replies are [err, value] pairs, in command order.
+    const wasPresent = results?.[0]?.[1] === 1;
+    return { ok: true, rejoined: !wasPresent };
   } catch (err) {
     logger.warn(`supply-index upsert failed for ${driverId}: ${err.message}`);
-    return false;
+    return { ok: false, rejoined: false };
+  }
+}
+
+/**
+ * One driver's live position, or null.
+ *
+ * The `Driver.currentLat/currentLng` columns are a COLD copy — the socket
+ * persists them at most every 15 s or 60 m of movement (see
+ * DB_PERSIST_INTERVAL_MS in driver.socket.js), and they are null for a driver
+ * who has never had a fix written. Anything that needs "where is this driver
+ * right now" should ask the index, which every ping refreshes.
+ */
+async function driverPosition(driverId) {
+  if (!driverId) return null;
+  try {
+    const [pos] = await redis.geopos(GEO_KEY, driverId);
+    if (!pos) return null;
+    const lng = Number(pos[0]);
+    const lat = Number(pos[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  } catch (err) {
+    logger.warn(`supply-index geopos failed for ${driverId}: ${err.message}`);
+    return null;
   }
 }
 
@@ -202,6 +239,7 @@ module.exports = {
   GEO_KEY,
   PRESENCE_TTL_SECONDS,
   upsertDriver,
+  driverPosition,
   removeDriver,
   nearbyDrivers,
   whichArePresent,

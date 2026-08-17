@@ -50,6 +50,11 @@ function getStatusColors(colors: Colors): Record<string, string> {
     SEAT_HELD: colors.statusWarning,
     BOARDED: colors.statusWarning,
     PENDING: colors.onSurfaceVariant,
+    // A ride that never found a driver is not an error the rider caused, and it
+    // is not a cancellation either. It had no colour at all before, so it fell
+    // to the neutral default and read as if it were still pending.
+    EXPIRED: colors.statusWarning,
+    REFUNDED: colors.statusInfo,
   };
 }
 
@@ -73,8 +78,36 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
   // destination/departure live nested under trip.route, not flat on the
   // booking (fareAmountPesewas is the real column name, not totalFare).
   const route = booking.trip?.route;
-  const origin = route?.originName ?? booking.routeOrigin ?? 'Unknown';
-  const destination = route?.destinationName ?? booking.routeDestination ?? 'Unknown';
+  /**
+   * AN ON-DEMAND RIDE HAS NO ROUTE.
+   *
+   * BUGFIX ("the trips tab shows unknown → unknown for the trip i just did").
+   * This chain only ever looked at `trip.route`, which exists for scheduled and
+   * group trips and is NULL for every ride hailed from the map — those carry
+   * their endpoints as `pickupAddress`/`dropoffAddress` columns on the trip
+   * itself. So the single most common kind of ride in the product rendered as
+   * "Unknown → Unknown", including in the cancel-confirmation copy and the
+   * accessibility label below.
+   *
+   * Coordinates are the last resort rather than the word "Unknown": a rider who
+   * booked from a dropped pin genuinely may have no address string, and a
+   * rounded lat/lng at least identifies which ride this was.
+   */
+  const coordLabel = (lat?: number | null, lng?: number | null) =>
+    lat != null && lng != null ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : null;
+  const origin =
+    route?.originName ??
+    booking.trip?.pickupAddress ??
+    booking.pickupAddress ??
+    booking.routeOrigin ??
+    coordLabel(booking.trip?.pickupLat, booking.trip?.pickupLng) ??
+    'Pickup';
+  const destination =
+    route?.destinationName ??
+    booking.trip?.dropoffAddress ??
+    booking.routeDestination ??
+    coordLabel(booking.trip?.dropoffLat, booking.trip?.dropoffLng) ??
+    'Destination';
   const departureTime = booking.trip?.departureTime ?? booking.departureTime ?? booking.createdAt;
   const fare = booking.fareAmountPesewas ?? booking.totalFare;
 
@@ -116,11 +149,45 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
           router.push(`/ride/${tripId}/complete?bookingId=${booking.id}&viewOnly=1` as any);
           return;
         }
-        if (booking.status === 'CANCELLED') {
-          Alert.alert(
-            'Ride cancelled',
-            `${origin} → ${destination} — this ride was cancelled and can't be booked again from here.`,
-          );
+        /**
+         * A DEAD RIDE HAS NO DETAIL SCREEN — SAY WHAT HAPPENED INSTEAD.
+         *
+         * BUGFIX ("if i tap on the trip that says unknown, it tells me trip not
+         * found"). Only CANCELLED was handled here. EXPIRED and NO_DRIVERS_FOUND
+         * — what an on-demand request becomes when the dispatch search runs out
+         * — fell through to `/ride/<tripId>`, which loads the *bookable* trip and
+         * 404s on a trip that is no longer offerable. The rider's own ride
+         * answered "trip not found", which reads like data loss rather than the
+         * ordinary outcome it is.
+         */
+        const DEAD: Record<string, { title: string; body: string }> = {
+          CANCELLED: {
+            title: 'Ride cancelled',
+            body: "this ride was cancelled and can't be booked again from here.",
+          },
+          EXPIRED: {
+            title: 'Request expired',
+            body: 'no driver accepted in time, so the request was closed. Nothing was charged.',
+          },
+          NO_DRIVERS_FOUND: {
+            title: 'No driver found',
+            body: 'nobody was available for this ride. Nothing was charged.',
+          },
+          REFUNDED: {
+            title: 'Ride refunded',
+            body: 'this ride was refunded.',
+          },
+        };
+        const dead = DEAD[booking.status];
+        if (dead) {
+          Alert.alert(dead.title, `${origin} → ${destination} — ${dead.body}`);
+          return;
+        }
+        // An orphaned booking row with no trip FK is the other way this screen
+        // produced "Trip not found": `/ride/undefined` resolves to the detail
+        // route and 404s.
+        if (!tripId) {
+          Alert.alert('Ride unavailable', 'This ride is no longer available to open.');
           return;
         }
         // Card expands into the ride detail screen (route animates 'fade' —

@@ -1554,9 +1554,31 @@ async function getSosEvents({ page = 1, limit = 20, unresolvedOnly } = {}) {
   const driverMap = Object.fromEntries(driversList.map((d) => [d.id, d]));
   const tripMap = Object.fromEntries(trips.map((t) => [t.id, t]));
 
+  /**
+   * WHERE, IN WORDS.
+   *
+   * BUGFIX ("on the admin side the sos is showing coordinates instead of the
+   * actual location"). The console had only `lat`/`lng` to render because that
+   * is all this endpoint returned, so an operator taking a safety call had to
+   * open a map in another tab to answer "where are they" — the single most
+   * time-critical question on the screen.
+   *
+   * Resolved here rather than in the browser: it needs the Mapbox secret, the
+   * answers are shared across every operator, and the Redis cache in
+   * `placeNameFor` means a repeat poll costs nothing. `null` when it genuinely
+   * cannot be resolved, so the UI can say so instead of printing numbers that
+   * look like an address.
+   */
+  const addresses = await Promise.all(
+    events.map((e) =>
+      mapboxService.placeNameFor(e.lat, e.lng).catch(() => null),
+    ),
+  );
+
   return {
-    events: events.map((e) => ({
+    events: events.map((e, i) => ({
       ...e,
+      address: addresses[i],
       reporter: userMap[e.userId]
         ? { role: 'RIDER', ...userMap[e.userId] }
         : driverMap[e.userId]

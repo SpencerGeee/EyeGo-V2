@@ -56,4 +56,49 @@ function pointToSegmentMeters(p, a, b) {
   return haversineMeters(p.lat, p.lng, proj.lat, proj.lng);
 }
 
-module.exports = { haversineMeters, distanceToPolyline };
+/**
+ * The fastest average speed we are willing to PROMISE a rider, km/h.
+ *
+ * BUGFIX ("i chose a destination that's really far but it's telling me i'll get
+ * there in 22 minutes — it's 14.5 km, i don't think that's accurate at all").
+ * 14.5 km in 22 minutes is a 39.5 km/h door-to-door average, which is what a
+ * routing provider returns for Accra whenever it has no live traffic data for
+ * those roads and quietly falls back to posted speed limits. Every ETA source in
+ * this codebase already has a conservative FALLBACK of 22 km/h for when it has
+ * NO answer — but nothing checked the answers it did get, so a free-flow number
+ * sailed through as though it were traffic-aware. The same arithmetic is behind
+ * the older "8.3 km is about 12 minutes" report.
+ *
+ * 32 km/h is an ordinary urban arterial average with junctions and lights in it:
+ * fast enough not to insult a genuinely clear run, slow enough that a rider is
+ * never told a number the road cannot produce. Tunable, because the right value
+ * for Accra at 5pm is not the right value for a quiet regional town.
+ */
+const MAX_PROMISED_AVG_KMH = Number(process.env.ETA_MAX_AVG_KMH) || 32;
+
+/**
+ * Clamp a routing provider's duration to something a car can actually do.
+ *
+ * ONE-SIDED on purpose. It can only ever make an ETA LONGER: a provider that
+ * reports heavy congestion is reporting something it measured and we have no
+ * business overruling it, whereas a provider reporting an empty road is usually
+ * reporting the absence of data. Under-promising is also the right direction to
+ * be wrong in — a rider who arrives early is pleased.
+ *
+ * @param {number|null|undefined} durationMin  what the provider said
+ * @param {number|null|undefined} distanceKm   road distance for the same leg
+ * @returns {number|null} minutes, or null when there is nothing to clamp
+ */
+function realisticDurationMin(durationMin, distanceKm) {
+  if (!Number.isFinite(durationMin)) return null;
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return durationMin;
+  const floorMin = (distanceKm / MAX_PROMISED_AVG_KMH) * 60;
+  return Math.max(durationMin, floorMin);
+}
+
+module.exports = {
+  haversineMeters,
+  distanceToPolyline,
+  realisticDurationMin,
+  MAX_PROMISED_AVG_KMH,
+};

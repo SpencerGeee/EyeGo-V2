@@ -68,10 +68,27 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
 
   const animated = variant === 'animated' && tier !== 'low' && !paused;
 
-  // Light mode: lower opacity than dark (a full-strength wash reads as too
-  // loud on a white surface) but NOT down to a near-invisible tint — the
-  // wave needs to still read as a wave, just lighter, not vanish entirely.
-  const ambientOpacity = isDark ? 0.85 : 0.4;
+  /**
+   * THE WAVE HAS TO BE A WAVE IN BOTH THEMES.
+   *
+   * BUGFIX ("in light mode the wavy thing is very faint… the light mode is
+   * completely done wrong, the aesthetic of the app is totally gone").
+   *
+   * Light mode was attenuated twice over — 0.4 opacity on top of a 0.55
+   * intensity, so the pillar reached the screen at roughly a fifth of its dark
+   * strength. That is not "a lighter version of the same effect", it is the
+   * effect switched off and replaced with a faint green film, which is also what
+   * made every card look washed out: the film sat over them too.
+   *
+   * The correct compensation for a white ground is smaller than it looks. A
+   * mid-green at 20% over near-black is an obvious glow because the ground
+   * contributes nothing; the same green at 20% over white is a pale grey,
+   * because white contributes everything. So light mode needs MORE of the
+   * colour, not less — the restraint belongs in the hue (the light theme's
+   * `primary` is already the darker #1a7a3c, not the neon dark-mode green), not
+   * in the opacity.
+   */
+  const ambientOpacity = isDark ? 0.85 : 0.72;
 
   // Mid/high tiers get the real GPU shader (Skia "LightPillar" port) —
   // a vertical rotating light beam in the app's brand color, continuously
@@ -110,8 +127,11 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
       >
         <LinearGradient
           colors={[
-            withAlpha(colors.primary, isDark ? 0.26 : 0.14),
-            withAlpha(colors.onPrimaryFixedVariant, isDark ? 0.34 : 0.16),
+            // Same reasoning as `ambientOpacity`: a wash over white needs a
+            // bigger alpha than the same wash over near-black to land with the
+            // same weight. These were 0.14/0.16 and read as nothing at all.
+            withAlpha(colors.primary, isDark ? 0.26 : 0.24),
+            withAlpha(colors.onPrimaryFixedVariant, isDark ? 0.34 : 0.28),
             colors.backgroundDeep,
           ]}
           locations={[0, 0.45, 1]}
@@ -138,7 +158,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
           topColor={colors.primary}
           bottomColor={colors.onPrimaryFixedVariant}
           animated={animated}
-          intensity={isDark ? 1.0 : 0.55}
+          intensity={isDark ? 1.0 : 0.85}
           rotationSpeed={tier === 'high' ? 0.4 : 0.25}
           glowAmount={tier === 'high' ? 0.006 : 0.004}
           pillarWidth={3.0}

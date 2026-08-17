@@ -176,6 +176,18 @@ export default function EditProfileScreen() {
       updateUser(updatedUser);
       qc.invalidateQueries({ queryKey: ['user', 'profile'] });
       qc.invalidateQueries({ queryKey: ['user', 'emergencyContacts'] });
+      /**
+       * THE CHECKLIST IS DERIVED FROM THIS PROFILE, SO IT IS NOW STALE.
+       *
+       * BUGFIX ("the account-checkup card is telling me to add my email address
+       * for it to be 100%, and i just did — but going back to the profile page
+       * it's still there"). `['user','account-checklist']` is a separate query
+       * with its own 30 s `staleTime`, and nothing here invalidated it. The
+       * profile tab does not unmount when this screen is pushed over it either,
+       * so returning did not remount the query — the rider was left looking at a
+       * card asking for something they had just supplied.
+       */
+      qc.invalidateQueries({ queryKey: ['user', 'account-checklist'] });
       handleBack();
     },
     onError: () => {

@@ -10,6 +10,7 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAmbientRotation } from './useAmbientRotation';
 import { usePerformanceTier } from './usePerformanceTier';
+import { useThemedColors } from '../ColorsContext';
 
 export interface GradientGlowBorderHandle {
   /** Speeds the ring up and flashes it bright — the RN equivalent of the
@@ -215,7 +216,29 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
     ref
   ) {
     const preset = RING_PALETTES[palette ?? 'default'];
-    const colors = colorsProp ?? preset.colors;
+    const themed = useThemedColors() as Record<string, string>;
+    /**
+     * THE GAP BETWEEN THE ARCS IS THE SURFACE, NOT ALWAYS BLACK.
+     *
+     * BUGFIX ("in light mode the glow borders are overshot"). Every entry in
+     * `RING_PALETTES` interleaves its live colours with the literal '#0A0A0C' —
+     * near-black — as the dead segments of the conic sweep. Against a dark card
+     * that is invisible and the ring reads as two floating arcs of light, which
+     * is the whole effect. Against a white card it is a hard black band wrapped
+     * around three-quarters of the border, so the ring stopped being a glow and
+     * became an outline drawn in the one colour the light theme never uses.
+     *
+     * The palettes stay authored dark — they are the reference and the dark
+     * theme's `ringGap` IS '#0A0A0C', so nothing changes there. In light mode the
+     * substitution swaps those segments for the theme's own surface, and the two
+     * live arcs sweep over a card-coloured gap exactly as they were designed to.
+     */
+    const gap = themed.ringGap;
+    const swapGap = (list: readonly string[]): readonly string[] =>
+      gap && gap.toLowerCase() !== '#0a0a0c'
+        ? list.map((c) => (c.toLowerCase() === '#0a0a0c' ? gap : c))
+        : list;
+    const colors = (colorsProp ?? swapGap(preset.colors)) as typeof preset.colors;
     const locations = locationsProp ?? (colorsProp ? undefined : preset.locations);
     const glowColor = glowColorProp ?? (palette ? preset.glowColor : undefined);
     const glowColorSecondary = glowColorSecondaryProp ?? (palette ? preset.glowColorSecondary : undefined);

@@ -38,6 +38,14 @@ export default function SOSScreen() {
   const { driverLocation } = useRideStore();
 
   const [alertSent, setAlertSent] = useState(false);
+  /**
+   * Same fact as `alertSent`, readable from inside the streaming interval.
+   *
+   * The interval is created once, in a mount effect, so it closes over the
+   * INITIAL `false` forever. A ref is what lets it see the flip without
+   * re-arming the location watcher every time the screen re-renders.
+   */
+  const alertSentRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [passengerLocation, setPassengerLocation] = useState<Location.LocationObject | null>(null);
   const [shareTripStatus, setShareTripStatus] = useState(false);
@@ -152,13 +160,22 @@ export default function SOSScreen() {
           }
         );
 
-        // Stream location to backend every 10 seconds for safety monitoring.
-        // Uses locationRef.current so the interval always sends the latest coords,
-        // not the stale `initial` value captured at creation time.
+        /**
+         * Stream location to the backend every 10 seconds for safety monitoring.
+         *
+         * `locationRef.current` rather than the captured `initial`, so the
+         * interval always sends the latest coords — and `alertSentRef`, so it
+         * sends NOTHING until an SOS has actually been raised. Reading the page
+         * used to open this stream immediately, and the server turned each frame
+         * into an SOS incident (see the `safety:location` handler): opening the
+         * safety screen alerted the admin console, and kept alerting it. Watching
+         * position from mount is still right — the fix is that watching is local
+         * until the rider presses the button.
+         */
         connectSocket();
         streamInterval = setInterval(() => {
           const loc = locationRef.current;
-          if (loc && id) {
+          if (loc && id && alertSentRef.current) {
             socketEvents.sendSafetyLocation?.({
               tripId: id,
               latitude: loc.coords.latitude,
@@ -230,6 +247,9 @@ export default function SOSScreen() {
       }
 
       setAlertSent(true);
+      // Opens the location trail: from here the 10 s stream is a real incident
+      // being followed, not a rider reading the page.
+      alertSentRef.current = true;
 
       // Open the SMS composer to the emergency contact. The backend already
       // SMSes them server-side via /trips/:id/emergency, so this is a direct
@@ -531,6 +551,52 @@ export default function SOSScreen() {
         <Text style={styles.emergencyHint}>
           Contact authorities directly. Your location will be shared with EyeGo safety.
         </Text>
+
+        {/*
+          THE DEDICATED ALERT BUTTON.
+
+          BUGFIX ("a dedicated button should be shown and clicked on before it's
+          sent to the admin so it's more accurate"). Before this the ONLY way a
+          rider could raise an alert from this screen was "Emergency Call", which
+          dials 112 as well — so a rider who wanted EyeGo's safety team without
+          placing a phone call had no control at all, and the alert instead went
+          out on its own the moment the screen mounted (see the streaming note in
+          startTracking). Raising an alert is now an explicit, confirmed act.
+
+          Confirmed rather than instant: this pages a human operator, and a
+          mis-tap on a screen a rider is browsing must not do that.
+        */}
+        <Pressable
+          onPress={() => {
+            if (alertSent || loading) return;
+            Alert.alert(
+              'Alert EyeGo safety?',
+              'Our safety team will be paged with your live location and trip details. Use this if you feel unsafe.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Send alert', style: 'destructive', onPress: () => { handleSOSPress(); } },
+              ],
+            );
+          }}
+          disabled={loading || alertSent}
+          accessibilityRole="button"
+          accessibilityLabel="Send an SOS alert to EyeGo safety"
+          style={({ pressed }) => [
+            styles.sosButton,
+            (loading || alertSent) && { opacity: 0.6 },
+            pressed && { transform: [{ scale: 0.98 }] },
+          ]}
+        >
+          <Ionicons
+            name={alertSent ? 'checkmark-circle' : 'alert-circle'}
+            size={20}
+            color={colors.onPrimary}
+          />
+          <Text style={styles.sosButtonText}>
+            {alertSent ? 'Safety alerted' : loading ? 'Sending alert…' : 'Send SOS to EyeGo'}
+          </Text>
+        </Pressable>
+
         <Pressable
           onPress={confirmEmergencyCall}
           disabled={loading}
@@ -824,6 +890,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.xs,
     marginBottom: spacing.base,
+  },
+  /**
+   * The primary action in this bar — SOLID, where "Emergency Call" is outlined.
+   * Alerting EyeGo is the thing a rider on this screen most likely wants and the
+   * only one of the two that does not also dial a phone number, so it reads as
+   * the primary and the call sits beneath it as the secondary.
+   */
+  sosButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.base + 2,
+    borderRadius: radii.lg,
+    backgroundColor: colors.statusError,
+    marginBottom: spacing.sm,
+  },
+  sosButtonText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.titleSmall,
+    lineHeight: Math.round(fontSizes.titleSmall * 1.3),
+    color: colors.onPrimary,
   },
   emergencyButton: {
     flexDirection: 'row',
