@@ -124,6 +124,11 @@ jobs:
         env:
           EXPO_PUBLIC_APP_ENV: preview
           EXPO_PUBLIC_API_URL: ${{ inputs.api-url || 'http://localhost:5020/v1' }}
+          # Only @bacons/apple-targets needs this, to sign the Live Activity
+          # widget extension. Unset is fine while the build is unsigned — set
+          # the EXPO_APPLE_TEAM_ID secret once you have a developer account and
+          # the extension will carry the right team without editing Xcode.
+          EXPO_APPLE_TEAM_ID: ${{ secrets.EXPO_APPLE_TEAM_ID }}
 
       # prebuild generates the Podfile but does NOT run `pod install`, so there is
       # no Podfile.lock / Pods sandbox. xcodebuild's "Check Pods Manifest.lock"

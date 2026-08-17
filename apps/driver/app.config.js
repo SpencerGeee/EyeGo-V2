@@ -8,6 +8,10 @@
 const baseConfig = require('./app.json');
 const fs = require('fs');
 const path = require('path');
+// Required by relative path rather than by package name: @eyego/config points
+// its main at TypeScript sources for Metro, and this file is plain CJS run by
+// node during prebuild.
+const withFirebaseAppDelegate = require('../../packages/config/plugins/withFirebaseAppDelegate');
 
 module.exports = () => {
   const expo = baseConfig.expo;
@@ -41,6 +45,11 @@ module.exports = () => {
   // Maps run entirely on @maplibre/maplibre-react-native v11 + OpenFreeMap
   // tiles (see @eyego/maps) — free, keyless, no Google Maps API key/Cloud
   // Billing account needed on either platform.
+
+  // After @react-native-firebase/app, whose own AppDelegate mod no longer finds
+  // its anchor in the SDK 54 template and gives up with a warning. See the
+  // plugin for the detail; it is a no-op unless ios.googleServicesFile is set.
+  plugins.push(withFirebaseAppDelegate);
 
   return {
     ...expo,

@@ -5,6 +5,10 @@
 const baseConfig = require('./app.json');
 const fs = require('fs');
 const path = require('path');
+// Required by relative path rather than by package name: @eyego/config points
+// its main at TypeScript sources for Metro, and this file is plain CJS run by
+// node during prebuild.
+const withFirebaseAppDelegate = require('../../packages/config/plugins/withFirebaseAppDelegate');
 
 module.exports = ({ config }) => {
   // ── Firebase / FCM (push notifications) ──────────────────────────────────
@@ -64,6 +68,10 @@ module.exports = ({ config }) => {
       // EAS Build's cloud prebuild too — no local Xcode required to SHIP
       // this, only to iterate on the SwiftUI views or run on a device.
       '@bacons/apple-targets',
+      // After @react-native-firebase/app, whose own AppDelegate mod no longer
+      // finds its anchor in the SDK 54 template and gives up with a warning.
+      // See the plugin; it is a no-op unless ios.googleServicesFile is set.
+      withFirebaseAppDelegate,
     ],
   };
 };
