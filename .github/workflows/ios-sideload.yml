@@ -130,10 +130,6 @@ jobs:
           # the extension will carry the right team without editing Xcode.
           EXPO_APPLE_TEAM_ID: ${{ secrets.EXPO_APPLE_TEAM_ID }}
 
-      # prebuild generates the Podfile but does NOT run `pod install`, so there is
-      # no Podfile.lock / Pods sandbox. xcodebuild's "Check Pods Manifest.lock"
-      # phase then aborts with "sandbox is not in sync". Install pods explicitly.
-      # This also produces the .xcworkspace that the build step builds against.
       # Survives a re-run without re-downloading every podspec. See the 429 note
       # in the install step below: the CDN metadata is the thing GitHub rate
       # limits, so keeping it between runs is the single best mitigation.
@@ -150,6 +146,10 @@ jobs:
             cocoapods-${{ runner.os }}-${{ inputs.app }}-
             cocoapods-${{ runner.os }}-
 
+      # prebuild generates the Podfile but does NOT run `pod install`, so there is
+      # no Podfile.lock / Pods sandbox. xcodebuild's "Check Pods Manifest.lock"
+      # phase then aborts with "sandbox is not in sync". Install pods explicitly.
+      # This also produces the .xcworkspace that the build step builds against.
       - name: Install CocoaPods dependencies
         working-directory: apps/${{ inputs.app }}/ios
         run: |
