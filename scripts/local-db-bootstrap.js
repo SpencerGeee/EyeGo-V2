@@ -57,6 +57,18 @@ function shQuiet(cmd, opts = {}) {
     .trim();
 }
 
+/**
+ * Block for `ms`, without a shell.
+ *
+ * `timeout /t` on Windows insists on a real console for stdin, and execSync
+ * always redirects it — the command exits 1 with "Input redirection is not
+ * supported" before it ever sleeps. Atomics.wait needs no subprocess at all,
+ * and behaves the same on every platform.
+ */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /** Read a KEY=VALUE file without pulling in dotenv. */
 function readEnvFile(file) {
   if (!fs.existsSync(file)) return {};
@@ -117,10 +129,7 @@ for (;;) {
   if (Date.now() > deadline) {
     die('Containers did not become healthy in 2 minutes. Check `docker compose logs`.');
   }
-  execSync(process.platform === 'win32' ? 'timeout /t 2 /nobreak >nul' : 'sleep 2', {
-    stdio: 'ignore',
-    shell: true,
-  });
+  sleep(2000);
 }
 ok('Postgres and Redis are healthy');
 
