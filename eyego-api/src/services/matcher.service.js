@@ -104,9 +104,14 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
   // The live fix wins; the DB column is the fallback for a driver the index
   // somehow has no coordinate for.
   const posFor = (d) => livePosById.get(d.id) ?? { lat: d.currentLat, lng: d.currentLng };
-  const ids = nearby.map((n) => n.driverId).filter((id) => id !== excludeDriverId);
+  // One or many. A redispatched trip excludes EVERY driver who has abandoned
+  // it, so this accepts an array as well as a bare id.
+  const excluded = new Set(
+    (Array.isArray(excludeDriverId) ? excludeDriverId : [excludeDriverId]).filter(Boolean),
+  );
+  const ids = nearby.map((n) => n.driverId).filter((id) => !excluded.has(id));
   if (ids.length === 0) {
-    logFunnel('only_excluded_driver_nearby', { geo: nearby.length, excludeDriverId });
+    logFunnel('only_excluded_driver_nearby', { geo: nearby.length, excluded: [...excluded] });
     return [];
   }
 
@@ -114,7 +119,7 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
   //    source (approved + online + not busy) and stays that way — this is a
   //    filter over ids, never a new hand-rolled where clause.
   const eligible = await prisma.driver.findMany({
-    where: availableDriverWhere({ ids, excludeId: excludeDriverId }),
+    where: availableDriverWhere({ ids, excludeId: [...excluded] }),
     select: {
       id: true,
       fcmToken: true,

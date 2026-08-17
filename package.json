@@ -19,7 +19,8 @@
     "build:packages": "yarn workspaces run build",
     "doctor": "npx react-doctor@latest",
     "test:maps": "node --experimental-strip-types --test \"packages/maps/src/__tests__/*.test.ts\"",
-    "test": "yarn test:maps"
+    "test:invariants": "node --test scripts/invariants.test.mjs",
+    "test": "yarn test:maps && yarn test:invariants"
   },
   "dependencies": {
     "@maplibre/maplibre-react-native": "^11.3.2",

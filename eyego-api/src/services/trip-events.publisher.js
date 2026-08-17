@@ -370,6 +370,49 @@ function publishOfferRevoked(driverId, tripId, reason) {
     });
 }
 
+/**
+ * Tell the riders on a live trip that their driver's phone has stopped
+ * reporting — and tell them again when it comes back.
+ *
+ * WHY THIS IS NOT A STATUS TRANSITION. The trip is still IN_PROGRESS and the
+ * rider is still in the vehicle; nothing about the ride has changed. What has
+ * changed is our ability to SHOW it. Making this a `TripStatus` would put a
+ * connectivity problem into the lifecycle machine, and `IN_PROGRESS →
+ * REASSIGNING` is exactly the edge the transition table deliberately refuses
+ * to have: dispatching a second driver to a rider halfway down the motorway is
+ * not a recovery, it is a second problem.
+ *
+ * So it carries `seq: null` like every other non-lifecycle frame, and the honest
+ * client behaviour is to say "we've lost the live signal from your driver" over
+ * a frozen puck rather than let the rider read a stale position as a live one.
+ *
+ * The tunnel case is why `linkLost` has a second half. Most of these resolve
+ * themselves within a minute, and a warning with no matching all-clear is worse
+ * than no warning: the rider is left believing the ride is broken long after it
+ * recovered.
+ */
+function publishDriverLink(tripId, { lost, lastSeenMs = null }) {
+  if (!io) return;
+  const room = `trip:${tripId}`;
+  const frame = {
+    tripId,
+    seq: null,
+    version: null,
+    type: lost ? 'DRIVER_LINK_LOST' : 'DRIVER_LINK_RESTORED',
+    actor: 'SYSTEM',
+    status: null,
+    payload: { tripId, lastSeenMs },
+    snapshot: null,
+    serverNowMs: Date.now(),
+    ttlMs: 120_000,
+    priority: 'HIGH',
+    // One key for both halves, so a restore supersedes the warning it clears
+    // rather than queueing behind it.
+    dedupeKey: `driver-link:${tripId}`,
+  };
+  for (const ns of ['/passenger', '/driver']) io.of(ns).to(room).emit('trip:event', frame);
+}
+
 module.exports = {
   setIo,
   publish,
@@ -378,6 +421,7 @@ module.exports = {
   publishOfferToDriver,
   publishOfferRevoked,
   publishSeatUpdate,
+  publishDriverLink,
   countDriverSockets,
   buildEnvelope,
 };

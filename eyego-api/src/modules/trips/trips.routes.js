@@ -8,16 +8,20 @@ const { authenticateDriver } = require('../../middleware/driverAuth');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
 const { MIN_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING } = require('../../config/booking');
+const { publicShareLimiter } = require('../../middleware/rateLimiter');
 
 const router = Router();
 
 // ── Public ──────────────────────────────────────────────────
+// Everything below this line answers without a token. `publicShareLimiter`
+// exists because these are the routes where a guessed identifier returns a live
+// position and a pickup address — see middleware/rateLimiter.js.
 router.get('/pulse', tripsController.getPulseSchedules);
-router.get('/join/:shareToken', tripsController.getTripByShareToken);
+router.get('/join/:shareToken', publicShareLimiter, tripsController.getTripByShareToken);
 // Public live-tracking data for the share-trip web page
-router.get('/track/:shortId/data', tripsController.getTrackingData);
+router.get('/track/:shortId/data', publicShareLimiter, tripsController.getTrackingData);
 // Public join/invite data for the invite web page — returns trip, route, driver, fare
-router.get('/join/:shareToken/data', tripsController.getJoinData);
+router.get('/join/:shareToken/data', publicShareLimiter, tripsController.getJoinData);
 
 // ── Passenger ───────────────────────────────────────────────
 router.get('/', authenticate, tripsController.searchTrips);

@@ -77,6 +77,17 @@ interface TripStoreState {
    */
   path: TripPath | null;
 
+  /**
+   * The server has stopped hearing from the driver's phone on a LIVE trip.
+   *
+   * Not a trip status — the ride is still IN_PROGRESS and the rider is still in
+   * the vehicle. What has stopped is our ability to show where it is. Without
+   * this the puck simply freezes, an ETA keeps counting down against a route
+   * nobody is driving, and a stale position is indistinguishable from a live
+   * one. Set by `DRIVER_LINK_LOST`, cleared by `DRIVER_LINK_RESTORED`.
+   */
+  driverLinkLostSinceMs: number | null;
+
   /** Begin (or resume) following a trip. Idempotent. */
   watch: (tripId: string) => void;
   /** Stop following. Called when the trip goes terminal or the surface closes. */
@@ -108,6 +119,7 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
   dispatch: null,
   eta: null,
   path: null,
+  driverLinkLostSinceMs: null,
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
@@ -126,8 +138,9 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
     // Watching a trip IS a use of the socket, so it holds its own ref for
     // exactly as long as it is watching. Released in `unwatch`.
     if (!hadRef) connectSocket();
-    // A new trip must not inherit the previous one's line or countdown.
-    set({ eta: null, path: null });
+    // A new trip must not inherit the previous one's line, countdown, or a
+    // connectivity warning raised against a different driver.
+    set({ eta: null, path: null, driverLinkLostSinceMs: null });
 
     /**
      * `trip:eta` is the only source of the live line and the countdown.
@@ -226,9 +239,29 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
             }));
           }
         }
+        /**
+         * The driver's phone has gone quiet — or come back.
+         *
+         * Handled here rather than as a status because it is not one: the trip
+         * is still running and the rider is still in the car. Both halves must
+         * be handled, or a tunnel leaves the warning up permanently and the
+         * rider believes the ride is broken long after it recovered.
+         */
+        if (event.type === 'DRIVER_LINK_LOST') {
+          const since = (event.payload as { lastSeenMs?: number } | undefined)?.lastSeenMs;
+          set({ driverLinkLostSinceMs: typeof since === 'number' ? since : Date.now() });
+        } else if (event.type === 'DRIVER_LINK_RESTORED') {
+          set({ driverLinkLostSinceMs: null });
+        }
+
         // The search is over the moment a driver is attached or the trip dies.
         if (event.status && !SEARCHING_STATUSES.includes(event.status)) {
           set({ dispatch: null });
+        }
+        // A trip that has ended cannot have a lost driver link — and a stale
+        // warning on the receipt screen would be nonsense.
+        if (event.status && TERMINAL_STATUSES.includes(event.status)) {
+          set({ driverLinkLostSinceMs: null });
         }
       },
     });
@@ -245,7 +278,7 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
     unsubscribe = null;
     unsubscribeEta = null;
     watchedTripId = null;
-    set({ snapshot: null, lastSeq: 0, dispatch: null, recovering: false, eta: null, path: null });
+    set({ snapshot: null, lastSeq: 0, dispatch: null, recovering: false, eta: null, path: null, driverLinkLostSinceMs: null });
   },
 
   hydrate: async () => {

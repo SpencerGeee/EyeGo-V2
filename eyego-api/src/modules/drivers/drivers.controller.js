@@ -82,7 +82,11 @@ const startTrip = async (req, res) => {
 };
 
 const departTrip = async (req, res) => {
-  const trip = await driversService.departTrip(req.user.userId, req.params.id);
+  // Set by the driver app on the SECOND attempt, after the under-minimum
+  // confirm sheet. A 409 `BELOW_MIN_OCCUPANCY` is what asks for it.
+  const trip = await driversService.departTrip(req.user.userId, req.params.id, {
+    acknowledgeUnderMinimum: req.body?.acknowledgeUnderMinimum === true,
+  });
   try {
     const io = req.app.get('io');
     if (io) io.of('/passenger').to(`trip:${trip.id}`).emit('trip:status_change', { tripId: trip.id, status: 'IN_PROGRESS' });

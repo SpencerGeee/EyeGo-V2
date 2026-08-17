@@ -13,9 +13,13 @@ const getCancellationFee = async (req, res) => {
 const cancelBookingWithFee = async (req, res) => {
   const { reason, note } = req.body || {};
   const result = await cancellationService.cancelBookingWithFee(req.params.bookingId, req.user.userId, { reason, note });
+  // A rider who covered a group holds one Booking per seat and cancels all of
+  // them at once, so the message has to say how many — "Booking cancelled" for
+  // four seats reads as though the other three are still live.
+  const what = result.seatCount > 1 ? `${result.seatCount} seats cancelled` : 'Booking cancelled';
   ok(res, result, result.cancellationFeePesewas
-    ? `Booking cancelled. ${formatGhs(result.cancellationFeePesewas)} cancellation fee applied.`
-    : 'Booking cancelled. Full refund processed.');
+    ? `${what}. ${formatGhs(result.cancellationFeePesewas)} cancellation fee applied.`
+    : `${what}. Full refund processed.`);
 };
 
 const getReceipt = async (req, res) => {

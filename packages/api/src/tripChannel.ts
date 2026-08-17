@@ -35,11 +35,16 @@ export type TripEventType =
   | 'DRIVER_ASSIGNED' | 'REASSIGNING' | 'DRIVER_EN_ROUTE' | 'ARRIVED_AT_PICKUP'
   | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_DRIVERS_FOUND' | 'EXPIRED' | 'NO_SHOW'
   | 'SNAPSHOT' | 'DISPATCH_PROGRESS' | 'DRIVER_LOCATION' | 'ETA'
-  | 'OFFER' | 'OFFER_REVOKED';
+  | 'OFFER' | 'OFFER_REVOKED'
+  // The server has stopped hearing from the driver's phone mid-trip, and the
+  // matching all-clear. NOT statuses: the ride is still running, only our
+  // ability to show it has stopped. See services/driver-link-watch.service.js.
+  | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED';
 
 export type TripStatus = Exclude<
   TripEventType,
-  'SNAPSHOT' | 'DISPATCH_PROGRESS' | 'DRIVER_LOCATION' | 'ETA' | 'OFFER' | 'OFFER_REVOKED'
+  | 'SNAPSHOT' | 'DISPATCH_PROGRESS' | 'DRIVER_LOCATION' | 'ETA' | 'OFFER' | 'OFFER_REVOKED'
+  | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED'
 >;
 
 /** Which journey a route line describes. Never conflate the two. */
@@ -365,9 +370,37 @@ export function subscribeToTrip({
     }
   }, 30_000);
 
+  /**
+   * HTTP FALLBACK WHILE THE SOCKET IS DOWN.
+   *
+   * Every recovery path above is triggered by a `connect` that has to actually
+   * happen: `handleConnect` on redial, and the one-shot `recover()` above for a
+   * socket that has not come up yet. If the socket NEVER connects — a captive
+   * portal, a carrier or corporate network that blocks WebSocket upgrades, a
+   * proxy that kills long-lived connections — none of them ever fire again after
+   * that first pull. The screen keeps whatever the initial snapshot said.
+   *
+   * That is the "Finding your driver" spinner that never resolves: dispatch runs
+   * to completion server-side, the driver is assigned or the search fails, and
+   * the rider's phone is told none of it because the only channel carrying the
+   * news is the one that is down. The rider force-quits and re-requests a ride
+   * that already has a driver on the way.
+   *
+   * So while `connected` is false, poll the same HTTP snapshot the recovery path
+   * uses. Costs nothing on a healthy socket (the guard is false, and this is the
+   * only timer that ever runs it), and it is the identical write path — the
+   * server's copy, discarded by `shouldApply` if a socket event ever overtakes
+   * it. Slower than the socket by design; it is a floor, not a replacement.
+   */
+  const OFFLINE_POLL_MS = 5_000;
+  const offlinePollTimer = setInterval(() => {
+    if (!socket.connected) void recover();
+  }, OFFLINE_POLL_MS);
+
   return () => {
     disposed = true;
     clearInterval(ackTimer);
+    clearInterval(offlinePollTimer);
     socket.emit('trip:unsubscribe', { tripId });
     socket.off('trip:event', handleEvent);
     socket.off('connect', handleConnect);

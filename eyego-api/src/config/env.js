@@ -102,12 +102,33 @@ const envSchema = z.object({
   // env.GEO_VALIDATION_ENABLED was always undefined and the flag was inert.
   GEO_VALIDATION_ENABLED: z.string().optional(),
 
-  ECO_BASE_FARE: z.coerce.number().default(25.0),
-  ECO_PER_KM_RATE: z.coerce.number().default(8.0),
-  COMFORT_BASE_FARE: z.coerce.number().default(35.0),
-  COMFORT_PER_KM_RATE: z.coerce.number().default(12.0),
-  PREMIUM_BASE_FARE: z.coerce.number().default(50.0),
-  PREMIUM_PER_KM_RATE: z.coerce.number().default(16.0),
+  /**
+   * TIER RATES — raised ~30% on 2026-08-17 at the operator's request.
+   *
+   * "The cost per seat is really low and I'm not sure the drivers would be
+   * making a profit." A shared trip's seat is
+   * `(base + perKm × km) × surge / maxSeats`, so on a 12–14 seater the whole
+   * vehicle's fare is divided by a big number and a driver only breaks even on a
+   * bus that fills. The lever that fixes that WITHOUT flattening the fare curve
+   * is base + per-km, not the per-seat floor: the floor was raised once before
+   * and it made trips of very different lengths cost the same (see the note on
+   * MIN_FARE_PER_SEAT below), because on any short hop the floor, not the
+   * distance, set the price.
+   *
+   * Worked example, ECO over 5.5 km on a 12-seater:
+   *   before  (25 + 8×5.5)  = ₵69.00 → ₵5.75/seat
+   *   after   (30 + 11×5.5) = ₵90.50 → ₵7.54/seat
+   *
+   * These are DEFAULTS. All six are in the runtime settings registry
+   * (`config/settings.js`, group `pricing_*`), so the operator retunes them from
+   * the admin console without a deploy and without touching this file.
+   */
+  ECO_BASE_FARE: z.coerce.number().default(30.0),
+  ECO_PER_KM_RATE: z.coerce.number().default(11.0),
+  COMFORT_BASE_FARE: z.coerce.number().default(42.0),
+  COMFORT_PER_KM_RATE: z.coerce.number().default(16.0),
+  PREMIUM_BASE_FARE: z.coerce.number().default(60.0),
+  PREMIUM_PER_KM_RATE: z.coerce.number().default(21.0),
   /**
    * Door pickup — the rider asks to be collected where THEY are rather than at
    * the trip's pickup point.
@@ -140,7 +161,11 @@ const envSchema = z.object({
   // meant the floor, not the distance, set the price on most shared trips, so
   // two trips of very different lengths cost the same. Tier separation comes
   // from each tier's own baseFarePesewas AND perKmRatePesewas instead.
-  MIN_FARE_PER_SEAT: z.coerce.number().default(3.0),
+  // Raised 3.00 → 4.00 alongside the tier rates above. Kept deliberately modest:
+  // this is a FLOOR, and a floor set anywhere near the typical seat price stops
+  // being a floor and becomes the price, which is the flattening the paragraph
+  // above describes. The real increase lives in base + per-km.
+  MIN_FARE_PER_SEAT: z.coerce.number().default(4.0),
   MIN_OCCUPANCY_TO_DEPART: z.coerce.number().default(5),
   SEAT_HOLD_DURATION_MINUTES: z.coerce.number().default(10),
   DRIVER_MIN_WALLET_BALANCE: z.coerce.number().default(5.0),
@@ -189,6 +214,27 @@ if (!_parsed.success) {
 // and quietly price rides at one hundredth of the intended amount. Now those
 // lines read `undefined` and blow up on the first request, which is the only
 // failure mode that gets noticed before a rider is charged.
+// ── FAIL CLOSED: simulated money cannot exist on a live platform ────────────
+//
+// The default rule ("simulate outside production") is safe on its own, but it
+// is a DEFAULT — an explicit `PAYMENTS_SIMULATED=true` overrides it, and a
+// `.env` copied from staging onto a production host does exactly that. The
+// failure is silent and unbounded: every top-up credits instantly, the balance
+// is real as far as every other query is concerned, and riders pay fares out of
+// money that never existed. Revenue reads `Booking.paymentStatus`, so the
+// invented balance would then be counted as genuine platform revenue.
+//
+// There is no legitimate reason to want simulated payments in production, so
+// the combination is refused at boot rather than warned about. A crash on
+// deploy is recoverable; invented money in a ledger is not.
+if (_parsed.data.NODE_ENV === 'production' && process.env.PAYMENTS_SIMULATED === 'true') {
+  console.error(
+    'FATAL: PAYMENTS_SIMULATED=true with NODE_ENV=production. Simulated top-ups ' +
+      'credit real balance instantly and would be counted as revenue. Refusing to boot.',
+  );
+  process.exit(1);
+}
+
 const { fromCedis } = require('../utils/money');
 
 const {

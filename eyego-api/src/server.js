@@ -73,6 +73,16 @@ async function start() {
     // defaults when an override exists would quote the wrong fare.
     await require('./config/settings').init();
 
+    // ── Repair dirty Driver.status rows ────────────────────────────────
+    // `Driver.status` is a free-form String and dispatch eligibility compares
+    // it to the exact literal 'ACTIVE'. A row holding 'Active', 'ACTIVE ' or
+    // the plausible-but-wrong 'APPROVED' therefore drops that driver out of the
+    // pool silently — no error, no log, nothing to debug from. Writes are now
+    // normalised at the edge (utils/driver-status.js), but rows already in the
+    // database predate that, so they are repaired once here, before anything
+    // can read them. Cheap and idempotent: a clean database updates nothing.
+    await require('./services/driver-status-repair').run();
+
     // ── Durable timers ─────────────────────────────────────────────────
     // Requiring these modules is what registers their ScheduledTask handlers;
     // the worker must not start before they are loaded or a due task would be
@@ -89,6 +99,12 @@ async function start() {
     // up hours later, and — critically — alarms if the timer worker above
     // stops draining, which is the failure most likely to strand riders.
     require('./services/trip-health.service').start();
+
+    // Presence expiry already drops a driver out of the dispatch pool. It said
+    // nothing to the rider ALREADY IN THE CAR, who was left watching a frozen
+    // puck with no way to tell a live position from a stale one. This tells
+    // them — and tells them again when the signal comes back.
+    require('./services/driver-link-watch.service').start();
 
     // ── Trip expiry sweep ──────────────────────────────────────────────
     // Expire stale trips that passed their departure time by more than

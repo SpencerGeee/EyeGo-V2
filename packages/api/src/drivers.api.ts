@@ -283,8 +283,16 @@ export const driverApi = {
   arriveAtPickup: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/arrive-at-pickup`),
 
-  departTrip: (tripId: string) =>
-    apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/depart`),
+  /**
+   * `acknowledgeUnderMinimum` is the driver's answer to a 409
+   * `BELOW_MIN_OCCUPANCY`. Omit it on the first attempt: the server refuses once,
+   * with `details: { confirmedSeats, minOccupancy, maxSeats }` for the confirm
+   * sheet, and only departs on a second call carrying this. Never send it
+   * unprompted — that reinstates the silent under-minimum departure it exists to
+   * stop.
+   */
+  departTrip: (tripId: string, opts?: { acknowledgeUnderMinimum?: boolean }) =>
+    apiClient.post<ApiResponse<DriverTrip>>(`/driver/trips/${tripId}/depart`, opts ?? {}),
 
   arriveTrip: (tripId: string) =>
     apiClient.post<ApiResponse<DriverTrip & { earningsThisTrip: number }>>(`/driver/trips/${tripId}/arrive`),

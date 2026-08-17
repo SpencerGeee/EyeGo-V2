@@ -118,6 +118,19 @@ const errorHandler = (err, req, res, next) => {
 
   if (errors) body.errors = errors;
 
+  /**
+   * Structured context for a refusal the client has to RENDER rather than just
+   * display — the under-minimum departure sheet needs the seat counts, not a
+   * sentence to parse them out of.
+   *
+   * Operational errors only, for the same reason `safeMessage` exists: an
+   * `AppError`'s `details` were authored for a client, and anything else's
+   * internals are nobody's business.
+   */
+  if (err.isOperational && err.details && typeof err.details === 'object') {
+    body.details = err.details;
+  }
+
   res.status(statusCode).json(body);
 };
 

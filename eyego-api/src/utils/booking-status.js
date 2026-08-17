@@ -48,8 +48,35 @@ const SEAT_RELEASING_STATUSES = ['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'];
  */
 const seatOccupyingWhere = () => ({ status: { in: SEAT_OCCUPYING_STATUSES } });
 
+/**
+ * WHO IS ACTUALLY TRAVELLING — the occupancy that decides whether a bus may
+ * depart.
+ *
+ * A THIRD question, deliberately distinct from the two above, and it exists
+ * because using either of them here is wrong in a different direction:
+ *
+ *   - `Trip.confirmedSeats` is a PAYMENT counter. It is incremented only when
+ *     money settles or the driver adds a cash passenger, so on a minibus whose
+ *     riders all chose "pay cash on boarding" it reads 0 while every seat is
+ *     sold. Gating departure on it refuses to let a FULL bus leave.
+ *   - `SEAT_OCCUPYING_STATUSES` includes PENDING and SEAT_HELD — unpaid holds
+ *     that may never become passengers. Gating departure on that lets an EMPTY
+ *     bus leave on the strength of holds that are about to age out.
+ *
+ * So: committed bookings only. CONFIRMED (the seat is theirs), PAID, and
+ * BOARDED (already aboard). COMPLETED cannot occur before departure.
+ *
+ * Used by the minimum-occupancy check on `POST /driver/trips/:id/depart`.
+ */
+const DEPARTURE_COUNTED_STATUSES = ['CONFIRMED', 'PAID', 'BOARDED'];
+
+/** Prisma filter fragment for the set above. Never write the list inline. */
+const departureCountedWhere = () => ({ status: { in: DEPARTURE_COUNTED_STATUSES } });
+
 module.exports = {
   SEAT_OCCUPYING_STATUSES,
   SEAT_RELEASING_STATUSES,
+  DEPARTURE_COUNTED_STATUSES,
   seatOccupyingWhere,
+  departureCountedWhere,
 };

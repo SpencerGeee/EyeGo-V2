@@ -1111,7 +1111,12 @@ model DispatchAction {
   driverId  String
   driver    Driver   @relation(fields: [driverId], references: [id])
   tripId    String
-  action    String   // ACCEPTED or DECLINED
+  // ACCEPTED · DECLINED · CANCELLED.
+  // DECLINED = turned an offer down or let it time out; still re-offerable on a
+  // later sweep. CANCELLED = abandoned a trip already accepted; permanently
+  // excluded from that trip's redispatches (services/dispatch-cascade.js) and
+  // deliberately NOT counted against the driver's decline rate.
+  action    String
   createdAt DateTime @default(now())
 
   @@index([driverId])

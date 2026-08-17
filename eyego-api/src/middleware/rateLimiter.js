@@ -96,6 +96,26 @@ const bookingCreateLimiter = rateLimit({
   skip: () => isDev,
 });
 
+/**
+ * The unauthenticated share/join endpoints.
+ *
+ * These are the only routes where guessing an identifier gets you somebody
+ * else's live location and pickup address, so they get their own budget rather
+ * than sharing the general 100-per-15-minutes pool. The window is generous
+ * enough for a real page — it polls every few seconds for the length of a ride —
+ * and far too small to walk the `shortId` keyspace.
+ *
+ * Keyed on IP, because by definition there is no user here.
+ */
+const publicShareLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: isDev ? 10000 : 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('public-share'),
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many requests. Please slow down.' },
+});
+
 module.exports = {
   defaultLimiter,
   authLimiter,
@@ -103,4 +123,5 @@ module.exports = {
   paymentLimiter,
   paymentInitiateLimiter,
   bookingCreateLimiter,
+  publicShareLimiter,
 };

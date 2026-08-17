@@ -648,6 +648,24 @@ async function driverCancel(driverId, tripId, reason = null) {
     },
   });
 
+  /**
+   * Record the abandonment before restarting the search.
+   *
+   * `excludeDriverId` below only covers THIS restart. On the second or third
+   * redispatch of the same trip, the driver who dropped it first would be a
+   * candidate again — `startCascade` clears the previous run's state, so nothing
+   * in Redis remembers them. It reads these rows instead, which survive the
+   * clear, a deploy and a Redis flush.
+   *
+   * `CANCELLED` rather than `DECLINED` on purpose: a decline is re-offerable on
+   * a later sweep, abandoning an accepted trip is not. It also stops a
+   * cancellation counting against the driver's decline rate, which is measured
+   * from `action: 'DECLINED'` specifically.
+   */
+  await prisma.dispatchAction
+    .create({ data: { driverId, tripId, action: 'CANCELLED' } })
+    .catch(() => {});
+
   // The cancelling driver is excluded so they cannot immediately be re-offered
   // the ride they just dropped.
   await cascade.startCascade(tripId, { kind: 'REASSIGNMENT', excludeDriverId: driverId });

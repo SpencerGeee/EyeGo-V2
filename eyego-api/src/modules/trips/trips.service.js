@@ -89,6 +89,44 @@ async function createTrip(driverId, data) {
 
   if (!vehicle) throw new AppError('No vehicle registered. Please add a vehicle in your profile before publishing a trip.', 400, 'NO_VEHICLE');
 
+  /**
+   * THE SEAT COUNT THE DRIVER CHOSE, OR A REFUSAL — NEVER A SILENT DOWNGRADE.
+   *
+   * BUGFIX ("on the driver app i chose 14 seats but on the tracking page it's
+   * showing just 12"). `maxSeats` was written as
+   *
+   *   (availableSeats > 0 && availableSeats <= vehicle.seaterCount)
+   *     ? availableSeats : vehicle.seaterCount
+   *
+   * so a request for 14 against a vehicle row that says 12 fell through the
+   * ternary and published a 12-seat trip, with a 201 and no mention of it. The
+   * driver's own create screen caps its stepper at the vehicle's capacity, but it
+   * defaults to 14 while that query is in flight and whenever the driver has no
+   * ACTIVE vehicle row to read it from — so the two sides disagree exactly when
+   * the vehicle record is the thing that is wrong.
+   *
+   * A 12-seater genuinely cannot carry 14, so the capacity stays authoritative;
+   * what changes is that exceeding it is now an error the driver can see and act
+   * on (fix the vehicle record) rather than a number that quietly changed under
+   * them after they published. Everything downstream — the per-seat fare
+   * denominator, the seat map, the rider listing — is derived from `maxSeats`,
+   * which is why a wrong one cannot be allowed through quietly.
+   */
+  if (availableSeats != null) {
+    const requested = Number(availableSeats);
+    if (!Number.isInteger(requested) || requested < 1) {
+      throw new AppError('Seat count must be a whole number of at least 1.', 400, 'INVALID_SEAT_COUNT');
+    }
+    if (requested > vehicle.seaterCount) {
+      throw new AppError(
+        `You selected ${requested} seats but ${vehicle.plateNumber ?? 'your vehicle'} is registered as a ` +
+          `${vehicle.seaterCount}-seater. Update the vehicle in your profile, or publish ${vehicle.seaterCount} seats.`,
+        400,
+        'SEATS_EXCEED_VEHICLE',
+      );
+    }
+  }
+
   if (!routeId && (originLat == null || originLng == null || destLat == null || destLng == null)) {
     throw new AppError('Pickup and destination locations are required.', 400, 'MISSING_LOCATION');
   }
@@ -168,7 +206,9 @@ async function createTrip(driverId, data) {
         baseFarePesewas,
         perKmRatePesewas,
         surgeMultiplier,
-        maxSeats: (availableSeats && availableSeats > 0 && availableSeats <= vehicle.seaterCount) ? availableSeats : vehicle.seaterCount,
+        // Validated above, so this is the driver's own number whenever they sent
+        // one — no fall-through that changes it behind their back.
+        maxSeats: availableSeats != null ? Number(availableSeats) : vehicle.seaterCount,
         status: 'SCHEDULED',
       },
       include: { route: true, vehicle: true, driver: { select: { name: true, profilePhoto: true } } },
@@ -1562,6 +1602,45 @@ async function getTrackingData(shortId) {
     },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  /**
+   * A SHARE LINK DIES WITH THE TRIP.
+   *
+   * This endpoint is unauthenticated by design — that is the whole point of
+   * "share my ride with my sister". But it was not lifecycle-gated, so once the
+   * ride ended the link kept answering with the driver's CURRENT coordinates,
+   * their photo, and their plate number. Whoever held the link — the trusted
+   * contact, anyone they forwarded it to, anyone who found it in a chat
+   * backup — had a permanent live tracker on that driver, for every trip they
+   * drove afterwards.
+   *
+   * After a terminal status the page gets enough to render "this trip has
+   * ended" and nothing else. No position, no vehicle, no photo.
+   */
+  if (!tripState.isLive(trip.status)) {
+    return {
+      tripId: trip.id,
+      shortId: trip.shortId,
+      status: trip.status,
+      tier: trip.tier,
+      departureTime: trip.departureTime,
+      arrivedAt: trip.arrivedAt,
+      // Names only. The public page needs them to say what journey this was;
+      // the coordinates would place a stranger at someone's front door.
+      route: trip.route
+        ? {
+            id: trip.route.id,
+            name: trip.route.name,
+            originName: trip.route.originName,
+            destinationName: trip.route.destinationName,
+          }
+        : null,
+      path: null,
+      driver: null,
+      vehicle: null,
+      ended: true,
+    };
+  }
 
   /**
    * THE ROAD LINE AND THE REAL ETA.

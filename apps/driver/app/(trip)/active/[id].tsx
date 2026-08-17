@@ -337,6 +337,16 @@ export default function ActiveTripScreen() {
   // instead of ever calling the backend.
   const VALID_ADVANCE_STATUSES = ['CONFIRMED', 'DRIVER_ASSIGNED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
 
+  /**
+   * The driver's answer to "you're below minimum occupancy — go anyway?".
+   *
+   * A ref, not state: it is read inside `mutationFn` on the immediate re-run
+   * after the Alert, and a `setState` would not have landed by then. Cleared as
+   * soon as it is spent, so one acknowledgement covers one departure and the
+   * next trip asks again.
+   */
+  const departUnderMinAckRef = useRef(false);
+
   const advanceStatus = useMutation({
     /*
      * NO RETRY. A status transition is not idempotent: the server applies it
@@ -358,7 +368,13 @@ export default function ActiveTripScreen() {
       pendingFromStatus.current = status;
       if (status === 'CONFIRMED' || status === 'DRIVER_ASSIGNED' || status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
       if (status === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(id);
-      if (status === 'ARRIVED_AT_PICKUP') return driverApi.departTrip(id);
+      if (status === 'ARRIVED_AT_PICKUP') {
+        // Spend the acknowledgement, if there is one. Read-and-clear in one go:
+        // a failed departure must not leave a standing permission behind.
+        const ack = departUnderMinAckRef.current;
+        departUnderMinAckRef.current = false;
+        return driverApi.departTrip(id, ack ? { acknowledgeUnderMinimum: true } : undefined);
+      }
       if (status === 'IN_PROGRESS') return driverApi.arriveTrip(id);
       throw new Error('Cannot advance from current status');
     },
@@ -465,8 +481,49 @@ export default function ActiveTripScreen() {
      */
     onError: async (err) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
+      const body = (err as {
+        response?: { data?: { code?: string; message?: string; details?: Record<string, number> } };
+      })?.response?.data;
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+
+      /**
+       * DEPARTING UNDER MINIMUM OCCUPANCY — ASK, DON'T SWALLOW.
+       *
+       * This must be checked BEFORE the generic 409 branch below, which treats
+       * every 409 as "this step already went through". That reading is right for
+       * a double swipe and catastrophically wrong here: the departure did NOT
+       * happen, and telling the driver their status is up to date would leave
+       * them sitting at the pickup point believing they had set off.
+       *
+       * The group fare divides by `maxSeats`, so departing half-empty means
+       * driving the whole route for a fraction of its fare. The driver may still
+       * want to — a schedule to keep, one paying passenger, a dead market — but
+       * it has to be their call with the numbers in front of them, which is the
+       * whole reason the server refuses the first attempt.
+       */
+      if (status === 409 && body?.code === 'BELOW_MIN_OCCUPANCY') {
+        const seats = body.details?.confirmedSeats ?? 0;
+        const min = body.details?.minOccupancy ?? 0;
+        Alert.alert(
+          'Depart with empty seats?',
+          `${body.message ?? `You have ${seats} of ${min} seats filled.`}\n\n` +
+            'You can wait for more passengers, or depart now and earn less for this trip.',
+          [
+            { text: 'Keep waiting', style: 'cancel' },
+            {
+              text: 'Depart anyway',
+              style: 'destructive',
+              onPress: () => {
+                departUnderMinAckRef.current = true;
+                advanceStatus.mutate();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
       if (status === 409) {
         addNotification({
           type: 'DRIVER_EN_ROUTE',
@@ -642,19 +699,52 @@ export default function ActiveTripScreen() {
     return s + (Number.isFinite(c) ? c : Math.round((Number(b.fareAmountPesewas) || fullFare) * commissionRate));
   }, 0);
   const netEarnings = Math.max(0, grossEarnings - platformFeePesewas);
-  const seats = activeBookings.map((b: any) => ({
-    seatNumber: b.seatNumber,
-    // BUGFIX: an unpaid hold used to fall through to 'EMPTY', so the seat map
-    // drew it as free while the header counted it as booked — the two halves of
-    // the same card disagreed, and a rider whose hold expired looked to the
-    // driver like a seat that was never taken.
-    status: (
-      b.status === 'BOARDED' ? 'BOARDED' : isHeld(b) ? 'HELD' : 'BOOKED'
-    ) as 'BOARDED' | 'BOOKED' | 'HELD',
-    userId: b.user?.id ?? b.userId,
-    userName: b.user?.name ?? b.guestName ?? 'Passenger',
-    bookingId: b.id,
-  }));
+  /**
+   * ONE NAME PER PERSON ON THE SEAT MAP.
+   *
+   * BUGFIX ("if a user chooses to pay for everything, it shouldn't list the
+   * passengers as a duplicate of the user for all the seats — it should show
+   * that the one user paid for everyone, so it's consistent and neat").
+   *
+   * A cover-all rider owns one booking per covered seat, so mapping bookings
+   * straight to tiles printed the same name across the whole van. The seats are
+   * real and must stay drawn — the driver still boards each one — but only the
+   * anchor (lowest-numbered) seat carries the payer's name; the rest say who
+   * covered them instead of impersonating twelve different passengers.
+   */
+  const anchorSeatByUser = new Map<string, number>();
+  for (const b of activeBookings as any[]) {
+    const uid = b.user?.id ?? b.userId;
+    if (!uid || typeof b.seatNumber !== 'number') continue;
+    const current = anchorSeatByUser.get(uid);
+    if (current == null || b.seatNumber < current) anchorSeatByUser.set(uid, b.seatNumber);
+  }
+  const seatsHeldByUser = new Map<string, number>();
+  for (const b of activeBookings as any[]) {
+    const uid = b.user?.id ?? b.userId;
+    if (!uid) continue;
+    seatsHeldByUser.set(uid, (seatsHeldByUser.get(uid) ?? 0) + 1);
+  }
+
+  const seats = activeBookings.map((b: any) => {
+    const userId = b.user?.id ?? b.userId;
+    const realName = b.user?.name ?? b.guestName ?? 'Passenger';
+    const holdsMany = userId != null && (seatsHeldByUser.get(userId) ?? 0) > 1;
+    const isAnchor = userId != null && anchorSeatByUser.get(userId) === b.seatNumber;
+    return {
+      seatNumber: b.seatNumber,
+      // BUGFIX: an unpaid hold used to fall through to 'EMPTY', so the seat map
+      // drew it as free while the header counted it as booked — the two halves of
+      // the same card disagreed, and a rider whose hold expired looked to the
+      // driver like a seat that was never taken.
+      status: (
+        b.status === 'BOARDED' ? 'BOARDED' : isHeld(b) ? 'HELD' : 'BOOKED'
+      ) as 'BOARDED' | 'BOOKED' | 'HELD',
+      userId,
+      userName: holdsMany && !isAnchor ? `Covered by ${realName}` : realName,
+      bookingId: b.id,
+    };
+  });
 
   const currentStepIndex = stepIndexFor(trip.status);
 

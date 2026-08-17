@@ -163,6 +163,21 @@ async function getOfferForDriver(driverId) {
   }
 }
 
+/**
+ * The drivers this cascade must not offer to.
+ *
+ * Tolerates both shapes on purpose: state written before this became a list
+ * carries a scalar `excludeDriverId`, and those cascades are still live in Redis
+ * across the deploy that introduces the array. Reading only the new field would
+ * silently re-offer a trip to the driver who just dropped it, for as long as any
+ * pre-deploy search is still running.
+ */
+const excludedFrom = (state) => {
+  if (!state) return [];
+  if (Array.isArray(state.excludeDriverIds)) return state.excludeDriverIds;
+  return state.excludeDriverId ? [state.excludeDriverId] : [];
+};
+
 // ── state ────────────────────────────────────────────────────────────────────
 
 async function readState(tripId) {
@@ -423,7 +438,7 @@ async function offerNext(tripId) {
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
         radiusKm: dispatchExtendedRadiusKm(),
-        excludeDriverId: state.excludeDriverId,
+        excludeDriverId: excludedFrom(state),
         tier: trip.tier,
         // Destination mode reads the trip's dropoff to decide whether a
         // homeward-bound driver is being sent the right way.
@@ -534,7 +549,7 @@ async function resweep(tripId) {
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
         radiusKm: dispatchExtendedRadiusKm(),
-        excludeDriverId: state.excludeDriverId,
+        excludeDriverId: excludedFrom(state),
         tier: trip.tier,
         // Destination mode reads the trip's dropoff to decide whether a
         // homeward-bound driver is being sent the right way.
@@ -545,12 +560,33 @@ async function resweep(tripId) {
         return [];
       });
 
-    // A driver who timed out earlier is deliberately eligible again — a missed
-    // offer is usually a phone in a pocket, not a refusal. An explicit decline
-    // (`state.declined`) is still respected, and offerNext re-checks it anyway.
-    const seen = new Set(state.candidates.map((c) => c.id));
+    /**
+     * A DRIVER WHO TIMED OUT IS ASKED AGAIN. THIS IS THE WHOLE POINT.
+     *
+     * BUGFIX ("the rider app says asking driver 1 of 1 and the driver app never
+     * shows anything"). The header two lines below used to claim a timed-out
+     * driver was "deliberately eligible again", and the code immediately
+     * contradicted it: candidates were filtered with `!seen.has(c.id)`, and
+     * `seen` was built from `state.candidates` — which already contains every
+     * driver the cascade has ever walked past. So the ONLY drivers a resweep
+     * could ever find were ids that had never been in the list at all.
+     *
+     * With one driver in the city that made the search a single 45-second shot.
+     * Miss that one socket frame — a backgrounded app, a phone switching between
+     * the two apps on one handset, no APNs key, a doze — and the driver was
+     * never asked again. The resweep then ran every ten seconds for five minutes
+     * finding "no new supply", and the ride died as EXPIRED with the driver
+     * sitting online the whole time.
+     *
+     * So the resweep now REBUILDS the queue from whoever is dispatchable right
+     * now, minus explicit declines, and rewinds the cursor. `offerNext` re-checks
+     * availability and declines before every single offer, and this only runs
+     * when the list is already exhausted (no offer is in flight), so re-asking
+     * cannot double-offer a trip.
+     */
+    const declined = new Set(state.declined);
     const extra = fresh
-      .filter((c) => !seen.has(c.id) && !state.declined.includes(c.id))
+      .filter((c) => !declined.has(c.id))
       .map((c) => ({
         id: c.id,
         fcmToken: c.fcmToken,
@@ -578,8 +614,17 @@ async function resweep(tripId) {
       return;
     }
 
-    logger.info('Dispatch found new supply', { tripId, found: extra.length });
-    state.candidates = state.candidates.concat(extra);
+    logger.info('Dispatch re-sweeping supply', {
+      tripId,
+      dispatchable: extra.length,
+      driverIds: extra.map((c) => c.id),
+      previouslyTried: state.candidates.length,
+    });
+    // Rewind: the list is exhausted, so index 0 of the fresh list is the next
+    // driver to ask. Without the rewind the new list would be walked from a
+    // cursor that is already past its end and nothing would ever be offered.
+    state.candidates = extra;
+    state.index = 0;
     state.waiting = false;
     await writeState(state);
     // Released and re-taken rather than recursed under the held lock.
@@ -607,7 +652,7 @@ async function notifySupplyAvailable(driverId) {
       // Only nudge searches that are actually parked. One mid-offer is already
       // being worked and must not be jogged into a second parallel offer.
       if (!state || state.done || !state.waiting) continue;
-      if (state.excludeDriverId === driverId) continue;
+      if (excludedFrom(state).includes(driverId)) continue;
       await scheduledTasks.cancel(TASK_RESWEEP, trip.id).catch(() => {});
       await resweep(trip.id);
     }
@@ -641,6 +686,42 @@ async function finish(tripId, reason) {
 async function startCascade(tripId, opts = {}) {
   const { kind = 'DISPATCH', excludeDriverId = null } = opts;
 
+  /**
+   * EVERY DRIVER WHO WALKED AWAY FROM THIS TRIP, NOT JUST THE LAST ONE.
+   *
+   * `excludeDriverId` is a single id supplied by whoever restarted the cascade,
+   * and `clearState()` below wipes the previous run's `declined` list. So on the
+   * second redispatch the driver who cancelled the FIRST time was a candidate
+   * again — and being re-offered the ride you just abandoned, possibly several
+   * times over as `redispatchCount` climbs toward `MAX_REDISPATCH`, is both
+   * useless and infuriating.
+   *
+   * Cancellations are durable in `DispatchAction`, so they survive the state
+   * wipe, a deploy and a Redis flush. Read them back and exclude the lot.
+   *
+   * NOTE the deliberate asymmetry with a DECLINE. A driver who let an offer
+   * time out, or tapped decline, IS re-offered on a later sweep — that was a
+   * bug fixed earlier this month and must stay fixed, because the usual reason
+   * is simply that they were not looking at their phone. Abandoning an ACCEPTED
+   * trip is a different act, and is recorded as `CANCELLED` for exactly this
+   * reason.
+   */
+  let excludeDriverIds = [];
+  try {
+    const priorCancellations = await prisma.dispatchAction.findMany({
+      where: { tripId, action: 'CANCELLED' },
+      select: { driverId: true },
+    });
+    excludeDriverIds = priorCancellations.map((a) => a.driverId);
+  } catch (err) {
+    // Worth a line, not a failed dispatch: the cost of losing this list is a
+    // driver seeing a trip they dropped, which is far better than no dispatch.
+    logger.warn(`startCascade: could not read prior cancellations for ${tripId}: ${err.message}`);
+  }
+  if (excludeDriverId && !excludeDriverIds.includes(excludeDriverId)) {
+    excludeDriverIds.push(excludeDriverId);
+  }
+
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
     // dropoff is selected for destination mode — see matcher.rankCandidates.
@@ -671,7 +752,7 @@ async function startCascade(tripId, opts = {}) {
     pickupLat: trip.pickupLat,
     pickupLng: trip.pickupLng,
     radiusKm: dispatchRadiusKm(),
-    excludeDriverId,
+    excludeDriverId: excludeDriverIds,
     tier: trip.tier,
     // Destination mode reads the trip's dropoff to decide whether a
     // homeward-bound driver is being sent the right way.
@@ -681,7 +762,7 @@ async function startCascade(tripId, opts = {}) {
   await writeState({
     tripId,
     kind,
-    excludeDriverId,
+    excludeDriverIds,
     candidates: candidates.map((c) => ({
       id: c.id,
       fcmToken: c.fcmToken,

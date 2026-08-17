@@ -14,8 +14,8 @@ const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { haversineMeters } = require('../../utils/geo');
 const ratingIntegrity = require('../../services/rating-integrity.service');
-const { seatOccupyingWhere } = require('../../utils/booking-status');
-const { availableDriverWhere, isDriverAvailable } = require('../../services/driver-availability');
+const { seatOccupyingWhere, departureCountedWhere } = require('../../utils/booking-status');
+const { isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
 const routeGeometry = require('../../services/route-geometry.service');
 const tripPublisher = require('../../services/trip-events.publisher');
@@ -956,16 +956,83 @@ async function startTrip(driverId, tripId) {
   return updated;
 }
 
-async function departTrip(driverId, tripId) {
+async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } = {}) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
   if (!needsTransition(trip, 'IN_PROGRESS')) return trip;
+
+  /**
+   * DEPARTING UNDER MINIMUM OCCUPANCY IS A DECISION, NOT AN ACCIDENT.
+   *
+   * The group fare is `(base + perKm × km) × surge / maxSeats` — `maxSeats` is
+   * the denominator, so a seat on a 15-seater is priced as a fifteenth of the
+   * journey. That is correct when the bus is full and brutal when it is not: a
+   * driver who departs with one passenger drives the entire route for one
+   * fifteenth of its fare, and absorbs the whole shortfall themselves.
+   *
+   * `MIN_OCCUPANCY_TO_DEPART` existed but only ever gated auto-CONFIRM — nothing
+   * consulted it at departure, so this was reachable in one tap with no warning
+   * anywhere. The driver found out what it cost them at the end of the trip.
+   *
+   * Blocking departure outright is the wrong answer: sometimes one paying
+   * passenger and a schedule to keep genuinely is the right call, and only the
+   * driver can weigh that. So it is refused ONCE, with the numbers, and the app
+   * re-sends with `acknowledgeUnderMinimum` if the driver still wants to go.
+   * The acknowledgement is recorded on the transition, so "why did this trip run
+   * at a loss" is answerable later instead of guessed at.
+   *
+   * On-demand rides price the whole vehicle and have no seat minimum, so this
+   * applies to group trips only.
+   */
+  const isGroupTrip = trip.maxSeats > 1;
+  // Read per call, never captured — an operator changing this in /config must
+  // take effect on the next departure, not the next deploy.
+  const minToDepart =
+    require('../../config/settings').get('MIN_OCCUPANCY_TO_DEPART') ?? env.MIN_OCCUPANCY_TO_DEPART;
+
+  /**
+   * COUNT PASSENGERS, NOT PAYMENTS.
+   *
+   * This first read `trip.confirmedSeats`, which is wrong in the one direction
+   * that matters: `confirmedSeats` is incremented only when money settles or the
+   * driver adds a cash passenger. Cash is the majority payment method here, and
+   * a rider who books a seat in the app and pays the driver on boarding leaves
+   * it untouched — so a fully sold fifteen-seater reads 0, and the gate below
+   * refuses to let a FULL bus depart. Exactly backwards from its purpose.
+   *
+   * `departureCountedWhere()` asks the question this check actually means:
+   * bookings that are committed (CONFIRMED/PAID/BOARDED), regardless of who has
+   * paid yet. See the note in utils/booking-status.js for why that is also not
+   * `seatOccupyingWhere()` — that set includes unpaid holds, which would let an
+   * empty bus depart on the strength of seats about to age out.
+   */
+  const occupancy = isGroupTrip
+    ? await prisma.booking.count({ where: { tripId, ...departureCountedWhere() } })
+    : 0;
+  if (isGroupTrip && !acknowledgeUnderMinimum && occupancy < minToDepart) {
+    const err = new AppError(
+      `This trip has ${occupancy} of ${minToDepart} seats needed to break even. ` +
+        'Departing now means you earn only what those seats paid.',
+      409,
+      'BELOW_MIN_OCCUPANCY',
+    );
+    // The app renders the confirm sheet from these, so the numbers it shows are
+    // the server's, not a second copy computed on the phone.
+    err.details = { confirmedSeats: occupancy, minOccupancy: minToDepart, maxSeats: trip.maxSeats };
+    throw err;
+  }
   // `departedAt` is stamped by the state machine's own timestampsFor(), so the
   // clock that records a milestone is the same one that records the event.
   const { trip: updated } = await tripState.applyTransition(tripId, 'IN_PROGRESS', {
     actor: tripState.ACTOR.DRIVER,
     actorId: driverId,
     expectedVersion: trip.version,
+    // Only when it actually happened, so the event log distinguishes "departed
+    // under minimum, driver accepted the shortfall" from an ordinary departure.
+    payload:
+      isGroupTrip && occupancy < minToDepart
+        ? { departedUnderMinimum: true, confirmedSeats: occupancy, minOccupancy: minToDepart }
+        : undefined,
   });
 
   // Departing switches the live leg from `toPickup` to `toDropoff`, whose cache
@@ -1573,13 +1640,35 @@ async function cancelTrip(driverId, tripId, { reason, note } = {}) {
   return updatedTrip.trip;
 }
 
-const REDISPATCH_RADIUS_KM = 8;
-const MAX_REDISPATCH_DRIVERS_TO_NOTIFY = 12;
-
 // Driver bailed on a trip riders are already matched/waiting on
 // (REDISPATCHABLE_STATUSES). Instead of cancelling+refunding, keep the
-// bookings intact, put the trip up for grabs to nearby online drivers, and
-// let the first one to claim it take over exactly where it was.
+// bookings intact, put the trip back through dispatch, and let the driver it
+// lands on take over exactly where it was.
+//
+// WHAT THIS USED TO DO, AND WHY IT WAS WRONG. It ran its own dispatch: a raw
+// `geosearch` against `drivers:online` (a DIFFERENT key from the dispatch pool,
+// `supply:drivers:geo`), then a multicast FCM plus a `trip:assigned` frame to up
+// to TWELVE drivers at once. Four invariants died in those forty lines:
+//
+//   - "Exactly one driver holds an offer at a time" (13). Twelve did, so twelve
+//     drivers raced to claim one trip and eleven got a 409 on a card they had
+//     already tapped.
+//   - "An offer is never replayed; recovery goes through GET /rides/driver/state"
+//     (12). No `dispatch:offer:driver:*` key was ever written, so a phone that
+//     was asleep for the frame could not find the offer by any route at all.
+//   - "The dispatch pool is the Redis geo-set + presence key" (11). Reading
+//     `drivers:online` meant a driver whose presence had expired — a dead phone —
+//     was still a candidate.
+//   - "trip-notify owns notifications" (16). It sent its own rider push, on top
+//     of the one `trip-notify` already sends for REASSIGNING, so riders got the
+//     same news twice.
+//
+// It also had no offer TTL, no re-sweep and no search timeout, so a redispatch
+// nobody accepted simply sat there forever.
+//
+// The cascade already does every one of those things correctly, and
+// `rides.service#driverCancel` — the on-demand version of this exact event —
+// already delegates to it. Now both do.
 async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
   // Detaching the driver here is what makes this a redispatch rather than a
   // cancel-and-recreate: the trip keeps its id, its bookings, its receipt and
@@ -1601,88 +1690,38 @@ async function redispatchTrip(cancellingDriverId, trip, { reason, note } = {}) {
     include: { route: true, bookings: { where: { ...seatOccupyingWhere() }, include: { user: { select: { fcmToken: true } } } } },
   });
 
+  /**
+   * `CANCELLED`, not `DECLINED` — the two are different acts and the cascade
+   * now treats them differently.
+   *
+   * A DECLINE (or a timed-out offer) is re-offerable on a later sweep: the usual
+   * cause is a driver who was not looking at their phone, and re-offering is the
+   * behaviour a bug fix earlier this month deliberately restored. Abandoning a
+   * trip you already ACCEPTED is not that, and `startCascade` reads these rows to
+   * make sure a redispatch never hands the trip back to anyone who has already
+   * walked away from it — however many times it has been redispatched.
+   *
+   * Durable rather than Redis-only, so the exclusion survives a deploy, a Redis
+   * flush and the `clearState()` that every restart performs.
+   */
   await prisma.dispatchAction.create({
-    data: { driverId: cancellingDriverId, tripId: trip.id, action: 'DECLINED' },
+    data: { driverId: cancellingDriverId, tripId: trip.id, action: 'CANCELLED' },
   }).catch(() => {});
 
   logger.info('Driver cancelled trip pre-boarding — redispatching', { cancellingDriverId, tripId: trip.id, reason, note });
 
-  // Tell the matched riders their driver changed (not that the trip died) —
-  // fire-and-forget, must not fail the cancel response.
-  setImmediate(async () => {
-    for (const b of updated.bookings) {
-      if (b.user?.fcmToken) {
-        pushService.sendPush(
-          b.user.fcmToken,
-          'Finding you a new driver',
-          'Your driver had to cancel — we\'re matching you with another driver nearby.',
-          { type: 'TRIP_REASSIGNING', tripId: trip.id },
-        ).catch(() => {});
-      }
-    }
-
-    // Broadcast to nearby online drivers (excluding the one who just bailed),
-    // reusing the same geo-radius eligibility as the initial dispatch.
-    try {
-      let nearbyDriverIds = [];
-      if (trip.pickupLat != null && trip.pickupLng != null) {
-        try {
-          nearbyDriverIds = await redis.geosearch(
-            'drivers:online',
-            'FROMLONLAT', trip.pickupLng, trip.pickupLat,
-            'BYRADIUS', REDISPATCH_RADIUS_KM, 'km',
-            'ASC', 'COUNT', 30,
-          );
-        } catch (_) {
-          nearbyDriverIds = await redis.georadius(
-            'drivers:online',
-            trip.pickupLng, trip.pickupLat,
-            REDISPATCH_RADIUS_KM, 'km',
-            'ASC', 'COUNT', 30,
-          ).catch(() => []);
-        }
-      }
-      nearbyDriverIds = nearbyDriverIds.filter((id) => id !== cancellingDriverId);
-
-      // Shared availability rule — see services/driver-availability.js. This
-      // used to exclude only IN_PROGRESS/DRIVER_EN_ROUTE, so a driver already
-      // committed to another trip was still offered the reassignment.
-      const eligibleDrivers = await prisma.driver.findMany({
-        where: availableDriverWhere({
-          ids: nearbyDriverIds.length > 0 ? nearbyDriverIds : null,
-          excludeId: cancellingDriverId,
-        }),
-        select: { id: true, fcmToken: true },
-        take: MAX_REDISPATCH_DRIVERS_TO_NOTIFY,
-      });
-
-      const fcmTokens = eligibleDrivers.map((d) => d.fcmToken).filter(Boolean);
-      if (fcmTokens.length > 0) {
-        await pushService.sendMulticastPush(
-          fcmTokens,
-          'Trip needs a driver',
-          `A trip to ${updated.route?.destinationName ?? 'a nearby destination'} needs a new driver.`,
-          { type: 'TRIP_REASSIGNMENT_AVAILABLE', tripId: trip.id },
-        ).catch(() => {});
-      }
-
-      const io = require('../../app').get('io');
-      if (io) {
-        const payload = {
-          tripId: trip.id,
-          kind: 'REASSIGNMENT',
-          routeOrigin: 'Pickup nearby',
-          routeDestination: updated.route?.destinationName ?? trip.route?.destinationName,
-          departureTime: trip.departureTime,
-          seatCount: updated.bookings.length,
-        };
-        for (const d of eligibleDrivers) {
-          io.of('/driver').to(`driver:${d.id}`).emit('trip:assigned', payload);
-        }
-      }
-    } catch (err) {
-      logger.error('Failed to broadcast trip redispatch', { tripId: trip.id, err: err?.message });
-    }
+  // ONE dispatch path. The cancelling driver is excluded so the trip they just
+  // dropped cannot be handed straight back to them.
+  //
+  // Kicked out of band for the same reason `POST /v1/rides` does it: running a
+  // cascade inline made the request take ~14 s against a 15 s client timeout,
+  // and the client retry then manufactured a ghost trip. The riders' apps learn
+  // about REASSIGNING from the transition above, which has already committed, so
+  // nothing user-facing is waiting on this.
+  setImmediate(() => {
+    dispatchCascade
+      .startCascade(trip.id, { kind: 'REASSIGNMENT', excludeDriverId: cancellingDriverId })
+      .catch((err) => logger.error('Redispatch cascade failed to start', { tripId: trip.id, err: err?.message }));
   });
 
   return updated;

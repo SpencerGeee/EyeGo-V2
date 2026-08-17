@@ -34,6 +34,9 @@ function TrackingStageImpl() {
   const eta = useTripStore((s) => s.eta);
   const connected = useTripStore((s) => s.connected);
   const recovering = useTripStore((s) => s.recovering);
+  // The driver's phone has stopped reporting — see the chip below, and
+  // eyego-api/src/services/driver-link-watch.service.js for who decides that.
+  const driverLinkLostSinceMs = useTripStore((s) => s.driverLinkLostSinceMs);
 
   const tripId = snapshot?.tripId ?? null;
   const unreadChats = useChatUnread((s) => (tripId ? s.counts[tripId] ?? 0 : 0));
@@ -61,7 +64,26 @@ function TrackingStageImpl() {
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      {(!connected || recovering) && (
+      {/*
+        THREE DIFFERENT PROBLEMS, ONE CHIP — AND THEY ARE NOT THE SAME PROBLEM.
+
+        `!connected` / `recovering` are about THIS phone: our socket is down or
+        catching up, and the fix is to wait a moment. `driverLinkLost` is about
+        the OTHER phone: ours is fine, the server's is fine, and the driver's has
+        stopped reporting. It takes precedence because it is the one the rider
+        can act on — the puck they are watching is a last known position, not a
+        live one, and "Reconnecting…" would tell them to keep waiting for
+        something that is not coming back on its own.
+      */}
+      {driverLinkLostSinceMs != null ? (
+        <View style={styles.chip} pointerEvents="none">
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
+          <Ionicons name="warning-outline" size={13} color={colors.error} />
+          <Text variant="caption" color={colors.error}>
+            Driver&apos;s signal lost — location may be out of date
+          </Text>
+        </View>
+      ) : (!connected || recovering) && (
         <View style={styles.chip} pointerEvents="none">
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.lg} intensity="low" />
           <Ionicons name="cloud-offline-outline" size={13} color={colors.onSurfaceVariant} />

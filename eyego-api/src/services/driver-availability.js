@@ -111,6 +111,11 @@ function busyTripFilter(now = new Date()) {
  * @param {string[]|null} [opts.ids]      restrict to these driver ids (e.g. geo-radius hit)
  * @param {string|null}   [opts.excludeId] driver to leave out (the requester / canceller)
  */
+/**
+ * @param {{ids?: string[]|null, excludeId?: string|string[]|null}} [opts]
+ *   `excludeId` accepts an array so a redispatched trip can exclude EVERY
+ *   driver who has abandoned it, not only the most recent one.
+ */
 function availableDriverWhere({ ids = null, excludeId = null } = {}) {
   const where = {
     status: 'ACTIVE',
@@ -122,7 +127,13 @@ function availableDriverWhere({ ids = null, excludeId = null } = {}) {
     trips: { none: busyTripFilter() },
   };
   if (Array.isArray(ids) && ids.length > 0) where.id = { in: ids };
-  if (excludeId) where.NOT = { id: excludeId };
+  // One id or many. `{ id: { in: [] } }` would exclude nothing but still costs a
+  // clause, so an empty array is dropped rather than emitted.
+  if (Array.isArray(excludeId)) {
+    if (excludeId.length > 0) where.NOT = { id: { in: excludeId } };
+  } else if (excludeId) {
+    where.NOT = { id: excludeId };
+  }
   return where;
 }
 

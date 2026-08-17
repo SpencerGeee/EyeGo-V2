@@ -11,8 +11,40 @@ const logger = require('../../utils/logger');
 const { seatOccupyingWhere } = require('../../utils/booking-status');
 
 /**
+ * EVERY SEAT THIS RIDER HOLDS ON THIS TRIP — the unit a cancellation acts on.
+ *
+ * A rider who covered a group owns one `Booking` row PER SEAT
+ * (`isCoveredByLead`), and so does anyone who simply booked three seats for
+ * their family. Both endpoints here took a single `bookingId`, and the rider app
+ * has no per-seat cancel UI — there is one "cancel my booking" button. So a lead
+ * booker with four seats got one of two wrong answers depending on how the
+ * client behaved:
+ *
+ *   - call it once  → one seat cancelled, three still live and still billable,
+ *                     with the rider believing they had cancelled;
+ *   - call it N times → N separate late-cancellation fees, each computed against
+ *                     one seat's fare, and N receipts for one cancellation.
+ *
+ * Neither is defensible. The fee is a penalty for cancelling a booking, not for
+ * owning rows. This resolves the set once so both the quote and the cancellation
+ * are computed over the same seats, in one transaction, with one fee and one
+ * receipt.
+ *
+ * Scoped to seat-OCCUPYING statuses so a set that is half-cancelled already
+ * (a retry, a partial failure) does not re-charge for seats that are gone.
+ */
+async function riderSeatsOnTrip(client, tripId, userId) {
+  return client.booking.findMany({
+    where: { tripId, userId, ...seatOccupyingWhere() },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+/**
  * Calculate cancellation fee based on time before departure.
  * Returns 0 if cancelled within the free cancellation window.
+ *
+ * Quoted for EVERY seat this rider holds on the trip — see `riderSeatsOnTrip`.
  */
 async function calculateCancellationFee(bookingId, userId) {
   const booking = await prisma.booking.findUnique({
@@ -21,6 +53,12 @@ async function calculateCancellationFee(bookingId, userId) {
   });
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new ForbiddenError();
+
+  const seats = await riderSeatsOnTrip(prisma, booking.tripId, userId);
+  // The booking being quoted may itself already be cancelled; the rider is still
+  // entitled to a truthful answer about it, so fall back to it alone.
+  const seatSet = seats.length > 0 ? seats : [booking];
+  const totalFarePesewas = seatSet.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);
 
   // Get policy for this tier
   const policy = await prisma.cancellationPolicy.findFirst({
@@ -51,11 +89,14 @@ async function calculateCancellationFee(bookingId, userId) {
 
   return {
     feePercentage,
-    feeAmountPesewas: percentOf(booking.fareAmountPesewas, feePercentage / 100),
+    // ONE fee, over the whole set — not one fee per row.
+    feeAmountPesewas: percentOf(totalFarePesewas, feePercentage / 100),
     freeCancelMinutes,
     minutesUntilDeparture: Math.round(minutesUntilDeparture),
     feeType,
-    fareAmountPesewas: booking.fareAmountPesewas,
+    fareAmountPesewas: totalFarePesewas,
+    // So the confirm sheet can say "cancel all 4 seats" rather than implying one.
+    seatCount: seatSet.length,
   };
 }
 
@@ -78,6 +119,23 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     });
     if (!booking) throw new NotFoundError('Booking');
     if (booking.userId !== userId) throw new ForbiddenError();
+
+    /**
+     * Cancel the rider's WHOLE seat set on this trip, not the one row named in
+     * the URL. See `riderSeatsOnTrip` for why. Everything below — the fee, the
+     * refund, the seat-counter decrement, the receipt — is computed once over
+     * this set.
+     */
+    const seatSet = await riderSeatsOnTrip(tx, booking.tripId, userId);
+    // Already cancelled (a retry, a double tap): nothing to do, and re-running
+    // would charge a second fee for a booking that no longer holds a seat.
+    if (seatSet.length === 0) {
+      return { booking, refundAmountPesewas: 0, cancellationFeePesewas: null, receipt: null, transition: null, seatCount: 0, alreadyCancelled: true };
+    }
+    const seatIds = seatSet.map((b) => b.id);
+    const totalFarePesewas = seatSet.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);
+    const paidSeats = seatSet.filter((b) => b.paymentStatus === 'PAID');
+    const paidFarePesewas = paidSeats.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);
 
     // Calculate cancellation fee
     const policy = await tx.cancellationPolicy.findFirst({
@@ -103,15 +161,19 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     }
 
     if (feePercentage > 0) {
-      cancellationFeePesewas = percentOf(booking.fareAmountPesewas, feePercentage / 100);
+      // ONE fee for the cancellation, charged against the total the rider is
+      // walking away from. Charging it per row would multiply the penalty by the
+      // number of seats — a lead booker with four seats paid four late fees.
+      cancellationFeePesewas = percentOf(totalFarePesewas, feePercentage / 100);
     }
 
-    // If paid, process refund minus cancellation fee
+    // Refund only what was actually paid. Unpaid seats in the set (cash, or a
+    // hold that never settled) owe nothing back.
     let refundAmountPesewas = 0;
-    if (booking.paymentStatus === 'PAID') {
+    if (paidSeats.length > 0) {
       refundAmountPesewas = cancellationFeePesewas
-        ? Math.max(0, booking.fareAmountPesewas - cancellationFeePesewas)
-        : booking.fareAmountPesewas;
+        ? Math.max(0, paidFarePesewas - cancellationFeePesewas)
+        : paidFarePesewas;
 
       // Record refund transaction
       await tx.paymentTransaction.create({
@@ -137,6 +199,21 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       }
     }
 
+    // Cancel every seat in the set. The fee is stamped on the named booking
+    // only (below), so a report summing `cancellationFeePesewas` across rows
+    // sees the one penalty that was actually charged.
+    if (seatIds.length > 1) {
+      await tx.booking.updateMany({
+        where: { id: { in: seatIds.filter((id) => id !== bookingId) } },
+        data: {
+          status: 'CANCELLED',
+          seatNumber: null,
+          cancelledAt: now,
+          cancellationReason: note ? `${reason || 'other'}: ${note}` : (reason || null),
+        },
+      });
+    }
+
     // Update booking with cancellation info
     const updated = await tx.booking.update({
       where: { id: bookingId },
@@ -151,21 +228,39 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       },
     });
 
-    // Decrement confirmed seats if was paid
-    if (booking.paymentStatus === 'PAID') {
-      // Floored with `updateMany` + `gt: 0` for the same reason as riderNoShow:
-      // a counter that can go negative reads as EXTRA available seats, because
-      // availableSeats is `maxSeats - confirmedSeats`.
-      await tx.trip.updateMany({
-        where: { id: booking.tripId, confirmedSeats: { gt: 0 } },
-        data: { confirmedSeats: { decrement: 1 } },
+    /**
+     * Give back one counted seat per PAID booking cancelled.
+     *
+     * `confirmedSeats` is incremented only when money settles, so only the paid
+     * rows in this set were ever counted. Clamped by reading the current value
+     * rather than a bare `gt: 0` guard: decrementing by N when fewer than N are
+     * counted would take it negative, and `availableSeats` is
+     * `maxSeats - confirmedSeats`, so a negative counter advertises MORE seats
+     * than the vehicle has.
+     */
+    if (paidSeats.length > 0) {
+      const current = await tx.trip.findUnique({
+        where: { id: booking.tripId },
+        select: { confirmedSeats: true },
       });
+      const give = Math.min(paidSeats.length, current?.confirmedSeats ?? 0);
+      if (give > 0) {
+        await tx.trip.update({
+          where: { id: booking.tripId },
+          data: { confirmedSeats: { decrement: give } },
+        });
+      }
     }
 
-    // Generate receipt if there was any payment
+    // One receipt for one cancellation, carrying the set's totals.
     let receipt = null;
-    if (booking.paymentStatus === 'PAID') {
-      receipt = await generateReceipt(tx, booking, refundAmountPesewas, cancellationFeePesewas);
+    if (paidSeats.length > 0) {
+      receipt = await generateReceipt(
+        tx,
+        { ...booking, fareAmountPesewas: paidFarePesewas },
+        refundAmountPesewas,
+        cancellationFeePesewas,
+      );
     }
 
     // Check if trip should revert to SCHEDULED
@@ -186,7 +281,15 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       });
     }
 
-    return { booking: updated, refundAmountPesewas, cancellationFeePesewas, receipt, transition };
+    return {
+      booking: updated,
+      refundAmountPesewas,
+      cancellationFeePesewas,
+      receipt,
+      transition,
+      // The client says "4 seats cancelled", not "your booking was cancelled".
+      seatCount: seatSet.length,
+    };
   });
 
   // Post-commit: tell both apps the trip went back on sale.
@@ -268,24 +371,47 @@ async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Dr
  * Get receipt for a booking.
  */
 async function getReceipt(bookingId, userId) {
-  const receipt = await prisma.receipt.findFirst({
-    where: { bookingId, userId },
-    include: {
-      booking: {
-        include: {
-          trip: {
-            include: {
-              route: { select: { originName: true, destinationName: true } },
-              driver: { select: { name: true, phone: true } },
-              vehicle: { select: { make: true, model: true, plateNumber: true } },
-            },
-          },
-        },
+  const TRIP_INCLUDE = {
+    trip: {
+      include: {
+        route: { select: { originName: true, destinationName: true } },
+        driver: { select: { name: true, phone: true } },
+        vehicle: { select: { make: true, model: true, plateNumber: true } },
       },
     },
+  };
+
+  const receipt = await prisma.receipt.findFirst({
+    where: { bookingId, userId },
+    include: { booking: { include: TRIP_INCLUDE } },
   });
 
-  if (!receipt) throw new NotFoundError('Receipt');
+  /**
+   * A CASH RIDE HAS NO RECEIPT ROW, AND STILL HAS A FARE.
+   *
+   * BUGFIX ("on the trip complete page of the rider app it's showing that my
+   * total fare is 5.75, which is supposed to be 69 since i paid for everyone").
+   *
+   * `Receipt` rows are minted by `generateTripReceipt`, which returns early
+   * unless `paymentStatus === 'PAID'` — so a cash trip, the default in this
+   * market, finishes with no row at all. This function then threw 404, the
+   * rider's complete screen lost `fareBreakdown` with it, and its fallback chain
+   * dropped to `activeBooking.fareAmountPesewas`: ONE booking, ONE seat. A rider
+   * who covered twelve seats was shown a twelfth of what they owe.
+   *
+   * So the receipt ROW is now optional and only supplies the receipt number and
+   * the platform fee. The fare comes from `getTripFareForRider` either way,
+   * which is the same derivation every other surface reads and the only one that
+   * knows about cover-all.
+   */
+  const booking =
+    receipt?.booking ??
+    (await prisma.booking.findFirst({
+      where: { id: bookingId, userId },
+      include: TRIP_INCLUDE,
+    }));
+
+  if (!booking) throw new NotFoundError('Receipt');
 
   /**
    * WHAT THE RIDER ACTUALLY PAID FOR THIS TRIP, not what one seat cost.
@@ -301,16 +427,20 @@ async function getReceipt(bookingId, userId) {
    * is still there underneath it, unchanged, for anyone who wants the single seat.
    */
   const { getTripFareForRider } = require('../bookings/bookings.service');
-  const tripFare = await getTripFareForRider(receipt.booking.tripId, userId).catch(() => null);
+  const tripFare = await getTripFareForRider(booking.tripId, userId).catch(() => null);
 
   return {
-    ...receipt,
+    ...(receipt ?? {}),
+    // A cash ride genuinely has no receipt number yet. Null says so; inventing
+    // one would put a reference on screen that support cannot look up.
+    receiptNumber: receipt?.receiptNumber ?? null,
+    booking,
     fareBreakdown: tripFare
       ? {
           baseFarePesewas: tripFare.totalPesewas - tripFare.cargoSurchargePesewas - tripFare.deviationSurchargePesewas,
           surcharges: tripFare.cargoSurchargePesewas + tripFare.deviationSurchargePesewas,
-          platformFeePesewas: receipt.platformFeePesewas,
-          discount: receipt.discountAppliedPesewas ?? 0,
+          platformFeePesewas: receipt?.platformFeePesewas ?? 0,
+          discount: receipt?.discountAppliedPesewas ?? 0,
           tip: 0,
           total: tripFare.totalPesewas,
           seatCount: tripFare.seatCount,
