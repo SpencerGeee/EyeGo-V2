@@ -38,45 +38,29 @@ jobs:
         uses: actions/checkout@v4
 
       # ── Disk headroom ────────────────────────────────────────────────────
-      # BUILD FAILURE THIS FIXES: `pod install` died in CocoaPods' downloader
-      # while copying the prebuilt React-Core pod into its cache:
+      # There used to be a "Free up disk space" step here, deleting the unused
+      # Xcode installs and every simulator runtime before the build. It was
+      # removed deliberately: `sudo rm -rf` across tens of GB of small files
+      # costs several minutes of wall clock on every single run, and the space
+      # it bought was only ever needed once.
+      #
+      # WHAT IT WAS THERE FOR, so the symptom is recognisable if it comes back.
+      # `pod install` died inside CocoaPods' downloader while copying the
+      # prebuilt React-Core pod into its cache:
       #   rsync: _CodeSignature/.CodeResources.dyN5sNU27F: write: Input/output error
       #   rsync: buf_copy / unexpected end of file
-      # That reads like a corrupt archive, but it is the disk filling up — a
-      # write past the end of the volume surfaces as EIO, not ENOSPC, through
-      # rsync's buffered copy.
+      # That reads like a corrupt archive but it is the volume filling up — a
+      # write past the end of the disk surfaces through rsync's buffered copy as
+      # EIO rather than ENOSPC. React Native 0.81 pulls prebuilt artifacts
+      # (reactnative-dependencies, reactnative-core, hermes-ios), unpacks each
+      # into a temp dir, and CocoaPods then rsyncs a SECOND copy into
+      # ~/Library/Caches/CocoaPods/Pods/External.
       #
-      # Why this build in particular is tight on space: React Native 0.81 pulls
-      # PREBUILT artifacts (reactnative-dependencies, reactnative-core and
-      # hermes-ios, each a few hundred MB of debug binaries), unpacks each one
-      # into a temp dir, and then CocoaPods rsyncs a SECOND copy of it into
-      # ~/Library/Caches/CocoaPods/Pods/External. Add node_modules for a
-      # monorepo, a full `expo prebuild`, and Release DerivedData for ~60 pods,
-      # and the ~14 GB free on a stock macOS runner is gone.
-      #
-      # The image ships several Xcode versions and every installed iOS simulator
-      # runtime — tens of GB that this job cannot use: it builds
-      # Release-iphoneos (a real device slice, unsigned), so no simulator
-      # runtime is ever loaded, and only the selected Xcode is invoked. Removing
-      # them is the standard remedy and costs about a minute.
-      - name: Free up disk space
-        run: |
-          echo "── before ──"; df -h /
-          KEEP="$(xcode-select -p | sed -E 's#(/Applications/Xcode[^/]*\.app).*#\1#')"
-          echo "Keeping $KEEP"
-          for app in /Applications/Xcode*.app; do
-            if [ "$app" != "$KEEP" ]; then
-              echo "Removing $app"
-              sudo rm -rf "$app" || true
-            fi
-          done
-          # Device builds never load a simulator runtime.
-          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/* || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator/Devices/* || true
-          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/* || true
-          sudo rm -rf ~/Library/Developer/Xcode/DerivedData/* || true
-          sudo rm -rf ~/Library/Caches/CocoaPods || true
-          echo "── after ──"; df -h /
+      # If that rsync error returns, this is a disk problem, not a corrupt
+      # download — reclaim only the simulator runtimes, which is the bulk of the
+      # space and a fraction of the time:
+      #   sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/*
+      # This job builds Release-iphoneos, so no simulator runtime is ever loaded.
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
