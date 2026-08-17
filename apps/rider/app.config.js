@@ -9,6 +9,7 @@ const path = require('path');
 // its main at TypeScript sources for Metro, and this file is plain CJS run by
 // node during prebuild.
 const withFirebaseAppDelegate = require('../../packages/config/plugins/withFirebaseAppDelegate');
+const withFirebasePods = require('../../packages/config/plugins/withFirebasePods');
 
 module.exports = ({ config }) => {
   // ── Firebase / FCM (push notifications) ──────────────────────────────────
@@ -87,6 +88,10 @@ module.exports = ({ config }) => {
       // finds its anchor in the SDK 54 template and gives up with a warning.
       // See the plugin; it is a no-op unless ios.googleServicesFile is set.
       withFirebaseAppDelegate,
+      // NOT conditional, unlike the two above: the Firebase pods come from
+      // autolinking and are installed whether or not Firebase is configured,
+      // and pod install refuses to integrate them without modular headers.
+      withFirebasePods,
     ],
   };
 };

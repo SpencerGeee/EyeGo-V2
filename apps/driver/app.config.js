@@ -12,6 +12,7 @@ const path = require('path');
 // its main at TypeScript sources for Metro, and this file is plain CJS run by
 // node during prebuild.
 const withFirebaseAppDelegate = require('../../packages/config/plugins/withFirebaseAppDelegate');
+const withFirebasePods = require('../../packages/config/plugins/withFirebasePods');
 
 module.exports = () => {
   const expo = baseConfig.expo;
@@ -64,6 +65,10 @@ module.exports = () => {
   }
 
   plugins.push(withFirebaseAppDelegate);
+  // NOT conditional, unlike the two above: the Firebase pods come from
+  // autolinking and are installed whether or not Firebase is configured, and
+  // pod install refuses to integrate them without modular headers.
+  plugins.push(withFirebasePods);
 
   return {
     ...expo,
