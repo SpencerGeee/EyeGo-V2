@@ -134,23 +134,102 @@ jobs:
       # no Podfile.lock / Pods sandbox. xcodebuild's "Check Pods Manifest.lock"
       # phase then aborts with "sandbox is not in sync". Install pods explicitly.
       # This also produces the .xcworkspace that the build step builds against.
+      # Survives a re-run without re-downloading every podspec. See the 429 note
+      # in the install step below: the CDN metadata is the thing GitHub rate
+      # limits, so keeping it between runs is the single best mitigation.
+      # `restore-keys` matters more than an exact hit — a stale spec cache is
+      # still most of the traffic saved, and CocoaPods refreshes what it needs.
+      - name: Cache CocoaPods specs and pod archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/CocoaPods
+            ~/.cocoapods/repos
+          key: cocoapods-${{ runner.os }}-${{ inputs.app }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            cocoapods-${{ runner.os }}-${{ inputs.app }}-
+            cocoapods-${{ runner.os }}-
+
       - name: Install CocoaPods dependencies
         working-directory: apps/${{ inputs.app }}/ios
         run: |
+          # `pipefail` IS LOAD-BEARING HERE, not hygiene. Every `pod install`
+          # below is piped into `tee` so its output can be classified, and a
+          # pipeline's exit status is its LAST command — without this line `tee`
+          # reports success for every failed install, the loop breaks on the
+          # first attempt, and the job marches on to a baffling xcodebuild error
+          # about a sandbox that was never populated.
           set -o pipefail
           df -h /
-          if ! pod install --repo-update; then
-            # A `pod install` that dies mid-copy (see the disk-space note at the
-            # top of this file) leaves a half-written entry in the External pod
-            # cache, and every retry then reuses that corrupt copy. Clear the
-            # cache and try exactly once more before failing the build, so a
-            # transient I/O error doesn't cost a whole re-run.
-            echo "::warning::pod install failed — clearing CocoaPods cache and retrying once"
-            df -h /
-            pod cache clean --all || true
-            rm -rf ~/Library/Caches/CocoaPods || true
-            pod install --repo-update
-          fi
+
+          # TWO DIFFERENT FAILURES WEAR THE SAME EXIT CODE, AND THE CURE FOR ONE
+          # IS THE POISON FOR THE OTHER.
+          #
+          #   (a) A mid-copy death — `rsync: write: Input/output error` — leaves a
+          #       half-written entry in the External pod cache, and every retry
+          #       reuses that corrupt copy. See the disk-space note at the top of
+          #       this file. The fix is to clear the cache.
+          #
+          #   (b) CocoaPods' CDN falling back to raw.githubusercontent.com and
+          #       being told 429 Too Many Requests:
+          #         CDN: trunk URL couldn't be downloaded:
+          #           .../Specs/2/d/6/FirebaseMessaging/11.0.0/FirebaseMessaging.podspec.json
+          #           Response: 429
+          #       GitHub-hosted macOS runners share egress IPs, so this is ordinary
+          #       weather rather than anything wrong with the project. The fix is
+          #       to wait and reuse what we already have.
+          #
+          # This step used to answer BOTH with "clear the whole cache and retry
+          # with --repo-update", which is exactly backwards for (b): it throws
+          # away the spec metadata and immediately re-requests all of it from the
+          # endpoint that just rate-limited us, so the retry fails the same way.
+          # Classify first, then respond.
+          #
+          # `--repo-update` is also deliberately NOT used on the first attempt.
+          # It forces a full CDN metadata refresh, which is the habit of the old
+          # git-backed Specs repo; the CDN resolves lazily and only needs the
+          # refresh when a spec genuinely cannot be found.
+          attempt=1
+          max_attempts=4
+          repo_update=""
+          log=/tmp/pod-install.log
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "── pod install (attempt $attempt/$max_attempts) ${repo_update:-} ──"
+            if pod install $repo_update 2>&1 | tee "$log"; then
+              echo "pod install succeeded on attempt $attempt"
+              break
+            fi
+
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              echo "::error::pod install failed after $max_attempts attempts"
+              df -h /
+              exit 1
+            fi
+
+            if grep -qiE '429|too many requests|rate limit' "$log"; then
+              # (b) Back off and KEEP the cache. Growing waits, because the
+              # limit is per-window and a tight retry just spends the next one.
+              backoff=$(( attempt * 45 ))
+              echo "::warning::CocoaPods CDN rate-limited (429). Waiting ${backoff}s and retrying with the spec cache intact."
+              sleep "$backoff"
+            elif grep -qiE 'rsync|input/output error|unexpected end of file|checksum' "$log"; then
+              # (a) Corrupt or truncated download. This is the one that wants a
+              # clean slate.
+              echo "::warning::pod install failed mid-copy — clearing CocoaPods cache before retry"
+              df -h /
+              pod cache clean --all || true
+              rm -rf ~/Library/Caches/CocoaPods || true
+            else
+              # Unclassified. A missing/stale spec is the most likely cause, and
+              # that is what --repo-update actually exists for.
+              echo "::warning::pod install failed for an unrecognised reason — retrying with --repo-update"
+              repo_update="--repo-update"
+              sleep 15
+            fi
+
+            attempt=$(( attempt + 1 ))
+          done
           df -h /
         env:
           # RN 0.81 generates a fresh Podfile each prebuild; New Architecture is
