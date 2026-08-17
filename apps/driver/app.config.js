@@ -49,6 +49,20 @@ module.exports = () => {
   // After @react-native-firebase/app, whose own AppDelegate mod no longer finds
   // its anchor in the SDK 54 template and gives up with a warning. See the
   // plugin for the detail; it is a no-op unless ios.googleServicesFile is set.
+  // THE FIREBASE PLUGINS ARE CONDITIONAL, and must stay out of app.json.
+  // @react-native-firebase/app does not skip a build that has no Firebase
+  // files — its mods throw outright ("Path to GoogleService-Info.plist is not
+  // defined"), which kills prebuild on any machine that does not have the
+  // gitignored files, CI included. Listing it only when a file exists is what
+  // makes Firebase genuinely optional rather than nominally so.
+  //
+  // Either file is enough, because each mod is platform-scoped: the plist mod
+  // runs only during an iOS prebuild and google-services.json's only during an
+  // Android one.
+  if (hasGoogleServicesInfo || hasGoogleServices) {
+    plugins.push('@react-native-firebase/app', '@react-native-firebase/messaging');
+  }
+
   plugins.push(withFirebaseAppDelegate);
 
   return {

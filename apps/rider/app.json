@@ -77,8 +77,6 @@
       "expo-router",
       "expo-font",
       "@maplibre/maplibre-react-native",
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
       [
         "expo-camera",
         {

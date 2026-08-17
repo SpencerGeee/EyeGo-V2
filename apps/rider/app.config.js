@@ -63,6 +63,21 @@ module.exports = ({ config }) => {
     },
     plugins: [
       ...baseConfig.expo.plugins,
+      // THE FIREBASE PLUGINS ARE CONDITIONAL, and must stay out of app.json.
+      // @react-native-firebase/app does not skip a build that has no Firebase
+      // files — its mods throw outright ("Path to GoogleService-Info.plist is
+      // not defined"), which kills prebuild on any machine that does not have
+      // the gitignored files, CI included. Listing it only when a file exists
+      // is what makes Firebase genuinely optional rather than nominally so.
+      //
+      // Either file is enough, because each mod is platform-scoped: the plist
+      // mod runs only during an iOS prebuild and google-services.json's only
+      // during an Android one. The messaging plugin ships Android mods alone
+      // and is harmless either way, but travels with app to keep the pair
+      // legible.
+      ...(hasGoogleServicesInfo || hasGoogleServices
+        ? ['@react-native-firebase/app', '@react-native-firebase/messaging']
+        : []),
       // Injects the EyeGoLiveActivity widget-extension Xcode target from
       // apps/rider/targets/live-activity/ during `expo prebuild`. Runs in
       // EAS Build's cloud prebuild too — no local Xcode required to SHIP
