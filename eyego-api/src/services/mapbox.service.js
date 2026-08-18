@@ -73,7 +73,25 @@ async function roadDistanceKm(originLat, originLng, destLat, destLng, { fallback
   try {
     const route = await getDirections(originLng, originLat, destLng, destLat);
     if (Number.isFinite(route?.distanceKm) && route.distanceKm > 0) {
-      return { distanceKm: route.distanceKm, durationMin: route.durationMin ?? null, source: 'mapbox' };
+      return {
+        distanceKm: route.distanceKm,
+        durationMin: route.durationMin ?? null,
+        /**
+         * The line the distance was measured along, handed back rather than
+         * thrown away.
+         *
+         * `getDirections` already asks for `geometries=geojson&overview=full`,
+         * so this costs nothing extra — it was simply being dropped on the
+         * floor here. The rider's ride picker needs a route to draw behind the
+         * tier cards, and the only alternatives were a second Directions call
+         * from the client (quota, a different answer from the one that priced
+         * the trip) or a straight line (which is not the road). `null` on the
+         * straight-line fallback below, because there is no route to draw and
+         * pretending otherwise would put a line through buildings.
+         */
+        geometry: route.geometry ?? null,
+        source: 'mapbox',
+      };
     }
   } catch (err) {
     logger.warn('roadDistanceKm: routing failed, using straight-line estimate', { error: err.message });
@@ -81,6 +99,7 @@ async function roadDistanceKm(originLat, originLng, destLat, destLng, { fallback
   return {
     distanceKm: Math.max(straightKm * fallbackMultiplier, 0.1),
     durationMin: null,
+    geometry: null,
     source: 'estimate',
   };
 }

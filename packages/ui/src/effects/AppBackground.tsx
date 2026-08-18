@@ -111,6 +111,41 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
   // alpha-fade approach) — it stays the on-brand deep gradient color in both
   // themes, so the glow itself is identical between modes; only the base it
   // sits on changes.
+  /**
+   * The brand wash. Used two ways, and it matters that it is the SAME one:
+   *   - as the whole background for instances that don't own the shader slot;
+   *   - as the FLOOR underneath the shader for the instance that does.
+   *
+   * BUGFIX ("the beginning of the search stage starts with a blacked-out
+   * background which is supposed to be the Skia green"). A Skia `<Canvas>`
+   * mounted on a newly-pushed screen does not paint on the commit that mounts
+   * it — the first raymarched frame lands a few frames later. Until then the
+   * only thing under it was `backgroundColor: colors.backgroundDeep`, i.e. flat
+   * near-black. On the driver's create-trip that gap is invisible because the
+   * route arrives on an opaque native slide; the rider's `/trip` arrives on a
+   * morph with a 420ms fade, so the rider watches the background come up and
+   * the gap IS the entrance. Same reason the fallback path exists at all — a
+   * green floor is never wrong, so put it under the canvas too and the warm-up
+   * frame reads as the brand gradient settling into the shader instead of as a
+   * black screen.
+   */
+  const ambientFloor = (
+    <LinearGradient
+      colors={[
+        // Same reasoning as `ambientOpacity`: a wash over white needs a
+        // bigger alpha than the same wash over near-black to land with the
+        // same weight. These were 0.14/0.16 and read as nothing at all.
+        withAlpha(colors.primary, isDark ? 0.26 : 0.24),
+        withAlpha(colors.onPrimaryFixedVariant, isDark ? 0.34 : 0.28),
+        colors.backgroundDeep,
+      ]}
+      locations={[0, 0.45, 1]}
+      start={{ x: 0.35, y: 0 }}
+      end={{ x: 0.65, y: 1 }}
+      style={StyleSheet.absoluteFill}
+    />
+  );
+
   // Only ONE instance in the whole app paints a Skia canvas — see shaderSlot.ts.
   // Everything else paints the gradient below, which is the same brand
   // composition as a native view and costs nothing per frame.
@@ -125,20 +160,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
           style,
         ]}
       >
-        <LinearGradient
-          colors={[
-            // Same reasoning as `ambientOpacity`: a wash over white needs a
-            // bigger alpha than the same wash over near-black to land with the
-            // same weight. These were 0.14/0.16 and read as nothing at all.
-            withAlpha(colors.primary, isDark ? 0.26 : 0.24),
-            withAlpha(colors.onPrimaryFixedVariant, isDark ? 0.34 : 0.28),
-            colors.backgroundDeep,
-          ]}
-          locations={[0, 0.45, 1]}
-          start={{ x: 0.35, y: 0 }}
-          end={{ x: 0.65, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+        {ambientFloor}
       </View>
     );
   }
@@ -154,6 +176,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
           style,
         ]}
       >
+        {ambientFloor}
         <LightPillarBackground
           topColor={colors.primary}
           bottomColor={colors.onPrimaryFixedVariant}
@@ -227,6 +250,7 @@ export function AppBackground({ style, variant = 'animated', isDark = true, paus
         style,
       ]}
     >
+      {ambientFloor}
       {blobs.map((blob, i) => (
         <Blob key={i} {...blob} durationMs={animated ? blob.durationMs : 0} />
       ))}

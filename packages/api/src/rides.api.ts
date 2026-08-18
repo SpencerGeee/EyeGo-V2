@@ -18,6 +18,17 @@ export interface FareQuote {
   distanceKm: number;
   surgeMultiplier: number;
   breakdown: Record<string, number | boolean>;
+  /** Routed duration in minutes — part of the price under the on-demand card. */
+  durationMin?: number | null;
+  /**
+   * The road the quote was measured along, for the ride picker's preview map.
+   *
+   * The SAME line the fare was computed from, so the route the rider is looking
+   * at and the distance they are being charged for cannot disagree. Null when
+   * the router was unreachable and the distance fell back to a straight-line
+   * estimate — there is no road to draw in that case.
+   */
+  geometry?: { type: 'LineString'; coordinates: [number, number][] } | null;
   /** Render the countdown against this + serverNowMs, never Date.now(). */
   expiresAtServerMs: number;
   serverNowMs: number;

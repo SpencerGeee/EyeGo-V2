@@ -125,8 +125,27 @@ export default function DriverTrackingScreen() {
    * same rule the server applies in `route-geometry.activeLeg`, so the two
    * cannot disagree: the driver is fetching the rider until they are aboard.
    */
-  const effectiveLeg: 'toPickup' | 'toDropoff' =
-    etaLeg ?? (trip?.status === 'IN_PROGRESS' ? 'toDropoff' : 'toPickup');
+  /**
+   * ONCE THE DRIVER IS AT THE KERB, THE PICKUP LEG IS OVER.
+   *
+   * BUGFIX ("if the driver is already at the pickup when starting, the tracking
+   * page should skip the heading-to-pickup phase — and it's stuck on
+   * calculating ETA").
+   *
+   * The status wins over `etaLeg` here rather than the other way round. A driver
+   * who accepts a dispatch while already standing at the pickup — or who marks
+   * arrived — has nothing left to be routed TO: the remaining journey is the
+   * drop-off. The old rule kept whatever leg the last `trip:eta` frame named,
+   * and the last frame before arrival is always `toPickup`, so the card went on
+   * describing a leg with zero distance left in it. Worse, a zero-length leg
+   * produces no useful route and therefore no further `trip:eta`, which is the
+   * second half of the same report: the number never arrives and the label sits
+   * on its placeholder for the rest of the trip.
+   */
+  const pickupLegDone = trip?.status === 'ARRIVED_AT_PICKUP' || trip?.status === 'IN_PROGRESS';
+  const effectiveLeg: 'toPickup' | 'toDropoff' = pickupLegDone
+    ? 'toDropoff'
+    : (etaLeg ?? 'toPickup');
 
   const unreadChats = useChatUnread((s) => (id ? s.counts[id] ?? 0 : 0));
 
@@ -665,9 +684,25 @@ export default function DriverTrackingScreen() {
                   {/* Was the hardcoded string 'to destination', which said the
                       same thing while the driver was still collecting the
                       rider as it did once they were aboard. */}
+                  {/*
+                    "Calculating ETA…" IS ONLY TRUE WHILE SOMETHING IS BEING
+                    CALCULATED.
+
+                    It was the sole fallback, so any state that produces no ETA
+                    at all — sitting at the pickup with a zero-length leg, a
+                    router that could not answer, a socket that never delivered
+                    a frame — showed a message promising a number that was never
+                    coming. The phase already says something true; say that
+                    instead, and keep the calculating copy for the one case
+                    where it is honest: still driving, no answer yet.
+                  */}
                   {etaMinutes != null
                     ? (effectiveLeg === 'toPickup' ? 'to pickup' : 'to destination')
-                    : 'Calculating ETA...'}
+                    : trip?.status === 'ARRIVED_AT_PICKUP'
+                      ? 'At the pickup point'
+                      : trip?.status === 'IN_PROGRESS'
+                        ? 'On the way to the destination'
+                        : 'Calculating ETA...'}
                 </Text>
               </View>
               <View style={styles.etaDivider} />

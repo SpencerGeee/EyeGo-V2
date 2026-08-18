@@ -105,11 +105,13 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
        * The padding now lives on an inner wrapper, so the sheen fills the whole
        * card and is clipped only by the card's own rounded corners.
        *
-       * `maxGlowRadius` is capped for the neighbouring half of the same report
-       * ("the cut out seems to affect the glow borders"): this glow was
-       * uncapped at a 28pt shadow radius, and the sheet it sits in clips at a
-       * 32pt gutter, so the outer halo reached the clip edge and was sliced off
-       * square. 18 keeps the whole falloff inside the gutter.
+       * `maxGlowRadius` was capped at 18 by an earlier pass on the theory that
+       * the sheet's 32pt gutter was the clip edge. It was not — the SCROLL VIEW
+       * was, and it sat inside the gutter, so the halo was being cut at the
+       * card's own edge no matter how small the radius got. That is fixed in
+       * MorphSheet (the gutter now lives inside the scroll view, opening a real
+       * 32pt corridor), so the radius can go back to something that actually
+       * reads as a glow. 24 still leaves 8pt of clearance.
        */
       <GradientGlowBorder
         colors={PREMIUM_RING_COLORS}
@@ -117,7 +119,7 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
         fillColor={colors.surfaceCard}
         borderRadius={radii.xl}
         glow
-        maxGlowRadius={18}
+        maxGlowRadius={24}
         glowColor={colors.premiumBlue}
         glowColorSecondary={colors.premiumOrange}
         style={styles.cardShell}

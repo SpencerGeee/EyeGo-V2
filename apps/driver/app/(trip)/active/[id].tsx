@@ -547,12 +547,37 @@ export default function ActiveTripScreen() {
   // should always carry real coordinates (route creation requires successful
   // geocoding), but stay null instead of fabricating one if it somehow doesn't —
   // every consumer then renders nothing rather than a plausible lie.
-  const pickupCoord: [number, number] | null = typeof trip?.route?.originLat === 'number' && typeof trip?.route?.originLng === 'number'
-    ? [trip.route.originLng, trip.route.originLat]
-    : null;
-  const destCoord: [number, number] | null = typeof trip?.route?.destLat === 'number' && typeof trip?.route?.destLng === 'number'
-    ? [trip.route.destLng, trip.route.destLat]
-    : pickupCoord;
+  /**
+   * THE TRIP'S OWN ENDPOINTS COME FIRST, THE ROUTE'S SECOND.
+   *
+   * BUGFIX ("the Navigate button opens the map with my current location as the
+   * pickup and the trip's pickup point as the destination"), root cause half.
+   *
+   * These read `trip.route.*` and nothing else. A `Route` is the group/bus
+   * product; an ON-DEMAND ride carries its endpoints as `pickupLat/Lng` and
+   * `dropoffLat/Lng` columns on the trip itself and may have no route at all.
+   * So on every hailed ride both of these were null, `externalNavTarget`
+   * handed the map app `NaN, NaN`, and the only thing left for it to plot was
+   * the address string — or, failing that, wherever the phone happened to be.
+   *
+   * Ordered trip-first rather than route-first because for an ad-hoc route the
+   * two agree, and where they can disagree the trip's columns are the ones the
+   * rider actually chose.
+   */
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const coordOf = (lat: unknown, lng: unknown): [number, number] | null => {
+    const la = num(lat); const ln = num(lng);
+    return la != null && ln != null ? [ln, la] : null;
+  };
+  const pickupCoord: [number, number] | null =
+    coordOf((trip as any)?.pickupLat, (trip as any)?.pickupLng)
+    ?? coordOf((trip as any)?.pickup?.lat, (trip as any)?.pickup?.lng)
+    ?? coordOf(trip?.route?.originLat, trip?.route?.originLng);
+  const destCoord: [number, number] | null =
+    coordOf((trip as any)?.dropoffLat, (trip as any)?.dropoffLng)
+    ?? coordOf((trip as any)?.dropoff?.lat, (trip as any)?.dropoff?.lng)
+    ?? coordOf(trip?.route?.destLat, trip?.route?.destLng)
+    ?? pickupCoord;
 
   // What the external-navigation hand-off should aim at: the same phase rule as
   // the route line above, so tapping Navigate never contradicts the line the
@@ -576,19 +601,46 @@ export default function ActiveTripScreen() {
    * resort — `searchableAddress` in @eyego/utils rejects placeholders like
    * "Current Location" so they can never leak into another app.
    */
+  const tripPickupPlace = useCallback((): GeoPlace => {
+    const t = trip as any;
+    return {
+      latitude: pickupCoord ? pickupCoord[1] : NaN,
+      longitude: pickupCoord ? pickupCoord[0] : NaN,
+      address: t?.pickup?.address ?? t?.pickupAddress ?? t?.route?.originName ?? null,
+      label: 'Pickup',
+    };
+  }, [trip, pickupCoord]);
+
   const externalNavTarget = useCallback((): GeoPlace => {
-    const inProgress = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED';
-    const coord = (inProgress ? destCoord : pickupCoord) ?? destCoord ?? pickupCoord;
+    const carrying = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED';
+    const coord = (carrying ? destCoord : pickupCoord) ?? destCoord ?? pickupCoord;
     const t = trip as any;
     return {
       latitude: coord ? coord[1] : NaN,
       longitude: coord ? coord[0] : NaN,
-      address: inProgress
+      address: carrying
         ? (t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null)
         : (t?.pickup?.address ?? t?.pickupAddress ?? t?.route?.originName ?? null),
-      label: inProgress ? 'Destination' : 'Pickup',
+      label: carrying ? 'Destination' : 'Pickup',
     };
   }, [trip, destCoord, pickupCoord]);
+
+  /**
+   * The other end of the leg, once there IS one.
+   *
+   * From the moment the driver is at the kerb, the journey they want laid out
+   * in their map app is the trip's pickup → the trip's drop-off — the second
+   * half of the same report. Before that the origin is deliberately null so the
+   * map app routes from where the driver actually is, which is the only useful
+   * thing while they are still on their way to collect somebody.
+   */
+  const externalNavOrigin = useCallback((): GeoPlace | null => {
+    const atOrPastPickup =
+      trip?.status === 'ARRIVED_AT_PICKUP' ||
+      trip?.status === 'IN_PROGRESS' ||
+      trip?.status === 'COMPLETED';
+    return atOrPastPickup && pickupCoord ? tripPickupPlace() : null;
+  }, [trip?.status, pickupCoord, tripPickupPlace]);
 
   // ─── Loading skeleton ────────────────────────────────────────────────────
 
@@ -743,6 +795,29 @@ export default function ActiveTripScreen() {
       userId,
       userName: holdsMany && !isAnchor ? `Covered by ${realName}` : realName,
       bookingId: b.id,
+      /**
+       * WHO IS ACTUALLY IN THIS SEAT.
+       *
+       * BUGFIX ("on the manage page you can see a seat is booked but there's no
+       * way to verify the passenger's name and details"). The seat carried a
+       * display name and a booking id and nothing else, so the sheet that opens
+       * on tap could not tell the driver who they were collecting, how to reach
+       * them, whether the seat was paid or held, or whether that person was
+       * already aboard — the four things a driver at a kerb needs.
+       */
+      realName,
+      phone: b.user?.phone ?? b.guestPhone ?? null,
+      isGuest: !b.user?.id,
+      seatsHeld: userId != null ? (seatsHeldByUser.get(userId) ?? 1) : 1,
+      coveredBy: holdsMany && !isAnchor ? realName : null,
+      paymentMethod: b.paymentMethod ?? null,
+      paymentStatus: b.paymentStatus ?? null,
+      boarded: b.status === 'BOARDED',
+      pinVerified: !!b.pinVerifiedAt,
+      // The server sends this boolean, never the code itself — a driver who
+      // could read the PIN would not have to be told it. See
+      // scrubBookingSecrets in drivers.service.js.
+      needsPin: !!b.requiresBoardingPin,
     };
   });
 
@@ -923,6 +998,22 @@ export default function ActiveTripScreen() {
                 <Text variant="bodySmall" color={colors.onSurfaceVariant}>
                   {passengers}/{total} booked{heldCount > 0 ? ` · ${heldCount} held` : ''}
                 </Text>
+                {/*
+                  THE SEATS ARE TAPPABLE, AND NOTHING SAID SO.
+
+                  BUGFIX ("i never knew you could tap a reserved seat to see the
+                  details and mark as boarded"). Marking a passenger aboard is
+                  the single most-used action on this screen and its only entry
+                  point was an undiscoverable tap on a small square. A hint costs
+                  one line and is the difference between a feature existing and a
+                  feature being used; it is hidden once there is nobody to tap,
+                  so an empty bus does not advertise an action that does nothing.
+                */}
+                {seats.length > 0 && (
+                  <Text variant="caption" color={colors.onSurfaceVariant} style={styles.seatHint}>
+                    <Ionicons name="hand-left-outline" size={11} />  Tap a seat for passenger details
+                  </Text>
+                )}
                 <Pressable
                   onPress={() => setShowPaymentQr(true)}
                   style={styles.qrBtn}
@@ -938,34 +1029,62 @@ export default function ActiveTripScreen() {
               seats={seats}
               totalSeats={total}
               onSeatPress={(seat) => {
-                const name = seat.userName ?? 'Passenger';
-                Alert.alert(
-                  `Seat ${seat.seatNumber} · ${name}`,
-                  'What would you like to do?',
-                  [
-                    {
-                      text: 'Message',
-                      onPress: () =>
-                        router.push({
-                          pathname: '/(trip)/chat/[id]',
-                          params: {
-                            id,
-                            seatNumber: String(seat.seatNumber),
-                            recipientId: seat.userId ?? '',
-                            riderName: encodeURIComponent(name),
-                          },
-                        } as any),
-                    },
-                    {
-                      text: 'Mark Boarded',
-                      onPress: () => {
-                        if (!seat.bookingId) return;
-                        void boardWithPin(seat.bookingId, seat.seatNumber, name);
+                const s = seat as (typeof seats)[number];
+                const name = s.realName ?? s.userName ?? 'Passenger';
+                /**
+                 * THE PASSENGER, NOT JUST THE SEAT NUMBER.
+                 *
+                 * Everything a driver at a kerb needs to decide what to do:
+                 * who this is, how to reach them, whether the seat is paid or
+                 * only held, whether they are already aboard, and — when the
+                 * rider turned ride verification on — that a code will be
+                 * asked for. It reads as a short list rather than a sentence
+                 * because it is read at a glance, through a windscreen.
+                 */
+                const lines = [
+                  s.isGuest ? 'Guest passenger (booked by someone else)' : null,
+                  s.coveredBy ? `Seat covered by ${s.coveredBy}` : null,
+                  s.seatsHeld > 1 ? `Travelling with ${s.seatsHeld} seats` : null,
+                  s.phone ? `Phone: ${s.phone}` : 'No phone number on this booking',
+                  s.paymentMethod
+                    ? `Payment: ${s.paymentMethod}${s.paymentStatus ? ` · ${s.paymentStatus}` : ''}`
+                    : null,
+                  `Status: ${s.boarded ? 'Boarded' : s.status === 'HELD' ? 'Seat held, not paid' : 'Booked, not yet aboard'}`,
+                  s.needsPin ? 'Ride verification on — ask for their 4-digit code' : null,
+                ].filter(Boolean);
+
+                const actions: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [];
+                if (s.phone) {
+                  actions.push({
+                    text: 'Call',
+                    onPress: () => { void Linking.openURL(`tel:${s.phone}`); },
+                  });
+                }
+                actions.push({
+                  text: 'Message',
+                  onPress: () =>
+                    router.push({
+                      pathname: '/(trip)/chat/[id]',
+                      params: {
+                        id,
+                        seatNumber: String(s.seatNumber),
+                        recipientId: s.userId ?? '',
+                        riderName: encodeURIComponent(name),
                       },
+                    } as any),
+                });
+                if (!s.boarded) {
+                  actions.push({
+                    text: 'Mark Boarded',
+                    onPress: () => {
+                      if (!s.bookingId) return;
+                      void boardWithPin(s.bookingId, s.seatNumber, name);
                     },
-                    { text: 'Cancel', style: 'cancel' },
-                  ],
-                );
+                  });
+                }
+                actions.push({ text: 'Close', style: 'cancel' });
+
+                Alert.alert(`Seat ${s.seatNumber} · ${name}`, lines.join('\n'), actions);
               }}
             />
             {/*
@@ -1098,10 +1217,16 @@ export default function ActiveTripScreen() {
               label="Navigate"
               color={colors.primary}
               onPress={() => {
-                void openExternalNavigation(externalNavTarget(), { forceChooser: false });
+                void openExternalNavigation(externalNavTarget(), {
+                  forceChooser: false,
+                  origin: externalNavOrigin(),
+                });
               }}
               onLongPress={() => {
-                void openExternalNavigation(externalNavTarget(), { forceChooser: true });
+                void openExternalNavigation(externalNavTarget(), {
+                  forceChooser: true,
+                  origin: externalNavOrigin(),
+                });
               }}
               colors={colors}
             />
@@ -1225,17 +1350,32 @@ export default function ActiveTripScreen() {
             </Entrance>
           )}
 
-          {/* No Show / Cancel */}
+          {/*
+            No Show / Cancel.
+
+            BUGFIX ("guard the no-show button properly so a driver can't pick a
+            rider up and then no-show en route"). The row was shown for every
+            status that was not already finished, IN_PROGRESS included — so the
+            action was offered at exactly the moment it is illegitimate, and the
+            only thing stopping it was a 400 from the server after the driver
+            had already tapped through a destructive confirm. The server still
+            refuses it (that is where the rule has to live), but an action that
+            cannot be taken should not be on screen: past pickup the honest
+            option is Cancel Trip, which is the sibling button in this row.
+          */}
           {!['COMPLETED', 'CANCELLED'].includes(trip.status) && (
             <Entrance animation="slideDown" delay={220} style={styles.dangerRow}>
+              {/* Cancel Trip stays available for the whole ride; only No Show
+                  goes away once the rider is aboard. */}
+              {trip.status !== 'IN_PROGRESS' && (
               <Pressable
                 style={[styles.dangerBtn, { borderColor: '#F59E0B66' }]}
                 onPress={() =>
                   Alert.alert(
                     'Mark as No Show',
-                    'Mark this trip as a no-show? This will cancel all bookings.',
+                    'Cancel this trip because you cannot run it? Everyone who booked is told, and anyone who paid by MoMo or card is refunded in full.',
                     [
-                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Keep the trip', style: 'cancel' },
                       { text: 'Mark No Show', style: 'destructive', onPress: () => noShowTrip.mutate() },
                     ],
                   )
@@ -1245,6 +1385,7 @@ export default function ActiveTripScreen() {
                 <Ionicons name="eye-off-outline" size={16} color="#F59E0B" />
                 <Text style={[styles.dangerBtnText, { color: '#F59E0B' }]}>No Show</Text>
               </Pressable>
+              )}
               <Pressable
                 style={[styles.dangerBtn, { borderColor: colors.error + '66' }]}
                 onPress={handleCancel}
@@ -1723,6 +1864,8 @@ const makeStyles = (colors: DriverColors) =>
       lineHeight: Math.round(fontSizes.titleSmall * 1.4),
       color: colors.onSurface,
     },
+    /** The affordance for the seat map's tap target — see the render site. */
+    seatHint: { marginTop: 2, opacity: 0.85 },
     qrBtn: {
       width: 28,
       height: 28,

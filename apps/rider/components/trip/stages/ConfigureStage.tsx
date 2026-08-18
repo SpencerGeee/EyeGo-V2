@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, Pressable, BackHandler, ScrollView } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  BackHandler,
+  ScrollView,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,6 +52,17 @@ import { useTripFlow } from '../../../stores/tripFlow.store';
  * thing that could happen.
  */
 
+/**
+ * Where the content sheet's top edge sits, as a fraction of the screen.
+ *
+ * MUST STAY IN LOCKSTEP with `SHEET_FRACTION.configure` in TripMap.tsx (they
+ * are the two halves of one number: 0.38 of the screen is map, 0.62 is sheet).
+ * This stage draws no `InlayPanel`/`MorphSheet`, so nothing publishes a live
+ * top edge into the sheet↔map channel and the camera uses that table instead.
+ * If the strip and the padding disagree, the route is framed behind the sheet.
+ */
+const SHEET_TOP_FRACTION = 0.38;
+
 const STEP_FIRST = 3;
 const STEP_LAST = 5;
 const TOTAL_STEPS = 5;
@@ -64,9 +84,26 @@ const TIER_ORDER: Tier[] = ['ECO', 'COMFORT', 'PREMIUM'];
 function ConfigureStageImpl() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  /**
+   * Height of the header + step rail, measured rather than assumed.
+   *
+   * The map strip has to end at a FRACTION of the screen (that is the number
+   * the camera pads against), but it starts wherever the chrome above it
+   * happens to end — which depends on the notch, the font scale and the rail's
+   * own layout. Measuring is the only way those two edges meet on every phone.
+   */
+  const [chromeHeight, setChromeHeight] = useState(0);
+  const onChromeLayout = useCallback(
+    (e: LayoutChangeEvent) => setChromeHeight(e.nativeEvent.layout.height),
+    [],
+  );
+  const mapWindow = Math.max(0, screenHeight * SHEET_TOP_FRACTION - insets.top - chromeHeight);
+
   const goStage = useTripFlow((s) => s.go);
+  const setPreviewPath = useTripFlow((s) => s.setPreviewPath);
   const origin = useRideStore((s) => s.origin);
   const destination = useRideStore((s) => s.destination);
   const rideTier = useRideStore((s) => s.rideTier);
@@ -115,7 +152,12 @@ function ConfigureStageImpl() {
   const [quoting, setQuoting] = useState(false);
 
   useEffect(() => {
-    if (!origin || !destination) return;
+    // No pair, no road. Clearing rather than leaving the last one up is what
+    // stops the map drawing the previous destination's route behind this screen.
+    if (!origin || !destination) {
+      setPreviewPath(null);
+      return;
+    }
     let cancelled = false;
     setQuoting(true);
     const base = {
@@ -130,7 +172,27 @@ function ConfigureStageImpl() {
       TIER_ORDER.map((id) =>
         ridesApi
           .quote({ ...base, tier: id })
-          .then((q) => [id, q?.amountPesewas ?? null] as const)
+          .then((q) => {
+            /**
+             * THE MAP BEHIND THIS SCREEN GETS ITS ROUTE FROM HERE.
+             *
+             * The quote already measured the road between these two points to
+             * price the trip, and now hands the line back with the number. So
+             * the route the rider sees under the tier cards is, by construction,
+             * the exact road the fare was computed along — not a second
+             * Directions call that can answer differently, and not a straight
+             * line through the buildings between the pins.
+             *
+             * Published from the first tier that returns one (all three quote
+             * the same journey, so the geometry is identical) and only when
+             * there is one — the router falling back to a straight-line estimate
+             * returns null, and drawing nothing is the honest result there.
+             */
+            if (q?.geometry?.coordinates?.length) {
+              setPreviewPath(q.geometry as { type: 'LineString'; coordinates: [number, number][] });
+            }
+            return [id, q?.amountPesewas ?? null] as const;
+          })
           // A failed preview must not block booking — the request path quotes
           // again for real and surfaces its own error.
           .catch(() => [id, null] as const),
@@ -176,28 +238,34 @@ function ConfigureStageImpl() {
   return (
     <View style={styles.root}>
       {/*
-        NO BACKGROUND OF ITS OWN. Two things were wrong with the one that was
-        here, and together they are the whole of "Order Ride is jumpy and laggy,
-        and I don't see the Skia background on Book a ride".
+        NO FULL-SCREEN BACKGROUND OF ITS OWN.
 
-        First, it was the ANIMATED variant — a full-screen Skia shader spun up at
-        the exact instant this stage mounts, which is the instant the stage
-        crossfade spring starts. The stage the rider is leaving is still mounted
-        with a Skia canvas of its own, so the transition ran three shaders and a
-        map at once and could not hold 60fps on any device.
+        It used to paint an ANIMATED Skia shader here — a full-screen canvas spun
+        up at the exact instant this stage mounts, which is the instant the stage
+        crossfade spring starts, on top of the outgoing stage's own canvas. Three
+        shaders and a map in one frame is the whole of "Order Ride is jumpy and
+        laggy". Nothing on this stage may own a full-screen canvas again.
 
-        Second, its own comment claimed "an idle occluded map redraws nothing".
-        That is not true of MapLibre: an attached map renders its frame whether
-        or not anything is on top of it. So the layer whose purpose was to make
-        the map cheap was in fact paying for the map AND for a shader.
+        WHAT IS BEHIND IT NOW IS THE MAP, ON PURPOSE. Step 3 is "Choose your
+        ride": the rider is comparing three prices for one journey, and a price
+        for a journey you cannot see is a number with nothing attached to it. So
+        the trip surface mounts the map from this stage onward (MAP_STAGES in
+        app/trip.tsx) and frames it on the SAME road the quote was measured
+        along (`previewPath`), and this stage leaves a strip at the top for it
+        rather than covering it.
 
-        `/trip` is a transparentModal over the root `AppBackground`
-        (app/_layout.tsx), and the trip surface no longer mounts a map on this
-        stage at all (MAP_STAGES in app/trip.tsx). So the ambient shader the
-        rider expected to see here is simply visible through a transparent
-        stage — which is also why this reads as ONE surface deforming from the
-        Where-To card rather than two screens each with its own backdrop.
+        The chrome that floats on that strip gets a scrim, and everything else
+        lives in an opaque sheet below it — map tiles are bright, arbitrarily
+        coloured and moving, and body text does not survive being laid on them.
+        Stepping BACK to `search` fades the map out again and returns that
+        stage to the ambient Skia background, which is the background that
+        belongs to it.
       */}
+      <LinearGradient
+        colors={[colors.backgroundDeep, `${colors.backgroundDeep}00`]}
+        style={[styles.chromeScrim, { height: insets.top + chromeHeight + spacing.xl }]}
+        pointerEvents="none"
+      />
       {/*
         Insets applied by hand rather than by `SafeAreaView edges={['top','bottom']}`.
 
@@ -212,6 +280,7 @@ function ConfigureStageImpl() {
         with no inset at all, where a bare `insets.bottom` is zero.
       */}
       <View style={[styles.safe, { paddingTop: insets.top }]}>
+        <View onLayout={onChromeLayout}>
         <View style={styles.header}>
           <Pressable
             onPress={back}
@@ -227,7 +296,13 @@ function ConfigureStageImpl() {
         </View>
 
         <StepRail step={step} colors={colors} />
+        </View>
 
+        {/* The window onto the map. Not a spacer — this IS the route preview,
+            and its height is what `SHEET_TOP_FRACTION` is naming. */}
+        <View style={{ height: mapWindow }} pointerEvents="none" />
+
+        <View style={styles.sheet}>
         <ScrollView
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
@@ -235,9 +310,7 @@ function ConfigureStageImpl() {
         >
           <Entrance key={`title-${step}`} animation="slideRight">
             <Text style={styles.title}>{stepTitle}</Text>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.blurb}>
-              {stepBlurb}
-            </Text>
+            <Text style={styles.blurb}>{stepBlurb}</Text>
           </Entrance>
 
           {/*
@@ -456,6 +529,7 @@ function ConfigureStageImpl() {
             disabled={step === STEP_LAST && !destination}
           />
         </View>
+        </View>
       </View>
     </View>
   );
@@ -601,6 +675,25 @@ const makeStyles = (colors: Colors) =>
     // booking flow instead of stopping at this stage. See the render site.
     root: { flex: 1, backgroundColor: 'transparent' },
     safe: { flex: 1, backgroundColor: 'transparent' },
+    /** Reading ground for the header and rail, which float on live map tiles. */
+    chromeScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
+    /**
+     * The opaque half of the screen.
+     *
+     * `backgroundDeep` and not glass: a translucent sheet over map tiles is a
+     * different colour everywhere it moves, and the tier cards below it are
+     * already `surfaceContainerHigh`, so their edges would vanish wherever a
+     * park or a motorway happened to sit behind them.
+     */
+    sheet: {
+      flex: 1,
+      backgroundColor: colors.backgroundDeep,
+      borderTopLeftRadius: radii['4xl'],
+      borderTopRightRadius: radii['4xl'],
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.rimLight,
+      overflow: 'hidden',
+    },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -638,6 +731,7 @@ const makeStyles = (colors: Colors) =>
      *  footer button lives outside it so it is always reachable. */
     scroll: {
       paddingHorizontal: spacing.xl,
+      paddingTop: spacing.xl,
       paddingBottom: spacing['3xl'],
       gap: spacing.lg,
     },
@@ -648,7 +742,23 @@ const makeStyles = (colors: Colors) =>
       color: colors.onSurface,
       letterSpacing: -0.5,
     },
-    blurb: { marginTop: spacing.xs, lineHeight: 20 },
+    /**
+     * "The 'Every option is the same driver pool' text is too faint."
+     *
+     * It was `bodySmall` — 12px in `onSurfaceVariant` — sitting directly under
+     * a 28px display title. That is a caption's weight doing a subtitle's job,
+     * and at 12px the muted token has nothing left to give. One step up in size
+     * and onto the full-contrast text colour, held back from the title by
+     * weight rather than by being hard to read.
+     */
+    blurb: {
+      marginTop: spacing.xs,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.45),
+      color: colors.onSurface,
+      opacity: 0.86,
+    },
     list: { gap: spacing.sm },
     option: {
       flexDirection: 'row',

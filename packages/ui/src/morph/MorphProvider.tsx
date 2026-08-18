@@ -167,6 +167,29 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
    */
   const [frame, setFrame] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
 
+  /**
+   * The SOURCE element's size — the layout size the cloned content is rendered
+   * at, which is a different thing from the container's `frame`.
+   *
+   * BUGFIX ("coming back from where-to the field goes blurry and messed up for
+   * a second before snapping to the real field"): the clone content used to be
+   * laid out at `frame` — i.e. at the TARGET's size once `targetReady` re-pinned
+   * the container. The content's inverse scale exactly cancelled the container's
+   * scale, so a where-to *pill* was being laid out at full-screen width for the
+   * whole flight, then clipped down to pill size by the container. Forward that
+   * is invisible, because the content fades out over the first 32% of the flight.
+   * Reverse runs the same ramp backwards, so the content is at FULL opacity for
+   * the last 32% — which is exactly when the user sees a full-screen-wide pill
+   * squeezed into a pill-sized window: stretched text, wrong internal layout,
+   * "blurry and messed up", then a pop to the real card.
+   *
+   * A container transform renders the source content at SOURCE size and holds it
+   * there while the container grows around it. Laying the clone out at the source
+   * rect (and centring it, so its scale origin agrees with the container's) makes
+   * the last frame of the reverse pixel-identical to the real card underneath.
+   */
+  const [contentSize, setContentSize] = useState<{ width: number; height: number } | null>(null);
+
   // Source rect — set once when morphTo fires
   const sourceX = useSharedValue(0);
   const sourceY = useSharedValue(0);
@@ -228,6 +251,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     setActiveId(null);
     setPhase('idle');
     setFrame(null);
+    setContentSize(null);
   }, []);
 
   // ─── Settle (crossfade clone → real content) ───────────────────────────
@@ -304,6 +328,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         // Clone starts pinned to the source frame; targetReady re-pins it to
         // the target frame and the transform carries the delta from there.
         setFrame({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+        setContentSize({ width: rect.width, height: rect.height });
         setCloneBg(entry.backgroundColor);
         setCloneNode(entry.getClone());
         setActiveId(id);
@@ -430,6 +455,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       sourceW.value = back.width;
       sourceH.value = back.height;
       sourceR.value = f.sourceRadius;
+      // The clone content is a clone of the SOURCE, so it is laid out at the
+      // freshly-measured source size — see the `contentSize` doc above.
+      setContentSize({ width: back.width, height: back.height });
 
       targetX.value = f.targetRect.x;
       targetY.value = f.targetRect.y;
@@ -491,8 +519,21 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   );
 
   const finishReverse = useCallback(() => {
+    /**
+     * Un-hide the real card FIRST, then dissolve the clone on top of it.
+     *
+     * `cleanup(true)` is what calls `show()`, and it used to run only after this
+     * 80ms fade had finished — so for those 80ms the clone was fading towards
+     * nothing with an invisible card underneath, and the card then popped back to
+     * opacity 1 in a single frame. That pop is the "snaps back" half of the
+     * reported glitch. With the clone now landing pixel-identical to the card
+     * (see `contentSize`), revealing the card underneath first makes the dissolve
+     * literally invisible.
+     */
+    const f = flightRef.current ?? settledRef.current;
+    if (f) sources.current.get(f.id)?.show();
     cloneOpacity.value = withTiming(0, { duration: 80 }, () => {
-      runOnJS(cleanup)(true);
+      runOnJS(cleanup)(false);
     });
   }, [cloneOpacity, cleanup]);
 
@@ -556,13 +597,20 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       width: frame?.width ?? 1,
       height: frame?.height ?? 1,
       overflow: 'hidden' as const,
+      // The cloned content is laid out at the SOURCE size while the container is
+      // pinned to the TARGET size, so the two boxes no longer coincide. React
+      // Native scales about a view's centre, so the only placement that keeps the
+      // container's scale and the content's inverse scale agreeing is centre-on-
+      // centre; anchoring top-left would make the content drift across the flight.
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
     }),
     [frame],
   );
 
   const contentFrameStyle = useMemo(
-    () => ({ width: frame?.width ?? 1, height: frame?.height ?? 1 }),
-    [frame],
+    () => ({ width: contentSize?.width ?? 1, height: contentSize?.height ?? 1 }),
+    [contentSize],
   );
 
   // BUGFIX ("the where-to animation looks like a fast fade, not a morph"):

@@ -236,6 +236,11 @@ export function DriverTripMapImpl({
         rotateEnabled
         pitchEnabled
         scaleBarEnabled={false}
+        // A pan must hand the camera over while the finger is still down —
+        // onRegionDidChange alone fires only once the gesture has settled, by
+        // which point the follow loop has spent the whole drag fighting it.
+        // See the note on onRegionChange in @eyego/maps useMapCamera.
+        onUserGesture={camera.release}
         onRegionDidChange={camera.onRegionChange}
       >
         <MapboxGL.Camera ref={camera.cameraRef} />

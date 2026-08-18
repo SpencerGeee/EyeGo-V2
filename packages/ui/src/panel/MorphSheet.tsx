@@ -242,34 +242,6 @@ export function MorphSheet({
     borderTopRightRadius: animatedRadius.value,
   }));
 
-  const isScrollable = scrollable ?? collapsedTop != null;
-  const contentMaxH = screenH - minTop;
-
-  const inner = isScrollable ? (
-    <GestureDetector gesture={nativeGesture}>
-      <Animated.ScrollView
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-        bounces={false}
-        showsVerticalScrollIndicator={false}
-        style={{ maxHeight: contentMaxH }}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) }}
-      >
-        {children}
-      </Animated.ScrollView>
-    </GestureDetector>
-  ) : (
-    /* The home-indicator inset is applied here rather than on the body, so a
-       caller styling the body's padding cannot delete it and put a CTA under
-       the gesture bar. */
-    <View
-      style={{ maxHeight: contentMaxH, paddingBottom: Math.max(insets.bottom, 12) }}
-      pointerEvents="box-none"
-    >
-      {children}
-    </View>
-  );
-
   /**
    * PADDING BELONGS TO THE CONTENT, NOT TO THE SURFACE.
    *
@@ -301,6 +273,66 @@ export function MorphSheet({
     else sheetBox[k] = v;
   }
 
+  const isScrollable = scrollable ?? collapsedTop != null;
+  const contentMaxH = screenH - minTop;
+
+  /**
+   * THE GUTTER GOES INSIDE THE SCROLL VIEW, NOT AROUND IT.
+   *
+   * BUGFIX ("the card with the driver name and car has its glow border cut off
+   * at the sides so it's not fully glowing" — the arrived-at-pickup card).
+   *
+   * An earlier pass moved the caller's padding off the sheet surface and onto a
+   * content wrapper, which fixed the background layers. It did not fix this,
+   * because a `ScrollView` CLIPS TO ITS OWN BOUNDS — `clipsToBounds` on iOS,
+   * the content-view clip on Android — and the scroll view was the child of the
+   * padded wrapper. Its viewport was therefore exactly the content width, a
+   * full-bleed card inside it touched both edges, and the card's glow, which is
+   * a shadow drawn OUTSIDE its own box, had nowhere to go sideways. Cut off at
+   * the left and right, intact at the top and bottom, which is exactly the
+   * shape of the report: vertically the scroll view has slack, horizontally it
+   * has none.
+   *
+   * So the horizontal half of the gutter is handed to the scroll view's
+   * CONTENT container: the viewport now spans the whole sheet, the content is
+   * still inset by the same amount, nothing moves, and a 32 pt corridor opens
+   * on each side of every card for its glow to bleed into. Vertical padding
+   * stays on the wrapper so the measured height that decides the resting stop
+   * is unchanged.
+   */
+  const horizontalPadding: Record<string, unknown> = {};
+  const verticalPadding: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(contentPadding)) {
+    if (/^padding(Horizontal|Left|Right|Start|End)$/.test(k)) horizontalPadding[k] = v;
+    else verticalPadding[k] = v;
+  }
+
+  const inner = isScrollable ? (
+    <GestureDetector gesture={nativeGesture}>
+      <Animated.ScrollView
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        style={{ maxHeight: contentMaxH }}
+        contentContainerStyle={{ ...horizontalPadding, paddingBottom: Math.max(insets.bottom, 12) }}
+      >
+        {children}
+      </Animated.ScrollView>
+    </GestureDetector>
+  ) : (
+    /* The home-indicator inset is applied here rather than on the body, so a
+       caller styling the body's padding cannot delete it and put a CTA under
+       the gesture bar. */
+    <View
+      style={{ ...horizontalPadding, maxHeight: contentMaxH, paddingBottom: Math.max(insets.bottom, 12) }}
+      pointerEvents="box-none"
+    >
+      {children}
+    </View>
+  );
+
+
   return (
     /* `box-none` all the way down: this container is screen-tall and sits over
        the map, so without it every pan and pinch would land on empty sheet
@@ -316,7 +348,9 @@ export function MorphSheet({
             {/* Unpadded, and that is the entire point — see `sheetBox`. */}
             {background}
             {grabber && <View style={[styles.grabber, { backgroundColor: grabberColor }]} />}
-            <View style={contentPadding} pointerEvents="box-none">
+            {/* Vertical gutter only — the horizontal half lives inside `inner`
+                so a scroll view cannot clip a card's glow. See above. */}
+            <View style={verticalPadding} pointerEvents="box-none">
               {inner}
               {/* Weightless: absolutely positioned, so it contributes nothing to
                   the measured height that decides where the top edge sits. */}

@@ -116,6 +116,17 @@ export interface MapViewProps {
   scrollEnabled?: boolean;
   onRegionDidChange?: (e: { geometry: { coordinates: LngLat }; properties: { zoomLevel: number; isUserInteraction: boolean } }) => void;
   onUserPan?: () => void;
+  /**
+   * The user has their finger on the map RIGHT NOW.
+   *
+   * Distinct from `onUserPan`, which is one-shot "the user moved the map, go
+   * and reverse-geocode the new centre" and deliberately only fires once a
+   * gesture has settled. This one fires on the first frame and keeps firing
+   * for the duration, because the thing that needs it — a follow camera that
+   * must stop commanding the map while a finger is dragging it — cannot wait
+   * until the finger comes off. See useMapCamera's `release`.
+   */
+  onUserGesture?: () => void;
   children?: React.ReactNode;
 }
 
@@ -188,6 +199,7 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
     scrollEnabled,
     onRegionDidChange,
     onUserPan,
+    onUserGesture,
   },
   ref,
 ) {
@@ -292,8 +304,18 @@ export const MapView = React.forwardRef<any, MapViewProps>(function MapView(
         // here: those are one-shot semantics ("the user moved the map", "settle
         // and reverse-geocode the centre") and firing them per frame would spam
         // the geocoder and fight the camera.
+        // Fires at the START of a gesture. Nothing else here needs it, but the
+        // follow camera does: without it, the first thing a driver's pan meets
+        // is a camera still being re-commanded to the puck sixty times a second.
+        onRegionWillChange={(e: any) => {
+          const s = e?.nativeEvent ?? e;
+          if (s?.userInteraction ?? s?.properties?.isUserInteraction) onUserGesture?.();
+        }}
         onRegionIsChanging={(e: any) => {
           const s = e?.nativeEvent ?? e;
+          // Keeps the release window open for as long as the finger is moving,
+          // so the auto-resume countdown starts when the gesture ENDS.
+          if (s?.userInteraction ?? s?.properties?.isUserInteraction) onUserGesture?.();
           const bearing = s?.bearing ?? s?.properties?.bearing ?? s?.properties?.heading;
           // 1.5° dead-band: this runs on every frame of a rotate gesture and each
           // accepted value re-renders every marker consuming the context, so the

@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const supply = require('./supply-index.service');
 const { etaMatrix } = require('./eta.service');
 const { availableDriverWhere, explainIneligible } = require('./driver-availability');
+const { haversineMeters } = require('../utils/geo');
 const destinationMode = require('./destination-mode.service');
 
 /**
@@ -35,6 +36,59 @@ const settings = require('../config/settings');
 const maxCandidates = () => settings.get('DISPATCH_MAX_CANDIDATES') ?? 8;
 /** Drivers pulled from the geo index before eligibility filtering. */
 const GEO_FETCH_LIMIT = parseInt(process.env.DISPATCH_GEO_FETCH_LIMIT, 10) || 60;
+/**
+ * How stale `Driver.currentLat/Lng` may be and still be used to FIND a driver
+ * when the geo index has nothing — see `coldPoolNearby`.
+ *
+ * Generous on purpose. That column is the cold copy, written at most every 15 s
+ * or 60 m of movement, and it is only consulted on a path that would otherwise
+ * dispatch to nobody at all. A position half an hour old makes for a poor ETA;
+ * no position at all makes for a rider staring at a spinner while a driver sits
+ * idle two streets away.
+ */
+const COLD_POSITION_MAX_AGE_MS = 30 * 60 * 1000;
+
+/**
+ * Eligible drivers near a pickup, found WITHOUT the geo index.
+ *
+ * Shaped exactly like `supply.nearbyDrivers(..., { withCoords: true })` so the
+ * caller can splice it in and everything downstream is unchanged.
+ */
+async function coldPoolNearby({ pickupLat, pickupLng, radiusKm, excludeDriverId }) {
+  const excluded = Array.isArray(excludeDriverId)
+    ? excludeDriverId.filter(Boolean)
+    : [excludeDriverId].filter(Boolean);
+  try {
+    const rows = await prisma.driver.findMany({
+      // The SAME eligibility rule the geo path uses. This is a discovery
+      // fallback, never a second set of rules — see driver-availability.js.
+      where: {
+        ...availableDriverWhere({ excludeId: excluded }),
+        currentLat: { not: null },
+        currentLng: { not: null },
+        updatedAt: { gte: new Date(Date.now() - COLD_POSITION_MAX_AGE_MS) },
+      },
+      select: { id: true, currentLat: true, currentLng: true },
+      // Bounded: this is a whole-table scan by definition (there is no spatial
+      // index in Postgres here), and the radius filter below is what actually
+      // decides. A fleet larger than this is a fleet whose Redis must be fixed.
+      take: 500,
+    });
+    return rows
+      .map((d) => ({
+        driverId: d.id,
+        lat: d.currentLat,
+        lng: d.currentLng,
+        distanceKm: haversineMeters(pickupLat, pickupLng, d.currentLat, d.currentLng) / 1000,
+      }))
+      .filter((d) => d.distanceKm <= radiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+      .slice(0, GEO_FETCH_LIMIT);
+  } catch (err) {
+    logger.warn(`coldPoolNearby failed: ${err.message}`);
+    return [];
+  }
+}
 const maxPickupEtaSeconds = () => settings.get('DISPATCH_MAX_PICKUP_ETA_SECONDS') ?? 1500;
 /** A driver more than this far out by road is not worth offering. */
 
@@ -80,7 +134,7 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
   // it is the COLD copy. The geo index is written on every single fix. Ranking a
   // driver by a position up to a minute old, while holding their live one in
   // hand, is the "the location dispatch uses is inaccurate" complaint.
-  const nearby = await supply.nearbyDrivers(pickupLat, pickupLng, radiusKm, GEO_FETCH_LIMIT, {
+  let nearby = await supply.nearbyDrivers(pickupLat, pickupLng, radiusKm, GEO_FETCH_LIMIT, {
     withCoords: true,
   });
   if (nearby.length === 0) {
@@ -91,7 +145,45 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
     // `radiusKm` of this pickup.
     const poolSize = await supply.poolSize();
     logFunnel('geo_empty', { poolSize, pickupLat, pickupLng });
-    return [];
+
+    /**
+     * THE COLD POOL — REDIS IS NOT ALLOWED TO BE A SINGLE POINT OF FAILURE.
+     *
+     * BUGFIX ("when i order a ride on the rider app it doesn't show the
+     * dispatch on the driver app"), and the last unexplained shape of a report
+     * that has come back across several sweeps.
+     *
+     * The geo index was the ONLY door into dispatch. It is a Redis geo-set fed
+     * by `driver:location_update` and guarded by a 90-second presence key, so
+     * every one of these empties it while Postgres still holds an ACTIVE,
+     * online, unbusy driver with a usable position:
+     *
+     *   - Redis restarted, failed over, or was flushed — the set is not durable;
+     *   - the driver's socket dropped and has not re-emitted a fix, so the
+     *     presence key aged out while their app still says "Online";
+     *   - background location was denied or throttled by the OS, so the app
+     *     emits nothing at all — a state that persists for a whole shift;
+     *   - the driver went online over REST and no fix has landed yet.
+     *
+     * In every one of those the funnel logged `geo_empty`, returned nothing,
+     * and the rider watched "no drivers available" with a driver idle nearby.
+     *
+     * So an empty index is now a reason to ask the database, not a reason to
+     * give up. This widens DISCOVERY only: `availableDriverWhere` is still the
+     * single eligibility rule and is applied below exactly as it is for a geo
+     * hit, so nothing ineligible can enter through here. It also stays LOUD —
+     * falling back means the supply index is broken, and that is worth fixing
+     * even though the ride now goes out.
+     */
+    const cold = await coldPoolNearby({ pickupLat, pickupLng, radiusKm, excludeDriverId });
+    if (cold.length === 0) return [];
+    logger.warn('Dispatch fell back to cold positions — the supply index is empty', {
+      tripId,
+      poolSize,
+      found: cold.length,
+      radiusKm,
+    });
+    nearby = cold;
   }
 
   const distanceById = new Map(nearby.map((n) => [n.driverId, n.distanceKm]));

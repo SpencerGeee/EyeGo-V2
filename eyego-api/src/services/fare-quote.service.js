@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const redis = require('../config/redis');
 const env = require('../config/env');
 const { AppError } = require('../utils/errors');
-const { calculateFare } = require('../modules/trips/fare.calculator');
+const { calculateRideFare } = require('../modules/trips/fare.calculator');
 const { roadDistanceKm } = require('./mapbox.service');
 const { getSurgeMultiplier } = require('../modules/trips/surge.service');
 
@@ -165,11 +165,23 @@ async function createQuote({
     }
   }
 
-  const fare = calculateFare({
+  /**
+   * THE ON-DEMAND CARD, NOT THE SHARED-TRIP ONE.
+   *
+   * This called `calculateFare` with `seatCount: 1`, which prices a whole
+   * MINIBUS and then divides it by one — so a single rider hiring a saloon car
+   * was charged the vehicle's ₵30 start and ₵11/km, and the fare had no time
+   * component at all (a 4 km crawl and a 4 km clear run cost the same).
+   * `calculateRideFare` is the operator's five-part on-demand card: start,
+   * distance, time, waiting, minimum, plus the booking and platform fees.
+   *
+   * `durationMin` comes from the same routing answer the distance does, so the
+   * time the rider is quoted for is the time the road actually takes.
+   */
+  const fare = calculateRideFare({
     tier,
     distanceKm,
-    // An on-demand ride is the whole car: the fare is not divided by seats.
-    seatCount: 1,
+    durationMin: route?.durationMin,
     doorstepPickup,
     doorstepDetourKm,
     heavyLoad,
@@ -218,6 +230,16 @@ async function createQuote({
     breakdown: fare,
     doorstepDetourKm,
     durationMin: route?.durationMin ?? null,
+    /**
+     * The road the price was measured along, so the ride picker can draw it.
+     *
+     * Deliberately NOT stored in the Redis quote blob: it is a few kilobytes of
+     * coordinates, it has no bearing on whether the quote is valid, and the
+     * booking that redeems the quote gets its own authoritative geometry from
+     * `route-geometry.service`. This is presentation, and it lives exactly as
+     * long as the response does.
+     */
+    geometry: route?.geometry ?? null,
     expiresAtServerMs: expiresAtMs,
     serverNowMs: Date.now(),
     expiresInSeconds: QUOTE_TTL_SECONDS,

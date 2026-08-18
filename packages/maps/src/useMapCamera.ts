@@ -78,6 +78,11 @@ export interface MapCamera {
   pushSample: (sample: PuckSample) => void;
   /** Give the camera back to the stage. Wire to the recenter button. */
   recenter: () => void;
+  /**
+   * Hand the camera to the user NOW. Wire to the map's `onUserGesture`, which
+   * fires on the first frame of a pan rather than when it settles.
+   */
+  release: () => void;
   /** Wire to the map's `onRegionIsChanging` / `onRegionDidChange`. */
   onRegionChange: (event: unknown) => void;
   /** Drop puck state — call when the trip ends or the driver is reassigned. */
@@ -156,11 +161,31 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
     fitSettlesAtRef.current = 0;
   }, []);
 
+  /**
+   * A GESTURE HAS TO RELEASE THE CAMERA WHILE IT IS STILL HAPPENING.
+   *
+   * BUGFIX ("the driver map feels rigid and less smooth than the rider map when
+   * panning").
+   *
+   * This was wired only to `onRegionDidChange`, which fires when a gesture has
+   * SETTLED. For the whole duration of a pan, therefore, `releasedAtRef` was
+   * still null, `effectiveMode` was still `followCourse`, and the frame loop
+   * below went on commanding the camera back to the puck sixty times a second
+   * with `animationDuration: 0` — fighting the finger for every frame of the
+   * drag and only conceding once the finger came off. That is the entire
+   * difference in feel between the two apps: the rider's `overview` mode is
+   * memoised on a quantised bounds key and issues nothing during a pan, so it
+   * never fought back and never felt rigid.
+   *
+   * Bind this to `onRegionWillChange` and `onRegionIsChanging` as well as
+   * `onRegionDidChange`. `shouldReleaseToUser` still filters out the moves this
+   * hook itself caused, which is what stops the camera cancelling its own
+   * following on the first frame, and `release()` extends the window on every
+   * subsequent call so the 12-second auto-resume is measured from the END of
+   * the gesture rather than its start.
+   */
   const onRegionChange = useCallback(
     (event: unknown) => {
-      // Only a genuine gesture releases the camera. MapLibre fires this for the
-      // moves this hook itself commands, and treating those as user intent
-      // means the camera cancels its own following on the first frame.
       if (shouldReleaseToUser(event as any)) release();
     },
     [release],
@@ -251,9 +276,10 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
       pushSample,
       recenter,
       onRegionChange,
+      release,
       resetPuck,
     }),
-    [activeMode, released, puck, pushSample, recenter, onRegionChange, resetPuck],
+    [activeMode, released, puck, pushSample, recenter, onRegionChange, release, resetPuck],
   );
 }
 

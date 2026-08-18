@@ -15,6 +15,7 @@ import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
+import { useRideStore } from '../stores/ride.store';
 import { consumeTripSurfaceReturn } from '../utils/tripSurfaceReturn';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
@@ -89,27 +90,31 @@ const STAGE_TRANSITION_CFG = springs.morph;
  * means the ambient light does not visibly restart every time the flow moves
  * forward.
  *
- * THE MAP. `search` and `configure` do not draw one — they covered it with an
- * opaque backdrop, so MapLibre was rendering every frame to be looked at by
- * nobody, through the two transitions the rider complained about most. From
- * `select` onward the map IS the route preview and must be there.
+ * THE MAP. `search` does not draw one — it covered it with an opaque backdrop,
+ * so MapLibre was rendering every frame to be looked at by nobody, through the
+ * transition the rider complained about most. From `configure` onward the map
+ * IS the route preview and must be there: `configure` opens on "Choose your
+ * ride", where the whole point of the screen is comparing prices for a journey,
+ * and a journey you cannot see is a number with nothing attached to it.
  *
  * So it is mounted lazily — and once mounted it stays, because the one thing
  * worse than a map you cannot see is a map torn down and rebuilt while a rider
  * watches a car approach.
  */
-const MAP_STAGES: readonly TripStage[] = ['select', 'request', 'assigned', 'tracking'];
+const MAP_STAGES: readonly TripStage[] = ['configure', 'select', 'request', 'assigned', 'tracking'];
 
 /**
  * Where the map starts WARMING.
  *
- * `configure` is the last stage before the map is needed, and it is a static
- * three-step form with no morph in flight, so MapLibre's initialisation lands
- * in a quiet frame instead of on top of the configure→select transition. By the
- * time `select` renders, the map is already alive and the crossfade is pure
- * compositing.
+ * `search` is now the last stage before the map is needed. It is a long-dwell
+ * stage — the rider is typing a destination and confirming a pickup — so
+ * MapLibre's initialisation lands in a quiet frame instead of on top of the
+ * search→configure transition. The mount is additionally deferred through
+ * `runAfterInteractions` below, so it cannot land on the home→search morph
+ * either. By the time `configure` renders the map is already alive and the
+ * crossfade is pure compositing.
  */
-const MAP_WARM_STAGE: TripStage = 'configure';
+const MAP_WARM_STAGE: TripStage = 'search';
 
 function renderStage(stage: TripStage) {
   switch (stage) {
@@ -161,6 +166,30 @@ export default function TripScreen() {
   // Seed the stage machine once per surface open, from route params.
   useEffect(() => {
     const seeded = (params.stage as TripStage) ?? 'search';
+    /**
+     * THE TIER THE RIDER PICKED HAS TO SURVIVE THE TRIP TO THE PICKER.
+     *
+     * BUGFIX ("I chose Premium on Services, set my trip, and Choose Your Ride
+     * came up on Economy"). Exactly right: `seed()` stored the tier on the FLOW
+     * store, and `ConfigureStage` reads `rideTier` off the RIDE store, which
+     * nothing ever wrote — so it kept its `'ECO'` initial value and the rider's
+     * choice was silently discarded one screen before the screen that shows it.
+     *
+     * The two stores also disagree on spelling: Services links out with the
+     * card's own id (`economy`/`comfort`/`premium`) while the wire values are
+     * `ECO`/`COMFORT`/`PREMIUM`, so this normalises rather than upper-casing —
+     * `'ECONOMY'` is not a tier the quote endpoint knows.
+     */
+    const tierParam = params.tier?.toUpperCase();
+    const seededTier =
+      tierParam === 'PREMIUM'
+        ? 'PREMIUM'
+        : tierParam === 'COMFORT'
+        ? 'COMFORT'
+        : tierParam === 'ECONOMY' || tierParam === 'ECO'
+        ? 'ECO'
+        : null;
+    if (seededTier) useRideStore.getState().setRideOptions({ rideTier: seededTier });
     seed({
       stage: seeded,
       tier: params.tier,
@@ -461,14 +490,16 @@ export default function TripScreen() {
         confusing — the content isn't legible; replace it with the Skia
         background like the driver's create-trip flow").
 
-        `MAP_STAGES` already says search and configure draw no map, and the
-        mount is deliberately ONE-WAY (see the note there: a map torn down and
-        rebuilt mid-ride is worse than an idle one). Those two facts contradict
-        each other the moment a rider steps BACKWARD — select → search to change
-        the destination, or any bounce through configure, which is also the map's
-        warm-up stage. From then on the map is mounted, the stages above it are
-        transparent by design, and the search card is floating over live
-        satellite-bright map tiles with no backdrop of its own.
+        `MAP_STAGES` says `search` draws no map, and the mount is deliberately
+        ONE-WAY (see the note there: a map torn down and rebuilt mid-ride is
+        worse than an idle one). Those two facts contradict each other the moment
+        a rider steps BACKWARD — configure → search to change the destination, or
+        any bounce through search, which is also the map's warm-up stage. From
+        then on the map is mounted, the stages above it are transparent by
+        design, and the search card would be floating over live satellite-bright
+        map tiles with no backdrop of its own. Fading it back out is what puts
+        `search` back on the Skia background that belongs to it, in both
+        directions.
 
         Fading the map's own layer, rather than painting an opaque veil over it,
         is what keeps this cheap: the `AppBackground` shader is ALREADY mounted

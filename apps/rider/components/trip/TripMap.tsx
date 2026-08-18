@@ -44,7 +44,10 @@ import { useColors, Colors } from '../../utils/useColors';
 /** Fraction of the screen the bottom sheet covers, per stage. */
 const SHEET_FRACTION: Record<string, number> = {
   search: 0.62,
-  // The paged configure flow is a tall card; the map keeps the strip above it.
+  // The paged configure flow is a tall sheet; the map keeps the strip above it.
+  // Locked to `SHEET_TOP_FRACTION` in ConfigureStage.tsx — that stage draws no
+  // InlayPanel/MorphSheet, so nothing publishes a live top edge and this number
+  // is the only thing telling the camera where the visible strip ends.
   configure: 0.62,
   select: 0.5,
   request: 0.44,
@@ -101,6 +104,10 @@ function fitFor(
   searchPin: Coord | null,
   userPos: Coord | null,
   driverPins: Coord[],
+  /** Sampled pre-trip route — see the `default` branch. */
+  previewCoords: Coord[] | null,
+  /** The chosen pickup, which is not necessarily where the rider is standing. */
+  pickupPin: Coord | null,
 ): Coord[] {
   const pickup = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat);
   const dropoff = coord(snapshot?.dropoff?.lng, snapshot?.dropoff?.lat);
@@ -120,9 +127,45 @@ function fitFor(
       // the rider watching the search actually progress.
       return [pickup, ...driverPins].filter(Boolean).slice(0, 8) as Coord[];
     default:
-      // No trip yet: frame wherever the rider is and whatever they searched for.
-      return [userPos, searchPin].filter(Boolean) as Coord[];
+      /**
+       * NO TRIP YET — SO FRAME THE ROUTE, NOT TWO LOOSE PINS.
+       *
+       * BUGFIX ("on Choose a ride the camera position of the map showing the
+       * route is off"). This framed `[userPos, searchPin]`: the rider's CURRENT
+       * GPS position and the destination pin. Those are the right two points
+       * only if the rider happens to be standing at the pickup — and the whole
+       * point of the configure step is that the pickup has already been chosen
+       * and may be somewhere else entirely. So the camera fitted a box with one
+       * corner in the wrong place, and the route drawn inside it ran off the
+       * side of the screen.
+       *
+       * A route is a shape, not two endpoints, and fitting its own coordinates
+       * is what puts the whole journey on screen. `previewPath` is sampled
+       * rather than passed whole: `boundsFor` only needs the extremes, and
+       * handing a 400-point full-overview geometry to a bounds reducer 60 times
+       * a second is arithmetic nobody sees. Sampling keeps the extremes (the
+       * first and last points are always included) so the fit is identical.
+       */
+      if (previewCoords && previewCoords.length >= 2) return previewCoords;
+      // No route measured (straight-line fallback, or nothing entered yet):
+      // frame whatever ends we do know about.
+      return [pickupPin ?? userPos, searchPin].filter(Boolean) as Coord[];
   }
+}
+
+/**
+ * Evenly-spaced sample of a route, first and last points always kept.
+ *
+ * The camera only needs the bounding box, and the box of a sample that includes
+ * the extremes is the box of the whole line for any route that is not a spiral.
+ */
+function sampleRoute(coords: [number, number][] | undefined, max = 24): Coord[] | null {
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  if (coords.length <= max) return coords as Coord[];
+  const step = (coords.length - 1) / (max - 1);
+  const out: Coord[] = [];
+  for (let i = 0; i < max; i++) out.push(coords[Math.round(i * step)] as Coord);
+  return out;
 }
 
 function TripMapImpl() {
@@ -137,6 +180,9 @@ function TripMapImpl() {
   const nearbyDrivers = useTripFlow((s) => s.nearbyDrivers);
   const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
   const pickupCoord = useTripFlow((s) => s.pickupCoord);
+  // The pre-trip route — see tripFlow.store. Null once a trip exists, because
+  // `path` below is then the authoritative line.
+  const previewPath = useTripFlow((s) => s.previewPath);
   const snapshot = useTripStore((s) => s.snapshot);
   const status = snapshot?.status ?? null;
 
@@ -173,7 +219,17 @@ function TripMapImpl() {
    * every mapping app does when a route is assigned. `useRouteReveal` keys on the
    * route's identity, so the line does not redraw every time the ETA refreshes.
    */
-  const rawCoords = path?.geometry?.coordinates as [number, number][] | undefined;
+  /**
+   * The live trip's route if there is one, otherwise the quote's preview.
+   *
+   * Order matters and is not arbitrary: once a trip exists the server owns the
+   * line (it re-routes, it accounts for the driver's actual position), so the
+   * preview must never be able to override it. Before a trip exists `path` is
+   * necessarily null, which is why the ride picker had no route to draw at all.
+   */
+  const rawCoords =
+    (path?.geometry?.coordinates as [number, number][] | undefined) ??
+    (previewPath?.coordinates as [number, number][] | undefined);
   const revealedCoords = useRouteReveal(rawCoords, { durationMs: 800 });
 
   const routeLine = useMemo(() => {
@@ -194,6 +250,11 @@ function TripMapImpl() {
   // interpolated puck: the puck is produced by the hook below, so deriving the
   // hook's input from it would be a cycle. `fitIncludesPuck` tells the frame
   // loop to fold the live position in for us.
+  const previewFitCoords = useMemo(
+    () => sampleRoute(previewPath?.coordinates),
+    [previewPath],
+  );
+
   const fit = useMemo(
     () => fitFor(
       status,
@@ -202,8 +263,10 @@ function TripMapImpl() {
       searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null,
       userCoords,
       driverPins,
+      previewFitCoords,
+      pickupCoord,
     ),
-    [status, snapshot, searchPlace, userCoords, driverPins],
+    [status, snapshot, searchPlace, userCoords, driverPins, previewFitCoords, pickupCoord],
   );
 
   const mode = modeForStatus(fit.length > 0);
@@ -342,7 +405,9 @@ function TripMapImpl() {
     };
   }, [dispatchOffer, pickupCoord]);
 
-  const pickup = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat);
+  // Falls back to the flow's chosen pickup so the route preview has both of its
+  // ends marked on the ride picker, where no trip (and so no snapshot) exists.
+  const pickup = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat) ?? pickupCoord;
   const dropoff = coord(snapshot?.dropoff?.lng, snapshot?.dropoff?.lat)
     ?? (searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null);
 
@@ -374,6 +439,11 @@ function TripMapImpl() {
         rotateEnabled={false}
         attributionEnabled={false}
         logoEnabled={false}
+        // Release-on-touch, same as the driver map — see the note on
+        // onRegionChange in @eyego/maps useMapCamera. The zoom readout that
+        // sizes the vehicle marker still updates only when a gesture SETTLES,
+        // which is why that one stays on onRegionDidChange.
+        onUserGesture={camera.release}
         onRegionDidChange={handleRegionChange}
       >
         <MapboxGL.Camera ref={camera.cameraRef} />

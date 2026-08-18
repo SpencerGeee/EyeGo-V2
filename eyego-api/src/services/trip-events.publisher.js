@@ -111,22 +111,62 @@ function publish(trip, event, snapshotOverride = null) {
   try {
     // The driver must not see the rider's payment fields and vice versa, so
     // each side gets its own serialization of the same row.
-    const riderView =
-      snapshotOverride ?? buildTripSnapshot(trip, { forUserId: trip.requesterId ?? null });
     const driverView = snapshotOverride ?? buildTripSnapshot(trip, {});
 
-    const riderEnvelope = buildEnvelope(trip, event, riderView);
+    /**
+     * A ROOM HAS NO "ME", SO IT GETS NO PERSONAL FIELDS.
+     *
+     * The trip room holds EVERY rider on a group trip, and this used to fan the
+     * REQUESTER's snapshot into it — complete with `booking`, which carries
+     * their seat number and their "Verify My Ride" code. Every other passenger
+     * on that bus received one rider's boarding code, which is the one thing
+     * the code must never be, and each of them then rendered it as their own.
+     *
+     * The neutral serialization is the only honest thing to send to a room.
+     * Personal fields go to the personal room below, where there IS a "me", and
+     * the client keeps the last non-null `booking` it saw so an impersonal
+     * frame cannot erase the code between two personal ones (see mergeSnapshot
+     * in tripChannel.ts).
+     */
+    const roomRiderView = driverView;
+    const personalRiderView =
+      snapshotOverride ?? buildTripSnapshot(trip, { forUserId: trip.requesterId ?? null });
+
     const driverEnvelope = buildEnvelope(trip, event, driverView);
 
     const room = `trip:${trip.id}`;
-    io.of('/passenger').to(room).emit('trip:event', riderEnvelope);
+    io.of('/passenger').to(room).emit('trip:event', buildEnvelope(trip, event, roomRiderView));
     io.of('/driver').to(room).emit('trip:event', driverEnvelope);
 
     // Personal rooms so an app that is open but not on the trip screen — or
     // has not joined the trip room yet, which is exactly the moment a driver
-    // is assigned — still gets it.
+    // is assigned — still gets it. This is also the ONLY channel that carries
+    // a rider's own booking, seat and boarding code.
     if (trip.requesterId) {
-      io.of('/passenger').to(`user:${trip.requesterId}`).emit('trip:event', riderEnvelope);
+      io.of('/passenger')
+        .to(`user:${trip.requesterId}`)
+        .emit('trip:event', buildEnvelope(trip, event, personalRiderView));
+    }
+    /**
+     * …AND FOR EVERY OTHER PASSENGER ON A GROUP TRIP.
+     *
+     * A rider who JOINED a trip is not its requester, so nothing above was ever
+     * built for them: they got the requester's snapshot in the room and their
+     * own `booking` was never sent at all. Their boarding code existed in the
+     * database and could not reach the only screen that needed it.
+     *
+     * Skipped entirely for the ordinary one-booking ride — `others` is empty —
+     * so this costs nothing on the common path.
+     */
+    if (!snapshotOverride && Array.isArray(trip.bookings)) {
+      const seen = new Set([trip.requesterId].filter(Boolean));
+      for (const b of trip.bookings) {
+        if (!b.userId || seen.has(b.userId)) continue;
+        seen.add(b.userId);
+        io.of('/passenger')
+          .to(`user:${b.userId}`)
+          .emit('trip:event', buildEnvelope(trip, event, buildTripSnapshot(trip, { forUserId: b.userId })));
+      }
     }
     if (trip.driverId) {
       io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:event', driverEnvelope);

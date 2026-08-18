@@ -135,13 +135,24 @@ async function createTrip(driverId, data) {
     if (!existingRoute) throw new NotFoundError('Route');
   }
 
+  /**
+   * THE RATES THIS TRIP IS LOCKED TO — FROM THE CARD THAT ACTUALLY PRICES IT.
+   *
+   * These two columns are the price lock: whatever is stamped here is what
+   * `calculateFare` uses for the life of the trip, so a rider mid-booking cannot
+   * be re-priced by an operator retuning the console. They therefore have to be
+   * the rates the calculator READS, and it now reads the on-demand tier card for
+   * group trips too (see the note above `calculateFare`). Stamping the retired
+   * shared-trip knobs here would have locked every new group trip to the old
+   * two-part model and made the new card unreachable.
+   *
+   * `settings.get` rather than `env.*`: these are runtime-tunable, and a trip
+   * created after an operator changed a rate should carry the changed rate.
+   */
   const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
-  const tierRates = {
-    ECO: [env.ECO_BASE_FARE_PESEWAS, env.ECO_PER_KM_RATE_PESEWAS],
-    COMFORT: [env.COMFORT_BASE_FARE_PESEWAS, env.COMFORT_PER_KM_RATE_PESEWAS],
-    PREMIUM: [env.PREMIUM_BASE_FARE_PESEWAS, env.PREMIUM_PER_KM_RATE_PESEWAS],
-  };
-  const [baseFarePesewas, perKmRatePesewas] = tierRates[normalizedTier];
+  const settings = require('../../config/settings');
+  const baseFarePesewas = settings.get(`RIDE_${normalizedTier}_START_FARE_PESEWAS`);
+  const perKmRatePesewas = settings.get(`RIDE_${normalizedTier}_PER_KM_PESEWAS`);
 
   // Record supply and get surge multiplier — use the trip's real origin (ad-hoc
   // pickup point) when there's no separate doorstep-pickup override.
@@ -1116,7 +1127,8 @@ async function getTripReceipt(tripId, userId) {
 
 async function driverNoShow(tripId, reportingUserId) {
   // Collect push data outside the transaction so we can fire after commit
-  let affectedFcmTokens = [];
+  let refundedTokens = [];
+  let unpaidTokens = [];
   let tripRouteLabel = 'your trip';
   let cancelTransition = null;
 
@@ -1124,8 +1136,20 @@ async function driverNoShow(tripId, reportingUserId) {
     const trip = await tx.trip.findUnique({
       where: { id: tripId },
       include: {
+        /**
+         * EVERY SEAT THAT IS STILL A SEAT — not just the CONFIRMED ones.
+         *
+         * BUGFIX (the missing refunds). `status: 'CONFIRMED'` and the refund
+         * test `paymentStatus === 'PAID'` describe different columns, and the
+         * rows that most need refunding fail the first one: a booking whose
+         * card or MoMo payment has settled is moved to status PAID, not left at
+         * CONFIRMED. So the loop below iterated a list that could not contain a
+         * paid booking, and the driver-no-show refund had never once been
+         * written. Cash riders were missed too, in the other direction: their
+         * booking is PENDING, so they were not even notified.
+         */
         bookings: {
-          where: { status: 'CONFIRMED' },
+          where: { status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] } },
           include: { user: { select: { fcmToken: true } } },
         },
         route: { select: { originName: true, destinationName: true } },
@@ -1135,12 +1159,51 @@ async function driverNoShow(tripId, reportingUserId) {
     if (trip.driverId !== reportingUserId) {
       throw new ForbiddenError('You are not the driver assigned to this trip');
     }
-    if (!['SCHEDULED', 'FILLING', 'CONFIRMED', 'DRIVER_EN_ROUTE'].includes(trip.status)) {
+    /**
+     * A NO-SHOW IS SOMETHING THAT HAPPENS *BEFORE* THE RIDE.
+     *
+     * BUGFIX ("guard the no-show button properly so a driver can't pick a rider
+     * up and then no-show en route").
+     *
+     * Once a passenger is in the car the ride HAPPENED, and calling it a
+     * no-show would cancel their booking, refund them, and hand the driver an
+     * unpaid trip they actually drove — or, read the other way, let a driver
+     * carry someone and then erase the record of it. IN_PROGRESS is refused by
+     * name so the driver is told which thing they are doing wrong rather than
+     * being given a generic state error.
+     *
+     * DRIVER_ASSIGNED and ARRIVED_AT_PICKUP are added because they were missing:
+     * a dispatched trip sits at one or the other for its entire pre-ride life,
+     * so the action the driver could see was refused by the server for most of
+     * the window in which it is the right action.
+     */
+    if (trip.status === 'IN_PROGRESS') {
+      throw new AppError(
+        'This ride is already under way — you picked the rider up. Use Cancel Trip if you cannot finish it.',
+        400,
+        'RIDE_ALREADY_STARTED',
+      );
+    }
+    const NO_SHOW_ALLOWED = [
+      'SCHEDULED', 'FILLING', 'CONFIRMED',
+      'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP',
+    ];
+    if (!NO_SHOW_ALLOWED.includes(trip.status)) {
       throw new AppError('Trip cannot be marked as driver no-show in current state', 400);
     }
 
-    // Collect FCM tokens for post-transaction push (fire-and-forget after commit)
-    affectedFcmTokens = trip.bookings.map((b) => b.user?.fcmToken).filter(Boolean);
+    /**
+     * TWO DIFFERENT THINGS TO SAY, BECAUSE TWO DIFFERENT THINGS HAPPENED.
+     *
+     * A rider who paid by MoMo or card has money with us and is owed it back;
+     * a cash rider never paid anything and telling them about a refund would be
+     * a lie that generates a support ticket. Same cancellation, same fault,
+     * different sentence.
+     */
+    const wasPrepaid = (b) =>
+      b.paymentStatus === 'PAID' && ['MOMO', 'CARD', 'WALLET'].includes(b.paymentMethod);
+    refundedTokens = trip.bookings.filter(wasPrepaid).map((b) => b.user?.fcmToken).filter(Boolean);
+    unpaidTokens = trip.bookings.filter((b) => !wasPrepaid(b)).map((b) => b.user?.fcmToken).filter(Boolean);
     if (trip.route?.originName && trip.route?.destinationName) {
       tripRouteLabel = `${trip.route.originName} → ${trip.route.destinationName}`;
     }
@@ -1153,15 +1216,23 @@ async function driverNoShow(tripId, reportingUserId) {
       data: { cancelledBy: tripState.ACTOR.DRIVER, cancellationReason: 'DRIVER_NO_SHOW' },
     });
 
-    // Cancel all confirmed bookings and flag as DRIVER_NO_SHOW
+    /**
+     * Cancel the seats AND RELEASE THE SEAT NUMBERS.
+     *
+     * `seatNumber: null` is not cosmetic — `Booking` carries
+     * `@@unique([tripId, seatNumber])`, so a cancelled row that keeps seat 3
+     * makes seat 3 unbookable for the life of the trip. The same omission is
+     * documented in `riderNoShow` below; this was the third exit from a booking
+     * that still had it.
+     */
     await tx.booking.updateMany({
-      where: { tripId, status: { in: ['CONFIRMED', 'SEAT_HELD'] } },
-      data: { status: 'CANCELLED' },
+      where: { tripId, status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] } },
+      data: { status: 'CANCELLED', seatNumber: null },
     });
 
-    // Issue refund records for confirmed paid bookings
+    // Issue refund records for the bookings whose money actually moved.
     for (const booking of trip.bookings) {
-      if (booking.paymentStatus === 'PAID') {
+      if (booking.paymentStatus === 'PAID' && ['MOMO', 'CARD', 'WALLET'].includes(booking.paymentMethod)) {
         await tx.paymentTransaction.create({
           data: {
             bookingId: booking.id,
@@ -1175,13 +1246,39 @@ async function driverNoShow(tripId, reportingUserId) {
       }
     }
 
-    logger.info('Driver no-show recorded', { tripId, reportingUserId });
-    return { tripId, refundedCount: trip.bookings.filter((b) => b.paymentStatus === 'PAID').length };
+    logger.info('Driver no-show recorded', {
+      tripId, reportingUserId, refunded: refundedTokens.length, unpaid: unpaidTokens.length,
+    });
+    return {
+      tripId,
+      refundedCount: trip.bookings.filter(
+        (b) => b.paymentStatus === 'PAID' && ['MOMO', 'CARD', 'WALLET'].includes(b.paymentMethod),
+      ).length,
+    };
   });
 
-  // Notify affected riders — non-blocking, must not fail the response
-  if (affectedFcmTokens.length > 0) {
-    pushService.notifications.tripCancelledNoShow(affectedFcmTokens, tripRouteLabel, tripId).catch(() => {});
+  // Notify affected riders — non-blocking, must not fail the response.
+  // Prepaid riders are told about their money; cash riders are told the plain
+  // fact, because there is no refund to promise them.
+  if (refundedTokens.length > 0) {
+    pushService
+      .sendMulticastPush(
+        refundedTokens,
+        'Your driver cancelled',
+        `${tripRouteLabel} will not run. You have been refunded in full — it can take a few minutes to appear.`,
+        { type: 'TRIP_CANCELLED', tripId, refunded: 'true' },
+      )
+      .catch(() => {});
+  }
+  if (unpaidTokens.length > 0) {
+    pushService
+      .sendMulticastPush(
+        unpaidTokens,
+        'Your driver cancelled',
+        `${tripRouteLabel} will not run, and you have not been charged. Book again to find another driver.`,
+        { type: 'TRIP_CANCELLED', tripId, refunded: 'false' },
+      )
+      .catch(() => {});
   }
 
   // Notify GraphQL subscribers of trip cancellation
@@ -1348,7 +1445,17 @@ async function scheduleTrip(userId, { destination, scheduledAt, seatCount = 1, p
 async function getScheduledRides(userId) {
   const intents = await prisma.scheduledRideIntent.findMany({
     where: { userId },
-    include: { route: { select: { originName: true, destinationName: true, distanceKm: true } } },
+    // Coordinates travel with the names so the rider's card can fall back to a
+    // rounded lat/lng rather than the word "Unknown" for an ad-hoc route that
+    // never had anything to name it. See placeLabel() in the activity screen.
+    include: {
+      route: {
+        select: {
+          originName: true, destinationName: true, distanceKm: true,
+          originLat: true, originLng: true, destLat: true, destLng: true,
+        },
+      },
+    },
     orderBy: { scheduledAt: 'desc' },
   });
 

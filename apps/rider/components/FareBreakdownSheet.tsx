@@ -42,6 +42,42 @@ export interface FareBreakdownSheetProps {
   bookingFeePct?: number;
   /** Cedis, not pesewas — this was misnamed and read as a fixed GH₵ amount. */
   platformFeeCedis?: number;
+  /**
+   * The SERVER's own breakdown of this quote, straight off `POST /rides/quote`.
+   *
+   * Every line below used to be a hardcoded market default — a wait rate, a
+   * booking percentage and a flat platform fee typed in from the reference
+   * screenshots. They happened to match the operator's card, which is worse
+   * than not matching it: the one control whose entire job is to explain the
+   * price was explaining a price nobody computed, and it would have kept
+   * showing 6.1% and GH₵1.00 for the rest of time after an admin retuned
+   * either one from the console.
+   *
+   * Supplied, these win and the sheet shows what the rider is actually paying,
+   * in pesewas like every other fare in the codebase. Absent (an older quote,
+   * a shared-trip seat priced on the group card) the defaults above still
+   * render, so nothing goes blank.
+   */
+  breakdown?: RideFareBreakdown | null;
+}
+
+/** The on-demand fare lines `calculateRideFare` returns. All integer pesewas. */
+export interface RideFareBreakdown {
+  ridePesewas?: number;
+  startFarePesewas?: number;
+  distanceComponentPesewas?: number;
+  timeComponentPesewas?: number;
+  waitComponentPesewas?: number;
+  bookingFeePesewas?: number;
+  /** Ratio, not percent: 0.061 is 6.1%. */
+  bookingFeeRate?: number;
+  platformFeePesewas?: number;
+  minFarePesewas?: number;
+  floorApplied?: boolean;
+  doorstepSurchargePesewas?: number;
+  heavyLoadSurchargePesewas?: number;
+  distanceKm?: number;
+  durationMin?: number;
 }
 
 const gh = (n: number, dp = 2) => `GH₵${n.toFixed(dp)}`;
@@ -56,9 +92,13 @@ export function FareBreakdownSheet({
   waitTimeRate = 0.98,
   bookingFeePct = 6.1,
   platformFeeCedis = 1.0,
+  breakdown = null,
 }: FareBreakdownSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const hasServerLines = !!breakdown && typeof breakdown.ridePesewas === 'number';
+  const px = (n: number | undefined) => (typeof n === 'number' ? n : 0);
 
   return (
     <PanelSheet visible={visible} onDismiss={onClose} maxHeightPct={0.8} sheetStyle={styles.sheet}>
@@ -87,11 +127,59 @@ export function FareBreakdownSheet({
         </Text>
       </View>
 
-      <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
-      <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
-      <DottedRow label="Platform Fee" value={gh(platformFeeCedis)} colors={colors} styles={styles} />
-      <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
-      <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
+      {hasServerLines ? (
+        <>
+          {/* The metered ride, itemised exactly as the server priced it. */}
+          <DottedRow label="Start fare" value={formatGhs(px(breakdown!.startFarePesewas))} colors={colors} styles={styles} />
+          <DottedRow
+            label={breakdown!.distanceKm ? `Distance (${breakdown!.distanceKm} km)` : 'Distance'}
+            value={formatGhs(px(breakdown!.distanceComponentPesewas))}
+            colors={colors}
+            styles={styles}
+          />
+          <DottedRow
+            label={breakdown!.durationMin ? `Time (${Math.round(breakdown!.durationMin)} min)` : 'Time'}
+            value={formatGhs(px(breakdown!.timeComponentPesewas))}
+            colors={colors}
+            styles={styles}
+          />
+          {px(breakdown!.waitComponentPesewas) > 0 && (
+            <DottedRow label="Wait time" value={formatGhs(px(breakdown!.waitComponentPesewas))} colors={colors} styles={styles} />
+          )}
+          {px(breakdown!.doorstepSurchargePesewas) > 0 && (
+            <DottedRow label="Door pickup" value={formatGhs(px(breakdown!.doorstepSurchargePesewas))} colors={colors} styles={styles} />
+          )}
+          {px(breakdown!.heavyLoadSurchargePesewas) > 0 && (
+            <DottedRow label="Heavy cargo" value={formatGhs(px(breakdown!.heavyLoadSurchargePesewas))} colors={colors} styles={styles} />
+          )}
+          {/* Says WHY the price did not move with the distance, instead of
+              leaving the rider to work out that two trips cost the same. */}
+          {breakdown!.floorApplied && (
+            <DottedRow
+              label="Minimum fare applied"
+              value={formatGhs(px(breakdown!.minFarePesewas))}
+              colors={colors}
+              styles={styles}
+            />
+          )}
+          <DottedRow
+            label={`Booking fee (${((breakdown!.bookingFeeRate ?? 0) * 100).toFixed(1)}%)`}
+            value={formatGhs(px(breakdown!.bookingFeePesewas))}
+            colors={colors}
+            styles={styles}
+          />
+          <DottedRow label="Platform fee" value={formatGhs(px(breakdown!.platformFeePesewas))} colors={colors} styles={styles} />
+          <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
+        </>
+      ) : (
+        <>
+          <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
+          <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
+          <DottedRow label="Platform Fee" value={gh(platformFeeCedis)} colors={colors} styles={styles} />
+          <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
+          <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
+        </>
+      )}
 
       <Text variant="caption" color={colors.onSurfaceVariant} style={styles.disclaimer}>
         The price estimation can change if actual tolls/surcharges differ from estimation (city based).

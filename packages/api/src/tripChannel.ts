@@ -189,13 +189,48 @@ export function reduceTripEvent(state: TripChannelState, event: TripEvent): Trip
 
   return {
     ...state,
-    snapshot: event.snapshot ?? state.snapshot,
+    snapshot: mergeSnapshot(state.snapshot, event.snapshot),
     lastSeq: event.seq != null ? Math.max(state.lastSeq, event.seq) : state.lastSeq,
     // Every payload is a free clock reading. Timers rendered against
     // (serverNowMs + elapsed) cannot drift with a mis-set device clock — which
     // is why offer countdowns used to disagree between two phones.
     clockSkewMs: event.serverNowMs - Date.now(),
   };
+}
+
+/**
+ * PERSONAL FIELDS SURVIVE AN IMPERSONAL FRAME.
+ *
+ * BUGFIX ("the driver's mark-as-boarded asks me to verify a PIN showing on the
+ * rider app, but the rider app shows nothing").
+ *
+ * `snapshot.booking` — which carries the rider's own seat and their "Verify My
+ * Ride" code — only exists in a snapshot built FOR that rider (`forUserId`).
+ * A frame fanned out to the trip ROOM cannot be built for anybody in
+ * particular, because the room holds every rider on the trip, so its `booking`
+ * is null by construction. Replacing the snapshot wholesale therefore deleted
+ * the code the moment ANY event landed — a driver location ping, an ETA, a seat
+ * update — which on a live trip is within a second or two of it appearing.
+ * The rider saw the card flash and vanish, and the driver was left asking for a
+ * number nobody could read to them.
+ *
+ * So a null personal field never overwrites a known one. Everything else is
+ * still taken wholesale from the newer snapshot, which keeps the "each event
+ * carries the complete state" property this channel is built on; the only
+ * exception is the sub-object the server has told us it could not fill in.
+ */
+function mergeSnapshot(
+  prev: TripSnapshot | null,
+  next: TripSnapshot | null | undefined,
+): TripSnapshot | null {
+  if (!next) return prev;
+  if (!prev) return next;
+  // Different trip entirely — nothing to carry over.
+  if (prev.tripId !== next.tripId) return next;
+  if (next.booking == null && prev.booking != null) {
+    return { ...next, booking: prev.booking };
+  }
+  return next;
 }
 
 /** True when `event` proves we missed something between it and `lastSeq`. */

@@ -95,6 +95,77 @@ const REGISTRY = [
     label: 'Premium per-km rate', envKey: 'PREMIUM_PER_KM_RATE_PESEWAS', min: 0, max: 500_00,
   },
 
+  /**
+   * ── ON-DEMAND FARES ──────────────────────────────────────────
+   *
+   * A separate card from the six knobs above, and deliberately so: those price
+   * a whole shared minibus and are divided by the seats on sale, while these
+   * price one rider hiring one car. See the note in config/env.js.
+   */
+  ...['ECO', 'COMFORT', 'PREMIUM'].flatMap((t) => {
+    const label = t === 'ECO' ? 'Economy' : t === 'COMFORT' ? 'Comfort' : 'Premium';
+    const group = `ride_pricing_${t.toLowerCase()}`;
+    return [
+      {
+        key: `RIDE_${t}_MIN_FARE_PESEWAS`, group, type: TYPES.MONEY,
+        label: `${label} minimum price`, envKey: `RIDE_${t}_MIN_FARE_PESEWAS`,
+        help: 'The floor on the ride itself. Booking and platform fees are added on top of it, so the rider never pays less than this for the ride.',
+        min: 0, max: 500_00,
+      },
+      {
+        key: `RIDE_${t}_START_FARE_PESEWAS`, group, type: TYPES.MONEY,
+        label: `${label} start fare`, envKey: `RIDE_${t}_START_FARE_PESEWAS`,
+        help: 'Charged the moment the trip starts, before any distance or time.',
+        min: 0, max: 200_00,
+      },
+      {
+        key: `RIDE_${t}_PER_KM_PESEWAS`, group, type: TYPES.MONEY,
+        label: `${label} per km`, envKey: `RIDE_${t}_PER_KM_PESEWAS`,
+        min: 0, max: 200_00,
+      },
+      {
+        key: `RIDE_${t}_PER_MIN_PESEWAS`, group, type: TYPES.MONEY,
+        label: `${label} per minute`, envKey: `RIDE_${t}_PER_MIN_PESEWAS`,
+        help: 'Charged against the routed duration, which is what makes a trip through traffic cost more than the same distance on a clear road.',
+        min: 0, max: 100_00,
+      },
+      {
+        key: `RIDE_${t}_WAIT_PER_MIN_PESEWAS`, group, type: TYPES.MONEY,
+        label: `${label} waiting per minute`, envKey: `RIDE_${t}_WAIT_PER_MIN_PESEWAS`,
+        help: 'Charged for time the driver waits at the pickup beyond the free allowance.',
+        min: 0, max: 100_00,
+      },
+    ];
+  }),
+  {
+    key: 'RIDE_BOOKING_FEE_RATE', group: 'ride_pricing_fees', type: TYPES.RATIO,
+    label: 'Booking fee', envKey: 'RIDE_BOOKING_FEE_RATE',
+    help: 'A percentage of the ride (extras included), added on top of it. Platform revenue: no commission is taken from it.',
+    min: 0, max: 0.5,
+  },
+  {
+    key: 'RIDE_PLATFORM_FEE_PESEWAS', group: 'ride_pricing_fees', type: TYPES.MONEY,
+    label: 'Platform fee', envKey: 'RIDE_PLATFORM_FEE_PESEWAS',
+    help: 'A flat amount added to every on-demand ride.',
+    min: 0, max: 100_00,
+  },
+
+  // ── Group / shared trips ──────────────────────────────────────
+  // Group trips are priced on the SAME tier card as on-demand rides; these two
+  // are the only knobs that make a shared seat different from a solo one.
+  {
+    key: 'RIDE_GROUP_SEAT_UPLIFT', group: 'ride_pricing_group', type: TYPES.RATIO,
+    label: 'Group seat uplift', envKey: 'RIDE_GROUP_SEAT_UPLIFT',
+    help: 'How much the whole-vehicle fare grows per EXTRA passenger, as a fraction of a solo fare. 0.35 means a second passenger adds 35% rather than another full fare — so the party pays less each and the driver earns more for a fuller car. 0 would make a full bus cost one fare; 1 would price every seat as a separate ride.',
+    min: 0, max: 1,
+  },
+  {
+    key: 'RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS', group: 'ride_pricing_group', type: TYPES.MONEY,
+    label: 'Minimum fare per shared seat', envKey: 'RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS',
+    help: 'The floor under one seat on a shared trip, applied after the vehicle fare is divided. Stops a short hop on a fifteen-seater dividing down to a few pesewas a head. Only applies when more than one seat is being sold.',
+    min: 0, max: 100_00,
+  },
+
   // ── Fare rules that apply to every tier ───────────────────────
   {
     key: 'MIN_FARE_PER_SEAT_PESEWAS', group: 'pricing_rules', type: TYPES.MONEY,
@@ -250,9 +321,18 @@ const BY_KEY = new Map(REGISTRY.map((d) => [d.key, d]));
 
 /** Groups, in the order the console renders them. */
 const GROUPS = [
-  { id: 'pricing_eco', label: 'Economy fares', help: 'What an Economy seat costs.' },
-  { id: 'pricing_comfort', label: 'Comfort fares' },
-  { id: 'pricing_premium', label: 'Premium fares' },
+  // RETIRED — kept so existing PlatformSetting rows still resolve, but nothing
+  // reads them any more: `calculateFare` moved shared trips onto the same tier
+  // card as on-demand rides (see fare.calculator.js). Editing these changes no
+  // price. They are labelled so nobody tunes them expecting an effect.
+  { id: 'pricing_eco', label: 'Economy (retired)', help: 'No longer used. Shared trips price on the Economy card below.' },
+  { id: 'pricing_comfort', label: 'Comfort (retired)', help: 'No longer used.' },
+  { id: 'pricing_premium', label: 'Premium (retired)', help: 'No longer used.' },
+  { id: 'ride_pricing_eco', label: 'Economy fares', help: 'The Economy card. Prices a hailed ride AND a seat on a shared trip — the group split is applied on top of this, not instead of it.' },
+  { id: 'ride_pricing_comfort', label: 'Comfort fares' },
+  { id: 'ride_pricing_premium', label: 'Premium fares' },
+  { id: 'ride_pricing_fees', label: 'Fees', help: 'Added on top of every ride and every seat.' },
+  { id: 'ride_pricing_group', label: 'Group trips', help: 'How a shared seat differs from a solo ride. The rate card itself is the same one above.' },
   { id: 'pricing_rules', label: 'Fare rules', help: 'Applies to every tier.' },
   { id: 'pricing_doorstep', label: 'Door pickup' },
   { id: 'booking', label: 'Booking and seats' },
@@ -495,23 +575,38 @@ function publicConfig() {
     driverOnlineEnabled: get('DRIVER_ONLINE_ENABLED') !== false,
     supportPhone: get('SUPPORT_PHONE') || null,
     seatHoldMinutes: get('SEAT_HOLD_DURATION_MINUTES'),
-    minFarePerSeatPesewas: get('MIN_FARE_PER_SEAT_PESEWAS'),
+    minFarePerSeatPesewas: get('RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS'),
     driverRequiredWalletPesewas: get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS'),
     driverMinWithdrawalPesewas: get('DRIVER_MIN_WITHDRAWAL_PESEWAS'),
-    tiers: {
-      ECO: {
-        baseFarePesewas: get('ECO_BASE_FARE_PESEWAS'),
-        perKmRatePesewas: get('ECO_PER_KM_RATE_PESEWAS'),
-      },
-      COMFORT: {
-        baseFarePesewas: get('COMFORT_BASE_FARE_PESEWAS'),
-        perKmRatePesewas: get('COMFORT_PER_KM_RATE_PESEWAS'),
-      },
-      PREMIUM: {
-        baseFarePesewas: get('PREMIUM_BASE_FARE_PESEWAS'),
-        perKmRatePesewas: get('PREMIUM_PER_KM_RATE_PESEWAS'),
-      },
-    },
+    /** How much a shared seat is uplifted per extra passenger — see calculateFare. */
+    groupSeatUplift: get('RIDE_GROUP_SEAT_UPLIFT'),
+    /**
+     * ONE CARD, BOTH PRODUCTS.
+     *
+     * This used to publish the retired shared-trip knobs (`ECO_BASE_FARE_*`),
+     * which no calculator reads any more — so any client estimating a price
+     * from them would disagree with the server on every single trip. It now
+     * publishes the tier card that actually prices both an on-demand ride and a
+     * seat on a group trip, in full, so a client can show a breakdown that adds
+     * up to what it is charged.
+     */
+    tiers: Object.fromEntries(
+      ['ECO', 'COMFORT', 'PREMIUM'].map((t) => [
+        t,
+        {
+          minFarePesewas: get(`RIDE_${t}_MIN_FARE_PESEWAS`),
+          startFarePesewas: get(`RIDE_${t}_START_FARE_PESEWAS`),
+          perKmRatePesewas: get(`RIDE_${t}_PER_KM_PESEWAS`),
+          perMinRatePesewas: get(`RIDE_${t}_PER_MIN_PESEWAS`),
+          waitPerMinPesewas: get(`RIDE_${t}_WAIT_PER_MIN_PESEWAS`),
+          // Legacy alias: clients written against the old two-part card read
+          // `baseFarePesewas`, and the start fare is the term it meant.
+          baseFarePesewas: get(`RIDE_${t}_START_FARE_PESEWAS`),
+        },
+      ]),
+    ),
+    bookingFeeRate: get('RIDE_BOOKING_FEE_RATE'),
+    platformFeePesewas: get('RIDE_PLATFORM_FEE_PESEWAS'),
   };
 }
 

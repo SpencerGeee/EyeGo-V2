@@ -347,6 +347,42 @@ function NotificationItem({ notification, colors, styles }: { notification: any;
 const LIVE_SCHEDULED_STATUSES = ['PENDING', 'DISPATCHED', 'MATCHED'];
 
 /**
+ * The first candidate that is a REAL place name.
+ *
+ * BUGFIX ("on the trips tab, one of the trips that expired is showing unknown
+ * unknown").
+ *
+ * The scheduled card read `intent.route?.originName ?? 'Unknown'`, and `??`
+ * only catches null and undefined. `Route.originName` is a non-nullable column,
+ * so the value that actually arrives for an ad-hoc route with nothing to name it
+ * is an EMPTY STRING — or, from older rows written before the ad-hoc paths
+ * learned to fall back, the literal text "Unknown". Neither is null, so neither
+ * was replaced, and an expired ride printed "Unknown → Unknown" with no way to
+ * tell which ride it had been.
+ *
+ * So: reject blanks and the placeholder words themselves, walk the rest of the
+ * chain, and end at coordinates rather than at another placeholder — a rider who
+ * booked from a dropped pin may genuinely have no address string, and a rounded
+ * lat/lng at least identifies the ride. Same rule as the Trips tab's
+ * `endpointLabel`; the two lists must not disagree about the same ride.
+ */
+const PLACEHOLDER_NAMES = new Set(['unknown', 'null', 'undefined', 'n/a', '-', '—']);
+function placeLabel(...candidates: (string | null | undefined)[]): string {
+  const fallback = String(candidates[candidates.length - 1] ?? '—');
+  for (const c of candidates.slice(0, -1)) {
+    if (typeof c !== 'string') continue;
+    const trimmed = c.trim();
+    if (trimmed.length === 0 || PLACEHOLDER_NAMES.has(trimmed.toLowerCase())) continue;
+    return trimmed.split(',')[0].trim();
+  }
+  return fallback;
+}
+
+/** Rounded coordinates, for a place that never had a name. */
+const coordName = (lat?: number | null, lng?: number | null) =>
+  Number.isFinite(lat) && Number.isFinite(lng) ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : null;
+
+/**
  * Vertical room a glowing card needs above it inside a scroll container.
  * GradientGlowBorder's widest bloom is a shadowRadius-36 shadow, so anything
  * less than this clips the top of the halo (and visually the card edge).
@@ -408,7 +444,12 @@ function LiveScheduledCard({
         <View style={styles.liveDestRow}>
           <Ionicons name="navigate-outline" size={16} color={colors.tierComfort} />
           <Text style={styles.liveDestText} numberOfLines={1}>
-            {intent.route?.destinationName ?? 'Your destination'}
+            {placeLabel(
+              intent.route?.destinationName,
+              intent.destination,
+              coordName(intent.route?.destLat, intent.route?.destLng),
+              'Your destination',
+            )}
           </Text>
         </View>
         <Text style={styles.liveStatus}>
@@ -463,7 +504,19 @@ function ScheduledItem({
       </View>
       <View style={styles.itemBody}>
         <Text style={styles.itemTitle} numberOfLines={1}>
-          {intent.route?.originName ?? 'Unknown'} → {intent.route?.destinationName ?? 'Unknown'}
+          {placeLabel(
+            intent.route?.originName,
+            intent.pickupName,
+            coordName(intent.route?.originLat, intent.route?.originLng),
+            'Pickup',
+          )}
+          {' → '}
+          {placeLabel(
+            intent.route?.destinationName,
+            intent.destination,
+            coordName(intent.route?.destLat, intent.route?.destLng),
+            'Destination',
+          )}
         </Text>
         <Text style={styles.itemMeta}>
           {new Date(intent.scheduledAt).toLocaleString('en-GH', {

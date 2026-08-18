@@ -20,7 +20,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
-import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText } from '@eyego/ui';
+import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText, normalizeTier } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
@@ -159,7 +159,21 @@ function SuggestedTripCard({
   featured: boolean;
 }) {
   const tierColors = getTierColors(colors);
-  const tier = (trip.tier as string) ?? 'ECONOMY';
+  /**
+   * NORMALISE, DON'T COMPARE RAW.
+   *
+   * BUGFIX ("Suggested for you isn't showing the Comfort trip type with its
+   * blue glow border — it's still the green one"). Every branch below is an
+   * exact string comparison against `'COMFORT'` / `'PREMIUM'`, with `'ECONOMY'`
+   * as the fallthrough. The rider tier enum on the wire is `ECO | COMFORT |
+   * PREMIUM`, group trips created in the driver app carry `ECONOMY`, and
+   * nothing guarantees the case — so ANY spelling the server sends that is not
+   * character-for-character `'COMFORT'` lands on the economy branch and paints
+   * the card green. This is the exact failure `normalizeTier` was written for
+   * (see packages/ui/src/tierTheme.ts), so ask it rather than re-implementing a
+   * stricter version of it here.
+   */
+  const tier = normalizeTier(trip.tier as string | null | undefined);
   const tierColor = tierColors[tier] ?? tierColors.ECONOMY;
   // `maxCapacity` is not a field on anything the server sends — searchTrips
   // returns the Trip row, whose capacity column is `maxSeats`. So this always
@@ -485,10 +499,24 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!serverActiveTripId || serverActiveTripId === storedPendingRequestId) return;
-    setPendingTripRequest(
-      serverActiveTripId,
-      serverActiveTrip?.dropoff?.address ?? null,
-    );
+    /**
+     * NAME THE RIDE, OR NAME NOTHING — never the placeholder.
+     *
+     * BUGFIX (half of "the rider is stuck on finding you a trip and it shows
+     * 'your destination'"). This read one field, `dropoff.address`, which is
+     * null for every ride booked from a dropped pin the geocoder could not name.
+     * The card's `?? 'Your destination'` then rendered the placeholder as if it
+     * were the place, so the one card telling a rider what is happening to them
+     * could not say where they were going.
+     */
+    const d = serverActiveTrip?.dropoff ?? null;
+    const label =
+      (typeof d?.address === 'string' && d.address.trim()) ||
+      (typeof (serverActiveTrip as any)?.dropoffAddress === 'string' && (serverActiveTrip as any).dropoffAddress.trim()) ||
+      (Number.isFinite(d?.lat) && Number.isFinite(d?.lng)
+        ? `${Number(d.lat).toFixed(4)}, ${Number(d.lng).toFixed(4)}`
+        : null);
+    setPendingTripRequest(serverActiveTripId, label || null);
   }, [serverActiveTripId, storedPendingRequestId, serverActiveTrip, setPendingTripRequest]);
 
   /**

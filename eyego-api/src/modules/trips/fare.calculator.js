@@ -60,56 +60,119 @@ function haversineKm(lat1, lng1, lat2, lng2) {
  * *existing* trip so that rates locked in at creation time are used — not
  * whatever the env currently says.
  */
+/**
+ * ── GROUP / SHARED PRICING ────────────────────────────────
+ *
+ * THE SAME CARD AS AN ON-DEMAND RIDE, PAID BY A PARTY INSTEAD OF A PERSON.
+ *
+ * This used to be a two-part model of its own — a flat tier base plus a per-km
+ * rate for the whole vehicle, divided by the seats on sale — while on-demand
+ * moved to the operator's five-part card. Two cards meant two answers: the same
+ * road, the same car and the same driver priced differently depending on which
+ * screen the rider came in through, and only one of them had a time component,
+ * so on the group side a crawl through Accra traffic cost what a clear run cost.
+ *
+ * So the metered ride is now computed EXACTLY as calculateRideFare computes
+ * it — same tier start, per-km, per-minute, wait-per-minute, same surge, same
+ * minimum, same extras-after-the-floor rule — and only then does the group part
+ * begin:
+ *
+ *   vehicle = the on-demand ride fare for this journey
+ *   vehicle = vehicle × (1 + uplift × (seats - 1))     ← sub-linear in party size
+ *   seat    = max(vehicle / seats, group seat minimum)
+ *   seat   += booking fee (% of seat) + platform fee (flat, per booking)
+ *
+ * WHY THE UPLIFT, AND WHY IT IS SUB-LINEAR. A second passenger in the same car
+ * costs the driver almost nothing extra, so charging them a second full fare
+ * would be indefensible. But dividing ONE fare by six would hand the driver the
+ * same money for a fuller, slower, harder trip, which is how a shared product
+ * quietly becomes the one no driver wants. At the default 0.35:
+ *
+ *   seats  vehicle ×   each rider pays   driver receives
+ *     1       1.00      1.00 × solo        1.00 × solo    ← identical to on-demand
+ *     2       1.35      0.68 × solo        1.35 × solo
+ *     4       2.05      0.51 × solo        2.05 × solo
+ *     6       2.75      0.46 × solo        2.75 × solo
+ *
+ * — so a group is meaningfully cheaper per head than riding alone, the trip is
+ * worth more to the driver the fuller it is, and a party of one is priced by
+ * precisely the same arithmetic as hailing a car. The rate card itself is not
+ * discounted anywhere: the tier minimum, the booking fee and the platform fee
+ * are the on-demand ones, which is what keeps the two products comparable.
+ *
+ * The fee treatment matches on-demand for the reasons written up there: the
+ * minimum floors the RIDE (not the fees), extras are added after the floor so
+ * ticking "heavy cargo" always moves the price, and commission comes off the
+ * ride only so the platform never commissions its own fees.
+ */
 function calculateFare({
   tier,
   distanceKm,
   seatCount,
+  /** Road duration from the routing engine. Absent = priced on distance alone,
+   *  which under-charges rather than inventing minutes nobody sat through. */
+  durationMin = 0,
+  /** Minutes waited at the pickup past the free allowance. */
+  waitMin = 0,
   doorstepPickup = false,
   /**
    * Extra ROAD kilometres the driver drives to collect this rider from their own
-   * point instead of the trip's pickup. Only meaningful with `doorstepPickup`.
-   *
-   * Absent/unmeasurable falls back to the flat surcharge — see
-   * `doorstepFeePesewas` below.
+   * point instead of the trip's pickup. Only meaningful with doorstepPickup.
+   * Absent/unmeasurable falls back to the flat surcharge.
    */
   doorstepDetourKm = null,
   heavyLoad = false,
   surgeMultiplier = 1.0,
+  /**
+   * PRICE LOCK. A trip that has already been created keeps the rates it was
+   * created with, so a live booking cannot be re-priced by an operator retuning
+   * the card mid-trip. They map onto the card's first two terms — the start
+   * fare and the per-km rate — which is what those columns have always held.
+   */
   storedBaseFarePesewas,
   storedPerKmRatePesewas,
 }) {
-  const rates = {
-    ECO: [cfg('ECO_BASE_FARE_PESEWAS'), cfg('ECO_PER_KM_RATE_PESEWAS')],
-    COMFORT: [cfg('COMFORT_BASE_FARE_PESEWAS'), cfg('COMFORT_PER_KM_RATE_PESEWAS')],
-    PREMIUM: [cfg('PREMIUM_BASE_FARE_PESEWAS'), cfg('PREMIUM_PER_KM_RATE_PESEWAS')],
-  };
-  // Normalize aliases (e.g. the driver app's 'ECONOMY' tier value) to the
-  // canonical rate-table keys instead of silently falling back to ECO for
-  // any unrecognized string, which masked tier mismatches.
-  const normalizedTier = tier === 'COMFORT' ? 'COMFORT' : tier === 'PREMIUM' ? 'PREMIUM' : 'ECO';
-  const [tierBaseFare, tierPerKmRate] = rates[normalizedTier];
-  const baseFarePesewas = storedBaseFarePesewas != null ? storedBaseFarePesewas : tierBaseFare;
-  const perKmRatePesewas = storedPerKmRatePesewas != null ? storedPerKmRatePesewas : tierPerKmRate;
-
-  assertPesewas(baseFarePesewas, 'baseFarePesewas');
-  assertPesewas(perKmRatePesewas, 'perKmRatePesewas');
   if (!Number.isFinite(distanceKm) || distanceKm < 0) {
     throw new Error(`distanceKm must be a non-negative number, got ${distanceKm}`);
   }
+
+  const card = RIDE_CARD[normalizeTier(tier)];
+  const startPesewas = storedBaseFarePesewas != null ? storedBaseFarePesewas : cfg(card.start);
+  const perKmPesewas = storedPerKmRatePesewas != null ? storedPerKmRatePesewas : cfg(card.perKm);
+  const perMinPesewas = cfg(card.perMin);
+  const waitPerMinPesewas = cfg(card.waitPerMin);
+  const minFarePesewas = cfg(card.min);
+  assertPesewas(startPesewas, 'startPesewas');
+  assertPesewas(perKmPesewas, 'perKmPesewas');
+  assertPesewas(perMinPesewas, 'perMinPesewas');
+  assertPesewas(waitPerMinPesewas, 'waitPerMinPesewas');
+  assertPesewas(minFarePesewas, 'minFarePesewas');
+
+  const minutes = Number.isFinite(durationMin) && durationMin > 0 ? durationMin : 0;
+  const waiting = Number.isFinite(waitMin) && waitMin > 0 ? waitMin : 0;
+  const seats = Math.max(Math.trunc(seatCount) || 1, 1);
+
+  const distanceComponentPesewas = Math.round(perKmPesewas * distanceKm);
+  const timeComponentPesewas = Math.round(perMinPesewas * minutes);
+  const waitComponentPesewas = Math.round(waitPerMinPesewas * waiting);
+
+  const metered =
+    startPesewas + distanceComponentPesewas + timeComponentPesewas + waitComponentPesewas;
+  const surged = Math.round(metered * surgeMultiplier);
+  const flooredRidePesewas = Math.max(surged, minFarePesewas);
 
   /**
    * Door pickup, priced by the diversion it actually causes.
    *
    * One flat number charged the same for a 200 m nudge as for a 3 km detour —
    * overcharging the rider on the short one and paying the driver nothing for
-   * the fuel and time on the long one. `max(min, km × rate)` keeps a floor
-   * under trivial detours (the driver still stops, waits and pulls out again,
-   * which costs something even at zero distance) while a real diversion scales.
+   * the fuel and time on the long one. max(min, km × rate) keeps a floor under
+   * trivial detours (the driver still stops, waits and pulls out again, which
+   * costs something even at zero distance) while a real diversion scales.
    *
    * The flat surcharge survives as the fallback: when the detour cannot be
    * measured, pricing it at zero would be a free ride for the one option that
-   * costs the driver most, and refusing the booking outright over a missing
-   * route is worse than charging the old number.
+   * costs the driver most.
    */
   const doorstepSurcharge = !doorstepPickup
     ? 0
@@ -121,120 +184,247 @@ function calculateFare({
       : cfg('DOORSTEP_SURCHARGE_PESEWAS');
   const heavyLoadSurcharge = heavyLoad ? cfg('HEAVY_LOAD_SURCHARGE_PESEWAS') : 0;
 
-  // ── The whole pricing model, in two lines ────────────────────────────────
-  // The TRIP costs what the distance says it costs; a SEAT costs that divided by
-  // the seats the driver put on sale. Nothing else varies it, which is what makes
-  // the same trip quote the same number in the driver app, the rider app, the
-  // booking charge and the receipt.
-  //
-  // `perKmRatePesewas * distanceKm` is the one genuinely fractional term — distance is
-  // a real measurement, not a currency — so it is rounded to the pesewa the
-  // moment it becomes money and stays integral from there on.
-  const distanceComponent = Math.round(perKmRatePesewas * distanceKm);
-  const baseTripCostPesewas = Math.round((baseFarePesewas + distanceComponent) * surgeMultiplier);
-  const seats = Math.max(Math.trunc(seatCount) || 1, 1);
+  // The whole-vehicle ride, extras included — the same figure an on-demand
+  // rider would pay for this journey before fees.
+  const soloRidePesewas = flooredRidePesewas + doorstepSurcharge + heavyLoadSurcharge;
 
-  // Floor: one small platform-wide minimum, NOT the tier's base fare.
-  //
-  // Tying the floor to `tierBaseFare` (the previous behaviour) quietly broke the
-  // model above: on a shared 14-seater almost every urban trip lands under the
-  // tier base once divided by the seats, so the floor — not the distance — set
-  // the price, and two trips of very different lengths cost exactly the same. It
-  // is also how a ~₵350 trip over 8 seats stopped reading as ₵43.75/seat.
-  // The floor is scaled by the tier's own position in the rate table (ECO's base
-  // fare is the unit), so ECO < COMFORT < PREMIUM still holds on the short trips
-  // where the floor binds — without the floor being large enough to flatten the
-  // distance component the way `tierBaseFare` did.
-  const tierFloorMultiplier =
-    cfg('ECO_BASE_FARE_PESEWAS') > 0 ? tierBaseFare / cfg('ECO_BASE_FARE_PESEWAS') : 1;
-  const minFarePerSeatPesewas = Math.round(cfg('MIN_FARE_PER_SEAT_PESEWAS') * tierFloorMultiplier);
+  const uplift = Math.max(cfg('RIDE_GROUP_SEAT_UPLIFT') ?? 0, 0);
+  const groupMultiplier = 1 + uplift * (seats - 1);
+  const vehicleRidePesewas = Math.round(soloRidePesewas * groupMultiplier);
 
-  /**
-   * THE FLOOR IS A FLOOR ON THE RIDE, SO IT HAS TO BE APPLIED TO THE RIDE.
-   *
-   * BUGFIX ("I picked two different destinations and premium quoted GH₵7.20 for
-   * both"). It was true, and it was this. On a 14-seater the trip cost is
-   * divided by fourteen before it meets the floor, so the per-seat number is
-   * tiny and `Math.max` picks the floor essentially every time. Worked through
-   * with real numbers: a 10 km PREMIUM trip and a 20 km PREMIUM trip divide down
-   * to ~236 and ~414 pesewas a seat, and both are below the 720 floor — so both
-   * riders paid exactly 720 and the distance made no difference at all until the
-   * trip passed about 35 km. The comment above already identified the shape of
-   * this problem for `tierBaseFare` and then reintroduced it at a lower value:
-   * ANY per-seat floor multiplies by the seat count when you look at the trip.
-   *
-   * Applied to the trip total instead, the same number means what it says — a
-   * ride is never worth less than this — and the seat price is whatever the
-   * distance divides down to. Nothing changes for on-demand: those quote with
-   * `seatCount: 1`, where a trip floor and a seat floor are the same number.
-   *
-   * `absoluteMinPerSeatPesewas` stops the division from producing a rounding
-   * artefact on a large van — a seat should never cost 3 pesewas — without being
-   * anywhere near large enough to flatten the distance component again.
-   */
-  const minFareTripPesewas = minFarePerSeatPesewas;
-  const absoluteMinPerSeatPesewas = Math.min(
-    minFarePerSeatPesewas,
-    Math.round(cfg('MIN_FARE_PER_SEAT_PESEWAS') / 4),
-  );
-  /**
-   * THE FLOOR APPLIES TO THE RIDE, NOT TO THE SURCHARGES.
-   *
-   * BUGFIX ("ticking heavy cargo doesn't add its price to the total"). The
-   * surcharges used to be folded into the trip cost BEFORE the division and the
-   * floor, so on a shared van they were divided by the seat count and then, when
-   * the floor bound — which on a 12-seater it almost always does — thrown away
-   * entirely by `Math.max`. A GH₵8 cargo charge spread over twelve seats is 67
-   * pesewas per seat, far below the floor, so the floor won and the price did not
-   * move by a single pesewa no matter how heavy the load.
-   *
-   * The floor exists to stop the DISTANCE component pricing a ride at nothing. It
-   * has no business swallowing an explicit extra charge, so the extras are added
-   * after it and the total is re-derived from the result.
-   */
-  const flooredTripCostPesewas = Math.max(baseTripCostPesewas, minFareTripPesewas);
-  const farePerPersonPesewas = Math.max(
-    Math.round(flooredTripCostPesewas / seats),
-    absoluteMinPerSeatPesewas,
+  // A seat is never worth less than this, however large the van. Without it a
+  // short hop on a fifteen-seater divides down to a few pesewas a head.
+  const groupMinPerSeatPesewas = seats > 1 ? cfg('RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS') : 0;
+  const ridePerSeatPesewas = Math.max(
+    Math.round(vehicleRidePesewas / seats),
+    groupMinPerSeatPesewas,
   );
 
-  const surchargePerSeatPesewas = Math.round((doorstepSurcharge + heavyLoadSurcharge) / seats);
-  const finalFare = farePerPersonPesewas + surchargePerSeatPesewas;
+  // Fees are per BOOKING, exactly as on-demand: each rider is buying their own
+  // seat, so each pays the booking percentage on their own share and the flat
+  // platform fee once.
+  const bookingFeeRate = cfg('RIDE_BOOKING_FEE_RATE');
+  const bookingFeePesewas = percentOf(ridePerSeatPesewas, bookingFeeRate);
+  const platformFeePesewas = cfg('RIDE_PLATFORM_FEE_PESEWAS');
+  assertPesewas(platformFeePesewas, 'platformFeePesewas');
 
-  // Commission is taken from the per-seat fare and the driver gets the
-  // REMAINDER, not an independently-rounded 85%. Rounding both sides
-  // separately can leave the two halves failing to add back up to the fare by
-  // a pesewa, which is precisely how a ledger stops balancing.
-  const commissionPerSeatPesewas = percentOf(finalFare, cfg('PLATFORM_COMMISSION'));
+  const finalFare = ridePerSeatPesewas + bookingFeePesewas + platformFeePesewas;
+
+  // Commission is taken from the per-seat RIDE and the driver gets the
+  // REMAINDER, not an independently-rounded 85%. Rounding both sides separately
+  // can leave the two halves failing to add back up, which is precisely how a
+  // ledger stops balancing. The fees are the platform's own revenue and are not
+  // commissioned again.
+  const commissionPerSeatPesewas = percentOf(ridePerSeatPesewas, cfg('PLATFORM_COMMISSION'));
 
   return {
-    // Re-derived from the (possibly floored) per-seat fare so the total shown to
-    // the driver is always exactly seats × what each rider pays.
+    // Re-derived from the per-seat fare so the total shown to the driver is
+    // always exactly seats × what each rider pays.
     totalTripCostPesewas: finalFare * seats,
     farePerPersonPesewas: finalFare,
     commissionPerSeatPesewas,
-    driverEarningsPerSeatPesewas: finalFare - commissionPerSeatPesewas,
-    // Echoed back so clients can show a breakdown without recomputing anything —
-    // a client that recomputes is a client that can disagree.
+    driverEarningsPerSeatPesewas: ridePerSeatPesewas - commissionPerSeatPesewas,
+
+    // ── The breakdown, so no client has to recompute anything ──
+    ridePesewas: ridePerSeatPesewas,
+    startFarePesewas: startPesewas,
+    distanceComponentPesewas,
+    timeComponentPesewas,
+    waitComponentPesewas,
+    bookingFeePesewas,
+    bookingFeeRate,
+    platformFeePesewas,
+    minFarePesewas,
+    floorApplied: surged < minFarePesewas,
+    groupMultiplier,
+    groupSeatUplift: uplift,
+    /** What one of these riders would have paid alone — the saving, made visible. */
+    soloRidePesewas,
+
+    // ── Echoed inputs and the legacy keys callers still read ──
     distanceKm: Math.round(distanceKm * 100) / 100,
+    durationMin: Math.round(minutes * 10) / 10,
+    waitMin: Math.round(waiting * 10) / 10,
     seatCount: seats,
-    baseFarePesewas,
-    perKmRatePesewas,
+    baseFarePesewas: startPesewas,
+    perKmRatePesewas: perKmPesewas,
     surgeMultiplier,
     commissionRate: cfg('PLATFORM_COMMISSION'),
-    minFarePerSeatPesewas,
-    // True when the ride was worth less than the minimum and the floor set the
-    // price. Now asked of the TRIP, which is where the floor is applied — asking
-    // it per seat reported "floored" on every shared trip regardless.
-    floorApplied: baseTripCostPesewas < minFareTripPesewas,
-    // The extras, as a per-seat figure, so a caller can show `finalFare` minus
-    // this as the clean unit price without re-deriving either.
-    surchargePerSeatPesewas,
-    // Surfaced so the rider's price breakdown can name the extras instead of
-    // showing a total that is larger than its own visible line items.
+    minFarePerSeatPesewas: groupMinPerSeatPesewas,
+    surchargePerSeatPesewas: Math.round((doorstepSurcharge + heavyLoadSurcharge) / seats),
     doorstepSurchargePesewas: doorstepSurcharge,
     doorstepDetourKm: Number.isFinite(doorstepDetourKm) ? doorstepDetourKm : null,
     heavyLoadSurchargePesewas: heavyLoadSurcharge,
+  };
+}
+
+/**
+ * ── ON-DEMAND PRICING ───────────────────────────────────────────────────────
+ *
+ * `calculateFare` above prices a SHARED trip: a whole minibus, divided by the
+ * seats on sale. An on-demand ride is one rider hiring one car, and it is
+ * quoted with `seatCount: 1`, so it was landing the vehicle rate (₵30 start,
+ * ₵11/km) on a single passenger — a two-part card that has no time component at
+ * all, so a 4 km crawl through Accra traffic and a 4 km clear run cost the same.
+ *
+ * This is the operator's on-demand card, and it is the standard five-part one:
+ *
+ *   ride   = start + per-km × km + per-min × minutes + wait/min × waiting
+ *   ride   = ride × surge
+ *   ride   = max(ride, tier minimum)          ← the "minimum price"
+ *   ride  += door pickup + heavy cargo        ← extras, never eaten by the floor
+ *   total  = ride + booking fee (% of ride) + platform fee (flat)
+ *
+ * ORDER MATTERS, and each step is deliberate:
+ *
+ *  - The MINIMUM is a floor on the RIDE, applied before the fees. A minimum
+ *    that included the fees would mean the operator's "₵20 minimum" was really
+ *    ₵18.13 of ride, and the tier cards would stop reading as what they say.
+ *  - EXTRAS are added after the floor for exactly the reason documented in
+ *    `calculateFare`: a floor that swallows an explicit surcharge makes ticking
+ *    "heavy cargo" change the price by nothing.
+ *  - The BOOKING FEE is a percentage of what the ride actually came to, extras
+ *    included, which is what a percentage fee means everywhere else.
+ *  - COMMISSION is taken from the ride, NOT from the fees. The booking fee and
+ *    the platform fee are the platform's own revenue; taking a further 15% of
+ *    them would be the platform commissioning itself, and it would quietly make
+ *    the driver's share of a ride smaller every time a fee went up.
+ */
+const RIDE_CARD = {
+  ECO: {
+    min: 'RIDE_ECO_MIN_FARE_PESEWAS',
+    start: 'RIDE_ECO_START_FARE_PESEWAS',
+    perKm: 'RIDE_ECO_PER_KM_PESEWAS',
+    perMin: 'RIDE_ECO_PER_MIN_PESEWAS',
+    waitPerMin: 'RIDE_ECO_WAIT_PER_MIN_PESEWAS',
+  },
+  COMFORT: {
+    min: 'RIDE_COMFORT_MIN_FARE_PESEWAS',
+    start: 'RIDE_COMFORT_START_FARE_PESEWAS',
+    perKm: 'RIDE_COMFORT_PER_KM_PESEWAS',
+    perMin: 'RIDE_COMFORT_PER_MIN_PESEWAS',
+    waitPerMin: 'RIDE_COMFORT_WAIT_PER_MIN_PESEWAS',
+  },
+  PREMIUM: {
+    min: 'RIDE_PREMIUM_MIN_FARE_PESEWAS',
+    start: 'RIDE_PREMIUM_START_FARE_PESEWAS',
+    perKm: 'RIDE_PREMIUM_PER_KM_PESEWAS',
+    perMin: 'RIDE_PREMIUM_PER_MIN_PESEWAS',
+    waitPerMin: 'RIDE_PREMIUM_WAIT_PER_MIN_PESEWAS',
+  },
+};
+
+/** The driver app sends 'ECONOMY'; the wire value is 'ECO'. Anything else is ECO. */
+function normalizeTier(tier) {
+  if (tier === 'COMFORT') return 'COMFORT';
+  if (tier === 'PREMIUM') return 'PREMIUM';
+  return 'ECO';
+}
+
+function calculateRideFare({
+  tier,
+  distanceKm,
+  /** Road duration from the routing engine. Absent = priced on distance alone,
+   *  which under-charges rather than inventing minutes the rider did not sit. */
+  durationMin = 0,
+  /** Minutes the driver waited at the pickup past the free allowance. Zero at
+   *  quote time — this is what the trip's final reconciliation charges. */
+  waitMin = 0,
+  doorstepPickup = false,
+  doorstepDetourKm = null,
+  heavyLoad = false,
+  surgeMultiplier = 1.0,
+}) {
+  if (!Number.isFinite(distanceKm) || distanceKm < 0) {
+    throw new Error(`distanceKm must be a non-negative number, got ${distanceKm}`);
+  }
+  const card = RIDE_CARD[normalizeTier(tier)];
+  const startPesewas = cfg(card.start);
+  const perKmPesewas = cfg(card.perKm);
+  const perMinPesewas = cfg(card.perMin);
+  const waitPerMinPesewas = cfg(card.waitPerMin);
+  const minFarePesewas = cfg(card.min);
+  assertPesewas(startPesewas, 'startPesewas');
+  assertPesewas(perKmPesewas, 'perKmPesewas');
+  assertPesewas(perMinPesewas, 'perMinPesewas');
+  assertPesewas(waitPerMinPesewas, 'waitPerMinPesewas');
+  assertPesewas(minFarePesewas, 'minFarePesewas');
+
+  const minutes = Number.isFinite(durationMin) && durationMin > 0 ? durationMin : 0;
+  const waiting = Number.isFinite(waitMin) && waitMin > 0 ? waitMin : 0;
+
+  const distanceComponentPesewas = Math.round(perKmPesewas * distanceKm);
+  const timeComponentPesewas = Math.round(perMinPesewas * minutes);
+  const waitComponentPesewas = Math.round(waitPerMinPesewas * waiting);
+
+  const metered =
+    startPesewas + distanceComponentPesewas + timeComponentPesewas + waitComponentPesewas;
+  const surged = Math.round(metered * surgeMultiplier);
+  const flooredRidePesewas = Math.max(surged, minFarePesewas);
+
+  // Same shape as `calculateFare` — a measured detour is priced by the km it
+  // actually costs, and the flat figure is the fallback for an unmeasurable one.
+  const doorstepSurchargePesewas = !doorstepPickup
+    ? 0
+    : Number.isFinite(doorstepDetourKm) && doorstepDetourKm >= 0
+      ? Math.max(
+          cfg('DOORSTEP_MIN_FEE_PESEWAS'),
+          Math.round(cfg('DOORSTEP_PER_KM_PESEWAS') * doorstepDetourKm),
+        )
+      : cfg('DOORSTEP_SURCHARGE_PESEWAS');
+  const heavyLoadSurchargePesewas = heavyLoad ? cfg('HEAVY_LOAD_SURCHARGE_PESEWAS') : 0;
+
+  const ridePesewas =
+    flooredRidePesewas + doorstepSurchargePesewas + heavyLoadSurchargePesewas;
+
+  const bookingFeeRate = cfg('RIDE_BOOKING_FEE_RATE');
+  const bookingFeePesewas = percentOf(ridePesewas, bookingFeeRate);
+  const platformFeePesewas = cfg('RIDE_PLATFORM_FEE_PESEWAS');
+  assertPesewas(platformFeePesewas, 'platformFeePesewas');
+
+  const totalPesewas = ridePesewas + bookingFeePesewas + platformFeePesewas;
+
+  // Commission comes off the RIDE only — see the header note.
+  const commissionPesewas = percentOf(ridePesewas, cfg('PLATFORM_COMMISSION'));
+
+  return {
+    // ── The two numbers every caller actually uses ──────────────────────────
+    // Named identically to `calculateFare`'s so the quote service, the booking
+    // writer and the receipt keep reading the same keys. An on-demand ride is
+    // one seat, so per-person and total are the same figure.
+    farePerPersonPesewas: totalPesewas,
+    totalTripCostPesewas: totalPesewas,
+    commissionPerSeatPesewas: commissionPesewas,
+    driverEarningsPerSeatPesewas: ridePesewas - commissionPesewas,
+
+    // ── The breakdown, so the rider's fare sheet never has to recompute ─────
+    ridePesewas,
+    startFarePesewas: startPesewas,
+    distanceComponentPesewas,
+    timeComponentPesewas,
+    waitComponentPesewas,
+    bookingFeePesewas,
+    bookingFeeRate,
+    platformFeePesewas,
+    minFarePesewas,
+    floorApplied: surged < minFarePesewas,
+    doorstepSurchargePesewas,
+    doorstepDetourKm: Number.isFinite(doorstepDetourKm) ? doorstepDetourKm : null,
+    heavyLoadSurchargePesewas,
+    surchargePerSeatPesewas: doorstepSurchargePesewas + heavyLoadSurchargePesewas,
+
+    // ── Echoed inputs ──────────────────────────────────────────────────────
+    distanceKm: Math.round(distanceKm * 100) / 100,
+    durationMin: Math.round(minutes * 10) / 10,
+    waitMin: Math.round(waiting * 10) / 10,
+    seatCount: 1,
+    surgeMultiplier,
+    commissionRate: cfg('PLATFORM_COMMISSION'),
+    // Kept so rows written from this result still populate the columns the
+    // shared-trip path fills. `perKmRatePesewas` is the on-demand per-km rate,
+    // which is what a receipt for THIS ride should quote.
+    baseFarePesewas: startPesewas,
+    perKmRatePesewas: perKmPesewas,
   };
 }
 
@@ -321,4 +511,12 @@ function calculateDeviationSurcharge({
   return Math.round((extraKm - freeKm) * perKmRatePesewas);
 }
 
-module.exports = { calculateFare, estimateFare, calculateEnRouteFare, haversineKm, detourKm, calculateDeviationSurcharge };
+module.exports = {
+  calculateFare,
+  calculateRideFare,
+  estimateFare,
+  calculateEnRouteFare,
+  haversineKm,
+  detourKm,
+  calculateDeviationSurcharge,
+};

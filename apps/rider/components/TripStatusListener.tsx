@@ -275,18 +275,54 @@ export function TripStatusListener() {
         data.status === 'EXPIRED'
       ) {
         const noDrivers = data.status === 'NO_DRIVERS_FOUND';
+        /**
+         * SAY WHO CANCELLED, AND WHETHER THE MONEY IS COMING BACK.
+         *
+         * BUGFIX ("the driver chose no-show and the rider is just stuck — if
+         * they paid by MoMo or card, refund them and tell them the driver
+         * cancelled; if cash, just say the driver cancelled").
+         *
+         * "Trip was cancelled" was the whole message, whoever did it and
+         * whatever happened to the rider's money. A rider who has paid needs to
+         * be told the refund is on its way in the same breath as the bad news —
+         * otherwise the next thing they do is open a support ticket — and a cash
+         * rider must NOT be promised a refund that does not exist.
+         *
+         * `cancelledBy` and the payment fields ride the same event payload the
+         * server already writes on the transition (`driverNoShow` stamps
+         * `cancelledBy: DRIVER`), so this is reading a fact rather than guessing
+         * from context.
+         */
+        const p = (data as any)?.payload ?? {};
+        const byDriver =
+          data.status === 'NO_SHOW' ||
+          p.cancelledBy === 'DRIVER' ||
+          p.reason === 'DRIVER_NO_SHOW';
+        const prepaid = ['MOMO', 'CARD', 'WALLET'].includes(
+          String(p.paymentMethod ?? (data as any)?.snapshot?.fare?.paymentMethod ?? ''),
+        ) && String(p.paymentStatus ?? (data as any)?.snapshot?.fare?.paymentStatus ?? '') === 'PAID';
         showBanner(
           noDrivers
             ? 'No drivers available right now'
             : data.status === 'EXPIRED'
               ? 'Ride request expired'
-              : 'Trip was cancelled',
+              : byDriver
+                ? prepaid
+                  ? 'Your driver cancelled — you have been refunded in full'
+                  : 'Your driver cancelled this trip. You have not been charged.'
+                : 'Trip was cancelled',
           'close-circle',
         );
         endTripLiveNotification();
         endTripLiveActivity('CANCELLED');
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
         queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
+        // The key the home screen's live card actually reads — without this the
+        // "finding your driver" card outlives the trip it points at.
+        queryClient.setQueryData(['rides', 'active'], (old: any) =>
+          old ? { ...old, trip: null, dispatch: null } : old,
+        );
+        queryClient.invalidateQueries({ queryKey: ['rides', 'active'] });
         useRideStore.getState().clearRideState();
         // Same split as COMPLETED below: the banner is always ours, the exit
         // belongs to whoever is on screen. Disconnecting here while the surface

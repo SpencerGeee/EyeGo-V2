@@ -273,13 +273,25 @@ function AnimatedSegment({
  * and group trips alike. Reading all three shapes means the card cannot be
  * broken again by which endpoint happened to serve it.
  */
+const PLACEHOLDER_NAMES = new Set(['unknown', 'null', 'undefined', 'n/a', '-', '—']);
 function endpointLabel(...candidates: (string | null | undefined)[]): string {
   const fallback = String(candidates[candidates.length - 1] ?? '—');
   for (const c of candidates.slice(0, -1)) {
-    if (typeof c === 'string' && c.trim().length > 0) return c.split(',')[0].trim();
+    if (typeof c !== 'string') continue;
+    const trimmed = c.trim();
+    // A blank is obvious; the placeholder WORDS matter just as much. Endpoint
+    // columns are non-nullable, so rows written before the ad-hoc paths learned
+    // to name themselves hold the literal text "Unknown" — which passed the old
+    // length check and printed straight onto the card.
+    if (trimmed.length === 0 || PLACEHOLDER_NAMES.has(trimmed.toLowerCase())) continue;
+    return trimmed.split(',')[0].trim();
   }
   return fallback;
 }
+
+/** Rounded coordinates, for an endpoint that never had a name. */
+const coordName = (lat?: number | null, lng?: number | null) =>
+  Number.isFinite(lat) && Number.isFinite(lng) ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : null;
 
 /** When this ride actually happened, for the activity list's timestamp. */
 function tripWhen(trip: any, booking: any): string | null {
@@ -314,6 +326,7 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
               trip?.pickup?.address,
               trip?.pickupAddress,
               booking?.pickupAddress,
+              coordName(trip?.pickupLat ?? trip?.pickup?.lat, trip?.pickupLng ?? trip?.pickup?.lng),
               'Pickup',
             )}
           </Text>
@@ -325,7 +338,7 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
               trip?.route?.destinationName,
               trip?.dropoff?.address,
               trip?.dropoffAddress,
-              null,
+              coordName(trip?.dropoffLat ?? trip?.dropoff?.lat, trip?.dropoffLng ?? trip?.dropoff?.lng),
               'Destination',
             )}
           </Text>

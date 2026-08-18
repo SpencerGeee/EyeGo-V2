@@ -129,6 +129,74 @@ const envSchema = z.object({
   COMFORT_PER_KM_RATE: z.coerce.number().default(16.0),
   PREMIUM_BASE_FARE: z.coerce.number().default(60.0),
   PREMIUM_PER_KM_RATE: z.coerce.number().default(21.0),
+
+  /**
+   * ── THE ON-DEMAND RATE CARD ────────────────────────────────────────────────
+   *
+   * A SECOND rate card, not a replacement for the six knobs above, and the
+   * distinction is the whole point.
+   *
+   * The knobs above price a SHARED trip: a driver publishes a minibus with N
+   * seats and the vehicle's fare `(base + perKm × km) × surge` is divided by N.
+   * That is why they are large — ₵30 + ₵11/km is the price of the whole bus,
+   * not of a seat.
+   *
+   * An on-demand ride is one rider hiring the whole car, so it is quoted with
+   * `seatCount: 1` and the vehicle rate lands on one person unchanged. Those two
+   * things want completely different numbers, and sharing one table is what made
+   * the operator's Economy price wrong in both directions at once.
+   *
+   * These are the rates the operator supplied for on-demand, in cedis, and they
+   * are the industry-standard five-part card rather than the two-part one:
+   *
+   *            minimum   start   per km   per min   wait/min
+   *   ECO       20.00     4.13     2.08     0.81      0.82
+   *   COMFORT   22.00     4.75     2.40     0.94      0.94
+   *   PREMIUM   38.00     6.20     3.14     1.21      1.23
+   *
+   * Plus a booking fee (a percentage of the ride) and a flat platform fee, both
+   * charged on top of the ride and both shown as their own lines in the rider's
+   * breakdown — see `calculateRideFare` in modules/trips/fare.calculator.js.
+   *
+   * All of these are in the runtime settings registry (`config/settings.js`,
+   * groups `ride_pricing_*`), so the operator retunes them from the admin
+   * console without a deploy.
+   */
+  RIDE_ECO_MIN_FARE: z.coerce.number().default(20.0),
+  RIDE_ECO_START_FARE: z.coerce.number().default(4.13),
+  RIDE_ECO_PER_KM: z.coerce.number().default(2.08),
+  RIDE_ECO_PER_MIN: z.coerce.number().default(0.81),
+  RIDE_ECO_WAIT_PER_MIN: z.coerce.number().default(0.82),
+
+  RIDE_COMFORT_MIN_FARE: z.coerce.number().default(22.0),
+  RIDE_COMFORT_START_FARE: z.coerce.number().default(4.75),
+  RIDE_COMFORT_PER_KM: z.coerce.number().default(2.4),
+  RIDE_COMFORT_PER_MIN: z.coerce.number().default(0.94),
+  RIDE_COMFORT_WAIT_PER_MIN: z.coerce.number().default(0.94),
+
+  RIDE_PREMIUM_MIN_FARE: z.coerce.number().default(38.0),
+  RIDE_PREMIUM_START_FARE: z.coerce.number().default(6.2),
+  RIDE_PREMIUM_PER_KM: z.coerce.number().default(3.14),
+  RIDE_PREMIUM_PER_MIN: z.coerce.number().default(1.21),
+  RIDE_PREMIUM_WAIT_PER_MIN: z.coerce.number().default(1.23),
+
+  /** Percentage of the ride fare, as a ratio. 6.1% → 0.061. */
+  /**
+   * How much the VEHICLE fare grows per extra seat on a group trip.
+   *
+   * The multiplier is `1 + uplift × (seats - 1)`, so a party of one prices
+   * exactly like an on-demand ride and each additional passenger adds 35 % of a
+   * solo fare rather than another whole one. Sub-linear on purpose: a second
+   * passenger in the same car costs the driver almost nothing extra, so charging
+   * them a second full fare would be indefensible — while charging nothing would
+   * hand the driver the same money for a fuller, slower, harder trip.
+   */
+  RIDE_GROUP_SEAT_UPLIFT: z.coerce.number().default(0.35),
+  /** Nothing a seat on a shared trip may ever fall below, in cedis. */
+  RIDE_GROUP_MIN_FARE_PER_SEAT: z.coerce.number().default(8.0),
+  RIDE_BOOKING_FEE_RATE: z.coerce.number().default(0.061),
+  /** Flat per-ride platform fee, in cedis. */
+  RIDE_PLATFORM_FEE: z.coerce.number().default(1.0),
   /**
    * Door pickup — the rider asks to be collected where THEY are rather than at
    * the trip's pickup point.
@@ -247,6 +315,23 @@ const {
   COMFORT_PER_KM_RATE,
   PREMIUM_BASE_FARE,
   PREMIUM_PER_KM_RATE,
+  RIDE_ECO_MIN_FARE,
+  RIDE_ECO_START_FARE,
+  RIDE_ECO_PER_KM,
+  RIDE_ECO_PER_MIN,
+  RIDE_ECO_WAIT_PER_MIN,
+  RIDE_COMFORT_MIN_FARE,
+  RIDE_COMFORT_START_FARE,
+  RIDE_COMFORT_PER_KM,
+  RIDE_COMFORT_PER_MIN,
+  RIDE_COMFORT_WAIT_PER_MIN,
+  RIDE_PREMIUM_MIN_FARE,
+  RIDE_PREMIUM_START_FARE,
+  RIDE_PREMIUM_PER_KM,
+  RIDE_PREMIUM_PER_MIN,
+  RIDE_PREMIUM_WAIT_PER_MIN,
+  RIDE_GROUP_MIN_FARE_PER_SEAT,
+  RIDE_PLATFORM_FEE,
   DOORSTEP_SURCHARGE,
   DOORSTEP_MIN_FEE,
   DOORSTEP_PER_KM,
@@ -274,6 +359,24 @@ module.exports = {
   COMFORT_PER_KM_RATE_PESEWAS: fromCedis(COMFORT_PER_KM_RATE),
   PREMIUM_BASE_FARE_PESEWAS: fromCedis(PREMIUM_BASE_FARE),
   PREMIUM_PER_KM_RATE_PESEWAS: fromCedis(PREMIUM_PER_KM_RATE),
+  // ── The on-demand rate card, in pesewas. See the schema note above. ──
+  RIDE_ECO_MIN_FARE_PESEWAS: fromCedis(RIDE_ECO_MIN_FARE),
+  RIDE_ECO_START_FARE_PESEWAS: fromCedis(RIDE_ECO_START_FARE),
+  RIDE_ECO_PER_KM_PESEWAS: fromCedis(RIDE_ECO_PER_KM),
+  RIDE_ECO_PER_MIN_PESEWAS: fromCedis(RIDE_ECO_PER_MIN),
+  RIDE_ECO_WAIT_PER_MIN_PESEWAS: fromCedis(RIDE_ECO_WAIT_PER_MIN),
+  RIDE_COMFORT_MIN_FARE_PESEWAS: fromCedis(RIDE_COMFORT_MIN_FARE),
+  RIDE_COMFORT_START_FARE_PESEWAS: fromCedis(RIDE_COMFORT_START_FARE),
+  RIDE_COMFORT_PER_KM_PESEWAS: fromCedis(RIDE_COMFORT_PER_KM),
+  RIDE_COMFORT_PER_MIN_PESEWAS: fromCedis(RIDE_COMFORT_PER_MIN),
+  RIDE_COMFORT_WAIT_PER_MIN_PESEWAS: fromCedis(RIDE_COMFORT_WAIT_PER_MIN),
+  RIDE_PREMIUM_MIN_FARE_PESEWAS: fromCedis(RIDE_PREMIUM_MIN_FARE),
+  RIDE_PREMIUM_START_FARE_PESEWAS: fromCedis(RIDE_PREMIUM_START_FARE),
+  RIDE_PREMIUM_PER_KM_PESEWAS: fromCedis(RIDE_PREMIUM_PER_KM),
+  RIDE_PREMIUM_PER_MIN_PESEWAS: fromCedis(RIDE_PREMIUM_PER_MIN),
+  RIDE_PREMIUM_WAIT_PER_MIN_PESEWAS: fromCedis(RIDE_PREMIUM_WAIT_PER_MIN),
+  RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS: fromCedis(RIDE_GROUP_MIN_FARE_PER_SEAT),
+  RIDE_PLATFORM_FEE_PESEWAS: fromCedis(RIDE_PLATFORM_FEE),
   DOORSTEP_SURCHARGE_PESEWAS: fromCedis(DOORSTEP_SURCHARGE),
   DOORSTEP_MIN_FEE_PESEWAS: fromCedis(DOORSTEP_MIN_FEE),
   DOORSTEP_PER_KM_PESEWAS: fromCedis(DOORSTEP_PER_KM),

@@ -110,9 +110,30 @@ export function navigationUrls(
   app: NavApp,
   place: GeoPlace,
   platform: 'ios' | 'android' | string,
+  /**
+   * Where the leg STARTS, when that is not "wherever the driver is standing".
+   *
+   * BUGFIX ("Navigate opens the map with my current location as the pickup and
+   * the trip's pickup as the destination — it should use the trip's actual
+   * pickup and destination"). Once a driver has the passenger aboard, the leg
+   * they want to see is pickup → drop-off, and a link with only a destination
+   * can only ever describe it as "from here".
+   *
+   * Optional, and omitted before departure on purpose: a driver still on their
+   * way to the kerb genuinely does want turn-by-turn from where they are.
+   *
+   * Not every target honours it. Waze has no origin parameter at all, and
+   * Android's `google.navigation:` scheme starts turn-by-turn from the current
+   * position by definition — so there it is applied to the https fallback,
+   * which is the form that can show a whole route.
+   */
+  origin?: GeoPlace | null,
 ): { primary: string; fallback: string } {
   const coords = coordString(place);
   const address = searchableAddress(place);
+  const originParam = origin && hasCoords(origin)
+    ? encodeURIComponent(searchableAddress(origin) ?? coordString(origin))
+    : null;
   /**
    * What goes in the destination field. The address when we have one — that is
    * the whole point of this module — and the coordinates when we do not.
@@ -130,8 +151,8 @@ export function navigationUrls(
       return {
         // `daddr` takes an address string as happily as a coordinate pair, and
         // `dirflg=d` means drive. This used to send `daddr=lat,lng`.
-        primary: `maps://?daddr=${destination}&dirflg=d`,
-        fallback: `https://maps.apple.com/?daddr=${destination}&dirflg=d`,
+        primary: `maps://?${originParam ? `saddr=${originParam}&` : ''}daddr=${destination}&dirflg=d`,
+        fallback: `https://maps.apple.com/?${originParam ? `saddr=${originParam}&` : ''}daddr=${destination}&dirflg=d`,
       };
 
     case 'waze':
@@ -154,7 +175,7 @@ export function navigationUrls(
       return {
         primary:
           platform === 'ios'
-            ? `comgooglemaps://?daddr=${destination}&directionsmode=driving&q=${pinName}`
+            ? `comgooglemaps://?${originParam ? `saddr=${originParam}&` : ''}daddr=${destination}&directionsmode=driving&q=${pinName}`
             : /**
                * Android: `google.navigation:q=` accepts an address string, not
                * just coordinates — which is the fix. It used to be handed
@@ -162,7 +183,7 @@ export function navigationUrls(
                * coordinate pair in the destination field.
                */
               `google.navigation:q=${destination}&mode=d`,
-        fallback: `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`,
+        fallback: `https://www.google.com/maps/dir/?api=1${originParam ? `&origin=${originParam}` : ''}&destination=${destination}&travelmode=driving`,
       };
   }
 }

@@ -517,6 +517,29 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       // was reported. Drop it on the way out so home refetches on mount.
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.active() });
       queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
+      /**
+       * AND THE ONE THE FINDING-YOUR-DRIVER CARD ACTUALLY READS.
+       *
+       * BUGFIX ("after cancelling a trip, the finding-your-driver card stays on
+       * the homepage and only disappears when i tap it").
+       *
+       * Home stopped gating that card on the local store and started gating it
+       * on `['rides','active']` — the server's answer — but this cancel was
+       * never taught about the new key. Worse than a stale card: home's
+       * adoption effect copies whatever that cache says back INTO the store, so
+       * the `setPendingTripRequest(null)` two lines up was undone on the next
+       * render by the very response this cancel invalidated.
+       *
+       * Written through rather than only invalidated. An invalidate schedules a
+       * refetch; the card would survive until it landed, which on a slow
+       * connection is exactly the window the rider spends looking at the home
+       * screen. Setting `trip: null` locally makes it gone on the frame the
+       * rider arrives, and the refetch then confirms it.
+       */
+      queryClient.setQueryData(['rides', 'active'], (old: any) =>
+        old ? { ...old, trip: null, dispatch: null } : old,
+      );
+      queryClient.invalidateQueries({ queryKey: ['rides', 'active'] });
       router.dismissTo('/(tabs)/home' as any);
     } catch (err: any) {
       const msg = err?.response?.data?.message;

@@ -118,6 +118,13 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
 
   hydrate: async () => {
     try {
+      /**
+       * Captured BEFORE the await so the answer can be applied without
+       * clobbering an offer that arrived over the socket while it was in
+       * flight. Identity, not equality: a fresh `set` produces a new object,
+       * so `held !== heldBefore` is exactly "something happened meanwhile".
+       */
+      const heldBefore = get().offer;
       const { trip, serverNowMs, offer } = await ridesApi.driverState();
       const skew = serverNowMs - Date.now();
       set({
@@ -133,25 +140,55 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
       // one call every cold start / foreground / reconnect already makes now
       // answers "is someone waiting on me right now?" too. Only adopt it if it
       // still has time on it against SERVER time.
-      if (offer && offer.expiresAtServerMs - (Date.now() + skew) > 1000) {
+      /**
+       * AND IT DIES WITH THE SERVER'S ANSWER, TOO.
+       *
+       * BUGFIX ("if the driver app is in the background, the dispatch should
+       * show immediately when it's opened — but ONLY if the dispatch hasn't
+       * already gone to another driver").
+       *
+       * This used to only ever ADOPT an offer, never drop one. `OFFER_REVOKED`
+       * was the sole way a card could be taken down, and it rides the socket —
+       * which is precisely the channel that is dead in the case this whole
+       * function exists for. A phone that was asleep when the offer was
+       * published AND asleep when it was revoked came back, hydrated, and sat
+       * there showing a live countdown for a ride another driver was already
+       * driving. Accept then 409s.
+       *
+       * The server's answer is the whole truth about who holds what: the offer
+       * key is per-driver and is deleted the moment the offer stops being
+       * theirs (taken, declined, cancelled), and it self-expires with its own
+       * window. So `offer: null` means "nothing is waiting on you", and the
+       * card must go.
+       *
+       * The identity check is the race guard. Between the request leaving and
+       * the response landing, the socket can deliver a genuinely new OFFER; the
+       * response was true before that frame and must not undo it.
+       */
+      const liveOffer = offer && offer.expiresAtServerMs - (Date.now() + skew) > 1000 ? offer : null;
+      if (!liveOffer) {
         const held = get().offer;
-        if (held?.tripId !== offer.tripId) {
+        const expired = held != null && held.expiresAtServerMs - (Date.now() + skew) <= 1000;
+        if (held != null && (held === heldBefore || expired)) set({ offer: null });
+      } else {
+        const held = get().offer;
+        if (held?.tripId !== liveOffer.tripId) {
           set({
             offer: {
-              tripId: offer.tripId,
-              pickupLat: offer.pickupLat ?? null,
-              pickupLng: offer.pickupLng ?? null,
-              pickupAddress: offer.pickupAddress ?? null,
-              dropoffLat: offer.dropoffLat ?? null,
-              dropoffLng: offer.dropoffLng ?? null,
-              dropoffAddress: offer.dropoffAddress ?? null,
-              farePesewas: offer.farePesewas ?? null,
-              driverEarningsPesewas: offer.driverEarningsPesewas ?? null,
-              tier: offer.tier ?? null,
-              expiresAtServerMs: offer.expiresAtServerMs,
-              etaSeconds: offer.etaSeconds ?? null,
-              attempt: offer.attempt ?? 0,
-              totalCandidates: offer.totalCandidates ?? 0,
+              tripId: liveOffer.tripId,
+              pickupLat: liveOffer.pickupLat ?? null,
+              pickupLng: liveOffer.pickupLng ?? null,
+              pickupAddress: liveOffer.pickupAddress ?? null,
+              dropoffLat: liveOffer.dropoffLat ?? null,
+              dropoffLng: liveOffer.dropoffLng ?? null,
+              dropoffAddress: liveOffer.dropoffAddress ?? null,
+              farePesewas: liveOffer.farePesewas ?? null,
+              driverEarningsPesewas: liveOffer.driverEarningsPesewas ?? null,
+              tier: liveOffer.tier ?? null,
+              expiresAtServerMs: liveOffer.expiresAtServerMs,
+              etaSeconds: liveOffer.etaSeconds ?? null,
+              attempt: liveOffer.attempt ?? 0,
+              totalCandidates: liveOffer.totalCandidates ?? 0,
             },
           });
         }

@@ -242,8 +242,20 @@ async function start() {
         logger.warn('Quest regeneration failed (non-blocking):', err.message);
       }
     };
+    /**
+     * HOURLY, NOT DAILY.
+     *
+     * A 24-hour interval measured from process start means the "daily" reset
+     * lands at whatever time the API happened to last deploy — so a server
+     * restarted at 14:00 rolled its daily quests over at 14:00, and every
+     * driver's day ran from mid-afternoon to mid-afternoon. Regeneration is
+     * idempotent (the quest id carries its own period, see
+     * regenerateStandardQuests), so running it hourly costs one upsert batch and
+     * guarantees the new day's quests exist within an hour of midnight whatever
+     * the deploy history or the clock change.
+     */
     setImmediate(runQuestRegeneration);
-    setInterval(runQuestRegeneration, 24 * 60 * 60 * 1000);
+    setInterval(runQuestRegeneration, 60 * 60 * 1000);
 
     server.listen(env.PORT, () => {
       logger.info(`EyeGo API running on port ${env.PORT} (${env.NODE_ENV})`);

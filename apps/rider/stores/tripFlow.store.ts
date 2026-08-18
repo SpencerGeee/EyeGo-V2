@@ -69,7 +69,19 @@ interface TripFlowState {
   dispatchOffer: DispatchOffer | null;
   /** Pickup point the polyline starts from. */
   pickupCoord: [number, number] | null;
+  /**
+   * The road between pickup and destination, BEFORE any trip exists.
+   *
+   * `trip.store.path` is the live ride's route and is necessarily null until a
+   * trip has been created, so the ride picker had nothing to draw and the map
+   * behind it framed two loose pins. This is the same line the quote measured
+   * its distance along (`POST /rides/quote` hands it back), which is what makes
+   * the route the rider is looking at and the price they are being shown the
+   * same fact rather than two calls that might disagree.
+   */
+  previewPath: { type: 'LineString'; coordinates: [number, number][] } | null;
 
+  setPreviewPath: (path: TripFlowState['previewPath']) => void;
   setSearchPlace: (place: SearchPlace | null) => void;
   setNearbyDrivers: (drivers: NearbyDriver[]) => void;
   setDispatchOffer: (offer: DispatchOffer | null) => void;
@@ -91,7 +103,9 @@ export const useTripFlow = create<TripFlowState>((set, get) => ({
   nearbyDrivers: [],
   dispatchOffer: null,
   pickupCoord: null,
+  previewPath: null,
 
+  setPreviewPath: (previewPath) => set({ previewPath }),
   setSearchPlace: (searchPlace) => set({ searchPlace }),
   setNearbyDrivers: (nearbyDrivers) => set({ nearbyDrivers }),
   setDispatchOffer: (dispatchOffer) => set({ dispatchOffer }),
@@ -106,6 +120,9 @@ export const useTripFlow = create<TripFlowState>((set, get) => ({
       nearbyDrivers: [],
       dispatchOffer: null,
       pickupCoord: null,
+      // A preview line belongs to one origin/destination pair. Carried into a
+      // new surface it would draw the previous trip's road behind this one.
+      previewPath: null,
     }),
 
   go: (stage, params) =>

@@ -113,11 +113,36 @@ function attachFarePerSeat(trip) {
     storedBaseFarePesewas: trip.baseFarePesewas,
     storedPerKmRatePesewas: trip.perKmRatePesewas,
   });
-  return {
+  return scrubBookingSecrets({
     ...trip,
     farePerSeatPesewas: fareInfo.farePerPersonPesewas,
     commissionRate: fareInfo.commissionRate,
     driverEarningsPerSeatPesewas: fareInfo.driverEarningsPerSeatPesewas,
+  });
+}
+
+/**
+ * THE DRIVER MAY NOT READ THE CODE THEY ARE SUPPOSED TO BE TOLD.
+ *
+ * "Verify My Ride" only proves anything because the DRIVER has to demonstrate
+ * they were told the number — a driver who can read it off their own screen has
+ * verified nothing, and the whole check becomes theatre. `trip-view.js` gets
+ * this right for the socket snapshot; this REST path did not. The driver's trip
+ * query includes booking rows with no `select`, so every column came back,
+ * `boardingPin` among them.
+ *
+ * The driver's app still needs to KNOW a code will be asked for — that is what
+ * lets the seat sheet warn them before they are refused — so the fact survives
+ * as a boolean and the secret does not.
+ */
+function scrubBookingSecrets(trip) {
+  if (!trip || !Array.isArray(trip.bookings)) return trip;
+  return {
+    ...trip,
+    bookings: trip.bookings.map(({ boardingPin, ...b }) => ({
+      ...b,
+      requiresBoardingPin: !!boardingPin && !b.pinVerifiedAt,
+    })),
   };
 }
 
@@ -984,7 +1009,31 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
    * On-demand rides price the whole vehicle and have no seat minimum, so this
    * applies to group trips only.
    */
-  const isGroupTrip = trip.maxSeats > 1;
+  /**
+   * A PRIVATE HIRE HAS NO EMPTY SEATS TO WAIT FOR.
+   *
+   * BUGFIX ("swiping to start the trip doesn't work — something is broken past
+   * 'at pickup point'").
+   *
+   * This was `trip.maxSeats > 1`, and on an on-demand ride `maxSeats` is the
+   * PARTY SIZE, not seats on sale: a rider who taps the stepper up to three
+   * gets a trip with `maxSeats: 3` and exactly ONE booking, because they hired
+   * the whole car for their party. The gate below then counted one booking
+   * against a four-seat minimum, refused the departure with 409
+   * BELOW_MIN_OCCUPANCY, and the driver — standing at the kerb with all three
+   * passengers already in the car — was asked whether they really wanted to
+   * "depart with empty seats". Tapping "Keep waiting", which is the honest
+   * answer to a question that made no sense, left the ride unable to start at
+   * all. Cash made it worse: a cash booking is not counted, so a solo party of
+   * three read as zero passengers.
+   *
+   * `requesterId` is the fact that separates the two products — it is set when
+   * a RIDER hails a car and null when a DRIVER publishes a trip for strangers
+   * to book seats on (see the model note in schema.prisma). Only the latter has
+   * an occupancy to be under.
+   */
+  const isPrivateHire = trip.requesterId != null;
+  const isGroupTrip = !isPrivateHire && trip.maxSeats > 1;
   // Read per call, never captured — an operator changing this in /config must
   // take effect on the next departure, not the next deploy.
   const minToDepart =
