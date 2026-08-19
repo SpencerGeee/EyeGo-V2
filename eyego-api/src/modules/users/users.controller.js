@@ -51,6 +51,11 @@ const getWalletAndPromos = async (req, res) => {
   ok(res, result);
 };
 
+/** Everything the promotions screen renders: applied, available, used. */
+const getPromotions = async (req, res) => {
+  ok(res, await usersService.getPromotions(req.user.userId));
+};
+
 const createSupportTicket = async (req, res) => {
   const { subject, message } = req.body;
   const ticket = await usersService.createSupportTicket(req.user.userId, subject, message);
@@ -136,4 +141,4 @@ const deleteSavedPlace = async (req, res) => {
 };
 
 module.exports = {
-  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

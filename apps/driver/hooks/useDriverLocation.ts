@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { driverSocketEvents } from '@eyego/api';
+import { driverSocketEvents, driverApi } from '@eyego/api';
+import { useDriverStore } from '../stores/driver.store';
 
 interface Coords {
   latitude: number;
@@ -133,6 +134,76 @@ let heartbeatRefs = 0;
 /** The most recent fix from any instance — what the heartbeat re-sends. */
 let lastReportedFix: { lat: number; lng: number; heading: number; speed: number } | null = null;
 
+/**
+ * THE HTTP HALF OF THE HEARTBEAT.
+ *
+ * BUGFIX ("I request the trip on the rider app, switch back to the driver app
+ * on the same phone, and nothing shows").
+ *
+ * One handset can only foreground one app. The moment the rider app comes
+ * forward the OS suspends this one: the websocket dies, this timer stops, and
+ * ninety seconds later the server's presence key expires and the driver drops
+ * out of the Redis geo-set that dispatch searches. They come back to a home
+ * screen that still says "Online" and a search that already gave up on them.
+ *
+ * `POST /driver/presence` has existed on the server since the "is there another
+ * way to connect the driver apart from the socket?" pass and nothing ever
+ * called it. It performs the SAME `supply.upsertDriver` write the socket ping
+ * does — same pool, same TTL, same eligibility rule — over plain HTTP, which
+ * works in every case a websocket does not: a captive portal, a carrier proxy,
+ * a token rotation mid-flight, a socket that reports `connected` but is a
+ * zombie after a foreground.
+ *
+ * Deliberately fired on EVERY beat rather than only when the socket looks
+ * down: `socket.connected` is a client-side belief, and the case that keeps
+ * costing rides is exactly the one where that belief is wrong. One small POST
+ * every 25 s is nothing next to a driver missing the work.
+ *
+ * It also carries the answer back — the server's own verdict on whether this
+ * driver is dispatchable and, if not, why — which is what turns "nothing shows
+ * and I don't know why" into a sentence on the home screen.
+ */
+async function beatPresenceOverHttp(): Promise<void> {
+  const fix = lastReportedFix;
+  if (!fix) return;
+  const store = useDriverStore.getState();
+  // Offline is a decision, not a network condition — never put a driver who
+  // deliberately went offline back into the pool.
+  if (!store.isLoggedIn || !store.isOnline) return;
+  try {
+    const res = await driverApi.presence({
+      lat: fix.lat,
+      lng: fix.lng,
+      heading: fix.heading,
+      speed: fix.speed,
+    });
+    const data = (res?.data as any)?.data;
+    if (data && typeof data.dispatchable === 'boolean') {
+      useDriverStore.getState().setDispatchStatus({
+        dispatchable: data.dispatchable,
+        reason: data.reason ?? null,
+      });
+    }
+  } catch {
+    // A failed beat is not worth surfacing — the next one is 25 s away, and the
+    // socket ping may well have kept the key alive in the meantime.
+  }
+}
+
+/**
+ * Beat presence RIGHT NOW. Called on foreground, which is the one moment the
+ * 25-second cadence is too slow to matter: the driver has just switched back
+ * from the rider app on the same phone and a search may be parked on them.
+ */
+export function beatPresenceNow(): void {
+  void beatPresenceOverHttp();
+  try {
+    if (lastReportedFix) driverSocketEvents.emitLocation(lastReportedFix);
+  } catch {
+    // Socket not up yet; the HTTP beat above already did the important half.
+  }
+}
+
 function acquireHeartbeat() {
   heartbeatRefs++;
   if (heartbeatTimer) return;
@@ -144,6 +215,8 @@ function acquireHeartbeat() {
       // Socket down. The next beat retries; there is nothing to queue, because
       // a stale position delivered late is worse than none at all.
     }
+    // Independent of the socket, on purpose — see beatPresenceOverHttp.
+    void beatPresenceOverHttp();
   }, HEARTBEAT_MS);
 }
 
@@ -415,6 +488,20 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
     //      Also re-check permissions — they may have been revoked mid-session.
     const handleAppState = async (next: AppStateStatus) => {
       if (next !== 'active' || cancelledRef.current) return;
+      /**
+       * BACK IN THE POOL BEFORE ANYTHING ELSE.
+       *
+       * The same-handset case: the driver has just come back from the rider app,
+       * their presence key expired while they were away, and a dispatch search
+       * may be parked waiting for supply RIGHT NOW. This beat re-adds them and,
+       * server-side, re-runs any parked search on the absent→present edge — so
+       * an offer can land in the second after the switch rather than after the
+       * next 25-second tick, by which time the cascade has moved on.
+       *
+       * Fired before the permission re-check on purpose: it uses the LAST known
+       * fix, needs no new GPS read, and must not queue behind an await.
+       */
+      beatPresenceNow();
       // Always re-check permission status; user may have revoked it in Settings
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== 'granted') {

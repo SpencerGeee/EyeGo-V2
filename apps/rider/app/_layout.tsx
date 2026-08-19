@@ -48,6 +48,7 @@ import { useOtaUpdates } from '../hooks/useOtaUpdates';
 initSentry();
 import { TripStatusListener } from '../components/TripStatusListener';
 import { GlobalToast } from '../components/GlobalToast';
+import BoardingPinSheet from '../components/BoardingPinSheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 import * as Linking from 'expo-linking';
@@ -570,11 +571,25 @@ export default function RootLayout() {
             <Stack.Screen
               name="ride/[id]"
               options={{
-                // Morph target: a trip card flies into this screen via the
-                // MorphProvider overlay, so the route itself must not slide —
-                // fade lets the clone own the forward motion and gives a clean
-                // fade-pop on swipe-back. gestureEnabled keeps swipe-back.
-                animation: 'fade',
+                /**
+                 * A MORPH TARGET RUNS NO ROUTE ANIMATION OF ITS OWN.
+                 *
+                 * BUGFIX (the inconsistency half of "some morphs are fast and
+                 * barely seen, some are super laggy — make it consistent
+                 * app-wide"). This was `'fade'`, which is react-native-screens
+                 * running its own ~350 ms cross-fade of the WHOLE destination
+                 * screen at the same time as, and out of step with, the clone
+                 * flying across it. Two uncoordinated animations describing the
+                 * same navigation is what reads as mush.
+                 *
+                 * `'none'` is what the `/trip` surface — the one morph that was
+                 * reported as feeling right — has always used. The clone owns
+                 * the forward motion; MorphTarget fades the real content in
+                 * against the same progress value, so the handover is one
+                 * animation with one clock. `gestureEnabled` still gives the
+                 * native swipe-back.
+                 */
+                animation: 'none',
                 gestureEnabled: true,
               }}
             />
@@ -609,10 +624,13 @@ export default function RootLayout() {
             <Stack.Screen
               name="profile/edit"
               options={{
-                // Morph target: the profile hero avatar flies into this screen
-                // via the MorphProvider overlay — fade lets the clone own the
-                // forward motion (same treatment as ride/[id]).
-                animation: 'fade',
+                // Morph target: the profile avatar flies into this screen via
+                // the MorphProvider overlay. `'none'`, not `'fade'` — see the
+                // note on ride/[id]: a route animation running alongside the
+                // clone is a second, unsynchronised description of the same
+                // navigation, and it is most of why this particular morph was
+                // reported as "really bad".
+                animation: 'none',
                 gestureEnabled: true,
               }}
             />
@@ -769,6 +787,10 @@ export default function RootLayout() {
           </Animated.View>
           {/* Global trip-status banner — rendered AFTER Stack so it layers above all screens */}
           <TripStatusListener />
+          {/* "Verify My Ride" — the rider's boarding code, raised when the
+              driver arrives or asks for it. Root-mounted so it can appear over
+              the tracking surface, the chat, or anything else. */}
+          <BoardingPinSheet />
           {/* Global error / success toast — sits above all other overlays */}
           <GlobalToast />
           {/* Global foreground push notification banner */}

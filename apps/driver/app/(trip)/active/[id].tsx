@@ -198,6 +198,18 @@ export default function ActiveTripScreen() {
           setPinValue('');
           setPinError(null);
           setPinPrompt({ bookingId, seatNumber, name });
+          /**
+           * AND PUT THE CODE IN FRONT OF THE RIDER.
+           *
+           * BUGFIX ("the rider app isn't showing the pin verification — when
+           * the driver marks as boarded it should bring up the popup on the
+           * rider tracking page"). The keypad on this side has always existed;
+           * the other half never did, so the driver was asking for a number the
+           * rider had no way to see. This raises it on their screen (and pushes,
+           * for a phone that is in a pocket). Fire-and-forget: a failed ping
+           * must not stop a driver who can already see the code.
+           */
+          void driverApi.requestBoardingPin(id, bookingId).catch(() => {});
           return;
         }
         if (code === 'PIN_INCORRECT') {
@@ -611,36 +623,91 @@ export default function ActiveTripScreen() {
     };
   }, [trip, pickupCoord]);
 
-  const externalNavTarget = useCallback((): GeoPlace => {
-    const carrying = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED';
-    const coord = (carrying ? destCoord : pickupCoord) ?? destCoord ?? pickupCoord;
+  /** The trip's drop-off as a place the map app can search, not a coordinate. */
+  const tripDestinationPlace = useCallback((): GeoPlace => {
     const t = trip as any;
     return {
-      latitude: coord ? coord[1] : NaN,
-      longitude: coord ? coord[0] : NaN,
-      address: carrying
-        ? (t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null)
-        : (t?.pickup?.address ?? t?.pickupAddress ?? t?.route?.originName ?? null),
-      label: carrying ? 'Destination' : 'Pickup',
+      latitude: destCoord ? destCoord[1] : NaN,
+      longitude: destCoord ? destCoord[0] : NaN,
+      address: t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null,
+      label: 'Destination',
     };
-  }, [trip, destCoord, pickupCoord]);
+  }, [trip, destCoord]);
 
   /**
-   * The other end of the leg, once there IS one.
+   * NAVIGATE OFFERS BOTH LEGS, NOT JUST THE ONE THE PHASE IMPLIES.
    *
-   * From the moment the driver is at the kerb, the journey they want laid out
-   * in their map app is the trip's pickup → the trip's drop-off — the second
-   * half of the same report. Before that the origin is deliberately null so the
-   * map app routes from where the driver actually is, which is the only useful
-   * thing while they are still on their way to collect somebody.
+   * BUGFIX ("when I click Navigate on the manage page it should make sure the
+   * pickup point shown is the pickup point put in the trip, and the destination
+   * should proceed to the maps so the driver can use it if they want to use
+   * that one").
+   *
+   * The old button had exactly one behaviour per phase: before pickup it routed
+   * current-position → pickup and there was NO way to hand the drop-off to the
+   * map app at all. A driver who wants to see the whole job before they set off
+   * — where am I taking this person, is it worth it, which way will I come back
+   * — had nothing to tap.
+   *
+   * So the tap now names the two legs explicitly, using the trip's OWN
+   * endpoints (`pickupLat/Lng`, `dropoffLat/Lng`) rather than the driver's
+   * current position for the pickup end:
+   *
+   *   • "To pickup"        — from wherever the driver is, to the trip's pickup.
+   *   • "Pickup → Destination" — the passenger's actual journey, anchored at the
+   *     trip's pickup so the map app plots the leg the rider booked rather than
+   *     a line from the kerb the driver happens to be standing on.
+   *
+   * The phase-appropriate leg is listed first so the common case is still one
+   * tap plus one confirm, and long-press still re-asks which map app to use.
+   * A trip with no usable drop-off (a group route still filling) skips straight
+   * to the pickup leg rather than offering a dead option.
    */
-  const externalNavOrigin = useCallback((): GeoPlace | null => {
-    const atOrPastPickup =
-      trip?.status === 'ARRIVED_AT_PICKUP' ||
-      trip?.status === 'IN_PROGRESS' ||
-      trip?.status === 'COMPLETED';
-    return atOrPastPickup && pickupCoord ? tripPickupPlace() : null;
-  }, [trip?.status, pickupCoord, tripPickupPlace]);
+  const openNavigation = useCallback(
+    (forceChooser: boolean) => {
+      const carrying = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED';
+      const hasDest = !!destCoord && destCoord !== pickupCoord;
+
+      const goPickup = () =>
+        void openExternalNavigation(tripPickupPlace(), { forceChooser, origin: null });
+      const goFullLeg = () =>
+        void openExternalNavigation(tripDestinationPlace(), {
+          forceChooser,
+          // Anchored at the TRIP's pickup — the whole point of the report.
+          origin: pickupCoord ? tripPickupPlace() : null,
+        });
+
+      if (!hasDest) return goPickup();
+      if (!pickupCoord) return goFullLeg();
+
+      const pickupLabel = 'To pickup';
+      const legLabel = 'Pickup → Destination';
+      const buttons = carrying
+        ? [
+            { text: legLabel, onPress: goFullLeg },
+            { text: pickupLabel, onPress: goPickup },
+          ]
+        : [
+            { text: pickupLabel, onPress: goPickup },
+            { text: legLabel, onPress: goFullLeg },
+          ];
+
+      Alert.alert(
+        'Open in maps',
+        [
+          (trip as any)?.pickupAddress ?? (trip as any)?.pickup?.address
+            ? `Pickup: ${(trip as any).pickupAddress ?? (trip as any).pickup?.address}`
+            : null,
+          (trip as any)?.dropoffAddress ?? (trip as any)?.dropoff?.address
+            ? `Destination: ${(trip as any).dropoffAddress ?? (trip as any).dropoff?.address}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n') || 'Choose which leg to navigate.',
+        [...buttons, { text: 'Cancel', style: 'cancel' as const }],
+      );
+    },
+    [trip, destCoord, pickupCoord, tripPickupPlace, tripDestinationPlace],
+  );
 
   // ─── Loading skeleton ────────────────────────────────────────────────────
 
@@ -1216,18 +1283,8 @@ export default function ActiveTripScreen() {
               icon="navigate-outline"
               label="Navigate"
               color={colors.primary}
-              onPress={() => {
-                void openExternalNavigation(externalNavTarget(), {
-                  forceChooser: false,
-                  origin: externalNavOrigin(),
-                });
-              }}
-              onLongPress={() => {
-                void openExternalNavigation(externalNavTarget(), {
-                  forceChooser: true,
-                  origin: externalNavOrigin(),
-                });
-              }}
+              onPress={() => openNavigation(false)}
+              onLongPress={() => openNavigation(true)}
               colors={colors}
             />
             <QuickAction

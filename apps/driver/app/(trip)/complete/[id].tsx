@@ -67,14 +67,46 @@ export default function TripCompleteScreen() {
     }
   }, [id, router]);
 
+  /**
+   * THE RECEIPT READS THE TRIP IT IS A RECEIPT FOR.
+   *
+   * BUGFIX ("on the driver app, when I go to the trip summary it doesn't show
+   * the right information — the trip stats aren't showing the accurate
+   * things").
+   *
+   * This screen used to fetch `getAllTrips()` and `.find()` the id inside it.
+   * That is the wrong shape for a detail screen in two ways, and both of them
+   * produce exactly the reported symptom — a summary full of zeroes and
+   * defaults:
+   *
+   *   • The list is bounded and ordered by the server. A trip that is not in
+   *     the page it returns simply is not found, and every derived figure below
+   *     falls back: 0 seats, 0 earnings, `maxSeats ?? 14`, no passenger rows.
+   *   • The list row is a summary projection. Even when the trip IS in it, the
+   *     per-booking fields the receipt does arithmetic on (`fareAmountPesewas`,
+   *     `commissionAmountPesewas`, `paymentStatus`) and the server-computed
+   *     `sold` / `group` blocks come from the DETAIL endpoint.
+   *
+   * `getTripById` is the same call the trip-detail screen already uses and
+   * returns the full row. The list stays as a fallback so a receipt opened
+   * offline, straight after completion, still has something to render from
+   * cache rather than flashing an empty summary.
+   */
+  const { data: fetchedTrip } = useQuery({
+    queryKey: ['driver', 'trip', 'detail', id],
+    queryFn: () => driverApi.getTripById(id!),
+    select: (r: any) => r.data?.data?.trip ?? null,
+    enabled: !!id && typeof id === 'string',
+  });
+
   const { data: trips } = useQuery({
     queryKey: ['driver', 'trips', 'all'],
     queryFn: () => driverApi.getAllTrips(),
     select: (r: { data?: { data?: { trips?: DriverTrip[] } } }) => r.data?.data?.trips ?? [],
-    enabled: !!id && typeof id === 'string',
+    enabled: !!id && typeof id === 'string' && !fetchedTrip,
   });
 
-  const completedTrip = trips?.find((t: DriverTrip) => t.id === id);
+  const completedTrip = (fetchedTrip as DriverTrip | null) ?? trips?.find((t: DriverTrip) => t.id === id);
   /**
    * THE RECEIPT IS THE PAID SEATS, NOTHING ELSE.
    *

@@ -37,6 +37,7 @@ import DispatchOfferSheet from '../components/DispatchOfferSheet';
 import { isLiveTripStatus } from '@eyego/utils';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useOtaUpdates } from '../hooks/useOtaUpdates';
+import { beatPresenceNow } from '../hooks/useDriverLocation';
 
 // Initialize crash/error tracking as early as possible (no-op without DSN)
 initSentry();
@@ -562,6 +563,17 @@ export default function RootLayout() {
         // missed while backgrounded, but hydrating first means the UI is
         // correct immediately rather than after the replay lands.
         void useDriverTripStore.getState().hydrate();
+        /**
+         * And put us back in the dispatch pool over HTTP, without waiting for
+         * the socket to finish reconnecting.
+         *
+         * `hydrate()` above answers "is anyone waiting on me" — but a driver
+         * whose presence key expired while the rider app was foregrounded is
+         * not in the pool at all, so there is nothing for it to find. This is
+         * the write that makes them findable again; the server re-runs any
+         * parked search off the absent→present edge. See useDriverLocation.
+         */
+        beatPresenceNow();
       }
     });
     return () => sub.remove();

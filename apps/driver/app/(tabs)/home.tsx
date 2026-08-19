@@ -34,6 +34,36 @@ import { DestinationModeCard } from '../../components/DestinationModeCard';
 import DemandOverlay from '../../components/DemandOverlay';
 import mapStyles from '@eyego/map-styles';
 
+/**
+ * The server's machine reason, in words a driver can act on.
+ *
+ * `explainIneligible` (services/driver-availability.js) is the single place
+ * that decides why a driver is skipped, and it answers in codes:
+ * `NOT_ACTIVE(status=…)`, `OFFLINE`, `REQUESTS_PAUSED`, `BUSY(trip=… status=…)`,
+ * `NO_SUCH_DRIVER`. Translating here rather than server-side keeps the code the
+ * stable contract (the admin dispatch board reads the same field) and the copy
+ * a product decision.
+ */
+function describeDispatchBlock(reason: string | null | undefined): string {
+  const code = reason ?? '';
+  if (code.startsWith('NOT_ACTIVE')) {
+    return 'Your account is not approved for dispatch yet. Finish your documents under Profile → Documents.';
+  }
+  if (code === 'OFFLINE') {
+    return 'The server still has you offline. Toggle Online again.';
+  }
+  if (code === 'REQUESTS_PAUSED') {
+    return 'Requests are paused. Resume them to start receiving offers again.';
+  }
+  if (code.startsWith('BUSY')) {
+    return 'You still have an unfinished trip. Complete or cancel it and offers will resume.';
+  }
+  if (code === 'NO_SUCH_DRIVER') {
+    return 'Your driver record could not be found. Please sign out and back in.';
+  }
+  return 'Dispatch is not seeing you as available. Check your connection and try toggling Online.';
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
@@ -70,6 +100,9 @@ export default function HomeScreen() {
 
   const { location, hasPermission } = useDriverLocation({ enabled: true, isOnTrip: false });
   const { isOffline } = useNetworkStatus();
+  // The server's own verdict on whether this driver is in the candidate pool,
+  // refreshed by the presence heartbeat. See the banner below.
+  const dispatchStatus = useDriverStore((s) => s.dispatchStatus);
   const [showHeatmap, setShowHeatmap] = useState(false);
 
   // Reliability backstop for the socket-pushed trip:assigned event — if the
@@ -487,6 +520,41 @@ export default function HomeScreen() {
         <Entrance animation="slideUp" style={[styles.offlineBanner, { top: insets.top + (onlineError ? 112 : 64) }]}>
           <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
           <Text variant="caption" style={{ color: '#fff', flex: 1 }}>No internet connection</Text>
+        </Entrance>
+      )}
+
+      {/*
+        WHY NO REQUESTS ARE ARRIVING.
+
+        "I'm online and live and nothing shows on the driver side" has been
+        reported across several sweeps, and every time the server knew the
+        answer and the driver did not: `explainIneligible` names the exact
+        condition that removed them from the candidate list, and until now it
+        only ever reached a log line. The presence heartbeat gets that verdict
+        back on every beat (see useDriverLocation.beatPresenceOverHttp), so the
+        driver can now read it.
+
+        Only shown when the driver believes they are working — an offline
+        driver getting no offers is not a fault — and never before the first
+        beat has answered, so a cold start does not flash a warning.
+      */}
+      {isOnline && dispatchStatus && !dispatchStatus.dispatchable && (
+        <Entrance
+          animation="slideUp"
+          style={[
+            styles.errorBanner,
+            { top: insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0), borderColor: '#F59E0B55', backgroundColor: '#F59E0B18' },
+          ]}
+        >
+          <Ionicons name="alert-circle-outline" size={16} color="#F59E0B" />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="caption" style={{ color: '#F59E0B' }}>
+              You are not receiving trip requests
+            </Text>
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              {describeDispatchBlock(dispatchStatus.reason)}
+            </Text>
+          </View>
         </Entrance>
       )}
 

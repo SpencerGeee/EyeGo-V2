@@ -149,6 +149,13 @@ function ConfigureStageImpl() {
    * correctly computed and sent.
    */
   const [fares, setFares] = useState<Partial<Record<Tier, number>>>({});
+  /**
+   * What this rider's standing took off the fare, in pesewas.
+   *
+   * Zero for most riders, and the card below simply does not render the line in
+   * that case — a "you saved GH₵0.00" row is worse than none.
+   */
+  const [loyaltyDiscountPesewas, setLoyaltyDiscountPesewas] = useState(0);
   const [quoting, setQuoting] = useState(false);
 
   useEffect(() => {
@@ -191,18 +198,35 @@ function ConfigureStageImpl() {
             if (q?.geometry?.coordinates?.length) {
               setPreviewPath(q.geometry as { type: 'LineString'; coordinates: [number, number][] });
             }
-            return [id, q?.amountPesewas ?? null] as const;
+            /**
+             * What good standing took off this fare.
+             *
+             * Applied server-side before the quote is signed (see
+             * `fare-quote.service`), so this is the real saving rather than an
+             * estimate of one. Carried alongside the price so the rider can be
+             * told WHY theirs is lower — a discount nobody can see changes
+             * nobody's behaviour, which is the whole point of tying it to
+             * cancellations.
+             */
+            return [id, q?.amountPesewas ?? null, q?.loyaltyDiscountPesewas ?? 0] as const;
           })
           // A failed preview must not block booking — the request path quotes
           // again for real and surfaces its own error.
-          .catch(() => [id, null] as const),
+          .catch(() => [id, null, 0] as const),
       ),
     )
-      .then((pairs) => {
+      .then((triples) => {
         if (cancelled) return;
         const next: Partial<Record<Tier, number>> = {};
-        for (const [id, amount] of pairs) if (amount != null) next[id] = amount;
+        let discount = 0;
+        for (const [id, amount, saved] of triples) {
+          if (amount != null) next[id] = amount;
+          // Standing is a property of the rider, not of the tier, so every
+          // quote returns the same figure — take the first real one.
+          if (saved > discount) discount = saved;
+        }
         setFares(next);
+        setLoyaltyDiscountPesewas(discount);
       })
       .finally(() => !cancelled && setQuoting(false));
     return () => {
@@ -506,9 +530,23 @@ function ConfigureStageImpl() {
                       Final price confirmed when a driver accepts
                     </Text>
                   </View>
-                  <Text style={styles.fareValue}>
-                    {fare != null ? formatGhs(fare) : quoting ? '···' : '—'}
-                  </Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={styles.fareValue}>
+                      {fare != null ? formatGhs(fare) : quoting ? '···' : '—'}
+                    </Text>
+                    {/*
+                      "Fewer cancellations should mean better pricing" — said out
+                      loud. The server has already taken this off the number
+                      above; the line exists so the rider knows their record is
+                      doing something, which is the only way it changes anyone's
+                      behaviour. Absent entirely at zero.
+                    */}
+                    {fare != null && loyaltyDiscountPesewas > 0 && (
+                      <Text variant="caption" color={colors.primary}>
+                        {formatGhs(loyaltyDiscountPesewas)} off · good standing
+                      </Text>
+                    )}
+                  </View>
                 </View>
               </GradientGlowBorder>
             </Entrance>

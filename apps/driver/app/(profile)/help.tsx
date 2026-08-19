@@ -71,6 +71,9 @@ export default function HelpScreen() {
   const router = useRouter();
 
   const [showNewTicket, setShowNewTicket] = useState(false);
+  /** The ticket whose thread is open, straight off the list payload. */
+  const [openTicket, setOpenTicket] = useState<any | null>(null);
+  const [replyText, setReplyText] = useState('');
   const [ticketSubject, setTicketSubject] = useState('');
   const [ticketMessage, setTicketMessage] = useState('');
 
@@ -84,6 +87,21 @@ export default function HelpScreen() {
     queryFn: () => driverApi.getSupportTickets(),
   });
   const tickets = ticketsData?.data?.data?.tickets ?? [];
+
+  const replyMutation = useMutation({
+    mutationFn: (message: string) =>
+      driverApi.replyToTicket(openTicket!.id, { message }),
+    onSuccess: () => {
+      setReplyText('');
+      queryClient.invalidateQueries({ queryKey: ['driver', 'support-tickets'] });
+      // The thread is rendered from the list payload, so close on success —
+      // the refreshed list carries the new message when the driver reopens it.
+      setOpenTicket(null);
+      Alert.alert('Sent', 'Your message has been added to the ticket.');
+    },
+    onError: (err: any) =>
+      Alert.alert('Could not send', err?.response?.data?.message ?? 'Please try again.'),
+  });
 
   const createTicketMutation = useMutation({
     mutationFn: (data: { subject: string; category: string; description: string }) =>
@@ -173,10 +191,29 @@ export default function HelpScreen() {
             </View>
           ) : (
             <View style={[styles.faqCard, { marginBottom: 0 }]}>
+              {/*
+                BUGFIX ("on the driver app, you can view extra details on my
+                tickets — you need to fix this").
+
+                These rows were inert `View`s showing only the first line of the
+                first message, with no way into the rest. The payload has always
+                carried the whole thread (`getSupportTickets` includes `messages`
+                ordered oldest-first with `senderRole`), and `POST
+                /driver/support-tickets/:id/reply` has always accepted an answer
+                — the driver simply had no screen for either. A dispute filed
+                against a driver was therefore something they could see one line
+                of and never respond to.
+              */}
               {tickets.map((ticket, i) => (
-                <View
+                <Pressable
                   key={ticket.id}
-                  style={{ paddingVertical: spacing.base, borderBottomWidth: i < tickets.length - 1 ? 1 : 0, borderBottomColor: `${colors.outline}88` }}
+                  onPress={() => setOpenTicket(ticket)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ticket: ${ticket.subject}`}
+                  style={({ pressed }) => [
+                    { paddingVertical: spacing.base, borderBottomWidth: i < tickets.length - 1 ? 1 : 0, borderBottomColor: `${colors.outline}88` },
+                    pressed && { opacity: 0.7 },
+                  ]}
                 >
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface, flex: 1 }}>
@@ -191,10 +228,18 @@ export default function HelpScreen() {
                   <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: 2 }}>
                     {new Date(ticket.createdAt).toLocaleDateString()}
                   </Text>
-                  <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs, lineHeight: 20 }} numberOfLines={2}>
-                    {ticket.messages?.[0]?.text ?? ''}
-                  </Text>
-                </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.xs }}>
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1, lineHeight: 20 }} numberOfLines={2}>
+                      {ticket.messages?.[0]?.text ?? ''}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+                  </View>
+                  {(ticket.messages?.length ?? 0) > 1 && (
+                    <Text variant="caption" color={colors.primary} style={{ marginTop: 2 }}>
+                      {ticket.messages.length} messages
+                    </Text>
+                  )}
+                </Pressable>
               ))}
             </View>
           )}
@@ -258,6 +303,102 @@ export default function HelpScreen() {
             </View>
             <Button label="Submit Ticket" onPress={handleSubmitTicket} loading={createTicketMutation.isPending} disabled={createTicketMutation.isPending} />
           </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/*
+        THE TICKET, IN FULL, WITH A WAY TO ANSWER IT.
+
+        Rendered straight from the list payload — `getSupportTickets` already
+        includes every message with its `senderRole`, so opening a thread costs
+        no extra request. Replies go through `POST
+        /driver/support-tickets/:id/reply`, which now also accepts tickets a
+        rider filed ABOUT this driver (see drivers.service#replyToTicket); before
+        this pass those were readable-but-unanswerable, which is the worse half
+        of the complaint.
+      */}
+      <Modal visible={!!openTicket} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
+            <View style={{ flex: 1, paddingRight: spacing.md }}>
+              <Text variant="titleMedium" numberOfLines={2}>{openTicket?.subject ?? 'Ticket'}</Text>
+              {!!openTicket && (
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {(openTicket.category ?? 'GENERAL').toString().toLowerCase()} ·{' '}
+                  {openTicket.status === 'OPEN' ? 'Open' : 'Closed'} ·{' '}
+                  {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleDateString() : ''}
+                </Text>
+              )}
+            </View>
+            <Pressable onPress={() => { setOpenTicket(null); setReplyText(''); }} hitSlop={12}>
+              <Ionicons name="close" size={24} color={colors.onSurface} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={{ paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'] }}>
+            {(openTicket?.messages ?? []).map((m: any) => {
+              // Anything the support console wrote is SUPPORT/ADMIN; everything
+              // else came from this side of the conversation.
+              const fromSupport = m.senderRole === 'SUPPORT' || m.senderRole === 'ADMIN';
+              return (
+                <View
+                  key={m.id}
+                  style={{
+                    maxWidth: '88%',
+                    alignSelf: fromSupport ? 'flex-start' : 'flex-end',
+                    backgroundColor: fromSupport ? colors.surfaceContainerHigh : `${colors.primary}1A`,
+                    borderRadius: radii.xl,
+                    paddingHorizontal: spacing.base,
+                    paddingVertical: spacing.sm,
+                    marginTop: spacing.sm,
+                    gap: 4,
+                  }}
+                >
+                  <Text variant="bodySmall" color={colors.onSurface}>{m.text}</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    {fromSupport ? 'EyeGo Support' : m.senderRole === 'USER' ? 'Rider' : 'You'} ·{' '}
+                    {m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}
+                  </Text>
+                </View>
+              );
+            })}
+
+            {(openTicket?.messages ?? []).length === 0 && (
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                No messages on this ticket yet.
+              </Text>
+            )}
+
+            <TextInput
+              style={{
+                minHeight: 96,
+                backgroundColor: colors.surfaceContainerHigh,
+                borderRadius: radii.lg,
+                borderWidth: 1,
+                borderColor: colors.outline,
+                paddingHorizontal: spacing.base,
+                paddingVertical: spacing.md,
+                fontFamily: fonts.medium,
+                fontSize: fontSizes.bodyMedium,
+                color: colors.onSurface,
+                textAlignVertical: 'top',
+                marginTop: spacing.xl,
+              }}
+              value={replyText}
+              onChangeText={setReplyText}
+              placeholder="Add a message…"
+              placeholderTextColor={colors.onSurfaceVariant}
+              selectionColor={colors.primary}
+              multiline
+            />
+            <Button
+              label={replyMutation.isPending ? 'Sending…' : 'Send message'}
+              onPress={() => replyMutation.mutate(replyText.trim())}
+              loading={replyMutation.isPending}
+              disabled={replyMutation.isPending || !replyText.trim()}
+              style={{ marginTop: spacing.sm }}
+            />
+          </ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>

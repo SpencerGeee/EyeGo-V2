@@ -97,8 +97,23 @@ export function useMorphOptional() {
   return useContext(MorphContext);
 }
 
-/** If the destination never mounts a MorphTarget, dissolve the clone. */
-const TARGET_TIMEOUT_MS = 700;
+/**
+ * If the destination never mounts a MorphTarget, dissolve the clone.
+ *
+ * WHY THIS CAME DOWN FROM 700 ms. Nothing moves until `targetReady` fires, so
+ * for a destination with no MorphTarget at all — and there are several: a
+ * service card whose route is an ordinary screen — this timeout WAS the
+ * animation. The rider tapped, the clone froze on the source for the better
+ * part of a second, and then faded. That is most of "some are super laggy", and
+ * it is indistinguishable from the app having hung.
+ *
+ * The budget is only ever spent waiting for a target that is coming. Since
+ * MorphTarget now reports SYNCHRONOUSLY on its first layout pass (see the note
+ * on its `onLayout`), a screen that has one answers within a frame or two of
+ * mounting, and 450 ms is still generous for a heavy destination. A screen that
+ * does not have one now degrades in a quarter of the time.
+ */
+const TARGET_TIMEOUT_MS = 450;
 /** Cross-fade window between the clone and the real target content — 200ms
  *  (up from 120ms) so the eye registers the real content before the clone
  *  disappears, avoiding the previous "flash" feel. */
@@ -288,7 +303,21 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       // A landed flight for a DIFFERENT id would otherwise leave that source
       // hidden forever, since only its own morphBack un-hides it.
       if (settledRef.current && settledRef.current.id !== id) cleanup(true);
-      entry.measure().then((rect) => {
+
+      /**
+       * MEASURE THE SOURCE WITHOUT SPENDING A FRAME ON IT.
+       *
+       * `entry.measure()` is an asynchronous `measureInWindow`, so every morph
+       * used to begin with a bridge round-trip during which absolutely nothing
+       * happened — no clone, no navigation, no feedback for the tap. That delay
+       * varies with how busy the thread is, which is part of why the same
+       * animation reads as instant on one screen and sluggish on another.
+       *
+       * `measureSync` (Fabric's `unstable_getBoundingClientRect`) answers in
+       * this tick. The async path is kept as the fallback for the old
+       * architecture and for a node that has not laid out yet.
+       */
+      const begin = (rect: MorphRect | null) => {
         if (!rect || rect.width <= 0 || rect.height <= 0) {
           navigate();
           return;
@@ -335,7 +364,11 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         setPhase('forward');
         entry.hide();
         navigate();
-      });
+      };
+
+      const sync = entry.measureSync?.();
+      if (sync && sync.width > 0 && sync.height > 0) begin(sync);
+      else void entry.measure().then(begin);
     },
     [skipMorph, cleanup, sourceX, sourceY, sourceW, sourceH, sourceR,
      targetX, targetY, targetW, targetH, targetR, morphProgress, cloneOpacity]
@@ -574,16 +607,46 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     const y = interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]);
     const baseW = targetW.value || 1;
     const baseH = targetH.value || 1;
+    const sx = w / baseW;
+    const sy = h / baseH;
+    /**
+     * THE CORNER RADIUS HAS TO BE WRITTEN IN THE FRAME'S SPACE, NOT THE
+     * SCREEN'S.
+     *
+     * BUGFIX ("the morph effect when I hit the profile icon is really bad").
+     *
+     * The clone's layout box is pinned to the TARGET rect and then SCALED down
+     * to whatever the flight's current box is. Everything written on that view
+     * — including `borderRadius` — is therefore multiplied by the scale before
+     * it reaches the screen. This line used to write the desired ON-SCREEN
+     * radius directly, so what actually rendered was `radius × scale`.
+     *
+     * For the profile avatar that is not subtle: a 64 pt circle flying into a
+     * 108 pt circle starts at scale 0.59, so a radius of 32 (a perfect circle)
+     * rendered as 19 on a 64 pt box — a rounded SQUARE. The morph therefore
+     * began as a square block, un-squared itself into a circle on the way in,
+     * and re-squared on the way back. That is the whole of "really bad", and it
+     * applied to every rounded morph in both apps.
+     *
+     * Dividing by the scale makes the rendered radius the one that was asked
+     * for. Both ends of an avatar→avatar morph are square boxes, so `sx === sy`
+     * throughout and the correction is exact; for a card→full-screen morph the
+     * two axes differ, the horizontal one is chosen (it is what the eye reads on
+     * a card's corners), and the clamp stops a large correction from producing
+     * the pill shape React Native gives a radius greater than half the box.
+     */
+    const rScreen = interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]);
+    const rFrame = Math.min(rScreen / Math.max(sx, 0.0001), Math.min(baseW, baseH) / 2);
     // Transform + opacity + borderRadius ONLY — see the `frame` state above for
     // why left/top/width/height must not be written from here.
     return {
-      borderRadius: interpolate(morphProgress.value, [0, 1], [sourceR.value, targetR.value]),
+      borderRadius: rFrame,
       opacity: cloneOpacity.value,
       transform: [
         { translateX: x + w / 2 - (targetX.value + baseW / 2) },
         { translateY: y + h / 2 - (targetY.value + baseH / 2) },
-        { scaleX: w / baseW },
-        { scaleY: h / baseH },
+        { scaleX: sx },
+        { scaleY: sy },
       ] as const,
     };
   });
@@ -644,7 +707,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       transform: [
         { scaleX: baseW / (w || 1) },
         { scaleY: baseH / (h || 1) },
-      ],
+      ] as const,
     };
   });
 

@@ -288,6 +288,29 @@ const REGISTRY = [
     min: 0, max: 240,
   },
 
+  // ── Rider & driver standing ───────────────────────────────────
+  // The reputation model behind "fewer cancellations should mean better
+  // pricing". See services/standing.service.js for how these are combined and
+  // why the discount is deliberately small.
+  {
+    key: 'LOYALTY_MAX_DISCOUNT_BPS', group: 'standing', type: TYPES.INT,
+    label: 'Maximum loyalty discount', envDefault: 700, unit: 'basis points',
+    help: 'The most a rider with a spotless record can save on a fare. 100 basis points = 1%. Set to 0 to turn the loyalty discount off entirely.',
+    min: 0, max: 2000,
+  },
+  {
+    key: 'STANDING_RATING_WINDOW_DAYS', group: 'standing', type: TYPES.INT,
+    label: 'Rating window', envDefault: 180, unit: 'days',
+    help: 'Ratings older than this stop counting towards standing, so a long-ago run of five stars cannot hide recent behaviour.',
+    min: 30, max: 730,
+  },
+  {
+    key: 'STANDING_RELIABILITY_WINDOW_DAYS', group: 'standing', type: TYPES.INT,
+    label: 'Reliability window', envDefault: 90, unit: 'days',
+    help: 'How far back completed-vs-cancelled is measured when working out a rider or driver’s reliability.',
+    min: 14, max: 365,
+  },
+
   // ── What the apps show, changeable without a release ──────────
   {
     key: 'APP_ANNOUNCEMENT_TEXT', group: 'apps', type: TYPES.TEXT,
@@ -335,6 +358,9 @@ const GROUPS = [
   { id: 'ride_pricing_group', label: 'Group trips', help: 'How a shared seat differs from a solo ride. The rate card itself is the same one above.' },
   { id: 'pricing_rules', label: 'Fare rules', help: 'Applies to every tier.' },
   { id: 'pricing_doorstep', label: 'Door pickup' },
+  // Reputation: what a rider's or driver's behaviour is measured over, and what
+  // a spotless record is worth off a fare. See services/standing.service.js.
+  { id: 'standing', label: 'Standing and loyalty', help: 'How rider and driver behaviour is scored, and the discount a reliable rider earns on every fare.' },
   { id: 'booking', label: 'Booking and seats' },
   { id: 'driver_economics', label: 'Driver wallet' },
   { id: 'dispatch', label: 'Dispatch' },

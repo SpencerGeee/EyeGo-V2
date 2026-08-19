@@ -7,8 +7,8 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AnimatedCheckmark, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
-import { apiClient } from '@eyego/api';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient, driverApi } from '@eyego/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 const REPORT_TYPES = [
   'Verbal abuse or threats',
@@ -33,6 +33,19 @@ export default function ReportPassengerScreen() {
   const [selectedType, setSelectedType] = useState('');
   const [details, setDetails] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  /**
+   * WHICH passenger. `null` means the report is about the trip itself.
+   *
+   * BUGFIX ("when you click report passenger it should dynamically and
+   * accurately distinguish and allow the user to select which passenger they
+   * want to report — at the moment it just assumes it's one person").
+   *
+   * There was no selection at all: the request carried a trip id and a reason,
+   * so on a fourteen-seat van the driver was reporting the vehicle. Nothing
+   * downstream could attach it to a rider, which is also why a repeatedly
+   * reported passenger's standing never moved.
+   */
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
 
   // D8: guard invalid id — navigate back after all hooks have run
   useEffect(() => {
@@ -41,21 +54,71 @@ export default function ReportPassengerScreen() {
     }
   }, [id, router]);
 
+  /**
+   * Who was actually on this trip. Read from the trip detail rather than passed
+   * through the route, so the list is right whether the driver arrives from the
+   * trips tab, the manage page or a notification — and so a seat added mid-trip
+   * is present.
+   */
+  const { data: trip, isLoading: tripLoading } = useQuery({
+    queryKey: ['driver', 'trip', 'detail', id],
+    queryFn: () => driverApi.getTripById(id!),
+    select: (r: any) => r.data?.data?.trip ?? null,
+    enabled: !!id && typeof id === 'string',
+  });
+
+  const RELEASED = ['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'];
+  const passengers = ((trip?.bookings ?? []) as any[])
+    .filter((b) => !RELEASED.includes(b.status))
+    .map((b) => ({
+      bookingId: b.id as string,
+      seatNumber: (b.seatNumber ?? null) as number | null,
+      // A guest booked by somebody else has no user account; name them by the
+      // guest name so the driver can still tell two seats apart.
+      name: (b.user?.name ?? b.guestName ?? (b.seatNumber ? `Seat ${b.seatNumber}` : 'Passenger')) as string,
+      isGuest: !b.user?.id,
+    }));
+
+  // One passenger and nothing to choose between — preselect, so a solo ride
+  // does not make the driver tap a list of one.
+  useEffect(() => {
+    if (passengers.length === 1 && selectedBookingId == null) {
+      setSelectedBookingId(passengers[0].bookingId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passengers.length]);
+
   const { mutate: submitReport, isPending } = useMutation({
     mutationFn: () =>
-      apiClient.post(`/driver/trips/${id}/report`, { type: selectedType, details }),
+      apiClient.post(`/driver/trips/${id}/report`, {
+        type: selectedType,
+        details,
+        // Omitted rather than null when nothing is selected: the server treats
+        // an absent bookingId as a trip-level report, which is a real case.
+        ...(selectedBookingId ? { bookingId: selectedBookingId } : {}),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['driver', 'trips'] });
       setSubmitted(true);
     },
     onError: (err: any) => {
-      Alert.alert('Error', err?.message ?? 'Failed to submit report. Please try again.');
+      Alert.alert(
+        'Error',
+        err?.response?.data?.message ?? err?.message ?? 'Failed to submit report. Please try again.',
+      );
     },
   });
 
   const handleSubmit = () => {
     if (!selectedType) {
       Alert.alert('Select a type', 'Please select a report type.');
+      return;
+    }
+    // Only insist on a passenger when there is genuinely a choice to make. A
+    // report filed against the wrong person is worse than one filed against
+    // nobody, so this is a hard stop rather than a default-to-first.
+    if (!selectedBookingId && passengers.length > 1) {
+      Alert.alert('Select a passenger', 'Choose which passenger this report is about.');
       return;
     }
     submitReport();
@@ -96,6 +159,84 @@ export default function ReportPassengerScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Entrance animation="slideUp" delay={40}>
           <Text variant="headlineLarge" style={styles.headline}>Report Passenger</Text>
+        </Entrance>
+
+        {/* WHO. Rendered above "what happened" because it is the first thing a
+            driver knows and the thing the report is actually about. */}
+        <Entrance animation="slideDown" delay={60}>
+          <Text variant="labelLarge" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
+            Which passenger?
+          </Text>
+          <View style={styles.card}>
+            {tripLoading ? (
+              <View style={styles.reasonRow}>
+                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Loading passengers…</Text>
+              </View>
+            ) : passengers.length === 0 ? (
+              <View style={[styles.reasonRow, { borderBottomWidth: 0 }]}>
+                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
+                  No passengers on this trip — this will be filed against the trip itself.
+                </Text>
+              </View>
+            ) : (
+              <>
+                {passengers.map((p) => {
+                  const isSelected = selectedBookingId === p.bookingId;
+                  return (
+                    <Pressable
+                      key={p.bookingId}
+                      style={styles.reasonRow}
+                      onPress={() => setSelectedBookingId(p.bookingId)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: isSelected }}
+                      accessibilityLabel={`Report ${p.name}`}
+                    >
+                      <View style={[styles.dot, isSelected && styles.dotActive]} />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          variant="bodyMedium"
+                          style={{
+                            fontFamily: isSelected ? fonts.bold : fonts.regular,
+                            color: isSelected ? colors.onSurface : colors.onSurfaceVariant,
+                          }}
+                        >
+                          {p.name}
+                        </Text>
+                        <Text variant="caption" color={colors.onSurfaceVariant}>
+                          Seat {p.seatNumber ?? '—'}{p.isGuest ? ' · guest' : ''}
+                        </Text>
+                      </View>
+                      {isSelected && <Ionicons name="checkmark-circle" size={20} color={colors.primary} />}
+                    </Pressable>
+                  );
+                })}
+                {/* Not every report has a person behind it — damage found after
+                    everyone has left, for instance. Better an explicit option
+                    than a driver picking someone at random to get past a gate. */}
+                <Pressable
+                  style={[styles.reasonRow, { borderBottomWidth: 0 }]}
+                  onPress={() => setSelectedBookingId(null)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: selectedBookingId === null }}
+                >
+                  <View style={[styles.dot, selectedBookingId === null && styles.dotActive]} />
+                  <Text
+                    variant="bodyMedium"
+                    style={{
+                      flex: 1,
+                      fontFamily: selectedBookingId === null ? fonts.bold : fonts.regular,
+                      color: selectedBookingId === null ? colors.onSurface : colors.onSurfaceVariant,
+                    }}
+                  >
+                    Not about one passenger
+                  </Text>
+                  {selectedBookingId === null && (
+                    <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
+                  )}
+                </Pressable>
+              </>
+            )}
+          </View>
         </Entrance>
 
         <Entrance animation="slideDown" delay={80}>

@@ -59,6 +59,15 @@ export interface FareBreakdownSheetProps {
    * render, so nothing goes blank.
    */
   breakdown?: RideFareBreakdown | null;
+  /**
+   * What this rider's standing took off the fare, in pesewas.
+   *
+   * Straight off the quote (`fare-quote.service` applies it before signing, so
+   * this is the real saving and not an estimate of one). Zero — the default —
+   * hides the row entirely: a rider who has not earned a discount should not be
+   * shown one worth nothing.
+   */
+  loyaltyDiscountPesewas?: number;
 }
 
 /** The on-demand fare lines `calculateRideFare` returns. All integer pesewas. */
@@ -93,6 +102,7 @@ export function FareBreakdownSheet({
   bookingFeePct = 6.1,
   platformFeeCedis = 1.0,
   breakdown = null,
+  loyaltyDiscountPesewas = 0,
 }: FareBreakdownSheetProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -169,6 +179,25 @@ export function FareBreakdownSheet({
             styles={styles}
           />
           <DottedRow label="Platform fee" value={formatGhs(px(breakdown!.platformFeePesewas))} colors={colors} styles={styles} />
+          {/*
+            THE LOYALTY DISCOUNT, SHOWN.
+
+            "Riders with fewer cancellations should get better pricing" only
+            changes anybody's behaviour if they can see that it did. The server
+            returns the saving on every quote (`loyaltyDiscountPesewas`, see
+            fare-quote.service); zero for a rider who has not earned one, in
+            which case this row is simply absent rather than a distracting
+            "— GH₵0.00".
+          */}
+          {loyaltyDiscountPesewas > 0 && (
+            <DottedRow
+              label="Good standing discount"
+              value={`− ${formatGhs(loyaltyDiscountPesewas)}`}
+              colors={colors}
+              styles={styles}
+              accent
+            />
+          )}
           <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
         </>
       ) : (

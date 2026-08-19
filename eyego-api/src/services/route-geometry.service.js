@@ -104,6 +104,60 @@ function usable(v) {
 }
 
 /**
+ * How close counts as "already there".
+ *
+ * Generous rather than tight: a consumer GPS fix in a built-up area is good to
+ * roughly 20–50 m, a pickup pin is dropped by a human on a map, and the cost of
+ * being slightly too generous (the ETA card switches to the drop-off a street
+ * early) is far smaller than the cost of being too strict (an ETA that never
+ * arrives at all, which is the bug this exists for).
+ */
+const AT_PICKUP_METERS = parseInt(process.env.AT_PICKUP_METERS, 10) || 150;
+
+/**
+ * THE PICKUP LEG IS OVER WHEN THE DRIVER IS STANDING ON IT.
+ *
+ * BUGFIX ("when I start the trip the heading-to-pickup is shown as Calculating
+ * ETA — which makes sense because I'm literally at the pickup. When the driver
+ * is at the pickup, the pickup leg on the tracking page should be skipped").
+ *
+ * `activeLeg` answers from STATUS alone, and status cannot see a driver who
+ * accepted a dispatch while already parked at the kerb. That produces a
+ * zero-length `toPickup` leg, which produces no useful route, which produces no
+ * `trip:eta` frame — so both apps sit on the "Calculating ETA…" placeholder for
+ * the rest of the trip, describing a journey with nothing left in it.
+ *
+ * Position is the tie-breaker, and only in the one direction that can be true:
+ * a driver within `AT_PICKUP_METERS` of the pickup has nothing left to be
+ * routed TO, so the remaining journey is the drop-off. The reverse is never
+ * inferred — a driver far from the pickup on an IN_PROGRESS trip is a driver
+ * who has already collected their passenger and driven off, not a driver who
+ * needs the pickup leg back.
+ *
+ * Deliberately shared by every consumer (the live ETA push, the snapshot peek,
+ * the cache key) so the client's own copy of this rule and the server's cannot
+ * name different legs for the same moment.
+ */
+function liveLeg(trip, driver) {
+  const leg = activeLeg(trip?.status);
+  if (leg !== 'toPickup') return leg;
+
+  const pos = driverPos(driver);
+  if (!pos) return leg;
+  const pickup = effectivePickup(trip);
+  if (!usable(pickup.lat) || !usable(pickup.lng)) return leg;
+
+  const metres = haversineMeters(pos.lat, pos.lng, pickup.lat, pickup.lng);
+  if (metres > AT_PICKUP_METERS) return leg;
+
+  // Only skip to a leg that actually exists — a group trip still filling may
+  // have no drop-off yet, and "no leg" is worse than a zero-length one.
+  const destLat = usable(trip.dropoffLat) ? trip.dropoffLat : trip.route?.destLat;
+  const destLng = usable(trip.dropoffLng) ? trip.dropoffLng : trip.route?.destLng;
+  return usable(destLat) && usable(destLng) ? 'toDropoff' : leg;
+}
+
+/**
  * WHERE THE DRIVER IS ACTUALLY GOING TO FETCH THIS RIDE'S PASSENGER.
  *
  * BUGFIX ("it says heading to pickup but the pickup is exactly where the driver
@@ -310,7 +364,7 @@ async function registerDeviation(tripId, offRoute) {
  * @returns {Promise<null|{leg:string,geometry:object,distanceKm:number,durationMin:number,computedAt:number,source:string,rerouted:boolean}>}
  */
 async function getRouteForTrip(trip, driver, opts = {}) {
-  const leg = activeLeg(trip.status);
+  const leg = liveLeg(trip, driver);
   if (!leg) return null;
 
   const endpoints = legEndpoints(trip, leg, driver);
@@ -374,11 +428,22 @@ async function getRouteForTrip(trip, driver, opts = {}) {
   return { ...value, rerouted };
 }
 
-/** Read-only: whatever is cached for the trip's live leg, without computing. */
-async function peekRouteForTrip(trip) {
-  const leg = activeLeg(trip.status);
-  if (!leg) return null;
-  return readCache(trip.id, leg);
+/**
+ * Read-only: whatever is cached for the trip's live leg, without computing.
+ *
+ * Tries the skipped-pickup leg FIRST when a driver position is available, so a
+ * snapshot built for a driver already standing at the pickup reads the
+ * drop-off's cache rather than a `toPickup` entry that will never be written.
+ * Falls back to the status leg, because a peek that returns nothing is a screen
+ * with no line on it.
+ */
+async function peekRouteForTrip(trip, driver = null) {
+  const live = liveLeg(trip, driver);
+  if (!live) return null;
+  const cached = await readCache(trip.id, live);
+  if (cached) return cached;
+  const byStatus = activeLeg(trip.status);
+  return byStatus && byStatus !== live ? readCache(trip.id, byStatus) : null;
 }
 
 /**
@@ -509,6 +574,10 @@ module.exports = {
   OFF_ROUTE_M,
   OFF_ROUTE_STRIKES,
   activeLeg,
+  // Position-aware leg: the pickup leg is over once the driver is standing on
+  // it, whatever the status still says. See liveLeg.
+  liveLeg,
+  AT_PICKUP_METERS,
   legEndpoints,
   deviationMeters,
   getRouteForTrip,

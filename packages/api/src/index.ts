@@ -1,7 +1,7 @@
 export { apiClient, configureApiClient, setApiBaseUrl, setAuthReadyGate } from './client';
 export { authApi } from './auth.api';
 export { userApi } from './user.api';
-export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace } from './user.api';
+export type { EmergencyContact, SafetySettings, PrivacySettings, NotificationPrefs, SavedPlace, RiderPromotion, RiderPromotions } from './user.api';
 export { tripsApi } from './trips.api';
 // On-demand rides + the one realtime channel. See tripChannel.ts for why the
 // ~20 ad-hoc socket listeners were collapsed into a single sequenced event.

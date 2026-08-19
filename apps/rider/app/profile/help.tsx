@@ -125,6 +125,28 @@ export default function HelpScreen() {
     queryFn: () => supportTicketsApi.getAll(),
   });
 
+  /** Which ticket's thread is open. Null = the list. */
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+
+  const { data: openTicketData, isLoading: openTicketLoading } = useQuery({
+    queryKey: ['support', 'ticket', openTicketId],
+    queryFn: () => supportTicketsApi.getById(openTicketId!),
+    enabled: !!openTicketId,
+  });
+  const openTicket = (openTicketData?.data as any)?.data?.ticket ?? null;
+
+  const replyMutation = useMutation({
+    mutationFn: (text: string) => supportTicketsApi.addMessage(openTicketId!, { text }),
+    onSuccess: () => {
+      setReplyText('');
+      queryClient.invalidateQueries({ queryKey: ['support', 'ticket', openTicketId] });
+      queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
+    },
+    onError: (err: any) =>
+      Alert.alert('Could not send', err?.response?.data?.message ?? 'Please try again.'),
+  });
+
   const tickets = useMemo(() => {
     // ApiResponse<T> wraps every payload as {success,message,data} — the tickets
     // array lives at .data.data.tickets, not .data.tickets (that read always missed).
@@ -457,8 +479,26 @@ export default function HelpScreen() {
               </Text>
             </View>
           ) : (
+            /*
+              BUGFIX ("on the my tickets page I can't tap on my previous
+              tickets to view the details").
+
+              These rows were plain `View`s — no press handler, no affordance,
+              nothing behind them. A support ticket is a CONVERSATION (the
+              server has stored `SupportTicket.messages` and served
+              `GET /user/me/support-tickets/:id` all along, and `addMessage` too)
+              and the app only ever showed the opening line of it, with no way
+              to read a reply or send one. So a rider raised a ticket and, as
+              far as the app was concerned, it vanished.
+            */
             tickets.map((ticket: any) => (
-              <View key={ticket.id} style={styles.ticketItem}>
+              <Pressable
+                key={ticket.id}
+                onPress={() => setOpenTicketId(ticket.id)}
+                style={({ pressed }) => [styles.ticketItem, pressed && { opacity: 0.7 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ticket: ${ticket.subject}`}
+              >
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
                     {ticket.subject}
@@ -473,8 +513,114 @@ export default function HelpScreen() {
                     {ticket.status}
                   </Text>
                 </View>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={{ marginLeft: spacing.xs }} />
+              </Pressable>
             ))
+          )}
+        </View>
+      </PanelSheet>
+
+      {/*
+        ONE TICKET, ITS WHOLE THREAD, AND A WAY TO ANSWER.
+
+        The list above only ever showed the opening message. Everything here was
+        already on the server — `SupportTicket.messages` ordered oldest-first,
+        `GET /user/me/support-tickets/:id`, and `POST …/messages` — with no
+        client for any of it.
+
+        Stacked as its own sheet rather than replacing the list's contents so
+        closing it returns the rider to where they were.
+      */}
+      <PanelSheet
+        visible={!!openTicketId}
+        onDismiss={() => { setOpenTicketId(null); setReplyText(''); }}
+        maxHeightPct={0.92}
+        sheetStyle={{ backgroundColor: colors.background }}
+        backdropOpacity={0.7}
+      >
+        <View style={styles.sheetContent}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
+            <View style={{ flex: 1, paddingRight: spacing.md }}>
+              <Text variant="titleMedium" style={{ color: colors.onSurface }} numberOfLines={2}>
+                {openTicket?.subject ?? 'Ticket'}
+              </Text>
+              {!!openTicket && (
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {openTicket.category ?? 'Support'} ·{' '}
+                  {openTicket.status === 'OPEN' || openTicket.status === 'Open' ? 'Open' : 'Closed'} ·{' '}
+                  {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleDateString() : ''}
+                </Text>
+              )}
+            </View>
+            <Pressable
+              onPress={() => { setOpenTicketId(null); setReplyText(''); }}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Close ticket"
+            >
+              <Ionicons name="close" size={22} color={colors.onSurfaceVariant} />
+            </Pressable>
+          </View>
+
+          {openTicketLoading && !openTicket ? (
+            <Text variant="bodySmall" color={colors.onSurfaceVariant}>Loading…</Text>
+          ) : (
+            <>
+              {/* The opening message is a column on the ticket, not a row in
+                  `messages` — render it first so the thread reads in order. */}
+              {!!openTicket?.message && (
+                <View style={[styles.threadBubble, { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }]}>
+                  <Text variant="bodySmall" color={colors.onSurface}>{openTicket.message}</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    You · {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleString() : ''}
+                  </Text>
+                </View>
+              )}
+
+              {(openTicket?.messages ?? []).map((m: any) => {
+                // `fromSupport` is how the console marks its own replies; a
+                // message without it is the rider's own follow-up.
+                const mine = !(m.fromSupport ?? m.isSupport ?? m.sender === 'SUPPORT');
+                return (
+                  <View
+                    key={m.id}
+                    style={[
+                      styles.threadBubble,
+                      mine
+                        ? { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }
+                        : { alignSelf: 'flex-start', backgroundColor: colors.surfaceContainerHigh },
+                    ]}
+                  >
+                    <Text variant="bodySmall" color={colors.onSurface}>{m.text ?? m.message ?? ''}</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      {mine ? 'You' : 'EyeGo Support'} ·{' '}
+                      {m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}
+                    </Text>
+                  </View>
+                );
+              })}
+
+              {(openTicket?.messages ?? []).length === 0 && (
+                <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
+                  No reply yet. We usually respond within a few hours.
+                </Text>
+              )}
+
+              <TextInput
+                style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.lg }]}
+                placeholder="Add a message…"
+                placeholderTextColor={colors.onSurfaceVariant}
+                value={replyText}
+                onChangeText={setReplyText}
+                multiline
+              />
+              <Button
+                label={replyMutation.isPending ? 'Sending…' : 'Send message'}
+                onPress={() => replyMutation.mutate(replyText.trim())}
+                disabled={replyMutation.isPending || !replyText.trim()}
+                style={{ marginTop: spacing.sm }}
+              />
+            </>
           )}
         </View>
       </PanelSheet>
@@ -634,5 +780,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
     borderRadius: radii.full,
+  },
+  /** One message in a support thread. Side is set at the call site. */
+  threadBubble: {
+    maxWidth: '88%',
+    borderRadius: radii.xl,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
+    gap: 4,
   },
 });

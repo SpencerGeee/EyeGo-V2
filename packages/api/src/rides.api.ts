@@ -18,6 +18,20 @@ export interface FareQuote {
   distanceKm: number;
   surgeMultiplier: number;
   breakdown: Record<string, number | boolean>;
+  /**
+   * What the ride would have cost, and what this rider's standing saved them.
+   *
+   * `amountPesewas` above is already NET of the discount — it is the signed,
+   * binding price. These two exist so the app can SHOW the saving: a loyalty
+   * discount nobody can see does not change anyone's behaviour, which is the
+   * entire point of tying it to cancellations. Both are always present and both
+   * are zero-safe: a rider who has earned nothing sees a discount of 0 and a
+   * list price equal to the amount.
+   */
+  listPricePesewas?: number;
+  loyaltyDiscountPesewas?: number;
+  /** EXCELLENT / GOOD / FAIR / NEW / RESTRICTED — see standing.service.js. */
+  standingBand?: string | null;
   /** Routed duration in minutes — part of the price under the on-demand card. */
   durationMin?: number | null;
   /**

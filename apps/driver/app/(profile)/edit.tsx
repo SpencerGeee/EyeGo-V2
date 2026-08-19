@@ -7,6 +7,7 @@ import {
   Platform,
   TextInput,
   Pressable,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -32,12 +33,54 @@ export default function EditProfileScreen() {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [error, setError] = useState('');
 
+  /**
+   * THE PHOTO NOW ACTUALLY GOES SOMEWHERE.
+   *
+   * BUGFIX ("I uploaded an image on the driver app but it didn't show or
+   * update").
+   *
+   * `pickImage` set `avatarUri` and that was the end of it: the avatar circle
+   * below rendered initials unconditionally, so the picked image never appeared;
+   * and `saveProfile` sent `{ name }` only, so it was never uploaded either.
+   * `avatarUri`'s single use was to enable the Save button — the one thing that
+   * made the whole flow LOOK like it had worked.
+   *
+   * The upload path already existed and is used by the documents screen:
+   * multipart POST /driver/documents with type PROFILE_PHOTO, which returns the
+   * stored URL. Reusing it rather than inventing a second one keeps one place
+   * where a driver's photo is stored and reviewed.
+   */
   const saveProfile = useMutation({
-    mutationFn: () => driverApi.updateMe({ name: name.trim() }),
-    onSuccess: () => {
-      // Update store directly with the known changed value
-      updateDriver({ name: name.trim() });
+    mutationFn: async () => {
+      let photoUrl: string | undefined;
+
+      if (avatarUri) {
+        const filename = avatarUri.split('/').pop() ?? 'avatar.jpg';
+        const formData = new FormData();
+        formData.append('type', 'PROFILE_PHOTO');
+        formData.append('file', { uri: avatarUri, name: filename, type: 'image/jpeg' } as any);
+        const res = await driverApi.uploadDocument('PROFILE_PHOTO', formData);
+        const result = (res as any)?.data?.data as Record<string, unknown> | undefined;
+        photoUrl = [result?.profilePhotoUrl, result?.documentUrl, result?.url].find(
+          (v): v is string => typeof v === 'string',
+        );
+      }
+
+      if (name.trim() !== (driver?.name ?? '')) {
+        await driverApi.updateMe({ name: name.trim() });
+      }
+      return { photoUrl };
+    },
+    onSuccess: ({ photoUrl }) => {
+      // Update store directly with the known changed values so every screen
+      // showing the avatar (home header, profile tab) moves immediately rather
+      // than waiting on the refetch below.
+      updateDriver({
+        name: name.trim(),
+        ...(photoUrl ? { profilePhoto: photoUrl, avatarUrl: photoUrl } : {}),
+      });
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
+      qc.invalidateQueries({ queryKey: ['driver', 'documents'] });
       router.back();
     },
     onError: (err: any) => {
@@ -47,15 +90,32 @@ export default function EditProfileScreen() {
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return;
+    if (status !== 'granted') {
+      setError('Photo access is off. Allow it in Settings to change your picture.');
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) setAvatarUri(result.assets[0].uri);
+    if (!result.canceled && result.assets[0]) {
+      setAvatarUri(result.assets[0].uri);
+      setError('');
+    }
   };
+
+  /**
+   * What the circle shows: the photo just picked, else the one already stored,
+   * else initials. The local URI wins so the driver sees their choice the
+   * instant they make it, before it has been uploaded.
+   */
+  const avatarSource = avatarUri
+    ? { uri: avatarUri }
+    : (driver as any)?.profilePhoto || (driver as any)?.avatarUrl
+      ? { uri: ((driver as any).profilePhoto ?? (driver as any).avatarUrl) as string }
+      : null;
 
   const initials = (driver?.name ?? name).trim().split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
   const hasChanges = name.trim() !== (driver?.name ?? '') || !!avatarUri;
@@ -94,7 +154,11 @@ export default function EditProfileScreen() {
           >
             <Pressable onPress={pickImage} style={styles.avatarTouch}>
               <View style={styles.avatarCircle}>
-                <Text style={styles.avatarInitials}>{initials || '?'}</Text>
+                {avatarSource ? (
+                  <Image source={avatarSource} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarInitials}>{initials || '?'}</Text>
+                )}
               </View>
               <View style={styles.cameraBadge}>
                 <Ionicons name="camera" size={14} color={colors.onPrimary} />
@@ -173,6 +237,7 @@ const makeStyles = (colors: DriverColors) =>
     avatarWrapper: { alignItems: 'center', marginBottom: spacing['3xl'] },
     avatarTouch: { position: 'relative' },
     avatarCircle: {
+      overflow: 'hidden',
       width: 96,
       height: 96,
       borderRadius: 48,
@@ -182,6 +247,9 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
+    // Fills the circle: the ring is drawn by avatarCircle's border, so the
+    // image sits inside it and is clipped to the same radius.
+    avatarImage: { width: '100%', height: '100%', borderRadius: 48 },
     avatarInitials: { fontFamily: fonts.displayBold, fontSize: 30, lineHeight: 39, color: colors.primary },
     cameraBadge: {
       position: 'absolute',

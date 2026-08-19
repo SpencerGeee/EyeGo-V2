@@ -125,20 +125,56 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
     return { opacity: isIncomingMorph ? Math.max(contentOpacity.value, fromProgress) : fromProgress };
   });
 
+  /**
+   * REPORT THE FRAME IN THIS FRAME IF WE POSSIBLY CAN.
+   *
+   * BUGFIX (the consistency half of "some morphs are fast and barely seen, some
+   * are super laggy").
+   *
+   * Nothing moves until this fires: `morphTo` mounts the clone pinned to the
+   * source and the flight only begins when `targetReady` arrives. So the START
+   * of every morph is gated on how long this measurement takes — and it used to
+   * cost a `requestAnimationFrame` plus an asynchronous `measureInWindow`
+   * round-trip on top of the destination's own mount. That is two to three
+   * frames of a clone sitting perfectly still, ON TOP of the screen's mount
+   * cost, and it varies per screen — which is exactly why the same animation
+   * reads as instant on a light screen and broken on a heavy one.
+   *
+   * Fabric exposes `unstable_getBoundingClientRect()`, a synchronous
+   * window-relative frame — the same call `MorphSource.measureSync` already
+   * relies on for the reverse. When it answers, the flight starts in the very
+   * commit that laid the target out, with no dead frames at all.
+   *
+   * The old path is kept verbatim as the fallback, because the reasons it
+   * existed have not gone away: on the old architecture the method is absent,
+   * and new-arch Android can report a zero frame on the first layout pass.
+   * `reported` is only latched once a measurement actually succeeds, so a zero
+   * frame retries on the next layout instead of stranding the flight.
+   */
   const onLayout = () => {
     if (!morph || reported.current || morph.activeId !== id || morph.phase !== 'forward') return;
-    reported.current = true;
-    // New-arch Android can report a zero frame on the first layout pass —
-    // defer one frame before measuring in window coordinates.
+
+    const node = ref.current as unknown as
+      | { unstable_getBoundingClientRect?: () => { x: number; y: number; width: number; height: number } }
+      | null;
+    const sync = node?.unstable_getBoundingClientRect?.();
+    if (sync && sync.width > 0 && sync.height > 0 && Number.isFinite(sync.x) && Number.isFinite(sync.y)) {
+      reported.current = true;
+      morph.targetReady(id, { x: sync.x, y: sync.y, width: sync.width, height: sync.height }, borderRadius);
+      return;
+    }
+
     requestAnimationFrame(() => {
-      const node = ref.current;
-      if (!node) return;
-      node.measureInWindow((x, y, width, height) => {
+      const view = ref.current;
+      if (!view || reported.current || !morph || morph.activeId !== id || morph.phase !== 'forward') return;
+      view.measureInWindow((x, y, width, height) => {
         if (width > 0 && height > 0) {
+          reported.current = true;
           morph.targetReady(id, { x, y, width, height }, borderRadius);
         }
-        // If width/height is 0, the provider's TARGET_TIMEOUT_MS will
-        // dissolve the clone gracefully.
+        // If width/height is 0 this layout pass produced nothing usable; the
+        // next one retries, and failing that the provider's TARGET_TIMEOUT_MS
+        // dissolves the clone gracefully.
       });
     });
   };

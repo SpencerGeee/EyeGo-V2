@@ -52,8 +52,33 @@ export default function TripDetailScreen() {
     }
   }, [id, router]);
 
-  const activeBookings = (trip?.bookings ?? []).filter((b: any) => b.status !== 'CANCELLED');
-  const boardedCount = activeBookings.filter((b: any) => b.status === 'BOARDED').length;
+  /**
+   * A SEAT THAT RODE IS A SEAT THAT RODE, WHATEVER IT IS CALLED NOW.
+   *
+   * BUGFIX ("the trip summary doesn't show the right information — the trip
+   * stats aren't showing the accurate things").
+   *
+   * Two status predicates here were wrong in the same direction, and both only
+   * bite AFTER a trip finishes — which is the only time this screen is opened.
+   *
+   *   • `status !== 'CANCELLED'` counted seats that released themselves as
+   *     passengers who rode and paid: an EXPIRED hold, a NO_SHOW, a REFUND, and
+   *     a bare SEAT_HELD reservation the group hub creates on open. Those are
+   *     the numbers the earnings figure was being built from.
+   *   • `status === 'BOARDED'` was the passenger count — but `completeTrip`
+   *     moves every boarded booking to COMPLETED, so on a finished trip that
+   *     filter matches NOTHING. "Passengers: 0" on a trip with four people in
+   *     it, and "fare × 0" underneath it.
+   *
+   * `RELEASED` / `isSettled` are the same rule the completion receipt uses
+   * (`complete/[id].tsx`), so the two screens cannot disagree about how many
+   * people rode or what the trip paid.
+   */
+  const RELEASED = ['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'];
+  const isSettled = (b: any) =>
+    b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
+  const activeBookings = (trip?.bookings ?? []).filter((b: any) => !RELEASED.includes(b.status) && isSettled(b));
+  const boardedCount = activeBookings.length;
   // D24: guard against trip being undefined before reduce
   // "Total Earned" is the driver's net cut, not the raw fare — subtract each
   // booking's actual commissionAmountPesewas (falling back to trip.commissionRate
@@ -198,8 +223,12 @@ export default function TripDetailScreen() {
         {activeBookings.length > 0 && (
           <Entrance animation="slideDown" delay={200} style={styles.card}>
             <Text style={styles.cardTitle}>Passengers</Text>
+            {/* No second filter: `activeBookings` is already "seats that rode
+                and were paid for". The extra `BOARDED || CONFIRMED` here hid
+                every passenger on a COMPLETED trip — the status they all end up
+                in — so the section rendered empty on exactly the trips it is
+                for. */}
             {activeBookings
-              .filter((b: any) => b.status === 'BOARDED' || b.status === 'CONFIRMED')
               .map((booking: any) => (
                 <Entrance
                   // D21: use booking.id as key; warn if missing
@@ -220,11 +249,22 @@ export default function TripDetailScreen() {
                     <Text variant="caption" color={colors.onSurfaceVariant}>Seat {booking.seatNumber ?? '—'} · {booking.paymentStatus === 'PAID' ? 'Paid' : booking.paymentStatus === 'PENDING' ? 'Cash' : bookingStatusLabel(booking.status)}</Text>
                   </View>
                   {/* D16: fallback for unknown booking status values */}
-                  <View style={[styles.statusChip, booking.status === 'BOARDED' ? { backgroundColor: '#22C55E20', borderColor: '#22C55E55' } : booking.status === 'CONFIRMED' ? { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}55` } : { backgroundColor: `${colors.onSurfaceVariant}20`, borderColor: `${colors.onSurfaceVariant}55` }]}>
-                    <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, color: booking.status === 'BOARDED' ? '#22C55E' : booking.status === 'CONFIRMED' ? colors.primary : colors.onSurfaceVariant }}>
-                      {booking.status === 'BOARDED' ? 'Boarded' : booking.status === 'CONFIRMED' ? 'Confirmed' : 'Unknown'}
-                    </Text>
-                  </View>
+                  {/* COMPLETED is the status every boarded booking ends on, and
+                      it fell through to the literal word "Unknown" — a finished
+                      trip listed every passenger as unknown. `bookingStatusLabel`
+                      is the shared vocabulary; use it rather than a third
+                      hand-rolled mapping. */}
+                  {(() => {
+                    const rode = booking.status === 'BOARDED' || booking.status === 'COMPLETED';
+                    const tint = rode ? '#22C55E' : booking.status === 'CONFIRMED' ? colors.primary : colors.onSurfaceVariant;
+                    return (
+                      <View style={[styles.statusChip, { backgroundColor: `${tint}20`, borderColor: `${tint}55` }]}>
+                        <Text style={{ fontFamily: fonts.semiBold, fontSize: 10, color: tint }}>
+                          {bookingStatusLabel(booking.status)}
+                        </Text>
+                      </View>
+                    );
+                  })()}
                 </Entrance>
               ))}
           </Entrance>

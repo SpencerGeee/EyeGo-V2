@@ -6,6 +6,9 @@ const cloudinaryService = require('../../services/cloudinary.service');
 const otpService = require('../../services/otp.service');
 const smsService = require('../../services/sms.service');
 const pushService = require('../../services/push.service');
+// One reputation model for both sides of the market — see the note at the top
+// of services/standing.service.js.
+const standingService = require('../../services/standing.service');
 const { NotFoundError, AppError, InsufficientWalletError, ForbiddenError } = require('../../utils/errors');
 const { isWithinGhana } = require('../../services/mapbox.service');
 const { generateTripReceipt, refundBookingForDriverCancellation } = require('../cancellation/cancellation.service');
@@ -634,7 +637,7 @@ async function recordPresence(driverId, { lat, lng, heading = 0, speed = 0 } = {
   }
 
   const payload = JSON.stringify({ lat, lng, heading, speed, timestamp: Date.now() });
-  await Promise.all([
+  const [supplyResult] = await Promise.all([
     supply.upsertDriver(driverId, lat, lng),
     redis.set(`driver:${driverId}:location`, payload, 'EX', 3600).catch(() => {}),
     redis.geoadd('drivers:online', lng, lat, driverId).catch(() => {}),
@@ -655,11 +658,36 @@ async function recordPresence(driverId, { lat, lng, heading = 0, speed = 0 } = {
       .catch(() => {}),
   ]);
 
+  /**
+   * REJOINING OVER HTTP IS STILL REJOINING.
+   *
+   * BUGFIX ("i request on the rider app, switch back to the driver app on the
+   * same phone, and nothing shows"). The socket handler treats the
+   * absent→present edge as a dispatch event and re-runs any parked search
+   * (`notifySupplyAvailable`); this endpoint — the one path that works when the
+   * socket is dead, which is EXACTLY the same-handset case — did not. So a
+   * driver whose presence key expired while they were in the rider app came
+   * back into the pool silently, and the search that had already walked past
+   * them never looked again.
+   *
+   * Gated on the edge, like the socket, so a driver beating this every 25 s
+   * pays for it once per absence rather than once per beat.
+   */
+  if (supplyResult?.rejoined) {
+    // Lazily required: the cascade reaches back into the socket layer through
+    // trip-events.publisher, and a top-level require would close that loop at
+    // module load.
+    require('../../services/dispatch-cascade.service')
+      .notifySupplyAvailable(driverId)
+      .catch(() => {});
+  }
+
   const { explainIneligible } = require('../../services/driver-availability');
   const [ineligible] = await explainIneligible(prisma, [driverId]).catch(() => []);
 
   return {
     inPool: true,
+    rejoined: !!supplyResult?.rejoined,
     presenceTtlSeconds: supply.PRESENCE_TTL_SECONDS,
     dispatchable: !ineligible,
     reason: ineligible?.reason ?? null,
@@ -1869,17 +1897,93 @@ async function deleteMe(driverId) {
 // TRIP REPORT
 // ═══════════════════════════════════════════════════════════════════
 
-async function reportTrip(driverId, tripId, { type, details }) {
+/**
+ * "Show me your code" — raise the rider's Verify My Ride popup.
+ *
+ * The digits never leave the rider's own snapshot; this only tells their app
+ * that now is the moment. Returns whether a pin is actually outstanding so the
+ * driver's app can skip straight to boarding when there is nothing to verify —
+ * a rider who never turned the setting on must not cost the driver a keypad.
+ */
+async function requestBoardingPin(driverId, tripId, bookingId) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, tripId, trip: { driverId } },
+    select: {
+      id: true,
+      boardingPin: true,
+      pinVerifiedAt: true,
+      user: { select: { fcmToken: true } },
+    },
+  });
+  if (!booking) throw new NotFoundError('Booking');
+
+  const required = !!booking.boardingPin && !booking.pinVerifiedAt;
+  if (!required) return { required: false };
+
+  tripPublisher.publishBoardingPinRequested(tripId, bookingId);
+  // The socket is the fast path; the push is what reaches a rider whose screen
+  // is off — which, standing at the kerb with a driver waiting, is most of them.
+  if (booking.user?.fcmToken) {
+    pushService
+      .sendPush(
+        booking.user.fcmToken,
+        'Show your ride code',
+        'Your driver is asking for your 4-digit code to confirm you are in the right vehicle.',
+        { type: 'BOARDING_PIN', tripId, bookingId },
+      )
+      .catch(() => {});
+  }
+  return { required: true };
+}
+
+/**
+ * REPORT A PASSENGER — A NAMED ONE.
+ *
+ * BUGFIX ("on the my trips page, when you click report passenger it should
+ * dynamically and accurately distinguish and allow the user to select which
+ * passenger they want to report — at the moment it just assumes it's one
+ * person").
+ *
+ * The report row named only the trip. On a fourteen-seat van that is not a
+ * report about anybody: nothing downstream could attach it to a rider, so a
+ * passenger could be reported on every trip they took and their standing would
+ * never move — which is also why "if a rider reports a driver their standing
+ * should diminish" had no counterpart in the other direction.
+ *
+ * `bookingId` is what the driver picks (a seat on this trip); the rider behind
+ * it is resolved HERE rather than trusted from the client, because a client that
+ * can name the reported user can report anybody.
+ *
+ * A trip-level report (nothing selected) is still allowed — property damage
+ * found after everyone has left has no seat to pin it to — so both columns stay
+ * nullable and the caller may omit them.
+ */
+async function reportTrip(driverId, tripId, { type, details, bookingId = null }) {
   const trip = await prisma.trip.findFirst({
     where: { id: tripId, driverId },
     select: { id: true },
   });
   if (!trip) throw new NotFoundError('Trip');
 
+  let reportedUserId = null;
+  if (bookingId) {
+    // Must be a seat on THIS trip, on a trip belonging to THIS driver. Both
+    // halves matter: without the first a driver could report a stranger's
+    // booking, without the second they could report a trip that is not theirs.
+    const booking = await prisma.booking.findFirst({
+      where: { id: bookingId, tripId },
+      select: { id: true, userId: true },
+    });
+    if (!booking) throw new NotFoundError('Booking');
+    reportedUserId = booking.userId ?? null;
+  }
+
   return prisma.tripReport.create({
     data: {
       tripId,
       driverId,
+      bookingId: bookingId || null,
+      reportedUserId,
       type,
       details: details || null,
     },
@@ -2079,7 +2183,7 @@ module.exports = {
   getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence,
   getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
-  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, setRequestsPaused,
+  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, requestBoardingPin, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
   startShift, endShift, getCurrentShift, getShiftHistory,
@@ -2249,9 +2353,25 @@ async function getRatings(driverId) {
     count: allRatings.filter((r) => r.comment?.includes(label)).length,
   })).filter((c) => c.count > 0);
 
+  /**
+   * The driver's own standing, on the same terms a rider's is measured.
+   *
+   * `average` above is the all-time filtered mean and stays as it is — it is
+   * the number the ratings screen has always shown. `standing` adds what the
+   * behaviour system actually acts on: a recency-weighted rating, reliability
+   * from completions vs abandoned trips, and upheld disputes. "If a rider
+   * reports a driver, their standing should diminish" is this field — an upheld
+   * dispute drops the band, and the band is what every consumer keys off.
+   *
+   * Non-fatal, like everywhere else standing is read: a ratings screen must
+   * still render if the rollup fails.
+   */
+  const standing = await standingService.driverStanding(driverId).catch(() => null);
+
   return {
     average: aggregate._avg.stars ?? 5.0,
     total: aggregate._count,
+    standing,
     breakdown,
     compliments,
     recent: recent.map((r) => ({
@@ -2676,10 +2796,28 @@ async function replyToTicket(driverId, ticketId, { message }) {
   if (!driver) throw new NotFoundError('Driver');
 
   const user = await prisma.user.findUnique({ where: { phone: driver.phone } });
-  if (!user) throw new NotFoundError('User account');
 
+  /**
+   * A DRIVER MAY ANSWER EVERY TICKET THEY CAN SEE.
+   *
+   * `getSupportTickets` above deliberately returns two sets — tickets the
+   * driver raised (matched through a rider account that shares their phone
+   * number) AND tickets riders filed ABOUT this driver's trips, via the
+   * `driverId` column. This function only ever matched the first set, and threw
+   * `NotFoundError('User account')` outright for a driver with no rider account
+   * at all. So a driver could open a dispute raised against them, read it, and
+   * find that replying failed — which is the whole of "on the driver app you
+   * can view extra details on my tickets" being unusable.
+   *
+   * `senderId` is a free-form String column with no foreign key (see the
+   * schema), which is exactly why it can carry a driver id when there is no
+   * user account behind the driver.
+   */
   const ticket = await prisma.supportTicket.findFirst({
-    where: { id: ticketId, userId: user.id },
+    where: {
+      id: ticketId,
+      OR: [...(user ? [{ userId: user.id }] : []), { driverId }],
+    },
   });
   if (!ticket) throw new NotFoundError('Ticket');
 
@@ -2687,8 +2825,10 @@ async function replyToTicket(driverId, ticketId, { message }) {
     await tx.ticketMessage.create({
       data: {
         ticketId,
-        senderId: user.id,
-        senderRole: 'USER',
+        // The driver's own rider account when they have one (so their replies
+        // group with anything they wrote from the rider app), else the driver.
+        senderId: user?.id ?? driverId,
+        senderRole: user && ticket.userId === user.id ? 'USER' : 'DRIVER',
         text: message,
       },
     });

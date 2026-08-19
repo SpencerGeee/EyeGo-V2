@@ -109,6 +109,10 @@ router.post(
 );
 
 router.post('/trips/:id/board/:bookingId', requireActiveDriver, controller.boardPassenger);
+// "Ask the rider for their code" — raises the Verify My Ride popup on the
+// rider's tracking screen. Separate from the board call because the driver taps
+// it BEFORE they have a code to send. See publishBoardingPinRequested.
+router.post('/trips/:id/board/:bookingId/request-pin', requireActiveDriver, controller.requestBoardingPin);
 // Pause/resume back-to-back offers without going offline. Not gated on
 // requireActiveDriver: a driver whose documents have lapsed still gets to stop
 // the pings.
@@ -118,6 +122,7 @@ router.post(
   '/trips/:id/report',
   body('type').notEmpty().withMessage('Report type is required'),
   body('details').optional().trim(),
+  body('bookingId').optional().isString(),
   validate,
   controller.reportTrip,
 );

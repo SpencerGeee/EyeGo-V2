@@ -7,6 +7,9 @@ const { AppError } = require('../utils/errors');
 const { calculateRideFare } = require('../modules/trips/fare.calculator');
 const { roadDistanceKm } = require('./mapbox.service');
 const { getSurgeMultiplier } = require('../modules/trips/surge.service');
+const logger = require('../utils/logger');
+// Owns the whole reputation model — see the note where the discount is applied.
+const standingService = require('./standing.service');
 
 /**
  * Upfront pricing: the rider is quoted a price, and that exact price is what
@@ -191,10 +194,50 @@ async function createQuote({
   // An on-demand ride is priced as one seat = the whole car, so per-person and
   // total are the same number. Taking `farePerPersonPesewas` (not `totalTripCostPesewas`)
   // keeps this identical to the one fare formula every other surface uses.
-  const amountPesewas = fare.farePerPersonPesewas;
-  if (!Number.isInteger(amountPesewas) || amountPesewas <= 0) {
+  const listPricePesewas = fare.farePerPersonPesewas;
+  if (!Number.isInteger(listPricePesewas) || listPricePesewas <= 0) {
     throw new AppError('Fare could not be calculated for this trip', 422, 'FARE_UNAVAILABLE');
   }
+
+  /**
+   * RIDER STANDING DISCOUNT — "fewer cancellations should mean better pricing".
+   *
+   * Applied HERE and nowhere else, for the same reason surge is: this function
+   * is the only place a price is minted, and the number it produces is signed.
+   * A discount applied later — at booking, at payment — would be a second
+   * pricing path the signature does not cover, which is exactly the hole this
+   * service exists to close.
+   *
+   * The size of it is decided by `standing.service`, which owns the whole
+   * reputation model (rating window, reliability window, report handling) so
+   * that pricing, the driver's passenger card and the admin console cannot form
+   * three different opinions of the same rider.
+   *
+   * NEVER FATAL. A rider whose standing cannot be read pays the list price, not
+   * an error — a reputation lookup must not be able to stop somebody getting a
+   * car. `discountBps` is 0 in that case and everything below is a no-op.
+   *
+   * Floored at 30% of list as a hard structural guard. The tuned cap is 7%, but
+   * a setting is a thing a person can type into, and a fare that can be driven
+   * arbitrarily low by a misconfigured knob is a way to lose money silently.
+   */
+  let discountBps = 0;
+  let standingBand = null;
+  if (userId) {
+    try {
+      const standing = await standingService.riderStanding(userId);
+      discountBps = standing.loyaltyDiscountBps ?? 0;
+      standingBand = standing.band ?? null;
+    } catch (err) {
+      logger.warn(`Standing lookup failed for ${userId}, pricing at list: ${err.message}`);
+    }
+  }
+  const rawDiscount = Math.round((listPricePesewas * discountBps) / 10_000);
+  const loyaltyDiscountPesewas = Math.max(
+    0,
+    Math.min(rawDiscount, Math.floor(listPricePesewas * 0.3)),
+  );
+  const amountPesewas = listPricePesewas - loyaltyDiscountPesewas;
 
   const expiresAtMs = Date.now() + QUOTE_TTL_SECONDS * 1000;
   const priced = {
@@ -211,6 +254,9 @@ async function createQuote({
     distanceKm,
     surgeMultiplier,
     amountPesewas,
+    listPricePesewas,
+    loyaltyDiscountPesewas,
+    standingBand,
   };
   const quoteId = sign(canonicalInputs(priced));
 
@@ -228,6 +274,19 @@ async function createQuote({
     distanceKm,
     surgeMultiplier,
     breakdown: fare,
+    /**
+     * What the ride would have cost, and what standing saved.
+     *
+     * Both returned, and both zero-safe: a rider who has not earned a discount
+     * sees `loyaltyDiscountPesewas: 0` and a `listPricePesewas` equal to the
+     * amount, so the fare card can render the saving without having to guess
+     * whether there is one. A discount the rider cannot see is a discount that
+     * changes nobody's behaviour, which defeats the point of tying it to
+     * cancellations in the first place.
+     */
+    listPricePesewas,
+    loyaltyDiscountPesewas,
+    standingBand,
     doorstepDetourKm,
     durationMin: route?.durationMin ?? null,
     /**

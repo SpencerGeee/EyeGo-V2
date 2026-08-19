@@ -99,9 +99,39 @@ export interface AccountChecklist {
   context: { paidTrips: number; memberSince: string; authProvider?: string | null };
 }
 
+/** One promotion, as the promotions screen renders it. Money in pesewas. */
+export interface RiderPromotion {
+  id: string;
+  code: string;
+  discountPercent: number;
+  maxDiscountPesewas: number;
+  /** ISO date. What "when does it end" is read from. */
+  expiry: string;
+  /** Null when the promo is uncapped — do not render that as a number. */
+  redemptionsLeft: number | null;
+}
+
+export interface RiderPromotions {
+  /** The promo attached to the ride the rider is on RIGHT NOW, if any. */
+  applied: (RiderPromotion & { bookingId: string; tripId: string; appliedAt: string }) | null;
+  available: RiderPromotion[];
+  used: (RiderPromotion & { usedAt: string; bookingId: string })[];
+  serverNowMs: number;
+}
+
 export const userApi = {
   getProfile: () =>
     apiClient.get<ApiResponse<User>>('/user/me').then(unwrapUser),
+
+  /**
+   * What is live, what is running out, and what has already been used.
+   *
+   * The promotions screen used to be a lone text field with nothing behind it —
+   * "everything is blank and it just lets you enter a promo code". The rows all
+   * existed server-side; this is the read that was missing.
+   */
+  getPromotions: () =>
+    apiClient.get<ApiResponse<RiderPromotions>>('/user/me/promotions'),
 
   getAccountChecklist: () =>
     apiClient.get<ApiResponse<AccountChecklist>>('/user/me/account-checklist'),

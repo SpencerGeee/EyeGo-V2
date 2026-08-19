@@ -142,10 +142,7 @@ export default function DriverTrackingScreen() {
    * second half of the same report: the number never arrives and the label sits
    * on its placeholder for the rest of the trip.
    */
-  const pickupLegDone = trip?.status === 'ARRIVED_AT_PICKUP' || trip?.status === 'IN_PROGRESS';
-  const effectiveLeg: 'toPickup' | 'toDropoff' = pickupLegDone
-    ? 'toDropoff'
-    : (etaLeg ?? 'toPickup');
+  const statusSaysPickupDone = trip?.status === 'ARRIVED_AT_PICKUP' || trip?.status === 'IN_PROGRESS';
 
   const unreadChats = useChatUnread((s) => (id ? s.counts[id] ?? 0 : 0));
 
@@ -266,19 +263,74 @@ export default function DriverTrackingScreen() {
   // centre, which rendered a fake pin and fed a fabricated point into the ETA
   // fetch. If a trip genuinely has no coordinate, stay null and let every
   // consumer skip rendering rather than show made-up data.
+  /**
+   * THE TRIP'S OWN ENDPOINTS FIRST, THE ROUTE'S SECOND.
+   *
+   * Same rule as the manage page (`active/[id].tsx`), and for the same reason:
+   * a `Route` is the group/bus product, and an ON-DEMAND ride carries its
+   * endpoints as `pickupLat/Lng` / `dropoffLat/Lng` columns on the trip itself
+   * with no route at all. Reading only `trip.route.*` left every hailed ride
+   * with null coordinates here — no pins, and nothing to measure the "am I
+   * already at the pickup" test below against.
+   */
   const destCoord: [number, number] | null = useMemo(() => {
-    const lat = trip?.route?.destLat;
-    const lng = trip?.route?.destLng;
+    const t = trip as any;
+    const lat = typeof t?.dropoffLat === 'number' ? t.dropoffLat : trip?.route?.destLat;
+    const lng = typeof t?.dropoffLng === 'number' ? t.dropoffLng : trip?.route?.destLng;
     if (typeof lat === 'number' && typeof lng === 'number') return [lng, lat];
     return null;
-  }, [trip?.route?.destLat, trip?.route?.destLng]);
+  }, [trip]);
 
   const pickupCoord: [number, number] | null = useMemo(() => {
-    const lat = trip?.route?.originLat;
-    const lng = trip?.route?.originLng;
+    const t = trip as any;
+    const lat = typeof t?.pickupLat === 'number' ? t.pickupLat : trip?.route?.originLat;
+    const lng = typeof t?.pickupLng === 'number' ? t.pickupLng : trip?.route?.originLng;
     if (typeof lat === 'number' && typeof lng === 'number') return [lng, lat];
     return destCoord;
-  }, [trip?.route?.originLat, trip?.route?.originLng, destCoord]);
+  }, [trip, destCoord]);
+
+  /**
+   * ALREADY AT THE KERB — SKIP THE PICKUP LEG.
+   *
+   * BUGFIX ("when I start the trip the heading-to-pickup shows Calculating ETA,
+   * which makes sense because I'm literally at the pickup. When the driver is at
+   * the pickup, the pickup leg on the tracking page should be skipped").
+   *
+   * Status alone cannot see this. A driver who accepts a dispatch while already
+   * parked at the pickup sits at DRIVER_EN_ROUTE with a zero-length `toPickup`
+   * leg: no useful route, therefore no `trip:eta` frame, therefore a label stuck
+   * on its placeholder for the rest of the trip.
+   *
+   * The same 150 m rule the server applies in `route-geometry.liveLeg`, written
+   * here too so the card is right on the very first frame rather than waiting
+   * for the server's answer to arrive — and the same number in both places so
+   * the two cannot name different legs for the same moment.
+   */
+  const AT_PICKUP_M = 150;
+  const atPickupNow = useMemo(() => {
+    if (!driverLocation || !pickupCoord || !destCoord) return false;
+    const [plng, plat] = pickupCoord;
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(plat - driverLocation.latitude);
+    const dLng = toRad(plng - driverLocation.longitude);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(driverLocation.latitude)) * Math.cos(toRad(plat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a))) <= AT_PICKUP_M;
+  }, [driverLocation?.latitude, driverLocation?.longitude, pickupCoord, destCoord]);
+
+  const pickupLegDone = statusSaysPickupDone || atPickupNow;
+  /**
+   * The leg to render RIGHT NOW: the drop-off once the pickup is behind us
+   * (by status OR by position), otherwise whatever the server last said, and
+   * only then the status's implication. Position and status win over `etaLeg`
+   * because the last frame before arrival is always `toPickup`, and keeping it
+   * is what left the card describing a leg with nothing left in it.
+   */
+  const effectiveLeg: 'toPickup' | 'toDropoff' = pickupLegDone
+    ? 'toDropoff'
+    : (etaLeg ?? 'toPickup');
 
   // The leg choice (pickup first, then destination) and the road geometry both
   // live on the SERVER now — route-geometry.service.js computes one line per
@@ -702,7 +754,12 @@ export default function DriverTrackingScreen() {
                       ? 'At the pickup point'
                       : trip?.status === 'IN_PROGRESS'
                         ? 'On the way to the destination'
-                        : 'Calculating ETA...'}
+                        // Already standing on the pickup with the trip not yet
+                        // started: there is no pickup leg left to calculate, so
+                        // say so instead of promising a number that is not coming.
+                        : atPickupNow
+                          ? "You're at the pickup point"
+                          : 'Calculating ETA...'}
                 </Text>
               </View>
               <View style={styles.etaDivider} />
@@ -776,14 +833,33 @@ export default function DriverTrackingScreen() {
             </GradientGlowBorder>
           </Entrance>
 
-          {/* Primary action button */}
+          {/*
+            ONE PLACE MOVES THE TRIP FORWARD, AND IT IS NOT THIS SCREEN.
+
+            Requested directly: "when the driver goes to the tracking page
+            instead of the manage page, the button that moves the statuses —
+            start trip, mark arrived and all that — should be replaced with
+            something that redirects them to the manage page, so that page is
+            the sole page for changing status".
+
+            It is also the right call independently. Two screens owning the same
+            transition is what produced the long tail of "I tapped I've arrived
+            on the tracking page, went to manage, and it still said heading to
+            pickup": two query caches, two success handlers, two optimistic
+            writes, and only one of them ever invalidated the other's key. The
+            fix for that (applyDriverTripStatus, in stores/trip.store.ts) made
+            the two agree; removing the second entry point removes the class of
+            bug. Tracking is the live map — where am I, who is aboard, how long.
+            Manage is where the trip is driven.
+
+            The label still names the pending action, so nothing is hidden: the
+            driver reads what happens next and gets taken to where they do it.
+          */}
           {statusInfo.next && (
             <Entrance animation="slideDown" delay={80}>
               <Button
-                label={statusInfo.action}
-                onPress={() => advanceStatus.mutate()}
-                loading={advanceStatus.isPending}
-                disabled={advanceStatus.isPending}
+                label={`${statusInfo.action} — open Manage`}
+                onPress={() => router.push(`/(trip)/active/${id}`)}
               />
             </Entrance>
           )}

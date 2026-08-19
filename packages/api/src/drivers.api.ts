@@ -322,6 +322,20 @@ export const driverApi = {
     ),
 
   /**
+   * Ask this rider to show their Verify My Ride code.
+   *
+   * Raises the popup on their tracking screen (and pushes, for a dark screen).
+   * The digits are NOT in the response — a driver who could read the code would
+   * not have to be told it. `required: false` means this rider never turned the
+   * setting on, so the driver's app should board them without a keypad.
+   */
+  requestBoardingPin: (tripId: string, bookingId: string) =>
+    apiClient.post<ApiResponse<{ required: boolean }>>(
+      `/driver/trips/${tripId}/board/${bookingId}/request-pin`,
+      {},
+    ),
+
+  /**
    * Stop or resume back-to-back offers without going offline.
    *
    * Distinct from the online toggle: going offline for a break costs the driver
@@ -377,6 +391,34 @@ export const driverApi = {
   // Performance stats — acceptance/completion rates, online hours, level
   getPerformance: () =>
     apiClient.get<ApiResponse<DriverPerformance>>('/driver/performance'),
+
+  /**
+   * PRESENCE OVER HTTP — the second way into the dispatch pool.
+   *
+   * The server has had `POST /driver/presence` since the "is there another way
+   * to connect the driver apart from the socket?" pass, and nothing in this
+   * package ever called it — so the fallback built to stop a dead socket taking
+   * a driver out of dispatch was unreachable code.
+   *
+   * That gap is the whole of "I request on the rider app, switch back to the
+   * driver app on the same phone, and nothing shows": one handset can only
+   * foreground one app, the backgrounded driver app's socket dies, the
+   * 90-second presence key expires, and the driver silently leaves the pool
+   * while their own screen still says Online.
+   *
+   * The response is the same eligibility verdict the admin dispatch panel
+   * computes, so the app can say WHY a driver is getting nothing instead of
+   * leaving them to guess.
+   */
+  presence: (body: { lat: number; lng: number; heading?: number; speed?: number }) =>
+    apiClient.post<ApiResponse<{
+      inPool: boolean;
+      rejoined?: boolean;
+      dispatchable?: boolean;
+      reason?: string | null;
+      presenceTtlSeconds?: number;
+      note?: string;
+    }>>('/driver/presence', body),
 
   // Ratings — star breakdown + compliments + recent trip ratings
   getRatings: () =>

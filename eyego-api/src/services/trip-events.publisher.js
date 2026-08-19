@@ -453,6 +453,45 @@ function publishDriverLink(tripId, { lost, lastSeenMs = null }) {
   for (const ns of ['/passenger', '/driver']) io.of(ns).to(room).emit('trip:event', frame);
 }
 
+/**
+ * "Your driver is asking for your code" — raise the PIN on the rider's screen.
+ *
+ * WHY A FRAME AND NOT JUST A FIELD. The code has always been IN the rider's
+ * trip snapshot (`booking.boardingPin`, see trip-view.js), and the rider app
+ * never rendered it — so "Verify My Ride" existed end to end on the server and
+ * nowhere the rider could see it. Showing it passively is necessary but not
+ * sufficient: the moment that matters is when the driver actually asks, and a
+ * rider who has put their phone away needs the screen to come to them.
+ *
+ * Carries `seq: null` like every other non-lifecycle frame — nothing about the
+ * trip's state has changed, so this must not enter the sequenced replay log.
+ * The rider's own snapshot remains the authority on the digits; this frame only
+ * says "now".
+ *
+ * Deliberately trip-room-scoped rather than per-rider: a shared van's other
+ * passengers each have their OWN pin (it is per booking), so the payload names
+ * the booking and each client shows it only if it is theirs.
+ */
+function publishBoardingPinRequested(tripId, bookingId) {
+  if (!io) return;
+  io.of('/passenger')
+    .to(`trip:${tripId}`)
+    .emit('trip:event', {
+      tripId,
+      seq: null,
+      version: null,
+      type: 'BOARDING_PIN_REQUESTED',
+      actor: 'DRIVER',
+      status: null,
+      payload: { tripId, bookingId },
+      snapshot: null,
+      serverNowMs: Date.now(),
+      ttlMs: 120_000,
+      priority: 'HIGH',
+      dedupeKey: `boarding-pin:${bookingId}`,
+    });
+}
+
 module.exports = {
   setIo,
   publish,
@@ -462,6 +501,7 @@ module.exports = {
   publishOfferRevoked,
   publishSeatUpdate,
   publishDriverLink,
+  publishBoardingPinRequested,
   countDriverSockets,
   buildEnvelope,
 };

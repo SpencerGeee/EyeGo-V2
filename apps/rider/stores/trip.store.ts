@@ -88,6 +88,22 @@ interface TripStoreState {
    */
   driverLinkLostSinceMs: number | null;
 
+  /**
+   * THE DRIVER IS ASKING FOR THE VERIFY MY RIDE CODE, RIGHT NOW.
+   *
+   * The code itself lives in `snapshot.booking.boardingPin` and has done since
+   * the feature was built — it was simply never rendered, which is the whole of
+   * "the rider app isn't showing the pin verification". This flag is the other
+   * half: a passive card the rider has to think to look for is no use at the
+   * kerb with a driver waiting, so the driver's tap raises it.
+   *
+   * Holds the booking id, because on a shared van each passenger has their own
+   * code and the frame goes to the whole trip room.
+   */
+  boardingPinRequestedFor: string | null;
+  /** Dismiss the popup (rider tapped Done, or the pin was verified). */
+  dismissBoardingPinRequest: () => void;
+
   /** Begin (or resume) following a trip. Idempotent. */
   watch: (tripId: string) => void;
   /** Stop following. Called when the trip goes terminal or the surface closes. */
@@ -120,6 +136,9 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
   eta: null,
   path: null,
   driverLinkLostSinceMs: null,
+  boardingPinRequestedFor: null,
+
+  dismissBoardingPinRequest: () => set({ boardingPinRequestedFor: null }),
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
@@ -252,6 +271,22 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
           set({ driverLinkLostSinceMs: typeof since === 'number' ? since : Date.now() });
         } else if (event.type === 'DRIVER_LINK_RESTORED') {
           set({ driverLinkLostSinceMs: null });
+        }
+
+        /**
+         * The driver has tapped "mark boarded" on a booking that needs a code.
+         *
+         * Room-scoped, so every rider on a shared van receives it — each one
+         * only acts on it if the booking named is theirs. The snapshot is the
+         * authority on the digits; this only decides WHEN to put them in front
+         * of the rider.
+         */
+        if (event.type === 'BOARDING_PIN_REQUESTED') {
+          const bookingId = (event.payload as { bookingId?: string } | undefined)?.bookingId ?? null;
+          const mine = get().snapshot?.booking?.id;
+          if (bookingId && mine && bookingId === mine) {
+            set({ boardingPinRequestedFor: bookingId });
+          }
         }
 
         // The search is over the moment a driver is attached or the trip dies.

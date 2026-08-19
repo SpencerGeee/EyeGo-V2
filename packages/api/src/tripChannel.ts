@@ -39,12 +39,16 @@ export type TripEventType =
   // The server has stopped hearing from the driver's phone mid-trip, and the
   // matching all-clear. NOT statuses: the ride is still running, only our
   // ability to show it has stopped. See services/driver-link-watch.service.js.
-  | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED';
+  | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED'
+  // The driver has asked this rider to show their "Verify My Ride" code. Not a
+  // status either: nothing about the trip has moved, the driver is simply at
+  // the point of boarding. See services/trip-events.publisher.js.
+  | 'BOARDING_PIN_REQUESTED';
 
 export type TripStatus = Exclude<
   TripEventType,
   | 'SNAPSHOT' | 'DISPATCH_PROGRESS' | 'DRIVER_LOCATION' | 'ETA' | 'OFFER' | 'OFFER_REVOKED'
-  | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED'
+  | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED' | 'BOARDING_PIN_REQUESTED'
 >;
 
 /** Which journey a route line describes. Never conflate the two. */

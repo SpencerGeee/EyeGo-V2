@@ -3,6 +3,9 @@
 const prisma = require('../../config/database');
 const cloudinary = require('../../services/cloudinary.service');
 const { NotFoundError, ForbiddenError, AppError } = require('../../utils/errors');
+// Owns the whole reputation model (rating window, reliability, reports, and the
+// loyalty discount pricing reads). See services/standing.service.js.
+const standingService = require('../../services/standing.service');
 
 async function getMe(userId) {
   const user = await prisma.user.findUnique({
@@ -36,6 +39,21 @@ async function getMe(userId) {
     _count: { stars: true },
   });
 
+  /**
+   * STANDING — the rating, plus what it is worth.
+   *
+   * `rating` above is the raw lifetime mean and stays exactly as it was, because
+   * it is what the profile chip has always shown. `standing` is the fuller
+   * picture the behaviour system needs: a recency-weighted rating, a reliability
+   * figure built from completions vs the rider's OWN cancellations, upheld
+   * reports, and the loyalty discount those have earned — the same numbers
+   * `fare-quote.service` prices against, so the discount a rider is shown here
+   * is by construction the discount they get charged.
+   *
+   * Non-fatal: a profile must still load if the standing rollup fails.
+   */
+  const standing = await standingService.riderStanding(userId).catch(() => null);
+
   return {
     ...user,
     avatarUrl: user.profilePhoto,
@@ -43,6 +61,7 @@ async function getMe(userId) {
     // rating" too, but a real 0 and an absent one should not look the same.
     rating: agg._count.stars > 0 ? Number(agg._avg.stars.toFixed(2)) : null,
     ratingCount: agg._count.stars,
+    standing,
   };
 }
 
@@ -230,6 +249,104 @@ async function getWalletAndPromos(userId) {
   return { walletBalancePesewas: user.walletBalancePesewas, promos, referrals };
 }
 
+/**
+ * EVERYTHING THE PROMOTIONS SCREEN NEEDS, IN ONE CALL.
+ *
+ * BUGFIX ("on the promotions page it doesn't show if I'm on an active promo and
+ * when it's going to end — everything is blank and it just lets you enter a
+ * code").
+ *
+ * That screen was a text field and nothing else: no query, no list, no state.
+ * The data existed — `Promotion` rows with an expiry and a redemption cap, and
+ * `Booking.promotionId` recording every redemption — and nothing read it. So a
+ * rider could not see what offers were live, what they had already used, or
+ * whether the code they typed was actually attached to their next ride.
+ *
+ * Four buckets, because they answer four different questions:
+ *
+ *   applied   — "is a promo on my current ride, and what did it save me?"
+ *   available — "what can I use, and when does it run out?"
+ *   used      — "what have I already redeemed?" (so a used code stops looking
+ *               like a missed opportunity)
+ *   expired   — deliberately NOT returned. A dead offer is noise.
+ */
+async function getPromotions(userId) {
+  const now = new Date();
+
+  const [promos, myPromoBookings] = await Promise.all([
+    prisma.promotion.findMany({
+      where: { active: true, expiry: { gt: now } },
+      orderBy: { expiry: 'asc' },
+    }),
+    // Every booking of this rider's that carries a promo — used to work out
+    // both "already redeemed" and "applied to the ride I am on right now".
+    prisma.booking.findMany({
+      where: { userId, promotionId: { not: null } },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        fareAmountPesewas: true,
+        promotion: true,
+        trip: { select: { id: true, status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
+  ]);
+
+  const LIVE_TRIP = ['REQUESTED', 'MATCHING', 'REASSIGNING', 'DRIVER_ASSIGNED', 'CONFIRMED',
+    'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'SCHEDULED', 'FILLING'];
+  const DEAD_BOOKING = ['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'];
+
+  const activeRow = myPromoBookings.find(
+    (b) => !DEAD_BOOKING.includes(b.status) && b.trip && LIVE_TRIP.includes(b.trip.status),
+  );
+
+  const usedPromotionIds = new Set(
+    myPromoBookings.filter((b) => !DEAD_BOOKING.includes(b.status)).map((b) => b.promotion?.id),
+  );
+
+  const shape = (p) => ({
+    id: p.id,
+    code: p.code,
+    discountPercent: p.discountPercent,
+    maxDiscountPesewas: p.maxDiscountPesewas,
+    expiry: p.expiry,
+    // What is left, when the promo is capped. Null means uncapped — do not
+    // render "unlimited" as a number.
+    redemptionsLeft:
+      p.maxRedemptions == null ? null : Math.max(0, p.maxRedemptions - (p.usageCount ?? 0)),
+  });
+
+  return {
+    applied: activeRow
+      ? {
+          ...shape(activeRow.promotion),
+          bookingId: activeRow.id,
+          tripId: activeRow.trip.id,
+          appliedAt: activeRow.createdAt,
+        }
+      : null,
+    available: promos
+      // A promo the rider has already redeemed, or one that has run out of
+      // redemptions globally, cannot be used again — showing it as available is
+      // how a rider ends up typing a code that gets rejected.
+      .filter((p) => !usedPromotionIds.has(p.id))
+      .filter((p) => p.maxRedemptions == null || (p.usageCount ?? 0) < p.maxRedemptions)
+      .map(shape),
+    used: myPromoBookings
+      .filter((b) => b.promotion && !DEAD_BOOKING.includes(b.status))
+      .slice(0, 10)
+      .map((b) => ({
+        ...shape(b.promotion),
+        usedAt: b.createdAt,
+        bookingId: b.id,
+      })),
+    serverNowMs: Date.now(),
+  };
+}
+
 async function createSupportTicket(userId, subject, message) {
   return prisma.supportTicket.create({
     data: {
@@ -407,4 +524,4 @@ async function deleteSavedPlace(userId, placeId) {
 }
 
 module.exports = {
-  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };

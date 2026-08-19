@@ -14,6 +14,22 @@ interface DriverState {
   isOnline: boolean;
   activeTripId: string | null;
   theme: 'dark' | 'light';
+  /**
+   * WHY THIS DRIVER IS (OR IS NOT) BEING OFFERED WORK.
+   *
+   * The server has always known — `explainIneligible` names the exact reason a
+   * driver is skipped — and the driver has never been told. "I'm online and
+   * live and nothing shows" is, most of the time, one of four knowable
+   * conditions (not approved, offline, requests paused, an unfinished trip
+   * holding them busy) plus a fifth the phone owns: the presence key expired
+   * because nothing has pinged.
+   *
+   * Written by the presence heartbeat, which gets the verdict back on every
+   * beat for free. `null` means "not asked yet", which must NOT be rendered as
+   * a problem.
+   */
+  dispatchStatus: { dispatchable: boolean; reason: string | null; checkedAt: number } | null;
+  setDispatchStatus: (s: { dispatchable: boolean; reason: string | null }) => void;
 
   login: (tokens: AuthTokens) => Promise<void>;
   refreshTokens: (tokens: AuthTokens) => void;
@@ -44,6 +60,14 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   isOnline: false,
   activeTripId: null,
   theme: 'dark',
+  dispatchStatus: null,
+
+  setDispatchStatus: ({ dispatchable, reason }) =>
+    set((s) =>
+      s.dispatchStatus?.dispatchable === dispatchable && s.dispatchStatus?.reason === reason
+        ? s
+        : { dispatchStatus: { dispatchable, reason, checkedAt: Date.now() } },
+    ),
 
   login: async (tokens) => {
     // Clear previous session's state first

@@ -129,6 +129,23 @@ const boardPassenger = async (req, res) => {
 };
 
 /**
+ * Ask this booking's rider to show their Verify My Ride code.
+ *
+ * The digits are NOT returned here — they are already in the rider's own trip
+ * snapshot and deliberately absent from every driver-facing payload (a driver
+ * who could read the code would not have to be told it, and the check would
+ * prove nothing). All this does is raise the popup on their screen.
+ */
+const requestBoardingPin = async (req, res) => {
+  const result = await driversService.requestBoardingPin(
+    req.user.userId,
+    req.params.id,
+    req.params.bookingId,
+  );
+  ok(res, result, 'Rider asked for their code');
+};
+
+/**
  * Pause / resume incoming offers without going offline.
  *
  * Separate from the online toggle deliberately: going offline for a breather
@@ -506,7 +523,12 @@ const emergencyAlert = async (req, res) => {
 
 // ── Trip Report ───────────────────────────────────────────────────────
 const reportTrip = async (req, res) => {
-  const report = await driversService.reportTrip(req.user.userId, req.params.id, req.body);
+  const report = await driversService.reportTrip(req.user.userId, req.params.id, {
+    type: req.body?.type,
+    details: req.body?.details,
+    // Which seat on this trip. Optional: a trip-level report is still valid.
+    bookingId: req.body?.bookingId ?? null,
+  });
   created(res, { report }, 'Trip report submitted');
 };
 
@@ -551,7 +573,7 @@ module.exports = {
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
-  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, setRequestsPaused,
+  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, requestBoardingPin, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences,
   createTrip, ratePassenger, getFareEstimate,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,

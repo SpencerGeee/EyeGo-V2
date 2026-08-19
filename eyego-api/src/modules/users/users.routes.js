@@ -43,6 +43,8 @@ router.post(
 router.delete('/me', controller.deleteMe);
 
 router.get('/me/wallet', controller.getWalletAndPromos);
+// Applied / available / already-used promotions for this rider, with expiry.
+router.get('/me/promotions', controller.getPromotions);
 
 router.post(
   '/me/support-tickets',

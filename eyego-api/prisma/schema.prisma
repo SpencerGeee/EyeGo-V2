@@ -1091,6 +1091,22 @@ model TripReport {
   id         String     @id @default(cuid())
   tripId     String
   driverId   String
+
+  /// WHICH PASSENGER THIS IS ABOUT.
+  ///
+  /// A trip can carry fourteen people. Until these columns existed the report
+  /// named only the trip, so "report passenger" on a shared van meant reporting
+  /// the vehicle — the driver could not say who, and nothing downstream could
+  /// attach the report to a rider's standing. Reported as "it just assumes it's
+  /// one person".
+  ///
+  /// Nullable, because reports predating this are genuinely trip-level and must
+  /// not be forced to invent a subject, and because a driver may legitimately
+  /// report something about the trip itself (property damage found afterwards)
+  /// with nobody to pin it on.
+  bookingId  String?
+  reportedUserId String?
+
   type       String
   details    String?
   status     String     @default("OPEN")
@@ -1100,6 +1116,7 @@ model TripReport {
 
   @@index([tripId])
   @@index([driverId])
+  @@index([reportedUserId])
 }
 
 // ─────────────────────────────────────────

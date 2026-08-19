@@ -106,6 +106,12 @@ export default function RateTipScreen() {
   const [selectedTipIndex, setSelectedTipIndex] = useState<number | null>(null);
   const [customTip, setCustomTip] = useState('');
   const [comment, setComment] = useState('');
+  /**
+   * Height of the sticky footer, so the comment box can be scrolled clear of it
+   * rather than underneath it. Seeded with a realistic default so the very first
+   * focus (before layout has reported) is already close to right.
+   */
+  const [footerHeight, setFooterHeight] = useState(112);
 
   const displayRating = hoveredRating || rating;
   const isCustom = selectedTipIndex !== null && TIP_OPTIONS[selectedTipIndex]?.isCustom;
@@ -189,11 +195,30 @@ export default function RateTipScreen() {
       </View>
 
       <View style={{ flex: 1 }}>
+        {/*
+          THE COMMENT BOX HAS TO END UP ABOVE THE FOOTER, NOT JUST ABOVE THE
+          KEYBOARD.
+
+          BUGFIX ("on the rate driver page, when I try to put a comment it
+          doesn't come up for the view — I can't see what I'm typing").
+
+          `bottomOffset` is the gap `KeyboardAwareScrollView` leaves between the
+          focused input and the top of the keyboard. It was a flat 24, but this
+          screen also has a `KeyboardStickyView` footer (Submit + "Maybe later")
+          that rises WITH the keyboard and paints on top of that gap — roughly
+          110 pt of it. So the scroll view dutifully parked the comment box 24 pt
+          above the keyboard and the footer then covered it completely: the
+          caret was on screen, the text was not.
+
+          Measured rather than guessed, because the footer's height moves with
+          the label (a tip amount makes the button text longer and can wrap) and
+          with the device's safe-area inset.
+        */}
         <KeyboardAwareScrollView
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={[styles.scroll, { paddingBottom: footerHeight + spacing.xl }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          bottomOffset={24}
+          bottomOffset={footerHeight + spacing.base}
         >
           {/* Title block */}
           <MotiView
@@ -396,6 +421,13 @@ export default function RateTipScreen() {
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 250 }}
           style={styles.footer}
+          onLayout={(e) => {
+            const h = Math.round(e.nativeEvent.layout.height);
+            // Guard the set: MotiView's entrance animation can fire layout more
+            // than once, and re-rendering the scroll view on every pixel would
+            // fight the keyboard animation it is meant to cooperate with.
+            setFooterHeight((prev: number) => (Math.abs(prev - h) > 2 ? h : prev));
+          }}
         >
           <Button
             variant="glow"
