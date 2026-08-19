@@ -36,6 +36,7 @@ import type { GeoPlace } from '@eyego/utils';
 // camera state machine and the server's route geometry, so nothing map-shaped is
 // imported here any more.
 import { DriverTripMap } from '../../../components/trip/DriverTripMap';
+import { TripStatusRail, type RailStep } from '../../../components/trip/TripStatusRail';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -136,6 +137,27 @@ function stepIndexFor(status: string | undefined | null): number {
   if (!status) return -1;
   return STATUS_STEPS.indexOf(STEP_ALIASES[status] ?? status);
 }
+
+/**
+ * The same six steps, dressed for the animated rail. Icons rather than dots so
+ * a glance tells the driver WHICH stage they are on, not merely how many are
+ * behind them — the rail is read at arm's length in a moving vehicle.
+ */
+const RAIL_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  SCHEDULED: 'calendar-outline',
+  FILLING: 'people-outline',
+  DRIVER_EN_ROUTE: 'navigate-outline',
+  ARRIVED_AT_PICKUP: 'location-outline',
+  IN_PROGRESS: 'car-sport-outline',
+  COMPLETED: 'flag-outline',
+};
+
+const RAIL_STEPS: RailStep[] = STATUS_STEPS.slice(0, -1).map((key) => ({
+  key,
+  label: TRIP_STATUS_CONFIG[key]?.label ?? key,
+  icon: RAIL_ICONS[key] ?? 'ellipse-outline',
+  color: TRIP_STATUS_CONFIG[key]?.color ?? '#94A3B8',
+}));
 
 // The route line, the route COLOURS (amber core over a deep-brown casing —
 // the driver map style paints its roads blue, so a blue line disappeared into
@@ -313,6 +335,32 @@ export default function ActiveTripScreen() {
       router.replace('/(tabs)/home');
     },
     onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? (err as Error).message),
+  });
+
+  /**
+   * ONE passenger did not board. Not the same event as `noShowTrip` above.
+   *
+   * That one is "nobody came" — it kills the trip and refunds everyone. This is
+   * the minibus case the driver terms describe and the app could not do: a
+   * single reserved seat whose passenger never appeared. Marking it releases the
+   * seat number back into the map and takes it out of the minimum-occupancy
+   * count, so the bus can actually leave; the rest of the trip is untouched.
+   *
+   * The seat map is what the driver is looking at when they decide this, so the
+   * seat sheet is where the action lives.
+   */
+  const riderNoShow = useMutation({
+    mutationFn: ({ bookingId }: { bookingId: string; seatNumber: number }) =>
+      driverApi.riderNoShow(id, bookingId),
+    onSuccess: (_res, vars) => {
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+      Alert.alert('Marked as no-show', `Seat ${vars.seatNumber} is free again.`);
+    },
+    onError: (err: any) =>
+      Alert.alert(
+        'Could not mark no-show',
+        err?.response?.data?.message ?? (err as Error).message,
+      ),
   });
 
   const pendingFromStatus = useRef<string | null>(null);
@@ -1024,36 +1072,18 @@ export default function ActiveTripScreen() {
             </GradientGlowBorder>
           </Entrance>
 
-          {/* Step progress chips */}
-          <Entrance animation="slideDown" delay={40} style={styles.stepsRow}>
-            {STATUS_STEPS.slice(0, -1).map((step, i) => {
-              const cfg = TRIP_STATUS_CONFIG[step];
-              const isDone = i < currentStepIndex;
-              const isCurrent = i === currentStepIndex;
-              return (
-                <React.Fragment key={step}>
-                  <View style={[
-                    styles.stepChip,
-                    isDone && { backgroundColor: colors.primary + '22', borderColor: colors.primary + '55' },
-                    isCurrent && { backgroundColor: cfg.color + '22', borderColor: cfg.color + '66' },
-                  ]}>
-                    {isDone
-                      ? <Ionicons name="checkmark" size={9} color={colors.primary} />
-                      : <View style={[styles.stepDot, { backgroundColor: isCurrent ? cfg.color : colors.outlineVariant }]} />}
-                    <Text style={[
-                      styles.stepLabel,
-                      isDone && { color: colors.primary },
-                      isCurrent && { color: cfg.color },
-                    ]}>
-                      {cfg.label}
-                    </Text>
-                  </View>
-                  {i < STATUS_STEPS.length - 2 && (
-                    <View style={[styles.stepConnector, i < currentStepIndex && { backgroundColor: colors.primary }]} />
-                  )}
-                </React.Fragment>
-              );
-            })}
+          {/*
+            THE STATUS RAIL — see components/trip/TripStatusRail.
+
+            This was a row of static chips: advancing the ride changed a
+            background tint and nothing else, which is why the request was for
+            "a more dramatic and intuitive way of switching the statuses". The
+            rail fills, the live node breathes, and a real transition lands with
+            a pop and a haptic; the chips could do none of that because nothing
+            about them was animated.
+          */}
+          <Entrance animation="slideDown" delay={40}>
+            <TripStatusRail steps={RAIL_STEPS} currentIndex={currentStepIndex} />
           </Entrance>
 
           {/* Seat map */}
@@ -1146,6 +1176,39 @@ export default function ActiveTripScreen() {
                     onPress: () => {
                       if (!s.bookingId) return;
                       void boardWithPin(s.bookingId, s.seatNumber, name);
+                    },
+                  });
+                  /*
+                    The other half of the boarding decision, and the one the app
+                    was missing. A passenger who never turns up kept their seat
+                    occupied for the whole trip — it stayed out of the seat map
+                    AND kept counting toward the minimum-occupancy check that
+                    decides whether the bus may depart. The driver terms tell a
+                    driver to report exactly this; the endpoint existed and had
+                    no caller.
+
+                    Destructive styling and a second confirm because it is not
+                    reversible from the driver's side, and the server refuses it
+                    once the passenger is aboard.
+                  */
+                  actions.push({
+                    text: 'Mark No-Show',
+                    style: 'destructive',
+                    onPress: () => {
+                      if (!s.bookingId) return;
+                      Alert.alert(
+                        `No-show — seat ${s.seatNumber}`,
+                        `${name} did not board. Their seat is released and no refund is issued. This cannot be undone.`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Mark No-Show',
+                            style: 'destructive',
+                            onPress: () =>
+                              riderNoShow.mutate({ bookingId: s.bookingId!, seatNumber: s.seatNumber }),
+                          },
+                        ],
+                      );
                     },
                   });
                 }

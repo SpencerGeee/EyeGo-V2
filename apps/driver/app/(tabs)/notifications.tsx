@@ -10,6 +10,8 @@ import { Text, Entrance, GlassSurface, AnimatedList, AppBackground } from '@eyeg
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
+import { useDriverTripStore } from '../../stores/trip.store';
+import { PendingDispatchList } from '../../components/PendingDispatchList';
 
 type Category = 'All' | 'Dispatch' | 'Earnings' | 'System';
 const CATEGORIES: Category[] = ['All', 'Dispatch', 'Earnings', 'System'];
@@ -50,6 +52,22 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const { notifications: liveNotifications, markRead, markAllRead } = useNotificationsStore();
   const [activeCategory, setActiveCategory] = useState<Category>('All');
+  const pendingRequests = useDriverTripStore((s) => s.pendingRequests);
+  const resync = useDriverTripStore((s) => s.resync);
+
+  /**
+   * "if i go to the dispatch page on the alerts page, i should be able to see if
+   * there's an unaccepted offer."
+   *
+   * Notifications are a HISTORY — they only exist once something already
+   * happened to this driver. A search that is still hunting has produced no
+   * notification at all, so the Dispatch tab was structurally incapable of
+   * showing the thing the user went there to check. Asking the server on entry
+   * is what makes the tab answer the live question rather than the past one.
+   */
+  React.useEffect(() => {
+    if (activeCategory === 'Dispatch') void resync();
+  }, [activeCategory, resync]);
 
   // Backfills history the live socket-driven store missed while the app was
   // fully killed (push arrived, but nothing was connected to call addNotification).
@@ -164,6 +182,20 @@ export default function NotificationsScreen() {
           </Pressable>
         ))}
       </Entrance>
+
+      {/*
+        Live dispatch, above the history. On the Dispatch tab it is always
+        present — including its empty line, because "nothing is waiting on you"
+        is the answer the driver came for and a blank screen is not it. On All
+        it appears only when something is actually in flight, so the default
+        view stays a notification list.
+      */}
+      {(activeCategory === 'Dispatch' ||
+        (activeCategory === 'All' && pendingRequests.length > 0)) && (
+        <Entrance animation="slideUp" delay={90}>
+          <PendingDispatchList />
+        </Entrance>
+      )}
 
       {/* List */}
       {filtered.length === 0 ? (

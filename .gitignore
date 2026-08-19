@@ -92,3 +92,8 @@ eyego/
 
 # iOS crash reports captured while debugging sideloaded builds.
 *.ips
+
+# Empty 0-byte artifact of an accidental `> nul` redirect on Windows.
+# Git refuses to index a path named after a reserved device name, so leaving it
+# untracked-but-unignored made every `git add -A` fail outright.
+nul

@@ -190,6 +190,19 @@ export default function TripScreen() {
         ? 'ECO'
         : null;
     if (seededTier) useRideStore.getState().setRideOptions({ rideTier: seededTier });
+    /**
+     * A GROUP RIDE STARTS AT TWO.
+     *
+     * BUGFIX, the last mile of "when I tap on the group ride thing it just takes
+     * me to the normal flow". Even with a group-specific picker, a flow that
+     * opens on one seat is the solo flow wearing a different heading — the rider
+     * has to do work before it becomes the thing they asked for. Two is the
+     * smallest number that is a group; the picker goes to eight from there.
+     */
+    if (params.type === 'group') {
+      const ride = useRideStore.getState();
+      if (ride.requestSeatCount < 2) ride.setRequestSeats(2, ride.requestCoverAll);
+    }
     seed({
       stage: seeded,
       tier: params.tier,

@@ -63,13 +63,24 @@ export default function PromotionsScreen() {
   const available = promoData?.available ?? [];
   const used = promoData?.used ?? [];
 
-  const handleApplyPromo = async () => {
-    if (!promoCode.trim()) return;
+  /**
+   * @param codeArg apply THIS code instead of whatever is typed in the field.
+   *
+   * BUGFIX ("I tapped on the available offers and it said I could use SPEN20").
+   * Tapping an offer used to only copy its code into the text box, leaving the
+   * rider to scroll back up and press Apply — so the tap looked like it had done
+   * something and had not. An offer row is a "use this" affordance; it now uses
+   * it.
+   */
+  const handleApplyPromo = async (codeArg?: string) => {
+    const raw = (codeArg ?? promoCode).trim();
+    if (!raw) return;
+    if (codeArg) setPromoCode(codeArg);
     setIsValidating(true);
     setPromoStatus('idle');
     try {
       if (activeBooking?.id) {
-        await bookingsApi.applyPromo(activeBooking.id, promoCode.trim());
+        await bookingsApi.applyPromo(activeBooking.id, raw);
         setPromoStatus('success');
         // So the "active on your ride" card above appears immediately rather
         // than on the next visit to this screen.
@@ -77,10 +88,10 @@ export default function PromotionsScreen() {
       } else {
         // Validate code against backend before saving for next booking
         const res = await apiClient.get<{ success: boolean; data?: { valid: boolean } }>(
-          `/bookings/promos/validate?code=${promoCode.trim().toUpperCase()}`
+          `/bookings/promos/validate?code=${raw.toUpperCase()}`
         );
         if (res.data?.success && res.data?.data?.valid) {
-          setPendingPromoCode(promoCode.trim().toUpperCase());
+          setPendingPromoCode(raw.toUpperCase());
           setPromoStatus('success');
         } else {
           setPromoStatus('error');
@@ -128,32 +139,78 @@ export default function PromotionsScreen() {
           see what it saved them, and no way to know it was about to expire.
           `GET /user/me/promotions` answers all three (see users.service).
         */}
-        {applied && (
-          <View style={[styles.promoStateCard, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}12` }]}>
-            <View style={styles.promoStateHead}>
-              <Ionicons name="pricetag" size={18} color={colors.primary} />
-              <Text variant="label" color={colors.primary} style={{ letterSpacing: 1 }}>ACTIVE ON YOUR RIDE</Text>
-            </View>
-            <Text variant="titleMedium" style={{ color: colors.onSurface }}>{applied.code}</Text>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-              {applied.discountPercent}% off, up to {formatGhs(applied.maxDiscountPesewas)}
-            </Text>
-            <Text variant="caption" color={colors.onSurfaceVariant}>{expiryLabel(applied.expiry)}</Text>
-          </View>
-        )}
+        {/*
+          MY PROMOS — ALWAYS PRESENT, EVEN WHEN THE ANSWER IS "NONE".
 
-        {!applied && pendingPromoCode && (
-          <View style={[styles.promoStateCard, { borderColor: colors.outline }]}>
-            <View style={styles.promoStateHead}>
-              <Ionicons name="time-outline" size={18} color={colors.onSurfaceVariant} />
-              <Text variant="label" color={colors.onSurfaceVariant} style={{ letterSpacing: 1 }}>SAVED FOR NEXT RIDE</Text>
+          BUGFIX ("it said SPEN20 is applied and saved for next ride, but there's
+          no section showing my active promos so I can't tell if I was using it
+          already or if I'm now genuinely using it").
+
+          The two cards below existed but were each conditional, so a rider with
+          nothing attached saw NOTHING — indistinguishable from a screen that had
+          simply not loaded, and no way to confirm what a tap had just done. A
+          section that is always there, and states its own emptiness, is what
+          makes "am I on a promo?" answerable at a glance. The remove control is
+          the other half: a saved code you cannot take off is a code you have to
+          guess about.
+        */}
+        <View style={{ gap: spacing.md }}>
+          <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
+            MY PROMOS
+          </Text>
+
+          {applied && (
+            <View style={[styles.promoStateCard, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}12` }]}>
+              <View style={styles.promoStateHead}>
+                <Ionicons name="pricetag" size={18} color={colors.primary} />
+                <Text variant="label" color={colors.primary} style={{ letterSpacing: 1 }}>ACTIVE ON YOUR RIDE</Text>
+              </View>
+              <Text variant="titleMedium" style={{ color: colors.onSurface }}>{applied.code}</Text>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                {applied.discountPercent}% off, up to {formatGhs(applied.maxDiscountPesewas)}
+              </Text>
+              <Text variant="caption" color={colors.onSurfaceVariant}>{expiryLabel(applied.expiry)}</Text>
             </View>
-            <Text variant="titleMedium" style={{ color: colors.onSurface }}>{pendingPromoCode}</Text>
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-              This code is applied automatically when you book your next trip.
-            </Text>
-          </View>
-        )}
+          )}
+
+          {pendingPromoCode && (
+            <View style={[styles.promoStateCard, { borderColor: colors.outline }]}>
+              <View style={styles.promoStateHead}>
+                <Ionicons name="time-outline" size={18} color={colors.onSurfaceVariant} />
+                <Text variant="label" color={colors.onSurfaceVariant} style={{ letterSpacing: 1 }}>
+                  {applied ? 'SAVED FOR THE RIDE AFTER' : 'SAVED FOR NEXT RIDE'}
+                </Text>
+              </View>
+              <Text variant="titleMedium" style={{ color: colors.onSurface }}>{pendingPromoCode}</Text>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                This code is applied automatically when you book your next trip.
+              </Text>
+              <Pressable
+                onPress={() => { setPendingPromoCode(null); setPromoStatus('idle'); }}
+                hitSlop={8}
+                style={styles.removePromoBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove saved promo code ${pendingPromoCode}`}
+              >
+                <Ionicons name="close-circle-outline" size={14} color={colors.statusError} />
+                <Text variant="caption" color={colors.statusError}>Remove</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!applied && !pendingPromoCode && (
+            <View style={[styles.promoStateCard, { borderColor: colors.outline }]}>
+              <View style={styles.promoStateHead}>
+                <Ionicons name="pricetag-outline" size={18} color={colors.onSurfaceVariant} />
+                <Text variant="label" color={colors.onSurfaceVariant} style={{ letterSpacing: 1 }}>NONE ACTIVE</Text>
+              </View>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                You are not using a promo right now. Pick one below or enter a code and it will be
+                applied to your next ride.
+              </Text>
+            </View>
+          )}
+        </View>
 
         <View
           >
@@ -210,31 +267,64 @@ export default function PromotionsScreen() {
               </Text>
             </View>
           ) : (
-            available.map((p: RiderPromotion) => (
-              <Pressable
-                key={p.id}
-                onPress={() => { setPromoCode(p.code); setPromoStatus('idle'); }}
-                style={({ pressed }) => [styles.offerRow, pressed && { opacity: 0.7 }]}
-                accessibilityRole="button"
-                accessibilityLabel={`Use promo code ${p.code}`}
-              >
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text variant="bodyMedium" style={{ color: colors.onSurface, fontFamily: fonts.semiBold }}>
-                    {p.code}
-                  </Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    {p.discountPercent}% off, up to {formatGhs(p.maxDiscountPesewas)}
-                  </Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    {expiryLabel(p.expiry)}
-                    {p.redemptionsLeft != null && p.redemptionsLeft <= 20
-                      ? ` · only ${p.redemptionsLeft} left`
-                      : ''}
-                  </Text>
-                </View>
-                <Text variant="caption" color={colors.primary}>Use</Text>
-              </Pressable>
-            ))
+            available.map((p: RiderPromotion) => {
+              /*
+                Each row states its OWN relationship to this rider — the thing
+                the report says was missing ("I can't tell if I was using it
+                already or if I'm now genuinely using it"). A row that is already
+                on the ride is not tappable: re-applying it would either no-op or
+                error, and both read as the app ignoring you.
+              */
+              const isActive = applied?.code?.toUpperCase() === p.code.toUpperCase();
+              const isSaved = !isActive && pendingPromoCode?.toUpperCase() === p.code.toUpperCase();
+              const busy = isValidating && promoCode.toUpperCase() === p.code.toUpperCase();
+              return (
+                <Pressable
+                  key={p.id}
+                  onPress={() => { if (!isActive && !busy) void handleApplyPromo(p.code); }}
+                  disabled={isActive || busy}
+                  style={({ pressed }) => [
+                    styles.offerRow,
+                    (isActive || isSaved) && { borderColor: `${colors.primary}55` },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive || isSaved, disabled: isActive }}
+                  accessibilityLabel={
+                    isActive
+                      ? `Promo code ${p.code} is active on your ride`
+                      : isSaved
+                        ? `Promo code ${p.code} is saved for your next ride`
+                        : `Use promo code ${p.code}`
+                  }
+                >
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text variant="bodyMedium" style={{ color: colors.onSurface, fontFamily: fonts.semiBold }}>
+                      {p.code}
+                    </Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      {p.discountPercent}% off, up to {formatGhs(p.maxDiscountPesewas)}
+                    </Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      {expiryLabel(p.expiry)}
+                      {p.redemptionsLeft != null && p.redemptionsLeft <= 20
+                        ? ` · only ${p.redemptionsLeft} left`
+                        : ''}
+                    </Text>
+                  </View>
+                  {isActive || isSaved ? (
+                    <View style={[styles.offerPill, { backgroundColor: `${colors.primary}1F` }]}>
+                      <Ionicons name="checkmark" size={11} color={colors.primary} />
+                      <Text variant="caption" color={colors.primary}>
+                        {isActive ? 'ACTIVE' : 'SAVED'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text variant="caption" color={colors.primary}>{busy ? 'Applying…' : 'Use'}</Text>
+                  )}
+                </Pressable>
+              );
+            })
           )}
         </View>
 
@@ -437,5 +527,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     paddingVertical: spacing.xl,
+  },
+  removePromoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+  },
+  offerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radii.sm,
   },
 });

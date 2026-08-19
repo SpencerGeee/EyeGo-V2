@@ -73,10 +73,34 @@ const DEPARTURE_COUNTED_STATUSES = ['CONFIRMED', 'PAID', 'BOARDED'];
 /** Prisma filter fragment for the set above. Never write the list inline. */
 const departureCountedWhere = () => ({ status: { in: DEPARTURE_COUNTED_STATUSES } });
 
+/**
+ * WHO IS STILL EXPECTING TO TRAVEL — a FOURTH question, and the one every
+ * remaining hand-written predicate in the codebase was reaching for.
+ *
+ * `SEAT_OCCUPYING_STATUSES` answers "is this seat sold", and it includes
+ * COMPLETED on purpose so a finished trip's seat map still shows who rode. That
+ * makes it the wrong set for anything asking about a trip that is still
+ * happening: "does this trip still have passengers, so cancel it into a
+ * re-dispatch rather than killing it", "whose fares add up to the driver's
+ * offer", "which rows go in the live seat rail".
+ *
+ * The sites that asked those questions each wrote their own list and each got a
+ * different one — `notIn: ['CANCELLED', 'COMPLETED']` counted an expired hold
+ * and a no-show as live passengers, and `notIn: ['CANCELLED', 'REFUNDED',
+ * 'EXPIRED']` counted the no-show alone. Neither is a crash; both quietly
+ * overstate how many people are waiting.
+ */
+const LIVE_PASSENGER_STATUSES = SEAT_OCCUPYING_STATUSES.filter((s) => s !== 'COMPLETED');
+
+/** Prisma filter fragment for the set above. Never write the list inline. */
+const livePassengerWhere = () => ({ status: { in: LIVE_PASSENGER_STATUSES } });
+
 module.exports = {
   SEAT_OCCUPYING_STATUSES,
   SEAT_RELEASING_STATUSES,
   DEPARTURE_COUNTED_STATUSES,
+  LIVE_PASSENGER_STATUSES,
   seatOccupyingWhere,
   departureCountedWhere,
+  livePassengerWhere,
 };

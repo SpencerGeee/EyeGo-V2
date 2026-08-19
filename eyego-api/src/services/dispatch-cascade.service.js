@@ -48,6 +48,7 @@ const logger = require('../utils/logger');
 const { isDriverAvailable, explainIneligible } = require('./driver-availability');
 const { sendMulticastPush } = require('./push.service');
 const { formatGhs } = require('../utils/money');
+const { livePassengerWhere } = require('../utils/booking-status');
 const scheduledTasks = require('./scheduled-task.service');
 const matcher = require('./matcher.service');
 const destinationMode = require('./destination-mode.service');
@@ -301,7 +302,7 @@ async function offerNext(tripId) {
         dropoffLat: true, dropoffLng: true, dropoffAddress: true,
         commissionRate: true,
         bookings: {
-          where: { status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED'] } },
+          where: livePassengerWhere(),
           select: { fareAmountPesewas: true, commissionAmountPesewas: true },
         },
       },
@@ -661,6 +662,169 @@ async function notifySupplyAvailable(driverId) {
   }
 }
 
+/**
+ * THE FOREGROUND HANDSHAKE — "I'm back. Is anything waiting on me?"
+ *
+ * BUGFIX ("when I switch back to the driver app nothing happens… it's saying
+ * asking driver 1 of 1 but nothing on the driver app is showing").
+ *
+ * `notifySupplyAvailable` above is a SUPPLY event: it exists for the moment a
+ * driver becomes dispatchable, and it deliberately touches only cascades that
+ * are parked (`state.waiting`). Both of those are wrong for a foreground:
+ *
+ *   - It is gated by the caller on the presence absent→present EDGE. A driver
+ *     who spent forty seconds in the rider app never lost their presence key,
+ *     so `rejoined` is false and nothing is nudged at all.
+ *   - A cascade that is MID-OFFER to this very driver is skipped, because it is
+ *     not parked. That is precisely the failing case: the offer was published
+ *     into an empty socket room, the Redis key holding it is the only surviving
+ *     copy, and the driver's app has to be told to go and look.
+ *
+ * So this is the other verb. It asks about THIS driver specifically and does
+ * whichever of the two things is true:
+ *
+ *   - an offer is live and held by them → re-publish the frame and refresh the
+ *     mirror key, so both delivery paths fire again the instant they are back;
+ *   - the search is parked → jump the resweep timer.
+ *
+ * Never creates a second parallel offer: re-publishing an offer this driver
+ * already holds is idempotent, and `resweep` only ever runs when the candidate
+ * list is exhausted.
+ *
+ * @returns {Promise<{offer: object|null, nudged: number}>}
+ */
+async function resyncDriver(driverId) {
+  if (!driverId) return { offer: null, nudged: 0 };
+  let nudged = 0;
+  try {
+    const searching = await prisma.trip.findMany({
+      where: { status: { in: [TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING] } },
+      select: { id: true },
+      take: 25,
+    });
+
+    for (const trip of searching) {
+      const state = await readState(trip.id);
+      if (!state || state.done) continue;
+      if (excludedFrom(state).includes(driverId)) continue;
+
+      // Held by us, right now. Re-deliver rather than re-offer.
+      if (state.currentDriverId === driverId) {
+        const offer = await getOfferForDriver(driverId);
+        if (offer) {
+          publisher.publishOfferToDriver(driverId, { ...offer, serverNowMs: Date.now() });
+          nudged += 1;
+        }
+        continue;
+      }
+
+      // Parked with nobody holding it — the same nudge `notifySupplyAvailable`
+      // performs, but reached without needing a presence edge to have happened.
+      if (state.waiting) {
+        await scheduledTasks.cancel(TASK_RESWEEP, trip.id).catch(() => {});
+        await resweep(trip.id);
+        nudged += 1;
+      }
+    }
+  } catch (err) {
+    logger.warn(`resyncDriver(${driverId}) failed: ${err.message}`);
+  }
+
+  // Read AFTER the nudges: a resweep above may have just offered this driver a
+  // trip, and the caller's whole purpose is to hand that back in one round trip.
+  const offer = await getOfferForDriver(driverId).catch(() => null);
+  return { offer, nudged };
+}
+
+/**
+ * Every live search this driver could still be given, whether or not it is
+ * currently offered to them.
+ *
+ * Powers the driver app's Alerts → Dispatch list, which answers the question
+ * the offer card cannot: "did I miss something while I was away?" An offer is a
+ * 45-second window; a SEARCH runs for five minutes, and for all of that time the
+ * rider is still waiting. Showing the search — with `offeredToMe` marking the
+ * one the driver actually holds — is the difference between a missed frame
+ * costing the ride and costing a few seconds.
+ *
+ * Deliberately not filtered by `isDriverAvailable`: a driver reading this list
+ * is asking what work exists, and hiding it because their own presence key
+ * lapsed is how the original bug hid the ride in the first place. The accept
+ * path is still first-claim-wins and re-checks everything.
+ */
+async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
+  if (!driverId) return [];
+  try {
+    const trips = await prisma.trip.findMany({
+      where: { status: { in: [TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING] } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        status: true,
+        tier: true,
+        createdAt: true,
+        pickupLat: true,
+        pickupLng: true,
+        pickupAddress: true,
+        dropoffLat: true,
+        dropoffLng: true,
+        dropoffAddress: true,
+        commissionRate: true,
+        bookings: {
+          where: livePassengerWhere(),
+          select: { fareAmountPesewas: true, commissionAmountPesewas: true },
+        },
+      },
+    });
+    if (trips.length === 0) return [];
+
+    const held = await getOfferForDriver(driverId).catch(() => null);
+
+    const out = [];
+    for (const trip of trips) {
+      const state = await readState(trip.id);
+      if (state?.done) continue;
+      if (excludedFrom(state).includes(driverId)) continue;
+      if (state?.declined?.includes(driverId)) continue;
+
+      const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
+      const commissionPesewas = trip.bookings.reduce(
+        (n, b) =>
+          n +
+          (b.commissionAmountPesewas ??
+            Math.round((b.fareAmountPesewas || 0) * (trip.commissionRate ?? 0.15))),
+        0,
+      );
+
+      out.push({
+        tripId: trip.id,
+        status: trip.status,
+        tier: trip.tier,
+        requestedAtMs: trip.createdAt.getTime(),
+        pickupLat: trip.pickupLat,
+        pickupLng: trip.pickupLng,
+        pickupAddress: trip.pickupAddress,
+        dropoffLat: trip.dropoffLat,
+        dropoffLng: trip.dropoffLng,
+        dropoffAddress: trip.dropoffAddress,
+        farePesewas: grossPesewas,
+        driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
+        /** True when THIS driver is the one the cascade is currently asking. */
+        offeredToMe: held?.tripId === trip.id || state?.currentDriverId === driverId,
+        expiresAtServerMs:
+          state?.currentDriverId === driverId ? state?.expiresAtMs ?? null : null,
+        /** Somebody else is holding the exclusive offer this instant. */
+        heldByAnother: !!state?.currentDriverId && state.currentDriverId !== driverId,
+      });
+    }
+    return out;
+  } catch (err) {
+    logger.warn(`listSearchesForDriver(${driverId}) failed: ${err.message}`);
+    return [];
+  }
+}
+
 async function finish(tripId, reason) {
   const state = await readState(tripId);
   if (state) {
@@ -975,6 +1139,8 @@ module.exports = {
   startCascade,
   resweep,
   notifySupplyAvailable,
+  resyncDriver,
+  listSearchesForDriver,
   declineOffer,
   stopOfferTimer,
   announceWinner,

@@ -1082,7 +1082,7 @@ async function getActiveBooking(userId) {
 
 async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
   const { v4: uuidv4 } = require('uuid');
-  const paystack = require('../payments/paystack.client');
+  const paystack = require('../payments/provider');
 
   // A tip arrives from the client, so it is guarded rather than trusted:
   // `assertPesewas` rejects NaN, negatives, fractions (which would mean the

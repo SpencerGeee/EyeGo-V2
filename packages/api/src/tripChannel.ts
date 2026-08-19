@@ -128,10 +128,29 @@ export interface TripSnapshot {
      */
     boardingPin?: string | null;
     pinVerified?: boolean;
+    /**
+     * When the driver last asked for the code, in server ms — null when they
+     * have not, or once it has been verified.
+     *
+     * The socket frame that announces the ask carries no seq and so is never
+     * replayed; this is the copy that survives the rider backgrounding the app
+     * to look at something else, which is when the ask almost always happens.
+     */
+    pinRequestedAtMs?: number | null;
   } | null;
   timestamps: Record<string, string | null>;
   cancellation: { by: string | null; reason: string | null } | null;
   redispatchCount: number;
+  /**
+   * Driver-link health, answered by the server every time a snapshot is built.
+   *
+   * `null` the driver is reporting; a number = silent since that epoch ms;
+   * `undefined` = the server had no opinion (presence lookup failed, or this
+   * snapshot was built without the path builder) so keep whatever you had.
+   * DRIVER_LINK_LOST/RESTORED frames carry no seq and cannot be replayed, so
+   * this field is what lets a foregrounded app settle the question.
+   */
+  driverLinkLostSinceMs?: number | null;
 }
 
 export interface TripEvent {

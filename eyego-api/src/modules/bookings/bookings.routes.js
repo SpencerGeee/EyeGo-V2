@@ -6,6 +6,8 @@ const controller = require('./bookings.controller');
 const authenticate = require('../../middleware/auth');
 const validate = require('../../middleware/validate');
 const { bookingCreateLimiter } = require('../../middleware/rateLimiter');
+// Platform-wide maintenance switch — see middleware/killSwitch.js.
+const { requireBookingEnabled } = require('../../middleware/killSwitch');
 
 const router = Router();
 
@@ -18,11 +20,11 @@ router.use(authenticate);
 // GET /v1/bookings/active   — current active booking (must be before /:bookingId)
 // GET /v1/bookings/:id      — single booking receipt
 router.get('/', controller.getUserBookings);
-router.post('/', bookingCreateLimiter, controller.bookSeat);
+router.post('/', requireBookingEnabled, bookingCreateLimiter, controller.bookSeat);
 // Fixed-segment routes MUST come before /:bookingId to avoid param capture
 router.get('/active', controller.getActiveBooking);
 // POST /bookings/join/:shareToken — must be before /:bookingId/* routes
-router.post('/join/:shareToken', controller.joinGroup);
+router.post('/join/:shareToken', requireBookingEnabled, controller.joinGroup);
 
 router.get('/:bookingId', controller.getBooking);
 router.post('/:bookingId/cancel', controller.cancelBooking);

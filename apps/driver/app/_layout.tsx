@@ -559,21 +559,24 @@ export default function RootLayout() {
         if (activeTripId) {
           driverSocketEvents.emitJoinTracking?.(activeTripId);
         }
-        // Re-ask the server what is true. The trip channel replays anything
-        // missed while backgrounded, but hydrating first means the UI is
-        // correct immediately rather than after the replay lands.
-        void useDriverTripStore.getState().hydrate();
         /**
-         * And put us back in the dispatch pool over HTTP, without waiting for
-         * the socket to finish reconnecting.
+         * PRESENCE FIRST, THEN RESYNC. The order is the fix.
          *
-         * `hydrate()` above answers "is anyone waiting on me" — but a driver
-         * whose presence key expired while the rider app was foregrounded is
-         * not in the pool at all, so there is nothing for it to find. This is
-         * the write that makes them findable again; the server re-runs any
-         * parked search off the absent→present edge. See useDriverLocation.
+         * BUGFIX ("the rider says asking driver 1 of 1 and nothing shows on the
+         * driver app when I switch to it"). Both halves used to fire at once,
+         * so the resync raced the beat: a driver whose presence key had expired
+         * while they were in the rider app was not in the pool yet when the
+         * server went looking, the re-sweep found no candidate, and the search
+         * stayed parked until it timed out. Nothing on screen, nothing to poll.
+         *
+         * `beatPresenceNow()` is the write that makes them findable again;
+         * `resync()` is what asks the server to run the search AGAIN now that
+         * they are. It also returns any offer already held, which covers the
+         * simpler case where the offer frame was published to a sleeping phone.
          */
-        beatPresenceNow();
+        void beatPresenceNow()
+          .catch(() => {})
+          .then(() => useDriverTripStore.getState().resync());
       }
     });
     return () => sub.remove();

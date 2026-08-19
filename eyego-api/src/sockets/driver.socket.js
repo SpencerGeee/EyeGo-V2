@@ -11,6 +11,7 @@ const {
   clearRouteForTrip,
   etaPayloadFor,
   routePayloadFor,
+  effectivePickup,
 } = require('../services/route-geometry.service');
 const { completeTrip } = require('../modules/trips/trips.service');
 const { sendMulticastPush, sendPush } = require('../services/push.service');
@@ -28,6 +29,24 @@ const TRIP_ROOM = (tripId) => `trip:${tripId}`;
 // fix; the row is the cold copy. See the location handler for why.
 const DB_PERSIST_INTERVAL_MS = 15_000;
 const DB_PERSIST_DISTANCE_M = 60;
+
+/**
+ * How close counts as "at the pickup point".
+ *
+ * BUGFIX ("the driver tracking page shows the driver is at the pickup point but
+ * still says heading to pickup, and the rider says on the way to you").
+ *
+ * ARRIVED_AT_PICKUP was reachable ONLY by the driver tapping "I've arrived".
+ * Until they did, both apps kept rendering DRIVER_EN_ROUTE — which was not a
+ * disagreement between the two apps at all, it was both of them faithfully
+ * rendering a status that had gone stale. Arriving is a physical fact the server
+ * can observe, so it stops waiting to be told.
+ *
+ * 75 m rather than 25: consumer GPS in a city is routinely 20–40 m out, and the
+ * pickup pin is usually the kerb outside a building rather than the spot the car
+ * can actually stop. Too tight and the status never flips, which is the bug.
+ */
+const ARRIVAL_RADIUS_M = Number(env.ARRIVAL_RADIUS_M ?? 75);
 
 // ── iOS Live Activity (ActivityKit) push fan-out ─────────────────────────
 // Separate channel from the FCM-based pushNotifications above — these go
@@ -452,6 +471,45 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
         return;
       }
       if (!trip) return;
+
+      /**
+       * ── ARRIVING IS SOMETHING THE SERVER CAN SEE ─────────────────────────
+       *
+       * One status, decided in one place, so the two apps cannot disagree about
+       * it. The driver's manual "I've arrived" still exists and still works —
+       * this only removes the case where they are demonstrably parked at the
+       * pickup and nobody has said so.
+       *
+       * Deliberately one-way (EN_ROUTE → ARRIVED only). Driving back out of the
+       * radius does not un-arrive anyone: the rider may already be getting in,
+       * and a status that flickers with GPS noise is worse than one that is
+       * slightly early. `applyTransition` publishes the change on the trip
+       * channel, so both apps land on it through the normal path.
+       */
+      if (trip.status === 'DRIVER_EN_ROUTE') {
+        const pickup = effectivePickup(trip);
+        const toPickupM =
+          pickup && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng)
+            ? haversineMeters(lat, lng, pickup.lat, pickup.lng)
+            : Infinity;
+        if (toPickupM <= ARRIVAL_RADIUS_M) {
+          try {
+            await require('../services/trip-state.service').applyTransition(trip.id, 'ARRIVED_AT_PICKUP', {
+              actor: 'SYSTEM',
+              actorId: driverId,
+              payload: { auto: true, distanceM: Math.round(toPickupM) },
+            });
+            trip.status = 'ARRIVED_AT_PICKUP';
+            logger.info(
+              `[arrival] auto-arrived driver ${driverId} on trip ${trip.id} at ${Math.round(toPickupM)}m`,
+            );
+          } catch (err) {
+            // A losing race with the driver's own tap, or a status that moved on
+            // underneath us. Either way the trip is already where we wanted it.
+            logger.debug(`[arrival] auto-arrive skipped for ${trip.id}: ${err?.message ?? err}`);
+          }
+        }
+      }
 
       // On-demand rides used to fall out here: the old code read the
       // destination from `trip.route`, and an on-demand trip has no route, so

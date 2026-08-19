@@ -11,6 +11,7 @@ import {
   type TripStatus,
   type TripEvent,
   type TripChannelState,
+  type PendingDispatch,
 } from '@eyego/api';
 
 /**
@@ -58,11 +59,24 @@ interface DriverTripState {
   recovering: boolean;
   /** The exclusive offer this driver currently holds, if any. */
   offer: DispatchOffer | null;
+  /**
+   * Every live search this driver is eligible for, held by them or not.
+   *
+   * This is what the Dispatch tab lists. A rider watching "asking driver 1 of 1"
+   * has to correspond to SOMETHING visible on the driver side; before this the
+   * only evidence a search existed was an offer frame you had to be awake for.
+   */
+  pendingRequests: PendingDispatch[];
 
   watch: (tripId: string) => void;
   unwatch: () => void;
   /** ONE-CALL REHYDRATION — cold start, foreground, reconnect. */
-  hydrate: () => Promise<TripSnapshot | null>;
+  hydrate: (opts?: { nudge?: boolean }) => Promise<TripSnapshot | null>;
+  /**
+   * Foreground recovery: hydrate, but ask the server to re-poke the cascade
+   * first. Use this on AppState → active; `hydrate()` elsewhere.
+   */
+  resync: () => Promise<TripSnapshot | null>;
   /** Start listening for dispatch offers. Call once, while online. */
   listenForOffers: () => () => void;
   clearOffer: () => void;
@@ -81,6 +95,7 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
   connected: false,
   recovering: false,
   offer: null,
+  pendingRequests: [],
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
@@ -116,7 +131,9 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
     set({ snapshot: null, lastSeq: 0, recovering: false });
   },
 
-  hydrate: async () => {
+  resync: () => get().hydrate({ nudge: true }),
+
+  hydrate: async (opts) => {
     try {
       /**
        * Captured BEFORE the await so the answer can be applied without
@@ -125,12 +142,26 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
        * so `held !== heldBefore` is exactly "something happened meanwhile".
        */
       const heldBefore = get().offer;
-      const { trip, serverNowMs, offer } = await ridesApi.driverState();
+      /**
+       * NUDGE ON FOREGROUND, READ EVERYWHERE ELSE.
+       *
+       * BUGFIX ("the rider says asking driver 1 of 1 and nothing shows on the
+       * driver app when I switch to it"). Reading was never enough on its own.
+       * If the cascade had already offered to this driver and the frame was
+       * missed, a read finds the offer — fine. But if the cascade had run out
+       * of candidates and parked in `waiting`, there is nothing to read: the
+       * search is alive on the rider's screen and dead on the driver's. Only
+       * the server can restart it, so foregrounding asks it to.
+       */
+      const { trip, serverNowMs, offer, pendingRequests } = opts?.nudge
+        ? await ridesApi.driverResync()
+        : await ridesApi.driverState();
       const skew = serverNowMs - Date.now();
       set({
         snapshot: trip,
         lastSeq: trip?.version ?? 0,
         clockSkewMs: skew,
+        pendingRequests: pendingRequests ?? [],
       });
       // THE OFFER SURVIVES A DEAD SOCKET.
       //
@@ -225,6 +256,30 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
     const handler = (event: TripEvent) => {
       if (event.type === 'OFFER') {
         const p = event.payload;
+        set((s) => ({
+          // Keep the Dispatch list in step with the card without another round
+          // trip: an offer I hold is by definition a live search I am on.
+          pendingRequests: [
+            {
+              tripId: p.tripId,
+              status: 'MATCHING',
+              tier: p.tier ?? null,
+              requestedAtMs: null,
+              pickupLat: p.pickupLat ?? null,
+              pickupLng: p.pickupLng ?? null,
+              pickupAddress: p.pickupAddress ?? null,
+              dropoffLat: p.dropoffLat ?? null,
+              dropoffLng: p.dropoffLng ?? null,
+              dropoffAddress: p.dropoffAddress ?? null,
+              farePesewas: p.farePesewas ?? null,
+              driverEarningsPesewas: p.driverEarningsPesewas ?? null,
+              offeredToMe: true,
+              expiresAtServerMs: p.expiresAtServerMs,
+              heldByAnother: false,
+            },
+            ...s.pendingRequests.filter((r) => r.tripId !== p.tripId),
+          ],
+        }));
         set({
           clockSkewMs: event.serverNowMs - Date.now(),
           offer: {
@@ -248,7 +303,16 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
         // The offer moved on — taken, cancelled or timed out. Told explicitly
         // so no driver is left holding a dead card and tapping Accept into a
         // 409, which is what a broadcast dispatch does to four drivers in five.
-        set((s) => (s.offer?.tripId === event.payload?.tripId ? { offer: null } : s));
+        set((s) => ({
+          offer: s.offer?.tripId === event.payload?.tripId ? null : s.offer,
+          // Revoked means somebody else has it or it is gone; either way it is
+          // no longer mine to accept, so the row stops claiming otherwise.
+          pendingRequests: s.pendingRequests.map((r) =>
+            r.tripId === event.payload?.tripId
+              ? { ...r, offeredToMe: false, heldByAnother: true, expiresAtServerMs: null }
+              : r,
+          ),
+        }));
       }
     };
     // A reconnect (backgrounded phone, tunnel, carrier handover) re-runs the

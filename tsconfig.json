@@ -1,4 +1,31 @@
 {
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {},
-  "extends": "expo/tsconfig.base"
+
+  /*
+   * THIS FILE COMPILES NOTHING, ON PURPOSE.
+   *
+   * Every buildable thing in the repo owns its own project and extends
+   * `expo/tsconfig.base` itself — apps/rider, apps/driver and apps/admin each
+   * declare their own `paths`, and apps/admin's `@/*` alias exists nowhere else.
+   * The shared `packages/*` are consumed as SOURCE through those aliases, so
+   * they are only meaningful when type-checked inside a consuming app, which is
+   * why none of them has a tsconfig either.
+   *
+   * With no `files`/`include`, this config defaulted to `**\/*` and swallowed
+   * the whole tree: a bare `tsc` at the repo root reported hundreds of errors
+   * that no build has — "Cannot find module '@/lib/api'" for admin code that
+   * type-checks clean, React Native style errors against `packages/ui` compiled
+   * without RN's lib, and a second copy of every file from the stale, git-
+   * ignored `eyego/` duplicate nested inside the repo (which on Windows also
+   * produced the "differs only in casing" noise). Nothing in package.json ran
+   * it, so the trap sat waiting for whoever tried `tsc` first.
+   *
+   * Type-check per project:
+   *   tsc --noEmit -p apps/rider
+   *   tsc --noEmit -p apps/driver
+   *   tsc --noEmit -p apps/admin
+   */
+  "files": [],
+  "include": []
 }

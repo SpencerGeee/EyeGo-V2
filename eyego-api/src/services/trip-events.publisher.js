@@ -3,6 +3,7 @@
 const logger = require('../utils/logger');
 const { buildTripSnapshot, TRIP_INCLUDE } = require('./trip-view');
 const prisma = require('../config/database');
+const { livePassengerWhere } = require('../utils/booking-status');
 
 /**
  * The one realtime envelope.
@@ -227,7 +228,7 @@ async function publishSeatUpdate(tripId) {
           maxSeats: true,
           confirmedSeats: true,
           bookings: {
-            where: { status: { notIn: ['CANCELLED', 'REFUNDED', 'EXPIRED'] } },
+            where: livePassengerWhere(),
             select: {
               id: true, seatNumber: true, status: true, paymentStatus: true,
               fareAmountPesewas: true, commissionAmountPesewas: true,

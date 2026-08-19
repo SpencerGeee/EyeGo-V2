@@ -216,8 +216,44 @@ async function expireStaleTrips() {
   return expired;
 }
 
+/**
+ * Give back seats whose provisional hold ran out.
+ *
+ * BUGFIX ("I chose add rider → phone + OTP ... but I didn't go through with the
+ * OTP and it's still showing that the seat is reserved").
+ *
+ * A SEAT_HELD row occupies a seat — it is in SEAT_OCCUPYING_STATUSES, which is
+ * the point of it — and nothing ever wrote one back. `Booking.holdExpiresAt` is
+ * the deadline the hold was created with; this is the only thing that enforces
+ * it. Driver-initiated release (`releaseOfflineHold`) handles the common case;
+ * this catches the driver who simply closed the app.
+ *
+ * `updateMany` rather than a read-then-write loop: the predicate IS the safety
+ * check, so a passenger who verified a millisecond ago is no longer SEAT_HELD
+ * and cannot be swept. Nulling `seatNumber` is what frees the seat on the map —
+ * see the release rule in the booking invariants.
+ */
+async function releaseExpiredSeatHolds() {
+  const { count } = await prisma.booking.updateMany({
+    where: {
+      status: 'SEAT_HELD',
+      holdExpiresAt: { not: null, lt: new Date() },
+    },
+    data: {
+      status: 'CANCELLED',
+      cancelledAt: new Date(),
+      cancellationReason: 'HOLD_EXPIRED',
+      seatNumber: null,
+      holdExpiresAt: null,
+    },
+  });
+  if (count > 0) logger.info(`Seat-hold sweep: released ${count} expired hold(s)`);
+  return count;
+}
+
 module.exports = {
   expireStaleTrips,
+  releaseExpiredSeatHolds,
   expireTrip,
   isPastDeadline,
   TERMINAL_STATUSES,

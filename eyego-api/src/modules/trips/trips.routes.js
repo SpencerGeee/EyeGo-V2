@@ -9,6 +9,8 @@ const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
 const { MIN_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING } = require('../../config/booking');
 const { publicShareLimiter } = require('../../middleware/rateLimiter');
+// Platform-wide maintenance switch — see middleware/killSwitch.js.
+const { requireBookingEnabled } = require('../../middleware/killSwitch');
 
 const router = Router();
 
@@ -50,6 +52,7 @@ router.get('/:id/deviation-estimate', authenticate, tripsController.getDeviation
 router.post(
   '/:id/book',
   authenticate,
+  requireBookingEnabled,
   body('seatNumber').isInt({ min: 1 }).withMessage('Valid seat number required'),
   validate,
   bookingsController.bookSeat
@@ -79,6 +82,7 @@ router.post(
 router.post(
   '/request',
   authenticate,
+  requireBookingEnabled,
   body('destination').trim().notEmpty().withMessage('Destination is required'),
   body('scheduledAt').isISO8601().withMessage('scheduledAt must be a valid ISO 8601 datetime'),
   body('seatCount').optional().isInt({ min: MIN_SEATS_PER_BOOKING, max: MAX_SEATS_PER_BOOKING }),
@@ -100,6 +104,7 @@ router.delete('/request/:id', authenticate, tripsController.cancelTripRequest);
 router.post(
   '/schedule',
   authenticate,
+  requireBookingEnabled,
   body('destination').trim().notEmpty().withMessage('Destination is required'),
   body('scheduledAt').isISO8601().withMessage('scheduledAt must be an ISO 8601 datetime'),
   body('seatCount').optional().isInt({ min: MIN_SEATS_PER_BOOKING, max: MAX_SEATS_PER_BOOKING }),

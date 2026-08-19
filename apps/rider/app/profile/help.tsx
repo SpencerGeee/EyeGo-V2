@@ -19,6 +19,7 @@ import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
 import type { Booking } from '@eyego/types';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { Text, Button, GlassSurface, PanelSheet } from '@eyego/ui';
 
 const FAQ_ITEMS = [
@@ -72,34 +73,52 @@ const FAQ_ITEMS = [
   },
 ];
 
-const CONTACT_OPTIONS = [
-  {
-    id: 'whatsapp',
-    icon: 'logo-whatsapp' as const,
-    label: 'Chat on WhatsApp',
-    color: '#25D366',
-    onPress: () => Linking.openURL('https://wa.me/233261490759?text=Hi%20EyeGo%20Support'),
-  },
-  {
-    id: 'email',
-    icon: 'mail-outline' as const,
-    label: 'Email Support',
-    color: '#4BE277',
-    onPress: () => Linking.openURL('mailto:support@eyego.app'),
-  },
-  {
-    id: 'phone',
-    icon: 'call-outline' as const,
-    label: 'Call Support',
-    color: '#4BE277',
-    onPress: () => Linking.openURL('tel:+233261490759'),
-  },
-];
+/**
+ * The support number is an operator setting (`SUPPORT_PHONE`), not a constant.
+ *
+ * It was hardcoded in three places in this app; when support changed number,
+ * every rider on the installed base kept dialling the old one until the next
+ * store release. `supportPhone` from `usePlatformConfig()` is the live value,
+ * and this literal is only the fallback for a cold start with no network.
+ */
+const FALLBACK_SUPPORT_PHONE = '+233261490759';
+
+function buildContactOptions(supportPhone: string) {
+  const digits = supportPhone.replace(/\D/g, '');
+  return [
+    {
+      id: 'whatsapp',
+      icon: 'logo-whatsapp' as const,
+      label: 'Chat on WhatsApp',
+      color: '#25D366',
+      onPress: () => Linking.openURL(`https://wa.me/${digits}?text=Hi%20EyeGo%20Support`),
+    },
+    {
+      id: 'email',
+      icon: 'mail-outline' as const,
+      label: 'Email Support',
+      color: '#4BE277',
+      onPress: () => Linking.openURL('mailto:support@eyego.app'),
+    },
+    {
+      id: 'phone',
+      icon: 'call-outline' as const,
+      label: 'Call Support',
+      color: '#4BE277',
+      onPress: () => Linking.openURL(`tel:${supportPhone}`),
+    },
+  ];
+}
 
 export default function HelpScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const { supportPhone } = usePlatformConfig();
+  const CONTACT_OPTIONS = useMemo(
+    () => buildContactOptions(supportPhone ?? FALLBACK_SUPPORT_PHONE),
+    [supportPhone],
+  );
   const [openItems, setOpenItems] = useState<Set<string>>(new Set());
   const [showTickets, setShowTickets] = useState(false);
   
@@ -212,6 +231,113 @@ export default function HelpScreen() {
     });
   };
 
+  /**
+   * ONE TICKET, ITS WHOLE THREAD, AND A WAY TO ANSWER.
+   *
+   * Rendered INSIDE the tickets sheet rather than as a second sheet of its own —
+   * see the note on that sheet for why two Modals meant the tap did nothing.
+   * The back chevron returns to the list; the sheet's own dismiss closes both.
+   *
+   * Everything here was already on the server — `SupportTicket.messages` ordered
+   * oldest-first, `GET /user/me/support-tickets/:id`, and `POST …/messages` —
+   * with no client for any of it.
+   */
+  const renderTicketThread = () => (
+    <View style={styles.sheetContent}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
+        <Pressable
+          onPress={() => { setOpenTicketId(null); setReplyText(''); }}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Back to my tickets"
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text variant="titleMedium" style={{ color: colors.onSurface }} numberOfLines={2}>
+            {openTicket?.subject ?? 'Ticket'}
+          </Text>
+          {!!openTicket && (
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              {openTicket.category ?? 'Support'} ·{' '}
+              {openTicket.status === 'OPEN' || openTicket.status === 'Open' ? 'Open' : 'Closed'} ·{' '}
+              {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleDateString() : ''}
+            </Text>
+          )}
+        </View>
+        <Pressable
+          onPress={() => { setShowTickets(false); setOpenTicketId(null); setReplyText(''); }}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={22} color={colors.onSurfaceVariant} />
+        </Pressable>
+      </View>
+
+      {openTicketLoading && !openTicket ? (
+        <Text variant="bodySmall" color={colors.onSurfaceVariant}>Loading…</Text>
+      ) : (
+        <>
+          {/* The opening message is a column on the ticket, not a row in
+              `messages` — render it first so the thread reads in order. */}
+          {!!openTicket?.message && (
+            <View style={[styles.threadBubble, { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }]}>
+              <Text variant="bodySmall" color={colors.onSurface}>{openTicket.message}</Text>
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                You · {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleString() : ''}
+              </Text>
+            </View>
+          )}
+
+          {(openTicket?.messages ?? []).map((m: any) => {
+            // `fromSupport` is how the console marks its own replies; a message
+            // without it is the rider's own follow-up.
+            const mine = !(m.fromSupport ?? m.isSupport ?? m.sender === 'SUPPORT');
+            return (
+              <View
+                key={m.id}
+                style={[
+                  styles.threadBubble,
+                  mine
+                    ? { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }
+                    : { alignSelf: 'flex-start', backgroundColor: colors.surfaceContainerHigh },
+                ]}
+              >
+                <Text variant="bodySmall" color={colors.onSurface}>{m.text ?? m.message ?? ''}</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {mine ? 'You' : 'EyeGo Support'} ·{' '}
+                  {m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}
+                </Text>
+              </View>
+            );
+          })}
+
+          {(openTicket?.messages ?? []).length === 0 && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
+              No reply yet. We usually respond within a few hours.
+            </Text>
+          )}
+
+          <TextInput
+            style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.lg }]}
+            placeholder="Add a message…"
+            placeholderTextColor={colors.onSurfaceVariant}
+            value={replyText}
+            onChangeText={setReplyText}
+            multiline
+          />
+          <Button
+            label={replyMutation.isPending ? 'Sending…' : 'Send message'}
+            onPress={() => replyMutation.mutate(replyText.trim())}
+            disabled={replyMutation.isPending || !replyText.trim()}
+            style={{ marginTop: spacing.sm }}
+          />
+        </>
+      )}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safe}>
       {/* Header */}
@@ -310,13 +436,37 @@ export default function HelpScreen() {
       {/* My Tickets — PanelSheet replaces @gorhom/bottom-sheet.
           Uses the same usePanelMotion engine: spring snap with velocity,
           backdrop opacity, scroll/drag arbitration. */}
+      {/*
+        ONE SHEET, TWO STATES — NOT TWO SHEETS.
+
+        BUGFIX ("currently, when I tap it, nothing happens"). The ticket rows had
+        a press handler all along; what they did was open a SECOND PanelSheet on
+        top of this one. PanelSheet is built on the React Native `Modal`, and two
+        visible Modals cannot coexist on iOS — the second simply never presents.
+        The tap fired, the state changed, and the screen did not move, which is
+        indistinguishable from a dead row.
+
+        So the thread is a STATE of this sheet rather than a sheet of its own:
+        `openTicketId` swaps the body, and the header's chevron walks back to the
+        list. One Modal, and the back path is now explicit instead of relying on
+        a dismissal ordering that never happened.
+      */}
       <PanelSheet
         visible={showTickets}
-        onDismiss={() => setShowTickets(false)}
+        onDismiss={() => { setShowTickets(false); setOpenTicketId(null); setReplyText(''); }}
         maxHeightPct={0.92}
         sheetStyle={{ backgroundColor: colors.background }}
         backdropOpacity={0.7}
       >
+        {/*
+          A plain CALL, not `<TicketThread />`. A component declared inside this
+          render is a new type on every render, so JSX would unmount and remount
+          the whole subtree each keystroke — the reply box would lose focus after
+          one character. Calling it inlines the elements instead.
+        */}
+        {openTicketId ? (
+          renderTicketThread()
+        ) : (
         <View style={styles.sheetContent}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
             <Text variant="titleMedium" style={{ color: colors.onSurface }}>
@@ -491,14 +641,26 @@ export default function HelpScreen() {
               to read a reply or send one. So a rider raised a ticket and, as
               far as the app was concerned, it vanished.
             */
-            tickets.map((ticket: any) => (
+            tickets.map((ticket: any) => {
+              const isOpen = ticket.status === 'Open';
+              return (
               <Pressable
                 key={ticket.id}
                 onPress={() => setOpenTicketId(ticket.id)}
-                style={({ pressed }) => [styles.ticketItem, pressed && { opacity: 0.7 }]}
+                style={({ pressed }) => [
+                  styles.ticketItem,
+                  isOpen && styles.ticketItemOpen,
+                  pressed && { opacity: 0.7 },
+                ]}
                 accessibilityRole="button"
                 accessibilityLabel={`Open ticket: ${ticket.subject}`}
               >
+                <GlassSurface
+                  borderRadius={radii.xl}
+                  intensity={isOpen ? 'high' : 'low'}
+                  style={StyleSheet.absoluteFill}
+                />
+                {isOpen && <View style={styles.ticketGlow} pointerEvents="none" />}
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text variant="bodyMedium" color={colors.onSurface} style={{ fontFamily: fonts.semiBold }}>
                     {ticket.subject}
@@ -515,114 +677,11 @@ export default function HelpScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} style={{ marginLeft: spacing.xs }} />
               </Pressable>
-            ))
+              );
+            })
           )}
         </View>
-      </PanelSheet>
-
-      {/*
-        ONE TICKET, ITS WHOLE THREAD, AND A WAY TO ANSWER.
-
-        The list above only ever showed the opening message. Everything here was
-        already on the server — `SupportTicket.messages` ordered oldest-first,
-        `GET /user/me/support-tickets/:id`, and `POST …/messages` — with no
-        client for any of it.
-
-        Stacked as its own sheet rather than replacing the list's contents so
-        closing it returns the rider to where they were.
-      */}
-      <PanelSheet
-        visible={!!openTicketId}
-        onDismiss={() => { setOpenTicketId(null); setReplyText(''); }}
-        maxHeightPct={0.92}
-        sheetStyle={{ backgroundColor: colors.background }}
-        backdropOpacity={0.7}
-      >
-        <View style={styles.sheetContent}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md }}>
-            <View style={{ flex: 1, paddingRight: spacing.md }}>
-              <Text variant="titleMedium" style={{ color: colors.onSurface }} numberOfLines={2}>
-                {openTicket?.subject ?? 'Ticket'}
-              </Text>
-              {!!openTicket && (
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {openTicket.category ?? 'Support'} ·{' '}
-                  {openTicket.status === 'OPEN' || openTicket.status === 'Open' ? 'Open' : 'Closed'} ·{' '}
-                  {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleDateString() : ''}
-                </Text>
-              )}
-            </View>
-            <Pressable
-              onPress={() => { setOpenTicketId(null); setReplyText(''); }}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel="Close ticket"
-            >
-              <Ionicons name="close" size={22} color={colors.onSurfaceVariant} />
-            </Pressable>
-          </View>
-
-          {openTicketLoading && !openTicket ? (
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>Loading…</Text>
-          ) : (
-            <>
-              {/* The opening message is a column on the ticket, not a row in
-                  `messages` — render it first so the thread reads in order. */}
-              {!!openTicket?.message && (
-                <View style={[styles.threadBubble, { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }]}>
-                  <Text variant="bodySmall" color={colors.onSurface}>{openTicket.message}</Text>
-                  <Text variant="caption" color={colors.onSurfaceVariant}>
-                    You · {openTicket.createdAt ? new Date(openTicket.createdAt).toLocaleString() : ''}
-                  </Text>
-                </View>
-              )}
-
-              {(openTicket?.messages ?? []).map((m: any) => {
-                // `fromSupport` is how the console marks its own replies; a
-                // message without it is the rider's own follow-up.
-                const mine = !(m.fromSupport ?? m.isSupport ?? m.sender === 'SUPPORT');
-                return (
-                  <View
-                    key={m.id}
-                    style={[
-                      styles.threadBubble,
-                      mine
-                        ? { alignSelf: 'flex-end', backgroundColor: colors.primary + '1A' }
-                        : { alignSelf: 'flex-start', backgroundColor: colors.surfaceContainerHigh },
-                    ]}
-                  >
-                    <Text variant="bodySmall" color={colors.onSurface}>{m.text ?? m.message ?? ''}</Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>
-                      {mine ? 'You' : 'EyeGo Support'} ·{' '}
-                      {m.createdAt ? new Date(m.createdAt).toLocaleString() : ''}
-                    </Text>
-                  </View>
-                );
-              })}
-
-              {(openTicket?.messages ?? []).length === 0 && (
-                <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.sm }}>
-                  No reply yet. We usually respond within a few hours.
-                </Text>
-              )}
-
-              <TextInput
-                style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.lg }]}
-                placeholder="Add a message…"
-                placeholderTextColor={colors.onSurfaceVariant}
-                value={replyText}
-                onChangeText={setReplyText}
-                multiline
-              />
-              <Button
-                label={replyMutation.isPending ? 'Sending…' : 'Send message'}
-                onPress={() => replyMutation.mutate(replyText.trim())}
-                disabled={replyMutation.isPending || !replyText.trim()}
-                style={{ marginTop: spacing.sm }}
-              />
-            </>
-          )}
-        </View>
+        )}
       </PanelSheet>
     </SafeAreaView>
   );
@@ -765,17 +824,32 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
   },
+  /**
+   * BUGFIX ("you need to design the cards of the previous tickets and my tickets
+   * properly, it's now badly done — use the glass card and if possible give it
+   * glow borders").
+   *
+   * A flat filled rectangle with a hairline outline, in an app whose every other
+   * list uses the glass surface. No background of its own any more: the
+   * GlassSurface behind it IS the background, and painting one on top of glass
+   * is what makes glass look like a plain box.
+   */
   ticketItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.surfaceContainer,
-    borderRadius: radii.lg,
+    borderRadius: radii.xl,
     padding: spacing.base,
     marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.outlineVariant,
+    overflow: 'hidden',
   },
+  // An OPEN ticket is the one the rider is waiting on, so it is the one that
+  // glows. A soft inner wash rather than a shadow: shadows do not render inside
+  // an `overflow: hidden` card.
+  ticketItemOpen: { borderColor: `${colors.primary}66` },
+  ticketGlow: { ...StyleSheet.absoluteFillObject, backgroundColor: `${colors.primary}0F` },
   statusBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,

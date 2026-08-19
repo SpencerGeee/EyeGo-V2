@@ -85,9 +85,14 @@ export default function MyVehicleScreen() {
 
             <VehicleRow icon="car-outline" label="Make / Model" value={`${vehicle.make ?? '—'} ${vehicle.model ?? ''}`} colors={colors} />
             <View style={styles.divider} />
+            <VehicleRow icon="color-palette-outline" label="Colour" value={vehicle.colour ?? '—'} colors={colors} />
+            <View style={styles.divider} />
             <VehicleRow icon="keypad-outline" label="License Plate" value={vehicle.plateNumber ?? '—'} colors={colors} />
             <View style={styles.divider} />
-            <VehicleRow icon="people-outline" label="Capacity" value={`${vehicle.seatCapacity ?? 14} seats`} colors={colors} />
+            {/* `seaterCount` is the column name. This read `seatCapacity`, which
+                does not exist on the payload, so every vehicle displayed the
+                fallback "14 seats" regardless of what was registered. */}
+            <VehicleRow icon="people-outline" label="Capacity" value={`${vehicle.seaterCount ?? '—'} seats`} colors={colors} />
             <View style={styles.divider} />
             <VehicleRow
               icon={vehicle.isVerified ? 'shield-checkmark-outline' : 'time-outline'}

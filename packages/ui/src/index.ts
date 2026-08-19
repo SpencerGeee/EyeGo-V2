@@ -23,6 +23,8 @@ export { Avatar } from './Avatar';
 export { Toggle } from './Toggle';
 export { Radio } from './Radio';
 export { EmptyState } from './EmptyState';
+export { AnnouncementBanner } from './AnnouncementBanner';
+export type { AnnouncementBannerProps, AnnouncementLevel } from './AnnouncementBanner';
 export { Loader } from './Loader';
 export { ShinyText } from './ShinyText';
 

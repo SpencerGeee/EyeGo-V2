@@ -6,7 +6,14 @@ export { tripsApi } from './trips.api';
 // On-demand rides + the one realtime channel. See tripChannel.ts for why the
 // ~20 ad-hoc socket listeners were collapsed into a single sequenced event.
 export { ridesApi } from './rides.api';
-export type { FareQuote, ActiveRideResponse, DriverStateResponse } from './rides.api';
+export type {
+  FareQuote,
+  ActiveRideResponse,
+  DriverStateResponse,
+  DriverResyncResponse,
+  PendingOffer,
+  PendingDispatch,
+} from './rides.api';
 export {
   subscribeToTrip,
   reduceTripEvent,
@@ -32,10 +39,17 @@ export { paymentsApi } from './payments.api';
 export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth, refreshDriverSocketAuth } from './socket';
 export { notificationsApi } from './notifications.api';
 export type { Notification as AppNotification } from './notifications.api';
-export { routesApi } from './routes.api';
-export type { Route } from './routes.api';
-export { driverApi, MOMO_NETWORKS } from './drivers.api';
-export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverRatings, DriverDocument, PendingTripRequest, UpcomingScheduledTrip, MomoNetwork } from './drivers.api';
+// NOT exported: `routesApi` in ./routes.api.
+//
+// It calls `GET /v1/routes`, and `routes.routes.js` is deliberately not mounted
+// (see the note at the top of eyego-api/src/app.js) — the group/on-demand pivot
+// retired fixed, admin-curated routes in favour of ad-hoc `Route` rows created
+// behind a map pin. Every call in that module 404s. It stays on disk because the
+// fixed-route product may come back; exporting it only offers callers a trap.
+export { configApi, PLATFORM_CONFIG_FALLBACK } from './config.api';
+export type { PlatformConfig, PlatformTier } from './config.api';
+export { driverApi, MOMO_NETWORKS, VEHICLE_TIERS, MIN_SEATER_COUNT, MAX_SEATER_COUNT } from './drivers.api';
+export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverRatings, DriverDocument, PendingTripRequest, UpcomingScheduledTrip, MomoNetwork, DriverVerificationInput, VehicleTier } from './drivers.api';
 export { walletApi } from './wallet.api';
 export type { WalletBalance, WalletTransaction, TopUpRequest } from './wallet.api';
 export { supportTicketsApi } from './support.api';

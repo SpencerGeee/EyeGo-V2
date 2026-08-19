@@ -36,6 +36,7 @@ import { useAuthStore, registerLogoutCleanup } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, setAuthReadyGate, userApi } from '@eyego/api';
 import { resolveApiUrl } from '../stores/api.store';
+import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
 import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -379,6 +380,25 @@ export default function RootLayout() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
       offlineQueue.flushQueue();
+      /**
+       * THE TRIP STORE, NOT JUST THE QUERY CACHE.
+       *
+       * BUGFIX ("the pin code for the verification is still not showing on the
+       * rider app when I switch from the driver app to the rider app").
+       *
+       * Invalidating React Query refreshed the booking LISTS. It did nothing for
+       * the live trip snapshot, which is where the boarding-PIN ask lives — and
+       * the ask itself rides a `trip:event` frame with no seq, so there is
+       * nothing to replay it from either. A rider who was in the driver app on
+       * the same handset when the driver tapped "verify" came back to a screen
+       * that had missed the only frame that would ever mention it.
+       *
+       * `hydrate()` re-reads the snapshot, which now carries `pinRequestedAtMs`
+       * as a durable server-side fact (Booking.pinRequestedAt), so the sheet
+       * comes up from state rather than from a frame you had to be awake for.
+       * Same call settles `driverLinkLostSinceMs` for the signal-lost banner.
+       */
+      void useTripStore.getState().hydrate();
       queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
       queryClient.invalidateQueries({ queryKey: ['bookings', 'active-root-listener'] });
       queryClient.invalidateQueries({ queryKey: ['trips'] });

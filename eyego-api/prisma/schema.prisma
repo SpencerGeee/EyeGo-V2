@@ -300,6 +300,12 @@ model Vehicle {
   year          Int
   seaterCount   Int
   tier          String
+  // Free text, and nullable because it was collected by the driver app's
+  // onboarding form long before there was a column to put it in. The rider
+  // identifies a car at the kerb by its colour more reliably than by its make,
+  // and the admin driver page has always rendered a "Colour" row — it just had
+  // nothing to render.
+  colour        String?
   frontPhoto    String?
   rearPhoto     String?
   interiorPhoto String?
@@ -553,6 +559,24 @@ model Booking {
   /// `boardingPin` means "still to verify"; the two together are what the
   /// driver's seat map reads to decide whether boarding is allowed.
   pinVerifiedAt       DateTime?
+  /// When the driver last tapped "ask for the code".
+  ///
+  /// THE REQUEST HAS TO OUTLIVE THE SOCKET FRAME. `BOARDING_PIN_REQUESTED` is
+  /// published with `seq: null`, so — unlike every lifecycle event — the trip
+  /// channel cannot replay it. A rider who was in another app when the driver
+  /// tapped came back to a screen that had never been told, which is the whole
+  /// of "the pin code is still not showing when I switch from the driver app".
+  /// Persisting the ask means any hydrate, foreground or refetch surfaces it.
+  /// Cleared by verification (`pinVerifiedAt`), which is what takes it down.
+  pinRequestedAt      DateTime?
+  /// Deadline on a provisional seat, after which it is released.
+  ///
+  /// Written by the driver's "add passenger by phone + OTP" flow, which creates
+  /// the booking as SEAT_HELD — a seat-OCCUPYING status — before the passenger
+  /// has proved anything. Nothing used to release it, so backing out of the OTP
+  /// screen burned the seat for the life of the trip. Null means "not
+  /// provisional": a confirmed or paid booking holds its seat outright.
+  holdExpiresAt       DateTime?
 
   cancelledAt         DateTime?
   cancellationReason  String?
@@ -594,6 +618,7 @@ model Booking {
   @@index([userId])
   @@index([status])
   @@index([paystackRef])
+  @@index([holdExpiresAt])
 }
 
 // ─────────────────────────────────────────

@@ -195,13 +195,16 @@ async function beatPresenceOverHttp(): Promise<void> {
  * 25-second cadence is too slow to matter: the driver has just switched back
  * from the rider app on the same phone and a search may be parked on them.
  */
-export function beatPresenceNow(): void {
-  void beatPresenceOverHttp();
+export function beatPresenceNow(): Promise<void> {
+  const beat = beatPresenceOverHttp();
   try {
     if (lastReportedFix) driverSocketEvents.emitLocation(lastReportedFix);
   } catch {
     // Socket not up yet; the HTTP beat above already did the important half.
   }
+  // Awaitable on purpose: the foreground resync can only find this driver a
+  // parked search if the pool already knows they are back. Ordering, not speed.
+  return beat;
 }
 
 function acquireHeartbeat() {

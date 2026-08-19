@@ -51,9 +51,33 @@ export interface DriverProfile {
     plateNumber: string;
     seaterCount: number;
     tier: string;
+    colour?: string | null;
     isVerified: boolean;
     isActive: boolean;
   }>;
+}
+
+/** The three tiers the fare card prices — see `config/settings.js`. */
+export const VEHICLE_TIERS = ['ECO', 'COMFORT', 'PREMIUM'] as const;
+export type VehicleTier = (typeof VEHICLE_TIERS)[number];
+
+/** Smallest and largest vehicle a driver may register. Mirrors drivers.service.js. */
+export const MIN_SEATER_COUNT = 2;
+export const MAX_SEATER_COUNT = 20;
+
+/** Body of `POST /v1/driver/verify` — see `driverApi.submitVerification`. */
+export interface DriverVerificationInput {
+  name?: string;
+  ghanaCardNumber?: string;
+  vehicle: {
+    plateNumber: string;
+    make: string;
+    model: string;
+    year: number;
+    seaterCount: number;
+    tier: VehicleTier;
+    colour?: string;
+  };
 }
 
 export interface DriverPerformance {
@@ -207,6 +231,23 @@ export const driverApi = {
   updateMe: (data: Partial<Pick<DriverProfile, 'name' | 'avatarUrl' | 'dateOfBirth' | 'profilePhoto'>>) =>
     apiClient.patch<ApiResponse<DriverProfile>>('/driver/me', data),
 
+  /**
+   * Submit the vehicle (and optionally the name / Ghana Card number) the account
+   * is verified against.
+   *
+   * This is what creates the driver's `Vehicle` row, and nothing else does.
+   * Without it the account can pass review and go online but cannot accept a
+   * single trip — `createTrip` and `claimReassignedTrip` reject with
+   * `NO_VEHICLE`, and tier-matched dispatch filters the driver out. Onboarding
+   * used to send these fields to `updateMe`, which dropped them silently.
+   *
+   * Safe to call more than once: the same plate updates the existing row, a new
+   * plate retires the old car and registers the new one. Either way the vehicle
+   * returns to unverified and goes back through admin review.
+   */
+  submitVerification: (data: DriverVerificationInput) =>
+    apiClient.post<ApiResponse<{ driver: DriverProfile }>>('/driver/verify', data),
+
   // Dev-only: immediately activate a PENDING_REVIEW account
   devActivate: () =>
     apiClient.post<ApiResponse<DriverProfile>>('/driver/dev-activate'),
@@ -308,6 +349,21 @@ export const driverApi = {
     apiClient.post<ApiResponse<{ verified: boolean }>>(`/driver/trips/${tripId}/verify-otp`, data),
 
   /**
+   * Abandon an unverified Phone + OTP hold and give the seat back immediately.
+   *
+   * BUGFIX ("I didn't go through with the OTP but it's still showing that the
+   * seat is reserved"). Creating the hold reserves the seat — it has to, or two
+   * drivers could sell the same one — but nothing gave it back when the driver
+   * walked away. There is a server-side expiry sweep as a backstop; this is the
+   * fast path, and it is idempotent, so calling it on an already-verified
+   * booking is a no-op rather than a cancelled passenger.
+   */
+  releaseOfflineHold: (tripId: string, bookingId: string) =>
+    apiClient.post<ApiResponse<{ released: boolean }>>(
+      `/driver/trips/${tripId}/offline-hold/${bookingId}/release`,
+    ),
+
+  /**
    * Mark a passenger aboard.
    *
    * `pin` is "Verify My Ride" — required only for bookings whose rider turned
@@ -354,6 +410,28 @@ export const driverApi = {
   // copy ("driver no-show"), instead of reusing the generic cancel action.
   driverNoShow: (tripId: string) =>
     apiClient.post<ApiResponse<{ tripId: string; refundedCount: number }>>(`/trips/${tripId}/driver-no-show`),
+
+  /**
+   * ONE passenger did not board. The trip still runs.
+   *
+   * The counterpart to `driverNoShow`, and a different decision: that one kills
+   * the whole trip and refunds everybody, this one marks a single booking
+   * NO_SHOW, releases its seat number back into the map, and issues no refund.
+   * On a minibus those are not the same event, and the driver terms explicitly
+   * instruct a driver to "follow the in-app no-show flow … do not depart with an
+   * unboarded reserved seat still marked as occupied" — an instruction that
+   * could not be followed, because the endpoint had no caller anywhere in the
+   * app. Meanwhile the abandoned seat kept counting toward the minimum-occupancy
+   * check that decides whether the bus may leave.
+   *
+   * Pre-departure only, and the server enforces it: the booking must still be
+   * CONFIRMED or SEAT_HELD, so a driver cannot no-show somebody they already
+   * picked up.
+   */
+  riderNoShow: (tripId: string, bookingId: string) =>
+    apiClient.post<ApiResponse<{ bookingId: string; seatNumber: number | null }>>(
+      `/trips/${tripId}/rider-no-show/${bookingId}`,
+    ),
 
   // Admin dispatch — accept or decline an assigned trip
   acceptDispatch: (tripId: string) =>

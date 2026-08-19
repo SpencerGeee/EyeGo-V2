@@ -18,6 +18,8 @@ const errorHandler = require('./middleware/errorHandler');
 const logger = require('./utils/logger');
 
 // Routes
+// Only for its LEGACY_ENABLED flag — see the legacy admin SPA mount below.
+const authenticateAdmin = require('./middleware/adminAuth');
 const authRoutes = require('./modules/auth/auth.routes');
 const usersRoutes = require('./modules/users/users.routes');
 // NOTE: client-facing route-discovery API (/v1/routes) removed in the
@@ -280,11 +282,21 @@ app.get('/map-style/:variant.json', (req, res) => {
   res.json(style);
 });
 
-// ── Admin Dashboard SPA ──────────────────────────────────────────
-app.use('/admin', express.static(path.join(__dirname, '../public')));
-app.get('/admin/*', (req, res) => {
-  res.sendFile(path.resolve(__dirname, '../public/index.html'));
-});
+// ── Legacy admin SPA (eyego-api/public) ──────────────────────────
+//
+// Superseded by apps/admin, which has real AdminUser accounts, RBAC and an
+// audit log. This one authenticates with the shared `x-admin-secret` and can
+// therefore only ever act as an unattributable superadmin, so it is served
+// exactly as long as that secret is accepted — `LEGACY_ENABLED` is false in
+// production unless someone sets ADMIN_LEGACY_SECRET=true on purpose. Serving
+// the page while the API refuses its credentials would only offer an attacker a
+// login form and everyone else a broken console.
+if (authenticateAdmin.LEGACY_ENABLED) {
+  app.use('/admin', express.static(path.join(__dirname, '../public')));
+  app.get('/admin/*', (req, res) => {
+    res.sendFile(path.resolve(__dirname, '../public/index.html'));
+  });
+}
 
 // ── 404 ────────────────────────────────────────────────────────────
 app.use((req, res) => {

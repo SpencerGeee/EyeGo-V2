@@ -4,6 +4,7 @@ const prisma = require('../config/database');
 const { LIVE_STATUSES } = require('./trip-state.service');
 const { peekRouteForTrip } = require('./route-geometry.service');
 const { SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
+const supply = require('./supply-index.service');
 const env = require('../config/env');
 
 /**
@@ -108,6 +109,24 @@ const TRIP_INCLUDE = Object.freeze({
       pickupLat: true,
       pickupLng: true,
       pickupAddress: true,
+      /**
+       * THE RIDE CODE — SELECTED HERE, PROJECTED ONLY ONTO `myBooking`.
+       *
+       * BUGFIX ("the pin code for the verification is still not showing on the
+       * rider app"). The projection below has read `myBooking.boardingPin`
+       * since the feature was built, and these three columns were never in the
+       * select — so it read `undefined` on every snapshot and the rider's card
+       * rendered its own "no pin" branch forever. The socket-frame gap was the
+       * second half of the bug; this was the first.
+       *
+       * Safe to select and NOT safe to project blindly: only the `myBooking`
+       * block hands the digits out, and `myBooking` is resolved from
+       * `forUserId`, so a driver's snapshot never has one. Anything that starts
+       * projecting raw booking rows must strip these.
+       */
+      boardingPin: true,
+      pinVerifiedAt: true,
+      pinRequestedAt: true,
     },
   },
 });
@@ -130,12 +149,23 @@ const CONTACTABLE_STATUSES = new Set([
 ]);
 
 /**
+ * Statuses where a driver is attached and expected to be reporting a position.
+ * Outside these there is no link to lose: nobody is driving toward anyone.
+ */
+const ACTIVE_LINK_STATUSES = new Set([
+  'DRIVER_ASSIGNED',
+  'DRIVER_EN_ROUTE',
+  'ARRIVED_AT_PICKUP',
+  'IN_PROGRESS',
+]);
+
+/**
  * @param {object} trip  a Trip loaded with TRIP_INCLUDE
  * @param {{forUserId?: string, forDriverId?: string}} [viewer]
  */
 function buildTripSnapshot(trip, viewer = {}) {
   if (!trip) return null;
-  const { forUserId = null, path = null } = viewer;
+  const { forUserId = null, path = null, driverLinkLostSinceMs } = viewer;
 
   /**
    * Every seat this viewer is paying for, not just the first one found.
@@ -415,6 +445,23 @@ function buildTripSnapshot(trip, viewer = {}) {
            */
           boardingPin: myBooking.pinVerifiedAt ? null : myBooking.boardingPin ?? null,
           pinVerified: !!myBooking.pinVerifiedAt,
+          /**
+           * THE DRIVER IS ASKING, RIGHT NOW — and this is the copy that
+           * survives a backgrounded app.
+           *
+           * `BOARDING_PIN_REQUESTED` rides an unsequenced socket frame, so it
+           * cannot be replayed; a rider switching back from the driver app on
+           * the same handset was never told. Carrying the ask on the snapshot
+           * means every path that rebuilds the trip — cold start, foreground
+           * hydrate, reconnect, plain refetch — raises the sheet.
+           *
+           * Suppressed once verified, for the same reason `boardingPin` is: a
+           * code already used is not a code to show.
+           */
+          pinRequestedAtMs:
+            myBooking.pinVerifiedAt || !myBooking.pinRequestedAt
+              ? null
+              : new Date(myBooking.pinRequestedAt).getTime(),
         }
       : null,
 
@@ -449,6 +496,14 @@ function buildTripSnapshot(trip, viewer = {}) {
       ? { by: trip.cancelledBy, reason: trip.cancellationReason }
       : null,
     redispatchCount: trip.redispatchCount,
+
+    /**
+     * `null` = the driver is reporting, `number` = silent since that instant,
+     * `undefined` = we could not tell, keep whatever you had. Only the
+     * with-path builder can answer it; the plain builder leaves it undefined so
+     * a cheap snapshot never claims a driver is fine when it never looked.
+     */
+    driverLinkLostSinceMs,
   };
 }
 
@@ -468,7 +523,45 @@ async function buildTripSnapshotWithPath(trip, viewer = {}) {
   } catch {
     // A snapshot without a line is still a correct snapshot.
   }
-  return buildTripSnapshot(trip, { ...viewer, path });
+
+  /**
+   * IS THE DRIVER'S PHONE STILL REPORTING? — on the snapshot, not only in a
+   * frame you had to be awake for.
+   *
+   * BUGFIX ("when the rider app says driver signal lost, the only way to get it
+   * back is to close the app and open it again").
+   *
+   * `DRIVER_LINK_LOST` / `DRIVER_LINK_RESTORED` are published with no trip seq,
+   * so the trip channel cannot replay either of them. The rider's flag was
+   * therefore raised and lowered by frames alone, and a missed RESTORED left a
+   * permanent warning that only a fresh store — i.e. a restart — could clear.
+   *
+   * Presence is a Redis key with a TTL, so this is one cheap membership check
+   * and it is the same source `driver-link-watch` reads. Putting it on the
+   * snapshot means every hydrate, foreground and reconnect settles the question
+   * from the server's own current answer.
+   *
+   * `undefined` on failure rather than `false`, deliberately: a Redis blip must
+   * read as "no opinion" so the client keeps whatever it had, not as "the driver
+   * is fine" (which would hide a real outage) and not as "the driver is gone"
+   * (which would tell every rider at once that they had lost their driver).
+   */
+  let driverLinkLostSinceMs;
+  if (trip.driverId && ACTIVE_LINK_STATUSES.has(trip.status)) {
+    try {
+      const present = await supply.whichArePresent([trip.driverId]);
+      driverLinkLostSinceMs = present.has(trip.driverId)
+        ? null
+        : new Date(trip.updatedAt ?? Date.now()).getTime();
+    } catch {
+      driverLinkLostSinceMs = undefined;
+    }
+  } else {
+    // No driver attached, or the ride is over — there is no link to lose.
+    driverLinkLostSinceMs = null;
+  }
+
+  return buildTripSnapshot(trip, { ...viewer, path, driverLinkLostSinceMs });
 }
 
 /** Load + serialize in one call. */

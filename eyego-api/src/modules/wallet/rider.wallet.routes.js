@@ -6,7 +6,7 @@ const authenticate = require('../../middleware/auth');
 const idempotency = require('../../middleware/idempotency');
 const { ok } = require('../../utils/response');
 const prisma = require('../../config/database');
-const paystack = require('../payments/paystack.client');
+const paystack = require('../payments/provider');
 const { AppError } = require('../../utils/errors');
 const { assertPesewas, formatGhs, fromCedis } = require('../../utils/money');
 

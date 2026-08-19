@@ -56,6 +56,17 @@ export function DestinationModeCard() {
   const clearMode = useMutation({
     mutationFn: () => driverApi.clearDestinationMode(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['driver', 'destination-mode'] }),
+    // A failed clear left the card looking cleared while the server still
+    // filtered every offer to one destination — the driver would sit online
+    // wondering why almost nothing arrived. Say so, and invalidate so the card
+    // snaps back to the truth.
+    onError: (err: any) => {
+      qc.invalidateQueries({ queryKey: ['driver', 'destination-mode'] });
+      Alert.alert(
+        'Could not clear destination',
+        err?.response?.data?.message ?? 'Your destination filter is still active. Please try again.',
+      );
+    },
   });
 
   // The picker hands its result back through a one-shot module slot, so this

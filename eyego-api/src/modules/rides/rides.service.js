@@ -11,6 +11,10 @@ const boardingPin = require('../../services/boarding-pin.service');
 const scheduledTasks = require('../../services/scheduled-task.service');
 const supply = require('../../services/supply-index.service');
 const { isDriverAvailable } = require('../../services/driver-availability');
+const { effectivePickup } = require('../../services/route-geometry.service');
+const { haversineMeters } = require('../../utils/geo');
+const { seatOccupyingWhere, livePassengerWhere } = require('../../utils/booking-status');
+const env = require('../../config/env');
 // Settlement lives here and only here — see completeTrip below for why this is
 // a delegation rather than a second implementation.
 const tripsService = require('../trips/trips.service');
@@ -23,6 +27,22 @@ const {
 } = require('../../services/trip-view');
 
 const { TRIP_STATUS: S, ACTOR } = tripState;
+
+/**
+ * The only states `failTripHard` may force to NO_DRIVERS_FOUND.
+ *
+ * Every one of them is "the trip exists and nobody has taken it". A trip that
+ * has left this set has a driver attached, and forcing it terminal would cancel
+ * a live ride — see the note in `failTripHard`.
+ */
+const FORCEABLE_STATUSES = [S.REQUESTED, S.MATCHING, S.REASSIGNING];
+
+/**
+ * How close counts as "at the pickup point". Kept identical to the copy in
+ * sockets/driver.socket.js — one number, two entry points, or a driver could
+ * arrive on the ping and not on the accept.
+ */
+const ARRIVAL_RADIUS_M = Number(env.ARRIVAL_RADIUS_M ?? 75);
 
 /**
  * On-demand rides — the single canonical path.
@@ -119,7 +139,9 @@ async function quoteRide(userId, params) {
  * The state machine stays the first choice, because it writes the TripEvent
  * that every downstream consumer replays. But a trip that cannot be
  * transitioned must still not be left looking live, so the fallback writes the
- * terminal status directly and cancels the seat with it.
+ * terminal status directly and cancels the seat with it — for the pre-driver
+ * states ONLY. See the note in the catch block for why that qualification is
+ * the whole safety of this function.
  */
 async function failTripHard(tripId, reason, error) {
   try {
@@ -129,6 +151,31 @@ async function failTripHard(tripId, reason, error) {
     });
     return;
   } catch (transitionErr) {
+    /**
+     * ONE REASON THE TRANSITION FAILS IS THAT IT SHOULD HAVE.
+     *
+     * `ILLEGAL_TRANSITION` from a trip that now has a driver is not a fault to
+     * force past — it is the state machine reporting that somebody else won.
+     * Dispatch giving up and a driver tapping Accept are two independent
+     * timers, and they can land in the same instant: the cascade's last offer
+     * expires, `failTripHard` runs, and the driver's accept has already moved
+     * the trip to DRIVER_EN_ROUTE. Forcing NO_DRIVERS_FOUND on top of that
+     * killed a live, accepted ride and cancelled every seat on it — the rider
+     * watched a driver arrive on the map and then the trip vanish.
+     *
+     * So: re-read, and only force a trip that is still waiting for a driver.
+     * Anything else is somebody's live ride.
+     */
+    const current = await prisma.trip
+      .findUnique({ where: { id: tripId }, select: { status: true } })
+      .catch(() => null);
+    if (current && !FORCEABLE_STATUSES.includes(current.status)) {
+      logger.warn(
+        `Not forcing trip ${tripId} terminal: it is ${current.status}, which means ` +
+          `it was claimed while dispatch was giving up. (${transitionErr.message})`,
+      );
+      return;
+    }
     logger.error(
       `applyTransition to NO_DRIVERS_FOUND failed for trip ${tripId}: ` +
         `${transitionErr.message}. Forcing the terminal status directly.`,
@@ -137,16 +184,23 @@ async function failTripHard(tripId, reason, error) {
 
   await prisma
     .$transaction(async (tx) => {
-      await tx.trip.update({
-        where: { id: tripId },
+      // `status: { in: FORCEABLE_STATUSES }` makes this a compare-and-swap
+      // rather than a blind write, so the same race cannot slip through between
+      // the re-read above and this update.
+      const forced = await tx.trip.updateMany({
+        where: { id: tripId, status: { in: FORCEABLE_STATUSES } },
         data: {
           status: S.NO_DRIVERS_FOUND,
           cancelledAt: new Date(),
           version: { increment: 1 },
         },
       });
+      if (forced.count === 0) {
+        logger.warn(`Trip ${tripId} left alone — it moved out of a pre-driver state mid-force.`);
+        return;
+      }
       await tx.booking.updateMany({
-        where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED', 'REFUNDED'] } },
+        where: { tripId, ...livePassengerWhere() },
         // `seatNumber: null` — this was the ONE seat-release site in the codebase
         // that did not null it (see utils/booking-status.js, and the twelve other
         // release sites that all do). `Booking` carries
@@ -531,8 +585,103 @@ async function acceptRide(driverId, tripId) {
   // A driver on a trip is not dispatchable supply.
   await supply.removeDriver(driverId);
 
+  // A driver who accepted from the kerb outside the pickup is already there.
+  const arrived = await autoArriveIfAtPickup(tripId, driverId);
+
   const full = await prisma.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
-  return { tripId, status: result.trip.status, version: result.trip.version, snapshot: buildTripSnapshot(full, {}) };
+  return {
+    tripId,
+    status: full?.status ?? result.trip.status,
+    version: full?.version ?? result.trip.version,
+    snapshot: buildTripSnapshot(full, {}),
+    arrivedAtPickup: arrived,
+  };
+}
+
+/**
+ * WHEN THE DRIVER IS ALREADY THERE, SKIP "HEADING TO PICKUP" ENTIRELY.
+ *
+ * BUGFIX ("the driver tracking page is showing that the driver is at the pickup
+ * point (eta) but it's still showing the text heading to pickup ... I think you
+ * need to make sure that if the driver is at the pickup point, they skip the
+ * heading to pickup status altogether and it moves straight to the at pickup
+ * status. That would fix the discrepancy between the driver and rider apps.")
+ *
+ * The two apps were never disagreeing with each other — they were both rendering
+ * DRIVER_EN_ROUTE correctly, because nothing could move the trip off it except
+ * the driver tapping "I've arrived". A driver who accepted a ride from the very
+ * kerb they were being sent to therefore spent the whole wait "on the way".
+ *
+ * Runs on accept; the location handler in driver.socket.js runs the same rule on
+ * every fix for the driver who accepts from further out. Both go through
+ * `applyTransition`, so the change is published on the trip channel like any
+ * other and neither app has to compute anything.
+ *
+ * @returns {Promise<boolean>} whether the trip was moved to ARRIVED_AT_PICKUP.
+ */
+async function autoArriveIfAtPickup(tripId, driverId) {
+  try {
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: {
+        id: true, status: true, pickupLat: true, pickupLng: true,
+        bookings: {
+          where: { ...seatOccupyingWhere() },
+          select: { pickupLat: true, pickupLng: true },
+        },
+      },
+    });
+    if (!trip || (trip.status !== S.DRIVER_ASSIGNED && trip.status !== S.DRIVER_EN_ROUTE)) return false;
+
+    const pickup = effectivePickup(trip);
+    if (!pickup || !Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lng)) return false;
+
+    // Redis holds every fix; the Driver row is written through only every 15 s
+    // or 60 m, so it can be a block behind at exactly the moment this matters.
+    let where = null;
+    try {
+      const raw = await redis.get(`driver:${driverId}:location`);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (Number.isFinite(p?.lat) && Number.isFinite(p?.lng)) where = { lat: p.lat, lng: p.lng };
+      }
+    } catch { /* fall through to the row */ }
+    if (!where) {
+      const d = await prisma.driver.findUnique({
+        where: { id: driverId },
+        select: { currentLat: true, currentLng: true },
+      });
+      if (Number.isFinite(d?.currentLat) && Number.isFinite(d?.currentLng)) {
+        where = { lat: d.currentLat, lng: d.currentLng };
+      }
+    }
+    if (!where) return false;
+
+    const metres = haversineMeters(where.lat, where.lng, pickup.lat, pickup.lng);
+    if (!(metres <= ARRIVAL_RADIUS_M)) return false;
+
+    // The table has no DRIVER_ASSIGNED → ARRIVED_AT_PICKUP edge, and it should
+    // not grow one: every ride passes through EN_ROUTE so the timeline, the
+    // receipts and the driver's own history stay comparable. Stepping through it
+    // in the same breath is what makes the intermediate state unobservable,
+    // which is the whole of what "skip it" means here.
+    if (trip.status === S.DRIVER_ASSIGNED) {
+      await tripState.applyTransition(tripId, S.DRIVER_EN_ROUTE, {
+        actor: ACTOR.SYSTEM, actorId: driverId,
+        payload: { auto: true, reason: 'ALREADY_AT_PICKUP' },
+      });
+    }
+    await tripState.applyTransition(tripId, S.ARRIVED_AT_PICKUP, {
+      actor: ACTOR.SYSTEM, actorId: driverId,
+      payload: { auto: true, distanceM: Math.round(metres) },
+    });
+    logger.info(`[arrival] driver ${driverId} accepted trip ${tripId} from ${Math.round(metres)}m — landed at pickup`);
+    return true;
+  } catch (err) {
+    // Never let this fail an accept. The worst case is the old behaviour.
+    logger.debug(`[arrival] auto-arrive on accept skipped for ${tripId}: ${err?.message ?? err}`);
+    return false;
+  }
 }
 
 async function declineRide(driverId, tripId) {
@@ -676,7 +825,7 @@ async function driverCancel(driverId, tripId, reason = null) {
 
 /** Driver one-call rehydration. */
 async function getDriverState(driverId) {
-  const [driver, trip, offer] = await Promise.all([
+  const [driver, trip, offer, pendingRequests] = await Promise.all([
     prisma.driver.findUnique({
       where: { id: driverId },
       select: { id: true, name: true, status: true, isOnline: true, currentLat: true, currentLng: true, walletBalancePesewas: true },
@@ -686,6 +835,20 @@ async function getDriverState(driverId) {
     // and never replayed — it carries no trip seq — so a phone that was asleep
     // or reconnecting for those twenty seconds has no other way to find out.
     cascade.getOfferForDriver(driverId).catch(() => null),
+    /**
+     * EVERY LIVE SEARCH, NOT JUST THE ONE OFFER.
+     *
+     * BUGFIX ("if I go to the dispatch page on the alerts page, I should be
+     * able to see if there's an unaccepted offer").
+     *
+     * The exclusive offer above is a 45-second window and evaporates with its
+     * own Redis TTL. The SEARCH behind it runs for five minutes, and for all of
+     * that time there is a rider waiting who this driver could still take. That
+     * is the durable fact a foregrounding app needs, and until now nothing
+     * served it — which is why a driver who was a minute late back had no way
+     * to discover the ride existed at all.
+     */
+    cascade.listSearchesForDriver(driverId).catch(() => []),
   ]);
   if (!driver) throw new NotFoundError('Driver');
 
@@ -703,8 +866,37 @@ async function getDriverState(driverId) {
     // Suppressed while already on a trip: a driver mid-ride cannot take a new
     // offer, and surfacing one would put a modal over their live trip screen.
     offer: trip ? null : offer,
+    // Same rule for the list — but it is a LIST, not a modal, so it is only
+    // suppressed from the offer card's point of view. The alerts screen still
+    // asks for it separately.
+    pendingRequests: trip ? [] : pendingRequests,
     serverNowMs: Date.now(),
   };
+}
+
+/**
+ * FOREGROUND RESYNC — one call, everything true again.
+ *
+ * BUGFIX ("I need it to come as soon as I switch over to the driver app and the
+ * app is foregrounded… fix this background and foreground thing so it's fixed
+ * once and for all").
+ *
+ * `getDriverState` is a READ. It answers "is anyone waiting on me" perfectly
+ * well, and it is what the app polls — but it cannot make anything happen, and
+ * the failing case needs something to happen: a cascade parked on a driver who
+ * was unreachable has to be told to look again, and an offer published into an
+ * empty socket room has to be re-published now that the room has somebody in
+ * it. Neither is a side effect a GET is allowed to have.
+ *
+ * So the app's foreground handler makes exactly one POST, and this is it. It
+ * nudges the cascade first, then answers with the state — in that order, so a
+ * search that was resweeped into an offer by the nudge is already in the reply
+ * rather than waiting on the next poll.
+ */
+async function resyncDriver(driverId) {
+  const { nudged } = await cascade.resyncDriver(driverId).catch(() => ({ nudged: 0 }));
+  const state = await getDriverState(driverId);
+  return { ...state, nudged };
 }
 
 // ── durable timer: nobody answered ───────────────────────────────────────────
@@ -738,5 +930,6 @@ module.exports = {
   completeTrip,
   driverCancel,
   getDriverState,
+  resyncDriver,
   TASK_REQUEST_EXPIRY,
 };

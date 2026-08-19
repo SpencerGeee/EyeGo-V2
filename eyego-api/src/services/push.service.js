@@ -199,4 +199,4 @@ function isPushConfigured() {
   return firebaseReady;
 }
 
-module.exports = { sendPush, sendMulticastPush, notifications, isPushConfigured };
+module.exports = { sendPush, sendMulticastPush, notifications, isPushConfigured, prefAllows };

@@ -167,10 +167,44 @@ function namesFor(trip) {
   };
 }
 
-/** FCM to every rider on the trip who still has a token. */
+/**
+ * Which switch on the rider's notification-preferences screen governs each
+ * push this service sends.
+ *
+ * BUGFIX — the preferences screen did nothing.
+ *
+ * `sendRiderPushes` already SELECTED `notificationPrefs` and then called
+ * `pushService.sendPush` directly, which does not consult them. `prefAllows`
+ * was only wired into the four legacy `notifications.*` wrappers, and this
+ * service is the single owner of every trip-lifecycle notification — so the
+ * exact pushes a rider would want to silence (driver assigned, driver on the
+ * way, arrived, trip started, trip complete) were the ones no toggle could
+ * reach. A rider who turned everything off kept receiving all of it.
+ *
+ * `null` means "not user-silenceable". Cancellations, a failed dispatch and a
+ * reassignment are things that happened TO the rider's ride while they were
+ * waiting for it; suppressing those would leave someone standing at a kerb for
+ * a car that is not coming. They map to the same "Safety Alerts" reasoning that
+ * makes that toggle locked in the UI.
+ */
+const PREF_CATEGORY_FOR_TYPE = {
+  DRIVER_ASSIGNED: 'driverArriving',
+  DRIVER_EN_ROUTE: 'driverArriving',
+  ARRIVED_AT_PICKUP: 'driverArriving',
+  IN_PROGRESS: 'tripStarted',
+  RIDE_COMPLETE: 'tripCompleted',
+  TRIP_CANCELLED: null,
+  TRIP_CANCELLED_NO_SHOW: null,
+  NO_DRIVERS_FOUND: null,
+  TRIP_REASSIGNING: null,
+};
+
+/** FCM to every rider on the trip who still has a token — and who wants it. */
 async function sendRiderPushes(trip, status) {
   const copy = pushCopyFor(status, namesFor(trip));
   if (!copy) return;
+
+  const category = PREF_CATEGORY_FOR_TYPE[copy.type];
 
   const bookings = await prisma.booking.findMany({
     where: { tripId: trip.id, ...seatOccupyingWhere() },
@@ -181,6 +215,7 @@ async function sendRiderPushes(trip, status) {
     bookings.map((b) => {
       const token = b.user?.fcmToken;
       if (!token) return null;
+      if (category && !pushService.prefAllows(b.user.notificationPrefs, category)) return null;
       // Per-booking data so tapping the notification opens THAT rider's
       // receipt rather than whichever booking happened to be first.
       return pushService

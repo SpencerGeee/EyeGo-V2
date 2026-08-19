@@ -34,7 +34,26 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-const LEGACY_ENABLED = String(env.ADMIN_LEGACY_SECRET ?? 'true') !== 'false';
+/**
+ * OFF IN PRODUCTION UNLESS SOMEBODY ASKS FOR IT IN WRITING.
+ *
+ * This used to default to `true` everywhere, which meant a production deploy
+ * that simply did not mention `ADMIN_LEGACY_SECRET` shipped with one shared
+ * string granting full, unattributable SUPERADMIN — no AdminUser row, no audit
+ * actor, no way to revoke it short of a redeploy. That is the wrong default for
+ * a live platform, and it is the kind of wrong default nobody notices, because
+ * everything works.
+ *
+ * Same shape as `PAYMENTS_SIMULATED` in config/env.js: the convenient behaviour
+ * is the default OUTSIDE production and the safe behaviour is the default IN it,
+ * with an explicit env var able to override either way for the switchover
+ * window. `ADMIN_LEGACY_SECRET=true` in production still works — it just has to
+ * be a decision someone made.
+ */
+const LEGACY_ENABLED =
+  env.ADMIN_LEGACY_SECRET != null
+    ? String(env.ADMIN_LEGACY_SECRET) === 'true'
+    : env.NODE_ENV !== 'production';
 
 /** The identity the legacy shared secret maps to. Never a real AdminUser row. */
 const LEGACY_ADMIN = Object.freeze({

@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { walletApi, driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/api';
 import { describeError } from '@eyego/utils';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import {
   Text,
@@ -54,13 +55,15 @@ type Period = 'today' | 'week' | 'month';
 const CREDIT_TYPES = ['CREDIT', 'TRIP_EARNING', 'EARNINGS_CREDIT', 'CASH_EARNING', 'QUEST_BONUS', 'TIP'];
 
 /**
- * Mirrors `DRIVER_MIN_WITHDRAWAL` on the server (GH₵20.00), in pesewas.
+ * The withdrawal minimum is NOT a constant here any more.
  *
- * The server is the authority — it rejects anything below this — but the screen
- * needs the number to grey out the button, and a bare `20` sitting next to a
- * pesewas balance was a comparison of two different units.
+ * It used to be `const MIN_WITHDRAWAL_PESEWAS = 2000`, mirroring the server's
+ * default. The server value is operator-tunable from the admin console, so the
+ * moment it was changed this screen greyed the button out at one number while
+ * the API rejected at another — the driver sees a minimum the platform does not
+ * enforce. It now comes from `usePlatformConfig()`, which reads the same
+ * `PlatformSetting` row the server does and falls back to 2000 offline.
  */
-const MIN_WITHDRAWAL_PESEWAS = 2000;
 
 /** Mirrors the server's own top-up bounds (wallet.routes.js / wallet.service.js). */
 const MIN_TOPUP_PESEWAS = 100; // ₵1
@@ -80,6 +83,7 @@ export default function EarningsScreen() {
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
+  const { driverMinWithdrawalPesewas: MIN_WITHDRAWAL_PESEWAS } = usePlatformConfig();
   const [period, setPeriod] = useState<Period>('week');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const qc = useQueryClient();

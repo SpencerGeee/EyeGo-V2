@@ -16,11 +16,12 @@ import { tripsApi, bookingsApi, ridesApi, queryKeys } from '@eyego/api';
 import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, spacing, withOpacity } from '@eyego/config';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
-import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText, normalizeTier } from '@eyego/ui';
+import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText, normalizeTier, AnnouncementBanner } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
@@ -300,6 +301,7 @@ function SuggestedTripCard({
 
 export default function HomeScreen() {
   const colors = useColors();
+  const platformConfig = usePlatformConfig();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
@@ -675,6 +677,34 @@ export default function HomeScreen() {
           />
         }
       >
+        {/*
+          The operator's announcement, and the booking kill switch.
+
+          Both come from `GET /v1/config/public`, which nothing used to call —
+          the admin console could set an announcement or close the platform and
+          no phone ever heard about it. The switch is enforced server-side too
+          (middleware/killSwitch.js); this only makes the refusal legible before
+          the rider has typed a destination.
+        */}
+        {platformConfig.announcement ? (
+          <Animated.View entering={FadeIn.duration(250)} style={{ marginBottom: spacing.lg }}>
+            <AnnouncementBanner
+              text={platformConfig.announcement.text}
+              level={platformConfig.announcement.level}
+              surfaceColor={colors.surfaceCard}
+            />
+          </Animated.View>
+        ) : null}
+        {!platformConfig.bookingEnabled ? (
+          <Animated.View entering={FadeIn.duration(250)} style={{ marginBottom: spacing.lg }}>
+            <AnnouncementBanner
+              text="EyeGo is not taking new bookings right now. Trips already running are unaffected."
+              level="warning"
+              surfaceColor={colors.surfaceCard}
+            />
+          </Animated.View>
+        ) : null}
+
         {/* Where To Search Bar */}
         <Animated.View entering={FadeIn.duration(250)}>
           <MorphSource

@@ -51,6 +51,18 @@ export default function SOSScreen() {
   const [shareTripStatus, setShareTripStatus] = useState(false);
   const [rideCheckActive, setRideCheckActive] = useState(false);
   const [nightSafetyActive, setNightSafetyActive] = useState(false);
+  /**
+   * MEASURED, NOT GUESSED.
+   *
+   * BUGFIX ("the 'in an emergency' card is slightly overlapping the trusted
+   * contacts section"). The scroll padding was a hardcoded 200, chosen when the
+   * bar was two buttons. It has since grown a heading, a hint line and the
+   * dedicated alert button, and 200 stopped clearing it — so the last thing in
+   * the list, Trusted Contacts, sat underneath. A number that must be updated by
+   * hand every time the bar changes will be wrong again next time; a measurement
+   * cannot be.
+   */
+  const [barHeight, setBarHeight] = useState(0);
   const rideCheckAnsweredRef = useRef(true);
   const rideCheckEscalateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // JS timers are throttled/frozen while backgrounded (especially iOS), so a
@@ -430,7 +442,16 @@ export default function SOSScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          // The bar's own height plus one gutter, so the last card CLEARS it
+          // rather than ending flush against it. Falls back to the old constant
+          // until the first layout pass lands.
+          { paddingBottom: (barHeight || 200) + spacing['2xl'] },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Reassurance card */}
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
@@ -543,7 +564,15 @@ export default function SOSScreen() {
       </ScrollView>
 
       {/* Fixed bottom emergency bar */}
-      <View style={styles.emergencyBar}>
+      <View
+        style={styles.emergencyBar}
+        onLayout={(e) => {
+          const h = Math.round(e.nativeEvent.layout.height);
+          // Guard the set: onLayout fires on every rotation and font-scale
+          // change, and setting state from it unconditionally is a render loop.
+          setBarHeight((prev) => (Math.abs(prev - h) > 1 ? h : prev));
+        }}
+      >
         <View style={styles.emergencyHeading}>
           <Ionicons name="warning" size={16} color={colors.statusError} />
           <Text style={styles.emergencyHeadingText}>In an emergency</Text>
@@ -677,7 +706,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   scroll: {
     paddingHorizontal: spacing['2xl'],
     paddingTop: spacing.sm,
-    paddingBottom: 200,
+    // paddingBottom is supplied at the call site from the measured bar height.
     gap: spacing.lg,
   },
   reassureCard: {

@@ -9,7 +9,7 @@ const pushService = require('../../services/push.service');
 // One reputation model for both sides of the market — see the note at the top
 // of services/standing.service.js.
 const standingService = require('../../services/standing.service');
-const { NotFoundError, AppError, InsufficientWalletError, ForbiddenError } = require('../../utils/errors');
+const { NotFoundError, AppError, InsufficientWalletError, ForbiddenError, ValidationError } = require('../../utils/errors');
 const { isWithinGhana } = require('../../services/mapbox.service');
 const { generateTripReceipt, refundBookingForDriverCancellation } = require('../cancellation/cancellation.service');
 const redis = require('../../config/redis');
@@ -17,7 +17,7 @@ const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { haversineMeters } = require('../../utils/geo');
 const ratingIntegrity = require('../../services/rating-integrity.service');
-const { seatOccupyingWhere, departureCountedWhere } = require('../../utils/booking-status');
+const { seatOccupyingWhere, departureCountedWhere, livePassengerWhere } = require('../../utils/booking-status');
 const { isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
 const routeGeometry = require('../../services/route-geometry.service');
@@ -277,6 +277,18 @@ async function getMe(driverId) {
 }
 
 async function updateProfile(driverId, data) {
+  // Anything not on this list is DROPPED, which is correct for a PATCH a client
+  // controls — but silently dropping vehicle details is how the driver app's
+  // onboarding form spent its whole life posting a car nobody ever stored. A
+  // caller aiming at the wrong endpoint now hears about it.
+  const misdirected = Object.keys(data || {}).filter((k) => /^vehicle/i.test(k));
+  if (misdirected.length) {
+    throw new ValidationError(
+      `Vehicle details are not part of the driver profile (${misdirected.join(', ')}). ` +
+        'Submit them to POST /v1/driver/verify instead.',
+    );
+  }
+
   const allowed = {};
   if (data.name) allowed.name = data.name;
   if (data.dateOfBirth) allowed.dateOfBirth = data.dateOfBirth;
@@ -288,27 +300,101 @@ async function updateFcmToken(driverId, fcmToken) {
   return prisma.driver.update({ where: { id: driverId }, data: { fcmToken } });
 }
 
+/** The three tiers the fare card prices. Mirror of the pricing groups in config/settings.js. */
+const VEHICLE_TIERS = ['ECO', 'COMFORT', 'PREMIUM'];
+/** A vehicle a driver may register: a private car at the low end, a 14-seat minibus at the top. */
+const MIN_SEATER_COUNT = 2;
+const MAX_SEATER_COUNT = 20;
+
+/**
+ * The driver's own submission of the details their account cannot work without.
+ *
+ * This is the ONLY path by which a Vehicle row comes into existence for a driver
+ * who signed up through the app, and for a long time nothing called it: the
+ * onboarding screen PATCHed the vehicle fields onto `/driver/me` instead, where
+ * `updateProfile`'s allow-list silently dropped every one of them. The mutation
+ * returned 200, onboarding advanced, and the driver ended up approved with no
+ * vehicle — which `createTrip` and `claimReassignedTrip` reject outright
+ * (`NO_VEHICLE`) and `matcher.service` filters out of every tier-matched
+ * dispatch. A driver in that state can go online and never legally take a ride.
+ *
+ * Written to be re-runnable, because onboarding is a form a driver can back out
+ * of and return to: the same plate submitted twice updates the row rather than
+ * failing on the unique constraint.
+ */
 async function completeVerification(driverId, data) {
-  const { name, ghanaCardNumber, vehicle } = data;
+  const { name, ghanaCardNumber, vehicle } = data || {};
+
+  if (!vehicle || typeof vehicle !== 'object') {
+    throw new ValidationError('Vehicle details are required.');
+  }
+
+  const plateNumber = String(vehicle.plateNumber || '').trim().toUpperCase();
+  const make = String(vehicle.make || '').trim();
+  const model = String(vehicle.model || '').trim();
+  const year = Number(vehicle.year);
+  const seaterCount = Number(vehicle.seaterCount);
+  const tier = String(vehicle.tier || '').trim().toUpperCase();
+  const colour = vehicle.colour ? String(vehicle.colour).trim() : null;
+
+  if (!plateNumber) throw new ValidationError('A plate number is required.');
+  if (!make || !model) throw new ValidationError('Vehicle make and model are required.');
+  const thisYear = new Date().getFullYear();
+  if (!Number.isInteger(year) || year < 1980 || year > thisYear + 1) {
+    throw new ValidationError(`Enter a vehicle year between 1980 and ${thisYear + 1}.`);
+  }
+  if (!Number.isInteger(seaterCount) || seaterCount < MIN_SEATER_COUNT || seaterCount > MAX_SEATER_COUNT) {
+    throw new ValidationError(`Seat count must be between ${MIN_SEATER_COUNT} and ${MAX_SEATER_COUNT}.`);
+  }
+  if (!VEHICLE_TIERS.includes(tier)) {
+    throw new ValidationError(`Vehicle class must be one of ${VEHICLE_TIERS.join(', ')}.`);
+  }
+
+  // `plateNumber` is globally unique, so a typo that collides with a car
+  // somebody else registered has to say so rather than surface as a raw P2002.
+  const plateOwner = await prisma.vehicle.findUnique({
+    where: { plateNumber },
+    select: { id: true, driverId: true },
+  });
+  if (plateOwner && plateOwner.driverId !== driverId) {
+    throw new AppError(
+      'That plate number is already registered to another driver. Contact support if this is your vehicle.',
+      409,
+      'PLATE_ALREADY_REGISTERED',
+    );
+  }
+
   return prisma.$transaction(async (tx) => {
-    const driver = await tx.driver.update({
-      where: { id: driverId },
-      data: { name, ghanaCardNumber },
-    });
+    const driverData = {};
+    if (name) driverData.name = String(name).trim();
+    if (ghanaCardNumber) driverData.ghanaCardNumber = String(ghanaCardNumber).trim();
 
-    await tx.vehicle.create({
-      data: {
-        driverId,
-        plateNumber: vehicle.plateNumber,
-        make: vehicle.make,
-        model: vehicle.model,
-        year: vehicle.year,
-        seaterCount: vehicle.seaterCount,
-        tier: vehicle.tier,
-      },
-    });
+    const driver = Object.keys(driverData).length
+      ? await tx.driver.update({ where: { id: driverId }, data: driverData })
+      : await tx.driver.findUniqueOrThrow({ where: { id: driverId } });
 
-    return driver;
+    const vehicleData = { make, model, year, seaterCount, tier, colour };
+
+    if (plateOwner) {
+      // Same plate, same driver — they came back through onboarding and edited
+      // a field. Re-verification is deliberate: the admin approved a specific
+      // car, so changing its details puts it back in the queue.
+      await tx.vehicle.update({
+        where: { id: plateOwner.id },
+        data: { ...vehicleData, isActive: true, isVerified: false },
+      });
+    } else {
+      // A driver re-registering under a NEW plate has replaced their car. The
+      // old row is retired rather than deleted so completed trips keep pointing
+      // at the vehicle that actually ran them.
+      await tx.vehicle.updateMany({ where: { driverId, isActive: true }, data: { isActive: false } });
+      await tx.vehicle.create({ data: { driverId, plateNumber, ...vehicleData } });
+    }
+
+    return tx.driver.findUnique({
+      where: { id: driver.id },
+      include: { vehicles: { where: { isActive: true } } },
+    });
   });
 }
 
@@ -1408,6 +1494,21 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
         offlineOtp: otp,
         offlineOtpExp: otpExp,
         status: 'SEAT_HELD',
+        /**
+         * THE HOLD NOW HAS A DEADLINE.
+         *
+         * BUGFIX ("I chose add rider → phone + OTP, picked the number and the
+         * seat but didn't go through with the OTP, and it's still showing that
+         * the seat is reserved").
+         *
+         * SEAT_HELD is in SEAT_OCCUPYING_STATUSES, so this row counted against
+         * capacity from the instant it was written — and nothing ever wrote it
+         * back. `offlineOtpExp` existed but only gated whether the CODE still
+         * worked; an expired code left a permanently reserved seat behind it.
+         * Sharing the OTP's own expiry keeps one deadline rather than two that
+         * can disagree: when the code dies, so does the seat.
+         */
+        holdExpiresAt: otpExp,
       },
     });
   });
@@ -1495,6 +1596,42 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
   });
 }
 
+/**
+ * Give the seat back — the driver changed their mind at the OTP step.
+ *
+ * BUGFIX, the other half of the leaked seat. The expiry sweep below is the
+ * backstop for a driver who walks away; this is for the far commoner case where
+ * they simply back out of the screen. Waiting out an OTP window to reclaim a
+ * seat the driver has already abandoned is not a fix, it is a delay.
+ *
+ * Idempotent and narrow: it only ever touches an UNVERIFIED offline hold on this
+ * driver's own trip, so a double tap, a late retry, or a passenger who verified
+ * in the meantime all resolve to "nothing to release" rather than to a cancelled
+ * paying passenger.
+ */
+async function releaseOfflineHold(driverId, tripId, bookingId) {
+  const released = await prisma.booking.updateMany({
+    where: {
+      id: bookingId,
+      tripId,
+      trip: { driverId },
+      isOffline: true,
+      offlineOtpVerified: false,
+      status: 'SEAT_HELD',
+    },
+    data: {
+      status: 'CANCELLED',
+      cancelledAt: new Date(),
+      cancellationReason: 'OTP_ABANDONED',
+      // `seatOccupyingWhere` counts the STATUS, but a null seat is what makes
+      // the seat map redraw — see the release rule in the booking invariants.
+      seatNumber: null,
+      holdExpiresAt: null,
+    },
+  });
+  return { released: released.count > 0 };
+}
+
 async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
   // BUGFIX: this used `include: { trip: { where: { driverId } } }`. Prisma only
   // accepts `where` inside an include for to-MANY relations — `Booking.trip` is
@@ -1528,7 +1665,9 @@ async function verifyOfflineOtp(driverId, tripId, { bookingId, otp }) {
 
     await tx.booking.update({
       where: { id: bookingId },
-      data: { offlineOtpVerified: true, status: 'BOARDED', paymentStatus: 'PAID' },
+      // Clearing the deadline is what turns a provisional hold into a real seat.
+      // Leaving it set would let the sweeper cancel a boarded, paid passenger.
+      data: { offlineOtpVerified: true, status: 'BOARDED', paymentStatus: 'PAID', holdExpiresAt: null },
     });
 
     await tx.walletTransaction.create({
@@ -1664,7 +1803,7 @@ async function cancelTrip(driverId, tripId, { reason, note } = {}) {
 
   if (REDISPATCHABLE_STATUSES.includes(trip.status)) {
     const activeBookingCount = await prisma.booking.count({
-      where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+      where: { tripId, ...livePassengerWhere() },
     });
     if (activeBookingCount > 0) {
       return redispatchTrip(driverId, trip, { reason, note });
@@ -1673,7 +1812,7 @@ async function cancelTrip(driverId, tripId, { reason, note } = {}) {
 
   const updatedTrip = await prisma.$transaction(async (tx) => {
     const bookingsToCancel = await tx.booking.findMany({
-      where: { tripId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+      where: { tripId, ...livePassengerWhere() },
     });
 
     for (const booking of bookingsToCancel) {
@@ -1875,22 +2014,51 @@ async function claimReassignedTrip(driverId, tripId) {
 // ACCOUNT DELETION
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * DELETE MY ACCOUNT — see the longer note on `users.service.deactivateAccount`,
+ * which this mirrors.
+ *
+ * The identity is erased and the rows stay: a driver's completed trips are a
+ * rider's receipts and a platform's ledger, and deleting them would leave both
+ * hanging. What was missing here is the same thing that was missing on the
+ * rider side — revoking the refresh tokens. Without it the anonymised account
+ * kept minting fresh access tokens for the life of its refresh token, so
+ * "delete my account" did not even log the phone out.
+ *
+ * Taking them out of the dispatch pool matters too: an anonymised driver left
+ * in the Redis geo-set is still a candidate every matcher run considers.
+ */
 async function deleteMe(driverId) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new NotFoundError('Driver');
 
-  return prisma.driver.update({
-    where: { id: driverId },
-    data: {
-      name: '[Deleted Account]',
-      phone: `deleted_${driverId.slice(0, 8)}`,
-      status: 'DISABLED',
-      isOnline: false,
-      fcmToken: null,
-      currentLat: null,
-      currentLng: null,
-    },
+  const result = await prisma.$transaction(async (tx) => {
+    const updated = await tx.driver.update({
+      where: { id: driverId },
+      data: {
+        name: '[Deleted Account]',
+        phone: `deleted_${driverId.slice(0, 12)}`,
+        status: 'DISABLED',
+        isOnline: false,
+        fcmToken: null,
+        currentLat: null,
+        currentLng: null,
+      },
+    });
+
+    await tx.refreshToken.updateMany({
+      where: { driverId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    return updated;
   });
+
+  await supply.removeDriver(driverId).catch((err) => {
+    logger.warn(`[deleteMe] could not drop driver ${driverId} from the supply index: ${err.message}`);
+  });
+
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1919,6 +2087,27 @@ async function requestBoardingPin(driverId, tripId, bookingId) {
 
   const required = !!booking.boardingPin && !booking.pinVerifiedAt;
   if (!required) return { required: false };
+
+  /**
+   * WRITE THE ASK DOWN BEFORE ANNOUNCING IT.
+   *
+   * BUGFIX ("the pin code for the verification is still not showing on the
+   * rider app when I switch from the driver app to the rider app").
+   *
+   * `publishBoardingPinRequested` emits with `seq: null` — deliberately, it is
+   * not a lifecycle transition — which means the sequenced trip channel has
+   * nothing to replay it from. The socket frame is therefore the ONLY copy, and
+   * a rider whose app was backgrounded (the same-handset case, every time)
+   * never receives it and has no way to discover it afterwards.
+   *
+   * A column fixes that for every path at once: the snapshot carries it, so
+   * cold start, foreground hydrate, socket replay and an ordinary refetch all
+   * raise the sheet. The socket frame stays as the fast path for a rider who
+   * is already looking at the screen.
+   */
+  await prisma.booking
+    .update({ where: { id: bookingId }, data: { pinRequestedAt: new Date() } })
+    .catch(() => {});
 
   tripPublisher.publishBoardingPinRequested(tripId, bookingId);
   // The socket is the fast path; the push is what reaches a rider whose screen
@@ -2183,7 +2372,7 @@ module.exports = {
   getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence,
   getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
-  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, requestBoardingPin, setRequestsPaused,
+  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,
   startShift, endShift, getCurrentShift, getShiftHistory,

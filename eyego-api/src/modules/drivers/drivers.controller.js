@@ -119,6 +119,17 @@ const verifyOfflineOtp = async (req, res) => {
   ok(res, null, 'Passenger verified and boarded');
 };
 
+// Driver backed out of the OTP step — hand the seat straight back rather than
+// leaving it held until the code expires. See releaseOfflineHold.
+const releaseOfflineHold = async (req, res) => {
+  const result = await driversService.releaseOfflineHold(
+    req.user.userId,
+    req.params.id,
+    req.params.bookingId,
+  );
+  ok(res, result, result.released ? 'Seat released' : 'Nothing to release');
+};
+
 const boardPassenger = async (req, res) => {
   // `pin` is only consulted for bookings that carry one ("Verify My Ride").
   // Everyone else boards exactly as before — see boardPassenger's own note.
@@ -573,7 +584,7 @@ module.exports = {
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, presence,
   getTripById, acceptDispatch, declineDispatch, claimReassignedTrip,
   acceptTripRequest, declineTripRequest, uploadDocument,
-  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, boardPassenger, requestBoardingPin, setRequestsPaused,
+  addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences,
   createTrip, ratePassenger, getFareEstimate,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,

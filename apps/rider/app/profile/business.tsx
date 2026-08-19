@@ -8,8 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '@eyego/api';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input } from '@eyego/ui';
-import { Toggle } from '@eyego/ui/src/Toggle';
+import { Text, Button, Input, Toggle } from '@eyego/ui';
 
 export default function BusinessProfileScreen() {
   const colors = useColors();

@@ -13,6 +13,14 @@ import {
   CONTENT_FADE_IN_END,
 } from './MorphProvider';
 
+/** Window-relative frame, the shape both measurement paths answer in. */
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface MorphTargetProps {
   /** Must match the MorphSource id that launched the morph. */
   id: string;
@@ -151,33 +159,94 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
    * `reported` is only latched once a measurement actually succeeds, so a zero
    * frame retries on the next layout instead of stranding the flight.
    */
-  const onLayout = () => {
-    if (!morph || reported.current || morph.activeId !== id || morph.phase !== 'forward') return;
+  /** The frame we last reported, so a re-measure can tell a correction from an echo. */
+  const lastRect = useRef<Rect | null>(null);
+  const correctionTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const commitRect = (r: Rect, reason: 'initial' | 'correction') => {
+    if (!morph) return;
+    if (!(r.width > 0 && r.height > 0 && Number.isFinite(r.x) && Number.isFinite(r.y))) return;
+    const prev = lastRect.current;
+    // Sub-pixel jitter is not a correction; re-pinning the clone's frame for a
+    // third of a point would be churn on the UI thread for nothing visible.
+    if (
+      reason === 'correction' &&
+      prev &&
+      Math.abs(prev.x - r.x) < 0.5 &&
+      Math.abs(prev.y - r.y) < 0.5 &&
+      Math.abs(prev.width - r.width) < 0.5 &&
+      Math.abs(prev.height - r.height) < 0.5
+    ) {
+      return;
+    }
+    lastRect.current = r;
+    reported.current = true;
+    morph.targetReady(id, r, borderRadius);
+  };
+
+  const measureAndReport = (reason: 'initial' | 'correction') => {
+    if (!morph || morph.activeId !== id || morph.phase !== 'forward') return;
 
     const node = ref.current as unknown as
-      | { unstable_getBoundingClientRect?: () => { x: number; y: number; width: number; height: number } }
+      | { unstable_getBoundingClientRect?: () => Rect }
       | null;
     const sync = node?.unstable_getBoundingClientRect?.();
     if (sync && sync.width > 0 && sync.height > 0 && Number.isFinite(sync.x) && Number.isFinite(sync.y)) {
-      reported.current = true;
-      morph.targetReady(id, { x: sync.x, y: sync.y, width: sync.width, height: sync.height }, borderRadius);
+      commitRect({ x: sync.x, y: sync.y, width: sync.width, height: sync.height }, reason);
       return;
     }
 
     requestAnimationFrame(() => {
       const view = ref.current;
-      if (!view || reported.current || !morph || morph.activeId !== id || morph.phase !== 'forward') return;
-      view.measureInWindow((x, y, width, height) => {
-        if (width > 0 && height > 0) {
-          reported.current = true;
-          morph.targetReady(id, { x, y, width, height }, borderRadius);
-        }
-        // If width/height is 0 this layout pass produced nothing usable; the
-        // next one retries, and failing that the provider's TARGET_TIMEOUT_MS
-        // dissolves the clone gracefully.
-      });
+      if (!view || !morph || morph.activeId !== id || morph.phase !== 'forward') return;
+      // If width/height is 0 this layout pass produced nothing usable; the next
+      // one retries, and failing that the provider's TARGET_TIMEOUT_MS dissolves
+      // the clone gracefully.
+      view.measureInWindow((x, y, width, height) => commitRect({ x, y, width, height }, reason));
     });
   };
+
+  /**
+   * CORRECT THE LANDING SPOT IF IT MOVES UNDER US.
+   *
+   * BUGFIX ("the morph effect of the profile icon is totally wrong ... when it
+   * morphs, it doesn't go to the exact location of where the picture shape is on
+   * the edit profile page").
+   *
+   * Reporting on the first layout pass is what keeps a morph from starting with
+   * two dead frames, and that stays. What it cannot know is whether the first
+   * pass is the LAST one. On a cold destination the safe-area insets resolve a
+   * beat after mount, and any parent that settles afterwards takes the target
+   * with it — so the clone flew to a perfectly measured position that had
+   * stopped existing by the time it arrived. Off by an inset reads exactly as
+   * "it doesn't go to where the picture is".
+   *
+   * Two follow-ups, then stop: a frame later catches layout that arrived in the
+   * same commit, ~140 ms catches inset resolution and image decode. Later than
+   * that is past the flight anyway, and `targetReady` is inert once the morph
+   * has settled, so a stale correction can never jerk a finished screen.
+   */
+  const onLayout = () => {
+    if (!morph || morph.activeId !== id || morph.phase !== 'forward') return;
+
+    const first = !reported.current;
+    measureAndReport(first ? 'initial' : 'correction');
+    if (!first) return;
+
+    correctionTimers.current.forEach(clearTimeout);
+    correctionTimers.current = [
+      setTimeout(() => measureAndReport('correction'), 16),
+      setTimeout(() => measureAndReport('correction'), 140),
+    ];
+  };
+
+  useEffect(
+    () => () => {
+      correctionTimers.current.forEach(clearTimeout);
+      correctionTimers.current = [];
+    },
+    [],
+  );
 
   return (
     <View ref={ref} collapsable={false} onLayout={onLayout} style={style}>

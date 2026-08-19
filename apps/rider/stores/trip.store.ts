@@ -101,6 +101,16 @@ interface TripStoreState {
    * code and the frame goes to the whole trip room.
    */
   boardingPinRequestedFor: string | null;
+  /**
+   * Server timestamp of the ask the rider has already dismissed.
+   *
+   * The ask now lives on the snapshot rather than in a one-shot socket frame,
+   * which is what makes it survive a backgrounded app — and also what would
+   * make a dismissed sheet spring straight back on the next snapshot. Comparing
+   * against this keeps the dismissal sticky while still letting a driver who
+   * asks a SECOND time raise it again.
+   */
+  dismissedPinRequestAtMs: number | null;
   /** Dismiss the popup (rider tapped Done, or the pin was verified). */
   dismissBoardingPinRequest: () => void;
 
@@ -124,7 +134,54 @@ interface TripStoreState {
 
 let unsubscribe: (() => void) | null = null;
 let unsubscribeEta: (() => void) | null = null;
+/** Proof-of-life listener — see the note in `watch`. */
+let unsubscribeDriverPresence: (() => void) | null = null;
 let watchedTripId: string | null = null;
+
+/**
+ * The two flags that are DERIVED from a snapshot rather than pushed as frames.
+ *
+ * Both exist because `BOARDING_PIN_REQUESTED` and `DRIVER_LINK_LOST/RESTORED`
+ * are published with `seq: null` and so cannot be replayed. Reading them off
+ * the snapshot is what lets any path that produces one — socket state, cold
+ * start, foreground hydrate, reconnect replay — settle them.
+ *
+ * Shared rather than inlined because it originally WAS inlined, in `onState`
+ * only. `hydrate()` sets the snapshot with a plain `set` and never ran the
+ * derivation, so the one path the user actually hits — switch from the driver
+ * app back to the rider app — was the one path that could not raise the PIN
+ * sheet. Two callers, one rule.
+ */
+function deriveFromSnapshot(
+  prev: Pick<
+    TripStoreState,
+    'boardingPinRequestedFor' | 'dismissedPinRequestAtMs' | 'driverLinkLostSinceMs'
+  >,
+  snapshot: TripSnapshot | null,
+): Pick<TripStoreState, 'boardingPinRequestedFor' | 'driverLinkLostSinceMs'> {
+  const b = snapshot?.booking as { id?: string; pinRequestedAtMs?: number | null; pinVerified?: boolean } | undefined;
+  const askedAt = b?.pinRequestedAtMs ?? null;
+
+  let boardingPinRequestedFor: string | null;
+  if (!b?.id || !askedAt || b.pinVerified) {
+    boardingPinRequestedFor = null;
+  } else if (prev.dismissedPinRequestAtMs != null && askedAt <= prev.dismissedPinRequestAtMs) {
+    // Dismissed already. Only a NEWER ask reopens the sheet, otherwise every
+    // subsequent snapshot would spring it straight back up.
+    boardingPinRequestedFor = prev.boardingPinRequestedFor;
+  } else {
+    boardingPinRequestedFor = b.id;
+  }
+
+  // `undefined` from the server means "no opinion" (presence lookup failed, or
+  // this snapshot was built without it) — keep whatever we had rather than
+  // inventing either answer. See trip-view.js for the same reasoning.
+  const fromSnapshot = snapshot?.driverLinkLostSinceMs;
+  const driverLinkLostSinceMs =
+    fromSnapshot === undefined ? prev.driverLinkLostSinceMs : (fromSnapshot ?? null);
+
+  return { boardingPinRequestedFor, driverLinkLostSinceMs };
+}
 
 export const useTripStore = create<TripStoreState>((set, get) => ({
   snapshot: null,
@@ -137,14 +194,22 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
   path: null,
   driverLinkLostSinceMs: null,
   boardingPinRequestedFor: null,
+  dismissedPinRequestAtMs: null,
 
-  dismissBoardingPinRequest: () => set({ boardingPinRequestedFor: null }),
+  dismissBoardingPinRequest: () =>
+    set((s) => ({
+      boardingPinRequestedFor: null,
+      // Remember WHICH ask was dismissed, not merely that one was — a second
+      // tap from the driver has a later timestamp and must be able to reopen.
+      dismissedPinRequestAtMs: s.snapshot?.booking?.pinRequestedAtMs ?? Date.now(),
+    })),
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
     const hadRef = unsubscribe != null;
     unsubscribe?.();
     unsubscribeEta?.();
+    unsubscribeDriverPresence?.();
     watchedTripId = tripId;
     // BUGFIX ("the panel scrolls but the map is frozen"): this used to call
     // `getSocket()` without taking a reference. `disconnectSocket()` is
@@ -157,9 +222,16 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
     // Watching a trip IS a use of the socket, so it holds its own ref for
     // exactly as long as it is watching. Released in `unwatch`.
     if (!hadRef) connectSocket();
-    // A new trip must not inherit the previous one's line, countdown, or a
-    // connectivity warning raised against a different driver.
-    set({ eta: null, path: null, driverLinkLostSinceMs: null });
+    // A new trip must not inherit the previous one's line, countdown, a
+    // connectivity warning raised against a different driver, or a pin ask the
+    // rider dismissed on a ride that is already over.
+    set({
+      eta: null,
+      path: null,
+      driverLinkLostSinceMs: null,
+      boardingPinRequestedFor: null,
+      dismissedPinRequestAtMs: null,
+    });
 
     /**
      * `trip:eta` is the only source of the live line and the countdown.
@@ -170,8 +242,45 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
      * the same one `subscribeToTrip` uses — so it is joined to the trip room by
      * the subscribe below and needs no join of its own.
      */
+    /**
+     * PROOF OF LIFE CLEARS THE WARNING. IMMEDIATELY.
+     *
+     * BUGFIX ("when the rider app says driver signal lost, the only way to get
+     * it to come back working is to close the app and open it again — fix this
+     * so even when the signal is lost, immediately it's back online it should
+     * resolve by itself and not by timeout").
+     *
+     * The banner was raised by a `DRIVER_LINK_LOST` frame and could ONLY be
+     * taken down by a matching `DRIVER_LINK_RESTORED` frame. Three separate
+     * things had to go right for that frame to arrive: the server's watcher had
+     * to still remember it had warned (it was an in-process Map, so a deploy or
+     * a second instance forgot), its 30-second sweep had to come round, and the
+     * rider's socket had to be up to receive an unsequenced frame that is never
+     * replayed. Miss any one and the warning was permanent — which is precisely
+     * why restarting the app was the only cure.
+     *
+     * A driver position is not an opinion about the link; it IS the link. If a
+     * packet from that driver's phone just arrived, the phone is reporting, and
+     * no amount of server bookkeeping can make that untrue. So the moment one
+     * lands, the banner comes down — no round trip, no sweep, no timeout.
+     *
+     * Kept alongside the server's frames rather than replacing them: the server
+     * still knows things the client cannot (a driver reporting to a DIFFERENT
+     * trip, presence expiry with no positions at all), so it keeps the authority
+     * to RAISE the warning. This only ever lowers it.
+     */
+    unsubscribeDriverPresence = socketEvents.onDriverLocation((d: any) => {
+      if (d?.tripId && d.tripId !== watchedTripId) return;
+      if (!Number.isFinite(d?.lat ?? d?.latitude)) return;
+      if (get().driverLinkLostSinceMs == null) return;
+      set({ driverLinkLostSinceMs: null });
+    });
+
     unsubscribeEta = socketEvents.onTripEta((e: any) => {
       if (e?.tripId && e.tripId !== watchedTripId) return;
+      // Same argument as `onDriverLocation` above: a live ETA is computed from a
+      // position the driver's phone just sent, so it is proof the link is up.
+      if (get().driverLinkLostSinceMs != null) set({ driverLinkLostSinceMs: null });
       const coords = e?.geometry?.coordinates;
       const leg: 'toPickup' | 'toDropoff' = e?.leg === 'toPickup' ? 'toPickup' : 'toDropoff';
       set((s) => ({
@@ -208,6 +317,9 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
           clockSkewMs: s.clockSkewMs,
           connected: s.connected,
           recovering: s.recovering,
+          // The boarding-PIN sheet and the signal-lost banner, both read off the
+          // snapshot rather than off frames nobody can replay. See the function.
+          ...deriveFromSnapshot(prev, s.snapshot),
           // The snapshot SEEDS the line; it never overwrites a fresher one.
           // `trip:eta` fires every ~10 s or 50 m, so its geometry is newer than
           // the snapshot's cached copy for most of a ride — and a resumed
@@ -306,20 +418,28 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
     const hadRef = unsubscribe != null;
     unsubscribe?.();
     unsubscribeEta?.();
+    unsubscribeDriverPresence?.();
     // Balances the `connectSocket()` in `watch`. Only when we actually held one
     // — `unwatch` is called defensively from several unmount paths and a
     // double release would tear the socket out from under another screen.
     if (hadRef) disconnectSocket();
     unsubscribe = null;
     unsubscribeEta = null;
+    unsubscribeDriverPresence = null;
     watchedTripId = null;
-    set({ snapshot: null, lastSeq: 0, dispatch: null, recovering: false, eta: null, path: null, driverLinkLostSinceMs: null });
+    set({ snapshot: null, lastSeq: 0, dispatch: null, recovering: false, eta: null, path: null, driverLinkLostSinceMs: null, boardingPinRequestedFor: null, dismissedPinRequestAtMs: null });
   },
 
   hydrate: async () => {
     try {
       const { trip, dispatch, serverNowMs } = await ridesApi.active();
-      set({
+      set((prev) => ({
+        // THE FOREGROUND PATH RUNS THE SAME RULES AS THE SOCKET PATH.
+        //
+        // This used to be a plain object, so hydrating skipped the derivation
+        // entirely — which is precisely why switching back from the driver app
+        // never raised the PIN sheet and never cleared a stale "signal lost".
+        ...deriveFromSnapshot(prev, trip),
         snapshot: trip,
         lastSeq: trip?.version ?? 0,
         clockSkewMs: serverNowMs - Date.now(),
@@ -337,7 +457,7 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
               etaSeconds: null,
             }
           : null,
-      });
+      }));
       if (trip) get().watch(trip.tripId);
       return { trip, ok: true };
     } catch {

@@ -4,6 +4,8 @@ const { Router } = require('express');
 const { body, query, param } = require('express-validator');
 const rides = require('./rides.service');
 const authenticate = require('../../middleware/auth');
+// Platform-wide maintenance switch — see middleware/killSwitch.js.
+const { requireBookingEnabled } = require('../../middleware/killSwitch');
 const { authenticateDriver } = require('../../middleware/driverAuth');
 const validate = require('../../middleware/validate');
 
@@ -66,6 +68,7 @@ router.post(
 router.post(
   '/',
   authenticate,
+  requireBookingEnabled,
   [
     body('quoteId').isString().isLength({ min: 64, max: 64 }),
     body('pickupLat').isFloat({ min: -90, max: 90 }),
@@ -146,6 +149,21 @@ router.get(
   authenticateDriver,
   h(async (req, res) => {
     res.json({ success: true, data: await rides.getDriverState(actorId(req)) });
+  }),
+);
+
+/**
+ * FOREGROUND RESYNC. A POST because it has effects — see rides.service.
+ *
+ * The driver app calls this on every `AppState -> active`, and nothing else
+ * calls it. Everything a returning app needs is in the one reply: the live
+ * trip, the offer it may have missed, and every search still running nearby.
+ */
+router.post(
+  '/driver/resync',
+  authenticateDriver,
+  h(async (req, res) => {
+    res.json({ success: true, data: await rides.resyncDriver(actorId(req)) });
   }),
 );
 

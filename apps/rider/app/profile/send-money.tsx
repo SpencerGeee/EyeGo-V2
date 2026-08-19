@@ -16,10 +16,14 @@ export default function SendMoneyScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { phone: prefilledPhone } = useLocalSearchParams<{ phone?: string }>();
+  // `amount` arrives in CEDIS from a scanned pay code that named a figure — see
+  // My Code in scan-pay. Prefilled, never locked: the payer still has to read it
+  // and press send, so a QR code can never decide what leaves their wallet.
+  const { phone: prefilledPhone, amount: prefilledAmount } =
+    useLocalSearchParams<{ phone?: string; amount?: string }>();
 
   const [phone, setPhone] = useState(prefilledPhone ?? '');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(prefilledAmount ?? '');
 
   const { data: balance } = useQuery({
     queryKey: queryKeys.wallet.balance(),

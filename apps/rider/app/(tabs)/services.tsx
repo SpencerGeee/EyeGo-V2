@@ -97,7 +97,7 @@ const SPECIAL_SERVICES: SpecialService[] = [
   {
     id: 'group',
     name: 'Group Ride',
-    description: 'Share costs with up to 4 people',
+    description: 'Book up to 8 seats in one go',
     icon: 'people-outline',
     route: '/trip?stage=search&type=group',
   },

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -115,10 +115,33 @@ export default function AddPassengerScreen() {
     mutationFn: () =>
       driverApi.verifyPassengerOtp(tripId, { bookingId: pendingBookingId!, otp }),
     onSuccess: () => {
+      // Verified: the hold is now a real passenger and must not be released.
+      pendingHoldRef.current = null;
       boardPassenger.mutate();
     },
     onError: (err) => Alert.alert('Invalid OTP', (err as Error).message),
   });
+
+  /**
+   * GIVE THE SEAT BACK WHEN THE DRIVER WALKS AWAY.
+   *
+   * BUGFIX ("I chose add rider → phone + OTP, which gave me the option to choose
+   * the number and the seat, but I didn't go through with the OTP and it's still
+   * showing that the seat is reserved").
+   *
+   * Creating the hold has to reserve the seat — otherwise two drivers sell the
+   * same one — but nothing gave it back. Backing out of the OTP step, or leaving
+   * the screen entirely, is the driver saying they are not going through with
+   * it, and both now say so out loud.
+   *
+   * A ref rather than state: the release runs from an unmount cleanup, which
+   * sees the values captured when its effect was created, and would otherwise
+   * release a booking that had since been verified.
+   */
+  const pendingHoldRef = useRef<string | null>(null);
+  useEffect(() => {
+    pendingHoldRef.current = mode === 'otp' ? pendingBookingId : null;
+  }, [mode, pendingBookingId]);
 
   /**
    * REFRESH, THEN LEAVE.
@@ -144,6 +167,19 @@ export default function AddPassengerScreen() {
       }),
     [qc, tripId],
   );
+
+  const releaseHold = useCallback(() => {
+    const bookingId = pendingHoldRef.current;
+    if (!bookingId) return;
+    pendingHoldRef.current = null;
+    // Fire-and-forget: the driver is already leaving, and the server-side sweep
+    // is the backstop if this never lands. See releaseOfflineHold.
+    driverApi.releaseOfflineHold(tripId, bookingId).then(refreshTrip).catch(() => {});
+  }, [tripId, refreshTrip]);
+
+  // The screen being torn down for ANY reason — hardware back, swipe gesture, a
+  // push that navigates elsewhere — is still an abandoned hold.
+  useEffect(() => releaseHold, [releaseHold]);
 
   const boardPassenger = useMutation({
     mutationFn: () => driverApi.boardPassenger(tripId, pendingBookingId!),
@@ -178,7 +214,17 @@ export default function AddPassengerScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Pressable
-              onPress={() => (mode === 'select' ? router.back() : setMode('select'))}
+              onPress={() => {
+                // Stepping back OUT of the OTP screen abandons the hold, and
+                // says so now rather than leaving the seat sold to nobody.
+                if (mode === 'otp') {
+                  releaseHold();
+                  setPendingBookingId(null);
+                  setOtp('');
+                }
+                if (mode === 'select') router.back();
+                else setMode('select');
+              }}
               style={styles.backBtn}
             >
               <Ionicons name="arrow-back" size={22} color={colors.onSurface} />

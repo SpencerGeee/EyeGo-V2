@@ -152,8 +152,25 @@ async function start() {
         // app is drawing as free. bookSeat has always nulled it when it
         // releases a hold; this sweep did not, so every abandoned checkout
         // burned a seat for the life of the trip.
+        /**
+         * A ROW'S OWN DEADLINE BEATS THE GLOBAL ONE.
+         *
+         * BUGFIX ("I chose add rider → phone + OTP ... didn't go through with
+         * the OTP but it's still showing that the seat is reserved"). The sweep
+         * below was the only thing that ever released an offline OTP hold, and
+         * it works off `createdAt` plus the checkout window — around twenty
+         * minutes. The OTP itself dies long before that, so for the rest of the
+         * window the seat was held against a code that could no longer be used.
+         *
+         * `holdExpiresAt` is stamped by whoever created the hold, so the two
+         * deadlines can no longer drift apart. Rows without one keep the old
+         * behaviour exactly. Driver-initiated release is the fast path — see
+         * `releaseOfflineHold`; this stays the backstop.
+         */
+        await tripLifecycle.releaseExpiredSeatHolds();
+
         const expired = await prisma.booking.updateMany({
-          where: { status: 'SEAT_HELD', createdAt: { lt: cutoff } },
+          where: { status: 'SEAT_HELD', holdExpiresAt: null, createdAt: { lt: cutoff } },
           data: { status: 'CANCELLED', seatNumber: null },
         });
         if (expired.count > 0) {

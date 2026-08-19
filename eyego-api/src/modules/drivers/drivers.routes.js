@@ -3,6 +3,7 @@
 const { Router } = require('express');
 const controller = require('./drivers.controller');
 const { authenticateDriver, requireActiveDriver } = require('../../middleware/driverAuth');
+const { requireDriverOnlineEnabled } = require('../../middleware/killSwitch');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
 const idempotency = require('../../middleware/idempotency');
@@ -26,7 +27,11 @@ router.post('/vehicle', requireActiveDriver, controller.addVehicle);
 router.post('/dev-activate', controller.devActivate);
 
 // Online/offline
-router.post('/go-online', requireActiveDriver, controller.goOnline);
+// `requireDriverOnlineEnabled` is the maintenance-window switch the admin
+// console's Apps page exposes — see middleware/killSwitch.js. Deliberately NOT
+// on go-offline or on any in-trip route: closing the platform must never trap a
+// driver online or strand them mid-trip.
+router.post('/go-online', requireActiveDriver, requireDriverOnlineEnabled, controller.goOnline);
 router.post('/go-offline', controller.goOffline);
 // Presence over HTTP — the non-socket path into the dispatch pool. Beat this
 // from the driver app whenever the websocket is not connected; see
@@ -106,6 +111,14 @@ router.post(
   body('otp').isLength({ min: 4, max: 4 }),
   validate,
   controller.verifyOfflineOtp
+);
+
+// Abandon an unverified Phone + OTP hold and give the seat straight back. The
+// driver app calls this when the OTP screen is dismissed without verifying.
+router.post(
+  '/trips/:id/offline-hold/:bookingId/release',
+  requireActiveDriver,
+  controller.releaseOfflineHold,
 );
 
 router.post('/trips/:id/board/:bookingId', requireActiveDriver, controller.boardPassenger);

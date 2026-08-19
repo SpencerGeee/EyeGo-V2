@@ -20,6 +20,7 @@ import {
   InlayPanel,
   GradientGlowBorder,
   SkeletonValue,
+  AnnouncementBanner,
 } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,6 +30,7 @@ import { useDriverTripStore } from '../../stores/trip.store';
 import { useNotificationsStore } from '../../stores/notifications.store';
 import { useDriverLocation } from '../../hooks/useDriverLocation';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import { DestinationModeCard } from '../../components/DestinationModeCard';
 import DemandOverlay from '../../components/DemandOverlay';
@@ -66,6 +68,7 @@ function describeDispatchBlock(reason: string | null | undefined): string {
 
 export default function HomeScreen() {
   const colors = useColors();
+  const platformConfig = usePlatformConfig();
   const theme = useDriverStore(s => s.theme);
   // Driver app uses blue highway accent (eyegoDriverDarkStyle) instead of
   // rider's brand-green dark style; light mode's highway accent is already
@@ -385,6 +388,16 @@ export default function HomeScreen() {
       goOffline.mutate();
       return;
     }
+    // Guard: platform-wide maintenance window. The server refuses go-online with
+    // 503 DRIVER_ONLINE_DISABLED (middleware/killSwitch.js) — this only says so
+    // before the round trip, and deliberately never blocks going OFFLINE.
+    if (!platformConfig.driverOnlineEnabled) {
+      Alert.alert(
+        'Temporarily Unavailable',
+        'Going online is paused while EyeGo is under maintenance. Please try again shortly.'
+      );
+      return;
+    }
     // Guard: negative wallet balance = account suspended
     const walletBalancePesewas = walletData?.balancePesewas ?? 0;
     if (walletBalancePesewas < 0) {
@@ -407,7 +420,7 @@ export default function HomeScreen() {
       }
     }
     goOnline.mutate();
-  }, [isOnline, hasPermission, location, walletData, goOnline, goOffline]);
+  }, [isOnline, hasPermission, location, walletData, goOnline, goOffline, platformConfig.driverOnlineEnabled]);
 
   const initialCenter: [number, number] = useMemo(
     () => (location ? [location.longitude, location.latitude] : [-0.187, 5.6037]),
@@ -524,6 +537,33 @@ export default function HomeScreen() {
       )}
 
       {/*
+        The operator's announcement banner.
+
+        `APP_ANNOUNCEMENT_TEXT` is set from the admin console and reaches the
+        phone through `GET /v1/config/public` on foreground — no store release.
+        Stacked under whatever error banners are already showing, using the same
+        offset arithmetic as the dispatch banner below it.
+      */}
+      {platformConfig.announcement ? (
+        <Entrance
+          animation="slideUp"
+          style={{
+            position: 'absolute',
+            left: spacing.lg,
+            right: spacing.lg,
+            top: insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0),
+            zIndex: 20,
+          }}
+        >
+          <AnnouncementBanner
+            text={platformConfig.announcement.text}
+            level={platformConfig.announcement.level}
+            surfaceColor={colors.surfaceContainer}
+          />
+        </Entrance>
+      ) : null}
+
+      {/*
         WHY NO REQUESTS ARE ARRIVING.
 
         "I'm online and live and nothing shows on the driver side" has been
@@ -543,7 +583,7 @@ export default function HomeScreen() {
           animation="slideUp"
           style={[
             styles.errorBanner,
-            { top: insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0), borderColor: '#F59E0B55', backgroundColor: '#F59E0B18' },
+            { top: insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0) + (platformConfig.announcement ? 64 : 0), borderColor: '#F59E0B55', backgroundColor: '#F59E0B18' },
           ]}
         >
           <Ionicons name="alert-circle-outline" size={16} color="#F59E0B" />

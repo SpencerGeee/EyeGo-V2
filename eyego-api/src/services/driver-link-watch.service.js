@@ -1,6 +1,7 @@
 'use strict';
 
 const prisma = require('./../config/database');
+const redis = require('../config/redis');
 const logger = require('../utils/logger');
 const supply = require('./supply-index.service');
 const publisher = require('./trip-events.publisher');
@@ -42,8 +43,31 @@ const LINK_LOST_AFTER_MS = 120_000;
 /** How often to look. Well under the delay above, so the delay is the delay. */
 const CHECK_INTERVAL_MS = 30_000;
 
-/** tripId → true, for trips we have already warned about. */
-const warned = new Map();
+/**
+ * Trips we have already warned about, in Redis rather than in this process.
+ *
+ * BUGFIX (part of "the only way to get it back is to close the app"). A Map on
+ * one API instance meant: a deploy forgot every outstanding warning, so nobody
+ * ever got the RESTORED frame that clears the banner; and with two instances,
+ * whichever one warned was the only one that could un-warn. The rider's flag
+ * outlived the outage that caused it. A set with a TTL survives both.
+ *
+ * The TTL is a floor, not a policy: entries are removed explicitly on restore
+ * and on trip end, and this only stops an abandoned key living forever.
+ */
+const WARNED_KEY = 'driverlink:warned';
+const WARNED_TTL_SECONDS = 6 * 60 * 60;
+
+async function readWarned() {
+  try {
+    return new Set(await redis.smembers(WARNED_KEY));
+  } catch (err) {
+    // No ledger means "warn nobody new, restore nobody" — the pass below still
+    // runs and simply changes nothing, which beats re-alarming every rider.
+    logger.warn(`Driver link watch: could not read warn ledger: ${err.message}`);
+    return null;
+  }
+}
 
 async function check() {
   const trips = await prisma.trip.findMany({
@@ -55,7 +79,7 @@ async function check() {
   });
 
   if (trips.length === 0) {
-    warned.clear();
+    await redis.del(WARNED_KEY).catch(() => {});
     return { watched: 0, lost: 0, restored: 0 };
   }
 
@@ -84,16 +108,19 @@ async function check() {
     return { watched: trips.length, lost: 0, restored: 0, skipped: true };
   }
 
+  const warned = await readWarned();
+  if (!warned) return { watched: trips.length, lost: 0, restored: 0, skipped: true };
+
   let lost = 0;
   let restored = 0;
 
   for (const trip of trips) {
     const isPresent = present.has(trip.driverId);
-    const wasWarned = warned.get(trip.id) === true;
+    const wasWarned = warned.has(trip.id);
 
     if (isPresent) {
       if (wasWarned) {
-        warned.delete(trip.id);
+        await redis.srem(WARNED_KEY, trip.id).catch(() => {});
         restored += 1;
         publisher.publishDriverLink(trip.id, { lost: false });
         logger.info('Driver link restored', { tripId: trip.id, driverId: trip.driverId });
@@ -109,7 +136,8 @@ async function check() {
     const silentForMs = Date.now() - trip.updatedAt.getTime();
     if (silentForMs < LINK_LOST_AFTER_MS) continue;
 
-    warned.set(trip.id, true);
+    await redis.sadd(WARNED_KEY, trip.id).catch(() => {});
+    await redis.expire(WARNED_KEY, WARNED_TTL_SECONDS).catch(() => {});
     lost += 1;
     publisher.publishDriverLink(trip.id, { lost: true, lastSeenMs: trip.updatedAt.getTime() });
     // An alarm in minutes, not the 180 the stuck-trip sweep waits for. Someone
@@ -123,7 +151,8 @@ async function check() {
 
   // Trips that ended keep their entry forever otherwise.
   const liveIds = new Set(trips.map((t) => t.id));
-  for (const id of warned.keys()) if (!liveIds.has(id)) warned.delete(id);
+  const stale = [...warned].filter((id) => !liveIds.has(id));
+  if (stale.length) await redis.srem(WARNED_KEY, ...stale).catch(() => {});
 
   return { watched: trips.length, lost, restored };
 }
@@ -142,7 +171,6 @@ function start() {
 function stop() {
   if (timer) clearInterval(timer);
   timer = null;
-  warned.clear();
 }
 
 module.exports = { check, start, stop, LINK_LOST_AFTER_MS };

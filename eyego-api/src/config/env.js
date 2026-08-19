@@ -16,6 +16,22 @@ const envSchema = z.object({
 
   PAYSTACK_SECRET_KEY: z.string().min(1),
   PAYSTACK_PUBLIC_KEY: z.string().min(1),
+  /**
+   * Which gateway actually takes the money. See modules/payments/provider.js:
+   * every caller goes through that one module, so switching gateway is this
+   * line plus one implementation, not an edit in five different services.
+   *
+   * `mock` settles every charge successfully WITHOUT moving money, which is how
+   * the wallet flow stays demonstrable end to end before a merchant account
+   * exists. The provider refuses to load it when NODE_ENV is production.
+   */
+  PAYMENT_PROVIDER: z.enum(['paystack', 'mock']).default('paystack'),
+
+  /**
+   * How close a driver must be to the pickup before the server calls it an
+   * arrival. See sockets/driver.socket.js and rides.service `autoArriveIfAtPickup`.
+   */
+  ARRIVAL_RADIUS_M: z.coerce.number().int().positive().default(75),
 
   AT_API_KEY: z.string().min(1),
   AT_USERNAME: z.string().min(1),
@@ -64,7 +80,11 @@ const envSchema = z.object({
 
   // Set to 'false' once the old console is retired. While it is 'true', one
   // leaked ADMIN_SECRET_KEY is still unattributable full superadmin access.
-  ADMIN_LEGACY_SECRET: z.enum(['true', 'false']).default('true'),
+  // Unset now means "on outside production, OFF in production" — see the note
+  // on LEGACY_ENABLED in middleware/adminAuth.js. Deliberately NOT defaulted
+  // here, because a default would hide the NODE_ENV rule from that one place
+  // that resolves it.
+  ADMIN_LEGACY_SECRET: z.enum(['true', 'false']).optional(),
 
   // Comma-separated origins allowed to call the admin API from a browser
   // (the apps/admin deployment). Only needed if the console ever calls the API

@@ -17,8 +17,8 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
-import { driverApi } from '@eyego/api';
-import type { DriverDocument } from '@eyego/api';
+import { driverApi, VEHICLE_TIERS, MIN_SEATER_COUNT, MAX_SEATER_COUNT } from '@eyego/api';
+import type { DriverDocument, VehicleTier } from '@eyego/api';
 import { useFocusEffect } from 'expo-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 
@@ -64,26 +64,60 @@ export default function OnboardingScreen() {
   const [year, setYear] = useState('');
   const [colour, setColour] = useState('');
   const [plate, setPlate] = useState('');
+  const [seats, setSeats] = useState('');
+  const [tier, setTier] = useState<VehicleTier | null>(null);
 
-  const { mutate: updateVehicle, isPending } = useMutation({
+  /**
+   * Registers the vehicle for real.
+   *
+   * This used to PATCH the vehicle fields onto `/driver/me`, where the server's
+   * allow-list dropped every one of them and answered 200 anyway — so the driver
+   * finished onboarding, got approved, went online, and then could not accept a
+   * single trip because no `Vehicle` row had ever been created for them.
+   * `submitVerification` is the endpoint that creates it, and it is re-runnable,
+   * so backing out of this step and coming back is safe.
+   */
+  const { mutate: registerVehicle, isPending } = useMutation({
     mutationFn: () =>
-      driverApi.updateMe({
-        vehicleMake: make,
-        vehicleModel: model,
-        vehicleYear: parseInt(year, 10),
-        vehicleColour: colour,
-        vehiclePlate: plate,
-      } as any),
+      driverApi.submitVerification({
+        vehicle: {
+          plateNumber: plate.trim(),
+          make: make.trim(),
+          model: model.trim(),
+          year: parseInt(year, 10),
+          seaterCount: parseInt(seats, 10),
+          tier: tier as VehicleTier,
+          colour: colour.trim(),
+        },
+      }),
     onSuccess: () => setStep(2),
-    onError: (err: any) => Alert.alert('Error', err?.message ?? 'Failed to save vehicle info.'),
+    onError: (err: any) =>
+      Alert.alert(
+        'Could not save vehicle',
+        err?.response?.data?.message ?? err?.message ?? 'Failed to save vehicle info. Please try again.',
+      ),
   });
 
   const handleStep1Next = () => {
-    if (!make || !model || !year || !colour || !plate) {
-      Alert.alert('Missing fields', 'Please fill in all vehicle details.');
+    if (!make || !model || !year || !colour || !plate || !seats || !tier) {
+      Alert.alert('Missing fields', 'Please fill in all vehicle details, including seats and vehicle class.');
       return;
     }
-    updateVehicle();
+    const parsedYear = parseInt(year, 10);
+    const thisYear = new Date().getFullYear();
+    if (!Number.isFinite(parsedYear) || parsedYear < 1980 || parsedYear > thisYear + 1) {
+      Alert.alert('Check the year', `Enter a year between 1980 and ${thisYear + 1}.`);
+      return;
+    }
+    const parsedSeats = parseInt(seats, 10);
+    if (!Number.isFinite(parsedSeats) || parsedSeats < MIN_SEATER_COUNT || parsedSeats > MAX_SEATER_COUNT) {
+      Alert.alert(
+        'Check the seat count',
+        `Enter how many passenger seats the vehicle has — between ${MIN_SEATER_COUNT} and ${MAX_SEATER_COUNT}.`,
+      );
+      return;
+    }
+    registerVehicle();
   };
 
   // Step 2: refetch on focus so returning from the upload screen reflects
@@ -144,6 +178,7 @@ export default function OnboardingScreen() {
                   { label: 'Year', placeholder: 'e.g. 2020', value: year, setter: setYear, numeric: true },
                   { label: 'Colour', placeholder: 'e.g. Silver', value: colour, setter: setColour, numeric: false },
                   { label: 'Plate Number', placeholder: 'e.g. GR-1234-20', value: plate, setter: setPlate, numeric: false },
+                  { label: 'Passenger Seats', placeholder: `e.g. 4`, value: seats, setter: setSeats, numeric: true },
                 ].map(({ label, placeholder, value, setter, numeric }, idx, arr) => (
                   <View key={label} style={[styles.fieldRow, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
                     <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>{label}</Text>
@@ -158,6 +193,36 @@ export default function OnboardingScreen() {
                     />
                   </View>
                 ))}
+              </View>
+
+              {/*
+                THE TIER IS NOT COSMETIC. It is what the rider's fare is priced
+                against and what dispatch tier-matches on, so it has to be
+                collected here rather than assumed — a driver with no tier is
+                filtered out of every tier-matched offer.
+              */}
+              <Text variant="labelMedium" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.sm }}>
+                Vehicle Class
+              </Text>
+              <View style={styles.tierRow}>
+                {VEHICLE_TIERS.map((t) => {
+                  const selected = tier === t;
+                  return (
+                    <Pressable
+                      key={t}
+                      onPress={() => setTier(t)}
+                      style={[styles.tierChip, selected && { borderColor: colors.primary, backgroundColor: colors.primary + '1A' }]}
+                    >
+                      <Text
+                        variant="labelMedium"
+                        color={selected ? colors.primary : colors.onSurfaceVariant}
+                        style={{ fontFamily: selected ? fonts.semiBold : fonts.medium }}
+                      >
+                        {t === 'ECO' ? 'Economy' : t === 'COMFORT' ? 'Comfort' : 'Premium'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               <Button label={isPending ? 'Saving…' : 'Next'} onPress={handleStep1Next} disabled={isPending} />
@@ -260,6 +325,20 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
     lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
     color: colors.onSurface,
     paddingVertical: spacing.xs,
+  },
+  tierRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  tierChip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.base,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    backgroundColor: colors.surfaceContainer,
   },
   docRow: {
     flexDirection: 'row',

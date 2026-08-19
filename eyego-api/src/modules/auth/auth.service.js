@@ -147,6 +147,20 @@ async function refreshPassengerToken(token) {
   }
   if (stored.expiresAt < new Date()) throw new AuthError('Refresh token expired');
 
+  /**
+   * RE-READ THE ACCOUNT. A REFRESH IS A NEW GRANT, NOT A RENEWAL.
+   *
+   * `verifyPassengerOtp` checks `isActive` at sign-in and nothing checked it
+   * again, so an account deactivated or deleted afterwards kept minting fresh
+   * 15-minute access tokens off its refresh token for the next thirty days.
+   * "Delete my account" did not even sign the phone out.
+   */
+  const account = await prisma.user.findUnique({
+    where: { id: decoded.userId },
+    select: { isActive: true },
+  });
+  if (!account || !account.isActive) throw new AuthError('Your account has been deactivated');
+
   // Rotate: revoke old, issue new
   await prisma.refreshToken.update({ where: { tokenId: decoded.tokenId }, data: { revokedAt: new Date() } });
 
@@ -211,6 +225,17 @@ async function refreshDriverToken(token) {
     throw new AuthError('Refresh token revoked');
   }
   if (stored.expiresAt < new Date()) throw new AuthError('Refresh token expired');
+
+  // Same rule as the passenger path above: a refresh is a fresh grant, so the
+  // row is re-read. A driver whose account was deleted or disabled by an admin
+  // otherwise kept minting access tokens for the life of the refresh token.
+  const account = await prisma.driver.findUnique({
+    where: { id: decoded.userId },
+    select: { status: true },
+  });
+  if (!account || account.status === 'DISABLED') {
+    throw new AuthError('Your account has been deactivated');
+  }
 
   await prisma.refreshToken.update({ where: { tokenId: decoded.tokenId }, data: { revokedAt: new Date() } });
 

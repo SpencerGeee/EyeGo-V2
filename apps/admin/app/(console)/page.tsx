@@ -23,6 +23,8 @@ export const metadata: Metadata = { title: 'Dashboard' };
 
 type Metrics = {
   activeTrips: number;
+  /** Drivers Redis presence says the matcher can actually reach right now. */
+  driversDispatchable: number;
   driversOnline: number;
   todayRevenuePesewas: number;
   todayCommissionPesewas: number;
@@ -141,10 +143,24 @@ export default async function DashboardPage({
             icon="route"
             href="/dispatch"
           />
+          {/*
+            THE NUMBER THAT MATTERS IS THE REDIS ONE.
+
+            `driversOnline` is the Postgres toggle the app sets. Dispatch never
+            reads it — the pool is a Redis geo-set gated on a presence key with
+            a TTL, so a driver whose app was killed or backgrounded past the
+            grace window stays `isOnline: true` in the table and is completely
+            invisible to the matcher.
+
+            This tile used to show only the reassuring number, which is exactly
+            the wrong one during a "nobody got my ride request" incident. Lead
+            with what dispatch can actually reach; the toggle count sits beside
+            it, because a gap between the two IS the diagnosis.
+          */}
           <StatCard
-            label="Drivers online"
-            value={num(metrics.driversOnline)}
-            hint={`of ${num(metrics.totalDrivers)} total`}
+            label="Drivers dispatchable"
+            value={num(metrics.driversDispatchable)}
+            hint={`${num(metrics.driversOnline)} toggled online · ${num(metrics.totalDrivers)} total`}
             icon="wheel"
             href="/dispatch"
           />

@@ -391,11 +391,37 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       targetW.value = rect.width;
       targetH.value = rect.height;
       targetR.value = borderRadius;
+      /**
+       * SAFE TO CALL MORE THAN ONCE — it is a correction, not just an
+       * announcement.
+       *
+       * BUGFIX ("when it morphs, it doesn't go to the exact location of where
+       * the picture shape is on the edit profile page").
+       *
+       * MorphTarget reports on its FIRST layout pass, deliberately, because
+       * waiting costs dead frames at the start of every morph. But a first pass
+       * is not always the final geometry: safe-area insets resolve a beat late
+       * on a cold screen, and a parent that settles afterwards drags the target
+       * with it. The clone then flew — accurately — to a position that had since
+       * stopped existing, landing NEAR the avatar rather than on it. That is
+       * exactly the "weird" in the report.
+       *
+       * A second call re-points the flight. `flightRef` is nulled by `settle`,
+       * so the guard above already makes this inert once the morph has landed:
+       * a late layout can never jerk a finished screen.
+       */
+      const isCorrection = f.targetRect != null;
       f.targetRect = rect;
       f.targetRadius = borderRadius;
       // Re-pin the clone's static frame to the target. Everything from here on
       // is pure transform, so the flight itself costs no layout work.
       setFrame({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+
+      // Only ARM the spring once. A correction has to leave the running spring
+      // alone: restarting it would reset its velocity mid-flight, which reads as
+      // the clone stumbling — and the frame update above has already moved the
+      // destination, so the spring in progress now travels to the right place.
+      if (isCorrection) return;
 
       // Spring progress from 0 → 1 — the overlay flies from source to target
       morphProgress.value = withSpring(1, springs.morph, (finished) => {

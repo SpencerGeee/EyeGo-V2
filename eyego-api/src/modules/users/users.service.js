@@ -226,8 +226,59 @@ async function updateFcmToken(userId, fcmToken) {
   return prisma.user.update({ where: { id: userId }, data: { fcmToken } });
 }
 
+/**
+ * DELETE MY ACCOUNT — and mean it.
+ *
+ * This was `{ isActive: false }` and nothing else, which fails on three counts
+ * at once:
+ *
+ *   1. It is not a deletion. The rider's name, phone, email and profile photo
+ *      stayed in the table indefinitely. App Store Guideline 5.1.1(v) requires
+ *      an in-app deletion that actually removes the account, and reviewers do
+ *      check; "we set a flag" is the classic rejection.
+ *   2. The phone number stayed on a UNIQUE column, so the same person could
+ *      never sign up again with their own number — deletion locked them out
+ *      permanently instead of freeing them.
+ *   3. `fcmToken` survived, so a deleted account kept receiving push
+ *      notifications.
+ *
+ * What is deliberately NOT deleted: the rows. Bookings, receipts, payments and
+ * ratings are financial and safety records that other people are party to, and
+ * deleting them would corrupt a driver's earnings history and every trip
+ * report. The identity is erased; the ledger keeps referring to an anonymous
+ * id. That is the same shape `drivers.service.deleteMe` uses.
+ *
+ * Revoking the refresh tokens is what makes it take effect NOW rather than in
+ * thirty days: without it a deleted account went on minting fresh access tokens
+ * for the life of its refresh token, because the refresh path never re-read the
+ * row it was issuing for.
+ */
 async function deactivateAccount(userId) {
-  return prisma.user.update({ where: { id: userId }, data: { isActive: false } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) throw new NotFoundError('User');
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id: userId },
+      data: {
+        isActive: false,
+        name: '[Deleted Account]',
+        // Suffixed with the id so it stays unique while freeing the real
+        // number for a fresh sign-up.
+        phone: `deleted_${userId.slice(0, 12)}`,
+        email: null,
+        profilePhoto: null,
+        fcmToken: null,
+      },
+    });
+
+    await tx.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    return updated;
+  });
 }
 
 async function getWalletAndPromos(userId) {

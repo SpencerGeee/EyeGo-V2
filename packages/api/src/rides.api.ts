@@ -85,6 +85,29 @@ export interface PendingOffer {
   totalCandidates: number;
 }
 
+/**
+ * A trip that is still looking for a driver, from this driver's point of view.
+ *
+ * Distinct from `PendingOffer`: an offer is exclusively mine right now, whereas
+ * these are every live search I am eligible for — including the ones currently
+ * held by somebody else. The Dispatch tab lists them so "asking driver 1 of 1"
+ * on the rider is never invisible on the driver, and `offeredToMe` is what
+ * separates "accept this" from "this is in the queue".
+ */
+export interface PendingDispatch {
+  tripId: string;
+  status: string;
+  tier: string | null;
+  requestedAtMs: number | null;
+  pickupLat: number | null; pickupLng: number | null; pickupAddress: string | null;
+  dropoffLat: number | null; dropoffLng: number | null; dropoffAddress: string | null;
+  farePesewas: number | null;
+  driverEarningsPesewas: number | null;
+  offeredToMe: boolean;
+  expiresAtServerMs: number | null;
+  heldByAnother: boolean;
+}
+
 export interface DriverStateResponse {
   driver: {
     id: string; name: string; status: string; isOnline: boolean;
@@ -93,7 +116,14 @@ export interface DriverStateResponse {
   trip: TripSnapshot | null;
   /** Live dispatch offer held by this driver, if any. */
   offer: PendingOffer | null;
+  /** Every live search this driver could still be given. Empty while on a trip. */
+  pendingRequests: PendingDispatch[];
   serverNowMs: number;
+}
+
+/** `driverState` plus however many searches the server actively re-poked. */
+export interface DriverResyncResponse extends DriverStateResponse {
+  nudged: number;
 }
 
 const unwrap = <T>(res: { data: { data: T } }): T => res.data.data;
@@ -161,6 +191,14 @@ export const ridesApi = {
 
   // ── driver ────────────────────────────────────────────────────────────────
   driverState: () => apiClient.get('/rides/driver/state').then(unwrap<DriverStateResponse>),
+  /**
+   * Foreground recovery. `driverState` only reports; this one also pokes the
+   * cascade — re-publishing an offer this driver already holds and re-sweeping
+   * any search that was sitting in `waiting` with nobody left to ask. Call it on
+   * every AppState → active, not `driverState`.
+   */
+  driverResync: () =>
+    apiClient.post('/rides/driver/resync').then(unwrap<DriverResyncResponse>),
   accept: (tripId: string) => apiClient.post(`/rides/${tripId}/accept`).then(unwrap),
   decline: (tripId: string) => apiClient.post(`/rides/${tripId}/decline`).then(unwrap),
   enRoute: (tripId: string) => apiClient.post(`/rides/${tripId}/en-route`).then(unwrap),

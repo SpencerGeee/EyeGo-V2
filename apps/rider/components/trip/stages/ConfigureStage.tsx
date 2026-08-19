@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { ridesApi } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { Text, Button, Entrance, GradientGlowBorder, getTierTheme } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
@@ -67,7 +67,18 @@ const STEP_FIRST = 3;
 const STEP_LAST = 5;
 const TOTAL_STEPS = 5;
 
-const MAX_SEATS = 6;
+/**
+ * Seat ceiling, by how the rider got here.
+ *
+ * BUGFIX ("make sure you make the functionality allow the user to book up to 8
+ * people for the group ride"). A solo booking keeps its old ceiling — six is
+ * what an ordinary saloon or estate seats — while the group entry point, which
+ * exists precisely because somebody has a party bigger than a car, goes to the
+ * platform maximum. `MAX_SEATS_PER_BOOKING` is that maximum and is already 8;
+ * this stops the picker capping below it.
+ */
+const MAX_SEATS_SOLO = 6;
+const MAX_SEATS_GROUP = MAX_SEATS_PER_BOOKING;
 
 type Tier = 'ECO' | 'COMFORT' | 'PREMIUM';
 
@@ -104,6 +115,22 @@ function ConfigureStageImpl() {
 
   const goStage = useTripFlow((s) => s.go);
   const setPreviewPath = useTripFlow((s) => s.setPreviewPath);
+  /**
+   * HOW THE RIDER GOT HERE, AND WHY IT HAS TO MATTER.
+   *
+   * BUGFIX ("if I choose to book for a group ride from the services page it
+   * should have a separate flow or something that would distinguish it from the
+   * regular booking flow ... when I tap on the group ride thing it just takes me
+   * to the normal flow").
+   *
+   * `?type=group` was already being parsed and stored by `tripFlow.seed` — and
+   * then read by absolutely nothing. Services promised a group product and
+   * handed over the solo one, identical down to the copy. This is the one place
+   * the difference is real: a higher seat ceiling, a picker that leads rather
+   * than hides on step 4, and headings that say which product you are booking.
+   */
+  const isGroup = useTripFlow((s) => s.type) === 'group';
+  const maxSeats = isGroup ? MAX_SEATS_GROUP : MAX_SEATS_SOLO;
   const origin = useRideStore((s) => s.origin);
   const destination = useRideStore((s) => s.destination);
   const rideTier = useRideStore((s) => s.rideTier);
@@ -250,13 +277,26 @@ function ConfigureStageImpl() {
   /** The selected tier's colours — used by the footer CTA and the review row. */
   const tierTheme = getTierTheme(colors, rideTier);
 
+  // The group flow says so on every step, not only on the one that differs.
+  // Half the report was that the two products were indistinguishable once you
+  // were inside them, and copy is most of what makes them distinguishable.
   const stepTitle =
-    step === 3 ? 'Choose your ride' : step === 4 ? 'Seats and extras' : 'Review and confirm';
+    step === 3
+      ? isGroup ? 'Choose your group ride' : 'Choose your ride'
+      : step === 4
+      ? isGroup ? 'Party size and extras' : 'Seats and extras'
+      : isGroup ? 'Review your group booking' : 'Review and confirm';
   const stepBlurb =
     step === 3
-      ? 'Every option is the same driver pool — the car and the price differ.'
+      ? isGroup
+        ? `Every option is the same driver pool. Pick the car that fits your group — up to ${maxSeats}.`
+        : 'Every option is the same driver pool — the car and the price differ.'
       : step === 4
-      ? 'Book more than one seat, or tell the driver what to expect.'
+      ? isGroup
+        ? `Tell us how many are coming — up to ${maxSeats} — and what the driver should expect.`
+        : 'Book more than one seat, or tell the driver what to expect.'
+      : isGroup
+      ? 'One last look, then we start looking for a car with room for everyone.'
       : 'One last look before we start looking for a driver.';
 
   return (
@@ -407,11 +447,32 @@ function ConfigureStageImpl() {
 
           {step === 4 && (
             <Entrance key="step4" animation="slideRight" style={styles.list}>
+              {/*
+                On the group flow the party size IS the booking, so it leads the
+                step with its own banner and a set of quick picks — a rider with
+                seven friends should not tap "+" seven times to say so. The solo
+                flow keeps the plain row: for one person the stepper is a detail,
+                not the point.
+              */}
+              {isGroup && (
+                <View style={[styles.option, { borderColor: `${colors.primary}55`, backgroundColor: `${colors.primary}10` }]}>
+                  <Ionicons name="people" size={18} color={colors.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.optionLabel, { color: colors.primary }]}>Group ride</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      Book up to {maxSeats} seats on one trip and settle it in one payment.
+                    </Text>
+                  </View>
+                </View>
+              )}
+
               <View style={styles.option}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.optionLabel}>Seats</Text>
                   <Text variant="caption" color={colors.onSurfaceVariant}>
-                    How many of you are travelling
+                    {isGroup
+                      ? `How many of you are travelling — up to ${maxSeats}`
+                      : 'How many of you are travelling'}
                   </Text>
                 </View>
                 <View style={styles.stepper}>
@@ -427,10 +488,10 @@ function ConfigureStageImpl() {
                   </Pressable>
                   <Text style={styles.stepperValue}>{seats}</Text>
                   <Pressable
-                    onPress={() => setRequestSeats(Math.min(MAX_SEATS, seats + 1), coverAll)}
-                    disabled={seats >= MAX_SEATS}
+                    onPress={() => setRequestSeats(Math.min(maxSeats, seats + 1), coverAll)}
+                    disabled={seats >= maxSeats}
                     hitSlop={8}
-                    style={[styles.stepperBtn, seats >= MAX_SEATS && { opacity: 0.4 }]}
+                    style={[styles.stepperBtn, seats >= maxSeats && { opacity: 0.4 }]}
                     accessibilityRole="button"
                     accessibilityLabel="More seats"
                   >
@@ -438,6 +499,39 @@ function ConfigureStageImpl() {
                   </Pressable>
                 </View>
               </View>
+
+              {isGroup && (
+                <View style={styles.seatQuickRow}>
+                  {Array.from({ length: maxSeats }, (_, i) => i + 1).map((n) => {
+                    const active = seats === n;
+                    return (
+                      <Pressable
+                        key={n}
+                        onPress={() => {
+                          void Haptics.selectionAsync();
+                          setRequestSeats(n, coverAll);
+                        }}
+                        style={[
+                          styles.seatQuickChip,
+                          active && { backgroundColor: colors.primary, borderColor: colors.primary },
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        accessibilityLabel={`${n} ${n === 1 ? 'seat' : 'seats'}`}
+                      >
+                        <Text
+                          style={[
+                            styles.seatQuickText,
+                            { color: active ? colors.onPrimary : colors.onSurfaceVariant },
+                          ]}
+                        >
+                          {n}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
 
               {/* The fee is the diversion this causes, not a flat charge — see
                   DOORSTEP_PER_KM in the fare calculator. The blurb does not name
@@ -838,6 +932,28 @@ const makeStyles = (colors: Colors) =>
       justifyContent: 'center',
       borderWidth: 1,
       borderColor: colors.outline,
+    },
+    // Group-only quick picks. Wraps rather than scrolls: eight chips fit two
+    // rows on the narrowest phone we support, and a horizontal scroller hides
+    // the larger party sizes behind a gesture nobody knows is there.
+    seatQuickRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    seatQuickChip: {
+      minWidth: 44,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.outline,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    seatQuickText: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
     },
     stepperValue: {
       fontFamily: fonts.displayBold,

@@ -3,7 +3,7 @@
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const paystack = require('../payments/paystack.client');
+const paystack = require('../payments/provider');
 const { AppError, NotFoundError } = require('../../utils/errors');
 const { assertPesewas, formatGhs } = require('../../utils/money');
 

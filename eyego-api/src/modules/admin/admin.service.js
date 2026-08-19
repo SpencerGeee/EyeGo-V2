@@ -37,6 +37,31 @@ const DRIVER_OCCUPYING_TRIP_STATUSES = [
   'IN_PROGRESS',
 ];
 
+/**
+ * A trip that is HAPPENING RIGHT NOW, as an operator means it.
+ *
+ * Narrower than `DRIVER_OCCUPYING_TRIP_STATUSES` above — that one answers "is
+ * this driver free", which a trip scheduled for next Tuesday also affects. This
+ * one answers "is something in flight that a person might have to intervene
+ * in", and a rider sitting at REQUESTED/MATCHING with nobody assigned is the
+ * most interventionable state there is.
+ *
+ * It exists because the dashboard's "Trips live now" tile and the "On the road
+ * right now" board directly beneath it each carried their own inline literal —
+ * three statuses in the tile, seven in the board. The two disagreed on the same
+ * screen, and they disagreed in the worst direction: a rider waiting for a
+ * driver was in the list and not in the number.
+ */
+const LIVE_TRIP_STATUSES = [
+  'REQUESTED',
+  'MATCHING',
+  'REASSIGNING',
+  'DRIVER_ASSIGNED',
+  'DRIVER_EN_ROUTE',
+  'ARRIVED_AT_PICKUP',
+  'IN_PROGRESS',
+];
+
 /** Absorbing states. A trip in one of these needs no admin intervention ever. */
 const TERMINAL_TRIP_STATUSES = [
   'COMPLETED',
@@ -1091,7 +1116,10 @@ async function getMetrics() {
     totalDrivers,
     pendingApprovals,
   ] = await Promise.all([
-    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } } }),
+    // The SAME set the live-trips board queries — see LIVE_TRIP_STATUSES. This
+    // was a three-status literal while the board under it listed seven, so a
+    // rider waiting for a driver appeared in the list and not in the headline.
+    prisma.trip.count({ where: { status: { in: LIVE_TRIP_STATUSES } } }),
     prisma.driver.count({ where: { isOnline: true } }),
     // BUGFIX — this read PaymentTransaction.status === 'SUCCESS'.
     //
@@ -1117,9 +1145,36 @@ async function getMetrics() {
   const env = require('../../config/env');
   const todayCommissionPesewas = percentOf(todayRevenuePesewas, env.PLATFORM_COMMISSION);
 
+  /**
+   * HOW MANY DRIVERS DISPATCH CAN ACTUALLY REACH.
+   *
+   * `driversOnline` above counts `Driver.isOnline` — a Postgres column the app
+   * sets when the driver flips the toggle. Dispatch does not read it. The pool
+   * is a Redis geo-set gated on a presence key with a TTL (see
+   * services/supply-index.service.js), so a driver whose app has been killed,
+   * backgrounded past the grace window, or lost its connection is still
+   * `isOnline: true` in the table and completely invisible to the matcher.
+   *
+   * Those two numbers diverging IS the "I requested a ride and no driver got
+   * it" symptom, and the console reported only the reassuring one. Both are
+   * returned now: the tile shows what dispatch can reach and keeps the toggle
+   * count as its subtitle, so a gap between them is visible at a glance rather
+   * than something you have to open /dispatch/health to discover.
+   */
+  const supply = require('../../services/supply-index.service');
+  const onlineIds = await prisma.driver.findMany({
+    where: { isOnline: true },
+    select: { id: true },
+  });
+  // `.size`, not `.length` — whichArePresent answers with a Set.
+  const driversDispatchable = onlineIds.length
+    ? (await supply.whichArePresent(onlineIds.map((d) => d.id)).catch(() => new Set())).size
+    : 0;
+
   return {
     activeTrips,
     driversOnline,
+    driversDispatchable,
     todayRevenuePesewas,
     todayCommissionPesewas,
     totalUsers,
@@ -1145,19 +1200,7 @@ async function getActiveTrips() {
     // are live trips too: a trip in MATCHING is a rider waiting right now.
     // `driver` is a nullable relation, so those rows come back with `driver:
     // null` and the console renders them as searching rather than assigned.
-    where: {
-      status: {
-        in: [
-          'REQUESTED',
-          'MATCHING',
-          'REASSIGNING',
-          'DRIVER_ASSIGNED',
-          'DRIVER_EN_ROUTE',
-          'ARRIVED_AT_PICKUP',
-          'IN_PROGRESS',
-        ],
-      },
-    },
+    where: { status: { in: LIVE_TRIP_STATUSES } },
     include: {
       driver: { select: { id: true, name: true, currentLat: true, currentLng: true, phone: true } },
       route: { select: { originName: true, destinationName: true } },
@@ -1700,7 +1743,7 @@ async function getAnalyticsOverview() {
     prisma.trip.count({ where: { status: 'COMPLETED' } }),
     prisma.trip.count({ where: { status: 'CANCELLED' } }),
     prisma.booking.count(),
-    prisma.trip.count({ where: { status: { in: ['DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'] } } }),
+    prisma.trip.count({ where: { status: { in: LIVE_TRIP_STATUSES } } }),
     prisma.driver.count({ where: { isOnline: true } }),
     prisma.driver.count(),
     prisma.driver.count({ where: { status: 'ACTIVE' } }),
