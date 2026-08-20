@@ -4,7 +4,7 @@ const { formatGhs, percentOf, assertPesewas } = require('../../utils/money');
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, estimateFare, haversineKm } = require('./fare.calculator');
+const { calculateFare, estimateFare, haversineKm, normalizeTier } = require('./fare.calculator');
 const { availableDriverWhere } = require('../../services/driver-availability');
 const { NotFoundError, ConflictError, ForbiddenError, AppError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
@@ -25,7 +25,26 @@ async function createTrip(driverId, data) {
     // map pickup point and destination for THIS trip instead of picking from a predefined route.
     originLat, originLng, originName, destLat, destLng, destinationName,
   } = data;
-  const tier = data.tier || 'ECONOMY';
+  /**
+   * STORE THE WIRE VALUE, NOT THE UI'S NAME FOR IT.
+   *
+   * BUGFIX. This wrote `data.tier` through untouched and defaulted to
+   * `'ECONOMY'` — which is the id the apps use in their tier pickers
+   * (`packages/ui/src/tierTheme.ts`), not the value this system stores.
+   * Everything that keys off `Trip.tier` expects the wire value `'ECO'`:
+   *
+   *   - `matcher.service` filters `d.vehicles.some(v => v.tier === tier)`, and
+   *     every `Vehicle.tier` is one of ECO/COMFORT/PREMIUM (VEHICLE_TIERS). An
+   *     'ECONOMY' trip matched no car at all, so the tier filter fell through to
+   *     its "any car rather than no ride" fallback — silently inert for the
+   *     whole driver-created product;
+   *   - `cancellation.service` looks up `CancellationPolicy` by tier, and found
+   *     none;
+   *   - pricing survived only because `calculateFare` normalises on the way in.
+   *
+   * Normalised once, here, at the boundary that persists it.
+   */
+  const tier = normalizeTier(data.tier || 'ECO');
 
   // Auto-select vehicle: use provided vehicleId or fall back to driver's first active vehicle
   let vehicle;

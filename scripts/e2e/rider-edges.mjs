@@ -43,13 +43,20 @@ async function rideTo(stopAt, rider, driver) {
   const tripId = r.tripId ?? r.trip?.id;
   if (stopAt === 'REQUESTED') return { tripId, quote: q };
 
+  /**
+   * Long, deliberately. Every previous run of this harness leaves a driver in
+   * the Redis pool near the same pickup, and the cascade offers to each in turn
+   * with a ~20 s window apiece — so "our" driver can legitimately be candidate
+   * N. Waiting for our turn is the honest thing to do; shortening it would just
+   * make the suite flaky in proportion to how often it has been run.
+   */
   await until(
     async () => {
       const s = await GET('/rides/driver/state', { token: driver.token });
       const offer = s.offer ?? s.pendingOffer;
       return offer?.tripId === tripId ? offer : null;
     },
-    { timeoutMs: 20000, label: 'offer to reach the driver' },
+    { timeoutMs: 120000, everyMs: 700, label: 'offer to reach the driver' },
   );
   await POST(`/rides/${tripId}/accept`, {}, { token: driver.token });
   if (stopAt === 'DRIVER_ASSIGNED') return { tripId, quote: q };
@@ -430,6 +437,9 @@ main()
   .finally(async () => {
     try { ctx.riderSock?.close(); } catch {}
     try { ctx.driverSock?.close(); } catch {}
+    // Leave the pool as we found it. A harness driver left online is a
+    // candidate every future run has to wait out — see the note in `rideTo`.
+    if (ctx.driver) await POST('/driver/go-offline', {}, { token: ctx.driver.token }).catch(() => {});
     const bad = summary();
     process.exit(bad ? 1 : 0);
   });

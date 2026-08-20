@@ -7,6 +7,7 @@ const { etaMatrix } = require('./eta.service');
 const { availableDriverWhere, explainIneligible } = require('./driver-availability');
 const { haversineMeters } = require('../utils/geo');
 const destinationMode = require('./destination-mode.service');
+const { normalizeTier } = require('../modules/trips/fare.calculator');
 
 /**
  * The matcher: given rides that need cars and cars that could take them,
@@ -240,8 +241,20 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
     return [];
   }
 
-  const tierMatched = tier
-    ? eligible.filter((d) => d.vehicles.some((v) => v.tier === tier))
+  /**
+   * Compared through `normalizeTier`, not by raw string equality.
+   *
+   * `Trip.tier` used to be written straight from the driver app's create-trip
+   * body, which sends the UI's id `'ECONOMY'` rather than the stored value
+   * `'ECO'`. Every `Vehicle.tier` is a wire value, so those trips matched no car
+   * and fell silently through to the "any car" fallback below — the tier filter
+   * was a no-op for a whole product path, and nothing said so. `trips.service`
+   * now normalises on write; this normalises on read so the rows already in the
+   * database behave correctly too.
+   */
+  const wantTier = tier ? normalizeTier(tier) : null;
+  const tierMatched = wantTier
+    ? eligible.filter((d) => d.vehicles.some((v) => normalizeTier(v.tier) === wantTier))
     : eligible;
   // A tier with no cars must not mean no ride at all; fall back to any car and
   // let pricing sort it out rather than showing "no drivers available".

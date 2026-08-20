@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Pressable,
   Share,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,7 +10,9 @@ import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, GlowSearchInput, ShinyText, AppBackground } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never from react-native — NativeWind's css-interop
+// drops the `({ pressed }) => style` form this screen uses. See the promo card.
+import { Text, Button, GlowSearchInput, ShinyText, AppBackground, Pressable } from '@eyego/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';

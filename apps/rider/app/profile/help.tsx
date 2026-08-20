@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Pressable,
   Linking,
   TextInput,
   Alert,
@@ -20,7 +19,10 @@ import type { Booking } from '@eyego/types';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
-import { Text, Button, GlassSurface, PanelSheet } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never from react-native: NativeWind's css-interop
+// wraps the RN one and silently drops the `({ pressed }) => style` function
+// form, which this screen uses — so the press state stops rendering at all.
+import { Text, Button, GlassSurface, PanelSheet, Pressable } from '@eyego/ui';
 
 const FAQ_ITEMS = [
   {

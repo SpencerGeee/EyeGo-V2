@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Linking, Modal, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Linking, Modal, TextInput, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
@@ -7,7 +7,9 @@ import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, AppBackground } from '@eyego/ui';
+// `Pressable` from @eyego/ui, never from react-native — NativeWind's css-interop
+// drops the `({ pressed }) => style` form this screen uses.
+import { Text, Button, AppBackground, Pressable } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';

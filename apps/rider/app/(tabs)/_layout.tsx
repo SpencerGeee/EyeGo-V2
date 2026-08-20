@@ -5,10 +5,10 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withTiming,
+  withSpring,
   interpolate,
-  Easing,
 } from 'react-native-reanimated';
+import { springs } from '@eyego/config';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 
@@ -109,8 +109,19 @@ function TabItem({
   const focus = useSharedValue(isFocused ? 1 : 0);
   const icons = TAB_ICONS[routeName];
 
+  /**
+   * SPRING, NOT TIMING — INCLUDING FOR THE TAB SWAP.
+   *
+   * `focus` drives `activeStyle`, which is both an opacity AND a scale
+   * (0.82 → 1). A duration-based scale is the one case the design system
+   * explicitly rules out: it cannot be interrupted, so a rider drumming
+   * across the tab bar restarts a 150 ms ease on every tap instead of the new
+   * motion continuing from wherever the last one had got to. `springs.micro`
+   * is the token for exactly this — icon state and chip select — and it is
+   * critically damped, so the pill does not overshoot its own size.
+   */
   React.useEffect(() => {
-    focus.value = withTiming(isFocused ? 1 : 0, { duration: 150, easing: Easing.out(Easing.quad) });
+    focus.value = withSpring(isFocused ? 1 : 0, springs.micro);
   }, [isFocused, focus]);
 
   // Guard: route exists in the directory but is not a visible tab
@@ -135,9 +146,14 @@ function TabItem({
     <Pressable
       onPress={onPress}
       onPressIn={() => {
-        scale.value = withTiming(0.92, { duration: 100, easing: Easing.out(Easing.quad) });
+        // `springs.press` — the same critically-damped press every other
+        // touchable in both apps uses (see packages/ui usePressScale). This was
+        // a 100 ms ease down and a 150 ms `Easing.back(1.5)` up: `back`
+        // overshoots by design, which is the inflating-blob press the shared
+        // token was introduced to remove, and neither half could be interrupted.
+        scale.value = withSpring(0.92, springs.press);
       }}
-      onPressOut={() => { scale.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.back(1.5)) }); }}
+      onPressOut={() => { scale.value = withSpring(1, springs.press); }}
       style={styles.tabItem}
       accessibilityRole="button"
       accessibilityLabel={TAB_LABELS[routeName]}

@@ -188,6 +188,33 @@ export default function RideDetailScreen() {
     // with no real coordinates would fitBounds to (undefined, undefined).
     if (trip?.origin?.latitude == null || trip?.origin?.longitude == null) return;
     if (trip?.destination?.latitude == null || trip?.destination?.longitude == null) return;
+
+    /**
+     * A DEGENERATE BBOX IS A SIGABRT, NOT A WARNING.
+     *
+     * `fitBounds` on two identical (or near-identical) corners aborts inside
+     * MLRNCamera — it is the crash the map-camera investigation traced, and it
+     * always blames `_setInitialCamera` in the stack, which is why it reads as
+     * an initialisation bug rather than an input one. Null coordinates were
+     * already guarded above; equal ones were not, and they are reachable: a
+     * pickup and destination pinned to the same place, a trip whose two
+     * addresses geocoded to the same point.
+     *
+     * Below the threshold there is nothing to frame anyway — one point — so
+     * centre on it at a sensible zoom instead.
+     */
+    const dLng = Math.abs(trip.destination.longitude - trip.origin.longitude);
+    const dLat = Math.abs(trip.destination.latitude - trip.origin.latitude);
+    const DEGENERATE = 1e-5; // ~1 m
+    if (dLng < DEGENERATE && dLat < DEGENERATE) {
+      cameraRef.current?.setCamera({
+        centerCoordinate: [trip.origin.longitude, trip.origin.latitude],
+        zoomLevel: 15,
+        animationDuration: 0,
+      });
+      return;
+    }
+
     cameraRef.current?.fitBounds(
       [
         [trip.origin.longitude, trip.origin.latitude],

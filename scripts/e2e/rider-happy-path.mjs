@@ -429,6 +429,9 @@ main()
   .finally(async () => {
     try { ctx.riderSock?.close(); } catch {}
     try { ctx.driverSock?.close(); } catch {}
+    // Leave the dispatch pool as we found it: a harness driver left online is a
+    // candidate every future run has to wait a full offer window out.
+    if (ctx.driver) await POST('/driver/go-offline', {}, { token: ctx.driver.token }).catch(() => {});
     const bad = summary();
     process.exit(bad ? 1 : 0);
   });

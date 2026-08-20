@@ -519,4 +519,11 @@ module.exports = {
   haversineKm,
   detourKm,
   calculateDeviationSurcharge,
+  /**
+   * Exported so the tier can be normalised where it is STORED, not only where it
+   * is priced. `Trip.tier` was written straight from the request body, and the
+   * driver app's create-trip screen sends `'ECONOMY'` — a UI id, not the wire
+   * value — so those rows disagreed with every `Vehicle.tier` in the database.
+   */
+  normalizeTier,
 };
