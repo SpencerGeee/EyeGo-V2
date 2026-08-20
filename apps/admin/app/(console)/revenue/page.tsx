@@ -30,6 +30,8 @@ type Overview = {
   totalBookings: number;
   completedTripsCount: number;
   paymentMethodBreakdown: { cash: number; card: number };
+  /** What the chart and the all-time figure actually cover. */
+  range?: { from: string; to: string; custom: boolean };
 };
 
 /**
@@ -52,6 +54,11 @@ export default async function RevenuePage({
   const overview = await apiGetSafe<Overview>(
     `/analytics/overview${q.size ? `?${q.toString()}` : ''}`
   );
+
+  // What the chart actually covers, said out loud.
+  const chartWindowLabel = overview?.range?.custom
+    ? `${overview.range.from.slice(0, 10)} to ${overview.range.to.slice(0, 10)}`
+    : 'last 14 days';
 
   if (!overview) {
     return (
@@ -104,7 +111,10 @@ export default async function RevenuePage({
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card flush className="xl:col-span-2">
-          <CardHead title="Settled revenue, last 14 days" icon="chart" />
+          {/* The window is the caller's when one is chosen. A chart headed
+              "last 14 days" while showing a filtered range is a caption that
+              contradicts its own data. */}
+          <CardHead title={`Settled revenue, ${chartWindowLabel}`} icon="chart" />
           <CardBody>
             <RevenueChart data={overview.revenueByDay} />
           </CardBody>

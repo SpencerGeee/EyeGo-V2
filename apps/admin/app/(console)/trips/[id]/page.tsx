@@ -15,7 +15,9 @@ import {
   PageHeader,
   StatCard,
 } from '@/components/ui/primitives';
-import { apiGetSafe } from '@/lib/api';
+import { RefundControl } from '@/components/ui/RefundControl';
+import { apiGetSafe, getAdmin } from '@/lib/api';
+import { can, isReadOnly } from '@/lib/roles';
 import {
   dateTime,
   ghs,
@@ -145,7 +147,13 @@ export async function generateMetadata({
  */
 export default async function TripDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const data = await apiGetSafe<{ trip: Trip }>(`/trips/${id}`);
+  const [data, admin] = await Promise.all([
+    apiGetSafe<{ trip: Trip }>(`/trips/${id}`),
+    getAdmin(),
+  ]);
+  // Refunds are FINANCE (and superadmin) only, enforced by the API. Hiding the
+  // column keeps an OPS lead from reaching for an action that will be refused.
+  const canRefund = can(admin?.role, ['FINANCE']) && !isReadOnly(admin?.role);
 
   if (data === null) {
     return (
@@ -354,6 +362,11 @@ export default async function TripDetailPage({ params }: { params: Promise<{ id:
                     <th scope="col">Seat state</th>
                     <th scope="col">Payment</th>
                     <th scope="col" className="text-right">Fare</th>
+                    {canRefund ? (
+                      <th scope="col" className="text-right">
+                        <span className="sr-only">Refund</span>
+                      </th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -397,6 +410,20 @@ export default async function TripDetailPage({ params }: { params: Promise<{ id:
                           ) : null}
                         </td>
                         <td className="num">{ghs(b.fareAmountPesewas ?? 0)}</td>
+                        {canRefund ? (
+                          <td className="text-right">
+                            {/* Only rendered for a settled booking — see RefundControl. */}
+                            <RefundControl
+                              booking={{
+                                id: b.id,
+                                fareAmountPesewas: b.fareAmountPesewas ?? 0,
+                                paymentStatus: b.paymentStatus,
+                                paymentMethod: b.paymentMethod ?? undefined,
+                                status: b.status ?? undefined,
+                              }}
+                            />
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}

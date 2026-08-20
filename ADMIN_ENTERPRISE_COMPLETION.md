@@ -80,6 +80,35 @@ account to test against).
 
 ## Verification
 
+Every one of the six new controls was then **driven by hand in a real browser**,
+not merely rendered. That pass found two more defects, both fixed below.
+
+| Control | Verified |
+|---|---|
+| Global search | `0241000001` found `+233241000001` (last-9-digit match); arrow/Enter navigates |
+| Wallet adjust | GH₵25.50 credit → balance GH₵390.00 → GH₵415.50, ledger row written, toast, page revalidated |
+| Case notes | added, attributed to the operator, retracted, empty state restored |
+| Refund | live ceiling fetched, gateway option correctly disabled for a wallet-paid fare, GH₵5.00 partial issued — booking stayed `PAID`, ledger balanced, drift 0 |
+| Date range | URL-driven, "all time" recalculated GH₵9,297 → GH₵2,949, chart re-scoped |
+| CSV export | href carries the filter; 258 rows → 80, earliest row exactly the boundary date |
+
+### Two defects found by clicking
+
+1. **The refund control did not exist.** `RefundDialog` was written but mounted
+   nowhere, so there was no way to issue a refund from the UI at all — the API,
+   the ledger and the `/refunds` page were all reachable, and the one action
+   that creates a refund was not. An earlier draft of this document claimed
+   otherwise; it was wrong. Added `RefundControl` on every settled booking row
+   of the trip detail page, plus `/api/refundable/[bookingId]` so the dialog
+   fetches its ceiling only when opened rather than once per seat on page load.
+
+2. **The date inputs broke the page header.** `.input` is `width: 100%` and beat
+   the utility class, so both date fields stretched and pushed the header onto
+   three rows. Width set inline.
+
+Also corrected: the charts were headed "last 14 days" regardless of the range
+chosen — a caption contradicting its own data. They now name the window.
+
 | Check | Result |
 |---|---|
 | Console pages rendering | **14 / 14 clean** — no error markers, no `NaN`, no `[object Object]` |
@@ -128,6 +157,19 @@ and verified end to end through the browser.
 plus export buttons and date ranges across the six list pages and both detail pages.
 
 Uncommitted.
+
+### Still unproven
+
+- **Gateway refunds** have only ever run against the mock provider. The Paystack
+  call is written but needs one live test.
+- **SOS SMS** cannot fire locally — `sendSms` is a deliberate no-op in
+  development, which is why `alertingHealth()` reports `smsConfigured: false`.
+  Needs one real send on staging.
+- **Volume and concurrency.** 61 trips, one operator. Pagination works; index
+  behaviour under load and two admins acting on the same record are untested.
+- The Revenue page's "Bookings" figure in the Split panel is an all-time count
+  and does not narrow with the date range. Minor, but it sits beside figures
+  that do.
 
 ### Two things to set before this is production-ready
 

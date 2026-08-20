@@ -40,6 +40,8 @@ type Overview = {
   avgFarePesewas: number;
   totalBookings: number;
   paymentMethodBreakdown: { cash: number; card: number };
+  /** What the charts and the all-time figure actually cover. */
+  range?: { from: string; to: string; custom: boolean };
 };
 
 type Drivers = Record<string, unknown>;
@@ -69,6 +71,12 @@ export default async function AnalyticsPage({
     apiGetSafe<Safety>('/analytics/safety'),
     apiGetSafe<Scheduled>('/analytics/scheduled'),
   ]);
+
+  // Say what the charts actually cover, rather than a fixed "last 14 days"
+  // that contradicts the range the operator just chose.
+  const chartWindowLabel = overview?.range?.custom
+    ? `${overview.range.from.slice(0, 10)} to ${overview.range.to.slice(0, 10)}`
+    : 'last 14 days';
 
   return (
     <>
@@ -108,7 +116,7 @@ export default async function AnalyticsPage({
           <div className="grid gap-4 xl:grid-cols-3 mb-4">
             <Card flush className="xl:col-span-2">
               <CardHead
-                title="Revenue, last 14 days"
+                title={`Revenue, ${chartWindowLabel}`}
                 subtitle={`Average fare ${ghsCompact(overview.avgFarePesewas)}`}
                 icon="cash"
               />
@@ -126,7 +134,7 @@ export default async function AnalyticsPage({
 
             <Card flush className="xl:col-span-2">
               <CardHead
-                title="Trips created, last 14 days"
+                title={`Trips created, ${chartWindowLabel}`}
                 subtitle={`${pct(overview.cancellationRate)} cancellation rate`}
                 icon="chart"
               />

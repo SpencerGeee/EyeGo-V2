@@ -64,7 +64,11 @@ export function DateRange() {
       <input
         id="range-from"
         type="date"
-        className="input input-sm w-auto"
+        // `.input` is width:100% and beats a utility class here, so the width
+        // is set inline. Without it both date fields stretch to fill the header
+        // and break it onto three rows.
+        style={{ width: '9.5rem' }}
+        className="input input-sm"
         value={from}
         max={to || today}
         onChange={(e) => write({ from: e.target.value || null, page: null })}
@@ -78,7 +82,11 @@ export function DateRange() {
       <input
         id="range-to"
         type="date"
-        className="input input-sm w-auto"
+        // `.input` is width:100% and beats a utility class here, so the width
+        // is set inline. Without it both date fields stretch to fill the header
+        // and break it onto three rows.
+        style={{ width: '9.5rem' }}
+        className="input input-sm"
         value={to}
         min={from || undefined}
         max={today}
