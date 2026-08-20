@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { AuditTable, type AuditRow } from './AuditTable';
+import { ExportButton } from '@/components/ui/ExportButton';
 import { FilterSelect, Pagination, RefreshControl, ResetFilters, SearchBox } from '@/components/ui/Filters';
 import { Card, ErrorPanel, PageHeader, Toolbar } from '@/components/ui/primitives';
 import { apiGetSafe } from '@/lib/api';
@@ -39,7 +40,12 @@ export default async function AuditLogsPage({
       <PageHeader
         title="Audit log"
         subtitle="Every mutating action, with who did it and what the API answered. Append-only — nothing here can be edited or removed."
-        actions={<RefreshControl />}
+        actions={
+          <>
+            <ExportButton dataset="audit-logs" />
+            <RefreshControl />
+          </>
+        }
       />
 
       <Card flush>

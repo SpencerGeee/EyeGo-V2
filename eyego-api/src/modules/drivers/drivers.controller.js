@@ -452,13 +452,23 @@ const emergencyAlert = async (req, res) => {
 
       // SosEvent.userId has no FK constraint — it's a plain identifier column,
       // so it's safe to store the reporting driver's id here.
-      await prisma.sosEvent.create({ data: { tripId, userId: driverId, lat, lng } }).catch((err) => {
+      const sosEvent = await prisma.sosEvent.create({ data: { tripId, userId: driverId, lat, lng } }).catch((err) => {
         // BUGFIX: this swallowed DB failures on the actual SOS audit record with zero
         // logging — if this write failed, there was no trace ANYWHERE that a driver
         // SOS was ever triggered, even though the ticket/push notification below might
         // still succeed independently.
         logger.error("Failed to persist driver SOS event record", { tripId, driverId, error: err.message });
+        return null;
       });
+
+      // SMS to the on-call roster — the one channel that reaches somebody who
+      // is not already looking at the console. Fire-and-forget for the same
+      // reason as the rider path: no provider round-trip in front of a panic.
+      if (sosEvent) {
+        require('../../services/sos-alert.service')
+          .dispatchAlert(sosEvent)
+          .catch((err) => logger.error('[sos] driver alert dispatch failed', { error: err.message }));
+      }
 
       const driver = await prisma.driver.findUnique({
         where: { id: driverId },

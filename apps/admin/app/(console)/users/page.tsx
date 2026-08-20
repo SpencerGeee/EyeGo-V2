@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { ExportButton } from '@/components/ui/ExportButton';
 import { FilterSelect, Pagination, RefreshControl, ResetFilters, SearchBox } from '@/components/ui/Filters';
 import {
   Avatar,
@@ -54,7 +55,12 @@ export default async function UsersPage({
       <PageHeader
         title="Riders"
         subtitle="Search matches name, phone or email. Ride counts exclude cancelled and no-show bookings."
-        actions={<RefreshControl />}
+        actions={
+          <>
+            <ExportButton dataset="users" />
+            <RefreshControl />
+          </>
+        }
       />
 
       <Card flush>

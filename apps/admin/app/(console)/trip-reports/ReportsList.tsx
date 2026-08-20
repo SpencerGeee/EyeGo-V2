@@ -19,7 +19,7 @@ export type TripReport = {
   resolvedAt?: string | null;
   createdAt: string;
   driver?: { id: string; name: string; phone: string } | null;
-  trip?: { id: string; status: string; route?: { name?: string } | null } | null;
+  trip?: { id: string; shortId?: string; status?: string; route?: { name?: string } | null } | null;
 };
 
 export function ReportsList({
@@ -43,7 +43,10 @@ export function ReportsList({
     <ul className="divide-y divide-line">
       {reports.map((r) => {
         const open = r.status === 'OPEN' && !r.resolvedAt;
-        const tripMeta = r.trip ? tripStatusMeta(r.trip.status) : null;
+        // No status means the trip could not be hydrated — show no badge at
+        // all rather than an "Unknown" one, which reads as a claim about the
+        // trip rather than an absence of data.
+        const tripMeta = r.trip?.status ? tripStatusMeta(r.trip.status) : null;
 
         return (
           <li key={r.id} className={`p-4 ${open ? 'bg-warn-soft/20' : ''}`}>
@@ -80,8 +83,15 @@ export function ReportsList({
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 t-small text-text-dim">
                   <span>
                     Trip{' '}
+                    {/*
+                      The trip's own short code, which is what an operator reads
+                      out on a call. This showed shortId(r.tripId) — the first
+                      eight characters of the DATABASE id — so every report was
+                      labelled with an opaque fragment while the real code sat
+                      unused in the payload.
+                    */}
                     <Link href={`/trips/${r.tripId}`} className="mono text-accent hover:underline">
-                      {shortId(r.tripId)}
+                      {r.trip?.shortId ?? shortId(r.tripId)}
                     </Link>
                     {tripMeta ? (
                       <>

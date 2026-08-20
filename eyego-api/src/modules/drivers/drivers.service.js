@@ -10,6 +10,7 @@ const pushService = require('../../services/push.service');
 // of services/standing.service.js.
 const standingService = require('../../services/standing.service');
 const { NotFoundError, AppError, InsufficientWalletError, ForbiddenError, ValidationError } = require('../../utils/errors');
+const { assertAssetUrl } = require('../../utils/asset-url');
 const { isWithinGhana } = require('../../services/mapbox.service');
 const { generateTripReceipt, refundBookingForDriverCancellation } = require('../cancellation/cancellation.service');
 const redis = require('../../config/redis');
@@ -292,7 +293,8 @@ async function updateProfile(driverId, data) {
   const allowed = {};
   if (data.name) allowed.name = data.name;
   if (data.dateOfBirth) allowed.dateOfBirth = data.dateOfBirth;
-  if (data.profilePhoto) allowed.profilePhoto = data.profilePhoto;
+  // A URL to an uploaded image, never the image itself — see utils/asset-url.
+  if (data.profilePhoto) allowed.profilePhoto = assertAssetUrl(data.profilePhoto, 'profilePhoto');
   return prisma.driver.update({ where: { id: driverId }, data: allowed });
 }
 
@@ -2604,7 +2606,26 @@ async function getDocuments(driverId) {
  * Admin approve/reject a specific driver document. Previously there was no
  * per-document review path at all — status was a binary present→VERIFIED.
  */
+/** The only documents that exist. getDocuments() reads exactly these keys. */
+const REVIEWABLE_DOCUMENT_TYPES = ['DRIVERS_LICENSE', 'GHANA_CARD', 'PROFILE_PHOTO'];
+
 async function reviewDocument(driverId, type, { approve, rejectionReason } = {}) {
+  /**
+   * `type` comes straight off the URL and was written into the JSON blob
+   * unchecked, so POST /drivers/:id/documents/banana/review answered 200
+   * "Document approved", stored a `banana` key nobody reads, and wrote an
+   * audit row saying a compliance document had been reviewed. The document
+   * itself stayed exactly as it was. An approval that approves nothing while
+   * claiming otherwise is worse than an error, because the queue looks done.
+   */
+  if (!REVIEWABLE_DOCUMENT_TYPES.includes(type)) {
+    throw new AppError(
+      `Unknown document type "${type}". Expected one of: ${REVIEWABLE_DOCUMENT_TYPES.join(', ')}`,
+      400,
+      'UNKNOWN_DOCUMENT_TYPE',
+    );
+  }
+
   const driver = await prisma.driver.findUnique({ where: { id: driverId }, select: { documentReview: true } });
   if (!driver) throw new NotFoundError('Driver');
 

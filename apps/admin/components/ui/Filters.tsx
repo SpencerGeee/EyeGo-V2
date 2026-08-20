@@ -14,7 +14,8 @@ import { Icon } from './Icon';
  * local state provides.
  */
 
-function useParamWriter() {
+/** Exported so DateRange writes filters through the same page-resetting path. */
+export function useParamWriter() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();

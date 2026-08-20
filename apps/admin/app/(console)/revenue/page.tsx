@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { PaymentMixChart, RevenueChart } from '@/components/charts/Charts';
+import { DateRange } from '@/components/ui/DateRange';
+import { ExportButton } from '@/components/ui/ExportButton';
 import { RefreshControl } from '@/components/ui/Filters';
 import {
   Card,
@@ -38,8 +40,18 @@ type Overview = {
  * from card transactions on a platform where most fares are cash — which made
  * the number look like roughly zero and was mistaken for a collapse in trade.
  */
-export default async function RevenuePage() {
-  const overview = await apiGetSafe<Overview>('/analytics/overview');
+export default async function RevenuePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const sp = await searchParams;
+  const q = new URLSearchParams();
+  if (sp.from) q.set('from', sp.from);
+  if (sp.to) q.set('to', sp.to);
+  const overview = await apiGetSafe<Overview>(
+    `/analytics/overview${q.size ? `?${q.toString()}` : ''}`
+  );
 
   if (!overview) {
     return (
@@ -69,7 +81,13 @@ export default async function RevenuePage() {
       <PageHeader
         title="Revenue"
         subtitle="Settled fares only. A fare counts once its booking reaches PAID — which covers cash collected in the car as well as card and mobile money."
-        actions={<RefreshControl intervalSeconds={120} />}
+        actions={
+          <>
+            <DateRange />
+            <ExportButton dataset="revenue" />
+            <RefreshControl intervalSeconds={120} />
+          </>
+        }
       />
 
       <section aria-label="Revenue summary" className="grid gap-3 mb-4 grid-cols-2 lg:grid-cols-4">

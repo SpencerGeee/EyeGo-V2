@@ -1,12 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useState, useTransition } from 'react';
 
 import { StaticMap } from '@/components/map/StaticMap';
 import { ActionButton } from '@/components/ui/ActionButton';
 import { Icon } from '@/components/ui/Icon';
 import { Badge, EmptyState, ErrorPanel } from '@/components/ui/primitives';
-import { resolveSosEvent } from '@/lib/actions';
+import { useToast } from '@/components/ui/Toast';
+import { acknowledgeSos, releaseSos, resolveSosWithOutcome } from '@/lib/actions';
 import { dateTime, minutesSince, phone as fmtPhone, relative, tripRef } from '@/lib/format';
 import { tripStatusMeta } from '@/lib/status';
 
@@ -18,7 +20,14 @@ export type SosEvent = {
   lng?: number | null;
   /** Reverse-geocoded place name for lat/lng. Null when it could not be resolved. */
   address?: string | null;
+  /** OPEN → ACKNOWLEDGED → RESOLVED. */
+  status?: string;
+  acknowledgedAt?: string | null;
+  acknowledgedBy?: { id: string; name: string; email: string } | null;
   resolvedAt?: string | null;
+  resolvedBy?: { id: string; name: string; email: string } | null;
+  outcome?: string | null;
+  ageMinutes?: number;
   createdAt: string;
   reporter?: { role: string; id: string; name: string; phone: string };
   trip?: {
@@ -28,6 +37,71 @@ export type SosEvent = {
     driver?: { id: string; name: string; phone: string } | null;
   } | null;
 };
+
+/**
+ * Closing an alert requires saying what happened.
+ *
+ * A one-click "resolved" produces a queue full of cleared alerts and no account
+ * of any of them, which is worthless precisely when it matters: the review
+ * after a serious incident. One sentence is enough, and the field refuses to
+ * submit empty.
+ */
+function ResolveSosButton({ eventId }: { eventId: string }) {
+  const [open, setOpen] = useState(false);
+  const [outcome, setOutcome] = useState('');
+  const [pending, start] = useTransition();
+  const toast = useToast();
+
+  if (!open) {
+    return (
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
+        <Icon name="check" size={14} />
+        Resolve
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 w-56">
+      <textarea
+        className="input min-h-16 t-small"
+        autoFocus
+        value={outcome}
+        onChange={(e) => setOutcome(e.target.value)}
+        placeholder="What happened? e.g. Called rider, false alarm, confirmed safe."
+        disabled={pending}
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm flex-1"
+          disabled={pending || !outcome.trim()}
+          onClick={() =>
+            start(async () => {
+              const r = await resolveSosWithOutcome(eventId, outcome.trim());
+              if (r.ok) {
+                toast.success(r.message);
+                setOpen(false);
+              } else {
+                toast.error(r.message);
+              }
+            })
+          }
+        >
+          {pending ? 'Saving…' : 'Confirm'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => setOpen(false)}
+          disabled={pending}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Cards, not a table.
@@ -41,10 +115,15 @@ export function SosList({
   events,
   error,
   canResolve,
+  currentAdminId,
+  staleAfterMinutes = 10,
 }: {
   events: SosEvent[] | null;
   error: string | null;
   canResolve: boolean;
+  currentAdminId?: string | null;
+  /** Past this, an unclaimed alert is shown as overdue rather than merely open. */
+  staleAfterMinutes?: number;
 }) {
   if (error) return <ErrorPanel title="Could not load SOS events" message={error} />;
 
@@ -71,10 +150,18 @@ export function SosList({
   return (
     <ul className="divide-y divide-line">
       {events.map((e) => {
-        const open = !e.resolvedAt;
-        const age = minutesSince(e.createdAt) ?? 0;
+        const status = e.status ?? (e.resolvedAt ? 'RESOLVED' : 'OPEN');
+        const open = status !== 'RESOLVED';
+        const claimed = status === 'ACKNOWLEDGED';
+        const age = e.ageMinutes ?? minutesSince(e.createdAt) ?? 0;
         // Under 15 minutes an unresolved alert may still be live.
-        const hot = open && age < 15;
+        const hot = open && !claimed && age < 15;
+        // Nobody has picked this up and it has been waiting too long. This is
+        // the state the whole triage flow exists to make visible — previously
+        // every unresolved alert looked identical, so a three-day-old one
+        // shouted exactly as loudly as one raised a minute ago.
+        const overdue = open && !claimed && age >= staleAfterMinutes;
+        const mine = claimed && e.acknowledgedBy?.id && e.acknowledgedBy.id === currentAdminId;
         const tripMeta = e.trip ? tripStatusMeta(e.trip.status) : null;
 
         return (
@@ -90,13 +177,17 @@ export function SosList({
 
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  {open ? (
+                  {claimed ? (
+                    <Badge tone="warn" icon="eye">
+                      {mine ? 'You are handling this' : `With ${e.acknowledgedBy?.name ?? 'an operator'}`}
+                    </Badge>
+                  ) : open ? (
                     <Badge tone="critical" live={hot}>
-                      {hot ? 'Live — unresolved' : 'Unresolved'}
+                      {hot ? 'Live — nobody on it' : overdue ? `Unclaimed for ${age}m` : 'Unclaimed'}
                     </Badge>
                   ) : (
                     <Badge tone="neutral" icon="check">
-                      Resolved
+                      Resolved{e.resolvedBy ? ` by ${e.resolvedBy.name}` : ''}
                     </Badge>
                   )}
                   <span className="t-small text-text-faint">
@@ -190,9 +281,20 @@ export function SosList({
                   )}
                 </div>
 
+                {claimed && e.acknowledgedAt ? (
+                  <p className="t-small text-warn mt-1.5">
+                    Picked up by {e.acknowledgedBy?.name ?? 'an operator'} {relative(e.acknowledgedAt)}
+                  </p>
+                ) : null}
+
                 {e.resolvedAt ? (
                   <p className="t-small text-text-faint mt-1.5">
                     Cleared {dateTime(e.resolvedAt)}
+                    {e.resolvedBy ? ` by ${e.resolvedBy.name}` : ''}
+                    {/* The account of what happened. This is the part that gets
+                        read back after an incident, so it is shown inline
+                        rather than hidden behind a detail view. */}
+                    {e.outcome ? <span className="block text-text-dim mt-0.5">“{e.outcome}”</span> : null}
                   </p>
                 ) : null}
 
@@ -236,18 +338,36 @@ export function SosList({
                 ) : null}
               </div>
 
+              {/*
+                TWO STEPS, NOT ONE. "I am on this" and "this is finished" are
+                different claims, and collapsing them meant the queue could not
+                tell an alert nobody had touched from one a colleague was
+                already on the phone about — so either two people rang the same
+                frightened rider, or everybody assumed somebody else had.
+              */}
               {open && canResolve ? (
-                <ActionButton
-                  action={() => resolveSosEvent(e.id)}
-                  label="Mark resolved"
-                  icon="check"
-                  variant="secondary"
-                  confirm={{
-                    title: 'Mark this SOS resolved?',
-                    body: 'Confirm you have spoken to the person who raised it and they are safe. This is recorded against your name and does not contact anyone.',
-                    confirmLabel: 'Mark resolved',
-                  }}
-                />
+                <div className="flex flex-col gap-2 flex-none">
+                  {!claimed ? (
+                    <ActionButton
+                      action={() => acknowledgeSos(e.id)}
+                      label="I'll take this"
+                      icon="eye"
+                      variant="primary"
+                    />
+                  ) : (
+                    <>
+                      <ResolveSosButton eventId={e.id} />
+                      {mine ? (
+                        <ActionButton
+                          action={() => releaseSos(e.id)}
+                          label="Hand back"
+                          icon="refresh"
+                          variant="ghost"
+                        />
+                      ) : null}
+                    </>
+                  )}
+                </div>
               ) : null}
             </div>
           </li>

@@ -9,10 +9,18 @@ import { ApiError } from './api';
  * strips exactly the detail the operator needs — "your role cannot do this" or
  * "that driver is already suspended".
  */
-export type ActionResult = { ok: boolean; message: string };
+/**
+ * `data` is optional and almost always absent — the point of an action is the
+ * side effect, and the page re-renders from the server afterwards. It exists
+ * for the handful that must hand something back that is never persisted in
+ * readable form: the two-factor enrolment secret and the recovery codes, which
+ * are shown exactly once and stored only as hashes.
+ */
+export type ActionResult<T = unknown> = { ok: boolean; message: string; data?: T };
 
-export const ok = (message: string): ActionResult => ({ ok: true, message });
-export const fail = (message: string): ActionResult => ({ ok: false, message });
+export const ok = <T,>(message: string, data?: T): ActionResult<T> => ({ ok: true, message, data });
+/** A failure carries no data, so it satisfies any ActionResult<T>. */
+export const fail = <T = unknown,>(message: string): ActionResult<T> => ({ ok: false, message });
 
 /**
  * Wraps an action body, converting an API failure into a readable result.
@@ -21,13 +29,13 @@ export const fail = (message: string): ActionResult => ({ ok: false, message });
  * phrased for a developer, and an operator needs to know it is a permission
  * problem rather than a bug in the page.
  */
-export async function run(
+export async function run<T = unknown>(
   successMessage: string,
-  body: () => Promise<unknown>
-): Promise<ActionResult> {
+  body: () => Promise<T>
+): Promise<ActionResult<T>> {
   try {
-    await body();
-    return ok(successMessage);
+    const data = await body();
+    return ok(successMessage, data);
   } catch (err) {
     if (err instanceof ApiError) {
       if (err.forbidden) {

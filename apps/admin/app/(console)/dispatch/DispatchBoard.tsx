@@ -11,6 +11,13 @@ import { assignDriverToTrip } from '@/lib/actions';
 import { num, relative, shortId, tripRef } from '@/lib/format';
 import { tripStatusMeta } from '@/lib/status';
 
+/**
+ * The shape this board renders. Two of these fields are FLATTENED from what
+ * `/live/drivers` actually sends — it reports `activeTrip: { id, … }` and
+ * `vehicle: { plateNumber, … }` — so the page normalises the payload before
+ * handing it over. The raw nested forms are declared here as optional inputs
+ * to that normalisation, and nothing below reads them directly.
+ */
 export type LiveDriver = {
   id: string;
   name: string;
@@ -19,7 +26,12 @@ export type LiveDriver = {
   heading: number | null;
   status: string;
   activeTripId: string | null;
+  /** The trip's human short code, for display. Falls back to the id. */
+  activeTripShortId?: string | null;
   vehiclePlate: string | null;
+  /** Raw, as sent by /live/drivers. Normalised into the fields above. */
+  activeTrip?: { id: string; shortId?: string; status: string } | null;
+  vehicle?: { plateNumber?: string | null } | null;
 };
 
 export type StrandedTrip = {
@@ -189,7 +201,8 @@ export function DispatchBoard({
                       <td>
                         {d.activeTripId ? (
                           <Link href={`/trips/${d.activeTripId}`}>
-                            <Badge tone="info">On trip {shortId(d.activeTripId)}</Badge>
+                            {/* The trip's short code, not eight characters of its database id. */}
+                            <Badge tone="info">On trip {d.activeTripShortId ?? shortId(d.activeTripId)}</Badge>
                           </Link>
                         ) : (
                           <Badge tone="accent" live>

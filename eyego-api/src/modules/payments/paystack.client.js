@@ -94,6 +94,31 @@ async function verifyTransaction(reference) {
   return data;
 }
 
+/**
+ * Send money back to the card or mobile-money account it came from.
+ *
+ * Paystack's /refund takes the ORIGINAL charge reference, not a customer id,
+ * and `amount` in the minor unit — omit it for a full refund. Partial refunds
+ * are the common support case (one seat off a five-seat booking), so it is
+ * passed through explicitly whenever we have it.
+ *
+ * The call returns immediately with status `pending`: the money reaches the
+ * cardholder days later, on the scheme's timetable, and Paystack confirms via
+ * the `refund.processed` webhook. Callers must therefore treat a successful
+ * response as "accepted", never as "settled".
+ */
+async function refundTransaction({ reference, amountPesewas, reason }) {
+  const body = { transaction: reference };
+  if (amountPesewas != null) {
+    assertGatewayAmount(amountPesewas, 'refundTransaction');
+    body.amount = amountPesewas;
+  }
+  if (reason) body.merchant_note = String(reason).slice(0, 250);
+
+  const { data } = await paystackHttp.post('/refund', body);
+  return data;
+}
+
 async function initiateTransfer({ amountPesewas, recipient, reason, reference }) {
   assertGatewayAmount(amountPesewas, 'initiateTransfer');
 
@@ -181,6 +206,7 @@ module.exports = {
   initiateCardCharge,
   initializeCheckout,
   verifyTransaction,
+  refundTransaction,
   initiateTransfer,
   createTransferRecipient,
   resolvePayoutBankCode,

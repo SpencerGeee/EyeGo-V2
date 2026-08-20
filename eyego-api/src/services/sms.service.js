@@ -35,6 +35,18 @@ async function sendSms(to, message) {
   }
 }
 
+/**
+ * Would `sendSms` actually put a message on the wire?
+ *
+ * False in development — where sends are deliberately skipped and logged — and
+ * false without credentials. The SOS page reports this, because "alerting is
+ * configured" and "alerting would reach someone" are different claims, and only
+ * the second one matters at 3am.
+ */
+function isConfigured() {
+  return Boolean(env.AT_API_KEY && env.AT_USERNAME) && env.NODE_ENV !== 'development';
+}
+
 async function sendOtp(phone, otp) {
   const message = `Your EyeGo code is ${otp}. Expires in 10 minutes. Do not share this code.`;
   return sendSms(phone, message);
@@ -59,4 +71,4 @@ function normalizePhone(phone) {
   return cleaned;
 }
 
-module.exports = { sendSms, sendOtp, sendRideInvite, sendOfflinePassengerOtp };
+module.exports = { sendSms, sendOtp, sendRideInvite, sendOfflinePassengerOtp, isConfigured };

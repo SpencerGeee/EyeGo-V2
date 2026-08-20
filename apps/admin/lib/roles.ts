@@ -99,6 +99,10 @@ export const NAV: NavSection[] = [
     title: 'Money',
     items: [
       { href: '/revenue', label: 'Revenue', icon: 'cash', roles: ['FINANCE'] },
+      // SUPPORT and OPS can see the refund ledger without being able to issue
+      // one — the agent on a call needs to know whether this was already dealt
+      // with, which is a different question from being allowed to move money.
+      { href: '/refunds', label: 'Refunds', icon: 'refresh', roles: ['FINANCE', 'SUPPORT', 'OPS'] },
       { href: '/promotions', label: 'Promotions', icon: 'tag', roles: ['FINANCE', 'OPS', 'VIEWER'] },
     ],
   },

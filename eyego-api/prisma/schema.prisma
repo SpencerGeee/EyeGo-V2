@@ -136,6 +136,8 @@ model User {
   tripRequests          TripRequest[]
   savedPlaces           SavedPlace[]
   requestedTrips        Trip[]            @relation("RequestedTrips")
+  walletTransactions    RiderWalletTransaction[]
+  refunds               Refund[]
 }
 
 model SavedPlace {
@@ -612,6 +614,7 @@ model Booking {
 
   paymentTxs          PaymentTransaction[]
   receipts            Receipt[]
+  refunds             Refund[]
 
   @@unique([tripId, seatNumber])
   @@index([tripId])
@@ -1101,11 +1104,32 @@ model SosEvent {
   userId     String
   lat        Float?
   lng        Float?
-  resolvedAt DateTime?
+
+  /// OPEN → ACKNOWLEDGED → RESOLVED.
+  ///
+  /// There used to be only `resolvedAt`, which made every unresolved alert
+  /// identical: a queue 28 deep with three-day-old entries all shouting "needs
+  /// triage now" is a queue nobody reads. ACKNOWLEDGED means a named person has
+  /// it and is on the phone — the distinction that lets the rest of the team
+  /// skip past it.
+  status     String    @default("OPEN")
+
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   AdminUser? @relation("SosAcknowledged", fields: [acknowledgedById], references: [id])
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   AdminUser? @relation("SosResolved", fields: [resolvedById], references: [id])
+  /// What actually happened. Required to resolve — "resolved" with no account
+  /// of why is the same as unresolved for anyone reading it later.
+  outcome      String?
+
   createdAt  DateTime  @default(now())
 
   @@index([tripId])
   @@index([userId])
+  @@index([status, createdAt])
 }
 
 // ─────────────────────────────────────────
@@ -1245,11 +1269,34 @@ model AdminUser {
   failedLoginCount Int      @default(0)
   lockedUntil      DateTime?
 
+  // ── Two-factor (TOTP, RFC 6238) ────────────────────────────────
+  //
+  // These accounts can reprice every ride on the platform and ban any user, and
+  // until now a password was the only thing in the way. Riders authenticate
+  // with a one-time code; administrators had a weaker bar than their customers.
+  //
+  /// Base32 shared secret. Present once enrolment starts, but MFA is not in
+  /// force until `totpEnabledAt` is set — enrolling is a two-step confirm so a
+  /// mistyped authenticator cannot lock the account out.
+  totpSecret     String?
+  totpEnabledAt  DateTime?
+  /// Last accepted 30-second step, so a code cannot be replayed inside its own
+  /// validity window by someone reading it over a shoulder.
+  totpLastStep   BigInt?
+  /// bcrypt hashes of single-use recovery codes, JSON array. The only way back
+  /// in when the phone is lost, and each is burned on use.
+  totpBackupCodes String?
+
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   createdById  String?
 
   auditLogs    AdminAuditLog[]
+  sosAcknowledged SosEvent[] @relation("SosAcknowledged")
+  sosResolved     SosEvent[] @relation("SosResolved")
+  riderWalletMoves RiderWalletTransaction[]
+  refundsIssued    Refund[]
+  notes            AdminNote[]
 
   @@index([role])
   @@index([isActive])
@@ -1288,4 +1335,118 @@ model AdminAuditLog {
   @@index([action, createdAt])
   @@index([targetType, targetId])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────
+// RIDER WALLET LEDGER
+//
+// The driver side has had `WalletTransaction` since the beginning; the rider
+// side had nothing. `User.walletBalancePesewas` was simply incremented and
+// decremented with no record of who moved it, when, or why — so a rider
+// disputing their balance could not be answered, and an admin crediting a
+// goodwill refund left no trace at all. Refunds are built on top of this, so
+// it has to exist before they can be honest.
+//
+// Same invariant the driver ledger asserts: balanceAfter = balanceBefore +
+// amount, with debits negative. Never write the balance without writing a row.
+// ─────────────────────────────────────────
+model RiderWalletTransaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  /// TOPUP | REFUND | RIDE_PAYMENT | SEND | RECEIVE | ADMIN_CREDIT | ADMIN_DEBIT
+  type        String
+  amountPesewas        Int
+  description String
+  balanceBeforePesewas Int
+  balanceAfterPesewas  Int
+
+  bookingId   String?
+  refundId    String?
+  paystackRef String?
+
+  /// Set when an administrator moved the money by hand, so the ledger names a
+  /// person and not just "the system".
+  adminId     String?
+  admin       AdminUser? @relation(fields: [adminId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([bookingId])
+}
+
+// ─────────────────────────────────────────
+// REFUNDS
+//
+// Support could previously agree that a rider had been overcharged and then do
+// nothing about it: there was no admin path to move money at all. This records
+// the decision as well as the movement — amount, reason, who authorised it —
+// because a refund is a financial control, and "who approved this" is the first
+// question anyone asks about one.
+// ─────────────────────────────────────────
+model Refund {
+  id        String  @id @default(cuid())
+  bookingId String
+  booking   Booking @relation(fields: [bookingId], references: [id])
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id])
+
+  /// Positive. May be less than the fare — partial refunds are the common case.
+  amountPesewas Int
+  /// Free text from the operator. Mandatory: an unexplained refund is indistinguishable from fraud.
+  reason        String
+
+  /// WALLET — credited to the rider's EyeGo balance, instant and reversible.
+  /// GATEWAY — sent back to the original payment method via the provider.
+  destination   String  @default("WALLET")
+
+  /// PENDING | COMPLETED | FAILED. WALLET refunds complete synchronously;
+  /// GATEWAY ones wait on the provider.
+  status        String  @default("COMPLETED")
+  providerRef   String?
+  failureReason String?
+
+  adminId    String?
+  admin      AdminUser? @relation(fields: [adminId], references: [id])
+  adminEmail String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────
+// ADMIN CASE NOTES
+//
+// Polymorphic and append-only. Every support conversation used to start from
+// zero — there was nowhere to write "called her, resolved, do not re-ban", so
+// the next agent re-litigated the same case. Deliberately not editable: a note
+// someone can quietly rewrite is not a record.
+// ─────────────────────────────────────────
+model AdminNote {
+  id String @id @default(cuid())
+
+  /// User | Driver | Trip | Booking
+  subjectType String
+  subjectId   String
+
+  body String
+
+  adminId    String?
+  admin      AdminUser? @relation(fields: [adminId], references: [id])
+  adminEmail String
+  adminName  String
+
+  /// Soft-delete, so a retracted note still shows that something was retracted.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([subjectType, subjectId, createdAt])
 }

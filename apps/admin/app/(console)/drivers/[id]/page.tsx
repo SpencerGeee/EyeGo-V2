@@ -5,6 +5,8 @@ import { notFound } from 'next/navigation';
 import { DocumentReview, type DriverDocument } from './DocumentReview';
 import { DriverModeration } from './DriverModeration';
 import { Icon } from '@/components/ui/Icon';
+import { NotesPanel, type AdminNote } from '@/components/ui/NotesPanel';
+import { WalletAdjustControl } from '@/components/ui/WalletAdjustControl';
 import {
   Badge,
   Card,
@@ -108,9 +110,10 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
   const { id } = await params;
   const admin = await getAdmin();
 
-  const [detail, trips] = await Promise.all([
+  const [detail, trips, notes] = await Promise.all([
     apiGetSafe<{ driver: Driver }>(`/drivers/${id}`),
     apiGetSafe<TripsResponse>(`/drivers/${id}/trips?limit=10`),
+    apiGetSafe<{ notes: AdminNote[] }>(`/notes/Driver/${id}`),
   ]);
 
   // A missing driver and an unreachable API are different failures and must not
@@ -143,6 +146,10 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
 
   const vehicle = driver.vehicles?.find((v) => v.isActive) ?? driver.vehicles?.[0];
   const canModerate = can(admin?.role, ['OPS']) && !isReadOnly(admin?.role);
+  // Putting a driver on the road and paying one are separate powers — OPS does
+  // the first, FINANCE the second. The API enforces it; hiding the control
+  // keeps anyone from reaching for an action that will be refused.
+  const canMoveMoney = can(admin?.role, ['FINANCE']) && !isReadOnly(admin?.role);
   const stats = driver.stats;
 
   return (
@@ -178,7 +185,17 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
         }
         actions={
           canModerate ? (
-            <DriverModeration driverId={driver.id} name={driver.name} status={driver.status} />
+            <div className="flex items-center gap-2">
+              {canMoveMoney ? (
+                <WalletAdjustControl
+                  kind="driver"
+                  id={driver.id}
+                  name={driver.name}
+                  balancePesewas={driver.walletBalancePesewas ?? 0}
+                />
+              ) : null}
+              <DriverModeration driverId={driver.id} name={driver.name} status={driver.status} />
+            </div>
           ) : (
             <ReadOnlyNote>
               {can(admin?.role, ['OPS'])
@@ -411,6 +428,18 @@ export default async function DriverDetailPage({ params }: { params: Promise<{ i
             <EmptyState icon="cash" title="No wallet activity" body="No commission or payout entries yet." />
           )}
         </Card>
+
+        {/* Full width: notes are prose, and a third-width column wraps them
+            into an unreadable ribbon. */}
+        <div className="lg:col-span-3">
+          <NotesPanel
+            subjectType="Driver"
+            subjectId={driver.id}
+            notes={notes?.notes ?? []}
+            canWrite={!isReadOnly(admin?.role)}
+            revalidatePath={`/drivers/${driver.id}`}
+          />
+        </div>
       </div>
     </>
   );

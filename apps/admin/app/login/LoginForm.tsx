@@ -14,9 +14,18 @@ import { Icon } from '@/components/ui/Icon';
 export function LoginForm({ next }: { next: string }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * The second step. The API answers a correct password on an MFA-protected
+   * account with 401 + `totpRequired`, which is a REQUEST for a code, not a
+   * rejection — without this the form reported it as "sign-in failed" and
+   * anyone who enrolled in two-factor was simply locked out of the console
+   * with no way back in.
+   */
+  const [needsCode, setNeedsCode] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,9 +38,20 @@ export function LoginForm({ next }: { next: string }) {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, ...(needsCode ? { totpCode } : {}) }),
       });
       const body = await res.json().catch(() => null);
+
+      if (body?.totpRequired) {
+        // Password accepted; we are being asked for the second factor. On the
+        // first pass this reveals the field. On a later pass it means the code
+        // itself was wrong, so keep the field and say so.
+        setNeedsCode(true);
+        setError(needsCode ? body.message || 'That code is not valid. Try the next one.' : null);
+        setTotpCode('');
+        setBusy(false);
+        return;
+      }
 
       if (!res.ok || !body?.ok) {
         setError(body?.message || 'Sign-in failed. Check your details and try again.');
@@ -111,14 +131,60 @@ export function LoginForm({ next }: { next: string }) {
         </div>
       </div>
 
+      {needsCode ? (
+        <div className="mb-5">
+          <label className="label" htmlFor="totp">
+            Authentication code
+          </label>
+          <input
+            id="totp"
+            name="totp"
+            type="text"
+            inputMode="numeric"
+            // `one-time-code` is what lets a password manager and iOS/Android
+            // offer the code straight from the keyboard rather than making
+            // somebody copy it between apps.
+            autoComplete="one-time-code"
+            pattern="[0-9A-Za-z-]*"
+            maxLength={11}
+            required
+            autoFocus
+            className="input mono tracking-widest"
+            value={totpCode}
+            onChange={(e) => setTotpCode(e.target.value)}
+            aria-invalid={error ? true : undefined}
+            aria-describedby="totp-hint"
+          />
+          <p id="totp-hint" className="hint mt-2">
+            The 6-digit code from your authenticator app. Lost your phone? Use
+            one of the recovery codes you saved — each works once.
+          </p>
+        </div>
+      ) : null}
+
       <button type="submit" className="btn btn-primary btn-lg w-full" disabled={busy} aria-busy={busy}>
         {busy ? <Icon name="refresh" size={15} className="spin" /> : null}
-        {busy ? 'Signing in…' : 'Sign in'}
+        {busy ? 'Signing in…' : needsCode ? 'Verify and sign in' : 'Sign in'}
       </button>
 
+      {needsCode ? (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm w-full mt-2"
+          onClick={() => {
+            setNeedsCode(false);
+            setTotpCode('');
+            setError(null);
+          }}
+        >
+          Use a different account
+        </button>
+      ) : null}
+
       <p className="hint mt-4">
-        Locked out after five failed attempts for 15 minutes. A superadmin can
-        reset your password from Admin accounts.
+        Locked out after five failed attempts for 15 minutes — a wrong code
+        counts too. A superadmin can reset your password, or clear your
+        two-factor, from Admin accounts.
       </p>
     </form>
   );

@@ -12,6 +12,7 @@
 
 export type IconName =
   | 'grid'
+  | 'download'
   | 'chart'
   | 'radar'
   | 'route'
@@ -187,6 +188,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-left': <path d="M15 5l-7 7 7 7" />,
   'arrow-up': <path d="M12 20V4M6 10l6-6 6 6" />,
   'arrow-down': <path d="M12 4v16M18 14l-6 6-6-6" />,
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 11 5 5 5-5" />
+      <path d="M5 21h14" />
+    </>
+  ),
   external: (
     <>
       <path d="M14 4h6v6" />

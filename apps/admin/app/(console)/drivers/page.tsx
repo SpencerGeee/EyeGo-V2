@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { DriversTable, type DriverRow } from './DriversTable';
+import { ExportButton } from '@/components/ui/ExportButton';
 import { FilterSelect, Pagination, RefreshControl, ResetFilters, SearchBox } from '@/components/ui/Filters';
 import { Card, PageHeader, Toolbar } from '@/components/ui/primitives';
 import { apiGetSafe, getAdmin } from '@/lib/api';
@@ -42,7 +43,12 @@ export default async function DriversPage({
       <PageHeader
         title="Drivers"
         subtitle="The whole fleet. Search matches name, phone or Ghana Card number."
-        actions={<RefreshControl />}
+        actions={
+          <>
+            <ExportButton dataset="drivers" />
+            <RefreshControl />
+          </>
+        }
       />
 
       <Card flush>

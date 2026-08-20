@@ -104,7 +104,7 @@ const emergencyAlert = async (req, res) => {
       const lng = longitude ? parseFloat(longitude) : null;
 
       // Persist SOS event
-      await prisma.sosEvent.create({
+      const sosEvent = await prisma.sosEvent.create({
         data: { tripId, userId, lat, lng },
       }).catch((err) => {
         // BUGFIX: this swallowed DB failures on the actual SOS audit record with zero
@@ -112,7 +112,20 @@ const emergencyAlert = async (req, res) => {
         // SOS was ever triggered, even though the ticket/push notification below might
         // still succeed independently.
         logger.error("Failed to persist rider SOS event record", { tripId, userId, error: err.message });
+        return null;
       });
+
+      // Wake a human. The FCM fan-out below reaches admin devices that have
+      // registered a token through the MOBILE endpoint — which the web console
+      // never calls, so on a normal deployment it reaches nobody. This is the
+      // channel that actually rings: SMS to the on-call roster.
+      // Deliberately not awaited — an SMS provider round-trip must not sit
+      // between a rider pressing panic and the response coming back.
+      if (sosEvent) {
+        require('../../services/sos-alert.service')
+          .dispatchAlert(sosEvent)
+          .catch((err) => logger.error('[sos] rider alert dispatch failed', { error: err.message }));
+      }
 
       // Create urgent support ticket
       // URGENT is a valid `priority`, not a `status` — SupportTicket.status only

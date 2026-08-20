@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { PaymentMixChart, RevenueChart, StatusBreakdown, TripsChart } from '@/components/charts/Charts';
+import { DateRange } from '@/components/ui/DateRange';
 import { RefreshControl } from '@/components/ui/Filters';
 import {
   Card,
@@ -52,9 +53,18 @@ type Scheduled = Record<string, unknown>;
  * the only correct revenue source on a cash-majority platform — counting card
  * transactions is why revenue once appeared to be near zero.
  */
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
+  const sp = await searchParams;
+  const q = new URLSearchParams();
+  if (sp.from) q.set('from', sp.from);
+  if (sp.to) q.set('to', sp.to);
+
   const [overview, drivers, safety, scheduled] = await Promise.all([
-    apiGetSafe<Overview>('/analytics/overview'),
+    apiGetSafe<Overview>(`/analytics/overview${q.size ? `?${q.toString()}` : ''}`),
     apiGetSafe<Drivers>('/analytics/drivers'),
     apiGetSafe<Safety>('/analytics/safety'),
     apiGetSafe<Scheduled>('/analytics/scheduled'),
@@ -65,7 +75,12 @@ export default async function AnalyticsPage() {
       <PageHeader
         title="Analytics"
         subtitle="Revenue, supply and demand across the platform. All money is settled fares, cash and card together."
-        actions={<RefreshControl intervalSeconds={120} />}
+        actions={
+          <>
+            <DateRange />
+            <RefreshControl intervalSeconds={120} />
+          </>
+        }
       />
 
       {!overview ? (

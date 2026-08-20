@@ -99,6 +99,23 @@ const mock = {
     };
   },
 
+  async refundTransaction({ reference, amountPesewas }) {
+    // Mirrors the real gateway's shape: accepted now, settled later. A mock
+    // that answered "success" would teach callers to treat a refund as final
+    // the instant it is requested, which is exactly what Paystack does not do.
+    return {
+      status: true,
+      message: 'Refund queued',
+      data: {
+        id: `mock_refund_${crypto.randomBytes(6).toString('hex')}`,
+        transaction: { reference },
+        amount: amountPesewas ?? null,
+        status: 'pending',
+        currency: 'GHS',
+      },
+    };
+  },
+
   async initiateTransfer({ amountPesewas, reference }) {
     return { status: true, message: 'Transfer queued', data: { reference: reference || mockRef(), status: 'success', amount: amountPesewas } };
   },
@@ -149,6 +166,8 @@ module.exports = {
   initiateCardCharge: (...a) => active.initiateCardCharge(...a),
   initializeCheckout: (...a) => active.initializeCheckout(...a),
   verifyTransaction: (...a) => active.verifyTransaction(...a),
+  /** Money back to the original payment method. Accepted now, settles later. */
+  refundTransaction: (...a) => active.refundTransaction(...a),
   initiateTransfer: (...a) => active.initiateTransfer(...a),
   createTransferRecipient: (...a) => active.createTransferRecipient(...a),
   resolvePayoutBankCode: (...a) => active.resolvePayoutBankCode(...a),

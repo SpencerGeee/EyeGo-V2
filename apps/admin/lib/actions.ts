@@ -304,3 +304,156 @@ export async function changeOwnPassword(
     apiPost('/auth/change-password', { currentPassword, newPassword })
   );
 }
+
+// ─── Money: refunds and wallet adjustments ────────────────────────
+//
+// FINANCE and superadmin only, enforced by the API. These are the actions that
+// move real money out of the business, so each one carries a mandatory reason
+// that lands in the audit log next to the operator's name.
+
+export async function issueRefund(
+  bookingId: string,
+  payload: { amountPesewas: number; reason: string; destination: 'WALLET' | 'GATEWAY' }
+): Promise<ActionResult> {
+  if (!payload.reason?.trim()) return fail('Say why this is being refunded.');
+  if (!Number.isFinite(payload.amountPesewas) || payload.amountPesewas <= 0) {
+    return fail('Enter an amount greater than zero.');
+  }
+  const result = await run('Refund issued', () => apiPost(`/bookings/${bookingId}/refund`, payload));
+  revalidatePath('/refunds');
+  revalidatePath('/bookings');
+  revalidatePath('/trips');
+  return result;
+}
+
+export async function adjustRiderWallet(
+  userId: string,
+  payload: { amountPesewas: number; reason: string }
+): Promise<ActionResult> {
+  if (!payload.reason?.trim()) return fail('A reason is required for every adjustment.');
+  if (!Number.isFinite(payload.amountPesewas) || payload.amountPesewas === 0) {
+    return fail('Enter an amount. Use a negative number to take money back.');
+  }
+  const result = await run('Wallet adjusted', () => apiPost(`/users/${userId}/wallet-adjust`, payload));
+  revalidatePath(`/users/${userId}`);
+  return result;
+}
+
+export async function adjustDriverWallet(
+  driverId: string,
+  payload: { amountPesewas: number; reason: string }
+): Promise<ActionResult> {
+  if (!payload.reason?.trim()) return fail('A reason is required for every adjustment.');
+  if (!Number.isFinite(payload.amountPesewas) || payload.amountPesewas === 0) {
+    return fail('Enter an amount. Use a negative number to take money back.');
+  }
+  const result = await run('Wallet adjusted', () => apiPost(`/drivers/${driverId}/wallet-adjust`, payload));
+  revalidatePath(`/drivers/${driverId}`);
+  return result;
+}
+
+// ─── SOS triage ───────────────────────────────────────────────────
+
+export async function acknowledgeSos(eventId: string): Promise<ActionResult> {
+  const result = await run('You are handling this alert', () =>
+    apiPost(`/sos-events/${eventId}/acknowledge`, {})
+  );
+  revalidatePath('/sos');
+  revalidatePath('/', 'layout');
+  return result;
+}
+
+export async function releaseSos(eventId: string): Promise<ActionResult> {
+  const result = await run('Returned to the queue', () => apiPost(`/sos-events/${eventId}/release`, {}));
+  revalidatePath('/sos');
+  return result;
+}
+
+export async function resolveSosWithOutcome(eventId: string, outcome: string): Promise<ActionResult> {
+  if (!outcome?.trim()) {
+    return fail('Say what happened before closing this — a line is enough.');
+  }
+  const result = await run('SOS resolved', () => apiPost(`/sos-events/${eventId}/resolve`, { outcome }));
+  revalidatePath('/sos');
+  revalidatePath('/', 'layout');
+  return result;
+}
+
+// ─── Case notes ───────────────────────────────────────────────────
+
+export async function addNote(
+  subjectType: 'User' | 'Driver' | 'Trip' | 'Booking',
+  subjectId: string,
+  body: string
+): Promise<ActionResult> {
+  if (!body?.trim()) return fail('Write something first.');
+  const result = await run('Note added', () => apiPost(`/notes/${subjectType}/${subjectId}`, { body }));
+  revalidatePath(`/${subjectType === 'User' ? 'users' : subjectType === 'Driver' ? 'drivers' : 'trips'}/${subjectId}`);
+  return result;
+}
+
+export async function deleteNote(noteId: string, revalidate: string): Promise<ActionResult> {
+  const result = await run('Note retracted', () => apiDelete(`/notes/${noteId}`));
+  revalidatePath(revalidate);
+  return result;
+}
+
+// ─── Bulk fleet actions ───────────────────────────────────────────
+
+export async function bulkDriverAction(
+  driverIds: string[],
+  action: 'approve' | 'suspend' | 'reject',
+  reason?: string
+): Promise<ActionResult> {
+  if (!driverIds.length) return fail('Select at least one driver.');
+  if ((action === 'reject' || action === 'suspend') && !reason?.trim()) {
+    return fail(`Give a reason before you ${action} drivers — they are told what it says.`);
+  }
+  const result = await run(`${driverIds.length} drivers updated`, () =>
+    apiPost('/drivers/bulk', { driverIds, action, reason })
+  );
+  revalidatePath('/drivers');
+  revalidatePath('/drivers/pending');
+  revalidatePath('/', 'layout');
+  return result;
+}
+
+// ─── Two-factor ───────────────────────────────────────────────────
+
+/** Returns the secret and a server-rendered QR — never persisted in readable form. */
+export async function beginTotpEnrolment(): Promise<
+  ActionResult<{ secret: string; otpauthUri: string; qrDataUri: string | null }>
+> {
+  return run('Scan the code', () =>
+    apiPost<{ secret: string; otpauthUri: string; qrDataUri: string | null }>('/auth/totp/begin', {})
+  );
+}
+
+/** Returns the recovery codes. Shown once; only bcrypt hashes are stored. */
+export async function confirmTotpEnrolment(
+  code: string
+): Promise<ActionResult<{ backupCodes: string[] }>> {
+  if (!/^\d{6}$/.test(code?.trim() ?? '')) {
+    return fail<{ backupCodes: string[] }>('Enter the 6-digit code from your app.');
+  }
+  const result = await run('Two-factor is on', () =>
+    apiPost<{ backupCodes: string[] }>('/auth/totp/confirm', { code: code.trim() })
+  );
+  revalidatePath('/settings');
+  return result;
+}
+
+export async function disableTotp(code: string): Promise<ActionResult> {
+  if (!code?.trim()) return fail('Enter a current code, or one of your recovery codes.');
+  const result = await run('Two-factor switched off', () => apiPost('/auth/totp/disable', { code: code.trim() }));
+  revalidatePath('/settings');
+  return result;
+}
+
+export async function resetAdminTotp(adminId: string): Promise<ActionResult> {
+  const result = await run('Two-factor cleared and every session signed out', () =>
+    apiPost(`/admins/${adminId}/reset-totp`, {})
+  );
+  revalidatePath('/admins');
+  return result;
+}

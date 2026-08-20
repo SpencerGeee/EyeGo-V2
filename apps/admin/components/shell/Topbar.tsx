@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
+import { GlobalSearch } from '@/components/shell/GlobalSearch';
 import { Icon } from '@/components/ui/Icon';
 import { Avatar } from '@/components/ui/primitives';
 import { ROLE_LABEL, type Role } from '@/lib/roles';
@@ -58,6 +59,11 @@ export function Topbar({
       style={{ height: 'var(--topbar-h)' }}
     >
       <div className="lg:hidden w-9" aria-hidden="true" />
+
+      {/* One box for riders, drivers, trips and bookings. Sits centre-left so
+          it is the first thing reached on a support call, and ⌘K works from
+          anywhere in the console. */}
+      <GlobalSearch />
 
       <div className="flex-1" />
 

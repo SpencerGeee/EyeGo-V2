@@ -6,6 +6,7 @@ const adminService = require('./admin.service');
 const driversService = require('../drivers/drivers.service');
 const env = require('../../config/env');
 const { ok, created } = require('../../utils/response');
+const logger = require('../../utils/logger');
 
 const reviewDriverDocument = async (req, res) => {
   const { approve, rejectionReason } = req.body;
@@ -162,7 +163,7 @@ const getSosEvents = async (req, res) => {
 };
 
 const resolveSosEvent = async (req, res) => {
-  const event = await adminService.resolveSosEvent(req.params.id);
+  const event = await adminService.resolveSosEvent(req.params.id, { outcome: req.body?.outcome }, req.admin);
   ok(res, { event }, 'SOS event resolved');
 };
 
@@ -271,7 +272,7 @@ const getOtaRuns = async (req, res) => {
 
 // ── Analytics dashboards ─────────────────────────────────────────
 const getAnalyticsOverview = async (req, res) => {
-  const overview = await adminService.getAnalyticsOverview();
+  const overview = await adminService.getAnalyticsOverview({ from: req.query.from, to: req.query.to });
   ok(res, overview);
 };
 
@@ -322,14 +323,32 @@ const getLiveDriversMap = async (req, res) => {
 const adminAuthService = require('./adminAuth.service');
 
 const login = async (req, res) => {
-  const { email, password } = req.body;
-  const result = await adminAuthService.login({
-    email,
-    password,
-    ip: req.ip,
-    userAgent: req.headers['user-agent'],
-  });
-  ok(res, result, 'Signed in');
+  const { email, password, totpCode } = req.body;
+  try {
+    const result = await adminAuthService.login({
+      email,
+      password,
+      totpCode,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    ok(res, result, 'Signed in');
+  } catch (err) {
+    // "Your password is right, now show me the code" is a distinct answer from
+    // "wrong password", and the sign-in form has to be able to tell them apart
+    // to draw the second step. It carries no token, so it grants nothing — and
+    // it is only ever reached AFTER the password has already been verified, so
+    // it leaks nothing an attacker did not already have.
+    if (err?.totpRequired) {
+      return res.status(401).json({
+        success: false,
+        code: err.code || 'TOTP_REQUIRED',
+        totpRequired: true,
+        message: err.message,
+      });
+    }
+    throw err;
+  }
 };
 
 const refreshSession = async (req, res) => {
@@ -383,9 +402,168 @@ const getAuditLogs = async (req, res) => {
   ok(res, result);
 };
 
+// ── SOS triage ───────────────────────────────────────────────────
+const acknowledgeSosEvent = async (req, res) => {
+  const event = await adminService.acknowledgeSosEvent(req.params.id, req.admin);
+  ok(res, { event }, 'You are now handling this alert');
+};
+
+const releaseSosEvent = async (req, res) => {
+  const event = await adminService.releaseSosEvent(req.params.id, req.admin);
+  ok(res, { event }, 'Returned to the queue');
+};
+
+const getSosAlertingHealth = async (req, res) => {
+  ok(res, await adminService.getSosAlertingHealth());
+};
+
+// ── Case notes ───────────────────────────────────────────────────
+const listNotes = async (req, res) => {
+  const notes = await adminService.listNotes(req.params.subjectType, req.params.subjectId);
+  ok(res, { notes });
+};
+
+const addNote = async (req, res) => {
+  const note = await adminService.addNote(
+    req.params.subjectType, req.params.subjectId, req.body?.body, req.admin,
+  );
+  created(res, { note }, 'Note added');
+};
+
+const deleteNote = async (req, res) => {
+  await adminService.deleteNote(req.params.id, req.admin);
+  ok(res, null, 'Note retracted');
+};
+
+// ── Search and bulk ──────────────────────────────────────────────
+const globalSearch = async (req, res) => {
+  ok(res, await adminService.globalSearch(req.query.q, { limit: req.query.limit }));
+};
+
+const bulkDriverAction = async (req, res) => {
+  const result = await adminService.bulkDriverAction(
+    req.body?.driverIds, req.body?.action, { reason: req.body?.reason },
+  );
+  ok(res, result, `${result.succeeded.length} of ${result.total} updated`);
+};
+
+// ── Money ────────────────────────────────────────────────────────
+const refunds = require('../../services/refunds.service');
+const riderWallet = require('../../services/rider-wallet.service');
+
+const getRefundable = async (req, res) => {
+  ok(res, await refunds.refundableAmount(req.params.id));
+};
+
+const issueRefund = async (req, res) => {
+  const refund = await refunds.issueRefund(req.params.id, {
+    amountPesewas: req.body?.amountPesewas,
+    reason: req.body?.reason,
+    destination: req.body?.destination,
+    admin: req.admin,
+  });
+  created(res, { refund }, refund.status === 'PENDING'
+    ? 'Refund sent to the payment provider — it settles in a few days'
+    : 'Refund credited to the rider\'s wallet');
+};
+
+const listRefunds = async (req, res) => {
+  ok(res, await refunds.listRefunds(req.query));
+};
+
+const adjustRiderWallet = async (req, res) => {
+  const tx = await adminService.adjustRiderWallet(req.params.id, req.body, req.admin);
+  created(res, { transaction: tx }, 'Wallet adjusted');
+};
+
+const adjustDriverWallet = async (req, res) => {
+  const tx = await adminService.adjustDriverWallet(req.params.id, req.body, req.admin);
+  created(res, { transaction: tx }, 'Wallet adjusted');
+};
+
+const getRiderWallet = async (req, res) => {
+  const [history, reconciliation] = await Promise.all([
+    riderWallet.history(req.params.id, req.query),
+    riderWallet.reconcile(req.params.id),
+  ]);
+  ok(res, { ...history, reconciliation });
+};
+
+// ── CSV export ───────────────────────────────────────────────────
+const exportService = require('../../services/admin-export.service');
+const { toCsv, contentDisposition } = require('../../utils/csv');
+
+const listExports = async (req, res) => {
+  ok(res, { datasets: exportService.listDatasets() });
+};
+
+const exportCsv = async (req, res) => {
+  const { dataset, rows, columns, truncated, maxRows } = await exportService.buildExport(
+    req.params.dataset, req.query,
+  );
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = `eyego-${req.params.dataset}-${stamp}.csv`;
+
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', contentDisposition(filename));
+  // Truncation is announced rather than silent — an export short by 12,000 rows
+  // that looks complete is how a reconciliation goes wrong for a month.
+  res.setHeader('x-eyego-row-count', String(rows.length));
+  if (truncated) res.setHeader('x-eyego-truncated', `true; capped at ${maxRows}`);
+
+  res.send(toCsv(rows, columns));
+
+  logger.info('[ADMIN] data exported', {
+    dataset: req.params.dataset, rows: rows.length, by: req.admin?.email, filters: req.query,
+  });
+  // `dataset` is read for its label only; keeping the reference makes the
+  // intent of buildExport's return obvious at the call site.
+  void dataset;
+};
+
+// ── Two-factor ───────────────────────────────────────────────────
+const getTotpStatus = async (req, res) => {
+  ok(res, await adminAuthService.getTotpStatus(req.admin.id));
+};
+
+const beginTotpEnrolment = async (req, res) => {
+  const { secret, otpauthUri } = await adminAuthService.beginTotpEnrolment(req.admin.id);
+  // The QR is rendered here rather than in the browser so the secret never has
+  // to be handed to client JavaScript to be drawn.
+  let qrDataUri = null;
+  try {
+    const QRCode = require('qrcode');
+    qrDataUri = await QRCode.toDataURL(otpauthUri, { margin: 1, width: 240 });
+  } catch (err) {
+    logger.warn('[adminAuth] QR generation unavailable, falling back to the secret', { error: err.message });
+  }
+  ok(res, { secret, otpauthUri, qrDataUri }, 'Scan this, then confirm with a code');
+};
+
+const confirmTotpEnrolment = async (req, res) => {
+  const result = await adminAuthService.confirmTotpEnrolment(req.admin.id, req.body?.code);
+  ok(res, result, 'Two-factor is on. Save these recovery codes — they are not shown again.');
+};
+
+const disableTotp = async (req, res) => {
+  ok(res, await adminAuthService.disableTotp(req.admin.id, req.body?.code), 'Two-factor switched off');
+};
+
+const resetAdminTotp = async (req, res) => {
+  const result = await adminAuthService.resetTotpFor(req.params.id, req.admin);
+  ok(res, result, 'Two-factor cleared and every session for that account signed out');
+};
+
 module.exports = {
   login, refreshSession, logout, me, changePassword,
   listAdmins, createAdmin, updateAdmin, resetAdminPassword, getAuditLogs,
+  acknowledgeSosEvent, releaseSosEvent, getSosAlertingHealth,
+  listNotes, addNote, deleteNote,
+  globalSearch, bulkDriverAction,
+  getRefundable, issueRefund, listRefunds,
+  adjustRiderWallet, adjustDriverWallet, getRiderWallet,
+  listExports, exportCsv,
+  getTotpStatus, beginTotpEnrolment, confirmTotpEnrolment, disableTotp, resetAdminTotp,
   reviewDriverDocument,
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
   getMetrics, getActiveTrips, setSurge, getSurgeZones, resolveSurgeZone,

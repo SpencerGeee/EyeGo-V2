@@ -320,3 +320,13 @@ Decisions:
 - Every ETA is floored by `realisticDurationMin` (ETA_MAX_AVG_KMH, 32): routing providers answer free-flow wherever they lack congestion data.
 Rejected: raising MIN_FARE_PER_SEAT to lift driver earnings (it flattens the distance curve — raise base + per-km). Silently clamping a driver's seat count to the vehicle row. Treating `safety:location` frames as SOS incidents.
 Open: item 1 fix is inferred from the code path, not a reproduced offer — watch for "Dispatch re-sweeping supply" in the log. Nothing device-tested.
+
+## 2026-08-20 12:20 [saved]
+Goal: First runtime end-to-end test of the admin console; attest production readiness.
+Decisions:
+- Fixture set lives at eyego-api/prisma/seed-e2e-admin.js, `e2e_` id prefix; teardown matches parent keys too, because console-created children get cuids.
+- One `settledRevenueWhere()` in admin.service is the only definition of settled revenue; `updatedAt` is never a revenue date.
+- Image columns hold URLs only — utils/asset-url.js refuses `data:` and non-http(s) on rider+driver photo writes.
+- Test the console against a production `next build`, never dev; dev masks nothing but costs minutes per page.
+Rejected: trusting static audit marks for UI correctness — 3 of 8 defects were confidently-wrong on-screen numbers. Grepping "activeTrip" as proof a field is consumed (name matched, shape did not).
+Open: no refund path, no CSV export, SOS alerts reach nobody from the web console.

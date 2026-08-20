@@ -135,6 +135,12 @@ router.post('/trip-reports/:id/resolve', requireRole(ROLE.SUPPORT, ROLE.OPS), ad
 
 // SOS / safety events (previously written by both apps but never queryable)
 router.get('/sos-events', controller.getSosEvents);
+// Is the escalation path actually wired up? Read-only, and open to every
+// console role on purpose: anyone looking at this queue should be able to see
+// that nobody would be woken if an alert came in right now.
+router.get('/sos-events/alerting-health', controller.getSosAlertingHealth);
+router.post('/sos-events/:id/acknowledge', requireRole(ROLE.SUPPORT, ROLE.OPS), adminActionLimiter, audit('sos.acknowledge', { targetType: 'SosEvent' }), controller.acknowledgeSosEvent);
+router.post('/sos-events/:id/release', requireRole(ROLE.SUPPORT, ROLE.OPS), adminActionLimiter, audit('sos.release', { targetType: 'SosEvent' }), controller.releaseSosEvent);
 router.post('/sos-events/:id/resolve', requireRole(ROLE.SUPPORT, ROLE.OPS), adminActionLimiter, audit('sos.resolve', { targetType: 'SosEvent' }), controller.resolveSosEvent);
 
 // ── Platform configuration ──────────────────────────────────────
@@ -163,5 +169,52 @@ router.post('/fcm-token', controller.registerAdminFcmToken);
 router.get('/ota/overview', controller.getOtaOverview);
 router.get('/ota/runs', controller.getOtaRuns);
 router.post('/ota/publish', requireRole(), adminActionLimiter, audit('ota.publish', { targetType: 'OtaRun', targetParam: 'app' }), controller.publishOta);
+
+// ── Refunds and wallet adjustments ──────────────────────────────
+//
+// FINANCE (and superadmin) only. These move real money out of the business and
+// into a customer's hands, which is a different kind of power from approving a
+// driver — an OPS lead can put someone on the road but cannot pay them.
+// Reading what has been refunded is open to SUPPORT too, because the agent on
+// the call needs to know whether this was already dealt with.
+router.get('/refunds', requireRole(ROLE.SUPPORT, ROLE.FINANCE, ROLE.OPS), controller.listRefunds);
+router.get('/bookings/:id/refundable', requireRole(ROLE.SUPPORT, ROLE.FINANCE, ROLE.OPS), controller.getRefundable);
+router.post('/bookings/:id/refund', requireRole(ROLE.FINANCE), adminActionLimiter, audit('refund.issue', { targetType: 'Booking' }), controller.issueRefund);
+
+router.get('/users/:id/wallet', requireRole(ROLE.SUPPORT, ROLE.FINANCE, ROLE.OPS), controller.getRiderWallet);
+router.post('/users/:id/wallet-adjust', requireRole(ROLE.FINANCE), adminActionLimiter, audit('wallet.adjust_rider', { targetType: 'User' }), controller.adjustRiderWallet);
+router.post('/drivers/:id/wallet-adjust', requireRole(ROLE.FINANCE), adminActionLimiter, audit('wallet.adjust_driver', { targetType: 'Driver' }), controller.adjustDriverWallet);
+
+// ── Case notes ──────────────────────────────────────────────────
+// Any role that can act on a record can annotate it; VIEWER is refused writes
+// by the blanket guard at the top of this file.
+router.get('/notes/:subjectType/:subjectId', controller.listNotes);
+router.post('/notes/:subjectType/:subjectId', adminActionLimiter, audit('note.add', { targetType: 'AdminNote' }), controller.addNote);
+router.delete('/notes/:id', adminActionLimiter, audit('note.delete', { targetType: 'AdminNote' }), controller.deleteNote);
+
+// ── Global search ───────────────────────────────────────────────
+router.get('/search', controller.globalSearch);
+
+// ── Bulk fleet actions ──────────────────────────────────────────
+router.post('/drivers/bulk', requireRole(ROLE.OPS), adminActionLimiter, audit('driver.bulk_action', { targetType: 'Driver' }), controller.bulkDriverAction);
+
+// ── CSV export ──────────────────────────────────────────────────
+//
+// Every export is audited. Taking a copy of the customer table out of the
+// system is exactly the action an investigation later asks about, and "who
+// exported what, when" has to be answerable.
+router.get('/export', controller.listExports);
+router.get('/export/:dataset', audit('data.export', { targetType: 'Export', targetParam: 'dataset' }), controller.exportCsv);
+
+// ── Two-factor authentication ───────────────────────────────────
+// Acting on your OWN account, so no role gate — every operator may enrol, and
+// under ADMIN_MFA_REQUIRED every operator must.
+router.get('/auth/totp', controller.getTotpStatus);
+router.post('/auth/totp/begin', adminActionLimiter, audit('admin.totp_begin', { targetType: 'AdminUser' }), controller.beginTotpEnrolment);
+router.post('/auth/totp/confirm', adminActionLimiter, audit('admin.totp_enable', { targetType: 'AdminUser' }), controller.confirmTotpEnrolment);
+router.post('/auth/totp/disable', adminActionLimiter, audit('admin.totp_disable', { targetType: 'AdminUser' }), controller.disableTotp);
+// Clearing SOMEBODY ELSE'S second factor is a superadmin act — it is the
+// lost-phone path, and it is also the shape an account takeover would use.
+router.post('/admins/:id/reset-totp', requireRole(), adminActionLimiter, audit('admin.totp_reset', { targetType: 'AdminUser' }), controller.resetAdminTotp);
 
 module.exports = router;

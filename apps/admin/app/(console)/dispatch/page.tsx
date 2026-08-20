@@ -74,7 +74,22 @@ export default async function DispatchPage() {
     apiGetSafe<DispatchHealth>('/dispatch/health'),
   ]);
 
-  const online = drivers?.drivers ?? [];
+  /**
+   * `/live/drivers` reports the trip a driver is on as an OBJECT named
+   * `activeTrip`; this board — and `LiveDriver` — speak `activeTripId`. Reading
+   * the wrong name did not fail loudly, it read `undefined`, which is falsy,
+   * so every online driver counted as free: the tiles said "4 free to dispatch
+   * · 0 on a trip" while three of the four were carrying passengers, every row
+   * badge said "Free", and the reassign picker offered busy drivers a stranded
+   * trip. Normalising here, at the one place the payload enters the page, is
+   * what stops the two spellings drifting apart again.
+   */
+  const online = (drivers?.drivers ?? []).map((d) => ({
+    ...d,
+    activeTripId: d.activeTripId ?? d.activeTrip?.id ?? null,
+    activeTripShortId: d.activeTrip?.shortId ?? null,
+    vehiclePlate: d.vehiclePlate ?? d.vehicle?.plateNumber ?? null,
+  }));
   const free = online.filter((d) => !d.activeTripId);
   const busy = online.filter((d) => d.activeTripId);
   const noGps = online.filter((d) => d.lat === null || d.lng === null);

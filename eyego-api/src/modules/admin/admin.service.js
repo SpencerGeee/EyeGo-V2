@@ -7,7 +7,7 @@ const pushService = require('../../services/push.service');
 const mapboxService = require('../../services/mapbox.service');
 const redis = require('../../config/redis');
 const { haversineMeters } = require('../../utils/geo');
-const { NotFoundError, AppError } = require('../../utils/errors');
+const { NotFoundError, AppError, ValidationError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
 // Admin previously counted seats with `status: { notIn: ['CANCELLED'] }` in ten
 // places. BookingStatus has FOUR seat-releasing terminals (CANCELLED, EXPIRED,
@@ -61,6 +61,27 @@ const LIVE_TRIP_STATUSES = [
   'ARRIVED_AT_PICKUP',
   'IN_PROGRESS',
 ];
+
+/**
+ * THE ONE DEFINITION OF SETTLED REVENUE.
+ *
+ * Two pages showed a figure labelled "revenue today" and the two disagreed by
+ * an order of magnitude — the dashboard tile filtered `Booking.updatedAt` while
+ * Revenue and Analytics filtered `Booking.createdAt`. The dashboard read higher
+ * than the *week* underneath it, because `updatedAt` moves on ANY write: a PIN
+ * verification, a cancellation, a live-activity token. A booking settled last
+ * month re-entered "today" simply by being touched, and could do so again
+ * tomorrow, so the number was not merely different — it was uncountable.
+ *
+ * `createdAt` is the booking's own moment and never moves, which makes the day
+ * buckets add up to the week and the week to the month. Both call sites go
+ * through this helper now so a third one cannot invent a fourth answer.
+ */
+function settledRevenueWhere(since) {
+  return since
+    ? { paymentStatus: 'PAID', createdAt: { gte: since } }
+    : { paymentStatus: 'PAID' };
+}
 
 /** Absorbing states. A trip in one of these needs no admin intervention ever. */
 const TERMINAL_TRIP_STATUSES = [
@@ -233,8 +254,57 @@ async function getAllPulseSchedules() {
   });
 }
 
-async function createPulseSchedule(data) {
-  return prisma.pulseSchedule.create({ data });
+const PULSE_DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+const PULSE_TIERS = ['ECO', 'COMFORT', 'PREMIUM'];
+
+/**
+ * This was `prisma.pulseSchedule.create({ data })` — the request body handed
+ * straight to Postgres. A routeId that did not exist came back as a raw
+ * foreign-key violation: HTTP 500, with Prisma's own `P2003` leaked as the
+ * API's error code and "Please try again" as the advice. A departureTime of
+ * "99:99" was accepted outright, creating a recurring departure that can never
+ * fire and that nothing downstream reports as broken.
+ */
+async function createPulseSchedule(data = {}) {
+  const { routeId, tier, departureTime, daysOfWeek, maxSeats } = data;
+
+  if (!routeId) throw new ValidationError('routeId is required');
+  const route = await prisma.route.findUnique({ where: { id: String(routeId) }, select: { id: true } });
+  if (!route) throw new NotFoundError('Route');
+
+  if (!PULSE_TIERS.includes(tier)) {
+    throw new ValidationError(`tier must be one of: ${PULSE_TIERS.join(', ')}`);
+  }
+
+  // 24-hour HH:MM. Stored as a string, so nothing else will catch a bad one.
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(departureTime ?? ''))) {
+    throw new ValidationError('departureTime must be a 24-hour HH:MM time, e.g. 06:30');
+  }
+
+  const days = String(daysOfWeek ?? '')
+    .split(',')
+    .map((d) => d.trim().toUpperCase())
+    .filter(Boolean);
+  if (!days.length) throw new ValidationError('daysOfWeek is required, e.g. MON,TUE,WED');
+  const unknownDay = days.find((d) => !PULSE_DAYS.includes(d));
+  if (unknownDay) {
+    throw new ValidationError(`daysOfWeek contains "${unknownDay}" — use ${PULSE_DAYS.join(', ')}`);
+  }
+
+  const seats = parseInt(maxSeats, 10);
+  if (!Number.isInteger(seats) || seats < 1 || seats > 60) {
+    throw new ValidationError('maxSeats must be a whole number between 1 and 60');
+  }
+
+  return prisma.pulseSchedule.create({
+    data: {
+      routeId: route.id,
+      tier,
+      departureTime: String(departureTime),
+      daysOfWeek: days.join(','),
+      maxSeats: seats,
+    },
+  });
 }
 
 async function getAllTrips({ page = 1, limit = 20, status }) {
@@ -652,7 +722,17 @@ async function getPlatformSettings() {
  */
 async function updatePlatformSettings(entries, actor) {
   const settings = require('../../config/settings');
-  const result = await settings.set(entries || {}, actor || {});
+
+  // A request that names no setting used to return 200 "Settings applied —
+  // live immediately, no restart needed" having applied nothing at all. That is
+  // the worst possible answer on this endpoint: these values price real rides,
+  // and an operator who is told a change landed will not go back and check.
+  // A caller that sends the wrong body shape now hears about it.
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries) || !Object.keys(entries).length) {
+    throw new ValidationError('No settings supplied. Send { settings: { KEY: value, … } }.');
+  }
+
+  const result = await settings.set(entries, actor || {});
   if (!result.ok) {
     throw new AppError(
       'Some settings were rejected: ' +
@@ -891,7 +971,17 @@ async function getTripReports({ page = 1, limit = 20, status }) {
     prisma.driver.findMany({ where: { id: { in: driverIds } }, select: { id: true, name: true, phone: true } }),
     prisma.trip.findMany({
       where: { id: { in: tripIds } },
-      select: { id: true, shortId: true, route: { select: { originName: true, destinationName: true } } },
+      // `status` and `route.name` are what the console actually renders — it
+      // draws a trip-status badge beside each report. Without them every report
+      // showed the badge "Unknown", which reads as a data problem on the trip
+      // rather than a missing column in this select. Same shape as
+      // getSosEvents, which had it right.
+      select: {
+        id: true,
+        shortId: true,
+        status: true,
+        route: { select: { name: true, originName: true, destinationName: true } },
+      },
     }),
   ]);
   const driverMap = Object.fromEntries(drivers.map((d) => [d.id, d]));
@@ -934,7 +1024,19 @@ async function getSupportTicketDetail(ticketId) {
   return { ...ticket, driver };
 }
 
-async function respondToTicket(ticketId, { text, senderId, senderRole }) {
+async function respondToTicket(ticketId, { text, senderId, senderRole } = {}) {
+  /**
+   * `text` is NOT NULL on TicketMessage and nothing checked it here, so a
+   * caller that omitted it — or sent a number — got a 500 whose body read
+   * "We couldn't complete that just now. Please try again", advice that would
+   * never once have worked. Worse, whitespace passed straight through and
+   * posted an EMPTY reply into the rider's ticket thread, which the rider then
+   * sees as support having answered them with nothing.
+   */
+  const body = typeof text === 'string' ? text.trim() : '';
+  if (!body) throw new ValidationError('A reply cannot be empty');
+  if (body.length > 5000) throw new ValidationError('A reply cannot exceed 5000 characters');
+
   const ticket = await prisma.supportTicket.findUnique({ where: { id: ticketId } });
   if (!ticket) throw new NotFoundError('SupportTicket');
 
@@ -948,7 +1050,7 @@ async function respondToTicket(ticketId, { text, senderId, senderRole }) {
       ticketId,
       senderId: senderId || 'admin',
       senderRole: senderRole || 'ADMIN',
-      text,
+      text: body,
     },
   });
 }
@@ -1022,6 +1124,15 @@ async function createPromotion(data) {
   }
   if (Number.isNaN(expiry.getTime())) {
     throw new AppError(`Expiry is not a valid date (received "${data.expiry}")`, 400);
+  }
+  // An already-expired promotion is dead the moment it is saved, but it still
+  // appears in the list looking live, so the next person re-creates it instead
+  // of fixing the date. Refuse it at the door.
+  if (expiry.getTime() <= Date.now()) {
+    throw new AppError(
+      `Expiry must be in the future (received "${expiry.toISOString()}", which has already passed)`,
+      400,
+    );
   }
 
   // Optional cap on total redemptions. Silently dropped before, so a limit the
@@ -1131,9 +1242,11 @@ async function getMetrics() {
     //
     // Settlement truth is Booking.paymentStatus === 'PAID', which both the cash
     // and the card paths set. Anything reporting money in this console must use
-    // that and nothing else.
+    // that and nothing else — via settledRevenueWhere(), which is also what the
+    // Revenue and Analytics pages call. This filtered `updatedAt` and so
+    // disagreed with both of them; see the comment on that helper.
     prisma.booking.aggregate({
-      where: { paymentStatus: 'PAID', updatedAt: { gte: today } },
+      where: settledRevenueWhere(today),
       _sum: { fareAmountPesewas: true },
     }),
     prisma.user.count(),
@@ -1575,7 +1688,19 @@ async function getSosEvents({ page = 1, limit = 20, unresolvedOnly } = {}) {
   const l = Math.min(Math.max(1, parseInt(limit) || 20), 100);
   const where = String(unresolvedOnly) === 'true' ? { resolvedAt: null } : {};
   const [events, total] = await Promise.all([
-    prisma.sosEvent.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (p - 1) * l, take: l }),
+    prisma.sosEvent.findMany({
+      where,
+      // Unclaimed alerts first, then oldest first WITHIN that group. Newest-first
+      // was actively wrong here: it buried the alert that has been waiting
+      // longest underneath every one that arrived after it.
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      skip: (p - 1) * l,
+      take: l,
+      include: {
+        acknowledgedBy: { select: { id: true, name: true, email: true } },
+        resolvedBy: { select: { id: true, name: true, email: true } },
+      },
+    }),
     prisma.sosEvent.count({ where }),
   ]);
 
@@ -1628,10 +1753,21 @@ async function getSosEvents({ page = 1, limit = 20, unresolvedOnly } = {}) {
           ? { role: 'DRIVER', ...driverMap[e.userId] }
           : { role: 'UNKNOWN', id: e.userId, name: 'Unknown', phone: '' },
       trip: tripMap[e.tripId] ?? null,
+      /** Minutes since it was raised — drives the console's age banding. */
+      ageMinutes: Math.floor((Date.now() - new Date(e.createdAt).getTime()) / 60_000),
     })),
     total,
     page: p,
     totalPages: Math.ceil(total / l) || 1,
+    /**
+     * Counts for the whole table, not this page — an operator needs to know
+     * three alerts are unclaimed even while looking at page four.
+     */
+    counts: {
+      open: await prisma.sosEvent.count({ where: { status: 'OPEN' } }),
+      acknowledged: await prisma.sosEvent.count({ where: { status: 'ACKNOWLEDGED' } }),
+    },
+    staleAfterMinutes: require('../../config/settings').get('SOS_STALE_AFTER_MINUTES') ?? 10,
   };
 }
 
@@ -1649,12 +1785,39 @@ async function resolveTripReport(id) {
   });
 }
 
-async function resolveSosEvent(id) {
+/**
+ * Close an alert, with an account of what happened.
+ *
+ * `outcome` is required. "Resolved" with no explanation is indistinguishable
+ * from "closed to clear the badge" when someone reads this back a month later
+ * — and these are the records that get read back after an incident.
+ */
+async function resolveSosEvent(id, { outcome } = {}, admin = null) {
   const event = await prisma.sosEvent.findUnique({ where: { id } });
   if (!event) throw new NotFoundError('SOS event');
   if (event.resolvedAt) return event; // idempotent
-  logger.info(`[ADMIN] SOS event ${id} resolved`);
-  return prisma.sosEvent.update({ where: { id }, data: { resolvedAt: new Date() } });
+
+  const note = String(outcome ?? '').trim();
+  if (!note) {
+    throw new ValidationError(
+      'Say what happened before closing this — "false alarm, rider confirmed safe" is enough, but something is required',
+    );
+  }
+
+  logger.warn('[ADMIN] SOS resolved', { sosId: id, by: admin?.email });
+  return prisma.sosEvent.update({
+    where: { id },
+    data: {
+      status: 'RESOLVED',
+      resolvedAt: new Date(),
+      resolvedById: admin?.id ?? null,
+      outcome: note.slice(0, 2000),
+      // Somebody closing an alert nobody claimed is, in effect, claiming it.
+      ...(event.acknowledgedById
+        ? {}
+        : { acknowledgedAt: new Date(), acknowledgedById: admin?.id ?? null }),
+    },
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1694,13 +1857,43 @@ function bucketByDay(rows, dateField, valueFn) {
   return Object.entries(buckets).map(([date, value]) => ({ date, value }));
 }
 
-async function getAnalyticsOverview() {
+/**
+ * @param {object} range optional { from, to } ISO dates.
+ *
+ * The windows here used to be hard-coded — today, 7 days, 30 days, and a
+ * 14-day chart — so "how did last month compare" was a question the console
+ * could not be asked. When a range is supplied it replaces the all-time and
+ * chart figures; today/week/month stay anchored to now, because those tiles
+ * mean "right now" and silently redefining them would be worse than not
+ * offering the control.
+ */
+async function getAnalyticsOverview({ from, to } = {}) {
   const env = require('../../config/env');
   const commissionRate = env.PLATFORM_COMMISSION;
   const today = startOfToday();
   const weekAgo = daysAgo(7);
   const monthAgo = daysAgo(30);
-  const fourteenAgo = daysAgo(13);
+
+  const parseDate = (v, endOfDay = false) => {
+    if (!v) return null;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return null;
+    if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(String(v))) d.setHours(23, 59, 59, 999);
+    return d;
+  };
+  const rangeFrom = parseDate(from);
+  const rangeTo = parseDate(to, true);
+  const hasRange = Boolean(rangeFrom || rangeTo);
+
+  // The chart window: the caller's range when given, otherwise the last 14 days.
+  const fourteenAgo = rangeFrom ?? daysAgo(13);
+  const chartWhere = () => {
+    if (!hasRange) return { gte: fourteenAgo };
+    const w = {};
+    if (rangeFrom) w.gte = rangeFrom;
+    if (rangeTo) w.lte = rangeTo;
+    return w;
+  };
 
   const [
     revenueAll,
@@ -1733,13 +1926,21 @@ async function getAnalyticsOverview() {
     // is majority cash, the old PaymentTransaction-only query undercounted
     // revenue down to ~0. Matches the pattern already used in getDriverDetail's
     // earningsAgg (Booking.aggregate, not PaymentTransaction).
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID' }, _sum: { fareAmountPesewas: true } }),
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: today } }, _sum: { fareAmountPesewas: true } }),
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: weekAgo } }, _sum: { fareAmountPesewas: true } }),
-    prisma.booking.aggregate({ where: { paymentStatus: 'PAID', createdAt: { gte: monthAgo } }, _sum: { fareAmountPesewas: true } }),
-    prisma.booking.findMany({ where: { paymentStatus: 'PAID', createdAt: { gte: fourteenAgo } }, select: { fareAmountPesewas: true, createdAt: true } }),
+    // "All time" honours an explicit range when one is given — that tile is the
+    // one a finance question is actually about.
+    prisma.booking.aggregate({
+      where: hasRange ? { paymentStatus: 'PAID', createdAt: chartWhere() } : settledRevenueWhere(),
+      _sum: { fareAmountPesewas: true },
+    }),
+    prisma.booking.aggregate({ where: settledRevenueWhere(today), _sum: { fareAmountPesewas: true } }),
+    prisma.booking.aggregate({ where: settledRevenueWhere(weekAgo), _sum: { fareAmountPesewas: true } }),
+    prisma.booking.aggregate({ where: settledRevenueWhere(monthAgo), _sum: { fareAmountPesewas: true } }),
+    prisma.booking.findMany({
+      where: { paymentStatus: 'PAID', createdAt: chartWhere() },
+      select: { fareAmountPesewas: true, createdAt: true },
+    }),
     prisma.trip.groupBy({ by: ['status'], _count: { _all: true } }),
-    prisma.trip.findMany({ where: { createdAt: { gte: fourteenAgo } }, select: { createdAt: true } }),
+    prisma.trip.findMany({ where: { createdAt: chartWhere() }, select: { createdAt: true } }),
     prisma.trip.count({ where: { status: 'COMPLETED' } }),
     prisma.trip.count({ where: { status: 'CANCELLED' } }),
     prisma.booking.count(),
@@ -1780,6 +1981,12 @@ async function getAnalyticsOverview() {
       .map((d) => ({ date: d.date, valuePesewas: wholePesewas(d.value) })),
     tripsByStatus,
     tripsByDay: bucketByDay(trips14d, 'createdAt', () => 1),
+    /** What window the charts and the all-time figure actually cover. */
+    range: {
+      from: (rangeFrom ?? fourteenAgo).toISOString(),
+      to: (rangeTo ?? new Date()).toISOString(),
+      custom: hasRange,
+    },
     completedTripsCount,
     cancelledTripsCount,
     cancellationRate: totalTerminal > 0 ? round2((cancelledTripsCount / totalTerminal) * 100) : 0,
@@ -1957,8 +2164,316 @@ async function getLiveDriversMap() {
   }));
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// SOS TRIAGE
+//
+// An event used to have exactly one bit of state: resolvedAt. That made every
+// unresolved alert identical, so a queue 28 deep with three-day-old entries
+// shouted equally about all of them and was therefore read as noise. OPEN →
+// ACKNOWLEDGED → RESOLVED gives the team the distinction that matters: is a
+// named person already on the phone about this one?
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Take ownership. Idempotent for the same admin; refuses to steal an alert
+ * someone else is already holding, because two people ringing the same
+ * frightened rider is worse than one.
+ */
+async function acknowledgeSosEvent(id, admin) {
+  const event = await prisma.sosEvent.findUnique({
+    where: { id },
+    include: { acknowledgedBy: { select: { id: true, name: true, email: true } } },
+  });
+  if (!event) throw new NotFoundError('SOS event');
+  if (event.status === 'RESOLVED') {
+    throw new AppError('That alert is already resolved', 409, 'ALREADY_RESOLVED');
+  }
+  if (event.acknowledgedById && event.acknowledgedById !== admin?.id) {
+    throw new AppError(
+      `${event.acknowledgedBy?.name ?? 'Another operator'} is already handling this alert`,
+      409,
+      'ALREADY_ACKNOWLEDGED',
+    );
+  }
+  if (event.acknowledgedById === admin?.id) return event;
+
+  logger.warn('[ADMIN] SOS acknowledged', { sosId: id, by: admin?.email });
+  return prisma.sosEvent.update({
+    where: { id },
+    data: { status: 'ACKNOWLEDGED', acknowledgedAt: new Date(), acknowledgedById: admin?.id ?? null },
+  });
+}
+
+/** Hand an acknowledged alert back to the queue. */
+async function releaseSosEvent(id, admin) {
+  const event = await prisma.sosEvent.findUnique({ where: { id } });
+  if (!event) throw new NotFoundError('SOS event');
+  if (event.status === 'RESOLVED') throw new AppError('That alert is already resolved', 409, 'ALREADY_RESOLVED');
+  logger.warn('[ADMIN] SOS released back to the queue', { sosId: id, by: admin?.email });
+  return prisma.sosEvent.update({
+    where: { id },
+    data: { status: 'OPEN', acknowledgedAt: null, acknowledgedById: null },
+  });
+}
+
+/** SOS alerting health — is there any channel that would actually reach a person? */
+async function getSosAlertingHealth() {
+  return require('../../services/sos-alert.service').alertingHealth();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ADMIN CASE NOTES
+// ═══════════════════════════════════════════════════════════════════
+
+const NOTE_SUBJECTS = ['User', 'Driver', 'Trip', 'Booking'];
+
+async function listNotes(subjectType, subjectId) {
+  if (!NOTE_SUBJECTS.includes(subjectType)) {
+    throw new ValidationError(`subjectType must be one of: ${NOTE_SUBJECTS.join(', ')}`);
+  }
+  return prisma.adminNote.findMany({
+    where: { subjectType, subjectId, deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+}
+
+async function addNote(subjectType, subjectId, body, admin) {
+  if (!NOTE_SUBJECTS.includes(subjectType)) {
+    throw new ValidationError(`subjectType must be one of: ${NOTE_SUBJECTS.join(', ')}`);
+  }
+  const text = typeof body === 'string' ? body.trim() : '';
+  if (!text) throw new ValidationError('A note cannot be empty');
+  if (text.length > 5000) throw new ValidationError('A note cannot exceed 5000 characters');
+
+  return prisma.adminNote.create({
+    data: {
+      subjectType,
+      subjectId,
+      body: text,
+      adminId: admin?.id ?? null,
+      adminEmail: admin?.email ?? 'system',
+      adminName: admin?.name ?? 'System',
+    },
+  });
+}
+
+/** Soft-delete, so a retracted note still shows that something was retracted. */
+async function deleteNote(id, admin) {
+  const note = await prisma.adminNote.findUnique({ where: { id } });
+  if (!note) throw new NotFoundError('Note');
+  if (note.deletedAt) return note;
+  logger.info('[ADMIN] note retracted', { noteId: id, by: admin?.email });
+  return prisma.adminNote.update({ where: { id }, data: { deletedAt: new Date() } });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// GLOBAL SEARCH
+//
+// Each entity was searchable only from its own page, so an agent holding a
+// phone number had to guess whether it belonged to a rider or a driver and
+// check both. One box, every type, ranked by what a support call is usually
+// about.
+// ═══════════════════════════════════════════════════════════════════
+
+async function globalSearch(term, { limit = 5 } = {}) {
+  const q = String(term ?? '').trim();
+  if (q.length < 2) return { query: q, results: [], total: 0 };
+
+  const take = Math.min(Math.max(1, parseInt(limit, 10) || 5), 20);
+  // Digits only, so "+233 24 100 0001" and "0241000001" both find the same
+  // person — an agent types what the caller reads out, not what we stored.
+  const digits = q.replace(/\D/g, '');
+  const phoneTerm = digits.length >= 6 ? digits.slice(-9) : null;
+
+  const orFor = (extra = []) => {
+    const or = [{ name: { contains: q, mode: 'insensitive' } }, ...extra];
+    if (phoneTerm) or.push({ phone: { contains: phoneTerm } });
+    return or;
+  };
+
+  const [riders, drivers, trips, bookings] = await Promise.all([
+    prisma.user.findMany({
+      where: { OR: orFor([{ email: { contains: q, mode: 'insensitive' } }]) },
+      take,
+      select: { id: true, name: true, phone: true, email: true, isBanned: true, walletBalancePesewas: true },
+    }),
+    prisma.driver.findMany({
+      where: { OR: orFor([{ ghanaCardNumber: { contains: q, mode: 'insensitive' } }]) },
+      take,
+      select: { id: true, name: true, phone: true, status: true, isOnline: true },
+    }),
+    prisma.trip.findMany({
+      where: { OR: [{ shortId: { contains: q, mode: 'insensitive' } }, { id: q }] },
+      take,
+      select: {
+        id: true, shortId: true, status: true, departureTime: true,
+        route: { select: { name: true } },
+        driver: { select: { name: true } },
+      },
+    }),
+    prisma.booking.findMany({
+      where: { OR: [{ id: q }, { paystackRef: { contains: q, mode: 'insensitive' } }] },
+      take,
+      select: { id: true, tripId: true, status: true, fareAmountPesewas: true, user: { select: { name: true } } },
+    }),
+  ]);
+
+  const results = [
+    ...riders.map((r) => ({
+      type: 'rider', id: r.id, title: r.name,
+      subtitle: [r.phone, r.email].filter(Boolean).join(' · '),
+      badge: r.isBanned ? 'Banned' : null, href: `/users/${r.id}`,
+    })),
+    ...drivers.map((d) => ({
+      type: 'driver', id: d.id, title: d.name,
+      subtitle: d.phone, badge: d.status, href: `/drivers/${d.id}`,
+    })),
+    ...trips.map((t) => ({
+      type: 'trip', id: t.id, title: t.shortId || t.id.slice(0, 8),
+      subtitle: [t.route?.name, t.driver?.name].filter(Boolean).join(' · '),
+      badge: t.status, href: `/trips/${t.id}`,
+    })),
+    ...bookings.map((b) => ({
+      type: 'booking', id: b.id, title: `Booking ${b.id.slice(0, 8)}`,
+      subtitle: b.user?.name ?? 'Guest', badge: b.status, href: `/trips/${b.tripId}`,
+    })),
+  ];
+
+  return { query: q, results, total: results.length };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BULK FLEET ACTIONS
+//
+// Approving twenty drivers was twenty page loads. Partial success is reported
+// per id rather than rolled back: nineteen good approvals should not be undone
+// because the twentieth driver was deleted a second ago.
+// ═══════════════════════════════════════════════════════════════════
+
+const BULK_LIMIT = 100;
+
+async function bulkDriverAction(driverIds, action, { reason } = {}) {
+  if (!Array.isArray(driverIds) || driverIds.length === 0) {
+    throw new ValidationError('Select at least one driver');
+  }
+  if (driverIds.length > BULK_LIMIT) {
+    throw new ValidationError(`At most ${BULK_LIMIT} drivers at a time (received ${driverIds.length})`);
+  }
+  const runners = { approve: approveDriver, suspend: suspendDriver, reject: rejectDriver };
+  const run = runners[action];
+  if (!run) throw new ValidationError(`action must be one of: ${Object.keys(runners).join(', ')}`);
+  if ((action === 'reject' || action === 'suspend') && !String(reason ?? '').trim()) {
+    throw new ValidationError(`A reason is required to ${action} a driver`);
+  }
+
+  const succeeded = [];
+  const failed = [];
+  for (const id of driverIds) {
+    try {
+      await run(id, reason);
+      succeeded.push(id);
+    } catch (err) {
+      failed.push({ id, error: err.message });
+    }
+  }
+  logger.info('[ADMIN] bulk driver action', { action, ok: succeeded.length, failed: failed.length });
+  return { action, succeeded, failed, total: driverIds.length };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WALLET ADJUSTMENTS
+//
+// Support agreeing that someone is owed money and having no way to move it was
+// the single largest hole in this console. Both sides go through their ledger,
+// so the balance and the reason for it can never disagree.
+// ═══════════════════════════════════════════════════════════════════
+
+function assertAdjustment(amountPesewas, reason) {
+  const amount = parseInt(amountPesewas, 10);
+  if (!Number.isInteger(amount) || amount === 0) {
+    throw new ValidationError('amountPesewas must be a non-zero whole number (negative to debit)');
+  }
+  if (Math.abs(amount) > 500_000) {
+    // GH₵5,000 in one go. Not a technical limit — a blast radius for a typo,
+    // and a prompt to ask whether this really is one adjustment.
+    throw new ValidationError('Adjustments above GH₵5,000 must be made in smaller amounts');
+  }
+  const why = String(reason ?? '').trim();
+  if (!why) throw new ValidationError('A reason is required for every wallet adjustment');
+  return { amount, why };
+}
+
+async function adjustRiderWallet(userId, { amountPesewas, reason }, admin) {
+  const { amount, why } = assertAdjustment(amountPesewas, reason);
+  const riderWallet = require('../../services/rider-wallet.service');
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) throw new NotFoundError('User');
+
+  const row = await riderWallet.record({
+    userId,
+    type: amount > 0 ? riderWallet.TYPES.ADMIN_CREDIT : riderWallet.TYPES.ADMIN_DEBIT,
+    amountPesewas: amount,
+    description: `${amount > 0 ? 'Credit' : 'Debit'} by ${admin?.email ?? 'admin'} — ${why}`,
+    adminId: admin?.id ?? null,
+  });
+  logger.info('[ADMIN] rider wallet adjusted', { userId, amount, by: admin?.email });
+  return row;
+}
+
+async function adjustDriverWallet(driverId, { amountPesewas, reason }, admin) {
+  const { amount, why } = assertAdjustment(amountPesewas, reason);
+  const driver = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { id: true, walletBalancePesewas: true },
+  });
+  if (!driver) throw new NotFoundError('Driver');
+
+  const before = driver.walletBalancePesewas;
+  const after = before + amount;
+  if (after < 0) {
+    throw new AppError(
+      `Insufficient balance: the driver holds ${before} pesewas, this would take them to ${after}`,
+      400,
+      'INSUFFICIENT_BALANCE',
+    );
+  }
+
+  // One transaction: the driver ledger asserts balanceAfter = balanceBefore +
+  // amount, and a balance moved without its row is precisely the drift this
+  // whole feature exists to prevent.
+  const row = await prisma.$transaction(async (tx) => {
+    if (amount < 0) {
+      const moved = await tx.driver.updateMany({
+        where: { id: driverId, walletBalancePesewas: { gte: Math.abs(amount) } },
+        data: { walletBalancePesewas: { decrement: Math.abs(amount) } },
+      });
+      if (moved.count === 0) throw new AppError('Balance changed during the debit', 409, 'BALANCE_CONFLICT');
+    } else {
+      await tx.driver.update({ where: { id: driverId }, data: { walletBalancePesewas: { increment: amount } } });
+    }
+    return tx.walletTransaction.create({
+      data: {
+        driverId,
+        type: amount > 0 ? 'ADMIN_CREDIT' : 'ADMIN_DEBIT',
+        amountPesewas: amount,
+        description: `${amount > 0 ? 'Credit' : 'Debit'} by ${admin?.email ?? 'admin'} — ${why}`,
+        balanceBeforePesewas: before,
+        balanceAfterPesewas: after,
+      },
+    });
+  });
+
+  logger.info('[ADMIN] driver wallet adjusted', { driverId, amount, by: admin?.email });
+  return row;
+}
+
 module.exports = {
   approveDriver, suspendDriver, rejectDriver, banUser, unbanUser,
+  acknowledgeSosEvent, releaseSosEvent, getSosAlertingHealth,
+  listNotes, addNote, deleteNote,
+  globalSearch, bulkDriverAction,
+  adjustRiderWallet, adjustDriverWallet,
   getMetrics, getActiveTrips, setSurgeMultiplier, getSurgeZones, expireUnansweredDispatchOffers,
   getRoutes, createRoute, updateRoute, deleteRoute, addVirtualStops,
   getAllPulseSchedules, createPulseSchedule, deletePulseSchedule,

@@ -312,7 +312,22 @@ export function Avatar({
     .map((p) => p[0]?.toUpperCase() ?? '')
     .join('');
 
-  if (src) {
+  /**
+   * A `data:` URI here is the whole image, not a link to it, and these avatars
+   * render in list views. One live rider row carried a 723 KB base64 photo,
+   * which Next then shipped TWICE — once in the markup and once in the RSC
+   * payload — turning a twelve-row riders page into 1.5 MB. Fifty such rows
+   * would be a 70 MB page that an operator on a Ghanaian connection simply
+   * never sees finish loading.
+   *
+   * The write path now refuses these (eyego-api/src/utils/asset-url.js), but
+   * rows predating that fix are still in the table, so the console declines to
+   * inline them and falls back to initials. Nothing is lost that an operator
+   * needs: the full photo is still on the person's own detail page.
+   */
+  const inlineImage = typeof src === 'string' && src.trim().startsWith('data:');
+
+  if (src && !inlineImage) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img

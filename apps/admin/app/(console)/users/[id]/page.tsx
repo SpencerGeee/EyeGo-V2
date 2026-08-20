@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 
 import { UserModeration } from './UserModeration';
 import { Icon } from '@/components/ui/Icon';
+import { NotesPanel, type AdminNote } from '@/components/ui/NotesPanel';
+import { WalletAdjustControl } from '@/components/ui/WalletAdjustControl';
 import {
   Avatar,
   Badge,
@@ -65,9 +67,10 @@ export async function generateMetadata({
 
 export default async function UserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [data, admin] = await Promise.all([
+  const [data, admin, notes] = await Promise.all([
     apiGetSafe<{ user: Rider }>(`/users/${id}`),
     getAdmin(),
+    apiGetSafe<{ notes: AdminNote[] }>(`/notes/User/${id}`),
   ]);
 
   if (data === null) {
@@ -93,6 +96,10 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
   const settled = bookings.filter((b) => b.paymentStatus === 'PAID');
   const spent = settled.reduce((sum, b) => sum + (b.fareAmountPesewas || 0), 0);
   const canModerate = can(admin?.role, ['OPS', 'SUPPORT']) && !isReadOnly(admin?.role);
+  // Banning someone and moving their money are different powers: an OPS lead
+  // can suspend an account but only FINANCE may credit or debit it. The API
+  // enforces this; the button is hidden so nobody reaches for a refused action.
+  const canMoveMoney = can(admin?.role, ['FINANCE']) && !isReadOnly(admin?.role);
 
   return (
     <>
@@ -125,7 +132,17 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
         }
         actions={
           canModerate ? (
-            <UserModeration userId={user.id} name={user.name} isBanned={!!user.isBanned} />
+            <div className="flex items-center gap-2">
+              {canMoveMoney ? (
+                <WalletAdjustControl
+                  kind="rider"
+                  id={user.id}
+                  name={user.name}
+                  balancePesewas={user.walletBalancePesewas ?? 0}
+                />
+              ) : null}
+              <UserModeration userId={user.id} name={user.name} isBanned={!!user.isBanned} />
+            </div>
           ) : (
             <ReadOnlyNote>
               {can(admin?.role, ['OPS', 'SUPPORT'])
@@ -242,6 +259,18 @@ export default async function UserDetailPage({ params }: { params: Promise<{ id:
             </dl>
           </CardBody>
         </Card>
+
+        {/* Spans the full width: notes are prose, and a third-width column
+            wraps them into an unreadable ribbon. */}
+        <div className="lg:col-span-3">
+          <NotesPanel
+            subjectType="User"
+            subjectId={user.id}
+            notes={notes?.notes ?? []}
+            canWrite={!isReadOnly(admin?.role)}
+            revalidatePath={`/users/${user.id}`}
+          />
+        </div>
       </div>
     </>
   );

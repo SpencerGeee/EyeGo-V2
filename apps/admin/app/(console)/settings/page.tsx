@@ -2,14 +2,26 @@ import type { Metadata } from 'next';
 
 import { ChangePasswordForm } from '@/app/change-password/ChangePasswordForm';
 import { Card, CardBody, CardHead, Detail, PageHeader } from '@/components/ui/primitives';
-import { getAdmin } from '@/lib/api';
+import { apiGetSafe, getAdmin } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { ROLE_BLURB, ROLE_LABEL } from '@/lib/roles';
 
+import { TwoFactorPanel } from './TwoFactorPanel';
+
 export const metadata: Metadata = { title: 'Your account' };
 
+type TotpStatus = {
+  enabled: boolean;
+  enabledAt: string | null;
+  backupCodesRemaining: number;
+  requiredByPolicy: boolean;
+};
+
 export default async function SettingsPage() {
-  const admin = await getAdmin();
+  const [admin, totp] = await Promise.all([
+    getAdmin(),
+    apiGetSafe<TotpStatus>('/auth/totp'),
+  ]);
 
   return (
     <>
@@ -54,6 +66,13 @@ export default async function SettingsPage() {
             )}
           </CardBody>
         </Card>
+
+        {/* Spans both columns: enrolment shows a QR and ten recovery codes, and
+            cramming that into a half-width card makes the codes wrap badly at
+            exactly the moment they must be transcribed accurately. */}
+        <div className="lg:col-span-2">
+          <TwoFactorPanel status={totp} />
+        </div>
       </div>
     </>
   );

@@ -338,6 +338,36 @@ const REGISTRY = [
     help: 'Shown on the help screens of both apps.',
     maxLength: 32,
   },
+
+  // ── SAFETY AND ESCALATION ────────────────────────────────────────
+  //
+  // The SOS fan-out used to reach only admin phones that had registered an FCM
+  // token through the mobile endpoint — which the web console never calls. In
+  // practice a panic alert reached nobody until somebody happened to refresh
+  // the page. These make the escalation path explicit and editable by the
+  // people who are on call, without a deploy.
+  {
+    key: 'SOS_ONCALL_PHONES', group: 'safety', type: TYPES.TEXT,
+    label: 'On-call phone numbers', envDefault: '',
+    help: 'Comma-separated, in international format (+233…). Every one gets an SMS the moment a panic alert is raised, naming the person, the trip and where they are. Leave empty to send no SMS — but then the only alerting is the console badge, which nobody sees at 3am.',
+    maxLength: 500,
+  },
+  {
+    key: 'SOS_SMS_ALERTS_ENABLED', group: 'safety', type: TYPES.BOOLEAN,
+    label: 'Send SOS alerts by SMS', envDefault: true,
+    help: 'Off silences the on-call SMS without losing the number list. Push alerts and the console queue are unaffected.',
+  },
+  {
+    key: 'SOS_STALE_AFTER_MINUTES', group: 'safety', type: TYPES.INT,
+    label: 'Flag an unacknowledged alert after (minutes)', envDefault: 10,
+    min: 1, max: 1440,
+    help: 'How long a panic alert may sit with nobody holding it before the console escalates how it is shown. This does not close anything — it decides when the queue starts shouting.',
+  },
+  {
+    key: 'ADMIN_MFA_REQUIRED', group: 'safety', type: TYPES.BOOLEAN,
+    label: 'Require two-factor for all console accounts', envDefault: false,
+    help: 'On means every administrator must enrol an authenticator before they can do anything except enrol. Turn it on once the existing operators have set theirs up, or you will lock out the team — the superadmin who flips it is warned but not exempt.',
+  },
 ];
 
 const BY_KEY = new Map(REGISTRY.map((d) => [d.key, d]));
@@ -365,6 +395,7 @@ const GROUPS = [
   { id: 'driver_economics', label: 'Driver wallet' },
   { id: 'dispatch', label: 'Dispatch' },
   { id: 'apps', label: 'Apps', help: 'Changes both apps pick up without a store release.' },
+  { id: 'safety', label: 'Safety and escalation', help: 'Who gets woken when a rider or driver hits the panic button, and what the console requires of its own operators.' },
 ];
 
 /** Definition default, from env when it names one. */

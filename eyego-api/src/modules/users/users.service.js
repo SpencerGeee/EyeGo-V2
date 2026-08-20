@@ -3,6 +3,7 @@
 const prisma = require('../../config/database');
 const cloudinary = require('../../services/cloudinary.service');
 const { NotFoundError, ForbiddenError, AppError } = require('../../utils/errors');
+const { assertAssetUrl } = require('../../utils/asset-url');
 // Owns the whole reputation model (rating window, reliability, reports, and the
 // loyalty discount pricing reads). See services/standing.service.js.
 const standingService = require('../../services/standing.service');
@@ -198,8 +199,9 @@ async function updateMe(userId, data) {
   if (data.preferredTier) allowed.preferredTier = data.preferredTier;
   if (data.email) allowed.email = data.email;
   if (data.dob) allowed.dob = data.dob;
-  if (data.profilePhoto) allowed.profilePhoto = data.profilePhoto;
-  if (data.avatarUrl) allowed.profilePhoto = data.avatarUrl;
+  // A URL to an uploaded image, never the image itself — see utils/asset-url.
+  if (data.profilePhoto) allowed.profilePhoto = assertAssetUrl(data.profilePhoto, 'profilePhoto');
+  if (data.avatarUrl) allowed.profilePhoto = assertAssetUrl(data.avatarUrl, 'avatarUrl');
   if (typeof data.businessMode === 'boolean') allowed.businessMode = data.businessMode;
   // "Verify My Ride". Opt-in — see the field's note in schema.prisma.
   if (typeof data.requireBoardingPin === 'boolean') allowed.requireBoardingPin = data.requireBoardingPin;

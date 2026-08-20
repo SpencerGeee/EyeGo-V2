@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { ExportButton } from '@/components/ui/ExportButton';
 import { FilterSelect, Pagination, RefreshControl, ResetFilters } from '@/components/ui/Filters';
 import { Badge, Card, EmptyState, ErrorPanel, PageHeader, Toolbar } from '@/components/ui/primitives';
 import { apiGetSafe } from '@/lib/api';
@@ -54,7 +55,12 @@ export default async function TripsPage({
       <PageHeader
         title="Trips"
         subtitle="Every trip the platform has created, newest first. Seat counts exclude cancelled, expired, refunded and no-show bookings."
-        actions={<RefreshControl />}
+        actions={
+          <>
+            <ExportButton dataset="trips" />
+            <RefreshControl />
+          </>
+        }
       />
 
       <Card flush>

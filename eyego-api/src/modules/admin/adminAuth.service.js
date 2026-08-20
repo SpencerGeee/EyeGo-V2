@@ -49,6 +49,9 @@ const PUBLIC_SELECT = {
   lockedUntil: true,
   createdAt: true,
   updatedAt: true,
+  // Whether MFA is on — never the secret or the backup hashes, which must not
+  // leave the server even to an authenticated superadmin.
+  totpEnabledAt: true,
 };
 
 function signAdminTokens(adminId, role) {
@@ -96,7 +99,205 @@ function normaliseEmail(email) {
 
 // ─── Login ────────────────────────────────────────────────────────
 
-async function login({ email, password, ip, userAgent }) {
+// ═══════════════════════════════════════════════════════════════════
+// TWO-FACTOR (TOTP)
+//
+// These accounts can reprice every ride on the platform and ban any user, and
+// a password was the only thing in the way. Riders authenticate with a one-time
+// code; the administrators had a weaker bar than their own customers.
+//
+// The algorithm lives in utils/totp.js; this is the account plumbing around it.
+// ═══════════════════════════════════════════════════════════════════
+
+const totp = require('../../utils/totp');
+
+/** Is MFA mandatory for everyone? A runtime setting, so it needs no deploy. */
+function isMfaRequiredPlatformWide() {
+  try {
+    return require('../../config/settings').get('ADMIN_MFA_REQUIRED') === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check a submitted second factor and BURN IT.
+ *
+ * Accepts either a TOTP code or one of the account's backup codes. Both are
+ * single-use: the TOTP step is persisted so a code cannot be replayed inside
+ * its own 30-second window, and a backup code is removed from the stored list
+ * the moment it works.
+ *
+ * @returns {Promise<boolean>} whether the factor was valid
+ */
+async function consumeSecondFactor(admin, submitted) {
+  const step = totp.verify(admin.totpSecret, submitted, admin.totpLastStep);
+  if (step !== null) {
+    await prisma.adminUser.update({
+      where: { id: admin.id },
+      data: { totpLastStep: BigInt(step) },
+    });
+    return true;
+  }
+
+  // Backup codes: bcrypt-hashed, so this is a linear scan of at most ten
+  // comparisons. Formatting is normalised because someone reading one off a
+  // screen will not reproduce the hyphen or the case reliably.
+  let hashes = [];
+  try {
+    hashes = admin.totpBackupCodes ? JSON.parse(admin.totpBackupCodes) : [];
+  } catch {
+    hashes = [];
+  }
+  if (!hashes.length) return false;
+
+  const candidate = String(submitted).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  for (let i = 0; i < hashes.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    if (await bcrypt.compare(candidate, hashes[i])) {
+      const remaining = hashes.filter((_, idx) => idx !== i);
+      await prisma.adminUser.update({
+        where: { id: admin.id },
+        data: { totpBackupCodes: JSON.stringify(remaining) },
+      });
+      logger.warn(`[adminAuth] ${admin.email} signed in with a BACKUP CODE (${remaining.length} left)`);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Step one of enrolment: mint a secret and hand back what the app needs.
+ *
+ * Deliberately does NOT switch MFA on. `totpEnabledAt` stays null until a code
+ * generated from this secret comes back, so a mistyped or unscanned secret
+ * cannot lock someone out of their own console.
+ */
+async function beginTotpEnrolment(adminId) {
+  const admin = await prisma.adminUser.findUnique({ where: { id: adminId } });
+  if (!admin) throw new NotFoundError('Admin not found');
+  if (admin.totpEnabledAt) {
+    throw new AppError('Two-factor is already switched on for this account', 409, 'TOTP_ALREADY_ENABLED');
+  }
+
+  const secret = totp.generateSecret();
+  await prisma.adminUser.update({ where: { id: adminId }, data: { totpSecret: secret } });
+
+  return {
+    secret,
+    otpauthUri: totp.otpauthUri({ secret, accountName: admin.email }),
+  };
+}
+
+/**
+ * Step two: prove the authenticator works, then switch MFA on and issue
+ * recovery codes. The plain codes are returned exactly once.
+ */
+async function confirmTotpEnrolment(adminId, code) {
+  const admin = await prisma.adminUser.findUnique({ where: { id: adminId } });
+  if (!admin) throw new NotFoundError('Admin not found');
+  if (admin.totpEnabledAt) {
+    throw new AppError('Two-factor is already switched on for this account', 409, 'TOTP_ALREADY_ENABLED');
+  }
+  if (!admin.totpSecret) {
+    throw new AppError('Start enrolment first — there is no secret to confirm', 400, 'TOTP_NOT_STARTED');
+  }
+
+  const step = totp.verify(admin.totpSecret, code, null);
+  if (step === null) {
+    throw new ValidationError('That code is not valid. Check your authenticator app and try again.');
+  }
+
+  const plainCodes = totp.generateBackupCodes(10);
+  const hashes = await Promise.all(
+    plainCodes.map((c) => bcrypt.hash(c.replace(/[^A-Z0-9]/g, ''), BCRYPT_ROUNDS)),
+  );
+
+  await prisma.adminUser.update({
+    where: { id: adminId },
+    data: {
+      totpEnabledAt: new Date(),
+      totpLastStep: BigInt(step),
+      totpBackupCodes: JSON.stringify(hashes),
+    },
+  });
+
+  logger.info(`[adminAuth] two-factor enabled for ${admin.email}`);
+  // Shown once and never again — only the hashes are kept.
+  return { backupCodes: plainCodes };
+}
+
+/**
+ * Switch MFA off for yourself. Requires a CURRENT code, so someone who walks up
+ * to an unlocked screen cannot quietly remove the second factor.
+ */
+async function disableTotp(adminId, code) {
+  const admin = await prisma.adminUser.findUnique({ where: { id: adminId } });
+  if (!admin) throw new NotFoundError('Admin not found');
+  if (!admin.totpEnabledAt) return { disabled: true };
+
+  if (isMfaRequiredPlatformWide()) {
+    throw new AppError(
+      'Two-factor is required for every console account by platform policy and cannot be switched off',
+      403,
+      'TOTP_REQUIRED_BY_POLICY',
+    );
+  }
+
+  const ok = await consumeSecondFactor(admin, code);
+  if (!ok) throw new ValidationError('Enter a current code from your authenticator to switch two-factor off');
+
+  await prisma.adminUser.update({
+    where: { id: adminId },
+    data: { totpSecret: null, totpEnabledAt: null, totpLastStep: null, totpBackupCodes: null },
+  });
+  logger.warn(`[adminAuth] two-factor DISABLED for ${admin.email}`);
+  return { disabled: true };
+}
+
+/**
+ * Superadmin clears someone else's MFA — the lost-phone path.
+ *
+ * Every session for that account is dropped at the same time: if the phone is
+ * gone we do not know who is holding it, and leaving live sessions up would
+ * make this a way to keep access rather than restore it.
+ */
+async function resetTotpFor(targetAdminId, actingAdmin) {
+  const target = await prisma.adminUser.findUnique({ where: { id: targetAdminId } });
+  if (!target) throw new NotFoundError('Admin not found');
+
+  await prisma.adminUser.update({
+    where: { id: targetAdminId },
+    data: { totpSecret: null, totpEnabledAt: null, totpLastStep: null, totpBackupCodes: null },
+  });
+  const revoked = await revokeAllSessions(targetAdminId);
+
+  logger.warn(`[adminAuth] two-factor reset for ${target.email} by ${actingAdmin?.email}`);
+  return { reset: true, sessionsRevoked: revoked };
+}
+
+/** What the console needs to draw the security panel. */
+async function getTotpStatus(adminId) {
+  const admin = await prisma.adminUser.findUnique({
+    where: { id: adminId },
+    select: { totpEnabledAt: true, totpBackupCodes: true },
+  });
+  let remaining = 0;
+  try {
+    remaining = admin?.totpBackupCodes ? JSON.parse(admin.totpBackupCodes).length : 0;
+  } catch {
+    remaining = 0;
+  }
+  return {
+    enabled: Boolean(admin?.totpEnabledAt),
+    enabledAt: admin?.totpEnabledAt ?? null,
+    backupCodesRemaining: remaining,
+    requiredByPolicy: isMfaRequiredPlatformWide(),
+  };
+}
+
+async function login({ email, password, totpCode, ip, userAgent }) {
   const normalised = normaliseEmail(email);
 
   const admin = await prisma.adminUser.findUnique({ where: { email: normalised } });
@@ -132,6 +333,49 @@ async function login({ email, password, ip, userAgent }) {
     });
     logger.warn(`[adminAuth] failed login for ${normalised} (${failedLoginCount}/${MAX_FAILED_LOGINS}) from ${ip || 'unknown ip'}`);
     throw new AuthError('Invalid email or password');
+  }
+
+  // ── Second factor ────────────────────────────────────────────────
+  //
+  // The password is now proven. Everything below decides whether that is
+  // enough. Note the ORDER: failed-login counting above already ran, so
+  // brute-forcing the password is still rate-limited independently of TOTP.
+  if (admin.totpEnabledAt && admin.totpSecret) {
+    const submitted = String(totpCode ?? '').trim();
+    if (!submitted) {
+      // A distinct, non-secret signal: the caller has the password right and
+      // needs to be asked for a code. It carries no token, so it grants nothing.
+      const err = new AuthError('Enter the 6-digit code from your authenticator app');
+      err.code = 'TOTP_REQUIRED';
+      err.totpRequired = true;
+      throw err;
+    }
+
+    const consumed = await consumeSecondFactor(admin, submitted);
+    if (!consumed) {
+      // A wrong code counts toward the same lockout as a wrong password —
+      // otherwise TOTP becomes an unlimited 6-digit guessing oracle for anyone
+      // who has the password.
+      const failedLoginCount = admin.failedLoginCount + 1;
+      const shouldLock = failedLoginCount >= MAX_FAILED_LOGINS;
+      await prisma.adminUser.update({
+        where: { id: admin.id },
+        data: {
+          failedLoginCount,
+          lockedUntil: shouldLock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000) : null,
+        },
+      });
+      logger.warn(`[adminAuth] failed TOTP for ${normalised} (${failedLoginCount}/${MAX_FAILED_LOGINS})`);
+      const err = new AuthError('That code is not valid. Check your authenticator and try again.');
+      err.code = 'TOTP_INVALID';
+      err.totpRequired = true;
+      throw err;
+    }
+  } else if (isMfaRequiredPlatformWide()) {
+    // MFA is mandatory but this account has not enrolled. Let it in — a
+    // half-configured policy must not lock the whole team out — and flag it,
+    // so the console can force enrolment before anything else can be done.
+    logger.warn(`[adminAuth] ${normalised} signed in without MFA while ADMIN_MFA_REQUIRED is on`);
   }
 
   const { accessToken, refreshToken, tokenId } = signAdminTokens(admin.id, admin.role);
@@ -458,4 +702,11 @@ module.exports = {
   writeAuditLog,
   getAuditLogs,
   redact,
+  // Two-factor
+  beginTotpEnrolment,
+  confirmTotpEnrolment,
+  disableTotp,
+  resetTotpFor,
+  getTotpStatus,
+  isMfaRequiredPlatformWide,
 };

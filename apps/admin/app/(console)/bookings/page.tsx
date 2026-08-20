@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { ExportButton } from '@/components/ui/ExportButton';
 import { Pagination, RefreshControl } from '@/components/ui/Filters';
 import { Badge, Card, EmptyState, ErrorPanel, PageHeader, Toolbar } from '@/components/ui/primitives';
 import { apiGetSafe } from '@/lib/api';
@@ -54,7 +55,12 @@ export default async function BookingsPage({
       <PageHeader
         title="Bookings"
         subtitle="Every seat ever booked. Booking status is seat and money state; the ride's own state lives on the trip."
-        actions={<RefreshControl />}
+        actions={
+          <>
+            <ExportButton dataset="bookings" />
+            <RefreshControl />
+          </>
+        }
       />
 
       <Card flush>

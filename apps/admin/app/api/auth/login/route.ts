@@ -16,11 +16,14 @@ const BASE = (process.env.EYEGO_API_URL || 'http://localhost:5020').replace(/\/$
 export async function POST(request: Request) {
   let email = '';
   let password = '';
+  let totpCode = '';
 
   try {
     const body = await request.json();
     email = String(body?.email ?? '');
     password = String(body?.password ?? '');
+    // Absent on the first pass; supplied once the API has asked for it.
+    totpCode = String(body?.totpCode ?? '');
   } catch {
     return NextResponse.json({ ok: false, message: 'Malformed request.' }, { status: 400 });
   }
@@ -41,7 +44,7 @@ export async function POST(request: Request) {
         'x-forwarded-for': request.headers.get('x-forwarded-for') ?? '',
         'user-agent': request.headers.get('user-agent') ?? 'eyego-console',
       },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, ...(totpCode ? { totpCode } : {}) }),
       cache: 'no-store',
     });
   } catch {
@@ -54,6 +57,16 @@ export async function POST(request: Request) {
   const body = await upstream.json().catch(() => null);
 
   if (!upstream.ok || !body?.success) {
+    // `totpRequired` is a REQUEST for the second factor, not a refusal — the
+    // password was already correct. It has to survive this hop or the form
+    // cannot tell "show the code field" from "wrong password", and every
+    // MFA-enrolled admin is locked out.
+    if (body?.totpRequired) {
+      return NextResponse.json(
+        { ok: false, totpRequired: true, code: body.code, message: body.message },
+        { status: 401 }
+      );
+    }
     // The upstream message is passed through as-is. It is written to be safe to
     // show — a wrong password and an unknown email produce the same wording, so
     // this cannot be used to discover which console emails exist.
