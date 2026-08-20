@@ -266,8 +266,54 @@ function timestampsFor(to, now) {
  * @param {boolean} [opts.publish=true]     emit to the realtime channel post-commit
  * @returns {Promise<{trip: object, event: object}>}
  */
+/**
+ * A LOST COMPARE-AND-SWAP IS NOT THE SAME AS A REFUSED TRANSITION.
+ *
+ * BUGFIX ("the rider taps Cancel a second after booking and gets *Trip … was
+ * modified concurrently*, and the ride carries on"). `cancelRide` reads the
+ * trip, kills the offer chain, and then transitions to CANCELLED. Dispatch is
+ * running the whole time and bumps the version on its own — REQUESTED →
+ * MATCHING, then a DISPATCH_PROGRESS event per candidate — so the swap below
+ * finds a version that has moved and raises. The rider's cancel simply did not
+ * happen, and the message they were shown describes a database detail.
+ *
+ * The important distinction: a caller that passed `expectedVersion` IS asserting
+ * something about the version and wants the conflict. A caller that did not is
+ * only saying "make this transition" — for them, losing the swap means "re-read
+ * and try again", not "fail". Retrying is safe because the retry re-runs
+ * `assertTransition` against the NEW status, so a transition that has genuinely
+ * become illegal still fails, and it fails with the accurate error:
+ *
+ *   - two drivers tapping Accept: the loser retries, sees DRIVER_ASSIGNED, and
+ *     gets ILLEGAL_TRANSITION instead of VERSION_CONFLICT. Still exactly one
+ *     winner, with a message that says what actually happened.
+ *   - a rider cancelling while dispatch churns: the retry sees MATCHING, which
+ *     is cancellable, and the cancel lands.
+ *
+ * `sideEffects` re-run on a retry, which is correct: the transaction they were
+ * part of rolled back entirely.
+ */
+const TRANSITION_RETRY_DELAYS_MS = [25, 75, 200];
+
 async function applyTransition(tripId, to, opts = {}) {
-  const result = await prisma.$transaction((tx) => applyTransitionTx(tx, tripId, to, opts));
+  let result;
+  let attempt = 0;
+  for (;;) {
+    try {
+      result = await prisma.$transaction((tx) => applyTransitionTx(tx, tripId, to, opts));
+      break;
+    } catch (err) {
+      const retryable =
+        err?.code === 'VERSION_CONFLICT' &&
+        opts.expectedVersion == null &&
+        attempt < TRANSITION_RETRY_DELAYS_MS.length;
+      if (!retryable) throw err;
+      const delay = TRANSITION_RETRY_DELAYS_MS[attempt];
+      attempt += 1;
+      logger.debug(`Trip ${tripId} → ${to} lost the swap, retry ${attempt} in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
 
   // Post-commit. Never inside the transaction: an emit for a transaction that
   // then rolls back is a lie the clients cannot un-hear.

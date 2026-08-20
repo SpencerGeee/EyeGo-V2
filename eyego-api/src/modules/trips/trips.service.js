@@ -312,11 +312,25 @@ async function getTrip(id, viewerUserId = null) {
       },
       bookings: {
         where: { ...seatOccupyingWhere() },
-        select: { id: true, seatNumber: true, status: true, paymentStatus: true, userId: true, isOffline: true, guestName: true },
+        // `fareAmountPesewas` is what was actually charged. It is the only
+        // record of an on-demand ride's price — see the fare block below — so
+        // it has to be selected here, before the privacy remap strips the
+        // bookings down for a browsing stranger.
+        select: {
+          id: true, seatNumber: true, status: true, paymentStatus: true,
+          userId: true, isOffline: true, guestName: true, fareAmountPesewas: true,
+        },
       },
     },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  // Captured, then removed from the payload again: it is needed for the
+  // aggregate below, and nothing on the wire should gain a per-passenger price
+  // it did not have before — on a shared trip a promo or a deviation surcharge
+  // makes those differ, and one passenger does not get to read another's.
+  const chargedFaresPesewas = trip.bookings.map((b) => b.fareAmountPesewas ?? 0);
+  for (const b of trip.bookings) delete b.fareAmountPesewas;
 
   const isOnTrip = !!viewerUserId && trip.bookings.some((b) => b.userId === viewerUserId);
   const isPublicListing =
@@ -338,22 +352,48 @@ async function getTrip(id, viewerUserId = null) {
     }
   }
 
-  // Divide by maxSeats — the fixed capacity the driver chose for this trip.
-  // This keeps farePerSeatPesewas stable and identical to what the listing showed.
-  const fareInfo = calculateFare({
-    tier: trip.tier,
-    distanceKm: trip.route.distanceKm,
-    seatCount: trip.maxSeats,
-    doorstepPickup: trip.doorstepPickup,
-    heavyLoad: trip.heavyLoad,
-    surgeMultiplier: trip.surgeMultiplier,
-    storedBaseFarePesewas: trip.baseFarePesewas,
-    storedPerKmRatePesewas: trip.perKmRatePesewas,
-  });
-  trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
-  trip.fare = fareInfo.farePerPersonPesewas; // kept for backwards-compat with older clients
-  // Full trip cost — what a rider pays when they choose "I'm paying for everyone".
-  trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
+  if (trip.route) {
+    // Divide by maxSeats — the fixed capacity the driver chose for this trip.
+    // This keeps farePerSeatPesewas stable and identical to what the listing showed.
+    const fareInfo = calculateFare({
+      tier: trip.tier,
+      distanceKm: trip.route.distanceKm,
+      seatCount: trip.maxSeats,
+      doorstepPickup: trip.doorstepPickup,
+      heavyLoad: trip.heavyLoad,
+      surgeMultiplier: trip.surgeMultiplier,
+      storedBaseFarePesewas: trip.baseFarePesewas,
+      storedPerKmRatePesewas: trip.perKmRatePesewas,
+    });
+    trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
+    trip.fare = fareInfo.farePerPersonPesewas; // kept for backwards-compat with older clients
+    // Full trip cost — what a rider pays when they choose "I'm paying for everyone".
+    trip.totalTripCostPesewas = fareInfo.totalTripCostPesewas;
+  } else {
+    /**
+     * AN ON-DEMAND RIDE HAS NO ROUTE, BY CONSTRUCTION.
+     *
+     * `rides.service.requestRide` creates the Trip with `routeId: null` — that
+     * is the whole point of the on-demand shape ("no driver, no vehicle, no
+     * route"). This block used to read `trip.route.distanceKm` unconditionally,
+     * so `GET /v1/trips/:id` threw `Cannot read properties of null` and returned
+     * 500 for EVERY on-demand ride. Both of the rider screens that call it hit
+     * that: `ride/[id]/chat.tsx` (so rider→driver chat could not open on a
+     * normal ride at all) and Activity's tap-through to `/ride/[id]`.
+     *
+     * The price is not recomputed here even in principle. No distance was ever
+     * stored on the Trip — only inside the seq-0 TripEvent payload — and a fare
+     * re-derived from a straight line would quietly disagree with the signed
+     * quote the rider was actually charged. The booking row IS the price.
+     *
+     * On-demand is priced as the whole car (the quote passes `seatCount: 1`),
+     * so the per-seat figure and the total are the same number.
+     */
+    const chargedTotal = chargedFaresPesewas.reduce((sum, n) => sum + n, 0);
+    trip.farePerSeatPesewas = chargedTotal;
+    trip.fare = chargedTotal;
+    trip.totalTripCostPesewas = chargedTotal;
+  }
 
   /**
    * ONE ANSWER TO "HOW MANY SEATS ARE LEFT".
@@ -1686,14 +1726,36 @@ async function processScheduledRideIntents() {
 async function estimateDeviationSurcharge(tripId, lat, lng) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
-    select: { perKmRatePesewas: true, route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } } },
+    select: {
+      perKmRatePesewas: true,
+      pickupLat: true, pickupLng: true, dropoffLat: true, dropoffLng: true,
+      route: { select: { originLat: true, originLng: true, destLat: true, destLng: true } },
+    },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  // An on-demand trip has no Route row, and its endpoints live on the Trip
+  // itself. Reading `trip.route.originLat` blind threw a 500 the moment the
+  // invite screen priced a joiner's own pickup on one.
+  const fromLat = trip.route ? trip.route.originLat : trip.pickupLat;
+  const fromLng = trip.route ? trip.route.originLng : trip.pickupLng;
+  const toLat = trip.route ? trip.route.destLat : trip.dropoffLat;
+  const toLng = trip.route ? trip.route.destLng : trip.dropoffLng;
+  if ([fromLat, fromLng, toLat, toLng].some((n) => typeof n !== 'number')) {
+    // Nothing to measure a detour against. Say so rather than answering with a
+    // surcharge derived from NaN, which would reach the rider as "GH₵ NaN".
+    throw new AppError(
+      'This trip has no pickup or destination coordinates yet, so a detour cannot be priced.',
+      409,
+      'TRIP_ROUTE_MISSING',
+    );
+  }
+
   const { detourKm, calculateDeviationSurcharge } = require('./fare.calculator');
   const extraKm = detourKm({
-    fromLat: trip.route.originLat, fromLng: trip.route.originLng,
+    fromLat, fromLng,
     viaLat: lat, viaLng: lng,
-    toLat: trip.route.destLat, toLng: trip.route.destLng,
+    toLat, toLng,
   });
   const surcharge = calculateDeviationSurcharge({ extraKm, perKmRatePesewas: trip.perKmRatePesewas });
   return { extraKm: Math.round(extraKm * 100) / 100, surcharge };
@@ -1709,6 +1771,37 @@ async function getTrackingData(shortId) {
     },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  /**
+   * AN ON-DEMAND RIDE HAS NO ROUTE ROW — GIVE THE PAGE ONE ANYWAY.
+   *
+   * `public/tracking/index.html` reads `data.route.originName`,
+   * `data.route.destLng` and so on, and nothing else: the header, the two
+   * address rows, the pickup/destination markers and the map's own bounds are
+   * all derived from it. An on-demand trip is created with `routeId: null`
+   * (rides.service.requestRide), so a rider who shared the ride they were
+   * actually on — the primary product — sent their contact a page with a blank
+   * header, no addresses and no pins.
+   *
+   * Synthesised HERE rather than fixed in the HTML so the shape the page
+   * consumes has exactly one definition, and so the ended-trip branch below
+   * keeps its privacy rule for free: it copies the names out of this object and
+   * drops the coordinates, whichever kind of trip produced it.
+   */
+  const trackedRoute = trip.route ?? (
+    trip.pickupLat != null || trip.dropoffLat != null
+      ? {
+        id: null,
+        name: null,
+        originName: trip.pickupAddress || 'Pickup',
+        destinationName: trip.dropoffAddress || 'Destination',
+        originLat: trip.pickupLat,
+        originLng: trip.pickupLng,
+        destLat: trip.dropoffLat,
+        destLng: trip.dropoffLng,
+      }
+      : null
+  );
 
   /**
    * A SHARE LINK DIES WITH THE TRIP.
@@ -1734,12 +1827,12 @@ async function getTrackingData(shortId) {
       arrivedAt: trip.arrivedAt,
       // Names only. The public page needs them to say what journey this was;
       // the coordinates would place a stranger at someone's front door.
-      route: trip.route
+      route: trackedRoute
         ? {
-            id: trip.route.id,
-            name: trip.route.name,
-            originName: trip.route.originName,
-            destinationName: trip.route.destinationName,
+            id: trackedRoute.id,
+            name: trackedRoute.name,
+            originName: trackedRoute.originName,
+            destinationName: trackedRoute.destinationName,
           }
         : null,
       path: null,
@@ -1788,7 +1881,7 @@ async function getTrackingData(shortId) {
     tier: trip.tier,
     departureTime: trip.departureTime,
     arrivedAt: trip.arrivedAt,
-    route: trip.route,
+    route: trackedRoute,
     /**
      * The live leg: road geometry plus the ETA in minutes.
      * `leg` is 'toPickup' while the driver is fetching the rider and

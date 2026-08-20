@@ -511,23 +511,62 @@ async function cancelRide(userId, tripId, reason = null) {
     if (!booking) throw new AppError('Not authorized', 403, 'FORBIDDEN');
   }
 
+  /**
+   * ALREADY CANCELLED IS WHAT THE RIDER ASKED FOR.
+   *
+   * The Cancel button on the searching screen is a big target on a screen the
+   * rider is anxious to leave, and it gets double-tapped. The second tap used to
+   * come back `TRIP_ALREADY_IN_STATE` (409) and RequestStage would raise "Could
+   * not cancel" over a ride that was, in fact, cancelled.
+   */
+  if (trip.status === S.CANCELLED) {
+    return { tripId, status: trip.status, version: trip.version, freeCancel: true, alreadyCancelled: true };
+  }
+
   // Kill the offer chain first so no further driver is disturbed by a ride the
   // rider has already walked away from.
   await cascade.cancelCascade(tripId);
 
   const freeCancel = FREE_CANCEL_STATUSES.includes(trip.status);
-  const { trip: updated } = await tripState.applyTransition(tripId, S.CANCELLED, {
-    actor: ACTOR.RIDER,
-    actorId: userId,
-    payload: { reason, freeCancel },
-    data: { cancelledBy: ACTOR.RIDER, cancellationReason: reason },
-    sideEffects: async (tx) => {
-      await tx.booking.updateMany({
-        where: { tripId, status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] } },
-        data: { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: reason },
-      });
-    },
-  });
+  let updated;
+  try {
+    ({ trip: updated } = await tripState.applyTransition(tripId, S.CANCELLED, {
+      actor: ACTOR.RIDER,
+      actorId: userId,
+      payload: { reason, freeCancel },
+      data: { cancelledBy: ACTOR.RIDER, cancellationReason: reason },
+      sideEffects: async (tx) => {
+        await tx.booking.updateMany({
+          where: { tripId, status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] } },
+          data: { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: reason },
+        });
+      },
+    }));
+  } catch (err) {
+    /**
+     * The one refusal a rider deserves a sentence about.
+     *
+     * `applyTransition` now retries a lost compare-and-swap, so what reaches
+     * here is a genuine "no": the trip moved somewhere a rider may not cancel
+     * from — it finished, or (the case that matters) a driver accepted in the
+     * same instant and the ride is under way with a real person on the way.
+     * `ILLEGAL_TRANSITION`/`TRIP_TERMINAL` said neither of those things.
+     */
+    if (err?.code === 'ILLEGAL_TRANSITION' || err?.code === 'TRIP_TERMINAL' || err?.code === 'TRIP_ALREADY_IN_STATE') {
+      const now = await prisma.trip.findUnique({ where: { id: tripId }, select: { status: true, version: true } });
+      if (now?.status === S.CANCELLED) {
+        return { tripId, status: now.status, version: now.version, freeCancel: true, alreadyCancelled: true };
+      }
+      throw new AppError(
+        now && tripState.hasDriver(now.status)
+          ? 'A driver has already accepted this ride. Cancel it from your trip screen so they are told.'
+          : 'This ride can no longer be cancelled — check your Activity tab for what happened to it.',
+        409,
+        'CANCEL_TOO_LATE',
+      );
+    }
+    throw err;
+  }
 
   return { tripId, status: updated.status, version: updated.version, freeCancel };
 }

@@ -129,7 +129,7 @@ router.post('/send', idempotency, async (req, res) => {
   // move real money between two wallets. A fractional value here means the app
   // is still sending cedis, and `assertPesewas` says so instead of quietly
   // transferring a hundredth of the intended amount.
-  const safeAmount = assertPesewas(amountPesewas, 'transfer amount');
+  const safeAmount = assertPesewas(amountPesewas, 'transfer amount', { client: true });
   if (safeAmount < MIN_P2P_TRANSFER_PESEWAS) {
     throw new AppError(
       `Minimum transfer is ${formatGhs(MIN_P2P_TRANSFER_PESEWAS)}`,
@@ -207,7 +207,7 @@ router.post('/topup', idempotency, async (req, res) => {
     data: {
       bookingId: null,
       userId: req.user.userId,
-      amountPesewas: assertPesewas(amountPesewas, "top-up amount"),
+      amountPesewas: assertPesewas(amountPesewas, "top-up amount", { client: true }),
       status: 'INTENT',
       paystackRef: reference,
       gatewayResponse: 'WALLET_TOPUP',
@@ -217,7 +217,7 @@ router.post('/topup', idempotency, async (req, res) => {
   try {
     const result = await paystack.initiateMomoCharge({
       email: userEmail,
-      amountPesewas: assertPesewas(amountPesewas, "top-up amount"),
+      amountPesewas: assertPesewas(amountPesewas, "top-up amount", { client: true }),
       phone: momoPhone || user.phone,
       method: payMethod,
       reference,

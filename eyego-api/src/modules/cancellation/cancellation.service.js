@@ -4,6 +4,7 @@ const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
+const settings = require('../../config/settings');
 const { AppError, NotFoundError, ForbiddenError } = require('../../utils/errors');
 const { pushEnd } = require('../../services/live-activity-push.service');
 const tripState = require('../../services/trip-state.service');
@@ -41,15 +42,101 @@ async function riderSeatsOnTrip(client, tripId, userId) {
 }
 
 /**
- * Calculate cancellation fee based on time before departure.
- * Returns 0 if cancelled within the free cancellation window.
+ * THE ONE DERIVATION OF "WHAT DOES CANCELLING COST".
+ *
+ * Read by the quote (`calculateCancellationFee`, which the rider's cancel sheet
+ * shows) and by the charge (`cancelBookingWithFee`). It used to be written out
+ * twice, once in each, which is how a quote and a charge come to disagree.
+ *
+ * TWO PRODUCTS, TWO CLOCKS.
+ *
+ * A seat on a bus is cancelled against the bus's departure time, and
+ * `CancellationPolicy` prices that: free up to `freeCancelMin` before, half
+ * after that, 100% once it has left. A HAILED RIDE HAS NO SUCH TIME — it is
+ * created with `departureTime: new Date()` — so that arithmetic put every
+ * hailed cancellation permanently in the "missed the bus" bucket and charged
+ * the whole fare, one second after a driver accepted. A hailed ride is measured
+ * from the moment a driver was assigned instead, which is when a real cost
+ * (a driver already driving to the pickup) starts existing.
+ *
+ * @param {object} trip     needs status, tier, routeId, departureTime, assignedAt
+ * @param {number} totalFarePesewas  the whole seat set's fare
+ */
+async function cancellationTermsFor(trip, totalFarePesewas) {
+  const isHailed = trip.routeId == null;
+
+  if (isHailed) {
+    // Nobody has been sent anywhere yet — always free, whatever the knobs say.
+    if (!tripState.hasDriver(trip.status)) {
+      return {
+        feePercentage: 0, feeAmountPesewas: 0, feeType: 'FREE',
+        freeCancelSeconds: settings.get('RIDE_CANCEL_GRACE_SECONDS') ?? 120,
+        secondsSinceAssigned: null,
+        fareAmountPesewas: totalFarePesewas,
+      };
+    }
+
+    const graceSeconds = settings.get('RIDE_CANCEL_GRACE_SECONDS') ?? 120;
+    const flatFeePesewas = settings.get('RIDE_CANCEL_FEE_PESEWAS') ?? 0;
+    const assignedAt = trip.assignedAt ? new Date(trip.assignedAt) : null;
+    const secondsSinceAssigned = assignedAt ? Math.max(0, Math.round((Date.now() - assignedAt.getTime()) / 1000)) : 0;
+    const withinGrace = secondsSinceAssigned <= graceSeconds;
+
+    // Capped at the fare: a GH₵5 flat fee on a GH₵3 ride would charge more for
+    // not taking it than for taking it.
+    const fee = withinGrace ? 0 : Math.min(flatFeePesewas, totalFarePesewas);
+    return {
+      feePercentage: totalFarePesewas > 0 ? Math.round((fee / totalFarePesewas) * 100) : 0,
+      feeAmountPesewas: fee,
+      feeType: fee > 0 ? 'LATE_CANCELLATION' : 'FREE',
+      freeCancelSeconds: graceSeconds,
+      secondsSinceAssigned,
+      fareAmountPesewas: totalFarePesewas,
+    };
+  }
+
+  // ── the bus product, unchanged ──────────────────────────────────────────
+  const policy = await prisma.cancellationPolicy.findFirst({
+    where: { tier: trip.tier, isActive: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const freeCancelMinutes = policy?.freeCancelMin ?? 60;
+  const lateFeePct = policy?.lateFeePct ?? 50;
+  const noShowFeePct = policy?.noShowFeePct ?? 100;
+
+  const minutesUntilDeparture = (new Date(trip.departureTime) - new Date()) / (1000 * 60);
+
+  let feePercentage = 0;
+  let feeType = 'FREE';
+  if (minutesUntilDeparture <= 0) {
+    feePercentage = noShowFeePct;
+    feeType = 'NO_SHOW';
+  } else if (minutesUntilDeparture < freeCancelMinutes) {
+    feePercentage = lateFeePct;
+    feeType = 'LATE_CANCELLATION';
+  }
+
+  return {
+    feePercentage,
+    // ONE fee, over the whole set — not one fee per row.
+    feeAmountPesewas: percentOf(totalFarePesewas, feePercentage / 100),
+    feeType,
+    freeCancelMinutes,
+    minutesUntilDeparture: Math.round(minutesUntilDeparture),
+    fareAmountPesewas: totalFarePesewas,
+  };
+}
+
+/**
+ * What cancelling would cost, for the rider's confirm sheet.
  *
  * Quoted for EVERY seat this rider holds on the trip — see `riderSeatsOnTrip`.
  */
 async function calculateCancellationFee(bookingId, userId) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    include: { trip: { select: { departureTime: true, tier: true } } },
+    include: { trip: { select: { departureTime: true, tier: true, status: true, routeId: true, assignedAt: true } } },
   });
   if (!booking) throw new NotFoundError('Booking');
   if (booking.userId !== userId) throw new ForbiddenError();
@@ -60,41 +147,9 @@ async function calculateCancellationFee(bookingId, userId) {
   const seatSet = seats.length > 0 ? seats : [booking];
   const totalFarePesewas = seatSet.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);
 
-  // Get policy for this tier
-  const policy = await prisma.cancellationPolicy.findFirst({
-    where: { tier: booking.trip.tier, isActive: true },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  const freeCancelMinutes = policy?.freeCancelMin ?? 60;
-  const lateFeePct = policy?.lateFeePct ?? 50;
-  const noShowFeePct = policy?.noShowFeePct ?? 100;
-
-  const now = new Date();
-  const departure = new Date(booking.trip.departureTime);
-  const minutesUntilDeparture = (departure - now) / (1000 * 60);
-
-  let feePercentage = 0;
-  let feeType = 'FREE';
-
-  if (minutesUntilDeparture <= 0) {
-    // No-show / missed trip
-    feePercentage = noShowFeePct;
-    feeType = 'NO_SHOW';
-  } else if (minutesUntilDeparture < freeCancelMinutes) {
-    // Late cancellation
-    feePercentage = lateFeePct;
-    feeType = 'LATE_CANCELLATION';
-  }
-
+  const terms = await cancellationTermsFor(booking.trip, totalFarePesewas);
   return {
-    feePercentage,
-    // ONE fee, over the whole set — not one fee per row.
-    feeAmountPesewas: percentOf(totalFarePesewas, feePercentage / 100),
-    freeCancelMinutes,
-    minutesUntilDeparture: Math.round(minutesUntilDeparture),
-    feeType,
-    fareAmountPesewas: totalFarePesewas,
+    ...terms,
     // So the confirm sheet can say "cancel all 4 seats" rather than implying one.
     seatCount: seatSet.length,
   };
@@ -137,35 +192,18 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     const paidSeats = seatSet.filter((b) => b.paymentStatus === 'PAID');
     const paidFarePesewas = paidSeats.reduce((sum, b) => sum + (b.fareAmountPesewas ?? 0), 0);
 
-    // Calculate cancellation fee
-    const policy = await tx.cancellationPolicy.findFirst({
-      where: { tier: booking.trip.tier, isActive: true },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const freeCancelMinutes = policy?.freeCancelMin ?? 60;
-    const lateFeePct = policy?.lateFeePct ?? 50;
-    const noShowFeePct = policy?.noShowFeePct ?? 100;
-
     const now = new Date();
-    const departure = new Date(booking.trip.departureTime);
-    const minutesUntilDeparture = (departure - now) / (1000 * 60);
-
-    let feePercentage = 0;
-    let cancellationFeePesewas = null;
-
-    if (minutesUntilDeparture <= 0) {
-      feePercentage = noShowFeePct;
-    } else if (minutesUntilDeparture < freeCancelMinutes) {
-      feePercentage = lateFeePct;
-    }
-
-    if (feePercentage > 0) {
-      // ONE fee for the cancellation, charged against the total the rider is
-      // walking away from. Charging it per row would multiply the penalty by the
-      // number of seats — a lead booker with four seats paid four late fees.
-      cancellationFeePesewas = percentOf(totalFarePesewas, feePercentage / 100);
-    }
+    /**
+     * The SAME derivation the rider was quoted — see `cancellationTermsFor`.
+     * This block used to restate the policy inline, so the quote and the charge
+     * were two implementations of one rule and free to drift.
+     *
+     * ONE fee for the cancellation, charged against the total the rider is
+     * walking away from. Charging it per row would multiply the penalty by the
+     * number of seats — a lead booker with four seats paid four late fees.
+     */
+    const terms = await cancellationTermsFor(booking.trip, totalFarePesewas);
+    const cancellationFeePesewas = terms.feeAmountPesewas > 0 ? terms.feeAmountPesewas : null;
 
     // Refund only what was actually paid. Unpaid seats in the set (cash, or a
     // hold that never settled) owe nothing back.
@@ -263,7 +301,25 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       );
     }
 
-    // Check if trip should revert to SCHEDULED
+    /**
+     * NOBODY IS ON THE TRIP ANY MORE. WHAT HAPPENS TO THE TRIP?
+     *
+     * This asked only one of the two questions: "should a part-full bus go back
+     * on sale?" — and answered it for FILLING and CONFIRMED. A hailed ride is
+     * never in either state, so cancelling one moved the BOOKING to CANCELLED
+     * and left the TRIP exactly where it was. Everything downstream then
+     * believed a ride was still running that had no passenger:
+     *
+     *   - the driver kept the trip on their screen and drove to the pickup;
+     *   - `isDriverAvailable` saw them as busy, so dispatch skipped them;
+     *   - the rider could not book anything else — `POST /rides` answered
+     *     "You already have a ride in progress" for a ride they had just
+     *     cancelled AND paid a fee on.
+     *
+     * A bus with seats left goes back on sale; anything else with nobody left
+     * aboard is over, and has to be said through the state machine so both apps
+     * are told rather than discovering it on a refetch.
+     */
     const activeCount = await tx.booking.count({
       where: {
         tripId: booking.tripId,
@@ -271,14 +327,25 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
       },
     });
     let transition = null;
-    if (activeCount === 0 && ['FILLING', 'CONFIRMED'].includes(booking.trip.status)) {
-      // Last rider left: the trip goes back on sale. Through the state machine
-      // so the driver's app sees it happen rather than discovering it on a
-      // refetch.
-      transition = await tripState.applyTransitionTx(tx, booking.tripId, 'SCHEDULED', {
-        actor: tripState.ACTOR.SYSTEM,
-        payload: { reason: 'ALL_BOOKINGS_CANCELLED' },
-      });
+    if (activeCount === 0 && !tripState.isTerminal(booking.trip.status)) {
+      if (['FILLING', 'CONFIRMED'].includes(booking.trip.status)) {
+        // Last rider left a bus that has not set off: back on sale.
+        transition = await tripState.applyTransitionTx(tx, booking.tripId, 'SCHEDULED', {
+          actor: tripState.ACTOR.SYSTEM,
+          payload: { reason: 'ALL_BOOKINGS_CANCELLED' },
+        });
+      } else if (booking.trip.status !== 'SCHEDULED' && booking.trip.status !== 'IN_PROGRESS') {
+        // A hailed ride, or a bus already under way to a pickup with nobody on
+        // it. `IN_PROGRESS` is excluded deliberately: a rider sitting in the car
+        // does not cancel their way out of a moving trip — that is support's to
+        // do, and the state machine refuses it for a RIDER anyway.
+        transition = await tripState.applyTransitionTx(tx, booking.tripId, 'CANCELLED', {
+          actor: tripState.ACTOR.RIDER,
+          actorId: userId,
+          data: { cancelledBy: tripState.ACTOR.RIDER, cancellationReason: reason || null },
+          payload: { reason: reason || null, cancellationFeePesewas },
+        });
+      }
     }
 
     return {
@@ -292,8 +359,22 @@ async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
     };
   });
 
-  // Post-commit: tell both apps the trip went back on sale.
+  // Post-commit: tell both apps what happened to the trip itself.
   tripState.publishCommitted(result.transition);
+
+  /**
+   * And stop looking for a driver for a ride nobody is on.
+   *
+   * A hailed ride cancelled while it was still REASSIGNING (the driver bailed
+   * and dispatch was mid-sweep) leaves an offer chain running. Without this the
+   * next driver in the cascade is woken for a trip that is already CANCELLED,
+   * accepts it, and gets a 409 they did nothing to deserve.
+   */
+  if (result.transition?.trip?.status === 'CANCELLED') {
+    require('../../services/dispatch-cascade.service')
+      .cancelCascade(result.transition.trip.id)
+      .catch((err) => logger.debug(`[Cancellation] cascade stop failed (non-blocking): ${err?.message ?? err}`));
+  }
 
   // Fire-and-forget: end this rider's Live Activity outside the DB
   // transaction (it's a network call to Apple, not something that should

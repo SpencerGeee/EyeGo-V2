@@ -1080,6 +1080,15 @@ async function getActiveBooking(userId) {
     return booking ?? null;
 }
 
+/**
+ * The mobile-money networks a charge can actually name — mirrors
+ * `MOBILE_MONEY_PROVIDERS` in payments/paystack.client.js. `CASH`, `CARD` and
+ * `WALLET` are payment METHODS but not networks, which is the distinction the
+ * tip flow used to miss.
+ */
+const MOMO_METHODS = new Set(['MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AIRTELTIGO']);
+const DEFAULT_TIP_MOMO_METHOD = 'MOMO_MTN';
+
 async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
   const { v4: uuidv4 } = require('uuid');
   const paystack = require('../payments/provider');
@@ -1087,7 +1096,7 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
   // A tip arrives from the client, so it is guarded rather than trusted:
   // `assertPesewas` rejects NaN, negatives, fractions (which would mean the
   // app is still sending cedis) and absurd amounts.
-  assertPesewas(amountPesewas, 'tip amount');
+  assertPesewas(amountPesewas, 'tip amount', { client: true });
   if (amountPesewas <= 0) throw new AppError('Tip amount must be greater than 0', 400);
 
   return prisma.$transaction(async (tx) => {
@@ -1124,11 +1133,28 @@ async function tipDriver(userId, bookingId, { amountPesewas, phone }) {
     const email = booking.user?.email || `${booking.user.phone}@eyego.app`;
     const payPhone = phone || booking.user.phone;
 
+    /**
+     * A TIP IS ITS OWN PAYMENT — IT DOES NOT INHERIT THE RIDE'S METHOD.
+     *
+     * BUGFIX. This passed `booking.paymentMethod` straight into a mobile-money
+     * charge. On the most common booking in this market that value is `CASH`,
+     * which is not a MoMo provider, so `initiateMomoCharge` threw
+     * "Unsupported MoMo method: CASH" and the rate-and-tip screen answered every
+     * cash rider with a 500. `CARD` and `WALLET` fail the same way, for the same
+     * reason: none of them names a network.
+     *
+     * The ride's method says how the FARE was settled, which is finished
+     * business by the time anyone is tipping. A tip is charged to a MoMo wallet
+     * on the phone number given, so the only thing worth inheriting is the
+     * network — and only when the ride was itself paid by MoMo.
+     */
+    const method = MOMO_METHODS.has(booking.paymentMethod) ? booking.paymentMethod : DEFAULT_TIP_MOMO_METHOD;
+
     const result = await paystack.initiateMomoCharge({
       email,
       amountPesewas,
       phone: payPhone,
-      method: booking.paymentMethod || 'MOMO_MTN',
+      method,
       reference,
       metadata: { bookingId, userId, type: 'TIP' },
     });

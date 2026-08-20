@@ -41,7 +41,7 @@ async function getWallet(driverId, transactionLimit = 50) {
 const MAX_TOPUP_PESEWAS = 500_000; // ₵5,000
 
 async function topUp(driverId, amountPesewas, { method = 'MOMO_MTN' } = {}) {
-  const safeAmount = assertPesewas(amountPesewas, 'top-up amount');
+  const safeAmount = assertPesewas(amountPesewas, 'top-up amount', { client: true });
   if (safeAmount > MAX_TOPUP_PESEWAS) {
     throw new AppError(`The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`, 400);
   }
@@ -138,12 +138,12 @@ async function creditTopUp(driverId, reference, amountPesewas, { description } =
  * credits recorded the same "before") cannot come back on one of them only.
  */
 async function confirmTopUp(driverId, reference, amountPesewas) {
-  const safeAmount = assertPesewas(amountPesewas, 'top-up amount');
+  const safeAmount = assertPesewas(amountPesewas, 'top-up amount', { client: true });
   return creditTopUp(driverId, reference, safeAmount);
 }
 
 async function withdraw(driverId, amountPesewas) {
-  const safeAmount = assertPesewas(amountPesewas, 'withdrawal amount');
+  const safeAmount = assertPesewas(amountPesewas, 'withdrawal amount', { client: true });
   if (safeAmount < env.DRIVER_MIN_WITHDRAWAL_PESEWAS) {
     // Formatted, not raw: the threshold is 2000 pesewas and a driver told
     // "Minimum withdrawal is GHS 2000" would reasonably close the app.

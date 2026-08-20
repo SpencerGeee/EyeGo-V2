@@ -288,6 +288,30 @@ const REGISTRY = [
     min: 0, max: 240,
   },
 
+  // ── Cancelling a hailed ride ──────────────────────────────────
+  //
+  // A HAILED RIDE HAS NO DEPARTURE TIME, SO IT NEEDED ITS OWN POLICY.
+  //
+  // `CancellationPolicy` measures the fee from `Trip.departureTime`: free up to
+  // an hour before, half after that, and 100% once departure has passed. That
+  // is the right model for a bus that leaves at 07:30. An on-demand ride is
+  // created with `departureTime: new Date()`, so it is ALWAYS past departure —
+  // every rider who cancelled a hailed ride, one second after a driver
+  // accepted, was charged the ENTIRE fare as a no-show. These two knobs replace
+  // that arithmetic for hailed rides only; the bus product is untouched.
+  {
+    key: 'RIDE_CANCEL_GRACE_SECONDS', group: 'ride_pricing_fees', type: TYPES.INT,
+    label: 'Free-cancellation window', envDefault: 120, unit: 'seconds',
+    help: 'How long after a driver accepts a hailed ride the rider may still cancel for nothing. Cancelling before a driver is found is always free, whatever this says.',
+    min: 0, max: 900,
+  },
+  {
+    key: 'RIDE_CANCEL_FEE_PESEWAS', group: 'ride_pricing_fees', type: TYPES.MONEY,
+    label: 'Late-cancellation fee', envDefault: 5_00,
+    help: 'Flat amount charged when a rider cancels a hailed ride after the free window, to cover the driver’s trip to the pickup. Never more than the fare itself. Set to 0 to make cancellation always free.',
+    min: 0, max: 50_00,
+  },
+
   // ── Rider & driver standing ───────────────────────────────────
   // The reputation model behind "fewer cancellations should mean better
   // pricing". See services/standing.service.js for how these are combined and

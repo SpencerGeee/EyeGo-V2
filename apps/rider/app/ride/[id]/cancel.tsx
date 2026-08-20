@@ -65,14 +65,25 @@ export default function CancelRideScreen() {
     isError: isFeeError,
   } = useQuery({
     queryKey: ['cancellation-fee', id],
+    // `cancellationApi.getFee` now unwraps the envelope AND the
+    // `cancellationFeePesewas` key it nests the terms under, so what arrives
+    // here is the terms object itself — no `select` needed.
     queryFn: () => cancellationApi.getFee(id),
-    select: (r: any) => r.data?.data ?? r.data ?? r,
     enabled: !!id,
     staleTime: 30_000,
   });
 
-  const cancellationFeePesewas = cancelFeeData?.fee ?? 0;
-  const isFeeEligible = cancelFeeData?.eligible ?? false;
+  /**
+   * BUGFIX ("the cancel screen never tells me what it will cost").
+   *
+   * These read `cancelFeeData?.fee` and `cancelFeeData?.eligible` — two fields
+   * the server has never sent, off a response that was never unwrapped. Both
+   * were therefore permanently undefined, `hasFee` was permanently false, and
+   * the banner showed the vague "may incur a cancellation fee" line every time,
+   * including when the rider was one tap away from being charged a real one.
+   */
+  const cancellationFeePesewas = cancelFeeData?.feeAmountPesewas ?? 0;
+  const isFeeEligible = cancellationFeePesewas > 0;
   /**
    * BUGFIX ("it's showing 'checking cancellation policy' which is stuck and
    * doesn't work").
@@ -97,9 +108,10 @@ export default function CancelRideScreen() {
         reason: selectedReason,
         note: selectedReason === 'other' ? note : undefined,
       }),
-    onSuccess: (res: any) => {
-      const data = res.data?.data ?? res.data ?? res;
-      const fee = data?.cancellationFeePesewas ?? 0;
+    onSuccess: (res) => {
+      // Already unwrapped by cancellationApi — this used to peel an envelope
+      // off an object that no longer has one, and read 0 every time.
+      const fee = res?.cancellationFeePesewas ?? 0;
       // Invalidate every surface that could still show this ride as live:
       // booking lists/active queries, the tracking screen's ['trip', id] +
       // active-tracking query, and the scheduled-rides list.
@@ -262,10 +274,27 @@ export default function CancelRideScreen() {
                     ? "We couldn't check the fee for this ride just now. If one applies, it will be shown on your receipt."
                     : hasFee
                     ? `A cancellation fee of ${formatGhs(cancellationFeePesewas)} applies to this ride.`
-                    : 'Cancelling after the driver has been dispatched may incur a cancellation fee.'}
+                    : 'Cancelling this ride is free.'}
                 </Text>
-                {cancelFeeData?.reason ? (
-                  <Text style={styles.policySub}>{cancelFeeData.reason}</Text>
+                {/**
+                 * The sub-line said `cancelFeeData.reason` — a field that has
+                 * never existed on this response, so it never rendered. Say the
+                 * thing the rider actually needs: WHY it is free, or what it is
+                 * a fee for, in the units of whichever product this is.
+                 */}
+                {!isFeeLoading && !isFeeError && cancelFeeData ? (
+                  <Text style={styles.policySub}>
+                    {cancelFeeData.seatCount > 1
+                      ? `This cancels all ${cancelFeeData.seatCount} of your seats. `
+                      : ''}
+                    {hasFee
+                      ? 'Your driver was already on the way, so a share of their trip to you is charged.'
+                      : cancelFeeData.freeCancelSeconds != null
+                      ? `Free within ${Math.round(cancelFeeData.freeCancelSeconds / 60) || 1} minute${cancelFeeData.freeCancelSeconds >= 120 ? 's' : ''} of a driver accepting.`
+                      : cancelFeeData.freeCancelMinutes != null
+                      ? `Free up to ${cancelFeeData.freeCancelMinutes} minutes before departure.`
+                      : ''}
+                  </Text>
                 ) : null}
               </View>
             </View>

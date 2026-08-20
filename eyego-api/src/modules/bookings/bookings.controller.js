@@ -220,8 +220,26 @@ const getActiveBooking = async (req, res) => {
 };
 
 const tipDriver = async (req, res) => {
-  const { amount, phone } = req.body;
-  const result = await bookingsService.tipDriver(req.user.userId, req.params.bookingId, { amount: parseFloat(amount), phone });
+  /**
+   * THREE NAMES FOR ONE NUMBER, AND NO TIP EVER WENT THROUGH.
+   *
+   * BUGFIX. The client sends `{ amountPesewas }` (bookings.api.ts `tip`), this
+   * read `amount`, and `bookingsService.tipDriver` destructures `amountPesewas`
+   * — so it received `{ amount: NaN }`, the service saw `amountPesewas:
+   * undefined`, and `assertPesewas` threw on every single tip. The `parseFloat`
+   * was the second half of the same mistake: it treats the value as CEDIS,
+   * while every money column and every guard downstream is integer pesewas, so
+   * even a correctly-named `5.50` would have been rejected as fractional.
+   *
+   * One name, one unit, no coercion. `amount` is still accepted so an installed
+   * build that sends the old key keeps working — but read as pesewas, which is
+   * what any client sending that key was already sending.
+   */
+  const { amountPesewas, amount, phone } = req.body || {};
+  const result = await bookingsService.tipDriver(req.user.userId, req.params.bookingId, {
+    amountPesewas: amountPesewas ?? amount,
+    phone,
+  });
   ok(res, result, 'Tip payment initiated');
 };
 

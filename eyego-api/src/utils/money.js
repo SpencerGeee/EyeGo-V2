@@ -88,18 +88,41 @@ function formatGhs(pesewas) {
  * @param {string}  label            what to name in the error
  * @param {object}  [opts]
  * @param {boolean} [opts.allowNegative]  ledger deltas and refunds are signed
+ * @param {boolean} [opts.client]         the value came off a request body
  */
-function assertPesewas(value, label = 'amount', { allowNegative = false } = {}) {
+function assertPesewas(value, label = 'amount', { allowNegative = false, client = false } = {}) {
+  /**
+   * WHOSE MISTAKE WAS IT?
+   *
+   * A bad value in `fare.calculator` is the server contradicting itself and a
+   * 500 is the honest answer. A bad value in a request body is the CLIENT's,
+   * and it used to get the same treatment: a bare `Error`, which the global
+   * handler reads as non-operational — status 500, the message replaced with
+   * "An unexpected error occurred. Please try again.", and an error-level log
+   * (so Sentry fills with other people's typos). An app still sending cedis to
+   * `/wallet/send` therefore learned nothing at all from the one guard built to
+   * tell it exactly that.
+   */
+  const bad = (msg) => {
+    const err = new Error(msg);
+    if (client) {
+      err.statusCode = 400;
+      err.code = 'INVALID_AMOUNT';
+      err.isOperational = true;
+    }
+    return err;
+  };
+
   const n = Number(value);
-  if (!Number.isFinite(n)) throw new Error(`${label} is not a finite number`);
+  if (!Number.isFinite(n)) throw bad(`${label} is not a finite number`);
   if (!Number.isInteger(n)) {
-    throw new Error(
+    throw bad(
       `${label} must be an integer number of pesewas, got ${n} — ` +
         'a fractional value here means cedis leaked past the conversion boundary',
     );
   }
-  if (!allowNegative && n < 0) throw new Error(`${label} may not be negative`);
-  if (Math.abs(n) > SANITY_CEILING_PESEWAS) throw new Error(`${label} exceeds the sanity ceiling`);
+  if (!allowNegative && n < 0) throw bad(`${label} may not be negative`);
+  if (Math.abs(n) > SANITY_CEILING_PESEWAS) throw bad(`${label} exceeds the sanity ceiling`);
   return n;
 }
 

@@ -157,18 +157,68 @@ function pick() {
 
 const active = pick();
 
+/**
+ * A GATEWAY SAYING NO IS NOT THE SERVER FALLING OVER.
+ *
+ * Every function here ends in an axios call, and an axios rejection is a bare
+ * `AxiosError`. The global handler treats anything without `isOperational` as a
+ * crash: HTTP 500, the message replaced by "An unexpected error occurred.
+ * Please try again.", and an error-level log. So a declined card, an expired
+ * key, a Paystack outage and a genuine bug all reached the rider as the same
+ * sentence — one that tells them nothing and tells us nothing either. Observed
+ * while tipping: a 401 from an unconfigured key surfaced as a 500 on the
+ * rate-and-tip screen.
+ *
+ * Wrapped at THIS seam rather than at ~20 call sites, for the same reason the
+ * seam exists at all. The gateway's own message is preserved when it sent one —
+ * "Insufficient funds" is exactly what the rider needs to read.
+ */
+function normaliseGatewayError(err, fn) {
+  if (err?.isOperational) return err;
+
+  const status = err?.response?.status;
+  const body = err?.response?.data;
+  const gatewayMessage = typeof body?.message === 'string' ? body.message : null;
+
+  const wrapped = new Error(
+    gatewayMessage ||
+      (status
+        ? 'The payment provider could not complete this request. Please try again.'
+        : 'We could not reach the payment provider. Please try again in a moment.'),
+  );
+  wrapped.isOperational = true;
+  wrapped.cause = err;
+  // 402 for "the gateway understood and refused" (a decline, a bad number);
+  // 502 for "the gateway is broken or unreachable", which is ours to fix.
+  wrapped.statusCode = status && status >= 400 && status < 500 ? 402 : 502;
+  wrapped.code = 'PAYMENT_PROVIDER_ERROR';
+
+  logger.error(`[payments:${PROVIDER}] ${fn} failed (${status ?? 'no response'}): ${err?.message}`, {
+    gatewayMessage,
+  });
+  return wrapped;
+}
+
+const guard = (fn) => async (...a) => {
+  try {
+    return await active[fn](...a);
+  } catch (err) {
+    throw normaliseGatewayError(err, fn);
+  }
+};
+
 module.exports = {
   /** Which provider is serving this process. Useful in health output. */
   name: impls[PROVIDER] ? PROVIDER : 'paystack',
   /** True while charges settle without money moving. Never true in production. */
   isMock: active === mock,
-  initiateMomoCharge: (...a) => active.initiateMomoCharge(...a),
-  initiateCardCharge: (...a) => active.initiateCardCharge(...a),
-  initializeCheckout: (...a) => active.initializeCheckout(...a),
-  verifyTransaction: (...a) => active.verifyTransaction(...a),
+  initiateMomoCharge: guard('initiateMomoCharge'),
+  initiateCardCharge: guard('initiateCardCharge'),
+  initializeCheckout: guard('initializeCheckout'),
+  verifyTransaction: guard('verifyTransaction'),
   /** Money back to the original payment method. Accepted now, settles later. */
-  refundTransaction: (...a) => active.refundTransaction(...a),
-  initiateTransfer: (...a) => active.initiateTransfer(...a),
-  createTransferRecipient: (...a) => active.createTransferRecipient(...a),
-  resolvePayoutBankCode: (...a) => active.resolvePayoutBankCode(...a),
+  refundTransaction: guard('refundTransaction'),
+  initiateTransfer: guard('initiateTransfer'),
+  createTransferRecipient: guard('createTransferRecipient'),
+  resolvePayoutBankCode: guard('resolvePayoutBankCode'),
 };
