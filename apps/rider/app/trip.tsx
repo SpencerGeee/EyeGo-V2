@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, View, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
 import Animated, {
   FadeIn,
+  interpolate,
   useSharedValue,
   useAnimatedStyle,
   withSpring,
@@ -32,11 +33,18 @@ import { TripSheetHost } from '../components/trip/TripSheetHost';
  * This was `withTiming(700ms, Easing.out(Easing.cubic))`. A fixed duration is
  * the wrong instrument for a surface that is physically changing shape: the
  * outgoing stage, the incoming stage and the panel geometry underneath them all
- * have to arrive together, and a curve has no way to absorb the fact that the
- * swap can start while the previous one is still settling. Restarting a timing
- * curve mid-flight snaps `progress` back to 0 and the whole panel visibly jumps;
- * restarting a spring hands it the current position AND velocity, so a stage
- * change during a stage change is continuous.
+ * have to arrive together, and a duration cannot adapt to a swap that starts
+ * while the previous one is still settling.
+ *
+ * Note what this does NOT buy, because an earlier version of this comment
+ * claimed it: `progress` is reset to 0 on every swap (see the effect below), so
+ * there is no velocity handoff. There cannot be — the two layers are re-pointed
+ * at a different pair of stages at that moment, so the value's OLD meaning does
+ * not survive into the new one, and carrying its velocity across would be
+ * carrying a number about the previous pair. What the spring gives here is a
+ * settle whose shape matches the sheet's own height spring underneath it, so
+ * the contents and the container stop moving together rather than one landing
+ * first and waiting.
  *
  * `springs.morph` is the established container-transform token — the same spring
  * MorphTarget uses to grow the Where-To card into this surface — so a stage swap
@@ -48,6 +56,80 @@ import { TripSheetHost } from '../components/trip/TripSheetHost';
  * a flash.
  */
 const STAGE_TRANSITION_CFG = springs.morph;
+
+/**
+ * WHICH STAGE SWAPS ARE THE SAME PANEL, AND WHICH ARE DIFFERENT PAGES.
+ *
+ * Every swap used to be one uniform cross-dissolve: both stages at ~50 %
+ * opacity through the middle of the spring, each sliding ±12–16 pt. That is
+ * the right gesture for `search → configure → select`, which really is a paged
+ * flow — three separate screens of the Where-To questionnaire, and the small
+ * slide is what tells the rider they moved forward through it.
+ *
+ * It is the wrong gesture for the three swaps below. `select → request →
+ * assigned → tracking` is not paging; it is ONE panel whose contents change as
+ * the trip progresses — pick a tier, we're finding you a driver, here is your
+ * driver, here is the ride. The panel never leaves, and the sheet underneath is
+ * already animating its own height continuously across these swaps. Dissolving
+ * the contents against that moving container is what made these three read as
+ * cheap: mid-flight you see two half-transparent panels stacked on a third
+ * shape that is still resizing, and the eye reads three surfaces where there
+ * is one.
+ *
+ * So these three get a container transform instead — a fade-THROUGH, not a
+ * cross-fade. The outgoing content is gone before the incoming appears, so the
+ * two never overlap and there is no double-exposure; the incoming grows the
+ * last few per cent into place, which reads as the container's contents
+ * re-forming. No translation at all: translation is precisely the signal that
+ * says "a different page arrived", and here nothing arrived.
+ *
+ * Keyed by destination stage, because the flow only reaches each of these from
+ * one place; a swap into a stage not listed here keeps the paged dissolve.
+ */
+const CONTAINER_TRANSFORM_INTO: Partial<Record<TripStage, readonly TripStage[]>> = {
+  request: ['select'],
+  assigned: ['request'],
+  tracking: ['assigned'],
+};
+
+/**
+ * The crossover point of the fade-through, as a fraction of the spring.
+ *
+ * Below it the outgoing content finishes leaving; above it the incoming starts
+ * arriving. They must not overlap — an overlap is a cross-fade, which is the
+ * thing being replaced. 0.35 rather than 0.5 because `springs.morph` is
+ * critically damped and spends its back half decelerating: splitting at the
+ * midpoint of PROGRESS would give the incoming content most of the wall-clock
+ * time and make the exit feel clipped.
+ */
+const FADE_THROUGH_PIVOT = 0.35;
+
+/**
+ * WHY THERE IS NO SCALE HERE, WHICH A CONTAINER TRANSFORM NORMALLY HAS.
+ *
+ * The textbook fade-through grows the incoming content the last few per cent
+ * into place. That needs a transform origin at the container's own anchor, and
+ * these two layers are `StyleSheet.absoluteFill` — full-screen — so a `scale`
+ * on them resolves about the SCREEN's centre. For content that sits low on the
+ * display, scaling about the screen centre translates it: starting at 0.94
+ * would lift the panel roughly a dozen points and drop it into place, which
+ * reads as a slide — the exact signal this transition is trying not to send.
+ * (This codebase has been caught by "RN scales about the centre" before.)
+ *
+ * `transformOrigin: 'bottom center'` is available on RN 0.81 and is used
+ * elsewhere in the UI package, so this is fixable — but only once the panel's
+ * real anchor is established, and the panel is hosted by `TripSheetHost`, a
+ * SIBLING of these layers, not by the layers themselves. Getting that wrong is
+ * worse than omitting it: a mis-anchored scale is a slide with extra steps.
+ *
+ * The fade-through alone is the part that carries the change, because it is the
+ * overlap that was making these three swaps look cheap — two half-transparent
+ * panels over a sheet that is itself still resizing. Removing the overlap
+ * leaves one surface changing its contents, and the sheet's own height spring
+ * supplies the container continuity. The scale is an enhancement on top of
+ * that, and it is left for a pass that can watch it on a device.
+ */
+
 
 
 /**
@@ -420,14 +502,52 @@ export default function TripScreen() {
     return { opacity: from + (to - from) * progress.value };
   }, [currentStageDrawsMap, previousStageDrawsMap]);
 
-  const incomingStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [{ translateY: (1 - progress.value) * 16 }],
-  }));
-  const outgoingStyle = useAnimatedStyle(() => ({
-    opacity: 1 - progress.value,
-    transform: [{ translateY: progress.value * -12 }],
-  }));
+  /**
+   * Is THIS swap the same panel changing its contents, or a new page?
+   *
+   * Read off `rendered`, not `stage`, for the same reason the map veil is: the
+   * styles have to describe the pair currently on screen. `previous == null`
+   * means the spring has settled and only one stage is mounted, in which case
+   * the answer does not matter — the incoming style is already at rest.
+   */
+  const isContainerTransform =
+    rendered.previous != null &&
+    (CONTAINER_TRANSFORM_INTO[rendered.current]?.includes(rendered.previous) ?? false);
+
+  const incomingStyle = useAnimatedStyle(() => {
+    if (!isContainerTransform) {
+      // Paged: rises the last 16 pt as it fades in.
+      return {
+        opacity: progress.value,
+        transform: [{ translateY: (1 - progress.value) * 16 }],
+      };
+    }
+    // Container transform: nothing until the outgoing content has gone, then
+    // fade in on the spot. No translation — see the note on scale above.
+    return {
+      opacity: interpolate(progress.value, [FADE_THROUGH_PIVOT, 1], [0, 1], 'clamp'),
+      transform: [{ translateY: 0 }],
+    };
+  }, [isContainerTransform]);
+
+  const outgoingStyle = useAnimatedStyle(() => {
+    if (!isContainerTransform) {
+      return {
+        opacity: 1 - progress.value,
+        transform: [{ translateY: progress.value * -12 }],
+      };
+    }
+    /**
+     * Leaves early and stays put. Holding position is the whole point: a
+     * container's contents do not slide away from their container, and the
+     * sheet underneath is resizing at the same time — any movement here would
+     * be read as belonging to that resize.
+     */
+    return {
+      opacity: interpolate(progress.value, [0, FADE_THROUGH_PIVOT], [1, 0], 'clamp'),
+      transform: [{ translateY: 0 }, { scale: 1 }],
+    };
+  }, [isContainerTransform]);
 
   /**
    * The scrim behind the top chips.
