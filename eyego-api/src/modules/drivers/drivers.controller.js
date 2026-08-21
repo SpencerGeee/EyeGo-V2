@@ -6,6 +6,7 @@ const tripRequestService = require('../trips/trip-request.service');
 const { estimateFare } = require('../trips/fare.calculator');
 const surgeService = require('../trips/surge.service');
 const mapboxService = require('../../services/mapbox.service');
+const { blacklistToken } = require('../../middleware/auth');
 const { ok, created } = require('../../utils/response');
 const destinationMode = require('../../services/destination-mode.service');
 const { seatOccupyingWhere } = require('../../utils/booking-status');
@@ -422,7 +423,16 @@ const getFareEstimate = async (req, res) => {
 };
 
 // ── Account Deletion ──────────────────────────────────────────────────
+/**
+ * Blacklist first, delete second — same reasoning as the rider's deleteMe.
+ * `authenticateDriver` checks the JWT signature and the blacklist, never
+ * whether the driver still exists, so without this the access token kept
+ * working after the account was gone: still able to go online, still able to
+ * accept a dispatch offer.
+ */
 const deleteMe = async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (token) await blacklistToken(token);
   await driversService.deleteMe(req.user.userId);
   ok(res, null, 'Account deleted');
 };

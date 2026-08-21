@@ -72,11 +72,18 @@ export const bookingsApi = {
   getHistory: (params?: { page?: number; limit?: number; status?: string }) =>
     apiClient.get<ApiResponse<{ bookings: Booking[]; total: number; page: number; totalPages: number }>>('/bookings', { params }),
 
+  /**
+   * Returns `data: null`. The controller is `ok(res, null, 'Booking cancelled')`
+   * — it drops the service's return value on the floor — so anything that
+   * awaited this expecting a refreshed Booking got `undefined`, not a booking
+   * with `status: 'CANCELLED'`. Typed for what actually arrives; refetch the
+   * booking if you need its new state.
+   */
   cancel: (id: string) =>
-    apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/cancel`),
+    apiClient.post<ApiResponse<null>>(`/bookings/${id}/cancel`),
 
   cancelWithReason: (id: string, data: { reason: string; note?: string }) =>
-    apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/cancel`, data),
+    apiClient.post<ApiResponse<null>>(`/bookings/${id}/cancel`, data),
 
   rate: (id: string, data: RatingRequest) =>
     apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/rating`, data),
@@ -100,12 +107,13 @@ export const bookingsApi = {
   tip: (bookingId: string, data: { amountPesewas: number; phone?: string }) =>
     apiClient.post<ApiResponse<{ reference: string }>>(`/bookings/${bookingId}/tip`, data),
 
-  // ── Cancellation Fee ────────────────────────────────────────────────
-  getCancellationFee: (id: string) =>
-    apiClient.get<ApiResponse<{ fee: number; reason: string; eligible: boolean }>>(`/cancellation/${id}/fee`),
-
-  cancelWithFee: (id: string, data: { reason: string; note?: string }) =>
-    apiClient.post<ApiResponse<Booking & { cancellationFeePesewas?: number }>>(`/cancellation/${id}/cancel`, data),
+  // ── Cancellation fee ────────────────────────────────────────────────
+  // Deliberately NOT declared here. `cancellation.api.ts` owns these two
+  // endpoints, and this file used to carry a second, stale copy of them whose
+  // fee type was `{ fee: number }` — the pre-pesewas shape. The server sends
+  // `feeAmountPesewas`, so anyone who reached for `bookingsApi.getCancellationFee`
+  // by autocomplete got a type that typechecked and then read `undefined` at
+  // runtime. One endpoint, one declaration: import `cancellationApi`.
 
   // ── Receipts ────────────────────────────────────────────────────────
   getReceipt: (id: string) =>

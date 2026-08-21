@@ -1,6 +1,7 @@
 'use strict';
 
 const usersService = require('./users.service');
+const { blacklistToken } = require('../../middleware/auth');
 const { ok } = require('../../utils/response');
 
 const getMe = async (req, res) => {
@@ -41,7 +42,24 @@ const updatePreferences = async (req, res) => {
   ok(res, { preferences }, 'Preferences updated');
 };
 
+/**
+ * DELETING YOUR ACCOUNT LEFT YOUR ACCESS TOKEN WORKING.
+ *
+ * `deactivateAccount` does the right things in the database — flips
+ * `isActive`, anonymises the row, revokes every refresh token — but nothing
+ * touched the ACCESS token, and `authenticate` verifies the JWT signature and
+ * the blacklist without ever asking whether the account still exists. So for
+ * the remaining lifetime of that token the deleted account could still book
+ * rides, spend its wallet and read the profile. Confirmed by E2E: `DELETE
+ * /user/me` followed by `GET /user/me` returned 200.
+ *
+ * `logout` already solves exactly this, with the same blacklist, so deletion
+ * does what logout does and then some. The blacklist call comes first: if it
+ * fails we have not yet told the user their account is gone.
+ */
 const deleteMe = async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (token) await blacklistToken(token);
   await usersService.deactivateAccount(req.user.userId);
   ok(res, null, 'Account deactivated');
 };

@@ -3,6 +3,7 @@
 const { formatGhs, assertPesewas, percentOf } = require('../../utils/money');
 
 const bookingsService = require('./bookings.service');
+const prisma = require('../../config/database');
 const { ok, created } = require('../../utils/response');
 const { AppError } = require('../../utils/errors');
 
@@ -243,29 +244,39 @@ const tipDriver = async (req, res) => {
   ok(res, result, 'Tip payment initiated');
 };
 
+/**
+ * THE ONLY HANDLER IN THE API THAT OPENED ITS OWN DATABASE CONNECTION.
+ *
+ * It built a fresh `new PrismaClient()` per request and tore it down in a
+ * `finally`. Every other module shares `config/database`'s single client, and
+ * for good reason: each PrismaClient owns a connection pool, so a rider typing
+ * a promo code — the field validates as you type — opened and closed a pool
+ * per keystroke. Under load that exhausts Postgres's `max_connections` long
+ * before anything else in the system does, and the symptom presents as "the
+ * database is down", not "the promo endpoint is greedy". The shared client
+ * removes both the churn and the teardown.
+ *
+ * `code` also arrives from the query string, where Express will hand you an
+ * array if it appears twice (`?code=A&code=B`) — `.toUpperCase()` is not a
+ * method on an array, so that 500'd. String() first.
+ */
 const validatePromoCode = async (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).json({ success: false, message: 'code is required' });
-  const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
-  try {
-    const promo = await prisma.promotion.findUnique({ where: { code: code.toUpperCase() } });
-    if (!promo || !promo.active || promo.expiry < new Date()) {
-      return ok(res, { valid: false, message: 'Promo code is invalid or expired' });
-    }
-    if (promo.discountPercent < 0 || promo.discountPercent > 100) {
-      throw new AppError('Invalid promo configuration', 500);
-    }
-    ok(res, {
-      valid: true,
-      code: promo.code,
-      discountPercent: promo.discountPercent,
-      maxDiscountPesewas: promo.maxDiscountPesewas,
-      message: `${promo.discountPercent}% off (up to ${formatGhs(promo.maxDiscountPesewas)})`,
-    });
-  } finally {
-    await prisma.$disconnect();
+  const promo = await prisma.promotion.findUnique({ where: { code: String(code).toUpperCase() } });
+  if (!promo || !promo.active || promo.expiry < new Date()) {
+    return ok(res, { valid: false, message: 'Promo code is invalid or expired' });
   }
+  if (promo.discountPercent < 0 || promo.discountPercent > 100) {
+    throw new AppError('Invalid promo configuration', 500);
+  }
+  ok(res, {
+    valid: true,
+    code: promo.code,
+    discountPercent: promo.discountPercent,
+    maxDiscountPesewas: promo.maxDiscountPesewas,
+    message: `${promo.discountPercent}% off (up to ${formatGhs(promo.maxDiscountPesewas)})`,
+  });
 };
 
 const submitDispute = async (req, res) => {

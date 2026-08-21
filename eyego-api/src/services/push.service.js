@@ -131,22 +131,46 @@ function prefAllows(notificationPrefs, category) {
   }
 }
 
+/**
+ * OPTING OUT OF A NOTIFICATION USED TO 500 THE OTHER PERSON'S REQUEST.
+ *
+ * The four pref-gated wrappers below returned a bare `null` on the opt-out
+ * branch, while every call site treats them as promises — the pattern
+ * throughout this repo is `pushService.notifications.x(...).catch(() => {})`,
+ * precisely so a failed push can never break a trip. But `null.catch` is a
+ * TypeError, thrown on the request thread AFTER the transaction has committed.
+ *
+ * So a rider who switched "Trip completed" off in settings made their DRIVER's
+ * `POST /rides/:id/complete` return 500. The trip really had completed — money
+ * moved, status changed, receipts written — and the driver was told it failed,
+ * on a screen whose only affordance is to try again.
+ *
+ * It stayed hidden because it needs a rider who has actually opted out: every
+ * earlier test used a fresh account with an empty prefs blob, and empty means
+ * allowed. `sendPush` is async, so the allowed branch always handed back a real
+ * promise and the `.catch` was fine — which is exactly why the two branches
+ * were never compared. Same shape for `driverArriving` and `paymentConfirmations`.
+ *
+ * A no-op is still an operation: it settles like the real one.
+ */
+const optedOut = () => Promise.resolve(null);
+
 // Convenience wrappers for specific events
 const notifications = {
   rideConfirmed: (token, route, departureTime, notificationPrefs, bookingId, tripId) =>
     prefAllows(notificationPrefs, 'paymentConfirmations')
       ? sendPush(token, 'Your EyeGo is confirmed!', `Departing at ${departureTime} from ${route}`, { type: 'RIDE_CONFIRMED', bookingId: bookingId || '', tripId: tripId || '' })
-      : null,
+      : optedOut(),
 
   driverEnRoute: (token, driverName, etaMinutes, notificationPrefs, tripId) =>
     prefAllows(notificationPrefs, 'driverArriving')
       ? sendPush(token, 'Driver is on the way', `${driverName} is ${etaMinutes} min away`, { type: 'DRIVER_EN_ROUTE', tripId: tripId || '' })
-      : null,
+      : optedOut(),
 
   driverArrived: (token, stopName, notificationPrefs, tripId, bookingId) =>
     prefAllows(notificationPrefs, 'driverArriving')
       ? sendPush(token, 'EyeGo is here!', `Your van is waiting at ${stopName}`, { type: 'DRIVER_ARRIVED', tripId: tripId || '', bookingId: bookingId || '' })
-      : null,
+      : optedOut(),
 
   // Takes PESEWAS and formats here, rather than accepting a pre-formatted
   // string from the caller. Callers were passing `x.toFixed(2)` into a template
@@ -156,7 +180,7 @@ const notifications = {
   rideComplete: (token, savedAmountPesewas, notificationPrefs, bookingId) =>
     prefAllows(notificationPrefs, 'tripCompleted')
       ? sendPush(token, 'Ride complete', `Rate your trip. You saved ${formatGhs(savedAmountPesewas)} vs a private ride.`, { type: 'RIDE_COMPLETE', bookingId: bookingId || '' })
-      : null,
+      : optedOut(),
 
   passengerJoined: (token, passengerName, seatNumber, tripId) =>
     sendPush(token, 'Someone joined your EyeGo', `${passengerName} just booked seat #${seatNumber}`, { type: 'PASSENGER_JOINED', tripId: tripId || '' }),

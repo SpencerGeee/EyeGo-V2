@@ -7,9 +7,9 @@ const { requireDriverOnlineEnabled } = require('../../middleware/killSwitch');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
 const idempotency = require('../../middleware/idempotency');
-const multer = require('multer');
-
-const upload = multer();
+// Driver document photos. A bare `multer()` accepted any file of any size
+// straight into process memory — see middleware/upload.js.
+const { imageUpload: upload } = require('../../middleware/upload');
 
 const router = Router();
 

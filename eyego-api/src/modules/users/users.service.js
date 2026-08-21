@@ -561,13 +561,71 @@ async function getSavedPlaces(userId) {
 // persist a value this app's saved-places screen actually knows how to draw.
 const VALID_PLACE_ICONS = new Set(['home-outline', 'briefcase-outline', 'location-outline']);
 
+/**
+ * Home and Work are SLOTS, not labels — the same rule the apps use, restated
+ * here because the server is where it has to be enforced. Kept deliberately
+ * identical to `apps/rider/utils/savedPlaceSlots.ts`; if one changes, change both.
+ */
+const claimsHomeSlot = (label) => label.trim().toLowerCase().includes('home');
+const claimsWorkSlot = (label) => {
+  const l = label.trim().toLowerCase();
+  return l.includes('work') || l.includes('office');
+};
+
+const slotOf = (label) => (claimsHomeSlot(label) ? 'HOME' : claimsWorkSlot(label) ? 'WORK' : null);
+
+const PLACE_SELECT = { id: true, label: true, address: true, lat: true, lng: true, icon: true };
+
+/**
+ * RE-SAVING YOUR HOME ADDRESS USED TO STRAND YOU AT THE OLD ONE.
+ *
+ * This was an unconditional `create`. Both apps treat Home and Work as slots —
+ * saved-places renders the "Add Home address" prompt only when no place claims
+ * the Home slot, and Where To's shortcut resolves Home with
+ * `if (!home && isHomeLabel(p.label)) home = p` — FIRST match wins, over a list
+ * that `getSavedPlaces` returns oldest-first.
+ *
+ * So a rider who moved house and saved their new Home got two rows labelled
+ * Home, and the Where To shortcut went on sending them to the previous address
+ * indefinitely: the new row could never be first. Nothing in the UI explained
+ * it, because the saved-places screen showed the new address sitting right there.
+ *
+ * A place that claims an occupied slot now updates it. Anything else — "Gym",
+ * "Mom's House" — is a free-form place and still appends, which is why the cap
+ * check only applies on that path.
+ */
 async function createSavedPlace(userId, { label, address, lat, lng, icon }) {
+  const trimmedLabel = label.trim();
+  const slot = slotOf(trimmedLabel);
+  const data = {
+    label: trimmedLabel,
+    address: address.trim(),
+    lat,
+    lng,
+    icon: VALID_PLACE_ICONS.has(icon) ? icon : null,
+  };
+
+  if (slot) {
+    const claims = slot === 'HOME' ? claimsHomeSlot : claimsWorkSlot;
+    const existing = (
+      await prisma.savedPlace.findMany({ where: { userId }, orderBy: { createdAt: 'asc' }, select: PLACE_SELECT })
+    ).filter((p) => claims(p.label));
+
+    if (existing.length) {
+      // Overwrite the one the apps would have picked, and clear any duplicate
+      // slot rows an earlier version of this function already created — leaving
+      // them would keep the shortcut resolving to whichever is oldest.
+      const [keep, ...duplicates] = existing;
+      if (duplicates.length) {
+        await prisma.savedPlace.deleteMany({ where: { id: { in: duplicates.map((d) => d.id) } } });
+      }
+      return prisma.savedPlace.update({ where: { id: keep.id }, data, select: PLACE_SELECT });
+    }
+  }
+
   const count = await prisma.savedPlace.count({ where: { userId } });
   if (count >= 20) throw new AppError('Maximum 20 saved places allowed', 400);
-  return prisma.savedPlace.create({
-    data: { userId, label: label.trim(), address: address.trim(), lat, lng, icon: VALID_PLACE_ICONS.has(icon) ? icon : null },
-    select: { id: true, label: true, address: true, lat: true, lng: true, icon: true },
-  });
+  return prisma.savedPlace.create({ data: { userId, ...data }, select: PLACE_SELECT });
 }
 
 async function deleteSavedPlace(userId, placeId) {

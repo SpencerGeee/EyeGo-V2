@@ -1239,8 +1239,14 @@ async function getTripReceipt(tripId, userId) {
     seatNumber: receipt.booking.seatNumber,
     /** Every seat this rider paid for, so a breakdown can list them. */
     seatNumbers: receipts.map((r) => r.booking.seatNumber).filter((n) => n != null),
-    origin: trip.route?.originName,
-    destination: trip.route?.destinationName,
+    /**
+     * A hailed ride has no Route row, so reading `trip.route.originName` alone
+     * left both of these `undefined` on every on-demand receipt — the one line
+     * a receipt exists to state. Same routeless shape as getTrip and
+     * getTrackingData: fall back to the addresses the trip itself carries.
+     */
+    origin: trip.route?.originName ?? trip.pickupAddress ?? null,
+    destination: trip.route?.destinationName ?? trip.dropoffAddress ?? null,
     departureTime: trip.departureTime,
     driver: trip.driver
       ? { name: trip.driver.name, phone: trip.driver.phone, vehicle: trip.vehicle }

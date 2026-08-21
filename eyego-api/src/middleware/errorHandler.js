@@ -27,19 +27,70 @@ const isPrismaError = (err) =>
   PRISMA_ERROR_NAMES.has(err?.constructor?.name) ||
   (typeof err?.message === 'string' && err.message.includes('Invalid `prisma.'));
 
+/** `businessExpenseEmail` → "business expense email". Column names are not English. */
+const FIELD_LABELS = {
+  phone: 'phone number',
+  email: 'email address',
+  plateNumber: 'number plate',
+  ghanaCardNumber: 'Ghana Card number',
+};
+
+const humanizeField = (field) =>
+  FIELD_LABELS[field] ||
+  field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase();
+
+/**
+ * Multer rejects uploads by throwing, and nothing mapped those throws — an
+ * oversized photo produced a 500 and a Sentry alert instead of "that file is
+ * too large". The codes are multer's own.
+ */
+const MULTER_MESSAGES = {
+  LIMIT_FILE_SIZE: { statusCode: 413, message: 'That file is too large. Please choose one under 8 MB.' },
+  LIMIT_FILE_COUNT: { statusCode: 400, message: 'Please upload one file at a time.' },
+  LIMIT_UNEXPECTED_FILE: { statusCode: 400, message: 'That file was sent under an unexpected name.' },
+  LIMIT_PART_COUNT: { statusCode: 400, message: 'That upload had too many parts.' },
+  LIMIT_FIELD_KEY: { statusCode: 400, message: 'That upload had an invalid field name.' },
+  LIMIT_FIELD_VALUE: { statusCode: 400, message: 'That upload had a field that was too large.' },
+  LIMIT_FIELD_COUNT: { statusCode: 400, message: 'That upload had too many fields.' },
+};
+
 // eslint-disable-next-line no-unused-vars
 const errorHandler = (err, req, res, next) => {
   let { statusCode = 500, message, code = 'INTERNAL_ERROR', errors } = err;
 
+  /**
+   * Set when WE authored the message below, rather than Prisma.
+   *
+   * Without this the mapping was dead code: each branch here writes a
+   * user-facing sentence, and then `safeMessage` threw it away, because the
+   * error is a Prisma error and is not flagged `isOperational`. A rider who
+   * typed an email address already on another account got "We couldn't
+   * complete that just now. Please try again." — advice that can never work,
+   * for a condition with an obvious remedy, while the sentence explaining it
+   * had already been composed one screen up.
+   */
+  let messageIsOurs = false;
+
   // Prisma errors
   if (err.code === 'P2002') {
     statusCode = 409;
-    message = 'A record with this value already exists';
+    // `meta.target` names the column(s) that collided, which is the whole
+    // difference between "try again" and "that email is already in use".
+    const fields = []
+      .concat(err.meta?.target ?? [])
+      .map(String)
+      .filter((f) => /^[a-z][a-zA-Z0-9_]*$/.test(f));
+    const field = fields.find((f) => f !== 'id');
+    message = field
+      ? `That ${humanizeField(field)} is already in use on another account.`
+      : 'A record with this value already exists';
     code = 'DUPLICATE_ENTRY';
+    messageIsOurs = true;
   } else if (err.code === 'P2025') {
     statusCode = 404;
     message = 'Record not found';
     code = 'NOT_FOUND';
+    messageIsOurs = true;
   } else if (DB_UNREACHABLE_CODES.has(err.code)) {
     // The database went away — after the retries in config/database.js had
     // already had their turn. This is infrastructure, not a bug in the request,
@@ -48,6 +99,15 @@ const errorHandler = (err, req, res, next) => {
     statusCode = 503;
     message = 'Service temporarily unavailable. Please try again.';
     code = 'DB_UNAVAILABLE';
+    messageIsOurs = true;
+  }
+
+  // Upload errors (multer throws; nothing used to catch them, so a too-large
+  // photo was a 500 and a Sentry page rather than a sentence the user can act on)
+  if (err.name === 'MulterError' && MULTER_MESSAGES[err.code]) {
+    ({ statusCode, message } = MULTER_MESSAGES[err.code]);
+    code = err.code;
+    messageIsOurs = true;
   }
 
   // JWT errors
@@ -101,6 +161,9 @@ const errorHandler = (err, req, res, next) => {
    */
   const safeMessage = (() => {
     if (err.isOperational && typeof message === 'string' && message) return message;
+    // A mapped Prisma condition: the sentence above is ours, not Prisma's, so
+    // it carries no schema, no arguments and no SQL, and it is safe to show.
+    if (messageIsOurs && typeof message === 'string' && message) return message;
     if (isPrismaError(err)) {
       // Something in the write went wrong in a way we have not mapped. Say so
       // plainly; the action did NOT take effect, which is what the user needs.

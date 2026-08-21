@@ -5,10 +5,11 @@ const controller = require('./users.controller');
 const authenticate = require('../../middleware/auth');
 const { body } = require('express-validator');
 const validate = require('../../middleware/validate');
-const multer = require('multer');
+// Configured allow-list + size cap. A bare `multer()` accepts any file of any
+// size straight into process memory — see middleware/upload.js.
+const { imageUpload: upload } = require('../../middleware/upload');
 
 const router = Router();
-const upload = multer();
 
 router.use(authenticate);
 
