@@ -863,9 +863,34 @@ model WalletTransaction {
   id            String       @id @default(cuid())
   driverId      String
   driver        Driver       @relation(fields: [driverId], references: [id])
+  // TOP_UP · WITHDRAWAL · WITHDRAWAL_REVERSAL · COMMISSION_DEDUCTION ·
+  // EARNINGS_CREDIT · TRIP_EARNING · CASH_EARNING · QUEST_BONUS
   type          String
-  // Signed: a debit is negative. `balanceAfter = balanceBefore + amount` is an
-  // invariant the ledger asserts on every write (see wallet.service).
+  // UNSIGNED MAGNITUDE. The DIRECTION is carried by `type`, not by the sign.
+  //
+  // This comment used to say "Signed: a debit is negative. balanceAfter =
+  // balanceBefore + amount is an invariant the ledger asserts on every write".
+  // That has never been true of THIS table: all six debit write sites
+  // (COMMISSION_DEDUCTION ×4, WITHDRAWAL, and the rest) store a positive
+  // magnitude and decrement the balance, so `before + amount` overshoots by
+  // twice the debit. Every reader compensates by filtering on `type` — see
+  // EARNING_TYPES in drivers.service.js — so nothing is wrong today, but a
+  // reconciliation written against the promise above would have been confidently
+  // wrong, which is the whole reason to state it accurately.
+  //
+  // NOTE THE ASYMMETRY: `RiderWalletTransaction` below IS a signed ledger and
+  // does assert `after = before + amount` (see services/rider-wallet.service.js,
+  // which sums this column to reconcile against the balance). The two ledgers in
+  // this system follow opposite conventions. Unifying them means flipping the
+  // sign at the six write sites AND backfilling the existing rows in one
+  // migration — flipping without the backfill would leave a table where an old
+  // debit and a new credit are indistinguishable, which is worse than either
+  // convention. Deliberately not done here; see RIDER_FULL_AUDIT.md.
+  //
+  // MEMO ROWS. `CASH_EARNING` moves nothing at all — the rider handed the fare
+  // over in person — but it is real income and every earnings report has to
+  // include it (a cash-working driver's chart read zero without it). Memo rows
+  // are recognisable by `balanceBefore === balanceAfter` with a non-zero amount.
   amountPesewas        Int
   description   String
   balanceBeforePesewas Int

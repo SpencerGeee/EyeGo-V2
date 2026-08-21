@@ -244,6 +244,7 @@ async function getMe(driverId) {
         id: true, phone: true, name: true, profilePhoto: true, dateOfBirth: true,
         status: true, isOnline: true, walletBalancePesewas: true,
         ghanaCardNumber: true, createdAt: true, preferences: true,
+        emergencyContact: true,
         vehicles: { where: { isActive: true } },
       },
     }),
@@ -261,11 +262,35 @@ async function getMe(driverId) {
   // blob, but getMe() never read it back — the client's local cache of these
   // settings was the only copy that ever displayed, so a reinstall silently
   // lost them even though the account had them saved all along.
-  const { preferences: preferencesJson, ...driverFields } = driver;
+  const { preferences: preferencesJson, emergencyContact: emergencyContactJson, ...driverFields } = driver;
   const preferences = preferencesJson ? JSON.parse(preferencesJson) : {};
+  /**
+   * AND THE SAME FOR THE EMERGENCY CONTACT.
+   *
+   * BUGFIX, exactly the defect the note above describes — left unfixed for the
+   * one field where it matters most. `(profile)/safety.tsx` reads
+   * `driver.emergencyContact` from the LOCAL store and writes it back there
+   * after saving; nothing ever re-read it from the server, and `getMe` did not
+   * even select the column. So a driver who reinstalled, or signed in on a new
+   * phone, saw an empty Emergency Contact field for an account that had one
+   * saved all along — and this is the person SMS'd when they hit SOS
+   * (`sos-alert.service`). Either they re-enter it, or they believe there is
+   * one when the screen says there is not.
+   */
+  let emergencyContact = null;
+  if (emergencyContactJson) {
+    try {
+      emergencyContact = JSON.parse(emergencyContactJson);
+    } catch {
+      // A malformed blob is not worth failing the whole profile read over; the
+      // screen shows an empty field, which is what it did before anyway.
+      emergencyContact = null;
+    }
+  }
   return {
     ...driverFields,
     ...preferences,
+    emergencyContact,
     avatarUrl: driver.profilePhoto,
     totalTrips,
     // null when no ratings yet — frontend shows "New" instead of a number
@@ -1558,7 +1583,7 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
   // requests could both pass it and both decrement, pushing the wallet negative.
   // updateMany + gte re-checks the balance atomically at decrement time, same
   // pattern as wallet.service.js's withdraw().
-  await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const conflict = await tx.booking.findFirst({
       where: { tripId, seatNumber, ...seatOccupyingWhere() },
     });
@@ -1570,7 +1595,7 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     });
     if (debited.count === 0) throw new InsufficientWalletError();
 
-    await tx.booking.create({
+    const booking = await tx.booking.create({
       data: {
         tripId, seatNumber,
         fareAmountPesewas: seatFare, // correct per-seat fare, not raw base fare
@@ -1595,6 +1620,12 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     });
 
     await tx.trip.update({ where: { id: tripId }, data: { confirmedSeats: { increment: 1 } } });
+
+    // `driverApi.addCashPassenger` is typed `ApiResponse<{ bookingId }>` and the
+    // controller answered `ok(res, null)` — a field the declared contract
+    // promises and the server never sent. Harmless only because the one call
+    // site happens to ignore the payload.
+    return { bookingId: booking.id };
   });
 }
 
@@ -2831,7 +2862,7 @@ async function getEarningsBreakdown(driverId, period = 'week') {
       startDate.setDate(startDate.getDate() - 7);
   }
 
-  const [earningsAgg, tipsAgg, deductionsAgg, tripsData, dailyBreakdown] = await Promise.all([
+  const [earningsAgg, tipsAgg, deductionsAgg, tripsData, dailyRows] = await Promise.all([
     // EARNINGS_CREDIT (online-paid, wallet-credited) + CASH_EARNING (collected in
     // person, ledger-only). Counting only the former reported zero earnings and
     // zero trips for any driver working cash fares — see the CASH_EARNING note in
@@ -2854,17 +2885,36 @@ async function getEarningsBreakdown(driverId, period = 'week') {
       select: { id: true, shortId: true, createdAt: true, baseFarePesewas: true },
       orderBy: { createdAt: 'desc' },
     }),
-    // Daily breakdown
-    prisma.$queryRaw`
-      SELECT DATE(created_at) as date, SUM(amount) as earnings, COUNT(*) as trips
-      FROM wallet_transactions
-      WHERE driver_id = ${driverId}
-        AND type IN ('EARNINGS_CREDIT', 'TRIP_EARNING', 'CASH_EARNING')
-        AND created_at >= ${startDate}
-      GROUP BY DATE(created_at)
-      ORDER BY date DESC
-    `,
+    /**
+     * Daily breakdown.
+     *
+     * BUGFIX: this was a `$queryRaw` against `wallet_transactions`, selecting
+     * `created_at`, `amount` and `driver_id`. None of those exist. The model has
+     * no `@@map`, so Postgres holds it as `"WalletTransaction"` with quoted
+     * camelCase columns, and the money column is `amountPesewas`, not `amount`.
+     * Every call to this endpoint answered `relation "wallet_transactions" does
+     * not exist` — a 500 for the whole breakdown, not just the daily part.
+     *
+     * Grouped in JS rather than re-written as SQL: the row set is one driver's
+     * earning rows over at most a year, and hand-written identifiers are exactly
+     * what drifted from the schema in the first place. Prisma's own query cannot.
+     */
+    prisma.walletTransaction.findMany({
+      where: { driverId, type: { in: EARNING_TYPES }, createdAt: { gte: startDate } },
+      select: { amountPesewas: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
+
+  const byDay = new Map();
+  for (const row of dailyRows) {
+    const date = row.createdAt.toISOString().slice(0, 10);
+    const acc = byDay.get(date) ?? { date, earnings: 0, trips: 0 };
+    acc.earnings += row.amountPesewas ?? 0;
+    acc.trips += 1;
+    byDay.set(date, acc);
+  }
+  const dailyBreakdown = [...byDay.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return {
     totalEarningsPesewas: earningsAgg._sum.amountPesewas ?? 0,

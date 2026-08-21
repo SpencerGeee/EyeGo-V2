@@ -110,8 +110,8 @@ const addOfflinePassenger = async (req, res) => {
 };
 
 const addCashNoPhone = async (req, res) => {
-  await driversService.addCashNoPhone(req.user.userId, req.params.id, req.body);
-  ok(res, null, 'Cash passenger added. Commission deducted.');
+  const result = await driversService.addCashNoPhone(req.user.userId, req.params.id, req.body);
+  ok(res, result, 'Cash passenger added. Commission deducted.');
 };
 
 const verifyOfflineOtp = async (req, res) => {

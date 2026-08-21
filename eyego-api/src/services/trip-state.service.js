@@ -129,6 +129,17 @@ const TRANSITIONS = Object.freeze({
     // A seat released back to zero drops it out of FILLING again.
     [S.SCHEDULED]: A_SYS,
     [S.DRIVER_EN_ROUTE]: [ACTOR.DRIVER, ACTOR.ADMIN],
+    /**
+     * MISSING EDGE. `drivers.service.REDISPATCHABLE_STATUSES` names FILLING
+     * explicitly — "a driver bailing here should hand the trip to another
+     * driver, not strand the riders back at square one with a
+     * cancellation+refund" — but this table had no FILLING → REASSIGNING, so
+     * `cancelTrip` took that branch and died on `Illegal transition`. The one
+     * status in that list without a matching edge here, and therefore the one
+     * case where a driver cancelling a part-full bus simply could not: the
+     * riders kept their seats on a trip their driver had walked away from.
+     */
+    [S.REASSIGNING]: A_SYS,
     [S.CANCELLED]: A_ANY,
     [S.EXPIRED]: A_SYS,
   },

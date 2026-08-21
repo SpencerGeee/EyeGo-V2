@@ -888,13 +888,33 @@ async function completeTrip(tripId) {
       where: { tripId, status: { in: ['PENDING', 'SEAT_HELD'] } },
       data: { status: 'EXPIRED', seatNumber: null },
     });
-    await tx.booking.updateMany({
-      where: {
-        tripId,
-        status: { in: ['CONFIRMED', 'BOARDED', 'PAID'] },
-      },
-      data: { status: 'COMPLETED' },
-    });
+
+    /**
+     * ORDER MATTERS HERE, AND IT WAS WRONG.
+     *
+     * BUGFIX: A CASH TRIP SETTLED NOTHING AT ALL — no commission, no earnings,
+     * no receipt. Measured end to end: a completed cash ride moved the driver's
+     * wallet by 0 and left the only ledger row the dev top-up.
+     *
+     * The sweep to COMPLETED used to run HERE, before the two queries that
+     * depend on the statuses it overwrites:
+     *
+     *   1. the cash auto-settle below asks for `CONFIRMED | PAID | BOARDED` —
+     *      every one of which had just become COMPLETED, so it found nothing
+     *      and never flipped `paymentStatus` to PAID;
+     *   2. `paidBookings` further down asks for `paymentStatus: 'PAID'` — which,
+     *      because of (1), was still PENDING. So it was empty too, and with it
+     *      went the receipts, the commission, the wallet movement and the
+     *      CASH_EARNING row the driver's earnings chart is built from.
+     *
+     * CASH is the default payment method in this market, and boarding each
+     * passenger by hand — the other path that flips `paymentStatus` — is
+     * exactly the step the auto-settle block below exists because drivers skip.
+     * So this was the ordinary outcome, not an edge case.
+     *
+     * The sweep now runs AFTER the settle. `paidBookings` already accepts
+     * COMPLETED alongside CONFIRMED, so it still sees everything.
+     */
 
     // ── Auto-settle any still-unpaid CASH bookings ───────────────────────
     // Boarding a cash passenger (which flips paymentStatus to PAID and
@@ -943,6 +963,21 @@ async function completeTrip(tripId) {
       }
     }
 
+    /**
+     * Close the bookings that were actually RIDDEN.
+     *
+     * Deliberately AFTER the cash auto-settle above — see the long note before
+     * it. Holds were expired further up, so what is left here is only real
+     * fares.
+     */
+    await tx.booking.updateMany({
+      where: {
+        tripId,
+        status: { in: ['CONFIRMED', 'BOARDED', 'PAID'] },
+      },
+      data: { status: 'COMPLETED' },
+    });
+
     // Credit driver wallet: sum fareAmountPesewas from paid+confirmed bookings, minus 15% platform fee
     const paidBookings = await tx.booking.findMany({
       where: {
@@ -967,7 +1002,10 @@ async function completeTrip(tripId) {
     let totalCommission = 0;
 
     if (paidBookings.length > 0) {
-      // Generate per-rider Receipt records
+      // Per-rider Receipt rows, built in the loop and written in ONE statement.
+      // A `create` per booking is a round trip per seat, and a full minibus is
+      // fourteen of them inside a transaction that is already latency-bound.
+      const receiptRows = [];
       for (const b of paidBookings) {
         // The fallback used a hardcoded 0.15 while the rest of the platform
         // read `PLATFORM_COMMISSION` — so changing the commission rate moved
@@ -988,19 +1026,22 @@ async function completeTrip(tripId) {
         }
 
         const receiptNumber = `RCP-${Date.now()}-${b.id.slice(-6).toUpperCase()}`;
-        await tx.receipt.create({
-          data: {
-            bookingId: b.id,
-            userId: b.userId,
-            receiptNumber,
-            totalPaidPesewas: b.fareAmountPesewas,
-            platformFeePesewas: commission,
-            driverEarningsPesewas,
-            discountAppliedPesewas: 0,
-            paymentMethod: b.paymentMethod ?? 'MOMO',
-            paidAt: b.paymentTxs?.[0]?.createdAt ?? b.updatedAt,
-          },
+        receiptRows.push({
+          bookingId: b.id,
+          userId: b.userId,
+          receiptNumber,
+          totalPaidPesewas: b.fareAmountPesewas,
+          platformFeePesewas: commission,
+          driverEarningsPesewas,
+          discountAppliedPesewas: 0,
+          paymentMethod: b.paymentMethod ?? 'MOMO',
+          paidAt: b.paymentTxs?.[0]?.createdAt ?? b.updatedAt,
         });
+      }
+      if (receiptRows.length) {
+        // `skipDuplicates` guards the unique receiptNumber against a retry of a
+        // completion whose transaction rolled back after this point.
+        await tx.receipt.createMany({ data: receiptRows, skipDuplicates: true });
       }
 
       if (totalNetEarnings > 0) {
@@ -1073,6 +1114,29 @@ async function completeTrip(tripId) {
 
     questDriverId = trip.driverId ?? null;
     questEarningsPesewas = totalNetEarnings;
+  }, {
+    /**
+     * THE SETTLEMENT DOES NOT FIT IN PRISMA'S DEFAULT 20 SECONDS.
+     *
+     * Completing a trip is ~18 sequential round trips: the transition, the
+     * booking sweeps, the cash auto-settle, a receipt per rider, the wallet
+     * movement, its ledger row and the driver receipt. Every one is a network
+     * hop, and this system's database is not local to its API — the production
+     * pair measures ~280 ms per query, which puts a one-passenger completion at
+     * five seconds and a full minibus far past twenty.
+     *
+     * It fitted before only because it was doing nothing: the status sweep ran
+     * ahead of the queries that depended on it, so `unsettledCash` and
+     * `paidBookings` were both always empty and the whole second half of this
+     * transaction was skipped. Fixing that (see the long note above) is what
+     * made the real cost visible. The quest round trips were moved out for
+     * exactly this reason once already — see the note below.
+     *
+     * Raised rather than split: completion and payment must settle or fail
+     * together, so there is no honest place to cut this in half.
+     */
+    timeout: 60_000,
+    maxWait: 10_000,
   });
 
   // ── Quest progress: RIDES_COUNT and EARNINGS ─────────────────────────────
