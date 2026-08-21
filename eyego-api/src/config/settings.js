@@ -255,8 +255,14 @@ const REGISTRY = [
   {
     key: 'DISPATCH_EXTENDED_RADIUS_KM', group: 'dispatch', type: TYPES.DECIMAL,
     label: 'Widened search radius', envDefault: 10, unit: 'km',
-    help: 'Used once every driver in the initial radius has passed. A rider is better served by a driver 10 km away than by a failure screen.',
+    help: 'The second sweep, once every driver in the initial radius has passed. A rider is better served by a driver 10 km away than by a failure screen.',
     min: 1, max: 100,
+  },
+  {
+    key: 'DISPATCH_FINAL_RADIUS_KM', group: 'dispatch', type: TYPES.DECIMAL,
+    label: 'Last-resort search radius', envDefault: 18, unit: 'km',
+    help: 'The third and final sweep, opened only once the search is more than half spent. Beyond this the pickup wait stops being worth the ride.',
+    min: 1, max: 150,
   },
   {
     key: 'DISPATCH_OFFER_TTL_SECONDS', group: 'dispatch', type: TYPES.INT,
@@ -266,8 +272,8 @@ const REGISTRY = [
   },
   {
     key: 'DISPATCH_SEARCH_TIMEOUT_SECONDS', group: 'dispatch', type: TYPES.INT,
-    label: 'Total search window', envDefault: 180, unit: 'seconds',
-    help: 'The search keeps re-scanning for drivers who come online or come free until this expires, then the trip becomes NO_DRIVERS_FOUND.',
+    label: 'Total search window', envDefault: 300, unit: 'seconds',
+    help: 'The search keeps re-scanning for drivers who come online or come free until this expires, then the trip becomes NO_DRIVERS_FOUND. Uber and Bolt both sit near five minutes. Ours was 180 s, which gave up while the drivers who would have taken the ride were still finishing the one before it.',
     min: 30, max: 900,
   },
   {

@@ -35,6 +35,37 @@
  * duration in seconds" and ζ its damping fraction. Overshoot and settle time
  * are stated so a caller can pick by feel rather than by guessing at numbers.
  */
+/**
+ * ── WHY THESE TOKENS EXIST AND WHY NOTHING MAY INLINE A SPRING ──────────────
+ *
+ * BUGFIX — "all the morph animations are extremely fast and laggy so it's not
+ * as fluid as it should be… they all seem to be jumpy and laggy and super fast,
+ * so the animation that is sought out for is super gone and missed."
+ *
+ * The tokens below were never the problem. A sweep of both apps found 128 call
+ * sites that bypassed them entirely with inline literals, and they clustered
+ * hard:
+ *
+ *   69×  { stiffness: 600, damping: 34 }   ζ 0.69 · response 0.257 s
+ *   23×  { stiffness: 400, damping: 30 }   ζ 0.75 · response 0.314 s
+ *    9×  { stiffness: 500, damping: 30 }   ζ 0.67 · response 0.281 s
+ *
+ * Read those numbers against `standard` (ζ 1.00 · 0.35 s) and the report is
+ * explained exactly, including the part that sounds self-contradictory. The
+ * dominant spring was **27 % faster** than the system's — that is "super fast"
+ * — AND **underdamped at ζ 0.69**, so it overshot roughly 5 % and rang on the
+ * way back. A large surface arriving early and then wobbling is precisely what
+ * "jumpy and laggy" describes; it is not dropped frames, it is the wrong
+ * physics rendered perfectly.
+ *
+ * All 128 were mapped onto the nearest token by response time, with ζ corrected
+ * to 1.0. The one exception is a deliberate pulse, which kept its bounce via
+ * `accent`.
+ *
+ * SO: do not write `{ stiffness, damping }` inline. If no token fits, add one
+ * here with its ζ and response worked out, so the next sweep can reason about
+ * it. ζ = damping / (2·√(stiffness·mass)); response = 2π·√(mass/stiffness).
+ */
 export const springs = {
   /** Tap/press-down scale, toggle knob. resp 0.20 · ζ 1.00 · 0 % · ~352 ms */
   press: { stiffness: 987, damping: 63, mass: 1 },

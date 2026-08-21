@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -153,7 +153,7 @@ export default function OnboardingScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+            transition={{ type: 'spring', ...springs.standard }}
           >
             <ProgressDots step={step} colors={colors} />
           </MotiView>
@@ -164,7 +164,7 @@ export default function OnboardingScreen() {
               key="step1"
               from={{ opacity: 0, translateY: 12 }}
               animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+              transition={{ type: 'spring', ...springs.standard, delay: 40 }}
             >
               <Text variant="headlineLarge" style={styles.headline}>Vehicle Info</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.xl }}>
@@ -235,7 +235,7 @@ export default function OnboardingScreen() {
               key="step2"
               from={{ opacity: 0, translateY: 12 }}
               animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+              transition={{ type: 'spring', ...springs.standard, delay: 40 }}
             >
               <Text variant="headlineLarge" style={styles.headline}>Documents</Text>
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.xl }}>
@@ -282,7 +282,7 @@ export default function OnboardingScreen() {
               key="step3"
               from={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+              transition={{ type: 'spring', ...springs.standard, delay: 40 }}
               style={styles.reviewContainer}
             >
               <Ionicons name="time-outline" size={64} color={colors.primary} style={{ marginBottom: spacing.xl }} />

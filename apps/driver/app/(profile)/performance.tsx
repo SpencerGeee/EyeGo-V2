@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -64,7 +64,7 @@ export default function PerformanceScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <MotiView from={{ opacity: 0, translateX: -6 }} animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
@@ -73,13 +73,13 @@ export default function PerformanceScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}>
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
           <Text variant="headlineLarge" style={styles.headline}>Performance</Text>
         </MotiView>
 
         {/* Level card */}
         <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           style={[styles.levelCard, { borderColor: `${lvl.color}55` }]}>
           <View style={[styles.levelGlow, { backgroundColor: lvl.color }]} />
           <View style={[styles.levelBadge, { backgroundColor: `${lvl.color}22`, borderColor: `${lvl.color}55` }]}>
@@ -96,7 +96,7 @@ export default function PerformanceScreen() {
 
         {/* Rate circles */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
           style={styles.card}>
           <Text style={styles.cardTitle}>Rates</Text>
           {isLoading ? (
@@ -130,7 +130,7 @@ export default function PerformanceScreen() {
 
         {/* This week */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 160 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 160 }}
           style={styles.card}>
           <Text style={styles.cardTitle}>This Week</Text>
           <View style={styles.weekGrid}>
@@ -153,7 +153,7 @@ export default function PerformanceScreen() {
         {/* Weekly goal */}
         {perf?.weeklyGoal != null && (
           <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 200 }}
             style={styles.card}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
               <Text style={styles.cardTitle}>Weekly Earnings Goal</Text>

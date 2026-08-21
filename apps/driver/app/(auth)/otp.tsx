@@ -173,7 +173,7 @@ export default function DriverOtpScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backButton}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -186,7 +186,7 @@ export default function DriverOtpScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 50 }}
         >
           <Text variant="headlineLarge" style={styles.headline}>
             Enter the code
@@ -215,7 +215,7 @@ export default function DriverOtpScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 100 }}
         >
           <Animated.View style={[styles.otpRow, shakeStyle]}>
             {Array.from({ length: OTP_LENGTH }).map((_, i) => (

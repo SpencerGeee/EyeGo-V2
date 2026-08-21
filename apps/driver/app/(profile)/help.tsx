@@ -6,7 +6,7 @@ import { MotiView } from '@eyego/ui';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 // `Pressable` from @eyego/ui, never from react-native — NativeWind's css-interop
 // drops the `({ pressed }) => style` form this screen uses.
 import { Text, Button, AppBackground, Pressable } from '@eyego/ui';
@@ -139,7 +139,7 @@ export default function HelpScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -151,7 +151,7 @@ export default function HelpScreen() {
         <MotiView
           from={{ opacity: 0, translateY: -6 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
         >
           <Text variant="headlineLarge" style={styles.headline}>Help & Support</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
@@ -163,7 +163,7 @@ export default function HelpScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           style={styles.faqCard}
         >
           {FAQS.map((faq) => (
@@ -175,7 +175,7 @@ export default function HelpScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
           style={{ marginBottom: spacing.xl }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.sm, marginLeft: spacing.xs }}>MY TICKETS</Text>
@@ -251,7 +251,7 @@ export default function HelpScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 140 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 140 }}
           style={styles.contactCard}
         >
           <Ionicons name="mail-outline" size={24} color={colors.primary} />

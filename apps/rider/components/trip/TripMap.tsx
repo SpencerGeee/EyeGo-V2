@@ -153,6 +153,17 @@ function fitFor(
   }
 }
 
+/** Great-circle metres between two `[lng, lat]` pairs. */
+function metresBetween(a: Coord, b: Coord): number {
+  const R = 6371000;
+  const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+  const dLng = ((b[0] - a[0]) * Math.PI) / 180;
+  const l1 = (a[1] * Math.PI) / 180;
+  const l2 = (b[1] * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(l1) * Math.cos(l2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 /**
  * Evenly-spaced sample of a route, first and last points always kept.
  *
@@ -412,6 +423,39 @@ function TripMapImpl() {
     ?? (searchPlace ? ([searchPlace.longitude, searchPlace.latitude] as Coord) : null);
 
   /**
+   * The rider's own walk to the pickup stop — see the layer for the reasoning.
+   *
+   * A straight line on purpose, not a Directions call: it is a hint about
+   * direction and distance, not a navigation instruction, and on a shared-route
+   * product it is drawn for every rider on every trip. Spending routing quota
+   * on it — and on every GPS fix that moves it — buys nothing the dashes do not
+   * already say.
+   *
+   * 120 m is the threshold. Below it the rider is at the stop for all practical
+   * purposes, and a stub line pointing across a pavement is noise; above it
+   * they have somewhere to be.
+   */
+  const APPROACH_MIN_METRES = 120;
+  const approachLine = useMemo(() => {
+    // Once the ride is under way the rider is IN the vehicle; a line from their
+    // GPS to the pickup they have already left is a lie.
+    const preBoarding =
+      status === 'SCHEDULED' ||
+      status === 'FILLING' ||
+      status === 'CONFIRMED' ||
+      status === 'DRIVER_ASSIGNED' ||
+      status === 'DRIVER_EN_ROUTE' ||
+      status === 'ARRIVED_AT_PICKUP';
+    if (!preBoarding || !userCoords || !pickup) return null;
+    if (metresBetween(userCoords, pickup) < APPROACH_MIN_METRES) return null;
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: { type: 'LineString' as const, coordinates: [userCoords, pickup] },
+    };
+  }, [status, userCoords, pickup]);
+
+  /**
    * The vehicle grows with the zoom, the way it does in Uber and Bolt.
    *
    * A marker is laid out in POINTS, so it stays a fixed size on screen no
@@ -447,7 +491,58 @@ function TripMapImpl() {
         onRegionDidChange={handleRegionChange}
       >
         <MapboxGL.Camera ref={camera.cameraRef} />
-        {userCoords && !puckCoord && <MapboxGL.UserLocation visible />}
+
+        {/*
+          THE RIDER'S OWN PUCK — ALWAYS, NOT ONLY BEFORE A DRIVER EXISTS.
+
+          BUGFIX — "after I joined a trip, my location puck isn't showing. The
+          only thing showing is the driver car puck alone."
+
+          The condition was `userCoords && !puckCoord`: the moment the assigned
+          driver's puck appeared, the rider's own disappeared. Two pucks looking
+          alike would be a real problem, but these two do not — one is a vehicle
+          rotated to its bearing, the other is the system location dot — and
+          hiding the rider is the one thing that makes the whole map unreadable.
+          It is the fixed point the rider judges everything else against: how
+          far the car is, which way it is coming, whether it has passed them.
+          Every mapping app in existence keeps it on.
+        */}
+        {userCoords && <MapboxGL.UserLocation visible />}
+
+        {/*
+          HOW THE RIDER GETS TO THE PICKUP.
+
+          BUGFIX — "the driver pickup location is very far from where I am and
+          the status shown on the map is waiting to fill up, but there's no
+          route polyline to the car since I'm not where the car is. That would
+          make it very intuitive so it makes sense."
+
+          On a group/route trip the pickup is a STOP, not the rider's doorstep,
+          and it can be a genuine walk away. The map drew the driver's route and
+          the rider's dot and left the relationship between them unstated, which
+          on a shared-bus product is the single most important unanswered
+          question: where am I supposed to be, and how far is it?
+
+          Deliberately dashed and in a neutral colour, so it never reads as the
+          driven route — the solid amber line is the vehicle's road, this is a
+          person's approach. Only drawn before boarding (after that the rider IS
+          the vehicle) and only past a threshold, so a rider already standing at
+          the stop does not get a two-metre stub.
+        */}
+        {approachLine && (
+          <MapboxGL.ShapeSource id="rider-approach" shape={approachLine}>
+            <MapboxGL.LineLayer
+              id="rider-approach-line"
+              style={{
+                lineColor: colors.onSurfaceVariant,
+                lineWidth: 3,
+                lineOpacity: 0.85,
+                lineDasharray: [1.4, 2],
+                lineCap: 'round',
+              }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
 
         {/* The road line, drawn under everything else.
             The casing used to be `backgroundDeep` at 0.55 — a dark grey on a

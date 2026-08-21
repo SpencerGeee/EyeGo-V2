@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../stores/ride.store';
 import { useToastStore } from '../../stores/toast.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Radio, AppBackground } from '@eyego/ui';
@@ -84,7 +84,7 @@ export default function GuestSelectionScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 50 }}
         >
           <Text variant="bodyLarge" color={colors.onSurfaceVariant} style={styles.subtitle}>
             Choose who this ride is for. You can book a ride for yourself or someone else.
@@ -149,7 +149,7 @@ export default function GuestSelectionScreen() {
               from={{ opacity: 0, height: 0, translateY: -10 }}
               animate={{ opacity: 1, height: 200, translateY: 0 }}
               exit={{ opacity: 0, height: 0, translateY: -10 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+              transition={{ type: 'spring', ...springs.standard }}
               style={styles.formContainer}
             >
               <Text variant="titleSmall" style={styles.formTitle}>Guest Details</Text>

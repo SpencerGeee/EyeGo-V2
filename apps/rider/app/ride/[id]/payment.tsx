@@ -19,7 +19,7 @@ import { bookingsApi, paymentsApi, socketEvents, walletApi } from '@eyego/api';
 import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text, Button, AnimatedFareText } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
@@ -413,6 +413,36 @@ export default function PaymentScreen() {
       if (!isMountedRef.current) return;
       isSubmittingRef.current = false;
 
+      /**
+       * THE SECOND-RIDE REFUSAL, MADE ACTIONABLE.
+       *
+       * `bookings.service.bookSeat` now refuses a second seat for the rider
+       * themselves while another of their rides is live (`ALREADY_ON_A_RIDE`).
+       * The detail screen states that rule up front and routes to
+       * guest-selection — but a rider can reach this screen with a stale idea
+       * of their own state (the other ride started while they were choosing a
+       * seat, a second device, a resumed flow), and a bare "Payment Failed"
+       * would tell them nothing about what to do.
+       *
+       * Two ways forward, both real: hand this seat to somebody else, or go
+       * and look at the ride they are already on.
+       */
+      if (err?.response?.data?.code === 'ALREADY_ON_A_RIDE') {
+        setStatus('idle');
+        Alert.alert(
+          "You're already on a ride",
+          'You can only be on one ride at a time. Book this seat for someone else, or open the ride you are on.',
+          [
+            { text: 'Open my ride', onPress: () => router.replace('/trip?stage=assigned' as any) },
+            {
+              text: 'Book for someone else',
+              onPress: () => router.push('/ride/guest-selection' as any),
+            },
+          ],
+        );
+        return;
+      }
+
       // BUGFIX (reported: "cash payment gave me an error but the seat was
       // booked, and the home live-trip card then showed the wrong details").
       //
@@ -572,7 +602,7 @@ export default function PaymentScreen() {
         <MotiView
           from={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+          transition={{ type: 'spring', ...springs.standard }}
           style={styles.successContent}
         >
           <View style={styles.successIcon}>
@@ -631,7 +661,7 @@ export default function PaymentScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 50 }}
             style={styles.amountCard}
           >
             <Text variant="bodySmall" color={colors.onSurfaceVariant}>Amount to pay</Text>
@@ -664,7 +694,7 @@ export default function PaymentScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           >
             <View style={styles.tabRow}>
               <PaymentTab
@@ -698,7 +728,7 @@ export default function PaymentScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 6 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                transition={{ type: 'spring', ...springs.standard }}
                 style={styles.momoForm}
               >
                 <Text variant="bodySmall" color={colors.onSurfaceVariant} style={styles.momoLabel}>
@@ -727,7 +757,7 @@ export default function PaymentScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 6 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                transition={{ type: 'spring', ...springs.standard }}
                 style={{ gap: spacing.sm }}
               >
                 {defaultSavedCard ? (
@@ -765,7 +795,7 @@ export default function PaymentScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 6 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                transition={{ type: 'spring', ...springs.standard }}
                 style={styles.cardInfo}
               >
                 <Ionicons name="cash-outline" size={16} color={colors.primary} />
@@ -779,7 +809,7 @@ export default function PaymentScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 6 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                transition={{ type: 'spring', ...springs.standard }}
                 style={styles.cardInfo}
               >
                 <Ionicons name="wallet-outline" size={16} color={colors.primary} />
@@ -820,7 +850,7 @@ export default function PaymentScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 110 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 110 }}
             style={{ marginHorizontal: spacing['2xl'] }}
           >
             <Pressable
@@ -836,7 +866,7 @@ export default function PaymentScreen() {
               <MotiView
                 from={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 48 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                transition={{ type: 'spring', ...springs.standard }}
                 style={{
                   flexDirection: 'row',
                   gap: spacing.sm,

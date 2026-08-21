@@ -9,7 +9,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Skeleton, EmptyState, StatusBadge, backgroundScrollPauseProps, usePressScale } from '@eyego/ui';
 import { formatGhs, formatTripDate } from '@eyego/utils';
@@ -119,7 +119,7 @@ export default function TripsScreen() {
       <MotiView
         from={{ opacity: 0, translateY: -6 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.header}
       >
         <Text variant="headlineMedium">My Trips</Text>
@@ -166,7 +166,7 @@ export default function TripsScreen() {
       <MotiView
         from={{ opacity: 0, translateY: 6 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+        transition={{ type: 'spring', ...springs.standard, delay: 50 }}
         style={styles.segmentRow}
       >
         {SEGMENTS.map((s) => (

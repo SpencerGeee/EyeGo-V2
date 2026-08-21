@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView, Loader } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -48,7 +48,7 @@ export default function AccountDeletionScreen() {
         <MotiView
           from={{ opacity: 0, translateX: -6 }}
           animate={{ opacity: 1, translateX: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+          transition={{ type: 'spring', ...springs.standard }}
           style={styles.backRow}
         >
           <Pressable onPress={() => setStep(1)} hitSlop={12}>
@@ -59,14 +59,14 @@ export default function AccountDeletionScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 40 }}
           >
             <Text variant="headlineLarge" style={styles.headline}>Confirm Deletion</Text>
           </MotiView>
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           >
             <View style={styles.card}>
               <Text variant="bodyMedium" color={colors.onSurface} style={{ marginBottom: spacing.lg }}>
@@ -109,7 +109,7 @@ export default function AccountDeletionScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -120,7 +120,7 @@ export default function AccountDeletionScreen() {
         <MotiView
           from={{ opacity: 0, translateY: -6 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
         >
           <Text variant="headlineLarge" style={styles.headline}>Delete Account</Text>
         </MotiView>
@@ -128,7 +128,7 @@ export default function AccountDeletionScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
         >
           <View style={styles.warningBanner}>
             <Ionicons name="warning" size={22} color="#fff" style={{ marginRight: spacing.sm }} />

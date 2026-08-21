@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -68,7 +68,7 @@ export default function RatingsScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -80,7 +80,7 @@ export default function RatingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: -6 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
         >
           <Text variant="headlineLarge" style={styles.headline}>My Ratings</Text>
         </MotiView>
@@ -89,7 +89,7 @@ export default function RatingsScreen() {
         <MotiView
           from={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           style={styles.heroCard}
         >
           <View style={styles.heroGlow} />
@@ -113,7 +113,7 @@ export default function RatingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
           style={styles.card}
         >
           <Text style={styles.cardTitle}>Rating Breakdown</Text>
@@ -141,7 +141,7 @@ export default function RatingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 160 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 160 }}
           style={styles.card}
         >
           <Text style={styles.cardTitle}>Compliments</Text>
@@ -175,7 +175,7 @@ export default function RatingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 200 }}
           style={styles.card}
         >
           <Text style={styles.cardTitle}>Recent Ratings</Text>
@@ -196,7 +196,7 @@ export default function RatingsScreen() {
                 key={r.tripId}
                 from={{ opacity: 0, translateX: -10 }}
                 animate={{ opacity: 1, translateX: 0 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 220 + i * 50 }}
+                transition={{ type: 'spring', ...springs.standard, delay: 220 + i * 50 }}
                 style={[styles.recentRow, i < ratingsData.recent.length - 1 && styles.recentBorder]}
               >
                 <View style={styles.recentStars}>

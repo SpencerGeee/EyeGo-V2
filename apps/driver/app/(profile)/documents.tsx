@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
 import type { DriverDocument } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -151,7 +151,7 @@ export default function DocumentsScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.base }}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -161,7 +161,7 @@ export default function DocumentsScreen() {
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing['3xl'], gap: spacing.xl }} showsVerticalScrollIndicator={false}>
         <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}>
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
           <Text variant="headlineLarge" style={{ letterSpacing: -1, marginBottom: spacing.xs }}>Documents</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
             {verifiedCount}/{totalDocs} documents verified
@@ -170,7 +170,7 @@ export default function DocumentsScreen() {
 
         {/* Progress bar */}
         <MotiView from={{ opacity: 0, translateY: 8 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           style={{ backgroundColor: colors.surfaceContainerHighest, borderRadius: 6, height: 10, overflow: 'hidden' }}>
           <MotiView
             from={{ width: '0%' }}
@@ -182,7 +182,7 @@ export default function DocumentsScreen() {
 
         {/* Documents list */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
           style={{ backgroundColor: colors.surfaceContainer, borderRadius: radii['2xl'], borderWidth: 1, borderColor: colors.outline, overflow: 'hidden' }}>
           {isLoading
             ? [0, 1, 2, 3].map((i) => (

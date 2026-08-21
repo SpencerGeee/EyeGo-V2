@@ -133,7 +133,54 @@ async function cancellationTermsFor(trip, totalFarePesewas) {
  *
  * Quoted for EVERY seat this rider holds on the trip — see `riderSeatsOnTrip`.
  */
-async function calculateCancellationFee(bookingId, userId) {
+/**
+ * A BOOKING ID *OR* A TRIP ID — BECAUSE THE APP SENDS BOTH.
+ *
+ * BUGFIX — "I tried cancelling the trip I booked and it's telling me
+ * cancellation failed and that booking not found."
+ *
+ * `/ride/[id]/cancel` is reached from four places. Three pass `booking.id`
+ * (Activity, Trips, the trips banner). The fourth — `AssignedStage`, the cancel
+ * button on the LIVE tracking surface, which is where a rider naturally
+ * cancels — passed `tripId`, because every sibling route under `/ride/[id]/`
+ * (tracking, chat, invite, sos) is keyed by trip. The screen then handed that
+ * straight to `/cancellation/:bookingId/*`, which looked up a Booking by a Trip
+ * id, found nothing, and reported the literal truth.
+ *
+ * The caller is fixed too, but this is the durable half: the two id spaces look
+ * identical (both cuid), the route segment is genuinely ambiguous, and the next
+ * screen to link here will make the same choice. Resolving it server-side means
+ * it can only ever be wrong once.
+ *
+ * Trip ids resolve to the rider's OWN live seat on that trip — never anyone
+ * else's — so this widens what the endpoint accepts without widening what it
+ * lets you cancel.
+ */
+async function resolveBookingId(id, userId) {
+  const direct = await prisma.booking.findUnique({ where: { id }, select: { id: true } });
+  if (direct) return direct.id;
+
+  const byTrip = await prisma.booking.findFirst({
+    where: { tripId: id, userId, status: { notIn: ['CANCELLED', 'EXPIRED'] } },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (byTrip) return byTrip.id;
+
+  // Nothing live — but the rider may be asking about a seat they already
+  // cancelled, and they are entitled to a truthful answer about that too.
+  const anyOnTrip = await prisma.booking.findFirst({
+    where: { tripId: id, userId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  if (anyOnTrip) return anyOnTrip.id;
+
+  throw new NotFoundError('Booking');
+}
+
+async function calculateCancellationFee(id, userId) {
+  const bookingId = await resolveBookingId(id, userId);
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { trip: { select: { departureTime: true, tier: true, status: true, routeId: true, assignedAt: true } } },
@@ -158,7 +205,10 @@ async function calculateCancellationFee(bookingId, userId) {
 /**
  * Cancel a booking with cancellation fee calculation and receipt generation.
  */
-async function cancelBookingWithFee(bookingId, userId, { reason, note } = {}) {
+async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
+  // Same either-id resolution as the fee quote above — the two endpoints are
+  // reached from the same screen and must accept the same thing.
+  const bookingId = await resolveBookingId(id, userId);
   const result = await prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({
       where: { id: bookingId },

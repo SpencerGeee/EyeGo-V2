@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useCallback } from 'react';
+﻿import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,13 +7,14 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
 import { MotiView, AnimatePresence, Pressable } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Radio, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { cancellationApi } from '@eyego/api';
@@ -142,13 +143,38 @@ export default function CancelRideScreen() {
     },
   });
 
+  /**
+   * TAKE THE RIDER TO THE THING THEY HAVE NOT DONE.
+   *
+   * The reason list sits above the fold, behind the footer, and the only signal
+   * that it was mandatory was a greyed-out button — which on iOS does not even
+   * fire a press, so a rider tapping it got no feedback of any kind and no way
+   * to discover the cause. An Alert would say the words but leave them to find
+   * the control themselves.
+   *
+   * So the destructive button stays ENABLED and, until a reason is chosen, its
+   * press scrolls the list into view and pulses it. The rider ends up looking
+   * at the control they need, which is the only outcome that actually resolves
+   * the state.
+   */
+  const scrollRef = useRef<ScrollView>(null);
+  const reasonsYRef = useRef(0);
+  const [nudge, setNudge] = useState(false);
+
+  const nudgeReasons = useCallback(() => {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    scrollRef.current?.scrollTo({ y: Math.max(0, reasonsYRef.current - 24), animated: true });
+    setNudge(true);
+    setTimeout(() => setNudge(false), 900);
+  }, []);
+
   const handleSubmit = useCallback(() => {
     if (!selectedReason) {
-      Alert.alert('Select a reason', 'Please select a cancellation reason before continuing.');
+      nudgeReasons();
       return;
     }
     cancelMutation.mutate();
-  }, [selectedReason, cancelMutation]);
+  }, [selectedReason, cancelMutation, nudgeReasons]);
 
   const trip = selectedTrip as any;
   const pickup = trip?.pickupLocation?.name ?? trip?.route?.name ?? 'Your pickup point';
@@ -186,6 +212,7 @@ export default function CancelRideScreen() {
           turns the overflow into a scroll.
         */}
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={[styles.scroll, { paddingBottom: spacing['3xl'] + keyboardInset }]}
           showsVerticalScrollIndicator={false}
@@ -195,7 +222,7 @@ export default function CancelRideScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+            transition={{ type: 'spring', ...springs.standard }}
           >
             {/* Warning hero */}
             <View style={styles.hero}>
@@ -267,6 +294,18 @@ export default function CancelRideScreen() {
                 <Text style={[styles.policyTitle, hasFee && { color: colors.statusError }]}>
                   Cancellation Policy
                 </Text>
+                {/**
+                 * SAY WHAT IT COSTS, AND WHAT IT ACTUALLY COSTS.
+                 *
+                 * "Cancelling this ride is free" is true and unhelpful: it
+                 * answers the money question and leaves the real one — is this
+                 * going to be a problem? — for the rider to worry about alone.
+                 * A rider who is not told is a rider who hesitates, and the ask
+                 * was explicit: tell them they will not be charged, and that
+                 * the only real cost is the wait for another car. That is the
+                 * sentence that gives someone the liberty to book and change
+                 * their mind, which is the behaviour we want.
+                 */}
                 <Text style={styles.policyText}>
                   {isFeeLoading
                     ? 'Checking cancellation policy…'
@@ -274,8 +313,13 @@ export default function CancelRideScreen() {
                     ? "We couldn't check the fee for this ride just now. If one applies, it will be shown on your receipt."
                     : hasFee
                     ? `A cancellation fee of ${formatGhs(cancellationFeePesewas)} applies to this ride.`
-                    : 'Cancelling this ride is free.'}
+                    : "You won't be charged a cancellation fee for this ride."}
                 </Text>
+                {!isFeeLoading && !isFeeError && !hasFee ? (
+                  <Text style={styles.policyText}>
+                    Finding another ride afterwards may take a little longer, especially at busy times.
+                  </Text>
+                ) : null}
                 {/**
                  * The sub-line said `cancelFeeData.reason` — a field that has
                  * never existed on this response, so it never rendered. Say the
@@ -300,10 +344,49 @@ export default function CancelRideScreen() {
             </View>
 
             {/* Reason selection */}
-            <Text variant="titleSmall" style={styles.sectionTitle}>
-              Why are you cancelling?
-            </Text>
-            <View style={styles.reasonsContainer}>
+            <View
+              onLayout={(e) => { reasonsYRef.current = e.nativeEvent.layout.y; }}
+              style={styles.reasonsHead}
+            >
+              <Text variant="titleSmall" style={styles.sectionTitle}>
+                Why are you cancelling?
+              </Text>
+              {/**
+               * REQUIRED, AND SAID SO BEFORE IT IS ENFORCED.
+               *
+               * BUGFIX — "on the 'why are you cancelling' section, it's easily
+               * dismissable since it's under the Keep My Ride button section,
+               * so the user might try and click on the grayed-out Cancel Ride
+               * button but wouldn't notice that they need to scroll down and
+               * pick one option first."
+               *
+               * The rule was expressed only as `disabled` on the destructive
+               * button — a state with no voice. The rider taps, nothing
+               * happens, and there is no way to learn why, because the cause is
+               * off-screen behind the footer. A required field has to announce
+               * itself where the requirement is, not only where it bites.
+               */}
+              <View style={[styles.requiredPill, selectedReason ? styles.requiredPillDone : null]}>
+                <Ionicons
+                  name={selectedReason ? 'checkmark' : 'alert-circle-outline'}
+                  size={11}
+                  color={selectedReason ? colors.statusSuccess : colors.statusWarning}
+                />
+                <Text
+                  style={[
+                    styles.requiredPillText,
+                    { color: selectedReason ? colors.statusSuccess : colors.statusWarning },
+                  ]}
+                >
+                  {selectedReason ? 'SELECTED' : 'REQUIRED'}
+                </Text>
+              </View>
+            </View>
+            <MotiView
+              animate={{ scale: nudge ? 1.015 : 1 }}
+              transition={{ type: 'spring', ...springs.accent }}
+              style={[styles.reasonsContainer, nudge && styles.reasonsContainerNudged]}
+            >
               {REASONS.map((reason) => {
                 const isSelected = selectedReason === reason.key;
                 return (
@@ -340,7 +423,7 @@ export default function CancelRideScreen() {
                   </Pressable>
                 );
               })}
-            </View>
+            </MotiView>
 
             {/* Note input for 'other' */}
             <AnimatePresence>
@@ -350,7 +433,7 @@ export default function CancelRideScreen() {
                   from={{ opacity: 0, height: 0, marginTop: 0 }}
                   animate={{ opacity: 1, height: 132, marginTop: spacing.base }}
                   exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+                  transition={{ type: 'spring', ...springs.standard }}
                   style={styles.noteContainer}
                 >
                   <TextInput
@@ -379,13 +462,19 @@ export default function CancelRideScreen() {
             <Text style={styles.keepButtonText}>Keep My Ride</Text>
           </Pressable>
 
+          {/* ENABLED even without a reason — see `nudgeReasons`. A disabled
+              destructive button whose blocker is off-screen is a dead end; this
+              one answers the tap by showing the rider what is missing. Only a
+              request in flight genuinely disables it. */}
           <Pressable
-            style={[
-              styles.cancelButton,
-              (!selectedReason || cancelMutation.isPending) && styles.cancelButtonDisabled,
-            ]}
+            style={[styles.cancelButton, !selectedReason && styles.cancelButtonWaiting]}
             onPress={handleSubmit}
-            disabled={!selectedReason || cancelMutation.isPending}
+            disabled={cancelMutation.isPending}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: cancelMutation.isPending }}
+            accessibilityHint={
+              selectedReason ? undefined : 'Choose a reason above before cancelling'
+            }
           >
             {cancelMutation.isPending ? (
               <MotiView
@@ -396,7 +485,9 @@ export default function CancelRideScreen() {
                 <Ionicons name="reload-outline" size={18} color={colors.statusError} />
               </MotiView>
             ) : (
-              <Text style={styles.cancelButtonText}>Cancel Ride</Text>
+              <Text style={[styles.cancelButtonText, !selectedReason && styles.cancelButtonTextWaiting]}>
+                {selectedReason ? 'Cancel Ride' : 'Pick a reason first'}
+              </Text>
             )}
           </Pressable>
         </View>
@@ -572,8 +663,30 @@ const makeStyles = (colors: Colors) =>
       color: colors.outline,
       marginTop: 4,
     },
-    sectionTitle: { color: colors.onSurface, marginBottom: spacing.base },
-    reasonsContainer: { gap: spacing.sm },
+    sectionTitle: { color: colors.onSurface },
+    reasonsHead: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+      marginBottom: spacing.base,
+    },
+    requiredPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radii.full,
+      backgroundColor: withOpacity(colors.statusWarning, 0.14),
+    },
+    requiredPillDone: { backgroundColor: withOpacity(colors.statusSuccess, 0.14) },
+    requiredPillText: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.7 },
+    reasonsContainer: { gap: spacing.sm, borderRadius: radii['2xl'] },
+    /** A one-off pulse when the rider taps Cancel without having chosen. */
+    reasonsContainerNudged: {
+      backgroundColor: withOpacity(colors.statusWarning, 0.07),
+    },
     reasonCard: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -660,10 +773,20 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: 'transparent',
     },
     cancelButtonDisabled: { opacity: 0.4 },
+    /**
+     * Not greyed out — waiting. The distinction is the whole point: grey says
+     * "you cannot", and the rider could, they just had not scrolled. This reads
+     * as a neutral control with a prompt on it, and it still takes a press.
+     */
+    cancelButtonWaiting: {
+      borderColor: colors.rimLightSubtle,
+      backgroundColor: withOpacity(colors.onSurface, 0.04),
+    },
     cancelButtonText: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.titleSmall,
       lineHeight: fontSizes.titleSmall * 1.3,
       color: colors.statusError,
     },
+    cancelButtonTextWaiting: { color: colors.onSurfaceVariant },
   });

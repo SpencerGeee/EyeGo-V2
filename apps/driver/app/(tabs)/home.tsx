@@ -7,7 +7,8 @@ import {
   Alert,
 } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
@@ -28,43 +29,14 @@ import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { useDriverTripStore } from '../../stores/trip.store';
 import { useNotificationsStore } from '../../stores/notifications.store';
-import { useDriverLocation } from '../../hooks/useDriverLocation';
+import { useDriverLocation, beatPresenceNow } from '../../hooks/useDriverLocation';
+import { DispatchBlockedBanner, describeDispatchBlock } from '../../components/DispatchBlockedBanner';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import { DestinationModeCard } from '../../components/DestinationModeCard';
 import DemandOverlay from '../../components/DemandOverlay';
 import mapStyles from '@eyego/map-styles';
-
-/**
- * The server's machine reason, in words a driver can act on.
- *
- * `explainIneligible` (services/driver-availability.js) is the single place
- * that decides why a driver is skipped, and it answers in codes:
- * `NOT_ACTIVE(status=…)`, `OFFLINE`, `REQUESTS_PAUSED`, `BUSY(trip=… status=…)`,
- * `NO_SUCH_DRIVER`. Translating here rather than server-side keeps the code the
- * stable contract (the admin dispatch board reads the same field) and the copy
- * a product decision.
- */
-function describeDispatchBlock(reason: string | null | undefined): string {
-  const code = reason ?? '';
-  if (code.startsWith('NOT_ACTIVE')) {
-    return 'Your account is not approved for dispatch yet. Finish your documents under Profile → Documents.';
-  }
-  if (code === 'OFFLINE') {
-    return 'The server still has you offline. Toggle Online again.';
-  }
-  if (code === 'REQUESTS_PAUSED') {
-    return 'Requests are paused. Resume them to start receiving offers again.';
-  }
-  if (code.startsWith('BUSY')) {
-    return 'You still have an unfinished trip. Complete or cancel it and offers will resume.';
-  }
-  if (code === 'NO_SUCH_DRIVER') {
-    return 'Your driver record could not be found. Please sign out and back in.';
-  }
-  return 'Dispatch is not seeing you as available. Check your connection and try toggling Online.';
-}
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -383,6 +355,56 @@ export default function HomeScreen() {
     onError: () => Alert.alert('Activation Failed', 'Could not activate account. Is the server running?'),
   });
 
+  /**
+   * Un-pausing, from the banner.
+   *
+   * `REQUESTS_PAUSED` is the one blocked reason whose fix lives entirely on the
+   * server and nowhere on this screen — the toggle for it is two taps away
+   * under Profile. A banner that says "resume them" and leaves the driver to
+   * find the switch is the same failure as the faint banner it replaced.
+   */
+  const resumeRequests = useMutation({
+    mutationFn: () => driverApi.setRequestsPaused(false),
+    onSuccess: () => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      qc.invalidateQueries({ queryKey: ['driver'] });
+      void beatPresenceNow().catch(() => {});
+    },
+    onError: () => Alert.alert('Could not resume', 'Try the switch under Profile → Settings.'),
+  });
+
+  /** What the blocked banner's button should do, per the server's reason code. */
+  const dispatchBlockAction = useMemo(() => {
+    if (!dispatchStatus || dispatchStatus.dispatchable) return null;
+    switch (describeDispatchBlock(dispatchStatus.reason).action) {
+      case 'DOCUMENTS':
+        return { label: 'Finish my documents', onPress: () => router.push('/(profile)/documents' as Href) };
+      case 'GO_ONLINE':
+        return { label: 'Re-register me now', onPress: () => goOnline.mutate() };
+      case 'RESUME':
+        return { label: 'Resume requests', onPress: () => resumeRequests.mutate() };
+      case 'ACTIVE_TRIP':
+        return activeTripId
+          ? {
+              label: 'Open my trip',
+              onPress: () =>
+                router.push({ pathname: '/(trip)/active/[id]', params: { id: activeTripId } } as Href),
+            }
+          : { label: 'Refresh', onPress: () => void beatPresenceNow().catch(() => {}) };
+      case 'SIGN_OUT':
+        return { label: 'Sign out', onPress: () => router.push('/(profile)/settings' as Href) };
+      default:
+        return {
+          label: 'Check now',
+          onPress: () => {
+            void beatPresenceNow().catch(() => {});
+            qc.invalidateQueries({ queryKey: ['driver'] });
+          },
+        };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatchStatus?.reason, dispatchStatus?.dispatchable, activeTripId, router, qc]);
+
   const handleToggleOnline = useCallback(async () => {
     if (isOnline) {
       goOffline.mutate();
@@ -579,23 +601,12 @@ export default function HomeScreen() {
         beat has answered, so a cold start does not flash a warning.
       */}
       {isOnline && dispatchStatus && !dispatchStatus.dispatchable && (
-        <Entrance
-          animation="slideUp"
-          style={[
-            styles.errorBanner,
-            { top: insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0) + (platformConfig.announcement ? 64 : 0), borderColor: '#F59E0B55', backgroundColor: '#F59E0B18' },
-          ]}
-        >
-          <Ionicons name="alert-circle-outline" size={16} color="#F59E0B" />
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text variant="caption" style={{ color: '#F59E0B' }}>
-              You are not receiving trip requests
-            </Text>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              {describeDispatchBlock(dispatchStatus.reason)}
-            </Text>
-          </View>
-        </Entrance>
+        <DispatchBlockedBanner
+          reason={dispatchStatus.reason}
+          top={insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0) + (platformConfig.announcement ? 64 : 0)}
+          action={dispatchBlockAction}
+          busy={goOnline.isPending || goOffline.isPending || resumeRequests.isPending}
+        />
       )}
 
       {/*

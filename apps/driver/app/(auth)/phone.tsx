@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { driverAuthApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
@@ -76,7 +76,7 @@ export default function DriverPhoneScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 50 }}
             style={styles.logoRow}
           >
             <Text style={styles.logo}>EyeGo</Text>
@@ -89,7 +89,7 @@ export default function DriverPhoneScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
             style={styles.headlineContainer}
           >
             <Text variant="headlineLarge" style={styles.headline}>
@@ -104,7 +104,7 @@ export default function DriverPhoneScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 150 }}
             style={styles.inputWrapper}
           >
             <Pressable
@@ -144,7 +144,7 @@ export default function DriverPhoneScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 180 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 180 }}
           >
             <Button
               label="Send Code"

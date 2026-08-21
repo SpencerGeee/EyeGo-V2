@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { formatGhs, formatDistance, formatDuration } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -135,7 +135,7 @@ export default function TripCompleteScreen() {
         <MotiView
           from={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 100 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 100 }}
           style={styles.iconWrap}
         >
           <View style={styles.checkSquare}>
@@ -147,7 +147,7 @@ export default function TripCompleteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 200 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 200 }}
           style={styles.headlineSection}
         >
           <Text style={styles.headline}>Arrived Safely</Text>
@@ -157,7 +157,7 @@ export default function TripCompleteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 300 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 300 }}
           style={styles.fareCardWrap}
         >
           <GradientGlowBorder
@@ -235,7 +235,7 @@ export default function TripCompleteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 400 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 400 }}
           style={styles.ctaSection}
         >
           <Pressable style={styles.primaryBtn} onPress={handleRateAndTip} accessibilityRole="button" accessibilityLabel="Rate your driver">

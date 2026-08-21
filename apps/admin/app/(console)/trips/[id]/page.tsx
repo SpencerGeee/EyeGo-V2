@@ -15,6 +15,7 @@ import {
   PageHeader,
   StatCard,
 } from '@/components/ui/primitives';
+import { AssignDriverControl } from '@/components/ui/AssignDriverControl';
 import { RefundControl } from '@/components/ui/RefundControl';
 import { apiGetSafe, getAdmin } from '@/lib/api';
 import { can, isReadOnly } from '@/lib/roles';
@@ -37,6 +38,23 @@ import {
   tripStatusMeta,
 } from '@/lib/status';
 
+/**
+ * `/live/drivers` as it is actually sent — `activeTrip` and `vehicle` are
+ * nested objects, which the assign control wants flattened. Declared here
+ * rather than imported from the dispatch board so the two pages do not have to
+ * share a type that describes a different screen's needs.
+ */
+type LiveDriverRow = {
+  id: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  activeTrip?: { id: string } | null;
+  activeTripId?: string | null;
+  vehicle?: { plateNumber?: string | null } | null;
+  vehiclePlate?: string | null;
+};
+
 type Trip = {
   id: string;
   shortId?: string;
@@ -47,6 +65,8 @@ type Trip = {
   departureTime?: string | null;
   pickupAddress?: string | null;
   dropoffAddress?: string | null;
+  pickupLat?: number | null;
+  pickupLng?: number | null;
   surgeMultiplier?: number;
   /**
    * Derived server-side by fare.calculator from the rates the trip locked in.
@@ -147,13 +167,29 @@ export async function generateMetadata({
  */
 export default async function TripDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [data, admin] = await Promise.all([
+  const [data, admin, liveDrivers] = await Promise.all([
     apiGetSafe<{ trip: Trip }>(`/trips/${id}`),
     getAdmin(),
+    // For the assign control below. `Safe` because a dispatch outage must not
+    // blank the whole trip page — the control just says nobody is free.
+    apiGetSafe<{ drivers: LiveDriverRow[] }>('/live/drivers'),
   ]);
   // Refunds are FINANCE (and superadmin) only, enforced by the API. Hiding the
   // column keeps an OPS lead from reaching for an action that will be refused.
   const canRefund = can(admin?.role, ['FINANCE']) && !isReadOnly(admin?.role);
+  const canAssign = can(admin?.role, ['OPS']) && !isReadOnly(admin?.role);
+
+  // Flattened for the picker. `/live/drivers` nests both of these, and reading
+  // the nested name as if it were flat is the bug the dispatch board already
+  // had once — see the note on `LiveDriver` there.
+  const assignCandidates = (liveDrivers?.drivers ?? []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    lat: d.lat,
+    lng: d.lng,
+    activeTripId: d.activeTrip?.id ?? d.activeTripId ?? null,
+    vehiclePlate: d.vehicle?.plateNumber ?? d.vehiclePlate ?? null,
+  }));
 
   if (data === null) {
     return (
@@ -475,6 +511,32 @@ export default async function TripDetailPage({ params }: { params: Promise<{ id:
               ) : (
                 <p className="t-small text-text-faint">No driver is attached to this trip.</p>
               )}
+
+              {/* ── ASSIGN / REASSIGN ──
+                  Shown for any trip that has not finished. The API is the real
+                  gate (requireRole OPS, plus its own status check); this is
+                  here so an operator can find the action at all — until now it
+                  existed only on the Dispatch board's stranded list, which a
+                  live trip does not appear in until it has been in trouble for
+                  minutes. */}
+              {isLiveTrip(trip.status) || trip.status === 'SCHEDULED' ? (
+                <div className="mt-4 pt-4 border-t border-line">
+                  <AssignDriverControl
+                    tripId={trip.id}
+                    tripRef={tripRef(trip)}
+                    pickupLat={trip.pickupLat ?? trip.route?.originLat ?? null}
+                    pickupLng={trip.pickupLng ?? trip.route?.originLng ?? null}
+                    currentDriverName={trip.driver?.name ?? null}
+                    candidates={assignCandidates}
+                    canAssign={canAssign}
+                    readOnlyReason={
+                      isReadOnly(admin?.role)
+                        ? 'Your role is read-only.'
+                        : 'Only Operations can assign a driver.'
+                    }
+                  />
+                </div>
+              ) : null}
             </CardBody>
           </Card>
 

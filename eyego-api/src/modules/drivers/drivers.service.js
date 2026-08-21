@@ -877,6 +877,63 @@ async function getTripById(driverId, tripId) {
 // already confirmed) the dispatch is stale and must be rejected.
 const ACCEPTABLE_DISPATCH_STATUSES = ['SCHEDULED', 'FILLING'];
 
+/**
+ * ONE VERB FOR "I'LL TAKE THIS TRIP", WHATEVER KIND OF TRIP IT IS.
+ *
+ * BUGFIX — "I clicked on the accept button, it said failed to accept."
+ *
+ * There are three ways a driver can come to hold a trip, and each has its own
+ * endpoint with its own preconditions:
+ *
+ *   - `acceptDispatch`  — the trip is ALREADY assigned to this driver
+ *                         (`driverId` matches) and sits at SCHEDULED/FILLING.
+ *   - `rides.acceptRide` — the cascade is offering it; `driverId` is still
+ *                         NULL and the trip sits at MATCHING.
+ *   - `claimReassignedTrip` — a previous driver bailed; REASSIGNING,
+ *                         first-claim-wins.
+ *
+ * The driver app had to guess which one applied from a `kind` string passed
+ * through navigation params — and the dispatch list, which is where most taps
+ * come from, passed no params at all. So every tap defaulted to
+ * `acceptDispatch`, whose very first line is `findFirst({ id, driverId })`. On
+ * a cascade offer `driverId` is NULL, that returns nothing, and the driver got
+ * a 404 rendered as "Failed to accept trip."
+ *
+ * The trip row already knows which case it is. Nothing about that decision
+ * belonged on the client.
+ */
+async function claimTrip(driverId, tripId) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { id: true, driverId: true, status: true },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+
+  if (trip.status === 'REASSIGNING') {
+    return claimReassignedTrip(driverId, tripId);
+  }
+
+  if (trip.driverId === driverId && ACCEPTABLE_DISPATCH_STATUSES.includes(trip.status)) {
+    return acceptDispatch(driverId, tripId);
+  }
+
+  if (trip.driverId == null && trip.status === 'MATCHING') {
+    // Lazy require: rides.service pulls in the cascade, which pulls in this
+    // module. Resolving it at call time rather than load time keeps the cycle
+    // from biting during startup.
+    const rides = require('../rides/rides.service');
+    await rides.acceptRide(driverId, tripId);
+    // acceptRide answers with a summary; the dispatch controller and the app
+    // both expect a trip-shaped object, so hand back the row it landed on.
+    return prisma.trip.findUnique({ where: { id: tripId } });
+  }
+
+  if (trip.driverId && trip.driverId !== driverId) {
+    throw new AppError('Another driver already took this trip.', 409, 'DISPATCH_UNAVAILABLE');
+  }
+  throw new AppError('This dispatch has expired or already been claimed.', 409, 'DISPATCH_UNAVAILABLE');
+}
+
 async function acceptDispatch(driverId, tripId) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
@@ -917,6 +974,30 @@ async function acceptDispatch(driverId, tripId) {
 
   tripState.publishCommitted(result);
   return result.trip;
+}
+
+/**
+ * "No thanks" — routed the same way `claimTrip` routes an accept.
+ *
+ * Declining a cascade offer is not the same operation as declining a trip
+ * already assigned to you: the first advances the cascade to the next
+ * candidate and leaves the trip at MATCHING, the second releases a trip you
+ * hold. `declineDispatch` only ever knew how to do the second, so passing on
+ * an offer from the dispatch list 404'd exactly like accepting one did.
+ */
+async function declineTrip(driverId, tripId) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { id: true, driverId: true, status: true },
+  });
+  if (!trip) throw new NotFoundError('Trip');
+
+  if (trip.driverId == null && ['MATCHING', 'REASSIGNING'].includes(trip.status)) {
+    const rides = require('../rides/rides.service');
+    await rides.declineRide(driverId, tripId);
+    return prisma.trip.findUnique({ where: { id: tripId } });
+  }
+  return declineDispatch(driverId, tripId);
 }
 
 async function declineDispatch(driverId, tripId) {
@@ -1791,7 +1872,7 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
     const driver = await prisma.driver.findUnique({ where: { id: driverId } });
     if (driver.walletBalancePesewas < booking.commissionAmountPesewas) throw new InsufficientWalletError();
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.booking.update({
         where: { id: bookingId },
         data: { status: 'BOARDED', paymentStatus: 'PAID' },
@@ -1815,9 +1896,58 @@ async function boardPassenger(driverId, tripId, bookingId, { pin = null } = {}) 
 
       return updated;
     });
+    announceBoarding(tripId, bookingId);
+    return result;
   }
 
-  return prisma.booking.update({ where: { id: bookingId }, data: { status: 'BOARDED' } });
+  const updated = await prisma.booking.update({ where: { id: bookingId }, data: { status: 'BOARDED' } });
+  announceBoarding(tripId, bookingId);
+  return updated;
+}
+
+/**
+ * TELL THE RIDER THEY ARE ABOARD.
+ *
+ * BUGFIX — "I just marked a passenger as boarded but on their tracking page it
+ * still shows waiting to fill up and nothing shows they've been boarded."
+ *
+ * Boarding wrote `Booking.status = 'BOARDED'` and told nobody. It is not a TRIP
+ * transition — the trip is still FILLING, correctly, because the other seats
+ * have not boarded — so none of the trip-event machinery fired, and the rider's
+ * tracking screen had no reason to re-read anything. The one person for whom
+ * the fact was most important was the last to hear it.
+ *
+ * `publishSeatUpdate` is the right carrier: it already sends every live booking
+ * row, `status` included, to the trip's passenger room, and the rider's
+ * tracking screen already subscribes to it for the seat map. The push is for
+ * the phone that is in a pocket rather than on the tracking screen.
+ *
+ * Fire-and-forget on purpose. A passenger is physically in the vehicle by this
+ * point; a broadcast that fails must not un-board them.
+ */
+function announceBoarding(tripId, bookingId) {
+  tripPublisher.publishSeatUpdate(tripId).catch((err) =>
+    logger.warn(`Boarding broadcast failed for ${tripId}: ${err.message}`),
+  );
+  (async () => {
+    const b = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        seatNumber: true,
+        user: { select: { fcmToken: true } },
+        trip: { select: { route: { select: { destinationName: true } }, dropoffAddress: true } },
+      },
+    });
+    const token = b?.user?.fcmToken;
+    if (!token) return;
+    const where = b.trip?.route?.destinationName ?? b.trip?.dropoffAddress ?? 'your destination';
+    await pushService.sendPush(
+      token,
+      "You're on board",
+      `Seat ${b.seatNumber ?? ''} confirmed. Next stop ${where}.`.replace('  ', ' '),
+      { type: 'PASSENGER_BOARDED', tripId, bookingId },
+    );
+  })().catch(() => {});
 }
 
 // Statuses where riders are matched/waiting but nobody has boarded yet — a
@@ -2404,7 +2534,7 @@ module.exports = {
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence,
-  getTripById, acceptDispatch, declineDispatch, uploadDocument, reviewDocument,
+  getTripById, acceptDispatch, claimTrip, declineDispatch, declineTrip, uploadDocument, reviewDocument,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,

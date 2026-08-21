@@ -495,13 +495,47 @@ export default function ActiveTripScreen() {
         router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href);
         return;
       }
+      /**
+       * EVERY FORWARD STEP LANDS ON THE TRACKING SCREEN.
+       *
+       * BUGFIX — "when the driver app swipes to advance the status, it should
+       * redirect to the tracking page. When you start the ride it automatically
+       * takes you there, but if you mark as arrived it doesn't, so it's like
+       * nothing happens."
+       *
+       * Only `DRIVER_EN_ROUTE` navigated. The other two steps flashed a
+       * confirmation on the swipe control and left the driver on the same
+       * screen, which — because that screen's own header is driven by a query
+       * that had not refetched yet — looked exactly like a swipe that did
+       * nothing. The state HAD moved; there was simply nowhere for the driver
+       * to see it move.
+       *
+       * The tracking screen is where a driver mid-trip belongs: it is the one
+       * with the live map, the next action and the passenger list. So arrival
+       * and departure now go there too, after the same short confirmation beat
+       * so the swipe control gets to finish its own animation first.
+       */
       if (toStatus === 'ARRIVED_AT_PICKUP') {
         flashConfirmed('Marked as arrived');
         addNotification({ type: 'ARRIVED_AT_PICKUP', title: 'Arrived at pickup', body: 'You have arrived at the pickup stop.', tripId: id });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+        setTimeout(
+          () => router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href),
+          520,
+        );
+        return;
       }
       if (toStatus === 'IN_PROGRESS') {
         flashConfirmed('Trip started');
         addNotification({ type: 'IN_PROGRESS', title: 'Trip in progress', body: 'You have departed. Ride is underway.', tripId: id });
+        qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+        qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+        setTimeout(
+          () => router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href),
+          520,
+        );
+        return;
       }
 
       if (toStatus === 'COMPLETED') {

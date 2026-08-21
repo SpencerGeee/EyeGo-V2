@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -96,7 +96,7 @@ export default function SafetyScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -106,7 +106,7 @@ export default function SafetyScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}>
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
           <Text variant="headlineLarge" style={styles.headline}>Safety</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs }}>
             Emergency tools and safe-driving guidelines.
@@ -115,7 +115,7 @@ export default function SafetyScreen() {
 
         {/* SOS / Emergency call */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
           style={styles.sosCard}>
           <View style={styles.sosGlow} />
           <Ionicons name="warning" size={28} color={colors.error} />
@@ -164,7 +164,7 @@ export default function SafetyScreen() {
 
         {/* Emergency contact */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
           style={styles.card}>
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Emergency Contact</Text>
@@ -256,7 +256,7 @@ export default function SafetyScreen() {
 
         {/* Safety tips */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 160 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 160 }}
           style={styles.card}>
           <Text style={styles.cardTitle}>Safety Tips</Text>
           {SAFETY_TIPS.map((tip, i) => (
@@ -264,7 +264,7 @@ export default function SafetyScreen() {
               key={i}
               from={{ opacity: 0, translateX: -8 }}
               animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 180 + i * 60 }}
+              transition={{ type: 'spring', ...springs.standard, delay: 180 + i * 60 }}
               style={[styles.tipRow, i < SAFETY_TIPS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
             >
               <View style={styles.tipIcon}>
@@ -279,7 +279,7 @@ export default function SafetyScreen() {
 
         {/* Support */}
         <MotiView from={{ opacity: 0, translateY: 12 }} animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 200 }}>
+          transition={{ type: 'spring', ...springs.standard, delay: 200 }}>
           <Pressable
             style={styles.supportRow}
             onPress={() => Linking.openURL('tel:+233302000000')}

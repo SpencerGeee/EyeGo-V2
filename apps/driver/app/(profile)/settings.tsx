@@ -6,7 +6,7 @@ import { MotiView } from '@eyego/ui';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMutation } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -42,7 +42,7 @@ function ExpandSection({ title, body, colors }: { title: string; body: string; c
         <MotiView
           from={{ opacity: 0, translateY: -4 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+          transition={{ type: 'spring', ...springs.standard }}
         >
           <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ paddingBottom: spacing.base, lineHeight: 22 }}>
             {body}
@@ -117,7 +117,7 @@ export default function SettingsScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -129,7 +129,7 @@ export default function SettingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: -6 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
         >
           <Text variant="headlineLarge" style={styles.headline}>Settings</Text>
         </MotiView>
@@ -138,7 +138,7 @@ export default function SettingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 80 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 80 }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Preferences</Text>
           <View style={styles.card}>
@@ -175,7 +175,7 @@ export default function SettingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 100 }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Navigation App</Text>
           <View style={styles.card}>
@@ -201,7 +201,7 @@ export default function SettingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 120 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 120 }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Legal</Text>
           <View style={styles.card}>
@@ -214,7 +214,7 @@ export default function SettingsScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 140 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 140 }}
         >
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>Account</Text>
           <View style={styles.card}>

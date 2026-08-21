@@ -224,7 +224,7 @@ export default function RateTipScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+            transition={{ type: 'spring', ...springs.standard }}
             style={styles.titleBlock}
           >
             <Text variant="headlineMedium" style={styles.screenTitle}>How was your ride?</Text>
@@ -235,7 +235,7 @@ export default function RateTipScreen() {
           <MotiView
             from={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 60 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 60 }}
             style={styles.driverCard}
           >
             <View style={styles.avatarWrap}>
@@ -264,7 +264,7 @@ export default function RateTipScreen() {
           <MotiView
             from={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 100 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
             style={styles.starsSection}
           >
             <View style={styles.starsRow}>
@@ -284,7 +284,7 @@ export default function RateTipScreen() {
               <MotiView
                 from={{ opacity: 0, translateY: 4 }}
                 animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', stiffness: 600, damping: 28 }}
+                transition={{ type: 'spring', ...springs.standard }}
               >
                 <Text style={[styles.starMessage, { color: displayRating === 5 ? colors.primary : colors.onSurface }]}>
                   {STAR_MESSAGES[displayRating]}
@@ -298,7 +298,7 @@ export default function RateTipScreen() {
             <MotiView
               from={{ opacity: 0, translateY: 8 }}
               animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 50 }}
+              transition={{ type: 'spring', ...springs.standard, delay: 50 }}
               style={styles.card}
             >
               <Text style={styles.cardTitle}>What went well?</Text>
@@ -310,7 +310,7 @@ export default function RateTipScreen() {
                       key={c.label}
                       from={{ opacity: 0, scale: 0.88 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 28, delay: i * 35 }}
+                      transition={{ type: 'spring', ...springs.standard, delay: i * 35 }}
                     >
                       <Pressable
                         onPress={() => toggleCompliment(c.label)}
@@ -337,7 +337,7 @@ export default function RateTipScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 150 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 150 }}
             style={[styles.card, styles.tipCard]}
           >
             <View style={styles.tipHeader}>
@@ -374,7 +374,7 @@ export default function RateTipScreen() {
               <MotiView
                 from={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 52 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                transition={{ type: 'spring', ...springs.standard }}
                 style={{ overflow: 'hidden', marginTop: spacing.md }}
               >
                 <View style={styles.customInputWrap}>
@@ -397,7 +397,7 @@ export default function RateTipScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 200 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 200 }}
             style={styles.card}
           >
             <Text style={styles.cardTitle}>Leave a comment</Text>
@@ -419,7 +419,7 @@ export default function RateTipScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 16 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30, delay: 250 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 250 }}
           style={styles.footer}
           onLayout={(e) => {
             const h = Math.round(e.nativeEvent.layout.height);

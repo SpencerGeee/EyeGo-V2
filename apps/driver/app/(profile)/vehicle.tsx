@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -35,7 +35,7 @@ export default function MyVehicleScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -47,7 +47,7 @@ export default function MyVehicleScreen() {
         <MotiView
           from={{ opacity: 0, translateY: -6 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 40 }}
         >
           <Text variant="headlineLarge" style={styles.headline}>My Vehicle</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
@@ -71,7 +71,7 @@ export default function MyVehicleScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 14 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 30, delay: 100 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
             style={styles.vehicleCard}
           >
             <View style={styles.vehicleIconRow}>
@@ -106,7 +106,7 @@ export default function MyVehicleScreen() {
           <MotiView
             from={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25, delay: 100 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
             style={styles.emptyCard}
           >
             <Ionicons name="car-outline" size={48} color={colors.onSurfaceVariant} />

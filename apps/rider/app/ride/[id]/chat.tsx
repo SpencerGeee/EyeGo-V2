@@ -24,7 +24,7 @@ import { connectSocket, socketEvents, getSocket, tripsApi } from '@eyego/api';
 import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { scheduleLocalNotification } from '../../../utils/notifications';
 import { Text, GlassSurface } from '@eyego/ui';
@@ -542,7 +542,7 @@ export default function ChatScreen() {
     <MotiView
       from={{ opacity: 0, translateY: 8, scale: 0.97 }}
       animate={{ opacity: 1, translateY: 0, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 36 } as any}
+      transition={{ type: 'spring', ...springs.standard } as any}
       style={[
         styles.bubbleWrapper,
         item.isMine ? styles.bubbleWrapperRight : styles.bubbleWrapperLeft,

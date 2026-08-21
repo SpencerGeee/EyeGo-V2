@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
@@ -177,7 +177,7 @@ export default function ReserveScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 50 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 50 }}
         >
           <Text style={styles.sectionTitle}>Select Date</Text>
           <FlatList
@@ -196,7 +196,7 @@ export default function ReserveScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 100 }}
           style={styles.timeSection}
         >
           <Text style={styles.sectionTitle}>Select Time</Text>
@@ -237,7 +237,7 @@ export default function ReserveScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 150 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 150 }}
           style={styles.routePanel}
         >
           <View style={styles.routeTimeline}>

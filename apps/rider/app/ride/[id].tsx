@@ -159,6 +159,26 @@ export default function RideDetailScreen() {
     ? Math.max(1, Math.round(roadRoute.durationMin))
     : (trip?.durationMinutes ?? null);
 
+  /**
+   * A live ride of this rider's, on a DIFFERENT trip.
+   *
+   * Read from the store's `activeBooking` rather than a fresh query: it is
+   * already hydrated by the home screen's live-ride card, which is the surface
+   * the rider arrives here from, and a booking that is stale by a few seconds
+   * cannot make this wrong in the dangerous direction — the server re-checks.
+   *
+   * A booking on THIS trip is a different thing entirely (`isAlreadyBooked`
+   * below handles that), and a booking made for a guest does not occupy the
+   * rider's own seat, so neither counts.
+   */
+  const bookingWhileOnAnotherRide = useMemo(() => {
+    const b = activeBooking as any;
+    if (!b?.id || !b?.tripId) return false;
+    if (b.tripId === id) return false;
+    if (b.guestName) return false;
+    return !['CANCELLED', 'EXPIRED', 'COMPLETED'].includes(b.status ?? '');
+  }, [activeBooking, id]);
+
   const isAlreadyBooked = useMemo(() => {
     const rawTrip = (data?.data?.data as any)?.trip;
     if (rawTrip?.bookings && user?.id) {
@@ -182,6 +202,22 @@ export default function RideDetailScreen() {
   // MapboxGL.Camera has no declarative `bounds` prop (only an imperative
   // fitBounds via ref) — frame origin+destination here instead.
   const cameraRef = useRef<any>(null);
+
+  /**
+   * Where the native camera opens, before any imperative call lands.
+   *
+   * The trip's pickup when we have it, and only then the Accra fallback — whose
+   * job is solely to give `_setInitialCamera` a valid coordinate rather than to
+   * be a sensible place to look.
+   */
+  const initialCenter = useMemo<[number, number]>(() => {
+    const lng = trip?.origin?.longitude;
+    const lat = trip?.origin?.latitude;
+    if (typeof lng === 'number' && typeof lat === 'number' && Number.isFinite(lng) && Number.isFinite(lat)) {
+      return [lng, lat];
+    }
+    return CAMERA_FALLBACK_CENTER;
+  }, [trip?.origin?.longitude, trip?.origin?.latitude]);
   useEffect(() => {
     // trip.origin/destination are always truthy objects (see the trip memo
     // above) — check the actual coordinates, not object presence, or a route
@@ -215,14 +251,33 @@ export default function RideDetailScreen() {
       return;
     }
 
-    cameraRef.current?.fitBounds(
-      [
-        [trip.origin.longitude, trip.origin.latitude],
-        [trip.destination.longitude, trip.destination.latitude],
-      ],
-      { top: 80, bottom: 380, left: 40, right: 40 },
-      false,
-    );
+    /**
+     * FRAME IT, AND KEEP FRAMING IT UNTIL IT TAKES.
+     *
+     * A `fitBounds` issued before MapLibre's first layout pass is discarded
+     * silently — no error, no retry, and the camera keeps whatever the
+     * `centerCoordinate` prop seeded. That is the other half of the
+     * wrong-place-on-open bug: on a warm screen this effect runs first and the
+     * frame is lost.
+     *
+     * Three attempts over the first ~700 ms. Cheap, idempotent (re-framing an
+     * already-framed camera is a no-op to the eye at `animated: false`), and
+     * it costs nothing on the common path where the first one lands.
+     */
+    const corners: [[number, number], [number, number]] = [
+      [trip.origin.longitude, trip.origin.latitude],
+      [trip.destination.longitude, trip.destination.latitude],
+    ];
+    const padding = { top: 80, bottom: 380, left: 40, right: 40 };
+    const fit = (animated: boolean) => cameraRef.current?.fitBounds(corners, padding, animated);
+
+    fit(false);
+    const t1 = setTimeout(() => fit(false), 260);
+    const t2 = setTimeout(() => fit(true), 700);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [trip?.origin?.longitude, trip?.origin?.latitude, trip?.destination?.longitude, trip?.destination?.latitude]);
 
   useEffect(() => {
@@ -287,10 +342,29 @@ export default function RideDetailScreen() {
         rotateEnabled={false}
         scaleBarEnabled={false}
       >
+        {/*
+          SEEDED ON THE TRIP, NOT ON ACCRA.
+
+          BUGFIX — "I selected a trip from my house (Mohammed Polo St) to
+          Dansoman and when that page was shown, the map was showing around
+          Legon and I had to re-pan before I could see the route."
+
+          The `fitBounds` effect below is correct and does frame the route —
+          but MapLibre sets its INITIAL camera during the first native
+          layoutSubviews pass, and an imperative call made before that pass is
+          simply discarded. So on a cold open the map kept whatever this prop
+          seeded it with, which was a hardcoded point in central Accra, and the
+          rider was left looking at the wrong side of the city.
+
+          The fallback only ever existed to stop `_setInitialCamera` aborting
+          on no coordinate at all (the SIGABRT noted above), and the trip's own
+          origin satisfies that just as well while also being the right place.
+          The retry below covers the frames where neither is known yet.
+        */}
         <MapboxGL.Camera
           ref={cameraRef}
-          centerCoordinate={CAMERA_FALLBACK_CENTER}
-          zoomLevel={12}
+          centerCoordinate={initialCenter}
+          zoomLevel={trip?.origin?.latitude != null ? 13 : 12}
           animationMode="none"
           animationDuration={0}
         />
@@ -516,11 +590,55 @@ export default function RideDetailScreen() {
                 transition={{ type: 'spring', ...springs.snappy, delay: 100 }}
                 style={styles.ctaSection}
               >
+                {/*
+                  YOU ARE ALREADY IN A CAR.
+
+                  BUGFIX — "I'm already in a trip and I tap on another trip from
+                  the suggested trips section, it allows me to book another ride,
+                  which is structurally wrong… I'm now in 2 live trips."
+
+                  Nothing on this screen knew about the rider's other ride, so
+                  the booking flow ran end to end and produced a second live
+                  seat. The server refuses that now (`ALREADY_ON_A_RIDE`), but a
+                  409 three screens later is a bad way to learn it — and it
+                  would also refuse the LEGITIMATE version of this, which is
+                  booking a seat for somebody else while you are in transit.
+
+                  So the rule is stated here, where the decision is made, and
+                  the CTA becomes the thing that is actually allowed: pick who
+                  is travelling, then book for them.
+                */}
+                {bookingWhileOnAnotherRide ? (
+                  <View style={[styles.concurrentNote, { borderColor: withOpacity(colors.primary, 0.35) }]}>
+                    <Ionicons name="car" size={16} color={colors.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text variant="label" color={colors.primary}>You're already on a ride</Text>
+                      <Text variant="caption" color={colors.onSurfaceVariant} style={{ lineHeight: 17 }}>
+                        {guestInfo
+                          ? `This seat will be booked for ${guestInfo.name}, not for you.`
+                          : 'You can still book this seat — but it has to be for someone else. Tell us who is travelling.'}
+                      </Text>
+                    </View>
+                  </View>
+                ) : null}
+
                 <Button
-                  label={`Book This Seat · ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : '...'}`}
-                  onPress={() => router.push(`/ride/${id}/seat` as Href)}
+                  label={
+                    bookingWhileOnAnotherRide && !guestInfo
+                      ? 'Who is this ride for?'
+                      : `Book This Seat · ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : '...'}`
+                  }
+                  onPress={() =>
+                    bookingWhileOnAnotherRide && !guestInfo
+                      ? router.push('/ride/guest-selection' as Href)
+                      : router.push(`/ride/${id}/seat` as Href)
+                  }
                   accessibilityRole="button"
-                  accessibilityLabel={`Book this seat for ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : 'loading'}`}
+                  accessibilityLabel={
+                    bookingWhileOnAnotherRide && !guestInfo
+                      ? 'Choose who this ride is for'
+                      : `Book this seat for ${computedFare != null ? formatGhs(computedFare) : trip ? formatGhs(trip.farePerSeatPesewas ?? 0) : 'loading'}`
+                  }
                 />
                 {isGroupFlow && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
@@ -700,6 +818,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   ctaSection: { gap: spacing.md },
+  concurrentNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    padding: spacing.base,
+    borderRadius: radii.xl,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+  },
   inviteButton: {
     flexDirection: 'row',
     alignItems: 'center',

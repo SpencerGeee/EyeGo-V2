@@ -200,6 +200,52 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         throw new AppError('This trip is no longer accepting bookings', 400, 'TRIP_UNAVAILABLE');
       }
 
+      /**
+       * ONE LIVE RIDE PER PERSON.
+       *
+       * BUGFIX — "I'm already in a trip and I tap on another trip from the
+       * suggested trips section, it allows me to book another ride… I'm now in
+       * 2 live trips."
+       *
+       * Nothing anywhere refused this. `bookSeat` checked the TRIP's capacity
+       * and the SEAT's availability, both of which were fine; what it never
+       * asked was whether this rider is already sitting in a different vehicle.
+       * A person can only be in one car at a time, so two live bookings is not
+       * an edge case to reconcile later — it is a state that cannot be true.
+       *
+       * The exception is the whole reason the rule needs stating rather than
+       * assuming: booking FOR SOMEONE ELSE is legitimate mid-ride, and is in
+       * fact when it is most likely (you are in the car, sending a friend a
+       * ride). A guest booking carries `guestName`, so it is exempt — as is a
+       * second seat on the trip the rider is ALREADY on, which is how a rider
+       * adds a companion beside them.
+       *
+       * Uber and Bolt both draw the line in exactly this place.
+       */
+      if (!guestName) {
+        const liveElsewhere = await tx.booking.findFirst({
+          where: {
+            userId,
+            tripId: { not: tripId },
+            guestName: null,
+            status: { in: LIVE_BOOKING_STATUSES },
+            trip: { status: { notIn: TERMINAL_TRIP_STATUSES } },
+          },
+          select: { id: true, tripId: true },
+        });
+        if (liveElsewhere) {
+          const err = new AppError(
+            'You are already on a ride. Finish or cancel it first, or book this one for someone else.',
+            409,
+            'ALREADY_ON_A_RIDE',
+          );
+          // The app needs the id to offer "open my current ride" instead of a
+          // dead end. Attached rather than passed: AppError takes three args.
+          err.details = { activeTripId: liveElsewhere.tripId, activeBookingId: liveElsewhere.id };
+          throw err;
+        }
+      }
+
       // Release the hold this PASSENGER already has on this trip — the "go back
       // and pick a different seat" flow, which would otherwise leave a ghost
       // seat behind. Null the seatNumber too, or the cancelled row keeps it and

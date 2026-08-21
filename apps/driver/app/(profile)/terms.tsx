@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView } from '@eyego/ui';
-import { fonts, spacing, radii } from '@eyego/config';
+import { fonts, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -75,7 +75,7 @@ export default function TermsScreen() {
       <MotiView
         from={{ opacity: 0, translateY: -4 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.header}
       >
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>

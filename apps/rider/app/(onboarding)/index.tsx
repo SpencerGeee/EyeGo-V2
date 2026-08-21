@@ -212,7 +212,7 @@ export default function OnboardingScreen() {
       <MotiView
         from={{ opacity: 0, translateY: -6 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
+        transition={{ type: 'spring', ...springs.micro }}
         style={styles.headerRow}
       >
         <Image
@@ -250,7 +250,7 @@ export default function OnboardingScreen() {
       <MotiView
         from={{ opacity: 0, translateY: 10 }}
         animate={{ opacity: 1, translateY: 0 }}
-        transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8, delay: 110 }}
+        transition={{ type: 'spring', ...springs.micro, delay: 110 }}
         style={styles.footer}
       >
         {/* Pagination Dots */}

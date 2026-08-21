@@ -16,7 +16,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { fonts, spacing } from '@eyego/config';
+import { fonts, spacing, springs } from '@eyego/config';
 import { Text } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
@@ -90,7 +90,7 @@ export function TripStatusRail({
       progress.value = safeIndex;
       return;
     }
-    progress.value = withSpring(safeIndex, { damping: 18, stiffness: 140, mass: 0.9 });
+    progress.value = withSpring(safeIndex, springs.emphasized);
     beat.value = withSequence(
       withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) }),
       withDelay(120, withTiming(0, { duration: 420, easing: Easing.inOut(Easing.quad) })),

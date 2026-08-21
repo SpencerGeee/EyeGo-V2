@@ -15,7 +15,7 @@ import { MotiView } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useDriverStore } from '../../stores/driver.store';
@@ -105,7 +105,7 @@ export default function DriverRegisterScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -8 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+            transition={{ type: 'spring', ...springs.standard }}
           >
             <Text variant="headlineLarge" style={styles.headline}>Almost{'\n'}there</Text>
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
@@ -117,7 +117,7 @@ export default function DriverRegisterScreen() {
           <MotiView
             from={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 60 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 60 }}
             style={styles.avatarWrapper}
           >
             <Pressable onPress={pickImage} style={styles.avatarTouch}>
@@ -141,7 +141,7 @@ export default function DriverRegisterScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 100 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 100 }}
             style={styles.inputWrapper}
           >
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>
@@ -172,7 +172,7 @@ export default function DriverRegisterScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 130 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 130 }}
             style={styles.inputWrapper}
           >
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>
@@ -223,7 +223,7 @@ export default function DriverRegisterScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 160 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 160 }}
             style={styles.ctaWrapper}
           >
             <Button

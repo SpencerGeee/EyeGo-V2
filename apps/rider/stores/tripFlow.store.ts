@@ -81,6 +81,35 @@ interface TripFlowState {
    */
   previewPath: { type: 'LineString'; coordinates: [number, number][] } | null;
 
+  /**
+   * THE RIDER OPENED THIS SURFACE ON PURPOSE, WHILE ALREADY ON A RIDE.
+   *
+   * BUGFIX — "oh so I realised if you go to the Where To page, it just takes
+   * you to the live ride", and its twin, "I'm already in a trip and I tap on
+   * another trip from suggested trips and it lets me book another ride".
+   *
+   * The projection below is unconditional: the moment a Trip status exists, the
+   * surface is dragged to that trip's stage. That is exactly right when the
+   * rider is RESUMING a ride — cold start, a tapped notification, a killed app.
+   * It is exactly wrong when they deliberately tapped "Where to?", because it
+   * makes the search sheet unreachable for the entire duration of a ride.
+   *
+   * Uber and Bolt both allow the search sheet mid-ride, and both treat what it
+   * produces as a ride FOR SOMEONE ELSE — you cannot be in two cars. So this
+   * flag says "the rider asked to be here", the projection respects it while
+   * they are on a stage no trip owns, and `bookingFor` records whose ride it
+   * is going to be. The server enforces the same rule independently
+   * (`bookings.service.bookSeat`, `ALREADY_ON_A_RIDE`).
+   */
+  pinnedToSearch: boolean;
+  /**
+   * Who this booking is for. `guest` is forced — not defaulted — whenever the
+   * rider starts a booking while another of their rides is live.
+   */
+  bookingFor: 'self' | 'guest';
+  /** True when the rider has a live ride elsewhere, so the UI can say so. */
+  hasLiveRideElsewhere: boolean;
+
   setPreviewPath: (path: TripFlowState['previewPath']) => void;
   setSearchPlace: (place: SearchPlace | null) => void;
   setNearbyDrivers: (drivers: NearbyDriver[]) => void;
@@ -94,6 +123,18 @@ interface TripFlowState {
   syncFromServer: (stage: TripStage) => void;
   /** Step back one stage; returns the new stage, or null when already at the root. */
   popStage: () => TripStage | null;
+
+  /**
+   * "I know I'm on a ride; I want the search sheet anyway."
+   *
+   * Called by the trip surface once it knows both facts: that the rider asked
+   * for a client-owned stage, and that a live ride exists. Pins the surface
+   * there and switches the booking to a guest booking.
+   */
+  pinToSearch: (hasLiveRideElsewhere: boolean) => void;
+  /** Release the pin — the rider committed a request, or left the surface. */
+  releasePin: () => void;
+  setBookingFor: (who: 'self' | 'guest') => void;
 }
 
 export const useTripFlow = create<TripFlowState>((set, get) => ({
@@ -104,6 +145,9 @@ export const useTripFlow = create<TripFlowState>((set, get) => ({
   dispatchOffer: null,
   pickupCoord: null,
   previewPath: null,
+  pinnedToSearch: false,
+  bookingFor: 'self',
+  hasLiveRideElsewhere: false,
 
   setPreviewPath: (previewPath) => set({ previewPath }),
   setSearchPlace: (searchPlace) => set({ searchPlace }),
@@ -123,6 +167,12 @@ export const useTripFlow = create<TripFlowState>((set, get) => ({
       // A preview line belongs to one origin/destination pair. Carried into a
       // new surface it would draw the previous trip's road behind this one.
       previewPath: null,
+      // A pin belongs to one surface opening. The trip screen re-applies it
+      // immediately if the rider is still on a ride — carrying it would leave
+      // a resumed trip pinned to a search sheet it never asked for.
+      pinnedToSearch: false,
+      hasLiveRideElsewhere: false,
+      bookingFor: 'self',
     }),
 
   go: (stage, params) =>
@@ -138,7 +188,20 @@ export const useTripFlow = create<TripFlowState>((set, get) => ({
    * already left.
    */
   syncFromServer: (stage: TripStage) =>
-    set((s) => (s.stage === stage ? s : { stage, stack: [stage] })),
+    set((s) => {
+      // The rider deliberately opened the search sheet while a ride of theirs
+      // is live. That ride's status has no business dragging them out of a
+      // stage no trip owns — see `pinnedToSearch`.
+      if (s.pinnedToSearch && CLIENT_OWNED_STAGES.includes(s.stage)) return s;
+      return s.stage === stage ? s : { stage, stack: [stage] };
+    }),
+
+  pinToSearch: (hasLiveRideElsewhere) =>
+    set({ pinnedToSearch: true, hasLiveRideElsewhere, bookingFor: hasLiveRideElsewhere ? 'guest' : 'self' }),
+
+  releasePin: () => set({ pinnedToSearch: false }),
+
+  setBookingFor: (bookingFor) => set({ bookingFor }),
 
   popStage: () => {
     const { stack, stage } = get();

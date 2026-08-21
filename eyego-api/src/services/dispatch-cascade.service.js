@@ -80,9 +80,10 @@ const settings = require('../config/settings');
  * rider hostage.
  */
 const offerTtlSeconds = () => settings.get('DISPATCH_OFFER_TTL_SECONDS') ?? 45;
-/** Nearest-first search radius, and the wider sweep used if nobody is close. */
+/** Nearest-first search radius, then the two wider sweeps used if nobody is close. */
 const dispatchRadiusKm = () => settings.get('DISPATCH_RADIUS_KM') ?? 5;
 const dispatchExtendedRadiusKm = () => settings.get('DISPATCH_EXTENDED_RADIUS_KM') ?? 12;
+const dispatchFinalRadiusKm = () => settings.get('DISPATCH_FINAL_RADIUS_KM') ?? 18;
 
 /**
  * How long the search stays alive with nobody to offer it to.
@@ -301,6 +302,15 @@ async function offerNext(tripId) {
         pickupLat: true, pickupLng: true, pickupAddress: true,
         dropoffLat: true, dropoffLng: true, dropoffAddress: true,
         commissionRate: true,
+        // A route trip's endpoints live on the Route; its own pickup/dropoff
+        // columns are NULL. Selecting only the Trip columns is why the offer
+        // card rendered two em-dashes where the ride should have been.
+        route: {
+          select: {
+            originName: true, originLat: true, originLng: true,
+            destinationName: true, destLat: true, destLng: true,
+          },
+        },
         bookings: {
           where: livePassengerWhere(),
           select: { fareAmountPesewas: true, commissionAmountPesewas: true },
@@ -359,12 +369,12 @@ async function offerNext(tripId) {
       const offerPayload = {
         tripId,
         kind: state.kind,
-        pickupLat: trip.pickupLat,
-        pickupLng: trip.pickupLng,
-        pickupAddress: trip.pickupAddress,
-        dropoffLat: trip.dropoffLat,
-        dropoffLng: trip.dropoffLng,
-        dropoffAddress: trip.dropoffAddress,
+        pickupLat: trip.pickupLat ?? trip.route?.originLat ?? null,
+        pickupLng: trip.pickupLng ?? trip.route?.originLng ?? null,
+        pickupAddress: trip.pickupAddress ?? trip.route?.originName ?? null,
+        dropoffLat: trip.dropoffLat ?? trip.route?.destLat ?? null,
+        dropoffLng: trip.dropoffLng ?? trip.route?.destLng ?? null,
+        dropoffAddress: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
         tier: trip.tier,
@@ -430,15 +440,40 @@ async function offerNext(tripId) {
       return;
     }
 
-    // Everyone in range has passed. Widen once before giving up — the rider is
-    // better served by a driver 10 km away than by a failure screen.
-    if (!state.widened) {
-      state.widened = true;
+    /**
+     * EVERYONE IN RANGE HAS PASSED — WIDEN, IN STAGES.
+     *
+     * This widened exactly once, from 5 km to 10 km, and then had nothing left
+     * to try but the clock. Paired with a 180-second window, a rider in a thin
+     * pocket of supply got a failure screen while a driver 12 km away was
+     * sitting idle, having never been asked.
+     *
+     * Three sweeps now, and the third is deliberately gated. A driver at the
+     * final radius is a long pickup, so offering them at second 30 would trade
+     * a good ride for a bad one. Past the halfway mark of the window the
+     * calculus flips: the rider has already waited, and a far car beats no car.
+     * Until then the search parks and re-scans, which is what finds the driver
+     * who comes online at second 40.
+     */
+    const sweeps = [
+      { key: 'widened', radiusKm: dispatchExtendedRadiusKm(), minElapsedFraction: 0 },
+      { key: 'widenedFinal', radiusKm: dispatchFinalRadiusKm(), minElapsedFraction: 0.5 },
+    ];
+    const windowMs = searchTimeoutSeconds() * 1000;
+    const sweepElapsedMs = Date.now() - (state.startedAtMs ?? Date.now());
+
+    for (const sweep of sweeps) {
+      if (state[sweep.key]) continue;
+      // Not yet time for this one. Leave the flag unset so a later pass can
+      // still take it, and fall through to the park-and-rescan below.
+      if (sweepElapsedMs < windowMs * sweep.minElapsedFraction) break;
+
+      state[sweep.key] = true;
       const wider = await matcher.rankCandidates({
         tripId,
         pickupLat: trip.pickupLat,
         pickupLng: trip.pickupLng,
-        radiusKm: dispatchExtendedRadiusKm(),
+        radiusKm: sweep.radiusKm,
         excludeDriverId: excludedFrom(state),
         tier: trip.tier,
         // Destination mode reads the trip's dropoff to decide whether a
@@ -448,11 +483,12 @@ async function offerNext(tripId) {
       const seen = new Set(state.candidates.map((c) => c.id));
       const extra = wider.filter((c) => !seen.has(c.id));
       if (extra.length > 0) {
-        logger.info('Dispatch widening radius', { tripId, extra: extra.length });
+        logger.info('Dispatch widening radius', { tripId, radiusKm: sweep.radiusKm, extra: extra.length });
         state.candidates = state.candidates.concat(extra);
         await writeState(state);
         await emitProgress(tripId, 'DISPATCH_PROGRESS', {
           phase: 'WIDENING',
+          radiusKm: sweep.radiusKm,
           totalCandidates: state.candidates.length,
         });
         // Released and re-taken rather than recursed under the held lock.
@@ -755,8 +791,30 @@ async function resyncDriver(driverId) {
 async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
   if (!driverId) return [];
   try {
+    /**
+     * ONLY SEARCHES THAT COULD STILL BE RUNNING.
+     *
+     * BUGFIX — "2 live requests saying destination pending".
+     *
+     * The status filter alone is not a liveness test. A trip is left at
+     * MATCHING by anything that kills the process between the transition and
+     * the cascade finishing it: a crashed worker, a Redis flush, a dev restart,
+     * a seeded fixture. Those rows never move again, and this list showed every
+     * one of them, forever, to every driver in the country. Two abandoned test
+     * trips from an E2E run three hours earlier were still being advertised as
+     * live work.
+     *
+     * The search window is the answer. A cascade that started longer ago than
+     * the whole window is over regardless of what the row says, so the query
+     * refuses to look at it — and `readState` below refuses anything with no
+     * live cascade state at all, which is the same fact from Redis's side.
+     */
+    const searchWindowMs = searchTimeoutSeconds() * 1000;
     const trips = await prisma.trip.findMany({
-      where: { status: { in: [TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING] } },
+      where: {
+        status: { in: [TRIP_STATUS.MATCHING, TRIP_STATUS.REASSIGNING] },
+        createdAt: { gte: new Date(Date.now() - searchWindowMs) },
+      },
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: {
@@ -771,6 +829,16 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         dropoffLng: true,
         dropoffAddress: true,
         commissionRate: true,
+        // A route trip carries its endpoints on the Route, not on the Trip —
+        // `pickupAddress` and `dropoffAddress` are both NULL on every one of
+        // them. Reading only the Trip columns is what rendered "Destination
+        // pending" on the list and two blank lines on the offer screen.
+        route: {
+          select: {
+            originName: true, originLat: true, originLng: true,
+            destinationName: true, destLat: true, destLng: true,
+          },
+        },
         bookings: {
           where: livePassengerWhere(),
           select: { fareAmountPesewas: true, commissionAmountPesewas: true },
@@ -784,9 +852,14 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
     const out = [];
     for (const trip of trips) {
       const state = await readState(trip.id);
-      if (state?.done) continue;
+      // No cascade state means no cascade. Whatever this row says, nothing is
+      // driving it and nobody is coming to finish it.
+      if (!state) continue;
+      if (state.done) continue;
       if (excludedFrom(state).includes(driverId)) continue;
       if (state?.declined?.includes(driverId)) continue;
+      // Belt and braces against a state blob that outlived its own window.
+      if (Date.now() - (state.startedAtMs ?? trip.createdAt.getTime()) > searchWindowMs) continue;
 
       const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
       const commissionPesewas = trip.bookings.reduce(
@@ -802,12 +875,12 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         status: trip.status,
         tier: trip.tier,
         requestedAtMs: trip.createdAt.getTime(),
-        pickupLat: trip.pickupLat,
-        pickupLng: trip.pickupLng,
-        pickupAddress: trip.pickupAddress,
-        dropoffLat: trip.dropoffLat,
-        dropoffLng: trip.dropoffLng,
-        dropoffAddress: trip.dropoffAddress,
+        pickupLat: trip.pickupLat ?? trip.route?.originLat ?? null,
+        pickupLng: trip.pickupLng ?? trip.route?.originLng ?? null,
+        pickupAddress: trip.pickupAddress ?? trip.route?.originName ?? null,
+        dropoffLat: trip.dropoffLat ?? trip.route?.destLat ?? null,
+        dropoffLng: trip.dropoffLng ?? trip.route?.destLng ?? null,
+        dropoffAddress: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
         /** True when THIS driver is the one the cascade is currently asking. */

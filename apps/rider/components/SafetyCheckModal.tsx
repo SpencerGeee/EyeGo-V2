@@ -4,7 +4,7 @@ import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { Text, Button } from '@eyego/ui';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../utils/useColors';
 
 interface SafetyCheckModalProps {
@@ -57,7 +57,7 @@ export default function SafetyCheckModal({ visible, reason, tripId, onDismiss }:
         <MotiView
           from={{ opacity: 0, scale: 0.92, translateY: 20 }}
           animate={{ opacity: 1, scale: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+          transition={{ type: 'spring', ...springs.standard }}
           style={[styles.card, { backgroundColor: colors.surfaceContainer }]}
         >
           <Ionicons name={config.icon} size={44} color={config.color} style={styles.icon} />

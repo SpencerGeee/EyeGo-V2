@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { MotiView } from '@eyego/ui';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, springs } from '@eyego/config';
 import { driverColors } from '../utils/useColors';
 
 interface Props {
@@ -24,7 +24,7 @@ export function StepIndicator({ currentStep, totalSteps }: Props) {
                 backgroundColor: isDone || isActive ? driverColors.primary : driverColors.surfaceContainerHighest,
                 scale: isActive ? 1.15 : 1,
               }}
-              transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+              transition={{ type: 'spring', ...springs.standard }}
               style={styles.dot}
             />
             {stepNum < totalSteps && (

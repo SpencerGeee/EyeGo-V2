@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, Pressable, Text as RNText, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
 import Animated, {
   FadeIn,
   interpolate,
@@ -10,7 +10,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { withOpacity, springs } from '@eyego/config';
+import { bookingsApi } from '@eyego/api';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
@@ -244,6 +247,7 @@ export default function TripScreen() {
   const tripStatus = useTripStore((s) => s.snapshot?.status ?? null);
   const hydrate = useTripStore((s) => s.hydrate);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // Seed the stage machine once per surface open, from route params.
   useEffect(() => {
@@ -327,6 +331,36 @@ export default function TripScreen() {
       if (CLIENT_OWNED_STAGES.includes(seeded)) return;
       syncFromServer('search');
     });
+
+    /**
+     * THE RIDER ASKED FOR THE SEARCH SHEET. LET THEM HAVE IT.
+     *
+     * BUGFIX — "if you go to the Where To page it just takes you to the live
+     * ride."
+     *
+     * `/where-to` redirects here with `stage=search`, and the projection effect
+     * below then reads the live trip's status and overwrites that stage on the
+     * very next frame. Correct for a RESUME; wrong for a deliberate tap, which
+     * is why the search sheet was unreachable for the whole of a ride.
+     *
+     * `params.stage` is the discriminator, and it is a reliable one: a resume
+     * seeds a LIVE stage ('assigned'/'tracking') or nothing at all, while every
+     * deliberate route into the sheet names a client-owned one. So a
+     * client-owned seed pins the surface, and — because a person can only be in
+     * one car — flips the booking to a guest booking.
+     */
+    if (CLIENT_OWNED_STAGES.includes(seeded)) {
+      void bookingsApi
+        .getActive()
+        .then((res: any) => {
+          const live = res?.data?.data ?? null;
+          useTripFlow.getState().pinToSearch(!!live?.id);
+        })
+        // A lookup that failed is not evidence of no ride — but it IS evidence
+        // the rider asked to be here, so pin without the guest switch and let
+        // the server refuse a second self-booking if there is one.
+        .catch(() => useTripFlow.getState().pinToSearch(false));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -439,14 +473,29 @@ export default function TripScreen() {
   // Hardware back for stages past the root — the search stage registers its
   // own handler (morph-back to the home pill). Registered per-stage so the
   // search handler wins whenever search is the active stage.
+  /**
+   * Leave the surface without ending the ride.
+   *
+   * `dismissTo` rather than `push`: the trip surface is a transparentModal over
+   * the tab navigator, so pushing home would stack a second home screen behind
+   * a modal that is still mounted. Dismissing unwinds to the real one, and the
+   * live-ride card there is what brings the rider back.
+   */
+  const goHomeKeepingRide = useCallback(() => {
+    router.dismissTo('/(tabs)/home' as Href);
+  }, [router]);
+
   useEffect(() => {
     if (stage === 'search') return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      popStage();
+      // `popStage` answers null on a server-owned stage — the ride cannot go
+      // backwards. That is not a reason to trap the rider on the screen; see
+      // the Home pill for the full reasoning.
+      if (popStage() == null) goHomeKeepingRide();
       return true;
     });
     return () => sub.remove();
-  }, [stage, popStage]);
+  }, [stage, popStage, goHomeKeepingRide]);
 
   // ── Stage crossfade: outgoing fades/lifts, incoming fades/rises ──
   const progress = useSharedValue(1);
@@ -659,6 +708,55 @@ export default function TripScreen() {
         pointerEvents="none"
       />
 
+      {/*
+        THE WAY OUT OF A LIVE RIDE.
+
+        BUGFIX — "the rider tracking page needs a button that would allow the
+        user to go to the homepage. At the moment, when on the tracking page,
+        it's impossible to go back."
+
+        Exactly right, and it was structural rather than an oversight. Hardware
+        back calls `popStage()`, which returns null on any server-owned stage —
+        deliberately, because the ride cannot go backwards — so back did
+        nothing, and no stage drew a header of its own. The rider was sealed
+        into the tracking surface for the whole ride.
+
+        The mistake was treating "the stage cannot go back" as "the rider cannot
+        leave". They are different questions: the ride stays exactly as live
+        when the rider is looking at their wallet, and the home screen already
+        carries a live-ride card to bring them back. So this MINIMISES rather
+        than closing — the wording matters, which is why it says Home and not a
+        back chevron that would imply undoing something.
+
+        Only on server-owned stages. On search/configure/select the panel has
+        its own back affordance and this would be a second, contradictory one.
+      */}
+      {!surfaceRetired && !CLIENT_OWNED_STAGES.includes(stage) && (
+        <Animated.View
+          entering={FadeIn.duration(260)}
+          style={[styles.homePillWrap, { top: insets.top + 8 }]}
+          pointerEvents="box-none"
+        >
+          <Pressable
+            onPress={goHomeKeepingRide}
+            accessibilityRole="button"
+            accessibilityLabel="Back to home. Your ride stays live."
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.homePill,
+              {
+                backgroundColor: withOpacity(colors.backgroundDeep, 0.82),
+                borderColor: withOpacity(colors.onSurface, 0.14),
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="chevron-down" size={15} color={colors.onSurface} />
+            <RNText style={[styles.homePillText, { color: colors.onSurface }]}>Home</RNText>
+          </Pressable>
+        </Animated.View>
+      )}
+
       {rendered.previous && (
         <Animated.View style={[StyleSheet.absoluteFill, outgoingStyle]} pointerEvents="none">
           {renderStage(rendered.previous)}
@@ -711,6 +809,18 @@ const styles = StyleSheet.create({
    * applied at the call site because this sheet is theme-less. See the render.
    */
   opaqueFloor: StyleSheet.absoluteFillObject,
+  homePillWrap: { position: 'absolute', left: spacing.lg, zIndex: 20 },
+  homePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingLeft: spacing.sm,
+    paddingRight: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radii.full,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  homePillText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall, letterSpacing: 0.1 },
   topScrim: {
     position: 'absolute',
     top: 0,

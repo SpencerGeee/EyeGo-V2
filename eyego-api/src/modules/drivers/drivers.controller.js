@@ -231,7 +231,10 @@ const getTripById = async (req, res) => {
 };
 
 const acceptDispatch = async (req, res) => {
-  const trip = await driversService.acceptDispatch(req.user.userId, req.params.id);
+  // `claimTrip`, not `acceptDispatch`: the trip row decides which of the three
+  // claim paths applies. See drivers.service.js — guessing it on the client is
+  // what made every accept from the dispatch list fail with a 404.
+  const trip = await driversService.claimTrip(req.user.userId, req.params.id);
   try {
     const io = req.app.get('io');
     // Broadcast the status the trip actually landed on rather than a hardcoded
@@ -262,7 +265,7 @@ const claimReassignedTrip = async (req, res) => {
 };
 
 const declineDispatch = async (req, res) => {
-  const trip = await driversService.declineDispatch(req.user.userId, req.params.id);
+  const trip = await driversService.declineTrip(req.user.userId, req.params.id);
   ok(res, { trip }, 'Trip declined');
 };
 

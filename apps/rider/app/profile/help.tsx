@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, supportTicketsApi, queryKeys } from '@eyego/api';
 import type { Booking } from '@eyego/types';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 // `Pressable` from @eyego/ui, never from react-native: NativeWind's css-interop
@@ -378,7 +378,7 @@ export default function HelpScreen() {
                   </Text>
                   <MotiView
                     animate={{ rotate: openItems.has(item.id) ? '180deg' : '0deg' }}
-                    transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+                    transition={{ type: 'spring', ...springs.standard }}
                   >
                     <Ionicons name="chevron-down" size={18} color={colors.onSurfaceVariant} />
                   </MotiView>

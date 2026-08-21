@@ -15,7 +15,7 @@ import { MotiView } from '@eyego/ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useDriverStore } from '../../stores/driver.store';
@@ -127,7 +127,7 @@ export default function EditProfileScreen() {
       <MotiView
         from={{ opacity: 0, translateX: -6 }}
         animate={{ opacity: 1, translateX: 0 }}
-        transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+        transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
         <Pressable onPress={() => router.back()} hitSlop={12}>
@@ -140,7 +140,7 @@ export default function EditProfileScreen() {
           <MotiView
             from={{ opacity: 0, translateY: -6 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 40 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 40 }}
           >
             <Text variant="headlineLarge" style={styles.headline}>Edit Profile</Text>
           </MotiView>
@@ -149,7 +149,7 @@ export default function EditProfileScreen() {
           <MotiView
             from={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 28, delay: 80 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 80 }}
             style={styles.avatarWrapper}
           >
             <Pressable onPress={pickImage} style={styles.avatarTouch}>
@@ -170,7 +170,7 @@ export default function EditProfileScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 110 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 110 }}
             style={styles.fieldWrapper}
           >
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Full name</Text>
@@ -193,7 +193,7 @@ export default function EditProfileScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 140 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 140 }}
             style={styles.fieldWrapper}
           >
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Phone number</Text>
@@ -213,7 +213,7 @@ export default function EditProfileScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'spring', stiffness: 600, damping: 34, delay: 170 }}
+            transition={{ type: 'spring', ...springs.standard, delay: 170 }}
           >
             <Button
               label="Save Changes"

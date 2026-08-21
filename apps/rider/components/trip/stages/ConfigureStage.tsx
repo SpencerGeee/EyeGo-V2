@@ -114,6 +114,7 @@ function ConfigureStageImpl() {
   const mapWindow = Math.max(0, screenHeight * SHEET_TOP_FRACTION - insets.top - chromeHeight);
 
   const goStage = useTripFlow((s) => s.go);
+  const popStage = useTripFlow((s) => s.popStage);
   const setPreviewPath = useTripFlow((s) => s.setPreviewPath);
   /**
    * HOW THE RIDER GOT HERE, AND WHY IT HAS TO MATTER.
@@ -143,11 +144,38 @@ function ConfigureStageImpl() {
 
   const [step, setStep] = useState(STEP_FIRST);
 
+  /**
+   * BACK POPS. IT DOES NOT NAVIGATE TO THE PREVIOUS SCREEN.
+   *
+   * BUGFIX — "when you tap back on the Where To page, it skips forward and
+   * doesn't do its fluid and smooth thing."
+   *
+   * This called `go('search')`, and `go` is the FORWARD verb: it appends to the
+   * flow's back stack. So walking search → configure → back left the stack as
+   * `['search', 'configure', 'search']` rather than `['search']`, and the very
+   * next back — which the trip surface serves with `popStage()` — popped that
+   * third entry and landed the rider on **configure**. Back moved them forward,
+   * which is exactly what was reported, and it compounds: each bounce adds two
+   * more entries.
+   *
+   * It also explains why the motion looked wrong rather than merely the
+   * destination. `search → configure` is a paged transition (slide + dissolve)
+   * and `configure → search` is its reverse; driving the reverse through the
+   * FORWARD verb played the forward animation, so the panel slid the wrong way
+   * and then had to correct.
+   *
+   * `popStage` is the reverse verb and returns null only at the root, which is
+   * where `go` is the right answer — a surface seeded directly onto configure
+   * (a deep link) has no 'search' behind it to pop to.
+   */
   const back = useCallback(() => {
     void Haptics.selectionAsync();
-    if (step > STEP_FIRST) setStep((n) => n - 1);
-    else goStage('search');
-  }, [step, goStage]);
+    if (step > STEP_FIRST) {
+      setStep((n) => n - 1);
+      return;
+    }
+    if (popStage() == null) goStage('search');
+  }, [step, goStage, popStage]);
 
   // Hardware back walks the steps rather than abandoning the whole flow — the
   // same rule the driver's create screen uses.

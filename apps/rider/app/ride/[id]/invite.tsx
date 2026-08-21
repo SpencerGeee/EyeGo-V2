@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { bookingsApi, tripsApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
 import { Text, Button, AnimatedFareText, Loader, AppBackground } from '@eyego/ui';
@@ -461,7 +461,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 100 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 100 }}
           style={styles.inviteCard}
         >
           <Ionicons name="people-outline" size={28} color={colors.primary} />
@@ -537,7 +537,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 200 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 200 }}
           style={styles.membersSection}
         >
           <View style={styles.membersHeader}>
@@ -556,7 +556,7 @@ export default function InviteScreen() {
               key={member.bookingId}
               from={{ opacity: 0, translateX: -10 }}
               animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 35, delay: i * 60 }}
+              transition={{ type: 'spring', ...springs.standard, delay: i * 60 }}
             >
               <MemberRow name={member.passengerName} seatNumber={member.seatNumber} />
             </MotiView>
@@ -573,7 +573,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 250 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 250 }}
           style={styles.optionsCard}
         >
           <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Group Settings</Text>
@@ -641,7 +641,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 280 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 280 }}
           style={[styles.fareSummary, { flexDirection: 'column', alignItems: 'stretch', gap: spacing.xs }]}
         >
           {/* Whole-van cost, straight off the server's one fare formula. */}
@@ -690,7 +690,7 @@ export default function InviteScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 300 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 300 }}
         >
           <Button
             variant="glow"

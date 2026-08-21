@@ -12,6 +12,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { springs } from '@eyego/config';
 import { Text } from './Text';
 
 /**
@@ -112,7 +113,7 @@ export function SwipeToConfirm({
     if (confirmed) return;
     if (!loading && committed.value) {
       committed.value = false;
-      x.value = withSpring(0, { damping: 30, stiffness: 220 });
+      x.value = withSpring(0, springs.standard);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, confirmed]);
@@ -159,11 +160,11 @@ export function SwipeToConfirm({
     x.value = withTiming(max, { duration: 140 });
     pop.value = withSequence(
       withTiming(1.025, { duration: 90 }),
-      withSpring(1, { damping: 26, stiffness: 460 }),
+      withSpring(1, springs.micro),
     );
     check.value = withSequence(
       withTiming(0, { duration: 80 }),
-      withSpring(1, { damping: 28, stiffness: 520 }),
+      withSpring(1, springs.micro),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmed]);
@@ -195,7 +196,7 @@ export function SwipeToConfirm({
           } else {
             // Snappier return on a rejected swipe. Same ζ ≈ 0.95, but stiffer,
             // so the thumb is back at rest in roughly half the time.
-            x.value = withSpring(0, { damping: 34, stiffness: 340 });
+            x.value = withSpring(0, springs.standard);
           }
         }),
     [locked, threshold, thumbSize, fire, committed, x, trackWidth],

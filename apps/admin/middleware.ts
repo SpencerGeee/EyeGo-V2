@@ -98,15 +98,46 @@ export async function middleware(req: NextRequest) {
   let claims = decode(access);
   let response: NextResponse | null = null;
 
-  // Only rotate on real page navigations. Middleware also runs for prefetches
-  // and data requests, and rotating on all of them would fire several
-  // concurrent refreshes per click — the API tolerates that via its replay
-  // grace window, but there is no reason to lean on it.
   const isNavigation =
     req.headers.get('sec-fetch-mode') === 'navigate' ||
     (req.headers.get('accept') || '').includes('text/html');
 
-  if ((!claims || isExpiringOrExpired(claims)) && refreshToken && isNavigation) {
+  /**
+   * ROTATE FOR ANYTHING THAT WILL RENDER, NOT JUST FOR NAVIGATIONS.
+   *
+   * BUGFIX — "when I'm logged in and I go inactive for about 10 minutes, when I
+   * come back it's logged me out."
+   *
+   * Rotation used to require `isNavigation`. The intent was sound — don't fire
+   * a refresh for every prefetch — but the test caught far more than
+   * prefetches. `router.refresh()` sends an RSC data request: `sec-fetch-mode:
+   * cors`, `accept: text/x-component`. Neither branch matches, so it was
+   * treated as a background poll and skipped.
+   *
+   * The console refreshes itself on a timer from two places (`Filters`, and
+   * `FleetMap` every five seconds). So an admin who leaves the tab open is
+   * generating a steady stream of requests that CANNOT rotate the cookie, and
+   * none that can. Fifteen minutes later the access token expires; `decode()`
+   * does not check `exp`, so `claims.adminId` is still truthy and the request
+   * sails through to a render; that render calls `getAdmin()` with a dead
+   * token, the API answers 401, and the console layout redirects to
+   * `/login?reason=session`. The session did not time out — it was never
+   * allowed to renew.
+   *
+   * An RSC refresh renders server components and therefore needs a live token
+   * exactly as much as a navigation does. What genuinely must not rotate is a
+   * PREFETCH, which Next labels explicitly — so that is what we exclude, rather
+   * than inferring it from a header that also describes legitimate traffic.
+   */
+  const isPrefetch =
+    req.headers.get('next-router-prefetch') === '1' ||
+    req.headers.get('purpose') === 'prefetch' ||
+    req.headers.get('x-purpose') === 'prefetch' ||
+    req.headers.get('x-moz') === 'prefetch';
+  const isRscRender = req.headers.get('rsc') === '1' || req.headers.get('next-router-state-tree') !== null;
+  const mayRotate = !isPrefetch && (isNavigation || isRscRender);
+
+  if ((!claims || isExpiringOrExpired(claims)) && refreshToken && mayRotate) {
     const rotated = await rotate(refreshToken);
     if (rotated) {
       response = NextResponse.next();
@@ -121,8 +152,39 @@ export async function middleware(req: NextRequest) {
   if (!claims?.adminId || claims.type !== 'admin_access') {
     // No usable session at all. Non-navigation requests get a 401 instead of a
     // redirect, so a prefetch cannot silently rewrite the user's location.
-    if (!isNavigation) return new NextResponse(null, { status: 401 });
+    if (!isNavigation && !isRscRender) return new NextResponse(null, { status: 401 });
     return redirectToLogin(req);
+  }
+
+  /**
+   * A TOKEN THAT IS ALREADY DEAD MUST NOT REACH A RENDER.
+   *
+   * `decode()` reads the claims without checking `exp`, which is what let an
+   * expired cookie satisfy the `adminId` check above and hand a 401-guaranteed
+   * token to `getAdmin()`. If we get here holding one, rotation either was not
+   * attempted (a prefetch) or failed (the API was unreachable) — in both cases
+   * the honest answer is to stop, not to render a page whose every panel will
+   * fail and whose layout will bounce the admin to /login anyway.
+   *
+   * Measured WITHOUT the skew: the skew exists to rotate early, not to accept
+   * tokens the API will refuse.
+   */
+  let trulyExpired = !claims.exp || claims.exp <= Math.floor(Date.now() / 1000);
+  if (trulyExpired && refreshToken) {
+    // Rotate unconditionally here — `mayRotate` exists to keep prefetches from
+    // stampeding a token that still works, and this one demonstrably does not.
+    const rotated = await rotate(refreshToken);
+    if (rotated) {
+      response = response ?? NextResponse.next();
+      response.cookies.set(ACCESS_COOKIE, rotated.accessToken, accessCookieOptions());
+      response.cookies.set(REFRESH_COOKIE, rotated.refreshToken, refreshCookieOptions());
+      claims = decode(rotated.accessToken) ?? claims;
+      trulyExpired = !claims.exp || claims.exp <= Math.floor(Date.now() / 1000);
+    }
+  }
+  if (trulyExpired) {
+    if (!isNavigation && !isRscRender) return new NextResponse(null, { status: 401 });
+    return redirectToLogin(req, 'expired');
   }
 
   const required = rolesForPath(pathname);

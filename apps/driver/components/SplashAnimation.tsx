@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { springs } from '@eyego/config';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { MotiView } from '@eyego/ui';
 import * as SplashScreen from 'expo-splash-screen';
@@ -32,7 +33,7 @@ export function SplashAnimation({ onComplete }: Props) {
       <MotiView
         from={{ opacity: 0, scale: 0.6 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: 'spring', stiffness: 160, damping: 14 }}
+        transition={{ type: 'spring', ...springs.emphasized }}
         style={styles.logoWrapper}
       >
         <View style={styles.glowRing} />

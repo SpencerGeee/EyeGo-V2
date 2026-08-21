@@ -9,7 +9,7 @@ import { MotiView, Pressable } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, LensSheen } from '@eyego/ui';
 import { walletApi } from '@eyego/api';
@@ -74,7 +74,7 @@ export default function AddCardScreen() {
         <MotiView
           from={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, mass: 0.8 }}
+          transition={{ type: 'spring', ...springs.micro }}
         >
           {/* Card PREVIEW — premium glow ring with a slow LensSheen light
               sweep across the face; content inset by ring thickness (3). */}
@@ -123,7 +123,7 @@ export default function AddCardScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 580, damping: 34, delay: 80 }}
+          transition={{ type: 'spring', ...springs.micro, delay: 80 }}
         >
           <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.infoCard}>
           <View style={styles.infoRow}>

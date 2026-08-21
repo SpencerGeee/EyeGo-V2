@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
-import { spacing, radii } from '@eyego/config';
+import { spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Skeleton } from '@eyego/ui';
 import { formatGhs, formatTripDate } from '@eyego/utils';
@@ -104,7 +104,7 @@ export default function JoinScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35 }}
+          transition={{ type: 'spring', ...springs.standard }}
           style={styles.inviteHeader}
         >
           <View style={styles.inviteIcon}>
@@ -122,7 +122,7 @@ export default function JoinScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 150 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 150 }}
           style={styles.tripCard}
         >
           <View style={styles.routeRow}>
@@ -157,7 +157,7 @@ export default function JoinScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 35, delay: 250 }}
+          transition={{ type: 'spring', ...springs.standard, delay: 250 }}
           style={styles.ctaSection}
         >
           <Button

@@ -307,6 +307,42 @@ export function MorphSheet({
     else verticalPadding[k] = v;
   }
 
+  /**
+   * THE SAME CORRIDOR, ON THE TOP EDGE.
+   *
+   * BUGFIX ("the Verify Your Ride card seems to be cut off at the top — I'm
+   * talking about the glow border and all").
+   *
+   * The note above fixed the sides by handing the horizontal gutter to the
+   * scroll view's CONTENT container. The top was left alone, and it has the
+   * identical problem for the identical reason: a scroll view clips to its own
+   * bounds, the first child sits at content offset 0, and a glow is a shadow
+   * drawn OUTSIDE the child's box — so it has nowhere to go upward.
+   *
+   * It was invisible until now only because the first child of every other
+   * stage is plain text, which has no glow to lose. The pin card is the first
+   * card in the app to be both glowing AND first, so it is the first to be
+   * clipped along its top edge.
+   *
+   * The corridor is a floor, not an override: a caller that already asks for
+   * more top padding keeps it. Twenty points clears `maxGlowRadius: 16` with a
+   * margin, and it is added to the CONTENT container so it scrolls with the
+   * content rather than freezing a gap under the grabber.
+   */
+  const GLOW_CORRIDOR = 20;
+  const topPadding = Math.max(
+    GLOW_CORRIDOR,
+    Number(verticalPadding.paddingTop ?? verticalPadding.paddingVertical ?? 0) || 0,
+  );
+  // Handed to `inner`, so it must not also be applied by the outer wrapper —
+  // otherwise the gap doubles and the sheet's resting stop moves with it.
+  const outerVerticalPadding = { ...verticalPadding };
+  delete outerVerticalPadding.paddingTop;
+  delete outerVerticalPadding.paddingVertical;
+  if (verticalPadding.paddingVertical != null && verticalPadding.paddingBottom == null) {
+    outerVerticalPadding.paddingBottom = verticalPadding.paddingVertical;
+  }
+
   const inner = isScrollable ? (
     <GestureDetector gesture={nativeGesture}>
       <Animated.ScrollView
@@ -315,7 +351,11 @@ export function MorphSheet({
         bounces={false}
         showsVerticalScrollIndicator={false}
         style={{ maxHeight: contentMaxH }}
-        contentContainerStyle={{ ...horizontalPadding, paddingBottom: Math.max(insets.bottom, 12) }}
+        contentContainerStyle={{
+          ...horizontalPadding,
+          paddingTop: topPadding,
+          paddingBottom: Math.max(insets.bottom, 12),
+        }}
       >
         {children}
       </Animated.ScrollView>
@@ -325,7 +365,12 @@ export function MorphSheet({
        caller styling the body's padding cannot delete it and put a CTA under
        the gesture bar. */
     <View
-      style={{ ...horizontalPadding, maxHeight: contentMaxH, paddingBottom: Math.max(insets.bottom, 12) }}
+      style={{
+        ...horizontalPadding,
+        paddingTop: topPadding,
+        maxHeight: contentMaxH,
+        paddingBottom: Math.max(insets.bottom, 12),
+      }}
       pointerEvents="box-none"
     >
       {children}
@@ -350,7 +395,7 @@ export function MorphSheet({
             {grabber && <View style={[styles.grabber, { backgroundColor: grabberColor }]} />}
             {/* Vertical gutter only — the horizontal half lives inside `inner`
                 so a scroll view cannot clip a card's glow. See above. */}
-            <View style={verticalPadding} pointerEvents="box-none">
+            <View style={outerVerticalPadding} pointerEvents="box-none">
               {inner}
               {/* Weightless: absolutely positioned, so it contributes nothing to
                   the measured height that decides where the top edge sits. */}

@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MotiView } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
+import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
@@ -89,7 +89,7 @@ export default function DisputeScreen() {
         <MotiView
           from={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          transition={{ type: 'spring', ...springs.standard }}
           style={styles.successContainer}
         >
           <View style={[styles.successIcon, { backgroundColor: withOpacity(colors.statusSuccess, 0.12) }]}>
@@ -130,7 +130,7 @@ export default function DisputeScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', stiffness: 600, damping: 34 }}
+          transition={{ type: 'spring', ...springs.standard }}
         >
           {/* Title block */}
           <Text variant="headlineMedium" style={styles.title}>
