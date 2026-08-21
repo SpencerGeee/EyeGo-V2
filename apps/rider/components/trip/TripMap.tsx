@@ -97,6 +97,17 @@ function coord(lng: number | null | undefined, lat: number | null | undefined): 
  */
 const ROUTE_LINE = '#FFB020';
 
+/**
+ * How far from the pickup the rider has to be before the approach line — and
+ * the camera box that has to contain it — are worth drawing. Below this they
+ * are standing at the stop, and a stub line across a pavement is noise.
+ *
+ * Module scope because BOTH readers need it: the line in the component, and
+ * `fitFor` above it. It lived inside the component, which put it in the
+ * temporal dead zone for the function that frames the camera.
+ */
+const APPROACH_MIN_METRES = 120;
+
 function fitFor(
   status: TripStatus | null,
   snapshot: TripSnapshot | null,
@@ -113,13 +124,51 @@ function fitFor(
   const dropoff = coord(snapshot?.dropoff?.lng, snapshot?.dropoff?.lat);
   const driver = puck ?? coord(snapshot?.driver?.lng, snapshot?.driver?.lat);
 
+  /**
+   * The rider's own position, but only when it says something.
+   *
+   * Pre-boarding, "where am I relative to the pickup" is real information on
+   * this product in a way it is not on a pure hail: the pickup is a STOP on a
+   * group route and can be a walk away. That is what the dashed approach line
+   * draws — and a line the camera does not frame is worse than no line, because
+   * it renders half off-screen and reads as a glitch.
+   *
+   * Gated on the same threshold as the line itself: within ~120 m the rider is
+   * at the stop for all practical purposes, and widening the box to include a
+   * point already inside it only zooms the map out for nothing.
+   */
+  const riderIfDistant =
+    userPos && pickup && metresBetween(userPos, pickup) >= APPROACH_MIN_METRES ? userPos : null;
+
   switch (status) {
     case 'DRIVER_ASSIGNED':
     case 'DRIVER_EN_ROUTE':
     case 'ARRIVED_AT_PICKUP':
-      return [driver, pickup].filter(Boolean) as Coord[];
+      return [driver, pickup, riderIfDistant].filter(Boolean) as Coord[];
     case 'IN_PROGRESS':
       return [driver ?? pickup, dropoff].filter(Boolean) as Coord[];
+    /**
+     * WAITING TO FILL UP — THE STATE THIS MAP HAD NO CASE FOR.
+     *
+     * BUGFIX, the other half of "the driver pickup location is very far from
+     * where I am and the status shown on the map is waiting to fill up, but
+     * there's no route polyline to the car".
+     *
+     * A rider who has JOINED a group trip sits at SCHEDULED/FILLING/CONFIRMED,
+     * and none of those had a case here — they fell through to `default`, which
+     * is written for the pre-trip picker. On a joined trip there is no preview
+     * path and no search pin, so `[pickupPin ?? userPos, searchPin]` collapsed
+     * to a single coordinate and the camera framed the pickup alone, at
+     * whatever zoom one point implies. The rider's own puck and the line to the
+     * stop were both outside the viewport.
+     *
+     * The three points that answer the rider's actual question: where I am,
+     * where I have to be, and where this is all going.
+     */
+    case 'SCHEDULED':
+    case 'FILLING':
+    case 'CONFIRMED':
+      return [riderIfDistant, pickup, dropoff].filter(Boolean) as Coord[];
     case 'REQUESTED':
     case 'MATCHING':
     case 'REASSIGNING':
@@ -435,7 +484,6 @@ function TripMapImpl() {
    * purposes, and a stub line pointing across a pavement is noise; above it
    * they have somewhere to be.
    */
-  const APPROACH_MIN_METRES = 120;
   const approachLine = useMemo(() => {
     // Once the ride is under way the rider is IN the vehicle; a line from their
     // GPS to the pickup they have already left is a lie.
