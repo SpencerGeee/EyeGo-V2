@@ -134,6 +134,32 @@ async function start() {
     setImmediate(runTripExpiry);
     setInterval(runTripExpiry, 5 * 60 * 1000);
 
+    /**
+     * ── Orphaned-trip reconciliation ───────────────────────────────────
+     *
+     * The sweep above answers "has this trip been alive too long". This one
+     * answers a different question that no timer could reach: "is anybody
+     * actually on it". A trip left in a LIVE status with no passenger blocks
+     * the rider from booking again, takes the driver out of the dispatch pool,
+     * and keeps being advertised on every driver's board — see
+     * services/trip-reconcile.service.js for the three reports.
+     *
+     * The read paths reconcile lazily, so this is the backstop for a ghost
+     * nobody happens to read: a row left behind by a process that died
+     * mid-transaction, or by a path that has not been taught to reconcile yet.
+     * One indexed query per tick.
+     */
+    const tripReconcile = require('./services/trip-reconcile.service');
+    const runReconcile = async () => {
+      try {
+        await tripReconcile.reconcileOrphanedTrips();
+      } catch (err) {
+        logger.warn('Trip reconcile sweep failed (non-blocking):', err.message);
+      }
+    };
+    setImmediate(runReconcile);
+    setInterval(runReconcile, 2 * 60 * 1000);
+
     // ── Seat hold expiry sweep ─────────────────────────────────────────
     // Cancel bookings stuck in SEAT_HELD (payment window expired) every 2 min.
     // Derives from the SAME knob that stamps holdExpiry (SEAT_HOLD_DURATION_MINUTES

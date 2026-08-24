@@ -135,6 +135,7 @@ model User {
   scheduledRideIntents  ScheduledRideIntent[]
   tripRequests          TripRequest[]
   savedPlaces           SavedPlace[]
+  mapReports            MapReport[]
   requestedTrips        Trip[]            @relation("RequestedTrips")
   walletTransactions    RiderWalletTransaction[]
   refunds               Refund[]
@@ -148,11 +149,34 @@ model SavedPlace {
   lat       Float
   lng       Float
   icon      String?
+  /// WHICH SHORTCUT THIS PLACE IS, WHEN IT IS ONE.
+  ///
+  /// 'HOME' | 'WORK' | null. Free-form places — "Cyril's house", "Gym",
+  /// "Mum's place" — carry null and there may be any number of them.
+  ///
+  /// BUGFIX (item 9). The slot used to be INFERRED from the label, with
+  /// `label.includes('home')` in two places (users.service.js and the rider's
+  /// savedPlaceSlots.ts). That made the two features fight each other: naming a
+  /// spot the way a person actually would — "Mum's home" — silently claimed the
+  /// Home shortcut and OVERWROTE whatever address was in it, because
+  /// `createSavedPlace` treats a slot claim as an update rather than an insert.
+  /// A rider could lose their home address by adding a friend's.
+  ///
+  /// Making it a column makes it a decision: the rider picks Home or Work in
+  /// the picker, or picks neither and gets a place they can call anything.
+  slot      String?
+  /// Manual ordering on the saved-places screen. Lower sorts first.
+  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  // One Home and one Work per rider, enforced by the database rather than by
+  // whichever code path happened to write last. Null slots are unconstrained in
+  // Postgres, so free-form places are unaffected.
+  @@unique([userId, slot])
 }
 
 model EmergencyContact {
@@ -1474,4 +1498,76 @@ model AdminNote {
   createdAt DateTime @default(now())
 
   @@index([subjectType, subjectId, createdAt])
+}
+
+// ─────────────────────────────────────────
+// MAP REPORTS — "Improve maps"
+//
+// Riders know things the geocoder does not. A shop that moved, a road that is
+// one-way now, a gate that is always locked, a junction the router keeps
+// sending cars the wrong way round — none of it reaches us today, and the same
+// bad pickup point costs a driver five minutes every single time somebody
+// books it.
+//
+// Yango, Google Maps and Waze all take this feedback in-app for the same
+// reason: the people standing on the street corner are the only ones who can
+// tell you what is on it. This is that inbox.
+//
+// DELIBERATELY ONE TABLE WITH A `payload` BLOB rather than six. The six report
+// kinds share everything that matters operationally — who filed it, where, when,
+// what happened to it — and differ only in the handful of fields the form
+// collects. Six tables would mean six admin queues and six sets of the same
+// status plumbing; the blob is read by exactly one screen per type.
+// ─────────────────────────────────────────
+model MapReport {
+  id String @id @default(cuid())
+
+  /// ADD_PLACE | EDIT_PLACE | EDIT_ADDRESS | ADD_OBJECT | ROAD_ISSUE | COMMENT
+  type String
+
+  /// PENDING | IN_REVIEW | ACCEPTED | REJECTED | DUPLICATE
+  status String @default("PENDING")
+
+  /// Where the report is about. Always present — a report with no location is
+  /// not actionable, so the API refuses one.
+  lat Float
+  lng Float
+
+  /// What the reporter called the place, when they named one.
+  name    String?
+  address String?
+
+  /// The rider's own words. The whole content of a COMMENT, and the extra
+  /// context on every other type.
+  note String?
+
+  /// Type-specific fields — see services/map-report.service.js for the shape
+  /// each type collects and validates.
+  payload Json?
+
+  /// Cloudinary URLs. A photo of a sign settles most of these in one glance.
+  photos String[] @default([])
+
+  /// Who filed it. Nullable so a report survives an account deletion — the
+  /// street is still wrong.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Filed from the driver app rather than the rider app.
+  driverId String?
+
+  /// Moderation.
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, status])
+  // Reports cluster hard around junctions and malls; an operator working a
+  // neighbourhood wants them together.
+  @@index([lat, lng])
 }

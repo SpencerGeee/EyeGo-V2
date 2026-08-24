@@ -9,7 +9,8 @@ const { AppError, NotFoundError, ForbiddenError } = require('../../utils/errors'
 const { pushEnd } = require('../../services/live-activity-push.service');
 const tripState = require('../../services/trip-state.service');
 const logger = require('../../utils/logger');
-const { seatOccupyingWhere } = require('../../utils/booking-status');
+const reconcile = require('../../services/trip-reconcile.service');
+const { seatOccupyingWhere, livePassengerWhere } = require('../../utils/booking-status');
 
 /**
  * EVERY SEAT THIS RIDER HOLDS ON THIS TRIP — the unit a cancellation acts on.
@@ -235,6 +236,24 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
     // Already cancelled (a retry, a double tap): nothing to do, and re-running
     // would charge a second fee for a booking that no longer holds a seat.
     if (seatSet.length === 0) {
+      /**
+       * ALREADY CANCELLED — WHICH SAYS NOTHING ABOUT THE TRIP.
+       *
+       * BUGFIX (items 3 / 4 / 12). This returned here with `transition: null`,
+       * skipping the whole trip-reconciliation block at the bottom of the
+       * transaction. So the second tap on Cancel — a retry, a double tap, a
+       * client that fired both the row button and the sheet — left a trip in a
+       * LIVE status with no passenger on it, permanently:
+       *
+       *   - the rider was told "you already have a ride in progress" for a ride
+       *     they had cancelled twice;
+       *   - the driver stayed BUSY to `isDriverAvailable` and silently left the
+       *     dispatch pool;
+       *   - the trip kept being advertised on every driver's Dispatch board.
+       *
+       * The post-commit reconcile (see below) is what closes it now — flagged
+       * here so the caller runs it on this path too.
+       */
       return { booking, refundAmountPesewas: 0, cancellationFeePesewas: null, receipt: null, transition: null, seatCount: 0, alreadyCancelled: true };
     }
     const seatIds = seatSet.map((b) => b.id);
@@ -370,10 +389,15 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
      * aboard is over, and has to be said through the state machine so both apps
      * are told rather than discovering it on a refetch.
      */
+    // `seatOccupyingWhere()` includes COMPLETED — a finished booking still owns
+    // its seat on the record. That is right for availability and wrong here:
+    // one completed row made a trip with no live passenger read as occupied, so
+    // it was never cancelled. The question this asks is "is anyone still
+    // expecting to travel", which is `livePassengerWhere()`.
     const activeCount = await tx.booking.count({
       where: {
         tripId: booking.tripId,
-        ...seatOccupyingWhere(),
+        ...livePassengerWhere(),
       },
     });
     let transition = null;
@@ -411,6 +435,30 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
 
   // Post-commit: tell both apps what happened to the trip itself.
   tripState.publishCommitted(result.transition);
+
+  /**
+   * AND THEN CHECK THE TRIP IS ACTUALLY OVER.
+   *
+   * The in-transaction block above handles the case it was written for — the
+   * last live booking on the trip, in a status it recognises. It has three
+   * holes, and each one mints a trip in a LIVE status with nobody on it:
+   *
+   *   - the `alreadyCancelled` early return never reaches it at all;
+   *   - `activeCount` is counted with `seatOccupyingWhere()`, which includes
+   *     COMPLETED, so a trip carrying one finished booking never reads as
+   *     empty;
+   *   - the `else if` skips `SCHEDULED`, which a hailed ride can reach through
+   *     a redispatch.
+   *
+   * `reconcileTrip` asks the one question that matters — are there any LIVE
+   * passengers left — and is idempotent, so running it after a transition that
+   * already cancelled the trip costs one indexed read and does nothing. Not
+   * awaited into the response: the rider's cancellation has already succeeded
+   * and must not fail on this.
+   */
+  reconcile
+    .reconcileTrip(result.booking.tripId, { reason: 'RIDER_CANCELLED_LAST_SEAT' })
+    .catch((err) => logger.debug(`[Cancellation] reconcile failed (non-blocking): ${err?.message ?? err}`));
 
   /**
    * And stop looking for a driver for a ride nobody is on.

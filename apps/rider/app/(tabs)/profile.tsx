@@ -186,6 +186,9 @@ export default function ProfileScreen() {
       title: 'General',
       items: [
         { label: 'Promotions & Referrals', icon: 'pricetag-outline', onPress: () => router.push('/profile/promotions' as RiderRoute) },
+        // Riders know the streets we route over. See app/improve-map for why
+        // this is worth having and what the six report types are.
+        { label: 'Improve maps', icon: 'map-outline', onPress: () => router.push('/improve-map' as RiderRoute) },
         { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => router.push('/profile/help' as RiderRoute) },
         { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/profile/settings' as RiderRoute) },
         { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => router.push('/profile/privacy' as RiderRoute) },

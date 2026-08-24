@@ -18,6 +18,9 @@ const env = require('../../config/env');
 // Settlement lives here and only here — see completeTrip below for why this is
 // a delegation rather than a second implementation.
 const tripsService = require('../trips/trips.service');
+// The one derivation of "is this trip still a real live ride" — see the module
+// header for the three reports that share its root cause.
+const reconcile = require('../../services/trip-reconcile.service');
 const {
   TRIP_INCLUDE,
   buildTripSnapshot,
@@ -276,7 +279,26 @@ async function requestRide(userId, body) {
     // puts two trips into dispatch and the rider watches two searches fight.
     if (!allowConcurrent) {
       const existing = await findActiveTripForUser(userId);
-      if (existing) {
+      /**
+       * …BUT ONLY IF IT IS A REAL ONE.
+       *
+       * BUGFIX (item 3: "I ended my trip and it was showing I wasn't on any
+       * trip, but I tried ordering another one and it's saying I already have a
+       * ride").
+       *
+       * `findActiveTripForUser` asks the Trip row, and the Trip row is exactly
+       * what a half-finished cancellation leaves behind — a LIVE status with no
+       * passenger on it. The rider's own Activity tab reads BOOKINGS and
+       * correctly showed nothing; this guard read the trip and correctly showed
+       * a ride; both were right about different rows, and the rider was locked
+       * out with no way to see what was blocking them.
+       *
+       * `stillLive` is the one derivation of the question, and it TERMINATES a
+       * ghost rather than merely stepping over it — so the driver it was pinning
+       * out of the dispatch pool is freed by the same call. See
+       * services/trip-reconcile.service.js.
+       */
+      if (existing && (await reconcile.stillLive(existing))) {
         throw new AppError(
           'You already have a ride in progress.',
           409,
@@ -475,6 +497,15 @@ async function requestRide(userId, body) {
 async function getActiveRide(userId) {
   const trip = await findActiveTripForUser(userId);
   if (!trip) return { trip: null, serverNowMs: Date.now() };
+  /**
+   * THE SAME LAZY GUARD THE REQUEST PATH USES.
+   *
+   * Without it the rider's home screen keeps a "live ride" card pointing at a
+   * trip with no passenger on it, and tapping it opens a surface with nothing to
+   * render — while `POST /rides` (which now reconciles) says the ride is over.
+   * The two answers have to come from the same rule.
+   */
+  if (!(await reconcile.stillLive(trip))) return { trip: null, serverNowMs: Date.now() };
   const snapshot = await buildTripSnapshotWithPath(trip, { forUserId: userId });
   const dispatchState = [S.REQUESTED, S.MATCHING, S.REASSIGNING].includes(trip.status)
     ? await cascade.getCascadeState(trip.id)
@@ -589,6 +620,33 @@ async function cancelRide(userId, tripId, reason = null) {
 async function acceptRide(driverId, tripId) {
   if (!(await isDriverAvailable(prisma, driverId))) {
     throw new AppError('Finish your current trip before accepting another.', 409, 'DRIVER_BUSY');
+  }
+
+  /**
+   * A RIDE NOBODY IS HOLDING IS TAKEABLE BY ANYONE WHO CAN SEE IT.
+   *
+   * BUGFIX (item 1: "I'm the only driver available but now it's saying it's in
+   * queue", and "when I tap on the 1 live request card, nothing happens").
+   *
+   * The Dispatch board deliberately lists every live SEARCH, not just the
+   * exclusive offer — a search runs for five minutes while an offer is a
+   * 45-second window, and a driver who missed the window could see the row and
+   * do nothing with it. Claiming is already first-claim-wins (the transition
+   * below is a version compare-and-swap), so the only thing that ever needed
+   * guarding was fairness to a driver mid-decision.
+   *
+   * That is exactly what this checks and no more: refuse only while somebody
+   * ELSE holds a LIVE exclusive offer. Parked, exhausted, mid-resweep, or held
+   * by a deadline that has already passed — all claimable, which is what makes
+   * the row on the board mean something.
+   */
+  const holder = await cascade.currentHolder(tripId).catch(() => null);
+  if (holder && holder !== driverId) {
+    throw new AppError(
+      'Another driver is being asked about this ride right now. It comes back to the board if they pass.',
+      409,
+      'OFFER_HELD_BY_ANOTHER',
+    );
   }
 
   const vehicle = await prisma.vehicle.findFirst({

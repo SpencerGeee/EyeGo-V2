@@ -232,7 +232,7 @@ async function publishSeatUpdate(tripId) {
             select: {
               id: true, seatNumber: true, status: true, paymentStatus: true,
               fareAmountPesewas: true, commissionAmountPesewas: true,
-              guestName: true, isOffline: true, seatHeldUntil: true,
+              guestName: true, guestPhone: true, isOffline: true, seatHeldUntil: true,
               user: { select: { id: true, name: true } },
             },
             orderBy: { seatNumber: 'asc' },
@@ -253,7 +253,21 @@ async function publishSeatUpdate(tripId) {
       confirmedSeats: trip.confirmedSeats,
     };
 
-    io.of('/passenger').to(`trip:${tripId}`).emit('trip:seat_update', payload);
+    /**
+     * THE PASSENGER ROOM GETS NO PHONE NUMBERS.
+     *
+     * `trip:<id>` on the /passenger namespace is EVERY rider on the trip, so
+     * anything in this frame is visible to strangers sharing a minibus.
+     * `guestPhone` is here because the DRIVER needs it — a rider who booked for
+     * someone else supplies the passenger's number so the driver can reach them
+     * at the kerb (item 13) — and for exactly the same reason it must not ride
+     * out to the other passengers. One field, two audiences, so two payloads.
+     */
+    const riderSafe = {
+      ...payload,
+      bookings: payload.bookings.map(({ guestPhone, ...b }) => b),
+    };
+    io.of('/passenger').to(`trip:${tripId}`).emit('trip:seat_update', riderSafe);
     if (trip.driverId) {
       io.of('/driver').to(`driver:${trip.driverId}`).emit('trip:seat_update', payload);
       io.of('/driver').to(`trip:${tripId}`).emit('trip:seat_update', payload);

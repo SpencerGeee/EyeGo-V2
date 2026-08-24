@@ -93,6 +93,11 @@ export const NAV: NavSection[] = [
       { href: '/sos', label: 'SOS events', icon: 'siren', roles: ALL },
       { href: '/trip-reports', label: 'Trip reports', icon: 'flag', roles: ALL },
       { href: '/tickets', label: 'Support tickets', icon: 'chat', roles: ALL },
+      // "Improve maps" — corrections riders and drivers file about the real
+      // world. Readable by every role: a junction reported eleven times is
+      // dispatch context, not a privileged fact. Deciding is a write and is
+      // gated by `denyReadOnlyWrites` on the API.
+      { href: '/map-reports', label: 'Map reports', icon: 'pin', roles: ALL },
     ],
   },
   {

@@ -470,7 +470,7 @@ async function notifyRideConfirmed(bookingId) {
   if (booking.trip?.driver?.fcmToken) {
     await pushService.notifications.passengerJoined(
       booking.trip.driver.fcmToken,
-      booking.user?.name || booking.guestName || 'A passenger',
+      booking.guestName || booking.user?.name || 'A passenger',
       booking.seatNumber ?? 0,
       booking.tripId,
     ).catch(() => {});

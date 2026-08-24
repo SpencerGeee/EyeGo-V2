@@ -112,6 +112,43 @@ const resolveTripReport = async (req, res) => {
   ok(res, { report }, 'Trip report resolved');
 };
 
+/**
+ * ── IMPROVE-MAPS MODERATION ────────────────────────────────────────────────
+ *
+ * Thin by design: the vocabulary, the validation and the queue ordering all
+ * live in services/map-report.service.js, so the console and the two apps
+ * cannot disagree about what a report type is or what a status means.
+ */
+const listMapReports = async (req, res) => {
+  const mapReports = require('../../services/map-report.service');
+  ok(
+    res,
+    await mapReports.listForAdmin({
+      status: req.query.status ?? null,
+      type: req.query.type ?? null,
+      limit: req.query.limit,
+      page: req.query.page,
+    }),
+  );
+};
+
+const getMapReport = async (req, res) => {
+  const mapReports = require('../../services/map-report.service');
+  ok(res, { report: await mapReports.getReport(req.params.id) });
+};
+
+const reviewMapReport = async (req, res) => {
+  const mapReports = require('../../services/map-report.service');
+  const report = await mapReports.review(req.params.id, {
+    status: req.body.status,
+    reviewNote: req.body.reviewNote,
+    // Stamped from the authenticated operator, never from the body — a client
+    // that can name its own reviewer can attribute a decision to anyone.
+    reviewedById: req.admin?.id ?? req.user?.id ?? null,
+  });
+  ok(res, { report }, 'Report updated');
+};
+
 const respondToTicket = async (req, res) => {
   const message = await adminService.respondToTicket(req.params.id, req.body);
   ok(res, { message }, 'Response sent');
@@ -572,6 +609,7 @@ module.exports = {
   getDriverDetail, getDriverTrips, getTripDetail,
   getUserDetail, getUserTrips,
   getSupportTickets, getSupportTicketDetail, getTripReports, resolveTripReport, respondToTicket, closeTicket,
+  listMapReports, getMapReport, reviewMapReport,
   getPromotions, createPromotion, togglePromotion,
   registerAdminFcmToken,
   getLiveDrivers, assignDriver, getUnassignedTrips,

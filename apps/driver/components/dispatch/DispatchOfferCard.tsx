@@ -123,11 +123,36 @@ export function DispatchOfferCard({
     ).catch(() => {});
   }, [secondsLeft, accepted]);
 
+  /**
+   * PASS IS TWO TAPS, AND THE FIRST ONE HAS TO LOOK LIKE SOMETHING.
+   *
+   * BUGFIX (item 5: "if I click on the cancel button on the dispatch cards,
+   * nothing happens").
+   *
+   * The arming tap only swapped a text label and a border tint on a button
+   * sitting under a 34pt fare and a sweeping countdown ring — on a phone at
+   * arm's length that is indistinguishable from a dead control. The two-tap
+   * design is right (an Alert over a live countdown steals the seconds the
+   * driver is being timed on, and on iOS it can land after the offer has moved
+   * on) so the fix is to make the armed state unmissable rather than to remove
+   * it: a haptic thump, a filled destructive button, and a countdown that shows
+   * the window closing.
+   */
   const [declineArmed, setDeclineArmed] = useState(false);
+  const [armSeconds, setArmSeconds] = useState(0);
   useEffect(() => {
-    if (!declineArmed) return;
-    const t = setTimeout(() => setDeclineArmed(false), 3500);
-    return () => clearTimeout(t);
+    if (!declineArmed) {
+      setArmSeconds(0);
+      return;
+    }
+    const ARM_WINDOW_S = 4;
+    setArmSeconds(ARM_WINDOW_S);
+    const tick = setInterval(() => setArmSeconds((n) => Math.max(0, n - 1)), 1000);
+    const t = setTimeout(() => setDeclineArmed(false), ARM_WINDOW_S * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(t);
+    };
   }, [declineArmed]);
 
   const isReassignment = offer.kind === 'REASSIGNMENT';
@@ -280,11 +305,15 @@ export function DispatchOfferCard({
           <Pressable
             onPress={() => {
               if (busy || accepted) return;
-              void Haptics.selectionAsync().catch(() => {});
               if (!declineArmed) {
+                // A WARNING notification, not a selection tick. The first tap
+                // changes what the second tap will do, and the driver has to
+                // feel that through a phone mount without looking.
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
                 setDeclineArmed(true);
                 return;
               }
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
               onDecline();
             }}
             disabled={!!busy || accepted}
@@ -292,22 +321,42 @@ export function DispatchOfferCard({
             accessibilityLabel={declineArmed ? 'Confirm pass on this trip' : 'Pass on this trip'}
             style={({ pressed }) => [
               styles.decline,
-              declineArmed && { borderColor: colors.error + '88', backgroundColor: colors.error + '14' },
+              declineArmed && {
+                borderColor: colors.error,
+                backgroundColor: colors.error,
+              },
               pressed && { opacity: 0.7 },
+              busy === 'decline' && { opacity: 0.6 },
             ]}
           >
-            <Text
-              style={[
-                styles.declineText,
-                { color: declineArmed ? colors.error : colors.onSurfaceVariant },
-              ]}
-            >
-              {/* Two taps, not a modal. An Alert over a live countdown steals the
-                  seconds the driver is being timed on — and on iOS it can land
-                  after the offer has already moved on. */}
-              {declineArmed ? 'Tap again to pass' : 'Pass'}
-            </Text>
+            <View style={styles.declineInner}>
+              {declineArmed ? (
+                <Ionicons name="close-circle" size={16} color={colors.background} />
+              ) : null}
+              <Text
+                style={[
+                  styles.declineText,
+                  { color: declineArmed ? colors.background : colors.onSurfaceVariant },
+                ]}
+              >
+                {busy === 'decline'
+                  ? 'Passing…'
+                  : declineArmed
+                    ? `Tap again to pass · ${armSeconds}`
+                    : 'Pass'}
+              </Text>
+            </View>
           </Pressable>
+
+          {/* Says out loud what passing now costs, because it is no longer
+              permanent — see `declineCooldownSeconds` on the server. The old
+              copy said nothing, and a driver who had passed once believed the
+              ride was gone for good. */}
+          {declineArmed ? (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={styles.declineNote}>
+              It goes to the next driver. If nobody takes it, it comes back to your board.
+            </Text>
+          ) : null}
         </View>
       </View>
     </View>
@@ -394,7 +443,9 @@ const makeStyles = (colors: DriverColors) =>
       minWidth: 160,
       alignItems: 'center',
     },
+    declineInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
     declineText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, letterSpacing: 0.2 },
+    declineNote: { textAlign: 'center', lineHeight: 16, marginTop: -spacing.xs },
   });
 
 export default DispatchOfferCard;

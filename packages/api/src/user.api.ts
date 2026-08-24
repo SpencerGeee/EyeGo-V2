@@ -34,6 +34,9 @@ export interface NotificationPrefs {
   safetyAlerts?: boolean;
 }
 
+/** 'HOME' | 'WORK', or null for a freely-named place. */
+export type SavedPlaceSlot = 'HOME' | 'WORK';
+
 export interface SavedPlace {
   id: string;
   label: string;
@@ -41,6 +44,18 @@ export interface SavedPlace {
   lat: number;
   lng: number;
   icon?: string | null;
+  /**
+   * WHICH SHORTCUT THIS IS, when it is one.
+   *
+   * A COLUMN, not something derived from the label. Both apps used to infer it
+   * with `label.includes('home')`, which meant a place named the way a person
+   * would actually name one — "Mum's home" — claimed the Home shortcut and
+   * overwrote the address already in it. See the note on `createSavedPlace` in
+   * eyego-api/src/modules/users/users.service.js.
+   */
+  slot?: SavedPlaceSlot | null;
+  /** The rider's own ordering on the saved-places screen. Lower sorts first. */
+  sortOrder?: number;
 }
 
 /**
@@ -213,6 +228,15 @@ export const userApi = {
 
   createSavedPlace: (place: Omit<SavedPlace, 'id'>) =>
     apiClient.post<ApiResponse<{ place: SavedPlace }>>('/user/me/saved-places', place),
+
+  /**
+   * Rename, re-pin, re-icon or re-slot a place without losing it.
+   *
+   * Every field is optional and only what is sent is written, so a rename
+   * cannot silently move a pin.
+   */
+  updateSavedPlace: (placeId: string, patch: Partial<Omit<SavedPlace, 'id'>>) =>
+    apiClient.patch<ApiResponse<{ place: SavedPlace }>>(`/user/me/saved-places/${placeId}`, patch),
 
   deleteSavedPlace: (placeId: string) =>
     apiClient.delete<ApiResponse<Record<string, never>>>(`/user/me/saved-places/${placeId}`),

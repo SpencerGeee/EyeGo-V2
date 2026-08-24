@@ -191,14 +191,27 @@ async function placeNameFor(lat, lng) {
   const hasToken =
     env.MAPBOX_SECRET_TOKEN && !/placeholder|your[-_]?token/i.test(env.MAPBOX_SECRET_TOKEN);
   if (hasToken) {
-    try {
-      const url =
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
-        `?types=address,place,poi&country=GH&access_token=${env.MAPBOX_SECRET_TOKEN}`;
-      const { data } = await axios.get(url, { timeout: 5000 });
-      name = data.features?.[0]?.place_name ?? null;
-    } catch (err) {
-      logger.warn(`reverse geocode (mapbox) failed for ${lat},${lng}: ${err.message}`);
+    /**
+     * NARROWEST TYPE FIRST — see REVERSE_TYPE_TIERS in modules/geo/geo.service.js
+     * for the full reasoning.
+     *
+     * `types=address,place,poi` in one call does NOT prefer the address: Mapbox
+     * ranks the response itself, and over most of Accra the `place` polygon
+     * (the city) outranks everything, so this returned "Accra, Greater Accra,
+     * Ghana" for a specific kerb. Asking one tier at a time is what makes the
+     * preference ours rather than the geocoder's.
+     */
+    for (const types of ['address', 'poi', 'neighborhood,locality,place']) {
+      try {
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+          `?types=${types}&country=GH&limit=1&access_token=${env.MAPBOX_SECRET_TOKEN}`;
+        const { data } = await axios.get(url, { timeout: 5000 });
+        name = data.features?.[0]?.place_name ?? null;
+        if (name) break;
+      } catch (err) {
+        logger.warn(`reverse geocode (mapbox ${types}) failed for ${lat},${lng}: ${err.message}`);
+      }
     }
   }
   if (!name) {

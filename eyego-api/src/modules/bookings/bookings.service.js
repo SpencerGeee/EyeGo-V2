@@ -7,6 +7,7 @@ const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere, SEAT_RELEASING_STATUSES } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
+const reconcile = require('../../services/trip-reconcile.service');
 const boardingPin = require('../../services/boarding-pin.service');
 const { percentOf, sum, formatGhs, assertPesewas } = require('../../utils/money');
 // Invite links follow the origin the API is being reached at, not the baked-in
@@ -223,7 +224,7 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
        * Uber and Bolt both draw the line in exactly this place.
        */
       if (!guestName) {
-        const liveElsewhere = await tx.booking.findFirst({
+        let liveElsewhere = await tx.booking.findFirst({
           where: {
             userId,
             tripId: { not: tripId },
@@ -233,6 +234,20 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           },
           select: { id: true, tripId: true },
         });
+        /**
+         * SELF-HEAL BEFORE REFUSING.
+         *
+         * BUGFIX (item 12). A booking row can outlive its trip — the trip goes
+         * terminal, or ages past the lifecycle deadline, and nothing walks back
+         * to the seat. The rider's surfaces read the TRIP and show nothing; this
+         * guard reads the BOOKING and refuses; the rider is locked out with no
+         * explanation on screen. `releaseOrphanBooking` will only let go of a
+         * booking whose trip is genuinely finished, so a rider actually on a
+         * ride is still refused — see services/trip-reconcile.service.js.
+         */
+        if (liveElsewhere && (await reconcile.releaseOrphanBooking(tx, liveElsewhere.id))) {
+          liveElsewhere = null;
+        }
         if (liveElsewhere) {
           const err = new AppError(
             'You are already on a ride. Finish or cancel it first, or book this one for someone else.',
@@ -1380,7 +1395,9 @@ async function getGroup(bookingId, userId) {
     .filter(b => b.userId !== userId) // exclude the requesting user (shown as "You")
     .map(b => ({
       bookingId: b.id,
-      passengerName: b.user?.name ?? b.guestName ?? 'Passenger',
+      // Guest first — a booking made for someone else carries both, and the
+      // person in the seat is the one the driver needs named.
+      passengerName: b.guestName ?? b.user?.name ?? 'Passenger',
       avatarUrl: b.user?.profilePhoto ?? null,
       seatNumber: b.seatNumber,
       joinedAt: b.createdAt.toISOString(),

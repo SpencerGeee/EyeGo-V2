@@ -35,6 +35,7 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import { DestinationModeCard } from '../../components/DestinationModeCard';
+import { PendingDispatchList } from '../../components/PendingDispatchList';
 import DemandOverlay from '../../components/DemandOverlay';
 import mapStyles from '@eyego/map-styles';
 
@@ -80,36 +81,38 @@ export default function HomeScreen() {
   const dispatchStatus = useDriverStore((s) => s.dispatchStatus);
   const [showHeatmap, setShowHeatmap] = useState(false);
 
-  // Reliability backstop for the socket-pushed trip:assigned event — if the
-  // socket connection dropped/lagged/missed the push (the original, sole
-  // delivery path), a dispatch offer could sit unseen until it expired with
-  // nothing telling the driver a rider was waiting. Poll while online and
-  // idle; skip anything already surfaced via the socket or a previous tick.
-  const seenDispatchIdsRef = useRef<Set<string>>(new Set());
-  const { data: pendingRequestsData } = useQuery({
-    queryKey: ['driver', 'trip-requests', 'pending', location?.latitude, location?.longitude],
-    queryFn: () => driverApi.getPendingTripRequests(location?.latitude, location?.longitude),
-    select: (r) => (r.data as any)?.data?.requests ?? [],
-    enabled: isOnline && !activeTripId,
-    refetchInterval: isOnline && !activeTripId ? 20000 : false,
-  });
+  /**
+   * IS THERE WORK ON THE BOARD RIGHT NOW?
+   *
+   * Read straight from the trip store, which is the single place every
+   * delivery path lands: the `trip:event` socket frame, the two-second REST
+   * safety net in `_layout`, and the foreground resync. The board below shows
+   * itself only when the answer is yes.
+   *
+   * ── WHAT WAS HERE BEFORE, AND WHY IT IS GONE ─────────────────────────────
+   * A 20-second `getPendingTripRequests` poll that AUTO-NAVIGATED to
+   * `/(trip)/dispatch/<id>` for the first request it had not seen. Three
+   * problems, and the first is the one the driver felt:
+   *
+   *   - It hijacked the screen. A driver looking at the map, the heatmap or
+   *     their earnings was thrown onto a full-screen offer for a ride that in
+   *     most cases was not even exclusively theirs — and `seenDispatchIdsRef`
+   *     meant a ride they backed out of could never bring them there again.
+   *   - It was a SECOND dispatch client, with its own endpoint, its own cadence
+   *     and its own idea of what a pending request is, sitting beside the store
+   *     that already holds exactly this list. The two could and did disagree.
+   *   - At 20 seconds against a 45-second offer window it was also the slowest
+   *     of the three paths, which is the "it takes a while before that card
+   *     loads up" half of the report. The store's poll is two seconds.
+   *
+   * The offer sheet still takes over the screen for an offer genuinely held for
+   * this driver, which is the one case that has earned an interruption.
+   */
+  const pendingDispatchCount = useDriverTripStore((s) => s.pendingRequests.length);
+  const hasPendingDispatch = pendingDispatchCount > 0;
 
-  useEffect(() => {
-    if (!pendingRequestsData || pendingRequestsData.length === 0) return;
-    const fresh = pendingRequestsData.find((r: any) => !seenDispatchIdsRef.current.has(r.tripId));
-    if (!fresh || !isMountedRef.current) return;
-    seenDispatchIdsRef.current.add(fresh.tripId);
-    router.push({
-      pathname: '/(trip)/dispatch/[id]',
-      params: {
-        id: fresh.tripId,
-        kind: fresh.kind,
-        origin: fresh.routeOrigin,
-        destination: fresh.routeDestination,
-        departureTime: fresh.departureTime,
-      },
-    } as any);
-  }, [pendingRequestsData, router]);
+  /** Trip ids the legacy `trip:assigned` socket event has already navigated for. */
+  const seenAssignedIdsRef = useRef<Set<string>>(new Set());
 
   const { data: walletData, isPending: walletPending } = useQuery({
     queryKey: ['driver', 'me'],
@@ -232,7 +235,11 @@ export default function HomeScreen() {
        * bug the sequential cascade exists to prevent.)
        */
       if (useDriverTripStore.getState().offer) return;
-      seenDispatchIdsRef.current.add(data.tripId);
+      // Once per trip id. The dedupe set used to be shared with the 20-second
+      // REST poll that also lived on this screen; that poll is gone (see
+      // `hasPendingDispatch` above), so this owns it now.
+      if (seenAssignedIdsRef.current.has(data.tripId)) return;
+      seenAssignedIdsRef.current.add(data.tripId);
       useNotificationsStore.getState().addNotification({
         type: 'TRIP_ASSIGNED',
         title: data.kind === 'REQUEST' ? 'New ride request nearby' : 'New trip assigned',
@@ -629,6 +636,33 @@ export default function HomeScreen() {
         grabberColor={colors.outline}
       >
         <View style={styles.sheetContent}>
+          {/*
+            ── LIVE WORK, FIRST THING ──────────────────────────────────────
+            "Can you relocate the dispatch tab? Where it is, it might be harder
+            for new drivers to see it. It's in the alerts page. Make it more
+            reachable — the homepage wouldn't be bad actually."
+
+            Right, and worse than a discoverability problem: a driver waiting
+            for work sits on THIS screen, and the one surface that says whether
+            any work exists lived two taps away behind a category filter on a
+            page named after notifications. A new driver had no reason to ever
+            open it.
+
+            Rendered above the day's earnings because a live request outranks a
+            settled number, and only while there is actually something to show —
+            an empty board every time you open the app is noise, and the empty
+            state still has its home on Alerts → Dispatch, which keeps working
+            exactly as before.
+
+            `compact` drops the horizontal padding: the panel already has its
+            own, and the board's default gutter is sized for a full screen.
+          */}
+          {hasPendingDispatch && (
+            <Entrance animation="slideDown" delay={120}>
+              <PendingDispatchList compact />
+            </Entrance>
+          )}
+
           {/* Status row */}
           <Entrance animation="slideDown" delay={150} style={styles.statsRow}>
             <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />

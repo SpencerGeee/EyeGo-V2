@@ -10,7 +10,8 @@ import {
   AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { hasCoords, shareLocationText } from '@eyego/utils';
+import { hasCoords } from '@eyego/utils';
+import { safetyShareMessage } from '../../../utils/safety';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
@@ -25,6 +26,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useRideStore } from '../../../stores/ride.store';
+import { useTripStore } from '../../../stores/trip.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { Text } from '@eyego/ui';
@@ -224,6 +226,16 @@ export default function SOSScreen() {
     ? `${currentCoords.latitude.toFixed(5)}, ${currentCoords.longitude.toFixed(5)}`
     : 'Location unavailable';
 
+  /**
+   * The public tracking id for this trip, for the link a contact opens.
+   *
+   * `/track/:shortId` needs the trip's SHORT id, not the cuid in the route
+   * param. It comes off the live trip snapshot — the same field the trip
+   * surface's Share button reads (see components/trip/stages/TrackingStage.tsx)
+   * — so the two paths cannot send different links for one ride.
+   */
+  const tripShortId = useTripStore((s) => s.snapshot?.shortId ?? null);
+
   const handleSOSPress = async () => {
     if (alertSent || loading) return;
     // Heavy vibration — confirms the SOS was triggered
@@ -277,21 +289,25 @@ export default function SOSScreen() {
          * possible fallback either; the Gulf of Guinea is not a location to send
          * anyone to in an emergency.
          */
-        const where = hasCoords(currentCoords as any)
-          ? shareLocationText(
-              {
-                latitude: currentCoords!.latitude,
-                longitude: currentCoords!.longitude,
-                address: (currentCoords as any)?.address ?? null,
-              },
-              'Location:',
-            )
-          : 'Location: unavailable — please call them.';
-        const msg = encodeURIComponent(
-          `🚨 EMERGENCY: ${user?.name ?? 'An EyeGo rider'} has triggered an SOS alert. ` +
-          `Trip ID: ${id}. ${where} Please contact them immediately.`
-        );
-        Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`).catch(() => {});
+        /**
+         * The link a frightened contact opens. It has to be exact AND readable,
+         * and it has to keep updating — a still pin tells them where the rider
+         * WAS. `safetyShareMessage` sends the live tracking page plus the
+         * current position reverse-geocoded to a street address; see
+         * utils/safety.ts for why the coordinates alone were the bug.
+         *
+         * Awaited rather than fired: the geocode is one cached round trip, and
+         * the SMS composer opening a beat later with a real address beats it
+         * opening instantly with a pair of numbers.
+         */
+        const body = await safetyShareMessage({
+          riderName: user?.name ?? 'An EyeGo rider',
+          shortId: tripShortId,
+          latitude: hasCoords(currentCoords as any) ? currentCoords!.latitude : null,
+          longitude: hasCoords(currentCoords as any) ? currentCoords!.longitude : null,
+          urgent: true,
+        });
+        Linking.openURL(`sms:${emergencyContact.phone}?body=${encodeURIComponent(body)}`).catch(() => {});
       }
     } catch (err) {
       Alert.alert('Error', 'Could not send alert. Please call emergency services directly.');
@@ -300,23 +316,20 @@ export default function SOSScreen() {
     }
   };
 
-  // Backstop for the RideCheck auto-escalation timer above: JS timers can be
-  // frozen while the app is backgrounded and never fire. On foreground resume,
-  // check the real deadline directly and escalate immediately if it's passed.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') return;
-      const deadline = rideCheckDeadlineRef.current;
-      if (deadline && !rideCheckAnsweredRef.current && Date.now() >= deadline) {
-        rideCheckAnsweredRef.current = true;
-        rideCheckDeadlineRef.current = null;
-        if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-        handleSOSPress();
-      }
-    });
-    return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  /**
+   * The foreground backstop for the auto-escalation timer — DELETED, along with
+   * the thing it was backing up.
+   *
+   * It existed because a JS timer can be frozen while the app is backgrounded
+   * and never fire, so it re-checked the deadline on resume and escalated
+   * immediately if it had passed. That made it the WORST of the auto-fire
+   * paths: a rider who put the phone in their pocket through a check-in and
+   * took it out ten minutes later raised an emergency the instant they looked
+   * at the screen. See the RideCheck handler above for the rule.
+   *
+   * The refs it read are kept — they still guard against a duplicate prompt —
+   * but nothing anywhere calls `handleSOSPress` except the button.
+   */
 
   // RideCheck: monitor route deviations via socket.
   // The backend emits 'safety:check' { tripId, reason, timestamp } (driver.socket.js
@@ -334,32 +347,36 @@ export default function SOSScreen() {
           : reason.includes('stop') ? 'Your driver has been stopped for a while. Is everything okay?'
           : 'A safety check was triggered on your trip. Are you safe?';
 
-        // Auto-escalate to a real SOS if the rider doesn't respond at all — previously
-        // an unanswered RideCheck (e.g. an incapacitated rider) triggered nothing further.
-        rideCheckAnsweredRef.current = false;
-        rideCheckDeadlineRef.current = Date.now() + 45_000;
+        /**
+         * ── AN SOS IS SENT BY A PERSON, NEVER BY A TIMER ──────────────────
+         *
+         * "Make sure that the only time an SOS is sent to admin is when the
+         * user explicitly presses the Send SOS to EyeGo button. Nothing else."
+         *
+         * This used to arm a 45-second timer and fire `handleSOSPress()` — a
+         * real alert to the EyeGo safety console, an SMS to the rider's
+         * contacts, the lot — if the rider did not tap anything. A rider whose
+         * phone was in a bag, or who simply put it down, raised a live
+         * emergency they never declared. False alarms are not a neutral cost
+         * in a safety system: they are what teaches an operator to discount
+         * the next one.
+         *
+         * The check itself is worth keeping and is unchanged in every other
+         * respect: the prompt still appears, and "Trigger SOS" is still one tap
+         * away inside it. What is gone is the machine deciding for them.
+         */
+        rideCheckAnsweredRef.current = true;
+        rideCheckDeadlineRef.current = null;
         if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-        rideCheckEscalateTimerRef.current = setTimeout(() => {
-          if (!rideCheckAnsweredRef.current) handleSOSPress();
-        }, 45_000);
 
         Alert.alert(
           'RideCheck Alert',
-          `${message}\n\nIf you don't respond within 45 seconds, SOS will trigger automatically.`,
+          `${message}\n\nNothing is sent to EyeGo unless you ask for it.`,
           [
-            { text: "I'm safe", style: 'default', onPress: () => {
-              rideCheckAnsweredRef.current = true;
-              rideCheckDeadlineRef.current = null;
-              if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-            } },
-            { text: 'Trigger SOS', style: 'destructive', onPress: () => {
-              rideCheckAnsweredRef.current = true;
-              rideCheckDeadlineRef.current = null;
-              if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-              handleSOSPress();
-            } },
+            { text: "I'm safe", style: 'default' },
+            { text: 'Send SOS to EyeGo', style: 'destructive', onPress: () => handleSOSPress() },
           ],
-          { cancelable: false },
+          { cancelable: true },
         );
       });
       return () => { unsub?.(); };
@@ -382,30 +399,20 @@ export default function SOSScreen() {
     };
     const fireCheckIn = () => {
       if (!isNightHour()) return;
-      rideCheckAnsweredRef.current = false;
-      rideCheckDeadlineRef.current = Date.now() + RESPONSE_WINDOW_MS;
+      // Same rule as the RideCheck above: prompt, never escalate. See the note
+      // there for why a timer must not be able to raise a live emergency.
+      rideCheckAnsweredRef.current = true;
+      rideCheckDeadlineRef.current = null;
       if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-      rideCheckEscalateTimerRef.current = setTimeout(() => {
-        if (!rideCheckAnsweredRef.current) handleSOSPress();
-      }, RESPONSE_WINDOW_MS);
 
       Alert.alert(
         'Night Safety Check',
-        "Just checking in on your night trip. Everything OK?\n\nIf you don't respond within 60 seconds, SOS will trigger automatically.",
+        'Just checking in on your night trip. Everything OK?\n\nNothing is sent to EyeGo unless you ask for it.',
         [
-          { text: "I'm OK", style: 'default', onPress: () => {
-            rideCheckAnsweredRef.current = true;
-            rideCheckDeadlineRef.current = null;
-            if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-          } },
-          { text: 'Trigger SOS', style: 'destructive', onPress: () => {
-            rideCheckAnsweredRef.current = true;
-            rideCheckDeadlineRef.current = null;
-            if (rideCheckEscalateTimerRef.current) clearTimeout(rideCheckEscalateTimerRef.current);
-            handleSOSPress();
-          } },
+          { text: "I'm OK", style: 'default' },
+          { text: 'Send SOS to EyeGo', style: 'destructive', onPress: () => handleSOSPress() },
         ],
-        { cancelable: false },
+        { cancelable: true },
       );
     };
     const interval = setInterval(fireCheckIn, NIGHT_CHECK_INTERVAL_MS);
@@ -413,14 +420,33 @@ export default function SOSScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nightSafetyActive, id]);
 
+  /**
+   * CALLING 112 AND ALERTING EYEGO ARE TWO DECISIONS.
+   *
+   * This used to do both off one tap: `handleSOSPress()` — a live alert to the
+   * EyeGo safety console — and then the dialler. That is a second path to an
+   * SOS the rider did not ask for, which is exactly what item 15 rules out, and
+   * it is the wrong default besides: a rider ringing the emergency services
+   * directly is choosing the fastest route to actual help, not asking a ride
+   * company to file a report.
+   *
+   * So the button does what it says on it, and offers the other thing as its
+   * own choice. Both are still one tap away; neither happens by implication.
+   */
   const confirmEmergencyCall = () => {
     Alert.alert(
       'Emergency Call',
-      'This will dispatch an SOS alert with your live location and place an emergency call. Continue?',
+      'This places a call to the emergency services on 112. Nothing is sent to EyeGo unless you also choose to.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Call now',
+          text: 'Call 112 only',
+          onPress: () => {
+            Linking.openURL('tel:112').catch(() => {});
+          },
+        },
+        {
+          text: 'Call + alert EyeGo',
           style: 'destructive',
           onPress: () => {
             handleSOSPress();
@@ -493,18 +519,27 @@ export default function SOSScreen() {
               // yanked the rider into the SMS app repeatedly is gone.
               if (v && emergencyContact?.phone) {
                 const loc = locationRef.current?.coords ?? currentCoords;
-                // Same rule as the SOS message above: a named place plus an
-                // exact link, and nothing at all rather than a link to 0,0.
-                const msg = encodeURIComponent(
-                  `${user?.name ?? 'An EyeGo rider'} is sharing their EyeGo trip with you. ` +
-                  (hasCoords(loc as any)
-                    ? shareLocationText(
-                        { latitude: loc!.latitude, longitude: loc!.longitude },
-                        'Live location:',
-                      )
-                    : 'Their location is not available yet.')
-                );
-                Linking.openURL(`sms:${emergencyContact.phone}?body=${msg}`).catch(() => {});
+                /**
+                 * THE SAME LINK THE SHARE BUTTON SENDS.
+                 *
+                 * BUGFIX (item 16): "when I choose to share my trip it should be
+                 * the shareable link that would redirect the user to the browser
+                 * showing the live trip — that's what is already done for share
+                 * trip, but it should be the same for the safety share live trip
+                 * button."
+                 *
+                 * This sent a static pin. The safety path is the one where a
+                 * page that keeps updating matters most, and it was the one
+                 * without it.
+                 */
+                void safetyShareMessage({
+                  riderName: user?.name ?? 'An EyeGo rider',
+                  shortId: tripShortId,
+                  latitude: hasCoords(loc as any) ? loc!.latitude : null,
+                  longitude: hasCoords(loc as any) ? loc!.longitude : null,
+                }).then((body) => {
+                  Linking.openURL(`sms:${emergencyContact.phone}?body=${encodeURIComponent(body)}`).catch(() => {});
+                });
               }
             }}
           />

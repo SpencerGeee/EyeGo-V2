@@ -153,10 +153,20 @@ const createSavedPlace = async (req, res) => {
   ok(res, { place }, 'Place saved');
 };
 
+const updateSavedPlace = async (req, res) => {
+  const place = await usersService.updateSavedPlace(req.user.userId, req.params.placeId, {
+    ...req.body,
+    lat: req.body.lat != null ? Number(req.body.lat) : undefined,
+    lng: req.body.lng != null ? Number(req.body.lng) : undefined,
+    sortOrder: req.body.sortOrder != null ? Number(req.body.sortOrder) : undefined,
+  });
+  ok(res, { place }, 'Place updated');
+};
+
 const deleteSavedPlace = async (req, res) => {
   await usersService.deleteSavedPlace(req.user.userId, req.params.placeId);
   ok(res, {}, 'Place removed');
 };
 
 module.exports = {
-  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };

@@ -303,16 +303,43 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
         // The offer moved on — taken, cancelled or timed out. Told explicitly
         // so no driver is left holding a dead card and tapping Accept into a
         // 409, which is what a broadcast dispatch does to four drivers in five.
+        const revokedId = event.payload?.tripId;
+        const reason = event.payload?.reason;
+        /**
+         * WHY IT WAS REVOKED DECIDES WHAT HAPPENS TO THE ROW.
+         *
+         * BUGFIX (item 4: "on the driver app it's still telling me live
+         * requests in queue, all 2 of them, but on the rider side I cancelled
+         * the trip").
+         *
+         * Every revoke used to be treated as "somebody else has it": the row
+         * survived, wearing `heldByAnother`, which the board rendered as IN
+         * QUEUE. For TAKEN that is true and useful. For CANCELLED there is no
+         * ride left at all, and for TIMEOUT the truth is the opposite of what
+         * was shown — nobody holds it, and this very driver may claim it.
+         */
+        const gone = reason === 'CANCELLED' || reason === 'TAKEN';
         set((s) => ({
-          offer: s.offer?.tripId === event.payload?.tripId ? null : s.offer,
-          // Revoked means somebody else has it or it is gone; either way it is
-          // no longer mine to accept, so the row stops claiming otherwise.
-          pendingRequests: s.pendingRequests.map((r) =>
-            r.tripId === event.payload?.tripId
-              ? { ...r, offeredToMe: false, heldByAnother: true, expiresAtServerMs: null }
-              : r,
-          ),
+          offer: s.offer?.tripId === revokedId ? null : s.offer,
+          pendingRequests: gone
+            ? s.pendingRequests.filter((r) => r.tripId !== revokedId)
+            : s.pendingRequests.map((r) =>
+                r.tripId === revokedId
+                  ? {
+                      ...r,
+                      offeredToMe: false,
+                      expiresAtServerMs: null,
+                      // A timeout or a decline hands the ride back to the pool,
+                      // it does not hand it to a named driver. The next poll
+                      // carries the server's own answer either way.
+                      heldByAnother: reason === 'DECLINED' ? r.heldByAnother : false,
+                    }
+                  : r,
+              ),
         }));
+        // Whatever it was, the server knows more than this frame does — and
+        // this is the moment the board is most likely to be wrong. One read.
+        void get().hydrate();
       }
     };
     // A reconnect (backgrounded phone, tunnel, carrier handover) re-runs the

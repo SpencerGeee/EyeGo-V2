@@ -88,14 +88,45 @@ async function fetchJson(url: string): Promise<any | null> {
   }
 }
 
+/**
+ * THE MOST SPECIFIC THING WE KNOW ABOUT THIS POINT — a street, not a city.
+ *
+ * BUGFIX (item 7: "I picked a location and it showed it as Accra, Greater
+ * Accra, Ghana — it needs to be the actual street so people can tell at a
+ * glance where it is").
+ *
+ * `r.name` led this chain. On a REVERSE lookup that resolves to an
+ * administrative area, `name` IS the city — so the city won over the road every
+ * time OSM had both. On a forward SEARCH `name` is the thing the rider typed
+ * and is exactly right, which is why the bug hid: the same function serves both,
+ * and only one of them was wrong.
+ *
+ * A house number and road beat everything when they exist. `name` keeps its
+ * place for a POI (where `road` is absent and `name` is "Accra Mall"), but sits
+ * below the street rather than above it.
+ *
+ * Mirrors the server's `reverseGeocode` fallback in
+ * eyego-api/src/modules/geo/geo.service.js. If one changes, change both.
+ */
 function primaryName(r: NominatimResult): string {
-  const a = r.address;
+  const a = r.address as (NominatimResult['address'] & {
+    house_number?: string;
+    footway?: string;
+    building?: string;
+    amenity?: string;
+    shop?: string;
+  }) | undefined;
+  const street = [a?.house_number, a?.road ?? a?.pedestrian ?? a?.footway]
+    .filter(Boolean)
+    .join(' ');
   return (
-    r.name ||
-    a?.road ||
-    a?.pedestrian ||
+    street ||
+    a?.building ||
+    a?.amenity ||
+    a?.shop ||
     a?.neighbourhood ||
     a?.suburb ||
+    r.name ||
     a?.village ||
     a?.town ||
     a?.city ||

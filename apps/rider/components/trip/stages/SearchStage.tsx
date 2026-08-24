@@ -35,7 +35,7 @@ import { useRecentPlaces } from '../../../stores/recentPlaces.store';
 import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
-import { isHomeLabel, isWorkLabel } from '../../../utils/savedPlaceSlots';
+import { slotOfPlace } from '../../../utils/savedPlaceSlots';
 
 /**
  * Search stage of the persistent trip surface — the where-to card.
@@ -349,8 +349,16 @@ function SearchStageImpl() {
     let work: SavedPlace | null = null;
     const rest: SavedPlace[] = [];
     for (const p of savedPlaces) {
-      if (!home && isHomeLabel(p.label)) home = p;
-      else if (!work && isWorkLabel(p.label)) work = p;
+      /**
+       * The SLOT, not the label. Both were the same thing until riders could
+       * name a place freely — see utils/savedPlaceSlots.ts for the bug that
+       * made the inference unsafe. `slotOfPlace` still falls back to the label
+       * for rows written before the column existed, so this cannot regress a
+       * shortcut that already worked.
+       */
+      const slot = slotOfPlace(p);
+      if (!home && slot === 'HOME') home = p;
+      else if (!work && slot === 'WORK') work = p;
       else rest.push(p);
     }
     return { homePlace: home, workPlace: work, otherSaved: rest };

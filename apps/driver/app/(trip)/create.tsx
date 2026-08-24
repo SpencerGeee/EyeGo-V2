@@ -594,16 +594,39 @@ export default function CreateTripScreen() {
                     key={opt.value}
                     palette={t.ringPalette}
                     borderRadius={radii.lg}
-                    thickness={active ? 'regular' : 'thin'}
+                    /**
+                     * CONSTANT THICKNESS. THIS IS THE MISALIGNMENT.
+                     *
+                     * BUGFIX (item 11: "the glow buttons seem to be misaligned,
+                     * and on Comfort it's not aligned properly").
+                     *
+                     * `thickness` was `regular` when selected and `thin`
+                     * otherwise. The ring is a border on the OUTER wrapper, so
+                     * changing it changes the inset of the content box inside
+                     * it — the selected card's icon, name and description all
+                     * shifted a pixel or two down and in, against two
+                     * neighbours that had not moved. Every tap re-broke the
+                     * alignment of a different card, which is exactly the
+                     * "Comfort isn't aligned" report: Comfort was simply the
+                     * one being looked at.
+                     *
+                     * Selection is now carried entirely by things that do not
+                     * affect layout — glow strength, fill tint, icon and label
+                     * colour, and the check.
+                     */
+                    thickness="regular"
                     fillColor={colors.surfaceContainerHigh}
                     glow
-                    glowIntensity={active ? 1 : 0.55}
-                    maxGlowRadius={active ? 22 : 16}
+                    glowIntensity={active ? 1 : 0.5}
+                    maxGlowRadius={active ? 22 : 14}
                     style={styles.tierCardWrap}
                   >
                     <Pressable
                       style={[styles.tierCard, active && { backgroundColor: t.softBg }]}
                       onPress={() => setTier(opt.value)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${opt.name}. ${opt.desc}`}
                     >
                       {/* The same inner bloom the Review & Publish card has,
                           tinted to this tier rather than to the app's blue. It
@@ -616,18 +639,44 @@ export default function CreateTripScreen() {
                           { backgroundColor: t.accent, opacity: active ? 0.14 : 0.06 },
                         ]}
                       />
-                      <View style={[styles.tierIconWrap, { backgroundColor: t.iconBg }]}>
+                      <View
+                        style={[
+                          styles.tierIconWrap,
+                          { backgroundColor: t.iconBg, borderColor: active ? t.accent + '55' : 'transparent' },
+                        ]}
+                      >
                         <Ionicons name={opt.icon} size={20} color={t.accent} />
                       </View>
-                      <Text style={[styles.tierName, active && { color: t.accent }]}>{opt.name}</Text>
-                      <Text variant="caption" color={colors.onSurfaceVariant} style={styles.tierDesc}>
+                      <Text
+                        style={[styles.tierName, active && { color: t.accent }]}
+                        numberOfLines={1}
+                      >
+                        {opt.name}
+                      </Text>
+                      {/* Fixed to two lines whether the copy fills them or not.
+                          "Higher fare" is one line and the other two are two, so
+                          without this the three cards stretched to the tallest
+                          and Comfort's content floated in the middle of a box
+                          sized for somebody else's text — the second half of
+                          "on Comfort it's not aligned properly". */}
+                      <Text
+                        variant="caption"
+                        color={active ? t.accent : colors.onSurfaceVariant}
+                        style={styles.tierDesc}
+                        numberOfLines={2}
+                      >
                         {opt.desc}
                       </Text>
-                      {active && (
-                        <View style={styles.tierCheck}>
-                          <Ionicons name="checkmark-circle" size={18} color={t.accent} />
-                        </View>
-                      )}
+                      {/* The check occupies its slot always, transparent when
+                          unselected: appearing on tap used to reflow the header
+                          row on the card being chosen. */}
+                      <View style={styles.tierCheck} pointerEvents="none">
+                        <Ionicons
+                          name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={18}
+                          color={active ? t.accent : colors.outline}
+                        />
+                      </View>
                     </Pressable>
                   </GradientGlowBorder>
                 );
@@ -908,7 +957,10 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: radii.lg,
       backgroundColor: colors.surfaceContainer,
     },
-    tierRow: { flexDirection: 'row', gap: spacing.md },
+    // `alignItems: 'stretch'` is the default and is what makes the three rings
+    // equal height; the fixed content boxes below are what make their CONTENTS
+    // line up inside that height. Both are needed — see item 11.
+    tierRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'stretch' },
     /** The GLOW RING owns the flex and the outer radius; the card inside it owns
      *  the padding. Splitting them is required — GradientGlowBorder routes layout
      *  props to its outer wrapper and everything else to its clipped content box,
@@ -917,6 +969,9 @@ const makeStyles = (colors: DriverColors) =>
     tierCardWrap: { flex: 1 },
     tierCard: {
       padding: spacing.base,
+      // Room on the right for the check, which is absolutely positioned and
+      // would otherwise sit on top of a long tier name.
+      paddingRight: spacing.base + 20,
       gap: 6,
       // The bloom below is absolutely positioned and deliberately oversized, so
       // the card has to clip it or it bleeds over its neighbours.
@@ -944,14 +999,22 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 2,
+      // Selection colours the ring around the glyph rather than resizing
+      // anything. A hairline that is transparent when unselected occupies the
+      // same box either way.
+      borderWidth: StyleSheet.hairlineWidth,
     },
     tierName: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
       lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+      // One line, always — so the description below starts at the same y on all
+      // three cards whatever the tier is called.
+      height: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
-    tierDesc: { lineHeight: 16 },
+    // Exactly two lines of caption, reserved whether the copy fills them or not.
+    tierDesc: { lineHeight: 16, height: 32 },
     tierCheck: { position: 'absolute', top: spacing.base, right: spacing.base },
     fareCard: {
       marginTop: spacing.xl,

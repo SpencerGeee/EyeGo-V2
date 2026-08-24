@@ -75,7 +75,10 @@ export default function ReportPassengerScreen() {
       seatNumber: (b.seatNumber ?? null) as number | null,
       // A guest booked by somebody else has no user account; name them by the
       // guest name so the driver can still tell two seats apart.
-      name: (b.user?.name ?? b.guestName ?? (b.seatNumber ? `Seat ${b.seatNumber}` : 'Passenger')) as string,
+      // `guestName` first: it is who is actually in the seat. See the long note
+      // in (trip)/active/[id].tsx — the account name is never null when it
+      // exists, so `??` after it could never reach the guest.
+      name: (b.guestName ?? b.user?.name ?? (b.seatNumber ? `Seat ${b.seatNumber}` : 'Passenger')) as string,
       isGuest: !b.user?.id,
     }));
 

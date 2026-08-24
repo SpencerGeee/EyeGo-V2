@@ -547,74 +547,139 @@ async function updateInsuranceCard(userId, fileBuffer) {
 const getPrivacySettings = (userId) => getSettingsBlob(userId, 'privacySettings');
 const updatePrivacySettings = (userId, patch) => updateSettingsBlob(userId, 'privacySettings', patch);
 
-async function getSavedPlaces(userId) {
-  return prisma.savedPlace.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true, label: true, address: true, lat: true, lng: true, icon: true },
-  });
-}
+/**
+ * ── SAVED PLACES ────────────────────────────────────────────────────────────
+ *
+ * "You need to also implement the system where users can add multiple saved
+ *  places and they can even name a spot like (Cyril's house), so it's very
+ *  convenient."
+ *
+ * They could add several, and they could name them — and the two features
+ * quietly cancelled each other out. Home and Work were INFERRED from the label
+ * (`label.toLowerCase().includes('home')`), and `createSavedPlace` treats a slot
+ * claim as an UPDATE rather than an insert. So naming a place the way a person
+ * actually would — "Mum's home", "home of the gym" — did not create a place at
+ * all: it silently overwrote the rider's home address with somebody else's.
+ * The screen then showed the new address exactly where it was expected to be,
+ * which is why this was invisible until the Where To shortcut sent someone to
+ * the wrong side of the city.
+ *
+ * `SavedPlace.slot` makes it a choice instead of a guess. 'HOME' | 'WORK' |
+ * null; the database holds one of each per rider (`@@unique([userId, slot])`,
+ * and Postgres does not constrain NULLs, so free-form places are unlimited).
+ * A label is now just a name.
+ */
 
-// Client passes this straight to a native Ionicons `name` prop with no
-// validation — an unrecognized glyph name is a hard native crash on the
-// device (font glyph lookup failure), not a catchable JS error. Only ever
-// persist a value this app's saved-places screen actually knows how to draw.
-const VALID_PLACE_ICONS = new Set(['home-outline', 'briefcase-outline', 'location-outline']);
+/** The columns every saved-place response carries. */
+const PLACE_SELECT = {
+  id: true, label: true, address: true, lat: true, lng: true,
+  icon: true, slot: true, sortOrder: true,
+};
 
 /**
- * Home and Work are SLOTS, not labels — the same rule the apps use, restated
- * here because the server is where it has to be enforced. Kept deliberately
- * identical to `apps/rider/utils/savedPlaceSlots.ts`; if one changes, change both.
+ * Icons the rider's saved-places screen knows how to draw.
+ *
+ * NOT cosmetic validation. The client passes this straight to a native
+ * Ionicons `name` prop with no checking of its own, and an unrecognised glyph
+ * name is a hard native crash on the device (font glyph lookup failure), not a
+ * catchable JS error. Only ever persist a value the screen can render.
+ *
+ * Widened well past the original three because a list of freely-named places is
+ * unusable without them: five rows that all wear the same grey pin are five
+ * rows a rider has to read rather than recognise.
  */
-const claimsHomeSlot = (label) => label.trim().toLowerCase().includes('home');
+const VALID_PLACE_ICONS = new Set([
+  'home-outline', 'briefcase-outline', 'location-outline',
+  'heart-outline', 'barbell-outline', 'school-outline', 'cart-outline',
+  'restaurant-outline', 'medkit-outline', 'airplane-outline', 'business-outline',
+  'people-outline', 'football-outline', 'library-outline', 'bed-outline',
+  'cafe-outline', 'car-outline', 'star-outline',
+]);
+
+const VALID_SLOTS = new Set(['HOME', 'WORK']);
+const normalizeSlot = (slot) => (VALID_SLOTS.has(slot) ? slot : null);
+
+/**
+ * The OLD label inference, kept for one purpose only: reading rows written
+ * before `slot` existed on a deployment where the migration's backfill has not
+ * run yet. Never used to WRITE a slot.
+ *
+ * Mirrors `apps/rider/utils/savedPlaceSlots.ts`, which keeps the same helpers
+ * for the same reason.
+ */
+const claimsHomeSlot = (label) => String(label ?? '').trim().toLowerCase().includes('home');
 const claimsWorkSlot = (label) => {
-  const l = label.trim().toLowerCase();
+  const l = String(label ?? '').trim().toLowerCase();
   return l.includes('work') || l.includes('office');
 };
 
-const slotOf = (label) => (claimsHomeSlot(label) ? 'HOME' : claimsWorkSlot(label) ? 'WORK' : null);
+/** A place's slot: the column when it has one, the legacy inference otherwise. */
+function effectiveSlot(place) {
+  if (place.slot) return place.slot;
+  if (claimsHomeSlot(place.label)) return 'HOME';
+  if (claimsWorkSlot(place.label)) return 'WORK';
+  return null;
+}
 
-const PLACE_SELECT = { id: true, label: true, address: true, lat: true, lng: true, icon: true };
+async function getSavedPlaces(userId) {
+  const rows = await prisma.savedPlace.findMany({
+    where: { userId },
+    // Slots first, then the rider's own order, then oldest — so Home and Work
+    // stay pinned to the top of the list however many places sit under them.
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    select: PLACE_SELECT,
+  });
+  /**
+   * The legacy slot is projected onto the response rather than written back.
+   *
+   * A backfill is the migration's job and it runs once; this is what keeps the
+   * apps correct on an instance where the code is newer than the database, and
+   * it costs nothing.
+   */
+  return rows
+    .map((p) => ({ ...p, slot: effectiveSlot(p) }))
+    .sort((a, b) => {
+      const rank = (s) => (s === 'HOME' ? 0 : s === 'WORK' ? 1 : 2);
+      return rank(a.slot) - rank(b.slot) || a.sortOrder - b.sortOrder;
+    });
+}
 
-/**
- * RE-SAVING YOUR HOME ADDRESS USED TO STRAND YOU AT THE OLD ONE.
- *
- * This was an unconditional `create`. Both apps treat Home and Work as slots —
- * saved-places renders the "Add Home address" prompt only when no place claims
- * the Home slot, and Where To's shortcut resolves Home with
- * `if (!home && isHomeLabel(p.label)) home = p` — FIRST match wins, over a list
- * that `getSavedPlaces` returns oldest-first.
- *
- * So a rider who moved house and saved their new Home got two rows labelled
- * Home, and the Where To shortcut went on sending them to the previous address
- * indefinitely: the new row could never be first. Nothing in the UI explained
- * it, because the saved-places screen showed the new address sitting right there.
- *
- * A place that claims an occupied slot now updates it. Anything else — "Gym",
- * "Mom's House" — is a free-form place and still appends, which is why the cap
- * check only applies on that path.
- */
-async function createSavedPlace(userId, { label, address, lat, lng, icon }) {
-  const trimmedLabel = label.trim();
-  const slot = slotOf(trimmedLabel);
+/** How many freely-named places one rider may keep, on top of the two slots. */
+const MAX_CUSTOM_PLACES = 40;
+
+async function createSavedPlace(userId, { label, address, lat, lng, icon, slot }) {
   const data = {
-    label: trimmedLabel,
-    address: address.trim(),
+    label: String(label).trim(),
+    address: String(address).trim(),
     lat,
     lng,
     icon: VALID_PLACE_ICONS.has(icon) ? icon : null,
+    slot: normalizeSlot(slot),
   };
 
-  if (slot) {
-    const claims = slot === 'HOME' ? claimsHomeSlot : claimsWorkSlot;
+  /**
+   * A SLOT IS SINGULAR, SO SAVING ONE REPLACES IT.
+   *
+   * That behaviour is right and is why the bug was subtle — it is only wrong
+   * when the slot was GUESSED. Now that the rider says which slot they mean,
+   * "save this as my Home" replacing their old home is exactly what they asked
+   * for, and nothing else can trigger it.
+   *
+   * Duplicates from before the unique index are cleared on the way past: rows
+   * written under the old rule can have two Homes, and leaving them would keep
+   * the shortcut resolving to whichever is oldest.
+   */
+  if (data.slot) {
+    const claims = data.slot === 'HOME' ? claimsHomeSlot : claimsWorkSlot;
     const existing = (
-      await prisma.savedPlace.findMany({ where: { userId }, orderBy: { createdAt: 'asc' }, select: PLACE_SELECT })
-    ).filter((p) => claims(p.label));
+      await prisma.savedPlace.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, label: true, slot: true },
+      })
+    ).filter((p) => (p.slot ? p.slot === data.slot : !p.slot && claims(p.label)));
 
     if (existing.length) {
-      // Overwrite the one the apps would have picked, and clear any duplicate
-      // slot rows an earlier version of this function already created — leaving
-      // them would keep the shortcut resolving to whichever is oldest.
       const [keep, ...duplicates] = existing;
       if (duplicates.length) {
         await prisma.savedPlace.deleteMany({ where: { id: { in: duplicates.map((d) => d.id) } } });
@@ -623,9 +688,62 @@ async function createSavedPlace(userId, { label, address, lat, lng, icon }) {
     }
   }
 
-  const count = await prisma.savedPlace.count({ where: { userId } });
-  if (count >= 20) throw new AppError('Maximum 20 saved places allowed', 400);
-  return prisma.savedPlace.create({ data: { userId, ...data }, select: PLACE_SELECT });
+  const count = await prisma.savedPlace.count({ where: { userId, slot: null } });
+  if (count >= MAX_CUSTOM_PLACES) {
+    throw new AppError(`You can save up to ${MAX_CUSTOM_PLACES} places. Remove one to add another.`, 400);
+  }
+  // New free-form places go to the end of the list rather than the middle.
+  const last = await prisma.savedPlace.findFirst({
+    where: { userId },
+    orderBy: { sortOrder: 'desc' },
+    select: { sortOrder: true },
+  });
+  return prisma.savedPlace.create({
+    data: { userId, ...data, sortOrder: (last?.sortOrder ?? 0) + 1 },
+    select: PLACE_SELECT,
+  });
+}
+
+/**
+ * RENAME, RE-PIN, RE-ICON — without deleting and re-adding.
+ *
+ * A list of named places is only convenient if the names can be corrected. The
+ * screen's only editing verb was Delete, so fixing a typo in "Cyril's house"
+ * meant losing the pin and picking it again on a map.
+ *
+ * Every field is optional and only what is supplied is written, so a rename
+ * cannot silently move a pin.
+ */
+async function updateSavedPlace(userId, placeId, patch = {}) {
+  const place = await prisma.savedPlace.findUnique({ where: { id: placeId } });
+  if (!place || place.userId !== userId) throw new NotFoundError('Saved place');
+
+  const data = {};
+  if (typeof patch.label === 'string' && patch.label.trim()) data.label = patch.label.trim();
+  if (typeof patch.address === 'string' && patch.address.trim()) data.address = patch.address.trim();
+  if (Number.isFinite(patch.lat) && Number.isFinite(patch.lng)) {
+    data.lat = patch.lat;
+    data.lng = patch.lng;
+  }
+  if (typeof patch.icon === 'string') data.icon = VALID_PLACE_ICONS.has(patch.icon) ? patch.icon : null;
+  if (patch.slot !== undefined) {
+    const next = normalizeSlot(patch.slot);
+    // Moving a place INTO an occupied slot has to empty the other one, or the
+    // unique index rejects the write with a 500 the rider cannot act on.
+    if (next) {
+      await prisma.savedPlace.updateMany({
+        where: { userId, slot: next, NOT: { id: placeId } },
+        data: { slot: null },
+      });
+    }
+    data.slot = next;
+  }
+  if (Number.isFinite(patch.sortOrder)) data.sortOrder = Math.trunc(patch.sortOrder);
+
+  if (Object.keys(data).length === 0) {
+    return prisma.savedPlace.findUnique({ where: { id: placeId }, select: PLACE_SELECT });
+  }
+  return prisma.savedPlace.update({ where: { id: placeId }, data, select: PLACE_SELECT });
 }
 
 async function deleteSavedPlace(userId, placeId) {
@@ -635,4 +753,4 @@ async function deleteSavedPlace(userId, placeId) {
 }
 
 module.exports = {
-  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, deleteSavedPlace };
+  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };

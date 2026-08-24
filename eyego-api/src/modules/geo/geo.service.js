@@ -448,26 +448,59 @@ async function searchOnce({ query: trimmed, limit, proximity, country }) {
   };
 }
 
+/**
+ * WHAT A REVERSE GEOCODE IS ALLOWED TO ANSWER WITH, MOST SPECIFIC FIRST.
+ *
+ * BUGFIX (item 7: "the location street address shown is always the approximate
+ * city and not the actual street name — I picked a location and it showed
+ * 'Accra, Greater Accra, Ghana'").
+ *
+ * The call below passed no `types` at all. Mapbox's reverse endpoint then
+ * returns its own highest-confidence feature for the point, and over most of
+ * Accra — where address-level coverage is thin — that is the `place` polygon,
+ * i.e. the city. Ranked correctly by Mapbox and useless to a rider: "Accra" does
+ * not tell a driver which kerb to stop at.
+ *
+ * So the point is asked THREE times, narrowest first. `address` is a numbered
+ * building, `street` is the road it stands on, `poi` is the landmark a Ghanaian
+ * rider is far more likely to name than either. Only when none of those exists
+ * do we fall through to the wide types and print the neighbourhood or the city —
+ * which is then the honest answer rather than a lazy one.
+ *
+ * Cost: one extra round trip ONLY when the specific pass finds nothing, because
+ * each tier returns as soon as it has a hit. `placeNameFor` in
+ * services/mapbox.service.js caches by rounded coordinate for a day, and this
+ * endpoint is behind the picker's own debounce.
+ */
+const REVERSE_TYPE_TIERS = ['address,street', 'poi', 'neighborhood,locality,place'];
+
 /** Reverse geocode for the map-pin picker. Coordinates stay the caller's. */
 async function reverseGeocode({ lat, lng }) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
   if (hasMapbox()) {
-    try {
-      const { data } = await axios.get(REVERSE_URL, {
-        params: {
-          longitude: lng,
-          latitude: lat,
-          limit: 1,
-          language: 'en',
-          access_token: env.MAPBOX_SECRET_TOKEN,
-        },
-        timeout: SEARCH_TIMEOUT_MS,
-      });
-      const mapped = mapboxToResult(data?.features?.[0]);
-      if (mapped) return { ...mapped, latitude: lat, longitude: lng };
-    } catch (err) {
-      logger.warn(`Mapbox reverse failed at ${lat},${lng}: ${err.message}`);
+    for (const types of REVERSE_TYPE_TIERS) {
+      try {
+        const { data } = await axios.get(REVERSE_URL, {
+          params: {
+            longitude: lng,
+            latitude: lat,
+            limit: 1,
+            types,
+            language: 'en',
+            access_token: env.MAPBOX_SECRET_TOKEN,
+          },
+          timeout: SEARCH_TIMEOUT_MS,
+        });
+        const mapped = mapboxToResult(data?.features?.[0]);
+        if (mapped) return { ...mapped, latitude: lat, longitude: lng };
+      } catch (err) {
+        // A 422 here means "no feature of these types at this point", which is
+        // the ordinary case for the narrow tiers and not worth a warning line.
+        if (err?.response?.status !== 422) {
+          logger.warn(`Mapbox reverse (${types}) failed at ${lat},${lng}: ${err.message}`);
+        }
+      }
     }
   }
 
@@ -479,8 +512,27 @@ async function reverseGeocode({ lat, lng }) {
     });
     if (data && !data.error && data.display_name) {
       const a = data.address ?? {};
+      /**
+       * SAME RULE, OSM'S VOCABULARY.
+       *
+       * `data.name` led this chain and is the reason Nominatim answered with a
+       * city too: on a reverse lookup that resolves to an administrative area,
+       * `name` IS "Accra". A house number and road beat every one of these when
+       * they exist, so they go first, and the bare `name` drops to where it
+       * belongs — after the road, the suburb and the neighbourhood.
+       */
+      const street = [a.house_number, a.road ?? a.pedestrian ?? a.footway].filter(Boolean).join(' ');
       const name =
-        data.name || a.road || a.neighbourhood || a.suburb || a.village || a.town || a.city ||
+        street ||
+        a.building ||
+        a.amenity ||
+        a.shop ||
+        a.neighbourhood ||
+        a.suburb ||
+        data.name ||
+        a.village ||
+        a.town ||
+        a.city ||
         String(data.display_name).split(',')[0];
       return {
         placeId: String(data.place_id),
@@ -488,7 +540,7 @@ async function reverseGeocode({ lat, lng }) {
         fullAddress: data.display_name,
         latitude: lat,
         longitude: lng,
-        kind: 'place',
+        kind: street ? 'address' : 'place',
       };
     }
   } catch (err) {

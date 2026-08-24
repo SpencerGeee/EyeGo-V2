@@ -337,6 +337,10 @@ async function getTrip(id, viewerUserId = null) {
         // bookings down for a browsing stranger.
         select: {
           id: true, seatNumber: true, status: true, paymentStatus: true,
+          // `guestPhone` is deliberately NOT here. This endpoint is reachable by
+          // any rider on the trip and by anyone browsing a public listing; the
+          // driver's own payload (drivers.service.js) is where a guest's number
+          // belongs, because the driver is the only person who needs to ring it.
           userId: true, isOffline: true, guestName: true, fareAmountPesewas: true,
         },
       },

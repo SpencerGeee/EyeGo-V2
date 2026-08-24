@@ -1,9 +1,8 @@
 'use client';
 import React, { useEffect, useRef, useCallback, useState } from 'react';
-import { Animated, View, StyleSheet, Platform, Pressable } from 'react-native';
 import { useRouter, useSegments, type Href } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
 import {
   connectDriverSocket,
   disconnectDriverSocket,
@@ -11,12 +10,9 @@ import {
 } from '@eyego/api';
 import { useDriverStore } from '../stores/driver.store';
 import { useNotificationsStore } from '../stores/notifications.store';
-import { useColors } from '../utils/useColors';
-import { Text } from '@eyego/ui';
-import { Ionicons } from '@expo/vector-icons';
-import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
-import Constants from 'expo-constants';
+import { useDriverTripStore } from '../stores/trip.store';
 import { useChatUnread } from '../stores/chatUnread.store';
+import { DriverToast, type ToastTone } from './DriverToast';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
 // throws ReferenceError for properties that don't exist on objects deserialized
@@ -60,14 +56,25 @@ function safeRead(obj: unknown, key: string, fallback?: string): string | undefi
 export function DriverTripStatusListener() {
   const router = useRouter();
   const segments = useSegments();
-  const colors = useColors();
   const queryClient = useQueryClient();
   const { isLoggedIn, activeTripId } = useDriverStore();
 
-  const [bannerMsg, setBannerMsg] = useState<string | null>(null);
-  const [bannerIcon, setBannerIcon] = useState<string>('notifications');
-  const bannerAnim = useRef(new Animated.Value(-120)).current;
-  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * ONE TOAST, WITH A TONE.
+   *
+   * The banner used to be four pieces of local state and a hand-rolled
+   * `Animated.Value`, all of it rendering in the app's primary blue whatever
+   * had happened. `DriverToast` owns the surface now — see its header for the
+   * four things that were wrong with the old one. This component's job is to
+   * decide WHAT to say; the toast decides how it looks.
+   */
+  const [toast, setToast] = useState<{
+    message: string;
+    title?: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    tone: ToastTone;
+    durationMs?: number;
+  } | null>(null);
   // Where tapping the banner should navigate, with the route param.
   const bannerDestRef = useRef<{ type: 'chat' | 'dispatch' | 'tracking'; tripId: string; kind?: 'REQUEST' | 'REASSIGNMENT' } | null>(null);
 
@@ -77,23 +84,24 @@ export function DriverTripStatusListener() {
   useEffect(() => { activeTripIdRef.current = activeTripId; }, [activeTripId]);
   useEffect(() => { segmentsRef.current = segments; }, [segments]);
 
-  const showBanner = useCallback((msg: string, icon: string = 'notifications') => {
-    setBannerMsg(msg);
-    setBannerIcon(icon);
-    Animated.spring(bannerAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      ...springs.standard,
-    }).start();
-    if (bannerTimer.current) clearTimeout(bannerTimer.current);
-    bannerTimer.current = setTimeout(() => {
-      Animated.timing(bannerAnim, {
-        toValue: -120,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => setBannerMsg(null));
-    }, 5000);
-  }, [bannerAnim]);
+  const showBanner = useCallback(
+    (
+      msg: string,
+      icon: keyof typeof Ionicons.glyphMap = 'notifications',
+      opts: { tone?: ToastTone; title?: string; durationMs?: number } = {},
+    ) => {
+      setToast({
+        message: msg,
+        icon,
+        tone: opts.tone ?? 'info',
+        title: opts.title,
+        durationMs: opts.durationMs,
+      });
+    },
+    [],
+  );
+
+  const dismissToast = useCallback(() => setToast(null), []);
 
   // ── Socket connection: connect as soon as the driver is logged in ──
   // Ref-counted (connectDriverSocket) so the socket stays alive as long as any
@@ -111,12 +119,12 @@ export function DriverTripStatusListener() {
     if (!isLoggedIn) return;
 
     const unsubDisconnect = driverSocketEvents.onDisconnect(() => {
-      showBanner('Connection lost — reconnecting…', 'wifi-outline');
+      showBanner('Connection lost — reconnecting…', 'wifi-outline', { tone: 'alert' });
     });
 
     // Re-join the active trip room on (re)connect + clear the reconnecting banner.
     const unsubConnect = driverSocketEvents.onConnect(() => {
-      setBannerMsg(null);
+      dismissToast();
       const tId = activeTripIdRef.current;
       if (tId) driverSocketEvents.emitJoinTracking(tId);
     });
@@ -148,6 +156,7 @@ export function DriverTripStatusListener() {
       showBanner(
         route && dest ? `${title}: ${route} → ${dest}` : `${title} — tap to view`,
         'navigate-circle',
+        { tone: 'offer', title, durationMs: 9000 },
       );
     });
 
@@ -249,20 +258,82 @@ export function DriverTripStatusListener() {
       unsubStatus();
       unsubPayment();
       unsubSeat();
+      // Was never unsubscribed — every remount left another live listener on
+      // the socket, so a driver who logged out and back in got the same
+      // "X took seat N" banner two and three times over.
+      unsubPassengerJoined();
       unsubChat();
       unsubPrivateChat();
     };
-  }, [isLoggedIn, showBanner, queryClient]);
+  }, [isLoggedIn, showBanner, dismissToast, queryClient]);
 
-  // Cleanup timer on unmount
-  useEffect(() => () => {
-    if (bannerTimer.current) clearTimeout(bannerTimer.current);
-  }, []);
+  /**
+   * ── THE BANNER THAT DID NOT EXIST: A DISPATCH OFFER ───────────────────────
+   *
+   * BUGFIX (item 10: "the dispatch can't see your toast notification — when it
+   * comes, it doesn't seem to reconnect on its own unless you close the app or
+   * go offline and back online").
+   *
+   * Everything above listens to a NAMED socket event, and the one this file
+   * cared most about — `trip:assigned` — is not what the cascade publishes. A
+   * dispatch offer rides the sequenced `trip:event` envelope as `type: 'OFFER'`
+   * and is parked in the trip store (see stores/trip.store.ts). So
+   * `onTripAssigned` fired for essentially nothing, and the driver's only
+   * signal that work had arrived was the full-screen offer sheet — which
+   * renders ONLY for an exclusive offer. A search that is merely OPEN to this
+   * driver, which is most of a ride's five-minute life, announced itself
+   * nowhere at all.
+   *
+   * Subscribing to the STORE rather than to a socket event is what makes this
+   * work on every delivery path at once: the socket frame, the two-second REST
+   * safety net in `_layout`, and the foreground resync all land in the same
+   * place. A reconnect that recovers a missed offer therefore announces itself
+   * too, which is the other half of the report.
+   */
+  const announcedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isLoggedIn) return undefined;
+    return useDriverTripStore.subscribe((state) => {
+      // The exclusive offer wins — it has a countdown on it. Otherwise, the
+      // newest open search this driver could still claim.
+      const held = state.offer;
+      const claimable = state.pendingRequests.find((r) => !r.heldByAnother && !r.offeredToMe);
+      const subject = held
+        ? { tripId: held.tripId, where: held.pickupAddress, exclusive: true }
+        : claimable
+          ? { tripId: claimable.tripId, where: claimable.pickupAddress, exclusive: false }
+          : null;
+
+      if (!subject) {
+        announcedRef.current = null;
+        return;
+      }
+      // Once per trip, not once per store write. The store is written by every
+      // poll, and a toast re-firing every two seconds is worse than none.
+      if (announcedRef.current === subject.tripId) return;
+      announcedRef.current = subject.tripId;
+
+      // The offer sheet is the announcement for an exclusive hold; the dispatch
+      // screen is already showing the ride; mid-trip it is not takeable anyway.
+      if (subject.exclusive) return;
+      if (segmentsRef.current.some((sg) => sg === 'dispatch')) return;
+      if (activeTripIdRef.current) return;
+
+      bannerDestRef.current = { type: 'dispatch', tripId: subject.tripId, kind: 'REQUEST' };
+      showBanner(
+        subject.where
+          ? `Open request from ${subject.where} — tap to take it`
+          : 'A ride nearby is open — tap to take it',
+        'flash',
+        { tone: 'offer', title: 'Ride available', durationMs: 9000 },
+      );
+    });
+  }, [isLoggedIn, showBanner]);
 
   // Suppress on screens that render their own banners/navigation.
   const isOnChat = segments.some((s) => s === 'chat');
   const isOnTrip = segments.some((s) => s === 'tracking' || s === 'active' || s === 'dispatch');
-  if (!bannerMsg || isOnChat || isOnTrip) return null;
+  if (!toast || isOnChat || isOnTrip) return null;
 
   const handlePress = () => {
     const dest = bannerDestRef.current;
@@ -278,75 +349,14 @@ export function DriverTripStatusListener() {
   };
 
   return (
-    <Animated.View
-      style={[styles.container, { transform: [{ translateY: bannerAnim }] }]}
-      pointerEvents="box-none"
-    >
-      <Pressable onPress={handlePress} style={styles.pressable} accessibilityRole="button">
-        <BlurView intensity={85} tint="dark" style={styles.blurContainer}>
-          <View style={[styles.iconCircle, { backgroundColor: colors.primary }]}>
-            <Ionicons name={bannerIcon as never} size={16} color="#04070D" />
-          </View>
-          <View style={styles.textContainer}>
-            <Text style={[styles.label, { color: colors.primary }]}>EYEGO DRIVER</Text>
-            <Text style={[styles.body, { color: colors.onSurface }]} numberOfLines={2}>{bannerMsg}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.primary} style={styles.chevron} />
-        </BlurView>
-      </Pressable>
-    </Animated.View>
+    <DriverToast
+      message={toast.message}
+      title={toast.title}
+      icon={toast.icon}
+      tone={toast.tone}
+      durationMs={toast.durationMs}
+      onPress={bannerDestRef.current?.tripId ? handlePress : undefined}
+      onDismiss={dismissToast}
+    />
   );
 }
-
-const TOP_OFFSET = (Constants.statusBarHeight || (Platform.OS === 'ios' ? 56 : 46));
-
-const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    top: TOP_OFFSET,
-    left: spacing.base,
-    right: spacing.base,
-    zIndex: 9999,
-    elevation: 30,
-  },
-  pressable: {
-    borderRadius: radii['2xl'],
-    overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(59,130,246,0.32)',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-  },
-  blurContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.md,
-    borderRadius: radii['2xl'],
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  textContainer: { flex: 1 },
-  label: {
-    fontFamily: fonts.semiBold,
-    fontSize: 9,
-    lineHeight: Math.round(9 * 1.3),
-    letterSpacing: 1.5,
-    marginBottom: 2,
-  },
-  body: {
-    fontFamily: fonts.medium,
-    fontSize: fontSizes.bodySmall,
-    lineHeight: Math.round(fontSizes.bodySmall * 1.3),
-  },
-  chevron: { paddingLeft: spacing.xs },
-});

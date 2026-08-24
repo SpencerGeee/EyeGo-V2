@@ -112,6 +112,13 @@ function AssignedStageImpl() {
   const copy = phaseCopy(status, etaMinutes, (snapshot as any)?.departureTime ?? null);
 
   const arrived = status === 'ARRIVED_AT_PICKUP';
+  /**
+   * The driver has put this rider in the vehicle. See the row below for why
+   * this cannot be derived from `status`: boarding leaves the TRIP where it is
+   * and moves only this rider's BOOKING.
+   */
+  const boarded = snapshot?.booking?.status === 'BOARDED';
+  const seatNumber = snapshot?.booking?.seatNumber ?? null;
 
   const handleCall = () => {
     if (!driver?.phone) {
@@ -194,10 +201,40 @@ function AssignedStageImpl() {
             </GradientGlowBorder>
           )}
 
+          {/*
+            YOU ARE ABOARD.
+
+            BUGFIX (item 14: "I marked as boarded on the driver side but nothing
+            is showing on the rider tracking page that I boarded").
+
+            Boarding is not a Trip transition — the trip stays at
+            ARRIVED_AT_PICKUP or FILLING until everyone is in — so the stage copy
+            above cannot express it, and until now nothing else did either. The
+            rider sat under "Your driver has arrived" for the whole boarding
+            process, with no acknowledgement that the thing they had just done
+            had registered anywhere.
+
+            It reads off `booking.status`, which the server now pushes on a
+            sequenced frame (see `announceBoarding` in drivers.service.js), so
+            it survives a backgrounded phone and arrives on replay.
+          */}
+          {boarded && (
+            <View style={[styles.boardedRow, { borderColor: colors.statusSuccess + '55', backgroundColor: colors.statusSuccess + '14' }]}>
+              <Ionicons name="checkmark-circle" size={16} color={colors.statusSuccess} />
+              <Text variant="bodySmall" color={colors.statusSuccess} style={{ flex: 1 }}>
+                {seatNumber != null
+                  ? `You're on board · seat ${seatNumber}`
+                  : "You're on board"}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.headline}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{copy.title}</Text>
-              <Text variant="bodySmall" color={colors.onSurfaceVariant}>{copy.sub}</Text>
+              <Text style={styles.title}>{boarded ? 'On board' : copy.title}</Text>
+              <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                {boarded ? 'Sit tight — the trip starts when the driver sets off.' : copy.sub}
+              </Text>
             </View>
             {/* Digits roll rather than swap so a countdown ticking down reads as
                 one number changing, not as the panel re-rendering. */}
@@ -355,6 +392,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     letterSpacing: 4,
     color: colors.primary,
     fontVariant: ['tabular-nums'],
+  },
+  boardedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.lg,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   headline: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   title: {

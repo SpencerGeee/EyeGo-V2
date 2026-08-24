@@ -137,8 +137,32 @@ router.post(
   body('lat').isFloat({ min: -90, max: 90 }),
   body('lng').isFloat({ min: -180, max: 180 }),
   body('icon').optional().isString().trim(),
+  // Home and Work are SLOTS the rider chooses, not words we look for in the
+  // label — see the long note on `createSavedPlace`. Anything else is a place
+  // they can call whatever they like, and there may be any number of them.
+  body('slot').optional({ nullable: true }).isIn(['HOME', 'WORK']),
   validate,
   controller.createSavedPlace
+);
+
+/**
+ * Rename, re-pin, re-icon or re-slot an existing place.
+ *
+ * A list of freely-named places is only convenient if the names can be
+ * corrected; the screen's only editing verb used to be Delete, so fixing a typo
+ * in "Cyril's house" meant losing the pin and picking it again on a map.
+ */
+router.patch(
+  '/me/saved-places/:placeId',
+  body('label').optional().isString().trim().isLength({ min: 1, max: 60 }),
+  body('address').optional().isString().trim().isLength({ min: 1, max: 200 }),
+  body('lat').optional().isFloat({ min: -90, max: 90 }),
+  body('lng').optional().isFloat({ min: -180, max: 180 }),
+  body('icon').optional().isString().trim(),
+  body('slot').optional({ nullable: true }).isIn(['HOME', 'WORK']),
+  body('sortOrder').optional().isInt({ min: 0, max: 999 }),
+  validate,
+  controller.updateSavedPlace
 );
 
 router.delete('/me/saved-places/:placeId', controller.deleteSavedPlace);

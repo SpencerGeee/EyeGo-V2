@@ -929,7 +929,25 @@ export default function ActiveTripScreen() {
 
   const seats = activeBookings.map((b: any) => {
     const userId = b.user?.id ?? b.userId;
-    const realName = b.user?.name ?? b.guestName ?? 'Passenger';
+    /**
+     * WHO IS IN THE SEAT, NOT WHO PAID FOR IT.
+     *
+     * BUGFIX (item 13: "I booked for someone — I put the name there as Sophia
+     * Edna and her number and everything — but on the driver manage page,
+     * tapping on the seat shows that it's me, Cyril Spencer, and not my
+     * guest").
+     *
+     * `b.user?.name ?? b.guestName` had the priority exactly backwards. A
+     * booking made on someone else's behalf carries BOTH: `userId` is the
+     * account that pays and owns the tracking, and `guestName`/`guestPhone` are
+     * the person standing at the kerb. The account name is never null when it
+     * exists, so `??` meant the guest name could not win — and the driver was
+     * shown, and told to call, somebody who is not travelling.
+     *
+     * `guestName` is only ever set when the booker explicitly named someone
+     * else, so preferring it cannot mislabel an ordinary booking.
+     */
+    const realName = b.guestName ?? b.user?.name ?? 'Passenger';
     const holdsMany = userId != null && (seatsHeldByUser.get(userId) ?? 0) > 1;
     const isAnchor = userId != null && anchorSeatByUser.get(userId) === b.seatNumber;
     return {
@@ -955,8 +973,18 @@ export default function ActiveTripScreen() {
        * already aboard — the four things a driver at a kerb needs.
        */
       realName,
-      phone: b.user?.phone ?? b.guestPhone ?? null,
-      isGuest: !b.user?.id,
+      // Same inversion as the name: the guest's number is how the driver
+      // reaches the person at the kerb. The booker's number reaches whoever
+      // ordered the car, who may be across town.
+      phone: b.guestPhone ?? b.user?.phone ?? null,
+      // "Is somebody OTHER than the account holder travelling", which is what
+      // every caller of this flag actually wants to know. `!b.user?.id` asked
+      // "was this booked by a logged-out walk-up", so a named guest booked from
+      // an account read as a normal passenger and the seat sheet never said
+      // whose ride it really was.
+      isGuest: !!b.guestName || !b.user?.id,
+      /** The account that booked and pays, when that is not the passenger. */
+      bookedBy: b.guestName && b.user?.name ? b.user.name : null,
       seatsHeld: userId != null ? (seatsHeldByUser.get(userId) ?? 1) : 1,
       coveredBy: holdsMany && !isAnchor ? realName : null,
       paymentMethod: b.paymentMethod ?? null,
@@ -1173,7 +1201,15 @@ export default function ActiveTripScreen() {
                  * because it is read at a glance, through a windscreen.
                  */
                 const lines = [
-                  s.isGuest ? 'Guest passenger (booked by someone else)' : null,
+                  // Name the booker when there is one. "Guest passenger
+                  // (booked by someone else)" left the driver holding half the
+                  // fact: they could see it was not the account holder, but not
+                  // who to ask about the ride if the passenger was not there.
+                  s.bookedBy
+                    ? `Travelling as a guest — booked by ${s.bookedBy}`
+                    : s.isGuest
+                      ? 'Guest passenger (booked by someone else)'
+                      : null,
                   s.coveredBy ? `Seat covered by ${s.coveredBy}` : null,
                   s.seatsHeld > 1 ? `Travelling with ${s.seatsHeld} seats` : null,
                   s.phone ? `Phone: ${s.phone}` : 'No phone number on this booking',

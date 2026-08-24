@@ -250,7 +250,23 @@ export default function DispatchScreen() {
     } catch (err: any) {
       setBusy(null);
       const status = err?.response?.status;
-      if (status === 409 || status === 410 || status === 404) {
+      const code = err?.response?.data?.code;
+      /**
+       * "SOMEBODY IS BEING ASKED RIGHT NOW" IS NOT "GONE".
+       *
+       * The board deliberately lists rides that are not exclusively yours, and
+       * the server refuses a claim only while another driver is inside their
+       * own countdown (`OFFER_HELD_BY_ANOTHER`). Folding that into the generic
+       * "gone already" copy and bouncing the driver home told them the ride was
+       * lost when in most cases it is back on their board seconds later.
+       */
+      if (code === 'OFFER_HELD_BY_ANOTHER') {
+        Alert.alert(
+          'Being decided',
+          err?.response?.data?.message ??
+            'Another driver is being asked about this ride right now. If they pass, it comes straight back to your board.',
+        );
+      } else if (status === 409 || status === 410 || status === 404) {
         Alert.alert(
           'Gone already',
           'Another driver took this one, or the offer expired. You are still online.',
@@ -268,11 +284,29 @@ export default function DispatchScreen() {
   const handleDecline = useCallback(async () => {
     if (!id || busy) return;
     setBusy('decline');
+    /**
+     * DROP THE ROW BEFORE THE REQUEST LANDS.
+     *
+     * BUGFIX (item 5: "if I click on the cancel button on the dispatch cards,
+     * nothing happens"). The screen awaited the round trip and then navigated
+     * home, so on a slow link the sequence a driver saw was: tap, tap, nothing,
+     * nothing, home — with the passed ride still sitting on the board when they
+     * got there, because `pendingRequests` is only rebuilt by the next poll.
+     *
+     * The decision is the driver's and it is already made; the request is how
+     * the server finds out. Removing the row locally is what makes the tap
+     * produce a result on the frame it happened.
+     */
+    useDriverTripStore.setState((s) => ({
+      pendingRequests: s.pendingRequests.filter((r) => r.tripId !== id),
+      offer: s.offer?.tripId === id ? null : s.offer,
+    }));
     try {
       await driverApi.declineDispatch(id);
     } catch {
       // A decline that fails is not worth a dialogue: the offer times out on
-      // its own a few seconds later and the cascade moves on regardless.
+      // its own a few seconds later and the cascade moves on regardless. The
+      // next poll re-adds the row if the server disagreed.
     } finally {
       goHome();
     }

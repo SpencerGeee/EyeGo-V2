@@ -678,6 +678,16 @@ export default function RootLayout() {
               name="profile/saved-places"
               options={detailPush}
             />
+            {/* "Improve maps" — the hub and the one form that serves all six
+                report types. See app/improve-map/[type].tsx. */}
+            <Stack.Screen
+              name="improve-map/index"
+              options={detailPush}
+            />
+            <Stack.Screen
+              name="improve-map/[type]"
+              options={detailPush}
+            />
             <Stack.Screen
               name="profile/business"
               options={detailPush}

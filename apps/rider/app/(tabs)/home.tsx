@@ -546,10 +546,45 @@ export default function HomeScreen() {
     if (!activeRideAnswered) return;
     if (serverActiveTripId) return;
     if (!storedPendingRequestId) return;
+    const clearedId = storedPendingRequestId;
     setPendingTripRequest(null, null);
-    useToastStore
-      .getState()
-      .show("That request ended without a driver — nothing was charged.", 'warning');
+
+    /**
+     * SAY WHAT ACTUALLY HAPPENED — OR SAY NOTHING.
+     *
+     * BUGFIX (item 19: "on the rider app, when I end the trip, I see this error
+     * saying the trip ended without a driver and that no fare was taken").
+     *
+     * The card is cleared by the ABSENCE of a live ride, and this announced one
+     * specific reason for that absence — "ended without a driver" — for every
+     * one of them. A ride that completed normally, one the rider cancelled
+     * themselves, one that found a driver and finished: all three cleared the
+     * card, and all three were told nobody had come and nothing had been
+     * charged. On a completed trip that is not a stale message, it is a false
+     * one about money.
+     *
+     * So the trip is asked. `NO_DRIVERS_FOUND` and `EXPIRED` are the two
+     * outcomes the copy was written for and are the only two that get it;
+     * everything else is either self-explanatory (the rider cancelled, and knows
+     * it) or has its own screen (a completed ride goes to its receipt). A
+     * lookup that fails says nothing at all, which is the right default for a
+     * message whose entire purpose is reassurance.
+     */
+    void tripsApi
+      .getById(clearedId)
+      .then((res: any) => {
+        const status = res?.data?.data?.trip?.status ?? res?.data?.data?.status ?? null;
+        if (status === 'NO_DRIVERS_FOUND') {
+          useToastStore
+            .getState()
+            .show('No driver was available for that request — nothing was charged.', 'warning');
+        } else if (status === 'EXPIRED') {
+          useToastStore
+            .getState()
+            .show('That request timed out before a driver accepted — nothing was charged.', 'warning');
+        }
+      })
+      .catch(() => {});
   }, [activeRideAnswered, serverActiveTripId, storedPendingRequestId, setPendingTripRequest]);
 
   // The stored id is a CACHE of the server's answer, so it may only be trusted

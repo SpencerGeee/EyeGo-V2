@@ -161,6 +161,37 @@ export async function resolveTripReport(reportId: string): Promise<ActionResult>
   return result;
 }
 
+/**
+ * ── IMPROVE-MAPS MODERATION ───────────────────────────────────────
+ *
+ * Corrections riders and drivers file about the real world — see
+ * eyego-api/src/services/map-report.service.js.
+ *
+ * `reviewNote` is required by the API for a REJECTED or DUPLICATE verdict and
+ * optional otherwise: a rejection with no reason is indistinguishable from a
+ * report nobody read, both to the reporter and to the next operator who opens
+ * it. Enforced server-side rather than only here, so the rule holds whatever
+ * calls it.
+ */
+export async function reviewMapReport(
+  reportId: string,
+  status: 'PENDING' | 'IN_REVIEW' | 'ACCEPTED' | 'REJECTED' | 'DUPLICATE',
+  reviewNote?: string,
+): Promise<ActionResult> {
+  if ((status === 'REJECTED' || status === 'DUPLICATE') && !reviewNote?.trim()) {
+    return fail('Say why — the reporter and the next reviewer both need it.');
+  }
+  const result = await run('Report updated', () =>
+    apiPatch(`/map-reports/${reportId}`, {
+      status,
+      reviewNote: reviewNote?.trim() || undefined,
+    }),
+  );
+  revalidatePath('/map-reports');
+  revalidatePath('/', 'layout');
+  return result;
+}
+
 // ─── Money ────────────────────────────────────────────────────────
 
 /**

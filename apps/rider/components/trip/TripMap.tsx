@@ -329,7 +329,29 @@ function TripMapImpl() {
     [status, snapshot, searchPlace, userCoords, driverPins, previewFitCoords, pickupCoord],
   );
 
-  const mode = modeForStatus(fit.length > 0);
+  /**
+   * "Follow the car" — the mode the recentre button can put this map into.
+   *
+   * See the button itself at the bottom of this file for the bug. `follow` is
+   * north-up (`followCourse` rotates the world to the vehicle's heading, which
+   * is right for the person driving and disorienting for a passenger), and it
+   * is only offered while there is a vehicle attached to follow.
+   */
+  const [followVehicle, setFollowVehicle] = useState(false);
+  const canFollowVehicle =
+    !!snapshot?.driver &&
+    (status === 'DRIVER_ASSIGNED' ||
+      status === 'DRIVER_EN_ROUTE' ||
+      status === 'ARRIVED_AT_PICKUP' ||
+      status === 'IN_PROGRESS');
+
+  // A ride that ends, or a driver who is reassigned, must not leave the camera
+  // locked to a vehicle that is no longer part of this trip.
+  useEffect(() => {
+    if (!canFollowVehicle && followVehicle) setFollowVehicle(false);
+  }, [canFollowVehicle, followVehicle]);
+
+  const mode = followVehicle && canFollowVehicle ? 'follow' : modeForStatus(fit.length > 0);
 
   // ── The driver puck ──────────────────────────────────────────────────────
   // GPS fixes arrive every couple of seconds; a marker moved straight to each
@@ -676,16 +698,55 @@ function TripMapImpl() {
         )}
       </MapboxGL.MapView>
 
-      {/* The affordance that makes taking the camera safe: pan freely, get it
-          back with one tap. Without this, auto-following reads as the map
-          fighting you. */}
-      {camera.released && mode !== 'free' && (
+      {/*
+        ── THE RECENTRE BUTTON PUTS YOU BACK ON THE CAR ────────────────────
+
+        BUGFIX (item 17: "when I click on the button that is supposed to reset
+        the camera on the rider tracking page, it doesn't reset it to where the
+        car is but rather somewhere else — make it consistent like the driver
+        app button").
+
+        Both apps called the same `camera.recenter()`, and it does the same
+        thing in both: hand the camera back to the mode the STAGE asked for.
+        The stages ask for different things. The driver's map is
+        `followCourse`, so recentring lands on the vehicle — which is what the
+        button looks like it promises. The rider's map is `overview`, so it
+        landed on a bounding box drawn around the pickup, the drop-off, the
+        route line and the car: a frame that is usually correct and almost
+        never centred on the car. "Somewhere else", exactly.
+
+        So the rider's button now has the driver's meaning. While there is a
+        live vehicle to follow it switches the camera to `follow` — locked to
+        the car, north-up rather than rotating, because a passenger is not
+        navigating and a world that spins under them is disorienting (the
+        original reason the rider was never given `followCourse`).
+
+        Tapping it again while already following returns to the overview, so the
+        rider can still see the whole ride. One control, two states, both
+        obvious from the icon.
+      */}
+      {(camera.released || followVehicle) && mode !== 'free' && (
         <Pressable
-          onPress={camera.recenter}
+          onPress={() => {
+            if (canFollowVehicle) setFollowVehicle((f) => !f);
+            camera.recenter();
+          }}
           style={[styles.recenter, { top: insets.top + 12 }]}
           hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={
+            !canFollowVehicle
+              ? 'Recentre the map'
+              : followVehicle
+                ? 'Show the whole route'
+                : 'Follow the vehicle'
+          }
         >
-          <Ionicons name="locate" size={18} color={colors.onSurface} />
+          <Ionicons
+            name={followVehicle ? 'scan-outline' : 'locate'}
+            size={18}
+            color={followVehicle ? colors.primary : colors.onSurface}
+          />
         </Pressable>
       )}
     </View>

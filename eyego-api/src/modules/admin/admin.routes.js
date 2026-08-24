@@ -217,4 +217,20 @@ router.post('/auth/totp/disable', adminActionLimiter, audit('admin.totp_disable'
 // lost-phone path, and it is also the shape an account takeover would use.
 router.post('/admins/:id/reset-totp', requireRole(), adminActionLimiter, audit('admin.totp_reset', { targetType: 'AdminUser' }), controller.resetAdminTotp);
 
+// ── Improve-maps moderation queue ───────────────────────────────
+//
+// The riders' and drivers' corrections about the real world — see
+// services/map-report.service.js. Reads are open to any operator: knowing that
+// a junction has been reported eleven times is dispatch context, not a
+// privileged fact. Deciding a report is a write, so it is audited and refused
+// to a read-only account like every other write in this file.
+router.get('/map-reports', controller.listMapReports);
+router.get('/map-reports/:id', controller.getMapReport);
+router.patch(
+  '/map-reports/:id',
+  denyReadOnlyWrites,
+  audit('map_report.review', { targetType: 'MapReport', targetParam: 'id' }),
+  controller.reviewMapReport,
+);
+
 module.exports = router;

@@ -230,6 +230,81 @@ export default function TripCompleteScreen() {
           ? driverNetTotal
           : null;
 
+  /**
+   * ── THIS SCREEN IS A RECEIPT, AND A RECEIPT MAY NOT LIE ──────────────────
+   *
+   * BUGFIX (item 6, and it is the worst one on the list):
+   *
+   *   "I ended the trip on the rider app, in the activity tab, and when I came
+   *    to the driver app it's showing me a trip complete page — which is
+   *    totally wrong because I never hopped on the trip. It's showing that I
+   *    earned the full amount and everything has been paid. This is a fatal
+   *    flaw."
+   *
+   * The screen never asked what happened to the trip. It rendered a green
+   * checkmark, the words "Trip Complete!", and a headline built from whatever
+   * booking rows were in the cache — for ANY trip id it was handed. So a ride
+   * the rider cancelled, or one still sitting at DRIVER_EN_ROUTE in a stale
+   * cache, printed a settlement that had not occurred. A driver reading it
+   * would reasonably stop expecting the money, and reasonably dispute it later.
+   *
+   * The server was never wrong here: `COMPLETED` is only reachable from
+   * `IN_PROGRESS` (see the transition table in trip-state.service.js), so this
+   * was purely a client that drew a conclusion nobody gave it.
+   *
+   * The rule now: a settlement is only shown for a trip the server says is
+   * COMPLETED. Anything else terminal gets an honest terminal screen with no
+   * money on it, and anything still live is sent back to the trip itself. The
+   * one status that renders optimistically is "we have not loaded it yet",
+   * because the driver has usually just come here off their own swipe.
+   */
+  const tripStatus = (completedTrip as { status?: string } | undefined)?.status ?? null;
+  const NON_SETTLING: Record<string, { title: string; body: string; icon: keyof typeof Ionicons.glyphMap }> = {
+    CANCELLED: {
+      title: 'Trip cancelled',
+      body: 'This ride was cancelled, so there is nothing to settle. Nothing was charged to the rider and nothing has been credited to you.',
+      icon: 'close-circle-outline',
+    },
+    EXPIRED: {
+      title: 'Trip expired',
+      body: 'This ride was closed without being completed. No fare was taken and no earnings were credited.',
+      icon: 'time-outline',
+    },
+    NO_SHOW: {
+      title: 'Marked as a no-show',
+      body: 'The passenger did not travel. Any no-show fee is settled separately and is not shown here.',
+      icon: 'eye-off-outline',
+    },
+    NO_DRIVERS_FOUND: {
+      title: 'Never dispatched',
+      body: 'This request never found a driver. There is nothing to settle.',
+      icon: 'help-circle-outline',
+    },
+  };
+  const nonSettling = tripStatus ? NON_SETTLING[tripStatus] : undefined;
+
+  if (nonSettling) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <AppBackground isDark={theme !== 'light'} />
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <Entrance animation="scaleIn" delay={100} style={[styles.checkCircle, { backgroundColor: 'transparent' }]}>
+            <Ionicons name={nonSettling.icon} size={54} color={colors.onSurfaceVariant} />
+          </Entrance>
+          <Entrance animation="slideDown" delay={240} style={styles.titleContainer}>
+            <Text style={styles.headline}>{nonSettling.title}</Text>
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtitle}>
+              {nonSettling.body}
+            </Text>
+          </Entrance>
+          <Entrance animation="slideDown" delay={360} style={styles.ctaWrapper}>
+            <Button label="Back to Home" onPress={() => router.replace('/(tabs)/home')} />
+          </Entrance>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />

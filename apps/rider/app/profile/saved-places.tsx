@@ -10,7 +10,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { userApi, queryKeys, type SavedPlace } from '@eyego/api';
+import { userApi, queryKeys, type SavedPlace, type SavedPlaceSlot } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -18,16 +18,61 @@ import { Text, Button, GlowSearchInput, AppBackground, backgroundScrollPauseProp
 import { searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { consumePickedPlace } from '../../utils/placePickerResult';
 import { useToastStore } from '../../stores/toast.store';
-import { isHomeLabel, isWorkLabel } from '../../utils/savedPlaceSlots';
+import { slotOfPlace } from '../../utils/savedPlaceSlots';
 
 const LEGACY_KEY = '@eyego_saved_places';
 
-const ICON_FOR_LABEL = (label: string): string => {
-  const l = label.toLowerCase();
-  if (l === 'home') return 'home-outline';
-  if (l === 'work') return 'briefcase-outline';
-  return 'location-outline';
-};
+/**
+ * ── A PLACE IS A NAME THE RIDER CHOOSES, AND A SLOT THEY OPT INTO ──────────
+ *
+ * "You need to implement the system where users can add multiple saved places
+ *  and they can even name a spot like (Cyril's house), so it's very convenient."
+ *
+ * Both halves existed and quietly cancelled each other out. Home and Work were
+ * INFERRED from the label (`label.includes('home')`), and the server treats a
+ * slot claim as an UPDATE — so naming a place the way a person actually would,
+ * "Mum's home", did not add a place at all: it overwrote the rider's own home
+ * address. The screen then showed the new address exactly where it was
+ * expected to be, which is why nobody noticed until the Where To shortcut sent
+ * someone across the city.
+ *
+ * The slot is now a column and a deliberate choice in this form. A label is
+ * just a name, and there may be as many as the rider likes.
+ */
+
+/** The default glyph for a slot, used when the rider has not picked one. */
+const ICON_FOR_SLOT = (slot: SavedPlaceSlot | null): string =>
+  slot === 'HOME' ? 'home-outline' : slot === 'WORK' ? 'briefcase-outline' : 'location-outline';
+
+/**
+ * Icons the rider may pick from.
+ *
+ * A list of freely-named places is unusable when every row wears the same grey
+ * pin: five identical rows are five rows to READ rather than recognise. Kept in
+ * step with `VALID_PLACE_ICONS` in eyego-api/src/modules/users/users.service.js,
+ * which refuses to persist anything outside it — an unrecognised Ionicons glyph
+ * name is a hard native crash, not a catchable error.
+ */
+const ICON_CHOICES: { name: string; label: string }[] = [
+  { name: 'location-outline', label: 'Pin' },
+  { name: 'home-outline', label: 'Home' },
+  { name: 'briefcase-outline', label: 'Work' },
+  { name: 'heart-outline', label: 'Favourite' },
+  { name: 'people-outline', label: 'Family' },
+  { name: 'barbell-outline', label: 'Gym' },
+  { name: 'school-outline', label: 'School' },
+  { name: 'cart-outline', label: 'Shops' },
+  { name: 'restaurant-outline', label: 'Food' },
+  { name: 'cafe-outline', label: 'Cafe' },
+  { name: 'medkit-outline', label: 'Health' },
+  { name: 'airplane-outline', label: 'Airport' },
+  { name: 'business-outline', label: 'Office' },
+  { name: 'football-outline', label: 'Sport' },
+  { name: 'library-outline', label: 'Study' },
+  { name: 'bed-outline', label: 'Stay' },
+  { name: 'car-outline', label: 'Parking' },
+  { name: 'star-outline', label: 'Starred' },
+];
 
 // `place.icon` is a free-form, unvalidated string column (see
 // eyego-api users.service.js createSavedPlace) — any stale value from before
@@ -36,7 +81,7 @@ const ICON_FOR_LABEL = (label: string): string => {
 // not a catchable JS error, which is why this needed an app restart instead of
 // showing a red error screen. Only ever trust icons this screen itself knows
 // how to produce.
-const VALID_PLACE_ICONS = new Set(['home-outline', 'briefcase-outline', 'location-outline']);
+const VALID_PLACE_ICONS = new Set(ICON_CHOICES.map((c) => c.name));
 const safeIconFor = (icon?: string | null): string =>
   icon && VALID_PLACE_ICONS.has(icon) ? icon : 'location-outline';
 
@@ -52,6 +97,11 @@ export default function SavedPlacesScreen() {
   const [newName, setNewName] = useState('');
   const [newAddress, setNewAddress] = useState('');
   const [newCoords, setNewCoords] = useState<{ lat: number; lng: number } | null>(null);
+  /** Which shortcut, if any, this place is being saved as. */
+  const [newSlot, setNewSlot] = useState<SavedPlaceSlot | null>(null);
+  const [newIcon, setNewIcon] = useState<string>('location-outline');
+  /** Non-null while editing an existing place rather than adding one. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -84,7 +134,7 @@ export default function SavedPlacesScreen() {
               address: results[0].fullAddress,
               lat: results[0].latitude,
               lng: results[0].longitude,
-              icon: ICON_FOR_LABEL(p.name),
+              icon: ICON_FOR_SLOT(null),
             });
           }
         } catch { /* skip unresolvable entry */ }
@@ -101,6 +151,24 @@ export default function SavedPlacesScreen() {
       showToast('Place saved', 'success');
     },
     onError: () => showToast('Could not save place', 'error'),
+  });
+
+  /**
+   * Rename, re-pin, re-icon or re-slot — without losing the place.
+   *
+   * The only editing verb this screen had was Delete, so correcting a typo in
+   * "Cyril's house" meant losing the pin and picking it again on a map. A list
+   * of named places is only convenient if the names can be fixed.
+   */
+  const updateMutation = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Omit<SavedPlace, 'id'>> }) =>
+      userApi.updateSavedPlace(id, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.user.savedPlaces });
+      resetForm();
+      showToast('Place updated', 'success');
+    },
+    onError: () => showToast('Could not update place', 'error'),
   });
 
   const deleteMutation = useMutation({
@@ -126,10 +194,34 @@ export default function SavedPlacesScreen() {
 
   const resetForm = () => {
     setIsAdding(false);
+    setEditingId(null);
     setNewName('');
     setNewAddress('');
     setNewCoords(null);
+    setNewSlot(null);
+    setNewIcon('location-outline');
     setSuggestions([]);
+  };
+
+  /** Open the form on an existing place, with everything it already knows. */
+  const startEditing = (place: SavedPlace) => {
+    setIsAdding(true);
+    setEditingId(place.id);
+    setNewName(place.label);
+    setNewAddress(place.address);
+    setNewCoords({ lat: place.lat, lng: place.lng });
+    setNewSlot(place.slot ?? null);
+    setNewIcon(safeIconFor(place.icon));
+    setSuggestions([]);
+  };
+
+  /** Open the form empty, optionally pre-claiming a shortcut. */
+  const startAdding = (slot: SavedPlaceSlot | null = null) => {
+    resetForm();
+    setIsAdding(true);
+    setNewSlot(slot);
+    setNewIcon(ICON_FOR_SLOT(slot));
+    if (slot) setNewName(slot === 'HOME' ? 'Home' : 'Work');
   };
 
   const searchAddress = (query: string) => {
@@ -157,27 +249,36 @@ export default function SavedPlacesScreen() {
 
   const handleSave = () => {
     if (!newName.trim() || !newAddress.trim() || !newCoords) return;
-    createMutation.mutate({
+    const body = {
       label: newName.trim(),
       address: newAddress.trim(),
       lat: newCoords.lat,
       lng: newCoords.lng,
-      icon: ICON_FOR_LABEL(newName),
-    });
+      icon: newIcon,
+      slot: newSlot,
+    };
+    if (editingId) updateMutation.mutate({ id: editingId, patch: body });
+    else createMutation.mutate(body);
   };
 
   /**
-   * Is the Home (or Work) slot already filled?
+   * WHICH SLOT A PLACE IS IN — the column, or the legacy inference.
    *
-   * This used to be an exact string match — `p.label.toLowerCase() === 'home'`.
-   * Anything else the rider typed ("Home Address", "My Home", or a label the
-   * place picker filled in for them) failed it, so the "Add Home address"
-   * prompt kept its place in the list directly above the home address it was
-   * asking for. Same predicates as Where To, so the two screens cannot disagree
-   * about which saved place IS home.
+   * The label predicates are kept for ONE reason: rows written before
+   * `SavedPlace.slot` existed, on an instance where the migration's backfill
+   * has not run. Nothing writes a slot from a label any more; see the note at
+   * the top of this file for the bug that made that necessary.
    */
-  const slotFilled = (slot: 'Home' | 'Work') =>
-    places.some((p) => (slot === 'Home' ? isHomeLabel(p.label) : isWorkLabel(p.label)));
+  const slotOf = (p: SavedPlace): SavedPlaceSlot | null => slotOfPlace(p);
+
+  const slotFilled = (slot: SavedPlaceSlot) => places.some((p) => slotOf(p) === slot);
+
+  /** Everything that is NOT a shortcut — the freely-named places. */
+  const customPlaces = useMemo(
+    () => places.filter((p) => slotOf(p) == null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [places],
+  );
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -206,55 +307,89 @@ export default function SavedPlacesScreen() {
             </View>
           ) : (
             <>
-              {/* Home/Work placeholders when not yet saved */}
-              {(['Home', 'Work'] as const).filter((l) => !slotFilled(l)).map((label) => (
-                <View key={label}>
-                  <Pressable
-                    style={styles.placeRow}
-                    onPress={() => {
-                      setIsAdding(true);
-                      setNewName(label);
-                      setNewAddress('');
-                      setNewCoords(null);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Add ${label} address`}
-                  >
-                    <View style={styles.placeIconContainer}>
-                      <Ionicons name={ICON_FOR_LABEL(label) as any} size={20} color={colors.primary} />
-                    </View>
-                    <View style={styles.placeInfo}>
-                      <Text variant="bodyMedium" color={colors.onSurface}>{label}</Text>
-                      <Text variant="caption" style={{ color: colors.onSurfaceVariant }}>Add {label.toLowerCase()} address</Text>
-                    </View>
-                    <Ionicons name="add" size={18} color={colors.onSurfaceVariant} />
-                  </Pressable>
-                  <View style={styles.divider} />
-                </View>
-              ))}
-
-              {places.map((place, index) => (
-                <View key={place.id}>
-                  <View style={styles.placeRow}>
-                    <View style={styles.placeIconContainer}>
-                      <Ionicons name={safeIconFor(place.icon) as any} size={20} color={colors.primary} />
-                    </View>
-                    <View style={styles.placeInfo}>
-                      <Text variant="bodyMedium" color={colors.onSurface}>{place.label}</Text>
-                      <Text variant="caption" style={{ color: colors.onSurfaceVariant }} numberOfLines={1}>{place.address}</Text>
-                    </View>
+              {/* The two shortcuts, whether filled or not — they are pinned to
+                  the top of the list so a rider with fifteen places still finds
+                  Home first. An empty one is a prompt; a filled one is a row. */}
+              {(['HOME', 'WORK'] as const).map((slot) => {
+                const label = slot === 'HOME' ? 'Home' : 'Work';
+                const place = places.find((p) => slotOf(p) === slot) ?? null;
+                return (
+                  <View key={slot}>
                     <Pressable
-                      onPress={() => deleteMutation.mutate(place.id)}
-                      hitSlop={10}
+                      style={styles.placeRow}
+                      onPress={() => (place ? startEditing(place) : startAdding(slot))}
                       accessibilityRole="button"
-                      accessibilityLabel={`Remove ${place.label}`}
+                      accessibilityLabel={place ? `Edit ${label} address` : `Add ${label} address`}
                     >
-                      <Ionicons name="trash-outline" size={18} color={colors.statusError} />
+                      <View style={styles.placeIconContainer}>
+                        <Ionicons
+                          name={(place ? safeIconFor(place.icon) : ICON_FOR_SLOT(slot)) as any}
+                          size={20}
+                          color={colors.primary}
+                        />
+                      </View>
+                      <View style={styles.placeInfo}>
+                        <View style={styles.rowTitle}>
+                          <Text variant="bodyMedium" color={colors.onSurface}>
+                            {place?.label ?? label}
+                          </Text>
+                          <View style={[styles.slotChip, { backgroundColor: withOpacity(colors.primary, 0.14) }]}>
+                            <Text variant="caption" style={{ color: colors.primary }}>
+                              {label.toUpperCase()}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text variant="caption" style={{ color: colors.onSurfaceVariant }} numberOfLines={1}>
+                          {place?.address ?? `Add ${label.toLowerCase()} address`}
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name={place ? 'create-outline' : 'add'}
+                        size={18}
+                        color={colors.onSurfaceVariant}
+                      />
                     </Pressable>
+                    <View style={styles.divider} />
                   </View>
-                  {index < places.length - 1 && <View style={styles.divider} />}
+                );
+              })}
+
+              {customPlaces.length === 0 ? (
+                <View style={styles.emptyCustom}>
+                  <Text variant="caption" style={{ color: colors.onSurfaceVariant, textAlign: 'center' }}>
+                    Save the spots you go to often and give them any name you like — “Cyril&apos;s
+                    house”, “Gym”, “Mum&apos;s place”.
+                  </Text>
                 </View>
-              ))}
+              ) : (
+                customPlaces.map((place, index) => (
+                  <View key={place.id}>
+                    <Pressable
+                      style={styles.placeRow}
+                      onPress={() => startEditing(place)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${place.label}`}
+                    >
+                      <View style={styles.placeIconContainer}>
+                        <Ionicons name={safeIconFor(place.icon) as any} size={20} color={colors.primary} />
+                      </View>
+                      <View style={styles.placeInfo}>
+                        <Text variant="bodyMedium" color={colors.onSurface} numberOfLines={1}>{place.label}</Text>
+                        <Text variant="caption" style={{ color: colors.onSurfaceVariant }} numberOfLines={1}>{place.address}</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => deleteMutation.mutate(place.id)}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${place.label}`}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={colors.statusError} />
+                      </Pressable>
+                    </Pressable>
+                    {index < customPlaces.length - 1 && <View style={styles.divider} />}
+                  </View>
+                ))
+              )}
             </>
           )}
         </View>
@@ -262,17 +397,114 @@ export default function SavedPlacesScreen() {
         <View style={{ marginTop: spacing['2xl'] }}>
           {isAdding ? (
             <View style={styles.addCard}>
-              <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Add New Place</Text>
+              <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>
+                {editingId ? 'Edit place' : 'Add a new place'}
+              </Text>
 
               <View style={styles.inputContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>NAME</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. Home, Gym, Mom's House"
+                  placeholder="e.g. Cyril's house, Gym, Mum's place"
                   placeholderTextColor={colors.onSurfaceVariant}
                   value={newName}
                   onChangeText={setNewName}
+                  maxLength={60}
                 />
+              </View>
+
+              {/*
+                ── THE SHORTCUT IS A CHOICE, NOT SOMETHING WE GUESS ─────────
+
+                This control is the whole of item 9. The label used to decide
+                the slot — `label.includes('home')` — so "Mum's home" silently
+                overwrote the rider's own home address, and there was no way to
+                save a place called anything containing the word without losing
+                one. Three buttons, one of which is "Just a place", and the name
+                above is free.
+              */}
+              <View style={styles.inputContainer}>
+                <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>
+                  SHORTCUT
+                </Text>
+                <View style={styles.slotRow}>
+                  {([null, 'HOME', 'WORK'] as const).map((slot) => {
+                    const active = newSlot === slot;
+                    const label = slot === 'HOME' ? 'Home' : slot === 'WORK' ? 'Work' : 'Just a place';
+                    return (
+                      <Pressable
+                        key={label}
+                        onPress={() => {
+                          setNewSlot(slot);
+                          // Only move the icon if the rider has not chosen one.
+                          if (!ICON_CHOICES.some((c) => c.name === newIcon && c.name !== ICON_FOR_SLOT(newSlot))) {
+                            setNewIcon(ICON_FOR_SLOT(slot));
+                          }
+                        }}
+                        style={[
+                          styles.slotBtn,
+                          {
+                            borderColor: active ? colors.primary : colors.rimLight,
+                            backgroundColor: active ? withOpacity(colors.primary, 0.14) : 'transparent',
+                          },
+                        ]}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: active }}
+                      >
+                        <Ionicons
+                          name={ICON_FOR_SLOT(slot) as any}
+                          size={15}
+                          color={active ? colors.primary : colors.onSurfaceVariant}
+                        />
+                        <Text
+                          variant="bodySmall"
+                          style={{ color: active ? colors.primary : colors.onSurfaceVariant }}
+                        >
+                          {label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {/* Said plainly rather than discovered: replacing a shortcut is
+                    exactly what the rider means by picking it, but only if they
+                    know it is what will happen. */}
+                {newSlot && slotFilled(newSlot) && places.find((p) => slotOf(p) === newSlot)?.id !== editingId ? (
+                  <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs }}>
+                    This replaces your current {newSlot === 'HOME' ? 'home' : 'work'} address.
+                  </Text>
+                ) : null}
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>ICON</Text>
+                <View style={styles.iconGrid}>
+                  {ICON_CHOICES.map((choice) => {
+                    const active = newIcon === choice.name;
+                    return (
+                      <Pressable
+                        key={choice.name}
+                        onPress={() => setNewIcon(choice.name)}
+                        style={[
+                          styles.iconChoice,
+                          {
+                            borderColor: active ? colors.primary : colors.rimLight,
+                            backgroundColor: active ? withOpacity(colors.primary, 0.14) : 'transparent',
+                          },
+                        ]}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: active }}
+                        accessibilityLabel={choice.label}
+                      >
+                        <Ionicons
+                          name={choice.name as any}
+                          size={18}
+                          color={active ? colors.primary : colors.onSurfaceVariant}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
 
               <View style={styles.inputContainer}>
@@ -323,16 +555,16 @@ export default function SavedPlacesScreen() {
               <View style={styles.actionRow}>
                 <Button label="Cancel" variant="secondary" onPress={resetForm} style={{ flex: 1 }} />
                 <Button
-                  label="Save"
+                  label={editingId ? 'Save changes' : 'Save'}
                   onPress={handleSave}
-                  loading={createMutation.isPending}
+                  loading={createMutation.isPending || updateMutation.isPending}
                   disabled={!newName.trim() || !newAddress.trim() || !newCoords}
                   style={{ flex: 1 }}
                 />
               </View>
             </View>
           ) : (
-            <Pressable style={styles.addBtn} onPress={() => { setIsAdding(true); setNewName(''); setNewAddress(''); setNewCoords(null); }}>
+            <Pressable style={styles.addBtn} onPress={() => startAdding(null)}>
               <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
               <Text variant="bodyMedium" color={colors.primary}>Add a new place</Text>
             </Pressable>
@@ -400,6 +632,41 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   placeInfo: {
     flex: 1,
     gap: 2,
+  },
+  /** Name plus the HOME/WORK chip, so a shortcut reads as one at a glance. */
+  rowTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  slotChip: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+    borderRadius: radii.sm,
+  },
+  /** Copy that tells a rider what the empty half of this list is FOR. */
+  emptyCustom: {
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+  },
+  /** The three shortcut buttons: Home, Work, Just a place. */
+  slotRow: { flexDirection: 'row', gap: spacing.sm },
+  slotBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+  },
+  /** Wraps to as many rows as the icon vocabulary needs. */
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  iconChoice: {
+    width: 44,
+    height: 44,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   divider: {
     height: 1,

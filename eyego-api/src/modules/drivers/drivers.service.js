@@ -627,7 +627,12 @@ async function getAllTrips(driverId) {
           id: true, userId: true, seatNumber: true, fareAmountPesewas: true,
           commissionAmountPesewas: true, paymentStatus: true, paymentMethod: true,
           status: true, isOffline: true, isCoveredByLead: true, heavyCargo: true,
-          deviationSurchargePesewas: true, guestName: true,
+          deviationSurchargePesewas: true,
+          // `guestPhone` alongside `guestName`: when a rider books for someone
+          // else, the guest's number is the one that reaches the person at the
+          // kerb. Without it the driver's seat sheet fell back to the booker's
+          // phone and told them to call whoever ordered the car. See item 13.
+          guestName: true, guestPhone: true,
           user: { select: { id: true, name: true } },
         },
       },
@@ -1929,6 +1934,37 @@ function announceBoarding(tripId, bookingId) {
   tripPublisher.publishSeatUpdate(tripId).catch((err) =>
     logger.warn(`Boarding broadcast failed for ${tripId}: ${err.message}`),
   );
+
+  /**
+   * AND ON THE CHANNEL THE RIDER'S TRIP SURFACE ACTUALLY LISTENS TO.
+   *
+   * BUGFIX (item 14: "I marked as boarded on the driver side but nothing is
+   * showing on the rider tracking page that I boarded").
+   *
+   * `publishSeatUpdate` above emits `trip:seat_update`, and the only rider
+   * screen subscribed to that is the seat picker. The trip surface — the
+   * screen a boarded rider is actually looking at — is driven exclusively by
+   * the sequenced `trip:event` channel, and boarding produced none: it is not
+   * a Trip transition (the trip is still FILLING or ARRIVED_AT_PICKUP,
+   * correctly, because the other seats have not boarded), so nothing in the
+   * state machine fired. The rider's own `booking.status` had moved to BOARDED
+   * in the database and there was no frame in existence that would tell their
+   * phone.
+   *
+   * `recordEvent` is the right carrier and costs one row: it bumps the trip's
+   * version, writes a replayable `TripEvent`, and publishes the FULL snapshot —
+   * which is where `myBooking.status` lives. So a rider whose phone was asleep
+   * gets it on replay, and one watching the screen gets it immediately.
+   *
+   * Fire-and-forget on purpose. A passenger is physically in the vehicle by
+   * this point; a broadcast that fails must not un-board them.
+   */
+  tripState
+    .recordEvent(tripId, 'PASSENGER_BOARDED', {
+      actor: tripState.ACTOR.DRIVER,
+      payload: { bookingId },
+    })
+    .catch((err) => logger.warn(`Boarding event failed for ${tripId}: ${err.message}`));
   (async () => {
     const b = await prisma.booking.findUnique({
       where: { id: bookingId },

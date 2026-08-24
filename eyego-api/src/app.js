@@ -42,6 +42,7 @@ const contactRoutes = require('./modules/contact/contact.routes');
 const cancellationRoutes = require('./modules/cancellation/cancellation.routes');
 const receiptsRoutes = require('./modules/receipts/receipts.routes');
 const geoRoutes = require('./modules/geo/geo.routes');
+const mapReportRoutes = require('./modules/map-reports/map-reports.routes');
 const configRoutes = require('./modules/config/config.routes');
 const { yoga } = require('./graphql/index');
 
@@ -180,6 +181,8 @@ app.use('/v1/cancellation', cancellationRoutes);
 app.use('/v1/receipts', receiptsRoutes);
 // Geocoding + routing proxy — keeps MAPBOX_SECRET_TOKEN off the clients.
 app.use('/v1/geo', geoRoutes);
+// "Improve maps" — corrections riders and drivers file about the real world.
+app.use('/v1/map-reports', mapReportRoutes);
 app.use('/v1/admin', adminRoutes);
 // Client-visible platform configuration (fares, announcement, support number).
 // Lets both apps pick up a change without a store release — see config/settings.js.

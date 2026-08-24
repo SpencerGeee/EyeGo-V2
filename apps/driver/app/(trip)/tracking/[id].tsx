@@ -804,7 +804,7 @@ export default function DriverTrackingScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.passengerName}>
-                      {b.user?.name ?? b.guestName ?? `Seat ${b.seatNumber ?? '—'}`}
+                      {b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? '—'}`}
                     </Text>
                     <Text variant="caption" color={colors.onSurfaceVariant}>
                       Seat {b.seatNumber ?? '—'} · {

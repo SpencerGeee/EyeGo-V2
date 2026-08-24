@@ -100,6 +100,92 @@ const searchTimeoutSeconds = () =>
 const RESWEEP_INTERVAL_SECONDS =
   parseInt(process.env.DISPATCH_RESWEEP_SECONDS, 10) || 10;
 
+/**
+ * HOW LONG A DECLINE LASTS. It is not forever.
+ *
+ * BUGFIX ("once it's passed you, it never gets to you again").
+ *
+ * `state.declined` was an append-only list of ids, and `listSearchesForDriver`
+ * hid every trip on it. In a city with one driver that makes a single tap on
+ * Pass terminal for the ride: the search runs its five minutes finding nobody,
+ * and the one car in range cannot even SEE the request it changed its mind
+ * about. Uber and Bolt both re-offer a passed ride once the queue behind it is
+ * exhausted, for exactly this reason.
+ *
+ * So a decline is a COOLDOWN. It keeps its whole purpose — the cascade will not
+ * bounce the same offer straight back at the driver who just refused it, and it
+ * still walks every other candidate first — and it stops being a life sentence.
+ * Abandoning an ACCEPTED trip is a different act and is still permanent; see
+ * `excludeDriverIds` in `startCascade`.
+ */
+const declineCooldownSeconds = () =>
+  settings.get('DISPATCH_DECLINE_COOLDOWN_SECONDS') ??
+  parseInt(process.env.DISPATCH_DECLINE_COOLDOWN_SECONDS, 10) ??
+  90;
+
+/**
+ * The declines still in force, as a Set of driver ids.
+ *
+ * Tolerates BOTH shapes on purpose. State written before this change carries
+ * `declined: [id, ...]`; state written after carries
+ * `declinedAt: { [id]: epochMs }`. A cascade already in Redis across the deploy
+ * must not have its declines silently forgotten (that would re-offer a ride to
+ * the driver who passed on it one second earlier), so a legacy scalar list is
+ * read as "declined, with no timestamp" and treated as still in force.
+ */
+function activeDeclines(state, now = Date.now()) {
+  const out = new Set();
+  if (!state) return out;
+  if (Array.isArray(state.declined)) for (const id of state.declined) out.add(id);
+  const stamps = state.declinedAt;
+  if (stamps && typeof stamps === 'object') {
+    const ttlMs = declineCooldownSeconds() * 1000;
+    for (const [id, at] of Object.entries(stamps)) {
+      if (typeof at !== 'number' || now - at < ttlMs) out.add(id);
+      else out.delete(id);
+    }
+  }
+  return out;
+}
+
+/** Record a decline with the clock running on it. */
+function noteDecline(state, driverId) {
+  if (!driverId) return;
+  state.declinedAt = state.declinedAt && typeof state.declinedAt === 'object' ? state.declinedAt : {};
+  state.declinedAt[driverId] = Date.now();
+  // The legacy list is where `activeDeclines` reads a permanent entry from, so
+  // a fresh decline must NOT be appended to it — that is the life sentence.
+  if (Array.isArray(state.declined)) {
+    state.declined = state.declined.filter((id) => id !== driverId);
+  }
+}
+
+/**
+ * THE OFFER IS OVER — SAY SO IN THE STATE.
+ *
+ * BUGFIX (item 1: "I was late to accept… when I click it, it says offer
+ * expired, but now it's saying it's in queue").
+ *
+ * `offerNext` wrote `currentDriverId` and `expiresAtMs` when it offered and
+ * NOTHING ever cleared them. A lapsed offer therefore left the cascade
+ * permanently claiming to be mid-offer to the driver it had already given up
+ * on, which produced both halves of the report at once:
+ *
+ *   - `listSearchesForDriver` reported `offeredToMe: true` with a deadline in
+ *     the past, so `PendingDispatchList` computed `mine = false` and drew the
+ *     row as IN QUEUE;
+ *   - tapping that row opened the offer screen, which read the same dead
+ *     deadline and said "Offer expired" before bouncing home.
+ *
+ * Every path that ends an offer goes through here first.
+ */
+function releaseHold(state) {
+  if (!state) return state;
+  state.currentDriverId = null;
+  state.expiresAtMs = null;
+  return state;
+}
+
 const TASK_OFFER_TIMEOUT = 'DISPATCH_OFFER_TIMEOUT';
 const TASK_RESWEEP = 'DISPATCH_RESWEEP';
 /**
@@ -323,11 +409,17 @@ async function offerNext(tripId) {
       return;
     }
 
+    // Whoever held it before this pass does not hold it now. Cleared up front so
+    // every `continue`, every `return` and the park at the bottom all inherit an
+    // honest answer to "who is this offered to" — see `releaseHold`.
+    releaseHold(state);
+    const declinedNow = activeDeclines(state);
+
     while (state.index < state.candidates.length) {
       const candidate = state.candidates[state.index];
       state.index += 1;
 
-      if (state.declined.includes(candidate.id)) continue;
+      if (declinedNow.has(candidate.id)) continue;
 
       const free = await isDriverAvailable(prisma, candidate.id).catch(() => false);
       if (!free) {
@@ -621,7 +713,7 @@ async function resweep(tripId) {
      * when the list is already exhausted (no offer is in flight), so re-asking
      * cannot double-offer a trip.
      */
-    const declined = new Set(state.declined);
+    const declined = activeDeclines(state);
     const extra = fresh
       .filter((c) => !declined.has(c.id))
       .map((c) => ({
@@ -637,6 +729,10 @@ async function resweep(tripId) {
     if (extra.length === 0) {
       const elapsedMs = Date.now() - (state.startedAtMs ?? Date.now());
       if (elapsedMs < searchTimeoutSeconds() * 1000) {
+        // Nobody to ask right now — and nobody is holding it either. Without
+        // this the parked search goes on advertising a dead hold; see
+        // `releaseHold`.
+        releaseHold(state);
         await scheduleResweep(tripId, state);
         return;
       }
@@ -663,6 +759,7 @@ async function resweep(tripId) {
     state.candidates = extra;
     state.index = 0;
     state.waiting = false;
+    releaseHold(state);
     await writeState(state);
     // Released and re-taken rather than recursed under the held lock.
     setImmediate(() => offerNext(tripId).catch((e) => logger.warn(e.message)));
@@ -851,15 +948,54 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
 
     const out = [];
     for (const trip of trips) {
+      /**
+       * A SEARCH FOR A RIDE NOBODY IS ON IS NOT WORK.
+       *
+       * BUGFIX (item 4: "on the driver app it's still telling me live requests
+       * in queue, all 2 of them, but on the rider side I cancelled the trip").
+       *
+       * `bookings` is already selected with `livePassengerWhere()` for the fare
+       * arithmetic below, so this costs nothing: an empty array means every
+       * passenger has cancelled and the trip row simply has not caught up.
+       * Reconciled rather than skipped, so the row that produced the ghost is
+       * actually closed instead of being hidden from one driver's board —
+       * otherwise the next driver to load their board sees it again.
+       */
+      if (trip.bookings.length === 0) {
+        require('./trip-reconcile.service')
+          .reconcileTrip(trip.id, { reason: 'ADVERTISED_WITH_NO_PASSENGERS' })
+          .catch(() => {});
+        continue;
+      }
       const state = await readState(trip.id);
       // No cascade state means no cascade. Whatever this row says, nothing is
       // driving it and nobody is coming to finish it.
       if (!state) continue;
       if (state.done) continue;
       if (excludedFrom(state).includes(driverId)) continue;
-      if (state?.declined?.includes(driverId)) continue;
+      // A decline hides the row only while its cooldown is running — see
+      // `declineCooldownSeconds`. It used to hide it forever, which is the
+      // "once it's passed you, it never gets to you again" report.
+      if (activeDeclines(state).has(driverId)) continue;
       // Belt and braces against a state blob that outlived its own window.
       if (Date.now() - (state.startedAtMs ?? trip.createdAt.getTime()) > searchWindowMs) continue;
+
+      /**
+       * A HOLD WITH A DEADLINE IN THE PAST IS NOT A HOLD.
+       *
+       * BUGFIX (item 1). Both flags below used to read `state.currentDriverId`
+       * raw. When an offer lapsed, that field still named the driver it had
+       * lapsed on — so the driver's own row claimed to be theirs while carrying
+       * a dead deadline (the list drew IN QUEUE, the offer screen said
+       * "expired"), and every OTHER driver's row claimed it was `heldByAnother`
+       * when in fact nobody held it. `releaseHold` now clears the field on the
+       * server; this is the belt to that braces, because a cascade blob written
+       * before the deploy still carries the stale pair.
+       */
+      const holdLive =
+        !!state.currentDriverId &&
+        (state.expiresAtMs == null || state.expiresAtMs > Date.now());
+      const holder = holdLive ? state.currentDriverId : null;
 
       const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
       const commissionPesewas = trip.bookings.reduce(
@@ -884,11 +1020,10 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
         /** True when THIS driver is the one the cascade is currently asking. */
-        offeredToMe: held?.tripId === trip.id || state?.currentDriverId === driverId,
-        expiresAtServerMs:
-          state?.currentDriverId === driverId ? state?.expiresAtMs ?? null : null,
+        offeredToMe: held?.tripId === trip.id || holder === driverId,
+        expiresAtServerMs: holder === driverId ? state.expiresAtMs ?? null : null,
         /** Somebody else is holding the exclusive offer this instant. */
-        heldByAnother: !!state?.currentDriverId && state.currentDriverId !== driverId,
+        heldByAnother: !!holder && holder !== driverId,
       });
     }
     return out;
@@ -1011,6 +1146,8 @@ async function startCascade(tripId, opts = {}) {
     })),
     index: 0,
     declined: [],
+    /** driverId → epoch ms of the decline. See `declineCooldownSeconds`. */
+    declinedAt: {},
     widened: false,
     done: false,
     currentDriverId: null,
@@ -1055,12 +1192,20 @@ async function startCascade(tripId, opts = {}) {
 async function declineOffer(tripId, driverId) {
   const state = await readState(tripId);
   if (!state || state.done) return false;
-  if (!state.declined.includes(driverId)) state.declined.push(driverId);
+  noteDecline(state, driverId);
+  const wasHolder = state.currentDriverId === driverId;
+  // Cleared whether or not they were the holder: a decline from a driver whose
+  // offer already lapsed still has to leave the state honest.
+  if (wasHolder) releaseHold(state);
   await writeState(state);
-  if (state.currentDriverId !== driverId) return false;
 
+  // The card comes down either way — the driver has decided, and a revoke frame
+  // is what takes the sheet off their screen. Only the HOLDER advances the
+  // cascade; a late tap must not skip the candidate mid-decision.
   await forgetOffer(driverId);
   publisher.publishOfferRevoked(driverId, tripId, 'DECLINED');
+  if (!wasHolder) return false;
+
   await scheduledTasks.cancel(TASK_OFFER_TIMEOUT, tripId).catch(() => {});
   await offerNext(tripId);
   return true;
@@ -1123,7 +1268,8 @@ async function resumeAfterFailedClaim(tripId, driverId) {
   const state = await readState(tripId);
   if (!state) return;
   state.done = false;
-  if (driverId && !state.declined.includes(driverId)) state.declined.push(driverId);
+  noteDecline(state, driverId);
+  releaseHold(state);
   await writeState(state);
   await offerNext(tripId);
 }
@@ -1134,6 +1280,22 @@ async function cancelCascade(tripId) {
   if (state?.currentDriverId) {
     await forgetOffer(state.currentDriverId);
     publisher.publishOfferRevoked(state.currentDriverId, tripId, 'CANCELLED');
+  }
+  /**
+   * EVERY DRIVER WHO CAN STILL SEE THIS ROW, NOT ONLY THE HOLDER.
+   *
+   * BUGFIX (item 4: "on the driver app it's still telling me live requests in
+   * queue, all 2 of them, but on the rider side I cancelled the trip").
+   *
+   * The revoke above only reaches whoever held the exclusive offer. The Dispatch
+   * board lists every LIVE SEARCH a driver is eligible for, held or not, so a
+   * cancelled ride stayed on every other driver's board until their next poll
+   * happened to notice the trip row had moved. Telling every candidate the
+   * cascade ever built is one frame each and closes the window outright.
+   */
+  for (const c of state?.candidates ?? []) {
+    if (!c?.id || c.id === state.currentDriverId) continue;
+    publisher.publishOfferRevoked(c.id, tripId, 'CANCELLED');
   }
   await finish(tripId, 'cancelled');
   await clearState(tripId);
@@ -1146,6 +1308,24 @@ async function cancelCascade(tripId) {
  * in-process version it still answers after a deploy — which was precisely the
  * failure the fallback existed to cover and could not.
  */
+/**
+ * WHO HOLDS THE EXCLUSIVE OFFER ON THIS TRIP RIGHT NOW, or null.
+ *
+ * Exists so `acceptRide` can refuse a claim on a ride that is genuinely being
+ * held for somebody else. Every OTHER case — parked, exhausted, mid-resweep —
+ * answers null and is therefore claimable by any eligible driver who can see
+ * it, which is what makes the Dispatch board's rows takeable rather than
+ * decorative. A hold whose deadline has passed is not a hold; see `releaseHold`
+ * for the bug that made this distinction load-bearing.
+ */
+async function currentHolder(tripId) {
+  const state = await readState(tripId);
+  if (!state || state.done) return null;
+  if (!state.currentDriverId) return null;
+  if (state.expiresAtMs != null && state.expiresAtMs <= Date.now()) return null;
+  return state.currentDriverId;
+}
+
 async function getCascadeState(tripId) {
   const state = await readState(tripId);
   if (!state) return null;
@@ -1173,6 +1353,11 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
   // Ignore a timeout for an offer that has already moved on.
   if (!state || state.done || state.currentDriverId !== driverId) return;
   logger.info('Dispatch offer timed out', { tripId, driverId });
+  // Written back BEFORE the revoke frame goes out. The driver's app answers a
+  // revoke by re-reading `/rides/driver/state`, and a read that raced the write
+  // would hand back the very stale hold this releases — item 1 all over again.
+  releaseHold(state);
+  await writeState(state);
   if (driverId) {
     await forgetOffer(driverId);
     publisher.publishOfferRevoked(driverId, tripId, 'TIMEOUT');
@@ -1220,6 +1405,7 @@ module.exports = {
   resumeAfterFailedClaim,
   cancelCascade,
   getCascadeState,
+  currentHolder,
   getOfferForDriver,
   forgetOffer,
   // Exported as functions, not values: a caller that captured a number would be
