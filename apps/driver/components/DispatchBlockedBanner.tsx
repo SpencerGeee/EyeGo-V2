@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -12,7 +11,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder } from '@eyego/ui';
 
 import { useColors, type DriverColors } from '../utils/useColors';
 
@@ -151,21 +150,53 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
   }));
 
   return (
-    <Animated.View
-      style={[styles.wrap, { top, borderColor: tint + '99' }, enterStyle]}
-      accessibilityRole="alert"
-      accessibilityLabel={`${meaning.headline}. ${meaning.detail}`}
-    >
-      <LinearGradient
-        colors={[tint + '2E', colors.surfaceCard, colors.surfaceCard]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+    /**
+     * ── THE BANNER, REBUILT ────────────────────────────────────────────────
+     *
+     * "The buttons it shows underneath — like 'you have an unfinished ride,
+     * click to open' — the click-to-open is not styled correctly and can barely
+     * be seen. Use the GlassCard component as well as a bit of the GlowBorder."
+     *
+     * Two real problems behind that:
+     *
+     *  1. THE CTA WAS FIGHTING ITS OWN BACKGROUND. It was a solid `tint` pill —
+     *     amber — sitting inside a card whose entire fill was a gradient of the
+     *     SAME amber, with near-black text on it. That is a button competing
+     *     with its own surface for contrast, and it is why a real, working
+     *     control read as decoration.
+     *  2. IT WAS THE ONE ELEVATED SURFACE IN THIS APP NOT BUILT FROM THE
+     *     SYSTEM. Every other card here is a `GlassSurface` inside a
+     *     `GradientGlowBorder`; this hand-rolled a LinearGradient, a 1px border
+     *     and a box shadow, so it did not belong to the same product.
+     *
+     * So: the ring carries the severity, the glass carries the surface, and the
+     * CTA is a high-contrast light pill with dark text — which reads at a glance
+     * against a dark card in a way a tinted pill on a tinted card never can. The
+     * tint survives where it belongs: the leading rule, the icon, and a faint
+     * 8% wash that colours the surface without eating the button's contrast.
+     */
+    <Animated.View style={[styles.wrap, { top }, enterStyle]}>
+      <GradientGlowBorder
+        palette={isError ? 'default' : 'gold'}
+        fillColor={colors.surfaceCard}
+        borderRadius={radii.xl}
+        thickness="thin"
+        glow
+        glowIntensity={isError ? 0.9 : 0.65}
+        maxGlowRadius={isError ? 22 : 16}
+      >
+      <View
+        style={styles.card}
+        accessibilityRole="alert"
+        accessibilityLabel={`${meaning.headline}. ${meaning.detail}`}
+      >
+      <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl - 2} intensity="high" />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: tint + '14' }]} />
       {/* A bright rule down the leading edge — the fastest possible read of
           "this one is different from the chips above it". */}
       <View style={[styles.edge, { backgroundColor: tint }]} />
 
+      <View style={styles.row}>
       <View style={styles.iconWrap}>
         <Animated.View style={[styles.halo, { backgroundColor: tint }, haloStyle]} />
         <View style={[styles.iconCore, { backgroundColor: tint + '2A', borderColor: tint + '77' }]}>
@@ -180,53 +211,67 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
         <Text style={[styles.detail, { color: colors.onSurfaceVariant }]} numberOfLines={3}>
           {meaning.detail}
         </Text>
+      </View>
+      </View>
 
+        {/*
+          THE ACTION, FULL WIDTH AND UNMISSABLE.
+
+          Moved out of the text column: inset under a three-line paragraph it was
+          about 150pt wide and read as a footnote, which is the whole of "it can
+          barely be seen". A blocked driver is earning nothing, so the one thing
+          that unblocks them is the widest element on the card — and 46pt tall,
+          which the old 7pt-padded pill was not.
+        */}
         {action ? (
           <Pressable
             onPress={action.onPress}
             disabled={busy}
             accessibilityRole="button"
+            accessibilityState={{ disabled: busy }}
             accessibilityLabel={action.label}
             style={({ pressed }) => [
               styles.cta,
-              { backgroundColor: tint, opacity: busy ? 0.6 : pressed ? 0.86 : 1 },
+              {
+                backgroundColor: colors.onSurface,
+                opacity: busy ? 0.55 : pressed ? 0.88 : 1,
+                transform: [{ scale: pressed ? 0.985 : 1 }],
+              },
             ]}
           >
-            <Text style={[styles.ctaText, { color: '#0A1220' }]}>
+            <Text style={[styles.ctaText, { color: colors.background }]}>
               {busy ? 'Working…' : action.label}
             </Text>
-            <Ionicons name="arrow-forward" size={13} color="#0A1220" />
+            <Ionicons name="arrow-forward" size={14} color={colors.background} />
           </Pressable>
         ) : null}
       </View>
+      </GradientGlowBorder>
     </Animated.View>
   );
 }
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
+    // Positioning only. The surface — fill, rim, glow — now comes from the ring
+    // and the glass inside it, so this holds nothing that paints.
     wrap: {
       position: 'absolute',
       left: spacing['2xl'],
       right: spacing['2xl'],
-      flexDirection: 'row',
-      alignItems: 'flex-start',
+    },
+    card: {
       gap: spacing.md,
       paddingLeft: spacing.base + 3,
       paddingRight: spacing.base,
-      paddingVertical: spacing.md,
-      borderRadius: radii.xl,
-      borderWidth: 1,
+      paddingVertical: spacing.base,
+      borderRadius: radii.xl - 2,
       overflow: 'hidden',
-      // Opaque. The old 9%-alpha wash sat over a moving map and disappeared
-      // whenever a pale road ran under it.
+      // Opaque under the glass. The old 9%-alpha wash sat over a moving map and
+      // disappeared whenever a pale road ran under it.
       backgroundColor: colors.surfaceCard,
-      shadowColor: '#000',
-      shadowOpacity: 0.35,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 8,
     },
+    row: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
     edge: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3 },
     iconWrap: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
     halo: { position: 'absolute', width: 30, height: 30, borderRadius: 15 },
@@ -243,16 +288,19 @@ const makeStyles = (colors: DriverColors) =>
     },
     detail: { fontFamily: fonts.regular, fontSize: fontSizes.bodySmall, lineHeight: 17 },
     cta: {
-      alignSelf: 'flex-start',
+      // Full width and 46pt tall — see the render comment. The old pill was
+      // `alignSelf: 'flex-start'` at 7pt vertical padding, which is both under
+      // the 44pt touch minimum (§2) and visually a footnote.
+      alignSelf: 'stretch',
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
-      marginTop: spacing.sm,
+      justifyContent: 'center',
+      gap: 6,
+      minHeight: 46,
       paddingHorizontal: spacing.base,
-      paddingVertical: 7,
       borderRadius: radii.full,
     },
-    ctaText: { fontFamily: fonts.bold, fontSize: fontSizes.bodySmall, letterSpacing: 0.1 },
+    ctaText: { fontFamily: fonts.bold, fontSize: fontSizes.bodyMedium, letterSpacing: 0.1 },
   });
 
 export default DispatchBlockedBanner;

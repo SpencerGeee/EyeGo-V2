@@ -87,10 +87,41 @@ function mapboxToResult(f) {
   const name = p.name || p.name_preferred || p.full_address || p.place_formatted;
   if (!name) return null;
 
+  /**
+   * `place_formatted` IS NOT AN ADDRESS — IT IS THE CONTEXT AROUND ONE.
+   *
+   * BUGFIX (item 1: "any location I choose gets put in the field as Accra,
+   * which is wrong — the driver wouldn't be able to know where exactly the
+   * rider is").
+   *
+   * Mapbox splits a feature into `name` ("Accra Mall", "Oxford Street") and
+   * `place_formatted`, which is the administrative context and NOTHING ELSE:
+   * literally "Accra, Greater Accra, Ghana". `full_address` is the two already
+   * joined — and a POI feature very often has the context and no full address.
+   *
+   * This chain fell through to `place_formatted` on its own, so for exactly
+   * those features `fullAddress` became the city. The rider app stores
+   * `address: place.fullAddress`, `requestRide` persists it as
+   * `Trip.pickupAddress`, and the driver's screen printed "Accra, Greater
+   * Accra, Ghana" for a specific kerb. Every symptom in item 1 is this one line.
+   *
+   * Composing them keeps the identifying half in front of the context, and the
+   * `startsWith` guard means a feature that already carries a composed
+   * `full_address` is not prefixed with its own name a second time.
+   */
+  const context = p.place_formatted || null;
+  let fullAddress = p.full_address || null;
+  if (!fullAddress) {
+    fullAddress =
+      context && !context.toLowerCase().startsWith(String(name).toLowerCase())
+        ? `${name}, ${context}`
+        : context || name;
+  }
+
   return {
     placeId: p.mapbox_id || `${latitude.toFixed(5)},${longitude.toFixed(5)}`,
     name,
-    fullAddress: p.full_address || p.place_formatted || name,
+    fullAddress,
     latitude,
     longitude,
     // `poi` results are businesses/landmarks; the apps use this to pick an icon.

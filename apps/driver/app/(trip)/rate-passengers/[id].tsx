@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -98,6 +98,45 @@ export default function RatePassengersScreen() {
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [ratings, setRatings] = useState<Record<string, { stars: number; comment: string; compliments: string[] }>>({});
+
+  /**
+   * STARS ALREADY GIVEN, SHOWN AS GIVEN.
+   *
+   * BUGFIX (item 6: "if I rate a passenger and go to the complete page and click
+   * rate a passenger, it's like the rating I gave didn't go through").
+   *
+   * `PassengerRating` is unique on (driver, trip, passenger), so a second visit
+   * to this screen is an UPDATE of a verdict already stored — but the screen
+   * opened at zero stars every time, which looks exactly like the first one was
+   * lost. `getTripById` now returns what this driver already wrote; seeding the
+   * local map with it means the screen re-opens showing the rating rather than
+   * asking for it again.
+   *
+   * Seeded once per fetch rather than merged on every render: a driver who is
+   * mid-edit must not have their in-progress stars overwritten by a background
+   * refetch of the same data they are changing.
+   */
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    const t = tripData as any;
+    const byUser: Record<string, number> = t?.ratedStarsByUserId ?? {};
+    if (!t?.id || seededFor.current === t.id) return;
+    if (passengers.length === 0) return;
+    seededFor.current = t.id;
+    const seeded: Record<string, { stars: number; comment: string; compliments: string[] }> = {};
+    for (const p of passengers) {
+      const stars = byUser[p.userId];
+      if (typeof stars === 'number' && stars > 0) {
+        seeded[p.bookingId] = { stars, comment: '', compliments: [] };
+      }
+    }
+    if (Object.keys(seeded).length === 0) return;
+    setRatings((prev) => ({ ...seeded, ...prev }));
+    // Open on the first person who has NOT been rated — re-asking for a verdict
+    // already on file is the whole complaint.
+    const firstUnrated = passengers.findIndex((p) => !(p.userId in byUser));
+    if (firstUnrated > 0) setCurrentIndex(firstUnrated);
+  }, [tripData, passengers]);
   const [comment, setComment] = useState('');
   const [selectedCompliments, setSelectedCompliments] = useState<string[]>([]);
 

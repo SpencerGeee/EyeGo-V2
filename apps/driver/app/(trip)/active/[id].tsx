@@ -1,6 +1,6 @@
 'use strict';
 import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -27,6 +27,7 @@ import { useChatUnread } from '../../../stores/chatUnread.store';
 import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
+import * as Haptics from 'expo-haptics';
 import { SeatMap } from '../../../components/SeatMap';
 import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { offlineQueue } from '../../../utils/offlineQueue';
@@ -202,6 +203,26 @@ export default function ActiveTripScreen() {
   const [pinValue, setPinValue] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinBusy, setPinBusy] = useState(false);
+
+  /**
+   * "IT'S DOWN THERE" — the pointer for a refused departure.
+   *
+   * The server now refuses IN_PROGRESS while the car is empty or a Verify My
+   * Ride code is outstanding, and both are fixed on the seat map, which is on
+   * this same screen but below the fold of a collapsed sheet. An alert that says
+   * "board your passengers" and leaves the driver to find where costs them the
+   * seconds they were trying to save by skipping it.
+   *
+   * Lights the seat card and clears itself, so it is a nudge rather than a state
+   * the driver has to dismiss.
+   */
+  const [seatMapNudge, setSeatMapNudge] = useState(false);
+  useEffect(() => {
+    if (!seatMapNudge) return;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    const t = setTimeout(() => setSeatMapNudge(false), 4200);
+    return () => clearTimeout(t);
+  }, [seatMapNudge]);
 
   const boardWithPin = React.useCallback(
     async (bookingId: string, seatNumber: number, name: string, pin?: string) => {
@@ -618,6 +639,38 @@ export default function ActiveTripScreen() {
         return;
       }
 
+      /**
+       * THE RIDE CANNOT START UNTIL PEOPLE ARE IN THE CAR.
+       *
+       * BUGFIX (item 16: "I chose to start the trip without boarding and putting
+       * the pin in and it still started the ride"), plus "gate starting a ride
+       * if no one has been boarded".
+       *
+       * These two land BEFORE the generic 409 branch below on purpose. That
+       * branch reads every conflict as "this step had already gone through",
+       * which is true of a duplicate swipe and flatly wrong here — it would tell
+       * a driver their trip was up to date at the exact moment the server had
+       * refused to start it, and they would have no idea why nothing moved.
+       *
+       * Both are recoverable in one place: the seat map, on this screen, which
+       * is also where the Verify My Ride keypad lives. So the alert points at
+       * it rather than describing the rule.
+       */
+      if (status === 409 && (body?.code === 'NOBODY_BOARDED' || body?.code === 'BOARDING_PIN_REQUIRED')) {
+        const pinCase = body?.code === 'BOARDING_PIN_REQUIRED';
+        Alert.alert(
+          pinCase ? 'Verify your passengers first' : 'Board your passengers first',
+          body?.message ??
+            (pinCase
+              ? 'Ask each rider for their 4-digit code and board them before starting.'
+              : 'Mark who is in the vehicle on the seat map — the ride cannot start with an empty car.'),
+          // The seat map is already on this screen, under the sheet. Lighting it
+          // is the pointer — see `highlightSeatMap`.
+          [{ text: 'Show me', onPress: () => setSeatMapNudge(true) }],
+        );
+        return;
+      }
+
       if (status === 409) {
         addNotification({
           type: 'DRIVER_EN_ROUTE',
@@ -700,7 +753,7 @@ export default function ActiveTripScreen() {
     return {
       latitude: pickupCoord ? pickupCoord[1] : NaN,
       longitude: pickupCoord ? pickupCoord[0] : NaN,
-      address: t?.pickup?.address ?? t?.pickupAddress ?? t?.route?.originName ?? null,
+      address: originLabel(t),
       label: 'Pickup',
     };
   }, [trip, pickupCoord]);
@@ -711,7 +764,7 @@ export default function ActiveTripScreen() {
     return {
       latitude: destCoord ? destCoord[1] : NaN,
       longitude: destCoord ? destCoord[0] : NaN,
-      address: t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null,
+      address: destinationLabel(t),
       label: 'Destination',
     };
   }, [trip, destCoord]);
@@ -879,8 +932,28 @@ export default function ActiveTripScreen() {
     b.paymentStatus !== 'PAID' &&
     !['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
   const paidBookings = activeBookings.filter((b: any) => !isHeld(b));
-  const heldCount = activeBookings.length - paidBookings.length;
-  const passengers = paidBookings.length;
+  /**
+   * SEATS, NOT ROWS.
+   *
+   * BUGFIX ("I chose to book for 3 seats but the driver app shows 1"). A group
+   * seat is one booking row; an on-demand party of three is ONE row carrying
+   * three, because it is one payment and one person to phone. Counting rows was
+   * right for one product and understated the other by the size of the party.
+   * `seatsOf` reads `Booking.seats`, which is 1 for every legacy row.
+   */
+  const heldCount = activeBookings.reduce((n: number, b: any) => n + (isHeld(b) ? seatsOf(b) : 0), 0);
+  const passengers = paidBookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
+  /**
+   * SEATS ACTUALLY IN THE CAR — the precondition the server now enforces.
+   *
+   * "Gate starting a ride if no one has been boarded." The swipe at
+   * ARRIVED_AT_PICKUP is refused with 409 NOBODY_BOARDED while this is zero, so
+   * the screen says so BEFORE the swipe rather than after it.
+   */
+  const boardedSeats = activeBookings.reduce(
+    (n: number, b: any) => n + (b.status === 'BOARDED' || b.status === 'COMPLETED' ? seatsOf(b) : 0),
+    0,
+  );
   /**
    * ONE FARE DENOMINATOR. Sum the seats that were actually sold, at the price
    * each was actually sold for.
@@ -924,7 +997,8 @@ export default function ActiveTripScreen() {
   for (const b of activeBookings as any[]) {
     const uid = b.user?.id ?? b.userId;
     if (!uid) continue;
-    seatsHeldByUser.set(uid, (seatsHeldByUser.get(uid) ?? 0) + 1);
+    // Seats, not rows — one on-demand row can be a party of three.
+    seatsHeldByUser.set(uid, (seatsHeldByUser.get(uid) ?? 0) + seatsOf(b));
   }
 
   const seats = activeBookings.map((b: any) => {
@@ -1029,7 +1103,7 @@ export default function ActiveTripScreen() {
 
         <View style={styles.headerCenter}>
           <Text style={styles.headerRoute} numberOfLines={1}>
-            {trip.route?.originName ?? '—'} → {trip.route?.destinationName ?? '—'}
+            {originLabel(trip) ?? 'Pickup on the map'} → {destinationLabel(trip) ?? 'Destination on the map'}
           </Text>
           <View style={styles.statusBadge}>
             <View style={[styles.statusDot, { backgroundColor: statusCfg.color }]} />
@@ -1109,14 +1183,14 @@ export default function ActiveTripScreen() {
             <View style={styles.routeSummary}>
               <View style={styles.routeDot} />
               <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
-                {trip.route?.originName ?? '—'}
+                {originLabel(trip) ?? 'Pickup on the map'}
               </Text>
             </View>
             <View style={styles.routeLine} />
             <View style={styles.routeSummary}>
               <View style={[styles.routeDot, { backgroundColor: colors.secondary ?? '#7DD8F5', borderRadius: 3 }]} />
               <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
-                {trip.route?.destinationName ?? '—'}
+                {destinationLabel(trip) ?? 'Destination on the map'}
               </Text>
               <View style={styles.tripMeta}>
                 {/* Live ETA wins over the scheduled departure time: once the
@@ -1148,9 +1222,37 @@ export default function ActiveTripScreen() {
             <TripStatusRail steps={RAIL_STEPS} currentIndex={currentStepIndex} />
           </Entrance>
 
-          {/* Seat map */}
-          <Entrance animation="slideDown" delay={80} style={styles.card}>
+          {/* Seat map. Lights up when a refused departure points at it — see
+              `seatMapNudge`; the ring is the same family as every other lit
+              surface in this app rather than a one-off highlight colour. */}
+          <Entrance
+            animation="slideDown"
+            delay={80}
+            style={[
+              styles.card,
+              seatMapNudge && {
+                borderColor: colors.statusWarning,
+                borderWidth: 1.5,
+                shadowColor: colors.statusWarning,
+                shadowOpacity: 0.5,
+                shadowRadius: 18,
+                shadowOffset: { width: 0, height: 0 },
+                elevation: 10,
+              },
+            ]}
+          >
             <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
+            {/* WHY THE RIDE WILL NOT START — stated where the fix is, not in a
+                dialogue the driver has already dismissed. Only while it is
+                actually blocking: at ARRIVED_AT_PICKUP with an empty car. */}
+            {trip.status === 'ARRIVED_AT_PICKUP' && boardedSeats === 0 && seats.length > 0 && (
+              <View style={[styles.boardingNotice, { borderColor: `${colors.statusWarning}66`, backgroundColor: `${colors.statusWarning}14` }]}>
+                <Ionicons name="people-outline" size={14} color={colors.statusWarning} />
+                <Text variant="caption" style={{ color: colors.statusWarning, flex: 1 }}>
+                  Tap each seat to board your passengers. The ride cannot start until someone is aboard.
+                </Text>
+              </View>
+            )}
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Seat Map</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
@@ -2055,6 +2157,16 @@ const makeStyles = (colors: DriverColors) =>
       color: colors.onSurface,
     },
     /** The affordance for the seat map's tap target — see the render site. */
+    boardingNotice: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.lg,
+      borderWidth: StyleSheet.hairlineWidth,
+      marginBottom: spacing.md,
+    },
     seatHint: { marginTop: 2, opacity: 0.85 },
     qrBtn: {
       width: 28,

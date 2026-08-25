@@ -53,6 +53,24 @@ export const tripsApi = {
   }) =>
     apiClient.post<ApiResponse<{ requestId: string; message: string }>>('/trips/request', params),
 
+  /**
+   * PUBLIC live-tracking data for a SHARED ride link. No auth.
+   *
+   * BUGFIX (item 11: "if I click on 'Open in EyeGo app' on the share trip page,
+   * it tells me unmatched route, page could not be found, eyego://track/cmt8…").
+   *
+   * The share page has always linked to `eyego://track/<shortId>` and the rider
+   * app has never had a `track` route to receive it, so the deep link landed on
+   * expo-router's unmatched screen. `app/track/[shortId].tsx` is that route, and
+   * this is what it resolves the short id with — the same endpoint the web page
+   * itself polls, which answers for a trip the viewer has no booking on and
+   * strips everything private once the ride has ended.
+   */
+  getTracking: (shortId: string) =>
+    apiClient.get<ApiResponse<{ tripId: string; shortId: string; status: string; ended?: boolean }>>(
+      `/trips/track/${shortId}/data`,
+    ),
+
   getTripRequest: (requestId: string) =>
     apiClient.get<ApiResponse<{ id: string; status: string; matchedTripId: string | null }>>(`/trips/request/${requestId}`),
 

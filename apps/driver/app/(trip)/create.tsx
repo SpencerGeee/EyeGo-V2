@@ -12,6 +12,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { driverApi } from '@eyego/api';
+import { placeLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // One formatter. This screen used to declare a local `₵${amount.toFixed(2)}`
 // that shadowed the shared one — harmless while money was cedis, a 100x
@@ -247,10 +248,20 @@ export default function CreateTripScreen() {
       driverApi.createTrip({
         originLat: origin!.latitude,
         originLng: origin!.longitude,
-        originName: origin!.name,
+        /**
+         * THE STREET AND ITS CONTEXT, NOT ONE OR THE OTHER.
+         *
+         * Item 1 ("make sure the street name is the actual street name … fix
+         * this app-wide, so everywhere in the two apps that deals with location
+         * it's the actual street name"). `name` alone is "Oxford Street", which
+         * a rider three suburbs away cannot place; `fullAddress` alone can be
+         * the bare administrative context for a POI. `placeLabel` composes them
+         * and de-duplicates when the geocoder already did.
+         */
+        originName: placeLabel(origin!.name, origin!.fullAddress) ?? origin!.name,
         destLat: destination!.latitude,
         destLng: destination!.longitude,
-        destinationName: destination!.name,
+        destinationName: placeLabel(destination!.name, destination!.fullAddress) ?? destination!.name,
         departureTime: departureTime.toISOString(),
         availableSeats: seats,
         tier,

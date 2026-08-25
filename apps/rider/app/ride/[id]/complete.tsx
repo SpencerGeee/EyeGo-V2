@@ -13,9 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { formatGhs, formatDistance, formatDuration } from '@eyego/utils';
+import { formatGhs, formatDistance, formatDuration, originLabel, destinationLabel } from '@eyego/utils';
 import { useQuery } from '@tanstack/react-query';
-import { bookingsApi } from '@eyego/api';
+import { bookingsApi, ridesApi } from '@eyego/api';
 import { Text, GlassSurface, GradientGlowBorder, AnimatedCheckmark, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
 
 export default function TripCompleteScreen() {
@@ -24,8 +24,76 @@ export default function TripCompleteScreen() {
   const { id, bookingId: paramBookingId, viewOnly } = useLocalSearchParams<{ id: string; bookingId?: string; viewOnly?: string }>();
   const isViewOnly = viewOnly === '1';
   const router = useRouter();
-  const { activeBooking, selectedTrip } = useRideStore();
+  const { activeBooking, selectedTrip: storeTrip } = useRideStore();
   const navigated = useRef(false);
+
+  /**
+   * THE TRIP THIS RECEIPT IS FOR — FETCHED, NOT REMEMBERED.
+   *
+   * BUGFIX (item 7: "the complete page that comes before the rate driver had a
+   * dash for the destination").
+   *
+   * Every fact on this card came from `selectedTrip`, a ride-store slice that is
+   * only ever populated by the GROUP flow's trip picker. An on-demand rider
+   * never picks a trip — they name a destination and a car is dispatched — so
+   * the slice is null for the primary product, and the card fell through to its
+   * placeholders: "Destination" for the address and a literal em-dash for the
+   * distance. It also survives a cold start, an app kill mid-ride, or arriving
+   * here from a push, none of which repopulate an in-memory store.
+   *
+   * `ridesApi.events(id, 0)` answers with the canonical snapshot
+   * (services/trip-view.js) — the same shape the tracking screen renders — so
+   * the receipt and the ride it describes cannot disagree. The store slice
+   * stays as the instant-paint fallback for the group flow that does have it.
+   */
+  const { data: ride } = useQuery({
+    queryKey: ['ride', 'snapshot', id],
+    queryFn: () => ridesApi.events(id, 0),
+    select: (r: any) => {
+      const payload = r?.snapshot ? r : r?.data;
+      return {
+        snapshot: payload?.snapshot ?? null,
+        /**
+         * THE DISTANCE THE RIDE WAS PRICED ON.
+         *
+         * There is no `distanceKm` column on `Trip` and no route row on an
+         * on-demand ride, so the snapshot cannot carry one — which is why this
+         * card printed an em-dash for every hailed trip. The REQUESTED event
+         * (seq 0) records the quote it was booked against, distance included,
+         * and the event log is append-only, so it is still there when the
+         * receipt is opened weeks later. The number the rider was charged for
+         * is the honest one to show them.
+         */
+        quotedKm:
+          (payload?.events ?? []).find((e: any) => e?.seq === 0)?.payload?.distanceKm ?? null,
+      };
+    },
+    enabled: !!id,
+    staleTime: 5 * 60_000,
+  });
+  const snapshot = ride?.snapshot ?? null;
+
+  /**
+   * One object for the render, whichever source answered.
+   *
+   * Shapes differ — the snapshot says `pickup.address`, the store says
+   * `origin.address` — so this normalises once rather than making every field
+   * below carry a two-branch chain. `originLabel`/`destinationLabel` already
+   * know both shapes; distance and vehicle are named explicitly.
+   */
+  const selectedTrip = useMemo(() => {
+    const snapDistance = ride?.quotedKm ?? (snapshot as any)?.route?.distanceKm ?? null;
+    const origin = originLabel(snapshot as any) ?? originLabel(storeTrip as any);
+    const destination = destinationLabel(snapshot as any) ?? destinationLabel(storeTrip as any);
+    return {
+      origin: origin ? { address: origin } : (storeTrip as any)?.origin ?? null,
+      destination: destination ? { address: destination } : (storeTrip as any)?.destination ?? null,
+      distanceKm: snapDistance ?? (storeTrip as any)?.distanceKm ?? null,
+      durationMinutes: (storeTrip as any)?.durationMinutes ?? null,
+      vehicle: (snapshot as any)?.vehicle ?? (storeTrip as any)?.vehicle ?? null,
+      farePerSeatPesewas: (storeTrip as any)?.farePerSeatPesewas ?? null,
+    };
+  }, [snapshot, storeTrip, ride?.quotedKm]);
 
   const bookingId = paramBookingId || activeBooking?.id || '';
   const { data: receiptData } = useQuery({

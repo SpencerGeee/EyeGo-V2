@@ -541,6 +541,27 @@ model Booking {
   userId              String?
   user                User?         @relation(fields: [userId], references: [id])
   seatNumber          Int?
+  /// HOW MANY PEOPLE THIS ONE ROW IS CARRYING.
+  ///
+  /// BUGFIX ("on the rider app I chose to book 3 seats but the driver app shows
+  /// 1/1 boarded", "it says passengers boarded 1/3 — but I booked all 3 seats,
+  /// so if I'm on board they are too").
+  ///
+  /// The two products count differently and both are right:
+  ///
+  ///   GROUP/BUS   N seats = N rows. Each is a different passenger who chose a
+  ///               seat, paid separately and can cancel separately.
+  ///   ON-DEMAND   N seats = ONE row. It is one payment, one cancellation, one
+  ///               person to phone; `requestRide` has always written
+  ///               `maxSeats: partySize` and a single booking.
+  ///
+  /// So `bookings.length` is the passenger count for one product and understates
+  /// it for the other, which is what put "1" on the driver's screen for a party
+  /// of three. This column is the party size on the row, and every count is a
+  /// SUM of it rather than a row count — see packages/utils/src/trip-endpoints.ts.
+  ///
+  /// Defaults to 1 so every pre-existing row keeps meaning exactly what it meant.
+  seats               Int           @default(1)
   // ── MONEY IS INTEGER PESEWAS ────────────────────────────────────────────
   // 1 GHS = 100 pesewas. Every monetary column in this schema is `Int` and
   // named `…Pesewas`, without exception. See src/utils/money.js for why, and

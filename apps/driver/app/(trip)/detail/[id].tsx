@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -135,12 +135,12 @@ export default function TripDetailScreen() {
             <>
               <View style={styles.routeRow}>
                 <View style={styles.routeDot} />
-                <Text style={styles.routeText}>{trip?.route?.originName ?? '—'}</Text>
+                <Text style={styles.routeText}>{originLabel(trip) ?? '—'}</Text>
               </View>
               <View style={styles.routeLine} />
               <View style={styles.routeRow}>
                 <View style={[styles.routeDot, { backgroundColor: colors.accent }]} />
-                <Text style={styles.routeText}>{trip?.route?.destinationName ?? '—'}</Text>
+                <Text style={styles.routeText}>{destinationLabel(trip) ?? '—'}</Text>
               </View>
               <View style={styles.routeMeta}>
                 <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceVariant} />

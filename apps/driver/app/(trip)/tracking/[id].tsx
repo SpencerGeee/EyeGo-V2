@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -567,7 +567,7 @@ export default function DriverTrackingScreen() {
       latitude: t?.dropoff?.lat ?? t?.dropoffLat ?? t?.route?.destLat ?? NaN,
       longitude: t?.dropoff?.lng ?? t?.dropoffLng ?? t?.route?.destLng ?? NaN,
       address:
-        t?.dropoff?.address ?? t?.dropoffAddress ?? t?.route?.destinationName ?? null,
+        destinationLabel(t),
       label: 'Destination',
     });
   };
@@ -585,10 +585,32 @@ export default function DriverTrackingScreen() {
   const statusInfo = STATUS_FLOW[trip?.status] ?? STATUS_FLOW.FILLING;
   const rawBookings = trip?.bookings ?? [];
   const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
-  const passengers = activeBookings.length;
-  const total = trip?.maxSeats ?? 14;
+  /**
+   * PEOPLE, NOT BOOKING ROWS.
+   *
+   * BUGFIX (items 2 and 4: "on the rider app I chose to book 3 seats but the
+   * driver's tracking page shows 1/1 boarded", and "it says passengers boarded
+   * are 1/3 — but I booked all 3 seats, so if I'm on board they are too").
+   *
+   * Both numbers came from `activeBookings.length`, and an on-demand ride is
+   * deliberately ONE booking however many people are travelling: one payment,
+   * one cancellation, one person to phone. The party size lives on the row
+   * (`Booking.seats`) and this counted rows, so a car with three people in it
+   * reported one — and boarding that single row therefore read as "1 boarded"
+   * rather than "all three are in".
+   *
+   * `seatsOf` is 1 for a group seat and N for an on-demand party, so summing it
+   * is the count that is right for both products. Boarding is per booking and
+   * always was: the party got in together, so marking their row BOARDED puts
+   * all of them in the car — which is exactly what the report asked for.
+   */
+  const passengers = activeBookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
+  const total = trip?.maxSeats ?? passengers ?? 14;
   const fare = trip?.farePerSeatPesewas ?? 0;
-  const boarded = activeBookings.filter((b: any) => b.status === 'BOARDED').length;
+  const boarded = activeBookings.reduce(
+    (n: number, b: any) => n + (b.status === 'BOARDED' || b.status === 'COMPLETED' ? seatsOf(b) : 0),
+    0,
+  );
 
   // ── Render ──
   if (isLoading) {
@@ -641,7 +663,7 @@ export default function DriverTrackingScreen() {
           </Pressable>
           <View style={styles.headerRouteInfo}>
             <Text style={styles.headerRoute} numberOfLines={1}>
-              {trip?.route?.originName ?? '—'} → {trip?.route?.destinationName ?? '—'}
+              {originLabel(trip) ?? 'Pickup'} → {destinationLabel(trip) ?? 'Destination'}
             </Text>
           </View>
           <TripStatusBadge status={trip.status} colors={colors} />
@@ -795,40 +817,68 @@ export default function DriverTrackingScreen() {
                 No passengers yet. Trip is open for boarding.
               </Text>
             ) : (
-              activeBookings.slice(0, 6).map((b: any, i: number) => (
-                <View key={b.id ?? i} style={styles.passengerRow}>
-                  <View style={[styles.passengerAvatar, !b.user?.name && { backgroundColor: colors.surfaceContainerHighest }]}>
-                    <Text style={styles.passengerInitial}>
-                      {(b.user?.name?.[0] ?? b.seatNumber ?? '?').toString().toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.passengerName}>
-                      {b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? '—'}`}
-                    </Text>
-                    <Text variant="caption" color={colors.onSurfaceVariant}>
-                      Seat {b.seatNumber ?? '—'} · {
-                        b.paymentStatus === 'PAID' ? 'Paid'
-                        : b.paymentStatus === 'FAILED' ? 'Payment failed'
-                        : b.paymentMethod === 'CASH' ? 'Cash'
-                        : b.paymentStatus === 'PENDING' ? 'Pending payment'
-                        : b.status
-                      }
-                    </Text>
-                  </View>
-                  <View style={[
-                    styles.boardedBadge,
-                    { backgroundColor: b.status === 'BOARDED' ? `${colors.online}22` : `${colors.outline}22` },
-                  ]}>
-                    <Text style={[
-                      styles.boardedText,
-                      { color: b.status === 'BOARDED' ? colors.online : colors.onSurfaceVariant },
+              activeBookings.slice(0, 6).map((b: any, i: number) => {
+                const party = seatsOf(b);
+                const aboard = b.status === 'BOARDED' || b.status === 'COMPLETED';
+                const needsPin = !!b.requiresBoardingPin && !aboard;
+                return (
+                  /**
+                   * A WAITING ROW IS A BUTTON, BECAUSE BOARDING IS NOW REQUIRED.
+                   *
+                   * The ride cannot reach IN_PROGRESS with an empty car (see
+                   * services/boarding-pin.service.js), so "who is not aboard
+                   * yet" stopped being a read-only fact the moment that gate
+                   * went in. Tapping goes to the manage screen, which owns the
+                   * seat map AND the Verify My Ride keypad — one implementation
+                   * of boarding, not two that drift.
+                   */
+                  <Pressable
+                    key={b.id ?? i}
+                    style={styles.passengerRow}
+                    disabled={aboard}
+                    onPress={() => router.push(`/(trip)/active/${id}` as Href)}
+                    accessibilityRole={aboard ? undefined : 'button'}
+                    accessibilityLabel={
+                      aboard
+                        ? `${b.guestName ?? b.user?.name ?? 'Passenger'} is on board`
+                        : `Board ${b.guestName ?? b.user?.name ?? 'this passenger'}`
+                    }
+                  >
+                    <View style={[styles.passengerAvatar, !b.user?.name && { backgroundColor: colors.surfaceContainerHighest }]}>
+                      <Text style={styles.passengerInitial}>
+                        {(b.user?.name?.[0] ?? b.seatNumber ?? '?').toString().toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.passengerName}>
+                        {b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? '—'}`}
+                      </Text>
+                      <Text variant="caption" color={colors.onSurfaceVariant}>
+                        {/* A party of three is one row, so say so — "Seat 1" for
+                            three people travelling together reads as a mistake. */}
+                        {party > 1 ? `${party} seats` : `Seat ${b.seatNumber ?? '—'}`} · {
+                          b.paymentStatus === 'PAID' ? 'Paid'
+                          : b.paymentStatus === 'FAILED' ? 'Payment failed'
+                          : b.paymentMethod === 'CASH' ? 'Cash'
+                          : b.paymentStatus === 'PENDING' ? 'Pending payment'
+                          : b.status
+                        }{needsPin ? ' · code needed' : ''}
+                      </Text>
+                    </View>
+                    <View style={[
+                      styles.boardedBadge,
+                      { backgroundColor: aboard ? `${colors.online}22` : `${colors.accent}1F` },
                     ]}>
-                      {b.status === 'BOARDED' ? 'On board' : 'Waiting'}
-                    </Text>
-                  </View>
-                </View>
-              ))
+                      <Text style={[
+                        styles.boardedText,
+                        { color: aboard ? colors.online : colors.accent },
+                      ]}>
+                        {aboard ? 'On board' : 'Board'}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
             )}
             </GradientGlowBorder>
           </Entrance>

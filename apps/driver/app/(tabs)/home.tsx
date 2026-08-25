@@ -1,5 +1,5 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originShort, destinationShort } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -714,7 +714,7 @@ export default function HomeScreen() {
                   <View style={styles.activeTripBanner}>
                     <View style={[styles.activeDot, { backgroundColor: colors.online }]} />
                     <Text style={styles.activeTripText}>
-                      Active trip: {(activeTripData as any).route?.originName ?? '—'} → {(activeTripData as any).route?.destinationName ?? '—'}
+                      Active trip: {originShort(activeTripData as any) ?? 'Pickup'} → {destinationShort(activeTripData as any) ?? 'Destination'}
                     </Text>
                   </View>
                   <Button

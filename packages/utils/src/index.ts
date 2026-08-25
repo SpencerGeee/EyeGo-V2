@@ -15,6 +15,11 @@ export * from './errors';
 // coordinates" bug was three URL builders each dropping the address separately.
 export * from './geo-links';
 
+// Where a ride starts and ends, and how many people are on it. One resolver for
+// the snapshot shape AND the raw Prisma shape, because reading only
+// `route.originName` is what put an em-dash on every on-demand trip.
+export * from './trip-endpoints';
+
 /**
  * Trip statuses that are over, one way or another.
  *

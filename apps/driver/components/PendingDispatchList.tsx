@@ -15,7 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, GradientGlowBorder, ShinyText } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, MorphSource, useMorph, getTierTheme } from '@eyego/ui';
 import {
   MapView,
   Camera,
@@ -70,12 +70,23 @@ import { beatPresenceNow, lastKnownReportedFix } from '../hooks/useDriverLocatio
  * is shared. Selecting a row re-frames the shared map rather than mounting
  * another.
  */
+/**
+ * The morph id linking a board row to the offer screen it opens.
+ *
+ * Exported so the offer screen cannot spell it differently — a MorphTarget whose
+ * id does not match its source simply never receives the clone, and the failure
+ * is silent: the screen just appears without animating.
+ */
+export const morphIdFor = (tripId: string) => `dispatch-offer-${tripId}`;
+
 export function PendingDispatchList({ compact = false }: { compact?: boolean }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const requests = useDriverTripStore((s) => s.pendingRequests);
+  const hydrated = useDriverTripStore((s) => s.requestsHydrated);
   const resync = useDriverTripStore((s) => s.resync);
+  const { morphTo } = useMorph();
   const clockSkewMs = useDriverTripStore((s) => s.clockSkewMs);
   const [refreshing, setRefreshing] = useState(false);
   const [, forceTick] = useState(0);
@@ -120,9 +131,27 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
         return;
       }
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      router.push(`/(trip)/dispatch/${r.tripId}` as any);
+      /**
+       * THE CARD BECOMES THE PAGE.
+       *
+       * BUGFIX (item 14: "when you tap on the live dispatch card on the
+       * homepage of the driver app, it should morph into the newly designed
+       * dispatch page like the way the live trip card does on the rider
+       * homepage").
+       *
+       * The rider app has done this since the morph primitive was built; the
+       * driver app mounted MorphProvider in its root layout and then never used
+       * it, so every dispatch tap was a plain push — the card vanished and an
+       * unrelated screen slid in over it. morphTo flies a clone of THIS row into
+       * the MorphTarget on the offer screen, so the thing the driver tapped is
+       * the thing that grows.
+       *
+       * Keyed on the trip id, not on a fixed string: several rows can be on the
+       * board at once and each has to land on its own offer.
+       */
+      morphTo(morphIdFor(r.tripId), () => router.push(`/(trip)/dispatch/${r.tripId}` as any));
     },
-    [router],
+    [router, morphTo],
   );
 
   const mine = useMemo(
@@ -162,7 +191,10 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
                 {`${requests.length} live request${requests.length > 1 ? 's' : ''}`}
               </ShinyText>
             ) : (
-              <Text style={styles.headerTitle}>No live requests</Text>
+              // Not "No live requests" until we have asked. See the skeleton.
+              <Text style={styles.headerTitle}>
+                {hydrated ? 'No live requests' : 'Checking for work…'}
+              </Text>
             )}
             {mine.length > 0 ? (
               <Text variant="caption" color={colors.accent}>
@@ -193,7 +225,27 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
         </Pressable>
       </View>
 
-      {requests.length === 0 ? (
+      {/*
+        A BLANK BOARD MEANS "NO WORK". SAY IT ONLY WHEN IT IS TRUE.
+
+        BUGFIX (item 1: "the live card that shows the live trip dispatch takes a
+        while to load up and it comes as blank for a while before the whole
+        thing is loaded up").
+
+        `pendingRequests` starts empty, and this branch read empty as "nothing is
+        being dispatched to you" — a confident, wrong answer rendered for the
+        whole of the first round trip and then swapped for live work. The
+        shimmer is the honest state for a question that has not come back yet,
+        and it holds the same height as the answer will, so nothing jumps when
+        it does.
+      */}
+      {!hydrated && requests.length === 0 ? (
+        <View style={styles.skeletonWrap}>
+          <Skeleton width="100%" height={132} borderRadius={radii['2xl']} />
+          <Skeleton width="100%" height={84} borderRadius={radii.xl} />
+          <Skeleton width="100%" height={84} borderRadius={radii.xl} />
+        </View>
+      ) : requests.length === 0 ? (
         <View style={[styles.emptyCard, { borderColor: colors.outline }]}>
           <View style={[styles.emptyGlyph, { backgroundColor: colors.surfaceContainerHigh }]}>
             <Ionicons name="radio-outline" size={20} color={colors.onSurfaceVariant} />
@@ -447,12 +499,24 @@ function DispatchRow({
    */
   const claimable = !mine && !r.heldByAnother;
   const urgent = mine && secondsLeft != null && secondsLeft <= 8;
+
+  /**
+   * WHAT KIND OF CAR THIS RIDE IS ASKING FOR — see the ring below (item 8).
+   *
+   * `getTierTheme` normalises the wire's spelling (`ECO` and `ECONOMY` are the
+   * same tier and used to render as two different colours) and hands back both
+   * the accent and the matching ring palette, so the tag, the fare and the glow
+   * are guaranteed to agree. Same lookup the rider's suggested-trip cards use.
+   */
+  const tier = getTierTheme(colors as any, r.tier);
+  const ring = tier.ringPalette;
+
   const accent = urgent
     ? colors.error
     : mine
-      ? colors.accent
+      ? tier.accent
       : claimable
-        ? colors.statusInfo
+        ? tier.accent
         : colors.onSurfaceVariant;
 
   const waitedMin =
@@ -527,9 +591,12 @@ function DispatchRow({
               </Text>
             </View>
           )}
+          {/* The tier tag wears the tier's own colour and its human label —
+              "Economy", not the wire's "ECO". Same source as the ring. */}
           {r.tier ? (
-            <View style={[styles.tag, { backgroundColor: colors.onSurfaceVariant + '14' }]}>
-              <Text style={[styles.tagText, { color: colors.onSurfaceVariant }]}>{r.tier}</Text>
+            <View style={[styles.tag, { backgroundColor: tier.accent + '1A' }]}>
+              <Ionicons name={tier.icon} size={9} color={tier.accent} />
+              <Text style={[styles.tagText, { color: tier.accent }]}>{tier.label.toUpperCase()}</Text>
             </View>
           ) : null}
           {waitedMin != null && waitedMin >= 1 ? (
@@ -555,11 +622,51 @@ function DispatchRow({
    * is at full strength only for the one being held for them. A ring on every
    * row is four shadow-casting layers apiece and no hierarchy at all.
    */
+  /**
+   * The row is the morph's departure point — see `morphIdFor`. Wrapping the
+   * FINISHED element (ring included) rather than the bare Pressable is what
+   * makes the clone look like what the driver actually tapped: a source that
+   * excluded the glow would fly a flat card out of a lit one.
+   *
+   * A row that is not takeable is not a morph source, because tapping it does
+   * not navigate — it re-frames the shared map instead.
+   */
+  const withMorph = (node: React.ReactNode) =>
+    mine || claimable ? (
+      <MorphSource
+        id={morphIdFor(r.tripId)}
+        borderRadius={radii.xl}
+        backgroundColor={colors.surfaceCard}
+      >
+        {node}
+      </MorphSource>
+    ) : (
+      node
+    );
+
   if (!mine && !claimable) return body;
 
-  return (
+  return withMorph(
+    /**
+     * THE RING IS THE RIDE TYPE.
+     *
+     * BUGFIX (item 8: "make the live dispatch also glow-border aware based on
+     * the ride type, like the way the suggested trips section of the rider app
+     * behaves").
+     *
+     * The palette was chosen from URGENCY alone — gold when the clock ran down,
+     * the driver blue otherwise — so a Premium fare and an Economy one arrived
+     * looking identical, and the driver had to read the tag to find out which
+     * they were being offered. The rider's own cards have been tier-coloured
+     * since `tierTheme.ts` was written; this is the same lookup, so the two apps
+     * describe one ride with one colour.
+     *
+     * Urgency still wins when it applies: eight seconds left is a fact about
+     * THIS offer that outranks what kind of car it is, and it is the only state
+     * that overrides the tier.
+     */
     <GradientGlowBorder
-      palette={urgent ? 'gold' : mine ? 'driver' : 'comfort'}
+      palette={urgent ? 'gold' : ring}
       fillColor={colors.surfaceCard}
       borderRadius={radii.xl}
       thickness={mine ? 'regular' : 'thin'}
@@ -568,7 +675,7 @@ function DispatchRow({
       maxGlowRadius={mine ? 20 : 12}
     >
       {body}
-    </GradientGlowBorder>
+    </GradientGlowBorder>,
   );
 }
 
@@ -675,6 +782,7 @@ const makeStyles = (colors: DriverColors) =>
     },
     refreshLabel: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodySmall },
 
+    skeletonWrap: { gap: spacing.md },
     emptyCard: {
       alignItems: 'center',
       gap: spacing.sm,

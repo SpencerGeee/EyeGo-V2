@@ -6,8 +6,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { driverApi } from '@eyego/api';
+import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, AppBackground } from '@eyego/ui';
+import { Text, AppBackground, MorphTarget, useMorph } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -15,6 +16,7 @@ import { useDriverStore } from '../../../stores/driver.store';
 import { useDriverTripStore } from '../../../stores/trip.store';
 import { lastKnownReportedFix } from '../../../hooks/useDriverLocation';
 import { DispatchOfferCard, type DispatchOfferView } from '../../../components/dispatch/DispatchOfferCard';
+import { morphIdFor } from '../../../components/PendingDispatchList';
 
 /** Fallback window when the payload carries no deadline (the REASSIGNMENT path). */
 const DEFAULT_WINDOW_S = 30;
@@ -151,8 +153,8 @@ export default function DispatchScreen() {
         if (t?.id) {
           setFetched({
             tripId: id,
-            pickupAddress: t.pickupAddress ?? t.route?.originName ?? null,
-            dropoffAddress: t.dropoffAddress ?? t.route?.destinationName ?? null,
+            pickupAddress: originLabel(t),
+            dropoffAddress: destinationLabel(t),
             pickup: coordOf(t.pickupLng ?? t.route?.originLng, t.pickupLat ?? t.route?.originLat),
             dropoff: coordOf(t.dropoffLng ?? t.route?.destLng, t.dropoffLat ?? t.route?.destLat),
             farePesewas: t.pricing?.totalTripCostPesewas ?? null,
@@ -204,11 +206,21 @@ export default function DispatchScreen() {
     return () => clearInterval(t);
   }, [expiresAtMs, serverNow]);
 
+  const { morphBack } = useMorph();
+
+  /**
+   * The reverse flight — the card shrinks back into the row it came from.
+   *
+   * `morphBack` no-ops into a plain navigation when nothing is in flight (a
+   * push notification opened this screen directly, so there is no source row to
+   * return to), which is exactly the fallback this needs.
+   *
+   * NOT '/(tabs)'. That is a group with no screen of its own, and routing to it
+   * is what produced "Unmatched Route · eyego-driver:///".
+   */
   const goHome = useCallback(() => {
-    // NOT '/(tabs)'. That is a group with no screen of its own, and routing to
-    // it is what produced "Unmatched Route · eyego-driver:///".
-    router.replace('/(tabs)/home' as Href);
-  }, [router]);
+    morphBack(() => router.replace('/(tabs)/home' as Href));
+  }, [router, morphBack]);
 
   // Guard an id that is not a string at all (a malformed deep link).
   useEffect(() => {
@@ -341,7 +353,27 @@ export default function DispatchScreen() {
         bounces={false}
       >
         {offer ? (
-          <Entrance animation="slideUp" delay={40}>
+          /**
+           * THE CARD THE DRIVER TAPPED IS THE CARD THAT LANDS HERE.
+           *
+           * BUGFIX (item 14: "when you tap on the live dispatch card on the
+           * homepage of the driver app, it should morph into the newly designed
+           * dispatch page like the way the live trip card does on the rider
+           * homepage").
+           *
+           * `MorphSource` on the board row flies a clone of that row into this
+           * target, so the offer grows out of the row rather than a new screen
+           * sliding over it — §7 `shared-element-transition` / `continuity`.
+           *
+           * The id MUST come from `morphIdFor`, not be spelled here: a target
+           * whose id does not match its source never receives the clone, and the
+           * failure is silent — the screen simply appears without animating.
+           *
+           * `Entrance` is gone from this branch. Two entrance animations on one
+           * element fight: the morph is already animating position, size and
+           * radius, and a slide-up underneath it was the jitter on arrival.
+           */
+          <MorphTarget id={morphIdFor(id)} borderRadius={radii['3xl']}>
             <DispatchOfferCard
               offer={offer}
               driverAt={driverAt}
@@ -353,7 +385,7 @@ export default function DispatchScreen() {
               busy={busy}
               accepted={accepted}
             />
-          </Entrance>
+          </MorphTarget>
         ) : (
           <View style={styles.empty}>
             {loading ? (

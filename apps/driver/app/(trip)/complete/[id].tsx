@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
 import type { Trip, Booking } from '@eyego/types';
 import type { DriverTrip } from '@eyego/api';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
@@ -107,6 +107,31 @@ export default function TripCompleteScreen() {
   });
 
   const completedTrip = (fetchedTrip as DriverTrip | null) ?? trips?.find((t: DriverTrip) => t.id === id);
+
+  /**
+   * HAS THIS DRIVER ALREADY RATED EVERYONE ON THIS TRIP?
+   *
+   * `ratedUserIds` comes from `getTripById` — the PassengerRating rows this
+   * driver wrote for this trip. Compared against the DISTINCT passengers, not
+   * the booking rows: a cover-all host owns one row per covered seat and is one
+   * person to rate, which is the same dedupe the rating screen itself does.
+   *
+   * `false` while the fetch is in flight, so the button never starts life greyed
+   * out and then becomes tappable — a control that enables itself after the fact
+   * reads as a bug even when the final state is right.
+   */
+  const allPassengersRated = useMemo(() => {
+    const t = fetchedTrip as any;
+    if (!t) return false;
+    const rated = new Set<string>(Array.isArray(t.ratedUserIds) ? t.ratedUserIds : []);
+    const ratable = new Set<string>(
+      ((t.bookings ?? []) as any[])
+        .filter((b) => b.status !== 'CANCELLED' && b.user?.id)
+        .map((b) => b.user.id as string),
+    );
+    if (ratable.size === 0) return false;
+    return [...ratable].every((uid) => rated.has(uid));
+  }, [fetchedTrip]);
   /**
    * THE RECEIPT IS THE PAID SEATS, NOTHING ELSE.
    *
@@ -319,7 +344,7 @@ export default function TripCompleteScreen() {
         <Entrance animation="slideDown" delay={300} style={styles.titleContainer}>
           <Text style={styles.headline}>Trip Complete!</Text>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtitle}>
-            {completedTrip?.route?.originName} → {completedTrip?.route?.destinationName}
+            {originLabel(completedTrip) ?? 'Pickup'} → {destinationLabel(completedTrip) ?? 'Destination'}
           </Text>
         </Entrance>
 
@@ -464,11 +489,35 @@ export default function TripCompleteScreen() {
 
         {/* CTA */}
         <Entrance animation="slideDown" delay={600} style={styles.ctaWrapper}>
+          {/**
+            * A RATING ALREADY GIVEN IS LOCKED IN, AND THE BUTTON SAYS SO.
+            *
+            * BUGFIX (item 6: "if I rate a passenger and I go to the complete
+            * page and click on rate a passenger, it's like the rating I gave
+            * didn't go through — make sure the rate button is greyed out so the
+            * response they gave is locked in").
+            *
+            * The rating always went through: `PassengerRating` is unique on
+            * (driver, trip, passenger) and the write succeeded. Nothing read it
+            * back, so the button was identical before and after, and re-opening
+            * the flow re-asked for a verdict that was already recorded — which
+            * is indistinguishable from having lost it.
+            *
+            * `getTripById` now returns `ratedUserIds`. The button greys out once
+            * every ratable passenger on this trip is in that list, and it says
+            * "Passengers rated" rather than staying inert and unexplained.
+            */}
           <Button
-            label="Rate Passengers"
+            label={allPassengersRated ? 'Passengers rated' : 'Rate Passengers'}
             onPress={() => router.push(`/(trip)/rate-passengers/${id}`)}
             variant="secondary"
+            disabled={allPassengersRated}
           />
+          {allPassengersRated && (
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: -spacing.xs }}>
+              Your ratings for this trip are saved.
+            </Text>
+          )}
           <Button
             label="Back to Home"
             onPress={() => router.replace('/(tabs)/home')}

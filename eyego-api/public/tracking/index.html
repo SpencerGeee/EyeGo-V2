@@ -430,7 +430,24 @@
           { id: 'building', type: 'fill', source: 'openfreemap', 'source-layer': 'building', paint: { 'fill-color': '#17171C', 'fill-opacity': 0.75, 'fill-outline-color': '#22222A' } },
           { id: 'road-minor', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'minor', 'service'], paint: { 'line-color': '#1F1F27', 'line-width': ['interpolate',['linear'],['zoom'],12,0.5,16,2] } },
           { id: 'road-major', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'primary', 'secondary', 'tertiary'], paint: { 'line-color': '#282833', 'line-width': ['interpolate',['linear'],['zoom'],10,1,16,4] } },
-          { id: 'road-highway', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'motorway', 'trunk'], paint: { 'line-color': '#2C3A2E', 'line-width': ['interpolate',['linear'],['zoom'],8,1.5,16,6], 'line-opacity': 0.85 } }
+          /**
+           * HIGHWAYS ARE GREY. THE ROUTE IS GREEN. NOTHING ELSE IS.
+           *
+           * BUGFIX (item 10: "on the share trip page, the map in the browser has
+           * the active line the same colour as the main highways, so it blends
+           * into it").
+           *
+           * This was `#2C3A2E` — a desaturated GREEN, one hue away from the
+           * `#4be277` the route line is drawn in. On a dark basemap where the
+           * route mostly runs ALONG a trunk road, the two sat on top of each
+           * other and the only thing distinguishing the journey from the
+           * motorway under it was five pixels of brightness.
+           *
+           * The basemap has one job here: be legible and be quiet. Every road
+           * class is now neutral slate, so the single saturated colour on the
+           * page is the thing the page exists to show.
+           */
+          { id: 'road-highway', type: 'line', source: 'openfreemap', 'source-layer': 'transportation', filter: ['in', 'class', 'motorway', 'trunk'], paint: { 'line-color': '#33333F', 'line-width': ['interpolate',['linear'],['zoom'],8,1.5,16,6], 'line-opacity': 0.85 } }
         ]
       },
     };
@@ -733,16 +750,42 @@
       const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } };
       if (!map.getSource('route-line')) {
         map.addSource('route-line', { type: 'geojson', data: geojson });
-        // Casing under the line so it stays readable over pale roads.
+        /**
+         * THREE LAYERS, SO THE ROUTE CANNOT BE MISTAKEN FOR A ROAD.
+         *
+         * The other half of item 10. Neutralising the highway colour stopped the
+         * two competing on HUE; this stops them competing on WEIGHT. A dark
+         * casing separates the line from whatever is under it, a soft halo above
+         * that lifts it off the basemap the way the apps' own route does, and the
+         * bright stroke rides on top. The line also widens with zoom now — a
+         * fixed 5 px is a thread at z18 and a rope at z9.
+         */
         map.addLayer({
           id: 'route-casing', type: 'line', source: 'route-line',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#05130A', 'line-width': 9, 'line-opacity': 0.9 },
+          paint: {
+            'line-color': '#03110B',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 8, 16, 14],
+            'line-opacity': 0.95,
+          },
+        });
+        map.addLayer({
+          id: 'route-halo', type: 'line', source: 'route-line',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-color': '#4be277',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 7, 16, 12],
+            'line-opacity': 0.22,
+            'line-blur': 5,
+          },
         });
         map.addLayer({
           id: 'route-line', type: 'line', source: 'route-line',
           layout: { 'line-cap': 'round', 'line-join': 'round' },
-          paint: { 'line-color': '#4be277', 'line-width': 5 },
+          paint: {
+            'line-color': '#4be277',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 9, 3.5, 16, 6.5],
+          },
         });
       } else if (key !== lastGeometryKey) {
         map.getSource('route-line').setData(geojson);

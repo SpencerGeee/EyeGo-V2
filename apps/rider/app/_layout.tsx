@@ -478,7 +478,22 @@ export default function RootLayout() {
     }
   }, [router, showInAppBanner]);
 
-  // Handle invite deep links (e.g. eyego://join/abc123 or https://eyego.app/invite/abc123)
+  /**
+   * EVERY LINK THIS APP PUBLISHES HAS TO LAND SOMEWHERE.
+   *
+   * Handles `eyego://join/<token>` / `https://eyego.app/invite/<token>` and
+   * `eyego://track/<shortId>` / `https://eyego.app/tracking/?id=<shortId>`.
+   *
+   * BUGFIX (item 11: "if I click 'Open in EyeGo app' on the share trip page it
+   * tells me unmatched route, page could not be found, eyego://track/cmt8…").
+   * The share page has emitted `eyego://track/<shortId>` since it was built and
+   * only the invite form was matched here, so the tracking link fell through to
+   * expo-router's unmatched screen with its own URL printed in it.
+   *
+   * The id patterns are `[a-zA-Z0-9]+` because both are cuids. Anything that
+   * does not match is ignored rather than pushed — a half-parsed deep link that
+   * navigates somewhere arbitrary is worse than one that does nothing.
+   */
   useEffect(() => {
     const handleUrl = ({ url }: { url: string }) => {
       try {
@@ -488,6 +503,20 @@ export default function RootLayout() {
         const inviteMatch = path.match(/(?:invite|join)\/([a-zA-Z0-9]+)/);
         if (inviteMatch) {
           router.push(`/join/${inviteMatch[1]}` as Href);
+          return;
+        }
+
+        // `eyego://track/<shortId>` — the app button on a shared ride page.
+        const trackMatch = path.match(/track(?:ing)?\/([a-zA-Z0-9]+)/);
+        if (trackMatch) {
+          router.push(`/track/${trackMatch[1]}` as Href);
+          return;
+        }
+        // …and the web form, which carries the id as a query parameter instead
+        // (`/tracking/?id=…`), so the path alone has nothing to capture.
+        const queryId = (parsed.queryParams?.id ?? null) as string | null;
+        if (queryId && /^[a-zA-Z0-9]+$/.test(queryId) && /track/i.test(path)) {
+          router.push(`/track/${queryId}` as Href);
         }
       } catch (e) {
         console.warn('[Linking] Failed to parse URL:', e);

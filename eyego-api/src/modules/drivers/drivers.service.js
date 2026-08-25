@@ -18,6 +18,9 @@ const logger = require('../../utils/logger');
 const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
 const { haversineMeters } = require('../../utils/geo');
 const ratingIntegrity = require('../../services/rating-integrity.service');
+// The preconditions for IN_PROGRESS — somebody aboard, every asked-for code
+// given. Shared with rides.service so both departure endpoints enforce one rule.
+const boardingPin = require('../../services/boarding-pin.service');
 const { seatOccupyingWhere, departureCountedWhere, livePassengerWhere } = require('../../utils/booking-status');
 const { isDriverAvailable } = require('../../services/driver-availability');
 const supply = require('../../services/supply-index.service');
@@ -874,7 +877,50 @@ async function getTripById(driverId, tripId) {
     },
   });
   if (!trip) throw new NotFoundError('Trip');
-  return attachFarePerSeat(trip);
+
+  /**
+   * WHO THIS DRIVER HAS ALREADY RATED.
+   *
+   * BUGFIX (item 6: "if I rate a passenger and I go to the complete page and
+   * click on rate a passenger, it's like the rating I gave didn't go through —
+   * the rate button should be greyed out so the response is locked in").
+   *
+   * The rating DID go through: `PassengerRating` is unique on
+   * (driverId, tripId, userId) and the write succeeded. But nothing ever read it
+   * back, so the receipt's "Rate Passengers" button looked identical before and
+   * after, and re-opening the flow re-asked for a verdict already recorded. A
+   * driver has no way to tell a stored rating from a lost one except by being
+   * shown it.
+   *
+   * Returned as ids rather than a boolean so the rating screen can also mark the
+   * individual passengers it has already collected on a multi-passenger trip,
+   * instead of the receipt knowing only "all or nothing".
+   */
+  const rated = await prisma.passengerRating.findMany({
+    where: { driverId, tripId },
+    select: { userId: true, stars: true },
+  });
+
+  /**
+   * AND THE DRIVER STILL MAY NOT READ THE CODE.
+   *
+   * SECURITY FIX, found while adding the departure gate below. `scrubBookingSecrets`
+   * exists precisely because a driver who can read the rider's Verify My Ride
+   * code off their own payload has verified nothing — and it was applied to the
+   * ACTIVE-trip read and not to this one. The booking `include` here has no
+   * `select`, so every column came back, `boardingPin` among them, to the two
+   * screens a driver spends the whole ride on.
+   *
+   * Now that `IN_PROGRESS` is gated on `pinVerifiedAt`, this stops being a
+   * privacy slip and becomes a hole in the gate itself: a driver could read the
+   * digits from the response and satisfy the check without ever asking the
+   * passenger, which is exactly the failure the feature is named after.
+   */
+  return {
+    ...scrubBookingSecrets(attachFarePerSeat(trip)),
+    ratedUserIds: rated.map((r) => r.userId),
+    ratedStarsByUserId: Object.fromEntries(rated.map((r) => [r.userId, r.stars])),
+  };
 }
 
 // Statuses from which a dispatched trip may still be accepted by its driver.
@@ -1212,6 +1258,25 @@ async function departTrip(driverId, tripId, { acknowledgeUnderMinimum = false } 
   const trip = await prisma.trip.findFirst({ where: { id: tripId, driverId } });
   if (!trip) throw new NotFoundError('Trip');
   if (!needsTransition(trip, 'IN_PROGRESS')) return trip;
+
+  /**
+   * SOMEBODY IS IN THE CAR, AND EVERY CODE THAT WAS ASKED FOR HAS BEEN GIVEN.
+   *
+   * BUGFIX (item 16: "I chose to start the trip without boarding and putting the
+   * pin in, and it still started the ride"), and "gate starting a ride if no one
+   * has been boarded — enforce the boarded functionality end to end".
+   *
+   * This is the button the report is about: the manage screen's swipe at
+   * ARRIVED_AT_PICKUP lands here. Both preconditions live in
+   * services/boarding-pin.service.js and are called from here AND from
+   * `rides.startTrip`, because two endpoints reach IN_PROGRESS and a guard on
+   * one of them is not a guard.
+   *
+   * Before the occupancy gate below on purpose: "you have 1 of 4 seats, depart
+   * anyway?" is a question about money, and it should not be asked of a driver
+   * whose passengers are still standing on the pavement.
+   */
+  await boardingPin.assertReadyToDepart(prisma, tripId);
 
   /**
    * DEPARTING UNDER MINIMUM OCCUPANCY IS A DECISION, NOT AN ACCIDENT.

@@ -28,6 +28,8 @@ import {
   GlassSurface,
   GradientGlowBorder,
 } from '@eyego/ui';
+import { placeLabel } from '@eyego/utils';
+import { reverseGeocode } from '../../../utils/geocoding';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
@@ -194,13 +196,44 @@ function SearchStageImpl() {
           if (req.status !== 'granted') return;
         }
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        if (!cancelled) {
-          setOrigin({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            address: 'Current Location',
-          });
-        }
+        if (cancelled) return;
+        const { latitude, longitude } = loc.coords;
+
+        /**
+         * A STREET, NOT THE WORDS "CURRENT LOCATION".
+         *
+         * BUGFIX (item 1: "the driver wouldn't be able to view and know where
+         * exactly the rider is — the only way of knowing is the tracking
+         * screen").
+         *
+         * `address` here is not a label on this screen. It is what
+         * `RequestStage` sends as `pickupAddress`, what `requestRide` persists
+         * on the Trip row, and therefore the entire text a driver is given for
+         * where to collect somebody. The literal string "Current Location" —
+         * or, once the geocoder had its say, the city — told them nothing.
+         *
+         * Set optimistically so the field is never empty while the network is
+         * out, then replaced by the real answer. Written through the functional
+         * form because the rider may have chosen a pickup by hand in the time
+         * the reverse geocode took, and a stale async result must never
+         * overwrite a deliberate choice — the same race, and the same fix, as
+         * the driver's create-trip screen.
+         */
+        setOrigin({ latitude, longitude, address: 'Current Location' });
+
+        const hit = await reverseGeocode(latitude, longitude).catch(() => null);
+        if (cancelled || !hit) return;
+        const label = placeLabel(hit.name, hit.fullAddress) ?? hit.fullAddress ?? hit.name;
+        useRideStore.setState((s) =>
+          // Only if nothing has taken the pickup since — "Current Location" is
+          // ours to replace, anything else is the rider's.
+          s.origin?.address === 'Current Location' &&
+          s.origin.latitude === latitude &&
+          s.origin.longitude === longitude
+            ? { origin: { latitude, longitude, address: label } }
+            : s,
+        );
+        setOriginText((cur) => (cur === 'Current Location' ? hit.name : cur));
       } catch {
         // No GPS — SelectStage/RequestStage surface a clear error rather than
         // searching from a fabricated coordinate, so nothing to fall back to.
@@ -235,7 +268,10 @@ function SearchStageImpl() {
 
   const commitPlace = useCallback((place: SearchPlace) => {
     setSearchPlace(place);
-    setDestination({ address: place.fullAddress, latitude: place.latitude, longitude: place.longitude });
+    // `placeLabel` and not `fullAddress` alone: this string is what the driver
+    // is shown, and a Mapbox POI can carry only its administrative context. See
+    // packages/utils/src/trip-endpoints.ts.
+    setDestination({ address: placeLabel(place.name, place.fullAddress) ?? place.fullAddress, latitude: place.latitude, longitude: place.longitude });
     setDestText(place.name);
     addRecent(place);
     haptic.select();
@@ -256,7 +292,7 @@ function SearchStageImpl() {
   const [focusedField, setFocusedField] = useState<'origin' | 'dest'>('dest');
 
   const commitToOrigin = useCallback((place: SearchPlace) => {
-    setOrigin({ latitude: place.latitude, longitude: place.longitude, address: place.fullAddress });
+    setOrigin({ latitude: place.latitude, longitude: place.longitude, address: placeLabel(place.name, place.fullAddress) ?? place.fullAddress });
     setOriginText(place.name);
     addRecent(place);
     haptic.select();
@@ -272,7 +308,7 @@ function SearchStageImpl() {
     haptic.light();
     if (!selectedPlace || !origin) return;
     const prevOrigin = { latitude: origin.latitude, longitude: origin.longitude, address: origin.address };
-    setOrigin({ latitude: selectedPlace.latitude, longitude: selectedPlace.longitude, address: selectedPlace.fullAddress });
+    setOrigin({ latitude: selectedPlace.latitude, longitude: selectedPlace.longitude, address: placeLabel(selectedPlace.name, selectedPlace.fullAddress) ?? selectedPlace.fullAddress });
     setOriginText(selectedPlace.name);
     commitPlace({
       name: prevOrigin.address,
@@ -331,7 +367,7 @@ function SearchStageImpl() {
       if (!picked) return;
       pickingFieldRef.current = null;
       if (field === 'origin') {
-        setOrigin({ latitude: picked.latitude, longitude: picked.longitude, address: picked.fullAddress });
+        setOrigin({ latitude: picked.latitude, longitude: picked.longitude, address: placeLabel(picked.name, picked.fullAddress) ?? picked.fullAddress });
         setOriginText(picked.name);
       } else {
         commitPlace({ name: picked.name, fullAddress: picked.fullAddress, latitude: picked.latitude, longitude: picked.longitude });

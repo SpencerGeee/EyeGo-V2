@@ -92,6 +92,10 @@ const TRIP_INCLUDE = Object.freeze({
       id: true,
       userId: true,
       seatNumber: true,
+      // Party size on this row — 1 for a group seat, N for an on-demand ride
+      // booked for N people. Every seat count downstream is a SUM of this, not
+      // a row count. See packages/utils/src/trip-endpoints.ts.
+      seats: true,
       fareAmountPesewas: true,
       paymentMethod: true,
       paymentStatus: true,
@@ -179,6 +183,16 @@ function buildTripSnapshot(trip, viewer = {}) {
    */
   const allBookings = trip.bookings || [];
   /**
+   * SEATS, NOT ROWS.
+   *
+   * BUGFIX ("I booked 3 seats, the driver app says 1/1 boarded"). A group seat
+   * is one row; an on-demand party of three is ONE row carrying three. Summing
+   * `seats` is the only count that is right for both — see the column's note in
+   * prisma/schema.prisma and packages/utils/src/trip-endpoints.ts.
+   */
+  const seatsOn = (b) => (Number.isFinite(b?.seats) && b.seats > 0 ? Math.trunc(b.seats) : 1);
+  const sumSeats = (rows) => rows.reduce((n, b) => n + seatsOn(b), 0);
+  /**
    * Seats this viewer is settling.
    *
    * BUGFIX ("I paid for everyone, the hub totalled 36, the tracking page said
@@ -205,7 +219,8 @@ function buildTripSnapshot(trip, viewer = {}) {
   const myFarePesewas = myBookings.length
     ? myBookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0)
     : null;
-  const mySeatsPaidFor = myBookings.length;
+  // Seats, not rows: an on-demand party of three is one booking for three.
+  const mySeatsPaidFor = sumSeats(myBookings);
   const myCargoSurchargePesewas = myBookings.reduce(
     (n, b) => n + (b.heavyCargo ? env.HEAVY_LOAD_SURCHARGE_PESEWAS : 0),
     0,
@@ -218,8 +233,12 @@ function buildTripSnapshot(trip, viewer = {}) {
   /** A seat with money behind it: paid outright, or a confirmed cash seat. */
   const isSettled = (b) =>
     b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
-  const paidSeatCount = allBookings.filter((b) => b.paymentStatus === 'PAID').length;
-  const settledSeatCount = allBookings.filter(isSettled).length;
+  const paidSeatCount = sumSeats(allBookings.filter((b) => b.paymentStatus === 'PAID'));
+  const settledSeatCount = sumSeats(allBookings.filter(isSettled));
+  const occupiedSeatCount = sumSeats(allBookings);
+  const boardedSeatCount = sumSeats(
+    allBookings.filter((b) => b.status === 'BOARDED' || b.status === 'COMPLETED'),
+  );
 
   return {
     // ── identity + the two fields that make every client decision total ──
@@ -326,8 +345,25 @@ function buildTripSnapshot(trip, viewer = {}) {
           tier: trip.vehicle.tier,
         }
       : null,
+    /**
+     * The route's ENDPOINT NAMES, not just its id.
+     *
+     * BUGFIX ("at the top of the driver's tracking page it's showing - -> -").
+     * Nine driver screens read `trip.route?.originName`, and this projection
+     * dropped both names — so even a group/bus trip, which is the one product
+     * that HAS a route, published a snapshot those screens rendered as
+     * em-dashes. `pickup.address`/`dropoff.address` above already fall back to
+     * these, and the clients now read those, but a snapshot that silently omits
+     * a field its consumers name is a trap either way.
+     */
     route: trip.route
-      ? { id: trip.route.id, name: trip.route.name, distanceKm: trip.route.distanceKm }
+      ? {
+          id: trip.route.id,
+          name: trip.route.name,
+          originName: trip.route.originName ?? null,
+          destinationName: trip.route.destinationName ?? null,
+          distanceKm: trip.route.distanceKm,
+        }
       : null,
 
     // ── The line on the map ──────────────────────────────────────────────
@@ -353,7 +389,9 @@ function buildTripSnapshot(trip, viewer = {}) {
     seats: {
       confirmed: trip.confirmedSeats,
       max: trip.maxSeats,
-      occupied: allBookings.length,
+      // Seats, not rows — `allBookings.length` was 1 for a party of three.
+      occupied: occupiedSeatCount,
+      boarded: boardedSeatCount,
       paid: paidSeatCount,
       settled: settledSeatCount,
     },
@@ -377,13 +415,13 @@ function buildTripSnapshot(trip, viewer = {}) {
             coverAll: !!trip.group.isCoverAll,
             leadUserId: trip.group.leadPassengerId,
             leadName: trip.group.leadPassenger?.name ?? null,
-            seatCount: covered.length,
+            seatCount: sumSeats(covered),
             seatNumbers: covered
               .map((b) => b.seatNumber)
               .filter((n) => n != null)
               .sort((a, b) => a - b),
             totalPesewas: covered.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0),
-            settledSeatCount: covered.filter(isSettled).length,
+            settledSeatCount: sumSeats(covered.filter(isSettled)),
             settled: covered.length > 0 && covered.every(isSettled),
             paymentMethod: covered[0]?.paymentMethod ?? null,
           };

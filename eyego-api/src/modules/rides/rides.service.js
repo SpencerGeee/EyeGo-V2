@@ -11,7 +11,8 @@ const boardingPin = require('../../services/boarding-pin.service');
 const scheduledTasks = require('../../services/scheduled-task.service');
 const supply = require('../../services/supply-index.service');
 const { isDriverAvailable } = require('../../services/driver-availability');
-const { effectivePickup } = require('../../services/route-geometry.service');
+const routeGeometry = require('../../services/route-geometry.service');
+const { effectivePickup } = routeGeometry;
 const { haversineMeters } = require('../../utils/geo');
 const { seatOccupyingWhere, livePassengerWhere } = require('../../utils/booking-status');
 const env = require('../../config/env');
@@ -372,6 +373,21 @@ async function requestRide(userId, body) {
           tripId: created.id,
           userId,
           seatNumber: 1,
+          /**
+           * THE PARTY, ON THE ROW THAT REPRESENTS IT.
+           *
+           * BUGFIX ("I booked 3 seats but the driver's tracking page says 1/1
+           * boarded"). `maxSeats` above has carried the party size since the
+           * seat stepper was wired up, but the driver counts PASSENGERS, and
+           * passengers were counted as `bookings.length` — which is 1 here and
+           * always will be: an on-demand ride is deliberately one booking (one
+           * payment, one cancellation, one person to phone), not N.
+           *
+           * So the number lived on the trip and every consumer looked for it on
+           * the booking. It now lives on both, and every count sums this rather
+           * than counting rows — see packages/utils/src/trip-endpoints.ts.
+           */
+          seats: partySize,
           fareAmountPesewas: quote.amountPesewas,
           commissionAmountPesewas: quote.breakdown.commissionPerSeatPesewas,
           paymentMethod,
@@ -685,6 +701,71 @@ async function acceptRide(driverId, tripId) {
   // A driver who accepted from the kerb outside the pickup is already there.
   const arrived = await autoArriveIfAtPickup(tripId, driverId);
 
+  /**
+   * ACCEPTING *IS* SETTING OFF.
+   *
+   * BUGFIX (item 15: "on the driver app it shows heading to pickup but on the
+   * rider tracking page it says driver confirmed … when I swiped on the manage
+   * page for the first time it moved it to heading to pickup, but I was already
+   * heading to pickup. Make sure that if a rider requests a trip and the driver
+   * accepts, he's driving toward them immediately — skip the whole filling-up
+   * thing.")
+   *
+   * `DRIVER_ASSIGNED` is a real state for a SCHEDULED trip: a driver commits to
+   * a bus run on Tuesday and drives it on Wednesday, and the gap between the two
+   * is what that status is for. An on-demand hail has no such gap — the driver
+   * taps Accept and pulls away — so the trip sat in a status describing a wait
+   * that was not happening. The rider read "Driver confirmed" for the whole
+   * approach, and the driver's first swipe logged a departure they had already
+   * made.
+   *
+   * Stepped through rather than skipped: the table keeps its
+   * MATCHING → DRIVER_ASSIGNED → DRIVER_EN_ROUTE path so the timeline, the
+   * receipts and the driver's history stay comparable with every other ride.
+   * Doing it in the same call is what makes the intermediate state
+   * unobservable, which is the whole of what "skip it" means — the same
+   * reasoning, and the same shape, as `autoArriveIfAtPickup` above.
+   *
+   * Only for the on-demand product (`routeId == null`) and only when auto-arrive
+   * did not already carry the trip further.
+   */
+  if (!arrived) {
+    try {
+      const t = await prisma.trip.findUnique({
+        where: { id: tripId },
+        select: { status: true, routeId: true },
+      });
+      if (t && t.routeId == null && t.status === S.DRIVER_ASSIGNED) {
+        await tripState.applyTransition(tripId, S.DRIVER_EN_ROUTE, {
+          actor: ACTOR.SYSTEM,
+          actorId: driverId,
+          payload: { auto: true, reason: 'ACCEPT_IS_DEPARTURE' },
+        });
+      }
+    } catch (err) {
+      // Never fail an accept over this. The worst case is the old behaviour:
+      // the driver taps "Head to Pickup" once, as they used to.
+      logger.debug(`[accept] auto en-route skipped for ${tripId}: ${err?.message ?? err}`);
+    }
+  }
+
+  /**
+   * DRAW THE LINE NOW, NOT ON THE NEXT PING.
+   *
+   * The other half of item 15 ("the route polyline to the pickup point is
+   * showing a straight line instead of following the road"). Snapshots are
+   * built with `peekRouteForTrip`, which is read-only by design — so with no
+   * cached `toPickup` leg the rider's map had no road geometry at all and the
+   * only line on screen was their own dashed walk-to-the-kerb hint, which is
+   * straight because it is a hint rather than a route. It stayed that way until
+   * the driver's next location fix happened to compute one.
+   *
+   * The transition is the right moment to pay for it: once, user-initiated, and
+   * exactly when the answer changes. Best-effort — a ride whose line could not
+   * be drawn is still an accepted ride.
+   */
+  void routeGeometry.warmRouteForTrip(tripId).catch(() => {});
+
   const full = await prisma.trip.findUnique({ where: { id: tripId }, include: TRIP_INCLUDE });
   return {
     tripId,
@@ -802,7 +883,22 @@ async function driverAdvance(driverId, tripId, to, payload = {}) {
 
 const startEnRoute = (d, t) => driverAdvance(d, t, S.DRIVER_EN_ROUTE);
 const markArrived = (d, t) => driverAdvance(d, t, S.ARRIVED_AT_PICKUP);
-const startTrip = (d, t) => driverAdvance(d, t, S.IN_PROGRESS);
+/**
+ * STARTING A RIDE HAS PRECONDITIONS, AND THEY ARE THE SAME ON BOTH ENDPOINTS.
+ *
+ * BUGFIX (item 16, plus "gate starting a ride if no one has been boarded —
+ * enforce the boarded functionality end to end"): somebody has to be in the
+ * car, and any rider who asked for a Verify My Ride code has to have given it.
+ * Neither was checked here; `boardPassenger` held the PIN rule and nothing at
+ * all held the boarding rule, so both were steps a driver could swipe past.
+ *
+ * `drivers.departTrip` runs the identical guard — see the note on
+ * `assertReadyToDepart`.
+ */
+const startTrip = async (d, t) => {
+  await boardingPin.assertReadyToDepart(prisma, t);
+  return driverAdvance(d, t, S.IN_PROGRESS);
+};
 
 /**
  * Complete a trip — and settle it.

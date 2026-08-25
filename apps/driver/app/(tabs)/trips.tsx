@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
+import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,8 +103,8 @@ export default function TripsScreen() {
                 pathname: '/(trip)/dispatch/[id]',
                 params: {
                   id: item.id,
-                  origin: item.route?.originName ?? '',
-                  destination: item.route?.destinationName ?? '',
+                  origin: originLabel(item) ?? '',
+                  destination: destinationLabel(item) ?? '',
                   departureTime: item.departureTime ?? '',
                 },
               } as any)

@@ -196,9 +196,31 @@ function fitFor(
        * first and last points are always included) so the fit is identical.
        */
       if (previewCoords && previewCoords.length >= 2) return previewCoords;
-      // No route measured (straight-line fallback, or nothing entered yet):
-      // frame whatever ends we do know about.
-      return [pickupPin ?? userPos, searchPin].filter(Boolean) as Coord[];
+      // A journey with both ends known but no measured route: frame the ends.
+      if (searchPin) return [pickupPin ?? userPos, searchPin].filter(Boolean) as Coord[];
+      /**
+       * NOTHING ENTERED YET — SO FRAME THE RIDER.
+       *
+       * BUGFIX (item 12: "the camera doesn't default centre on where the current
+       * location is"). With no destination this returned `[pickupPin ?? userPos]`
+       * — a single point, and `pickupPin` FIRST. A pickup left in the ride store
+       * by an earlier session therefore won over the live GPS fix, and the map
+       * opened centred on a place the rider was not: the same stale point the
+       * recentre button was landing on.
+       *
+       * With no journey to frame, the only honest subject is where the rider is
+       * standing. The chosen pickup joins the box when it is a genuinely
+       * different place, so "here, and the kerb I asked for" both stay on
+       * screen; when it is not, `boundsFor`'s minimum span keeps the single
+       * point from producing a degenerate box.
+       */
+      const here = userPos ?? pickupPin;
+      if (!here) return [];
+      const alsoPickup =
+        pickupPin && userPos && metresBetween(userPos, pickupPin) >= APPROACH_MIN_METRES
+          ? pickupPin
+          : null;
+      return [here, alsoPickup].filter(Boolean) as Coord[];
   }
 }
 
@@ -345,13 +367,45 @@ function TripMapImpl() {
       status === 'ARRIVED_AT_PICKUP' ||
       status === 'IN_PROGRESS');
 
+  /**
+   * "PUT ME BACK WHERE I AM" — the state this button never had.
+   *
+   * BUGFIX (item 12: "the camera doesn't default centre on where the current
+   * location is. If I pan and click the button at the top right that recentres
+   * it, it takes me to some random space that's not even where I'm at").
+   *
+   * `recenter()` hands the camera back to the mode the STAGE asked for, and
+   * before any trip exists that mode is `overview` fitted to
+   * `[pickupPin ?? userPos, searchPin]`. A rider who set a pickup earlier — or
+   * whose last trip left one in the store — was therefore recentred onto THAT
+   * point, which is somewhere they are not standing, and is exactly the
+   * "random space" in the report. The button looks like a locate control and
+   * was behaving as a fit-everything control.
+   *
+   * So it now has the meaning its icon promises. There are two things worth
+   * being centred on and the situation decides which: the VEHICLE once one is
+   * attached (already handled), and otherwise the RIDER. Locking to the rider's
+   * own fix is what `follow` with no puck does, and it is available whenever
+   * there is a GPS fix at all rather than only during a trip.
+   */
+  const [followMe, setFollowMe] = useState(false);
+  const canFollowMe = !canFollowVehicle && !!userCoords;
+  useEffect(() => {
+    if (followMe && !canFollowMe) setFollowMe(false);
+  }, [canFollowMe, followMe]);
+
   // A ride that ends, or a driver who is reassigned, must not leave the camera
   // locked to a vehicle that is no longer part of this trip.
   useEffect(() => {
     if (!canFollowVehicle && followVehicle) setFollowVehicle(false);
   }, [canFollowVehicle, followVehicle]);
 
-  const mode = followVehicle && canFollowVehicle ? 'follow' : modeForStatus(fit.length > 0);
+  const mode =
+    followVehicle && canFollowVehicle
+      ? 'follow'
+      : followMe && canFollowMe
+        ? 'follow'
+        : modeForStatus(fit.length > 0);
 
   // ── The driver puck ──────────────────────────────────────────────────────
   // GPS fixes arrive every couple of seconds; a marker moved straight to each
@@ -403,6 +457,15 @@ function TripMapImpl() {
   const camera = useMapCamera({
     mode,
     fit,
+    /**
+     * The follow target when there is no vehicle puck — the rider themselves.
+     *
+     * `useMapCamera` prefers the puck over `center` whenever one exists, so this
+     * cannot fight the "follow the car" mode above: it is only ever consulted
+     * before a driver is attached, which is precisely when `followMe` is the
+     * only thing the recentre button can sensibly mean.
+     */
+    center: followMe && canFollowMe ? userCoords : null,
     fitIncludesPuck: true,
     padding: getPadding,
     active: isFocused,
@@ -725,27 +788,36 @@ function TripMapImpl() {
         rider can still see the whole ride. One control, two states, both
         obvious from the icon.
       */}
-      {(camera.released || followVehicle) && mode !== 'free' && (
+      {/*
+        Offered whenever there is something to go back TO — a vehicle, or the
+        rider's own fix. It used to require `camera.released`, so a rider who had
+        not panned but whose camera was framed on a stale pickup had no control
+        at all; that is the other half of item 12.
+      */}
+      {(camera.released || followVehicle || followMe || canFollowMe) && (
         <Pressable
           onPress={() => {
             if (canFollowVehicle) setFollowVehicle((f) => !f);
+            else if (canFollowMe) setFollowMe((f) => !f);
+            // Always: clear any manual pan, so one tap does the obvious thing
+            // even when neither follow mode applies.
             camera.recenter();
           }}
           style={[styles.recenter, { top: insets.top + 12 }]}
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={
-            !canFollowVehicle
-              ? 'Recentre the map'
-              : followVehicle
-                ? 'Show the whole route'
-                : 'Follow the vehicle'
+            canFollowVehicle
+              ? followVehicle ? 'Show the whole route' : 'Follow the vehicle'
+              : canFollowMe
+                ? followMe ? 'Show the whole route' : 'Centre on my location'
+                : 'Recentre the map'
           }
         >
           <Ionicons
-            name={followVehicle ? 'scan-outline' : 'locate'}
+            name={followVehicle || followMe ? 'scan-outline' : 'locate'}
             size={18}
-            color={followVehicle ? colors.primary : colors.onSurface}
+            color={followVehicle || followMe ? colors.primary : colors.onSurface}
           />
         </Pressable>
       )}

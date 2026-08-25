@@ -67,6 +67,25 @@ interface DriverTripState {
    * only evidence a search existed was an offer frame you had to be awake for.
    */
   pendingRequests: PendingDispatch[];
+  /**
+   * HAS THE BOARD EVER BEEN ANSWERED FOR?
+   *
+   * BUGFIX (item 1: "the live card that shows the live trip dispatch takes a
+   * while to load up and it comes as blank for a while before the whole thing
+   * is loaded up").
+   *
+   * `pendingRequests` starts as `[]`, and an empty array is indistinguishable
+   * from "nothing is being dispatched to you" — so the home screen confidently
+   * rendered its empty state for the whole first round trip and then replaced
+   * it with live work. A driver reads that as the app telling them there is no
+   * work and then changing its mind.
+   *
+   * `false` until the first `hydrate`/`resync` resolves, which is what lets the
+   * board show a skeleton instead of an answer it does not have.
+   * Never returns to false: once the server has spoken, an empty board is a
+   * real empty board.
+   */
+  requestsHydrated: boolean;
 
   watch: (tripId: string) => void;
   unwatch: () => void;
@@ -96,6 +115,7 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
   recovering: false,
   offer: null,
   pendingRequests: [],
+  requestsHydrated: false,
 
   watch: (tripId) => {
     if (watchedTripId === tripId && unsubscribe) return;
@@ -162,6 +182,7 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
         lastSeq: trip?.version ?? 0,
         clockSkewMs: skew,
         pendingRequests: pendingRequests ?? [],
+        requestsHydrated: true,
       });
       // THE OFFER SURVIVES A DEAD SOCKET.
       //
@@ -227,6 +248,16 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
       if (trip) get().watch(trip.tripId);
       return trip;
     } catch {
+      /**
+       * A FAILED READ IS STILL AN ANSWER, FOR THE PURPOSE OF THE SKELETON.
+       *
+       * Leaving `requestsHydrated` false here would leave the board shimmering
+       * forever on a driver with no connection — a loading state that never
+       * resolves is worse than an empty one, because the empty one at least
+       * offers "Check now". The offline chip above the board is what says the
+       * network is down; this only says "we have finished trying".
+       */
+      set({ requestsHydrated: true });
       return null;
     }
   },

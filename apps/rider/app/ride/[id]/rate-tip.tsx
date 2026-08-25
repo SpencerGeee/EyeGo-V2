@@ -18,7 +18,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { bookingsApi, queryKeys } from '@eyego/api';
+import { bookingsApi, queryKeys, ridesApi } from '@eyego/api';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
@@ -174,12 +174,48 @@ export default function RateTipScreen() {
     router.replace('/(tabs)/home' as Href);
   }, [clearRideState, router]);
 
-  const driverName = selectedTrip?.driver?.name ?? activeBooking?.trip?.driver?.name ?? 'Your Driver';
-  const driverAvatar = (selectedTrip?.driver as any)?.profilePhoto ?? selectedTrip?.driver?.avatarUrl ?? null;
+  /**
+   * THE DRIVER'S ACTUAL NAME.
+   *
+   * BUGFIX (item 7: "on the rate driver page it showed 'Your Driver' as
+   * placeholder text instead of the actual name of my driver").
+   *
+   * Both sources this read are in-memory ride-store slices: `selectedTrip` is
+   * only ever set by the GROUP flow's trip picker, and `activeBooking` is
+   * cleared the moment the ride ends — which is, precisely, when this screen
+   * opens. So for an on-demand ride the chain was null → null → the placeholder,
+   * every single time, and being asked to rate "Your Driver" is being asked to
+   * rate nobody.
+   *
+   * The snapshot is the record: `services/trip-view.js` carries the driver's
+   * name and photo for the trip this screen names in its own route param, and it
+   * survives a cold start, a kill mid-ride, and arriving here from a push.
+   * `CONTACTABLE_STATUSES` strips their PHONE number on a finished trip, which
+   * is the intended privacy rule and does not touch the name.
+   */
+  const { data: snapshot } = useQuery({
+    queryKey: ['ride', 'snapshot', id],
+    queryFn: () => ridesApi.events(id, 0),
+    select: (r: any) => r?.snapshot ?? r?.data?.snapshot ?? null,
+    enabled: !!id,
+    staleTime: 5 * 60_000,
+  });
+  const snapDriver = (snapshot as any)?.driver ?? null;
+
+  const driverName =
+    snapDriver?.name ??
+    selectedTrip?.driver?.name ??
+    activeBooking?.trip?.driver?.name ??
+    'Your Driver';
+  const driverAvatar =
+    snapDriver?.photo ??
+    (selectedTrip?.driver as any)?.profilePhoto ??
+    selectedTrip?.driver?.avatarUrl ??
+    null;
   const tripFare = activeBooking?.fareAmountPesewas ?? resolvedBooking?.fareAmountPesewas ?? 0;
-  const vehicle = selectedTrip?.vehicle as any;
+  const vehicle = ((snapshot as any)?.vehicle ?? selectedTrip?.vehicle) as any;
   const vehicleLabel = vehicle
-    ? [vehicle.model ?? vehicle.make, vehicle.plateNumber].filter(Boolean).join(' • ')
+    ? [vehicle.model ?? vehicle.make, vehicle.plate ?? vehicle.plateNumber].filter(Boolean).join(' • ')
     : 'Shared Van';
 
   return (

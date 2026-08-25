@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatGhs } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { fonts, fontSizes, spacing, radii, driverStatusLabel } from '@eyego/config';
 import { Text } from '@eyego/ui';
@@ -52,10 +52,10 @@ export function TripCard({ trip, onPress }: Props) {
             </View>
             <View style={styles.routeText}>
               <Text style={[styles.origin, { color: colors.onSurface }]}>
-                {trip.route?.originName ?? '—'}
+                {originLabel(trip) ?? '—'}
               </Text>
               <Text style={[styles.dest, { color: colors.primary }]}>
-                {trip.route?.destinationName ?? '—'}
+                {destinationLabel(trip) ?? '—'}
               </Text>
             </View>
           </View>

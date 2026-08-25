@@ -1,10 +1,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Pressable } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, SwipeToConfirm } from '@eyego/ui';
+import { Text, GlassSurface, SwipeToConfirm, GradientGlowBorder, getTierTheme } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -100,9 +111,83 @@ export function DispatchOfferCard({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  const reducedMotion = useReducedMotion();
+
   const urgent = secondsLeft != null && secondsLeft <= 5;
   const warning = secondsLeft != null && secondsLeft <= 10 && !urgent;
-  const accent = urgent ? colors.error : warning ? colors.statusWarning : colors.accent;
+
+  /**
+   * THE CARD WEARS THE RIDE TYPE (item 8), AND THE CLOCK OVERRIDES IT.
+   *
+   * The accent was the driver blue for every offer, so Economy and Premium
+   * arrived looking identical and the tier was a grey chip the driver had to
+   * read. `getTierTheme` is the same lookup the rider's ride picker and the
+   * dispatch board rows use, so one ride has one colour across both apps.
+   *
+   * Urgency still wins, and only urgency: five seconds left is a fact about
+   * THIS offer that outranks what kind of car it is.
+   */
+  const tier = getTierTheme(colors as any, offer.tier);
+  const accent = urgent ? colors.error : warning ? colors.statusWarning : tier.accent;
+  const ringPalette = urgent || warning ? 'gold' : tier.ringPalette;
+
+  /**
+   * A SLOW BREATH ON THE RIM WHILE THE CLOCK IS STILL CALM.
+   *
+   * The card is a thirty-second decision and it used to be completely static
+   * until the ten-second mark, when everything changed at once. A 2.4 s pulse on
+   * the glow says "this is live and it is counting" without adding a second
+   * thing to read — §7 `motion-meaning`: the motion IS the passage of time.
+   *
+   * Stops at the warning threshold so the escalation still lands as a change,
+   * and never starts under reduced motion (§1 `reduced-motion`), where the
+   * colour ladder carries the whole signal on its own.
+   */
+  const breathe = useSharedValue(0);
+  const calm = !urgent && !warning && !accepted;
+  useEffect(() => {
+    if (reducedMotion || !calm) {
+      cancelAnimation(breathe);
+      breathe.value = withTiming(0, { duration: 200 });
+      return;
+    }
+    breathe.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0, { duration: 1200, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(breathe);
+  }, [reducedMotion, calm, breathe]);
+  const breathStyle = useAnimatedStyle(() => ({ opacity: 0.35 + breathe.value * 0.45 }));
+
+  /**
+   * THE WINDOW, DRAINING ACROSS THE TOP EDGE.
+   *
+   * The ring is the FOCAL countdown and it sits beside the fare, which means
+   * the two most prominent things on the card were competing for the same
+   * glance. This rail is the peripheral copy of the same fact: it runs the full
+   * width of the card's top edge, so a driver reading the addresses still sees
+   * the time going without moving their eyes to the ring.
+   *
+   * One linear timing to zero, exactly like `CountdownRing` — time is linear and
+   * an eased bar lies about how much of it is left.
+   */
+  const rail = useSharedValue(1);
+  useEffect(() => {
+    const remaining = offer.expiresAtServerMs != null ? Math.max(0, offer.expiresAtServerMs - nowMs) : 0;
+    cancelAnimation(rail);
+    if (!offer.expiresAtServerMs || remaining <= 0 || windowMs <= 0) {
+      rail.value = offer.expiresAtServerMs ? 0 : 1;
+      return;
+    }
+    rail.value = Math.min(1, remaining / windowMs);
+    rail.value = withTiming(0, { duration: remaining, easing: Easing.linear });
+    return () => cancelAnimation(rail);
+  }, [offer.expiresAtServerMs, windowMs, nowMs, rail]);
+  const railStyle = useAnimatedStyle(() => ({ width: `${Math.max(0, rail.value) * 100}%` }));
 
   /**
    * Escalating haptics, on the same boundaries as the colour.
@@ -164,16 +249,91 @@ export function DispatchOfferCard({
 
   const earnings = offer.driverEarningsPesewas ?? offer.farePesewas ?? null;
 
+  /**
+   * WHAT THE JOB IS WORTH PER KILOMETRE DRIVEN — including the dead leg.
+   *
+   * The single number an experienced driver actually decides on, and the card
+   * did not have it. A ₵28 fare is a good job at 4 km and a poor one at 14, and
+   * the pickup leg counts: those kilometres are driven for nothing, which is
+   * precisely why a far pickup is worth refusing. Adding them to the
+   * denominator is what makes two offers comparable at a glance.
+   *
+   * Hidden rather than approximated when either distance is unknown — a rate
+   * computed from half the journey is worse than no rate at all.
+   */
+  const ratePerKm =
+    earnings != null && rideKm != null && rideKm > 0
+      ? earnings / (rideKm + (pickupKm ?? 0))
+      : null;
+
   return (
+    /**
+     * ── THE OFFER CARD, REBUILT ────────────────────────────────────────────
+     *
+     * "Make the page more aesthetic and premium. Think about it in a new light."
+     *
+     * What was wrong with it, specifically:
+     *
+     *  1. NO IDENTITY. Every offer was the same driver blue. A Premium fare and
+     *     an Economy one were distinguishable only by a grey text chip.
+     *  2. TWO FOCAL POINTS. A 34pt fare and a 96pt countdown ring sat side by
+     *     side at the same weight, so the eye had nowhere to land first on a
+     *     surface that exists to be read in about two seconds.
+     *  3. A VISIBLE SEAM. `GlassSurface` with `borderRadius: 0` butted straight
+     *     against the map, so the card read as two stacked rectangles rather
+     *     than one object.
+     *  4. NO ANSWER TO THE REAL QUESTION. "Is this job worth taking" is
+     *     earnings ÷ total kilometres, and the card made the driver do that
+     *     arithmetic from two numbers in two different places.
+     *
+     * The rebuild: a tier-coloured glow ring around the whole card (the same
+     * family as every other lit surface in this app), a draining rail on the
+     * top edge so urgency is peripheral, one hero money block with the per-km
+     * rate under it, a three-cell tabular stat strip, and a gradient that
+     * carries the map down into the panel so the two are one surface.
+     */
+    <GradientGlowBorder
+      palette={ringPalette}
+      fillColor={colors.surfaceCard}
+      borderRadius={radii['3xl']}
+      thickness={urgent ? 'regular' : 'thin'}
+      glow
+      glowIntensity={urgent ? 1 : 0.7}
+      maxGlowRadius={urgent ? 26 : 18}
+    >
     <View style={styles.card}>
+      {/* The window, draining. Sits above everything so it is never covered by
+          the map's own gradient. */}
+      {offer.expiresAtServerMs ? (
+        <View style={styles.railTrack} pointerEvents="none">
+          <Animated.View style={[styles.rail, { backgroundColor: accent }, railStyle]} />
+        </View>
+      ) : null}
+
       {showMap ? (
-        <DispatchMiniMap
-          pickup={offer.pickup}
-          dropoff={offer.dropoff}
-          driver={driverAt}
-          height={mapHeight}
-          accent={accent}
-        />
+        <View>
+          <DispatchMiniMap
+            pickup={offer.pickup}
+            dropoff={offer.dropoff}
+            driver={driverAt}
+            height={mapHeight}
+            accent={accent}
+          />
+          {/* Carries the map into the panel. Without it the glass panel's top
+              edge was a hard horizontal seam across the card. */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['transparent', colors.surfaceCard + 'AA', colors.surfaceCard]}
+            locations={[0, 0.62, 1]}
+            style={styles.mapFade}
+          />
+          {/* The breathing rim — see `breathe`. A hairline, not a shape: it
+              reads as the card being alive rather than as another element. */}
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.liveRim, { backgroundColor: accent }, breathStyle]}
+          />
+        </View>
       ) : null}
 
       {/* The badge floats ON the map, so the panel below can be pure content. */}
@@ -197,23 +357,41 @@ export function DispatchOfferCard({
       <View style={styles.panel}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={0} intensity="high" />
 
-        {/* Money and clock, side by side. The two facts that decide it. */}
+        {/*
+          MONEY IS THE HERO. The clock is beside it, deliberately smaller.
+
+          These used to be the same visual weight, which left the eye with no
+          first stop on a card that has about two seconds of attention. The fare
+          now owns the row: bigger, with the per-km rate and the tier under it,
+          while the ring drops to 84pt and hands most of its urgency job to the
+          rail on the top edge.
+        */}
         <View style={styles.headRow}>
           <View style={styles.money}>
-            <Text variant="caption" color={colors.onSurfaceVariant}>You earn</Text>
-            <Text style={[styles.earnings, { color: colors.onSurface }]}>
+            <Text style={styles.moneyLabel}>YOU EARN</Text>
+            <Text
+              style={[styles.earnings, { color: colors.onSurface }]}
+              accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
+            >
               {earnings != null ? formatGhs(earnings) : '—'}
             </Text>
             <View style={styles.chipRow}>
+              {/* The tier, in the tier's own colour and its human label —
+                  "Economy", never the wire's "ECO". */}
               {offer.tier ? (
-                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh }]}>
-                  <Text style={[styles.chipText, { color: colors.onSurfaceVariant }]}>{offer.tier}</Text>
+                <View style={[styles.chip, { backgroundColor: tier.accent + '1A' }]}>
+                  <Ionicons name={tier.icon} size={10} color={tier.accent} />
+                  <Text style={[styles.chipText, { color: tier.accent }]}>
+                    {tier.label.toUpperCase()}
+                  </Text>
                 </View>
               ) : null}
-              {rideKm != null ? (
+              {/* Earnings per kilometre DRIVEN, dead leg included — the number
+                  the decision is actually made on. See `ratePerKm`. */}
+              {ratePerKm != null ? (
                 <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh }]}>
-                  <Text style={[styles.chipText, { color: colors.onSurfaceVariant }]}>
-                    {rideKm.toFixed(1)} KM RIDE
+                  <Text style={[styles.chipText, { color: colors.onSurface }]}>
+                    {formatGhs(Math.round(ratePerKm))}/KM
                   </Text>
                 </View>
               ) : null}
@@ -225,8 +403,11 @@ export function DispatchOfferCard({
               expiresAtMs={offer.expiresAtServerMs}
               windowMs={windowMs}
               nowMs={nowMs}
-              size={96}
-              stroke={5}
+              // Was 96, matching the fare's weight. The rail on the top edge now
+              // carries the peripheral half of this job, so the ring can step
+              // back and let the money lead.
+              size={84}
+              stroke={4.5}
               color={accent}
               trackColor={colors.outline}
             >
@@ -244,6 +425,51 @@ export function DispatchOfferCard({
             </View>
           )}
         </View>
+
+        {/*
+          THE THREE NUMBERS THAT SIZE THE JOB.
+
+          They existed before, scattered: the pickup ETA was a caption beside
+          the word PICKUP, the ride distance was a grey chip under the fare, and
+          the dead-leg distance was in the same caption as the ETA. A driver
+          comparing two offers had to hunt for each one in a different place.
+
+          One strip, three cells, tabular figures so the digits do not shift
+          between renders (§6 `number-tabular`) — and dividers rather than boxes,
+          because three more bordered rectangles on a card this dense is noise.
+        */}
+        {(etaMin != null || pickupKm != null || rideKm != null) && (
+          <View style={styles.stats}>
+            <Stat
+              colors={colors}
+              icon="navigate-outline"
+              label="TO PICKUP"
+              value={etaMin != null ? `${etaMin} min` : pickupKm != null ? `${pickupKm.toFixed(1)} km` : '—'}
+              sub={etaMin != null && pickupKm != null ? `${pickupKm.toFixed(1)} km` : null}
+              accent={accent}
+            />
+            <View style={[styles.statDivider, { backgroundColor: colors.outline }]} />
+            <Stat
+              colors={colors}
+              icon="git-commit-outline"
+              label="RIDE"
+              value={rideKm != null ? `${rideKm.toFixed(1)} km` : '—'}
+              sub={null}
+            />
+            <View style={[styles.statDivider, { backgroundColor: colors.outline }]} />
+            <Stat
+              colors={colors}
+              icon="wallet-outline"
+              label="FARE"
+              value={offer.farePesewas != null ? formatGhs(offer.farePesewas) : '—'}
+              sub={
+                earnings != null && offer.farePesewas != null && offer.farePesewas > earnings
+                  ? `you keep ${Math.round((earnings / offer.farePesewas) * 100)}%`
+                  : null
+              }
+            />
+          </View>
+        )}
 
         {/* ── The ride, as a spine ── */}
         <View style={styles.spine}>
@@ -360,18 +586,90 @@ export function DispatchOfferCard({
         </View>
       </View>
     </View>
+    </GradientGlowBorder>
   );
 }
+
+/**
+ * One cell of the stat strip.
+ *
+ * Deliberately dumb and local: three cells with identical structure, so they
+ * line up on the baseline and the strip cannot drift out of alignment the way
+ * three hand-written blocks did.
+ */
+function Stat({
+  colors,
+  icon,
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  colors: DriverColors;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  value: string;
+  sub?: string | null;
+  accent?: string;
+}) {
+  return (
+    <View style={statStyles.cell} accessibilityLabel={`${label}: ${value}${sub ? `, ${sub}` : ''}`}>
+      <View style={statStyles.head}>
+        <Ionicons name={icon} size={11} color={accent ?? colors.onSurfaceVariant} />
+        <Text style={[statStyles.label, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      </View>
+      <Text style={[statStyles.value, { color: accent ?? colors.onSurface }]} numberOfLines={1}>
+        {value}
+      </Text>
+      {sub ? (
+        <Text style={[statStyles.sub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+          {sub}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+const statStyles = StyleSheet.create({
+  cell: { flex: 1, gap: 3 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  label: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.9 },
+  value: {
+    fontFamily: fonts.displayBold,
+    fontSize: 17,
+    lineHeight: 21,
+    letterSpacing: -0.3,
+    // Digits must not shift width between renders while a countdown is running
+    // next to them — §6 `number-tabular`.
+    fontVariant: ['tabular-nums'],
+  },
+  sub: { fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
+});
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
     card: {
-      borderRadius: radii['3xl'],
+      // The ring outside now owns the border, so a hairline here would draw a
+      // second rim a pixel inside the first.
+      borderRadius: radii['3xl'] - 2,
       overflow: 'hidden',
       backgroundColor: colors.surfaceCard,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.rimLight,
     },
+    /** The offer window, draining left to right along the card's top edge. */
+    railTrack: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 3,
+      zIndex: 3,
+      backgroundColor: colors.rimLightSubtle,
+    },
+    rail: { height: '100%', borderTopLeftRadius: 3, borderBottomRightRadius: 3 },
+    /** Carries the map down into the glass panel so the card is one surface. */
+    mapFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 88 },
+    /** A breathing hairline where the map meets the panel. */
+    liveRim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 1 },
     mapBadges: {
       position: 'absolute',
       top: spacing.base,
@@ -397,15 +695,44 @@ const makeStyles = (colors: DriverColors) =>
 
     headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.base },
     money: { flex: 1, gap: 2 },
+    moneyLabel: {
+      fontFamily: fonts.bold,
+      fontSize: 9.5,
+      letterSpacing: 1.2,
+      color: colors.onSurfaceVariant,
+    },
     earnings: {
       fontFamily: fonts.displayBold,
-      fontSize: 34,
-      lineHeight: Math.round(34 * 1.2),
-      letterSpacing: -1.2,
+      // Up from 34: this is the hero and the ring stepped back to make room.
+      fontSize: 40,
+      lineHeight: Math.round(40 * 1.12),
+      letterSpacing: -1.6,
+      fontVariant: ['tabular-nums'],
     },
     chipRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' },
-    chip: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radii.sm },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: radii.sm,
+    },
     chipText: { fontFamily: fonts.bold, fontSize: 9.5, letterSpacing: 0.7 },
+
+    /** The three-number strip. Dividers, not boxes — see its render comment. */
+    stats: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.md,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.base,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceContainerHigh + '99',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.rimLightSubtle,
+    },
+    statDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', opacity: 0.6 },
     timerDigits: {
       fontFamily: fonts.displayBold,
       fontSize: 30,
@@ -436,11 +763,15 @@ const makeStyles = (colors: DriverColors) =>
     decline: {
       alignSelf: 'center',
       paddingHorizontal: spacing.xl,
-      paddingVertical: spacing.md,
+      // 44pt minimum touch target (§2 `touch-target-size`). The old
+      // `spacing.md` padding put this at roughly 40 and it is the one control
+      // on the card a driver reaches for without looking.
+      minHeight: 46,
+      justifyContent: 'center',
       borderRadius: radii.full,
       borderWidth: 1,
       borderColor: 'transparent',
-      minWidth: 160,
+      minWidth: 176,
       alignItems: 'center',
     },
     declineInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
