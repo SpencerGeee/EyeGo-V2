@@ -172,23 +172,98 @@ export default function TripCompleteScreen() {
     router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
   }, [router, id, bookingId]);
 
+  /** Make + model only — never the plate. See the privacy note on the share. */
+  const vehicleDisplay =
+    [(selectedTrip as any)?.vehicle?.make, (selectedTrip as any)?.vehicle?.model]
+      .filter(Boolean)
+      .join(' ') || 'EyeGo';
+
+  /**
+   * ── A RECEIPT SOMEBODY COULD ACTUALLY EXPENSE ───────────────────────────
+   *
+   * BUGFIX ("the section that allows you to share the receipt just sends a
+   * 4-line receipt, which is bad — you can make it a bit more filled with more
+   * details that would be helpful. Don't compromise on security though").
+   *
+   * Four lines named the total and nothing that justifies it. Anyone sharing a
+   * receipt is proving a journey to somebody — an employer, a client, a
+   * housemate splitting a fare — and a bare number proves nothing.
+   *
+   * WHAT IS DELIBERATELY NOT IN HERE, because a shared receipt goes to people
+   * outside the ride:
+   *   • the driver's surname, phone number, photo or exact vehicle plate — a
+   *     forwarded receipt must not become a way to find them. First name and
+   *     the make/model are enough to identify the ride to the rider;
+   *   • pickup and dropoff beyond the first component of each address, so a
+   *     receipt shared in a group chat does not publish the rider's house;
+   *   • the trip id and any share/tracking token — a live tracking link inside
+   *     a receipt is a location feed with no expiry;
+   *   • the rider's own name and phone.
+   *
+   * The receipt NUMBER is the one identifier included, because it is what
+   * support asks for and it grants no access on its own.
+   */
   const handleShareReceipt = useCallback(() => {
-    const shareText = [
-      `EyeGo Trip Receipt${receiptNumber ? ` #${receiptNumber}` : ''}`,
-      `Route: ${selectedTrip?.origin?.address?.split(',')[0] ?? 'Origin'} → ${selectedTrip?.destination?.address?.split(',')[0] ?? 'Destination'}`,
-      `Total: ${formatGhs(totalFare)}`,
-      'Thank you for riding with EyeGo!',
-    ].join('\n');
-    Share.share({ message: shareText, title: 'EyeGo Receipt' }).catch(() => {});
-  }, [receiptNumber, totalFare, selectedTrip]);
+    const firstPart = (s?: string | null) => (s ? String(s).split(',')[0].trim() : null);
+    const money = (p?: number | null) => (typeof p === 'number' ? formatGhs(p) : null);
+
+    const when = receiptData?.issuedAt ?? (selectedTrip as any)?.completedAt ?? null;
+    const whenText = when
+      ? new Date(when).toLocaleString('en-GH', {
+          weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        })
+      : null;
+
+    const journey =
+      selectedTrip?.distanceKm || selectedTrip?.durationMinutes
+        ? [
+            selectedTrip?.distanceKm ? formatDistance(selectedTrip.distanceKm) : null,
+            selectedTrip?.durationMinutes ? formatDuration(selectedTrip.durationMinutes) : null,
+          ].filter(Boolean).join(' · ')
+        : null;
+
+    const lines = [
+      'EYEGO — TRIP RECEIPT',
+      receiptNumber ? `Receipt no.  ${receiptNumber}` : null,
+      whenText ? `Date         ${whenText}` : null,
+      '',
+      `From         ${firstPart(selectedTrip?.origin?.address) ?? 'Pickup'}`,
+      `To           ${firstPart(selectedTrip?.destination?.address) ?? 'Destination'}`,
+      journey ? `Journey      ${journey}` : null,
+      `Vehicle      ${vehicleDisplay}`,
+      // First name only — see the note above.
+      (selectedTrip as any)?.driver?.name
+        ? `Driver       ${String((selectedTrip as any).driver.name).split(' ')[0]}`
+        : null,
+      fareSeatCount > 1 ? `Seats        ${fareSeatCount}` : null,
+      '',
+      '--- Fare ---',
+      farePerSeat != null && fareSeatCount > 1
+        ? `Per seat     ${money(farePerSeat)} × ${fareSeatCount}`
+        : money(fareBreakdown?.baseFarePesewas)
+          ? `Fare         ${money(fareBreakdown?.baseFarePesewas)}`
+          : null,
+      (fareBreakdown?.surcharges ?? 0) > 0 ? `Surcharges   ${money(fareBreakdown?.surcharges)}` : null,
+      (fareBreakdown?.platformFeePesewas ?? 0) > 0
+        ? `Service fee  ${money(fareBreakdown?.platformFeePesewas)}`
+        : null,
+      (fareBreakdown?.discount ?? 0) > 0 ? `Discount    -${money(fareBreakdown?.discount)}` : null,
+      (fareBreakdown?.tip ?? 0) > 0 ? `Tip          ${money(fareBreakdown?.tip)}` : null,
+      `TOTAL        ${money(totalFare) ?? '—'}`,
+      (activeBooking as any)?.paymentMethod
+        ? `Paid by      ${String((activeBooking as any).paymentMethod).replace(/_/g, ' ').toLowerCase()}`
+        : null,
+      '',
+      'Thank you for riding with EyeGo.',
+    ].filter((l) => l !== null);
+
+    Share.share({ message: lines.join('\n'), title: 'EyeGo Receipt' }).catch(() => {});
+  }, [receiptNumber, receiptData, totalFare, selectedTrip, fareBreakdown, farePerSeat, fareSeatCount, activeBooking, vehicleDisplay]);
 
   useEffect(() => { if (!id) router.back(); }, [id, router]);
   if (!id) return null;
 
-  const vehicleDisplay = [
-    (selectedTrip as any)?.vehicle?.make,
-    (selectedTrip as any)?.vehicle?.model,
-  ].filter(Boolean).join(' ') || 'EyeGo';
 
   return (
     <SafeAreaView style={styles.safe}>

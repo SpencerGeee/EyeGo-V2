@@ -159,6 +159,20 @@ export default function PromotionsScreen() {
           <Text variant="label" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
             MY PROMOS
           </Text>
+          {/**
+           * ONE PROMO AT A TIME — SAY SO.
+           *
+           * BUGFIX ("if I click on the available offers it just swaps them in
+           * the My Promos section and I don't really know which one is
+           * current"). Swapping IS the rule — a booking carries one
+           * `promotionId` — but nothing said it, so tapping a second offer read
+           * as the first one having been lost or as both being half-applied.
+           * A rule stated once at the top of the section is what turns a
+           * surprising swap into an expected one.
+           */}
+          <Text variant="caption" color={colors.onSurfaceVariant}>
+            You can use one promo per ride. Choosing another offer replaces the one held here.
+          </Text>
 
           {applied && (
             <View style={[styles.promoStateCard, { borderColor: `${colors.primary}66`, backgroundColor: `${colors.primary}12` }]}>
@@ -171,6 +185,19 @@ export default function PromotionsScreen() {
                 {applied.discountPercent}% off, up to {formatGhs(applied.maxDiscountPesewas)}
               </Text>
               <Text variant="caption" color={colors.onSurfaceVariant}>{expiryLabel(applied.expiry)}</Text>
+              {/**
+               * WHY THIS ONE HAS NO REMOVE.
+               *
+               * An applied promo has already changed `Booking.fareAmountPesewas`
+               * — the rider is looking at a discounted price they agreed to. The
+               * saved card below is a code held for a ride that does not exist
+               * yet and comes off freely; this one is money already moved.
+               * Saying which is which is the difference between "the remove
+               * button is broken" and "there is nothing to remove".
+               */}
+              <Text variant="caption" color={colors.onSurfaceVariant}>
+                Already discounted on this ride, so it stays until the ride ends.
+              </Text>
             </View>
           )}
 

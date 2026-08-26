@@ -175,9 +175,18 @@ export default function WalletScreen() {
         <View
           style={styles.quickGrid}
         >
+          {/**
+           * "SEND MONEY" PROMISED A CASH RAIL WE DO NOT RUN.
+           *
+           * A rider wallet holds ride credits: topped up with money, spent on
+           * fares, and — unlike a driver's, which has `POST /wallet/withdraw`
+           * behind driver auth — with no way out to a bank or MoMo account. So
+           * what this button actually does is pass credits to another EyeGo
+           * account, and its name is now that. See profile/send-money.tsx.
+           */}
           <Pressable style={styles.quickCard} onPress={() => router.push('/profile/send-money' as any)}>
-            <Ionicons name="send-outline" size={28} color={colors.primary} />
-            <Text style={styles.quickLabel}>Send Money</Text>
+            <Ionicons name="gift-outline" size={28} color={colors.primary} />
+            <Text style={styles.quickLabel}>Send Credits</Text>
           </Pressable>
           <Pressable style={styles.quickCard} onPress={() => router.push('/profile/scan-pay' as any)}>
             <Ionicons name="qr-code-outline" size={28} color={colors.primary} />

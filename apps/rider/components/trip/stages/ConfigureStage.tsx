@@ -92,6 +92,14 @@ type Tier = 'ECO' | 'COMFORT' | 'PREMIUM';
  */
 const TIER_ORDER: Tier[] = ['ECO', 'COMFORT', 'PREMIUM'];
 
+/**
+ * Mirrors `DOORSTEP_OFFSET_METERS` in the API's fare-quote service — the point
+ * at which a pickup pin is far enough off the road network that reaching it is
+ * a detour rather than a stop. Only used to decide what to SAY; the server's
+ * copy is the one that prices and the one that moves the pickup.
+ */
+const DOORSTEP_OFFSET_M = 40;
+
 function ConfigureStageImpl() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -143,6 +151,13 @@ function ConfigureStageImpl() {
   const coverAll = useRideStore((s) => s.requestCoverAll);
 
   const [step, setStep] = useState(STEP_FIRST);
+
+  /**
+   * What the quote said about the pickup pin — see the doorstep block in the
+   * extras step. Null until the first quote lands, which is why that row reads
+   * "Checking your pickup point…" rather than asserting either answer.
+   */
+  const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad: boolean } | null>(null);
 
   /**
    * BACK POPS. IT DOES NOT NAVIGATE TO THE PREVIOUS SCREEN.
@@ -263,6 +278,19 @@ function ConfigureStageImpl() {
              * nobody's behaviour, which is the whole point of tying it to
              * cancellations.
              */
+            /**
+             * What the server decided about the pickup pin — see the doorstep
+             * block further down. Every tier quotes the same journey from the
+             * same pin, so the three answers are identical; the first one wins.
+             */
+            if (q?.doorstepOffsetMeters != null) {
+              setDoorstepInfo({
+                offsetMeters: Math.round(q.doorstepOffsetMeters),
+                offRoad: q.doorstepOffsetMeters >= DOORSTEP_OFFSET_M,
+              });
+            } else if (q) {
+              setDoorstepInfo({ offsetMeters: 0, offRoad: false });
+            }
             return [id, q?.amountPesewas ?? null, q?.loyaltyDiscountPesewas ?? 0] as const;
           })
           // A failed preview must not block booking — the request path quotes
@@ -561,19 +589,58 @@ function ConfigureStageImpl() {
                 </View>
               )}
 
-              {/* The fee is the diversion this causes, not a flat charge — see
-                  DOORSTEP_PER_KM in the fare calculator. The blurb does not name
-                  an amount because the amount depends on how far off-route the
-                  rider is, and the quote on the review step already shows the
-                  real number before they confirm. */}
-              <Toggle
-                label="Doorstep pickup"
-                blurb="The driver comes to your door rather than the nearest road — costs extra based on the detour"
-                value={doorstepPickup}
-                onChange={(v) => setRideOptions({ doorstepPickup: v })}
-                colors={colors}
-                styles={styles}
-              />
+              {/**
+               * ── DOORSTEP IS DECIDED BY THE PIN ─────────────────────────
+               *
+               * BUGFIX (item 6). This was a free-standing checkbox: the rider
+               * could set the pickup to their exact door on the previous screen
+               * and then leave this unticked, and nothing anywhere reconciled
+               * the two. The fee moved; the pickup did not. Either the driver
+               * drove down the lane unpaid, or the rider paid a detour fee
+               * standing on a main road.
+               *
+               * The server now measures it — the distance from the rider's pin
+               * to the nearest point a car can actually reach, taken from the
+               * road-snapped geometry it already fetched to price the trip (see
+               * fare-quote.service). So this stops asking a question the pin has
+               * answered and states the answer instead.
+               *
+               * The toggle survives in exactly one case, and it means something
+               * there: a pin that IS off-road, where turning it off MOVES the
+               * pickup to the kerb and re-prices. Declining now changes where
+               * the driver goes, which is what makes it a real choice rather
+               * than a discount.
+               */}
+              {doorstepInfo?.offRoad ? (
+                <Toggle
+                  label="Doorstep pickup"
+                  blurb={
+                    doorstepPickup
+                      ? `Your pickup pin is about ${doorstepInfo.offsetMeters} m off the road, so the driver comes in to you. The detour is in the fare below.`
+                      : `We'll meet you on the nearest road instead — about a ${doorstepInfo.offsetMeters} m walk, and no doorstep fee.`
+                  }
+                  value={doorstepPickup}
+                  onChange={(v) => setRideOptions({ doorstepPickup: v })}
+                  colors={colors}
+                  styles={styles}
+                />
+              ) : (
+                <View style={styles.option}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.optionLabel}>Kerbside pickup</Text>
+                    <Text variant="caption" color={colors.onSurfaceVariant}>
+                      {doorstepInfo
+                        ? 'Your pickup point is already on the road, so there is no detour and no doorstep fee.'
+                        : 'Checking your pickup point…'}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={doorstepInfo ? 'checkmark-circle' : 'ellipsis-horizontal'}
+                    size={20}
+                    color={doorstepInfo ? colors.primary : colors.onSurfaceVariant}
+                  />
+                </View>
+              )}
               <Toggle
                 label="Heavy load"
                 blurb="Large luggage or cargo — priced in, so the driver knows before they arrive"

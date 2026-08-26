@@ -186,7 +186,26 @@ export default function SavedPlacesScreen() {
         setNewAddress(picked.fullAddress);
         setNewCoords({ lat: picked.latitude, lng: picked.longitude });
         setSuggestions([]);
-        if (!newName.trim() && picked.name !== 'Dropped pin') setNewName(picked.name);
+        /**
+         * THE NAME YOU TYPED SURVIVES THE MAP.
+         *
+         * BUGFIX ("on the saved places page, when I put the name there and I go
+         * pick the location on the map, the map location address overwrites the
+         * name I put and I have to put it there again").
+         *
+         * The guard was `if (!newName.trim() …)`, and `newName` is read from a
+         * closure this effect captured with `[]` deps — so it is whatever it was
+         * on FIRST render, which is `''`, for the whole life of the screen. The
+         * condition was therefore always true and the picked place's name always
+         * won, however much the rider had typed. It looked like a deliberate
+         * overwrite; it was a stale closure.
+         *
+         * The functional updater reads the CURRENT value, which is the only
+         * thing that can answer "did they already name this place".
+         */
+        if (picked.name !== 'Dropped pin') {
+          setNewName((current) => (current.trim() ? current : picked.name));
+        }
       }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -535,7 +554,24 @@ export default function SavedPlacesScreen() {
                 {/* Confirm the exact spot on the map */}
                 <Pressable
                   style={styles.mapPickBtn}
-                  onPress={() => router.push('/profile/place-picker' as any)}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/profile/place-picker',
+                      params: {
+                        title: newName.trim() ? `Where is ${newName.trim()}?` : 'Pick the spot',
+                        // Editing an existing place opens on it, rather than
+                        // throwing its coordinates away and starting from GPS.
+                        ...(newCoords
+                          ? {
+                              initialLat: String(newCoords.lat),
+                              initialLng: String(newCoords.lng),
+                              initialLabel: newName,
+                              initialAddress: newAddress,
+                            }
+                          : {}),
+                      },
+                    } as any)
+                  }
                   accessibilityRole="button"
                   accessibilityLabel="Pick location on map"
                 >

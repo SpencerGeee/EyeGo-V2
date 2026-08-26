@@ -149,8 +149,8 @@ router.post('/send', idempotency, async (req, res) => {
   const candidates = [...new Set([raw, `0${local}`, `233${local}`, `+233${local}`, local])].filter(Boolean);
 
   const recipient = await prisma.user.findFirst({ where: { phone: { in: candidates } } });
-  if (!recipient) throw new AppError('No EyeGo user found with that phone number', 404, 'RECIPIENT_NOT_FOUND');
-  if (recipient.id === senderId) throw new AppError('You cannot send money to yourself', 400, 'SELF_TRANSFER');
+  if (!recipient) throw new AppError('Ride credits can only be sent to someone with an EyeGo account', 404, 'RECIPIENT_NOT_FOUND');
+  if (recipient.id === senderId) throw new AppError('These are already your credits', 400, 'SELF_TRANSFER');
 
   const result = await prisma.$transaction(async (tx) => {
     // Atomic conditional decrement — the balance check happens as part of the
@@ -180,7 +180,7 @@ router.post('/send', idempotency, async (req, res) => {
     return { reference, recipientName: recipient.name };
   });
 
-  ok(res, result, `${formatGhs(safeAmount)} sent to ${result.recipientName}`);
+  ok(res, result, `${formatGhs(safeAmount)} in ride credits sent to ${result.recipientName}`);
 });
 
 router.post('/topup', idempotency, async (req, res) => {

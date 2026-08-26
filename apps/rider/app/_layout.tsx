@@ -673,13 +673,26 @@ export default function RootLayout() {
             <Stack.Screen
               name="profile/edit"
               options={{
-                // Morph target: the profile avatar flies into this screen via
-                // the MorphProvider overlay. `'none'`, not `'fade'` — see the
-                // note on ride/[id]: a route animation running alongside the
-                // clone is a second, unsynchronised description of the same
-                // navigation, and it is most of why this particular morph was
-                // reported as "really bad".
-                animation: 'none',
+                /**
+                 * NO MORPH HERE ANY MORE — IT SLIDES.
+                 *
+                 * BUGFIX ("the morph effect on the profile icon on the profile
+                 * page, remove it — just make it fade into that edit profile
+                 * page, or better still slide there").
+                 *
+                 * The avatar→avatar container transform was the right primitive
+                 * for a card growing into a full screen, and the wrong one here:
+                 * the two avatars are nearly the same size in nearly the same
+                 * corner, so the clone travelled almost no distance and read as a
+                 * flicker rather than a transformation. `animation: 'none'` was
+                 * only correct while the clone was doing the animating; with the
+                 * clone gone it left the screen appearing with no transition at
+                 * all.
+                 *
+                 * A plain platform push is the honest description of what this
+                 * navigation is — a detail screen opening on top of a list.
+                 */
+                ...detailPush,
                 gestureEnabled: true,
               }}
             />

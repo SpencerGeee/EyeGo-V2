@@ -32,6 +32,26 @@ export interface FareQuote {
   loyaltyDiscountPesewas?: number;
   /** EXCELLENT / GOOD / FAIR / NEW / RESTRICTED — see standing.service.js. */
   standingBand?: string | null;
+  /**
+   * ── WHAT THE SERVER DECIDED ABOUT THE PICKUP PIN ──────────────────────
+   *
+   * Doorstep pickup is not a checkbox any more; it is a measurement. The quote
+   * takes the road-snapped start of the geometry it already fetched and reports
+   * how far the rider's pin sits from it, then prices accordingly. See
+   * `fare-quote.service.js`.
+   *
+   * `doorstepPickup` is the decision that will actually be applied — the client
+   * may DECLINE a doorstep pickup, but it cannot assert one for a pin that is
+   * already on the road. `kerbPickup` is set only when the rider declined and
+   * their pickup point therefore MOVED to the kerb; the app has to say where to
+   * and how far they will walk.
+   */
+  doorstepPickup?: boolean;
+  doorstepOffsetMeters?: number | null;
+  kerbPickup?: { lat: number; lng: number; walkMeters: number } | null;
+  /** The pickup the price is for — the kerb point when doorstep was declined. */
+  pickupLat?: number;
+  pickupLng?: number;
   /** Routed duration in minutes — part of the price under the on-demand card. */
   durationMin?: number | null;
   /**

@@ -6,6 +6,18 @@ const env = require('../config/env');
 const { AppError } = require('../utils/errors');
 const { calculateRideFare } = require('../modules/trips/fare.calculator');
 const { roadDistanceKm } = require('./mapbox.service');
+const { haversineMeters } = require('../utils/geo');
+
+/**
+ * How far off the road network a pickup pin has to sit before collecting the
+ * rider is a doorstep pickup rather than a kerbside one.
+ *
+ * 40 m is roughly "not on the road you can see from the road" — past the
+ * combined error of a phone fix and the road centreline, and short enough that
+ * a compound set back from a lane still counts. Below it there is no detour to
+ * price: the driver stops where they were going to stop anyway.
+ */
+const DOORSTEP_OFFSET_METERS = Number(process.env.DOORSTEP_OFFSET_METERS ?? 40);
 const { getSurgeMultiplier } = require('../modules/trips/surge.service');
 const logger = require('../utils/logger');
 // Owns the whole reputation model — see the note where the discount is applied.
@@ -145,6 +157,65 @@ async function createQuote({
    * Left null for an on-demand ride, where the rider's own location IS the
    * pickup and there is no detour to price.
    */
+  /**
+   * ── DOORSTEP IS A FACT ABOUT THE PIN, NOT A CHECKBOX ────────────────────
+   *
+   * BUGFIX (item 6: "I don't really think the doorstep pickup implementation is
+   * fully done — all it does is increase the price when it's checked, but it's
+   * not enforced. On the where-to field I can set the pickup point to my exact
+   * doorstep, and then on the seats-and-extras page choose NOT to select
+   * doorstep pickup, and it wouldn't be").
+   *
+   * The rider was being asked a question whose answer they had already given by
+   * dropping a pin, and the two answers were allowed to disagree. Whichever way
+   * they disagreed, somebody lost: untick it and the driver still drives down
+   * the lane for nothing; tick it standing on a main road and the rider pays a
+   * detour fee for a detour that does not exist.
+   *
+   * What the fee is actually for is the driver LEAVING THE ROAD NETWORK to
+   * reach you, and that is measurable. Every routing answer is snapped to the
+   * road graph, so the first coordinate of the geometry we already fetched is
+   * the nearest point a car can reach; the distance from the rider's pin to it
+   * is the walk they would otherwise make. Nothing extra is requested — this
+   * value was being thrown away.
+   *
+   * So the server decides, and the client's flag becomes a REFUSAL only:
+   *
+   *   pin off-road + rider said nothing  → doorstep, priced
+   *   pin off-road + rider said "no"     → pickup MOVES to the kerb point, free
+   *   pin on-road                        → never doorstep, whatever was sent
+   *
+   * The third case is what stops the fee being charged for nothing; the second
+   * is what makes declining it mean something, because the pickup coordinate
+   * the driver navigates to changes with the answer. The rider can no longer
+   * hold a doorstep pin and a kerb price at the same time.
+   */
+  const snapped = route?.geometry?.coordinates?.[0];
+  const kerbOffsetMeters =
+    Array.isArray(snapped) && snapped.length === 2
+      ? haversineMeters(pickupLat, pickupLng, snapped[1], snapped[0])
+      : null;
+  const isOffRoad = Number.isFinite(kerbOffsetMeters) && kerbOffsetMeters >= DOORSTEP_OFFSET_METERS;
+
+  // Only for on-demand. A shared trip prices doorstep by its detour from the
+  // driver's own pickup point (below), which is a different question.
+  const onDemand = !Number.isFinite(routePickupLat) || !Number.isFinite(routePickupLng);
+  let kerbPickup = null;
+  if (onDemand) {
+    if (isOffRoad && doorstepPickup !== false) {
+      doorstepPickup = true;
+    } else if (isOffRoad && doorstepPickup === false) {
+      // Declined. Move the pickup to the point a car can actually stop at, and
+      // charge nothing — the fee and the detour end together.
+      kerbPickup = { lat: snapped[1], lng: snapped[0], walkMeters: Math.round(kerbOffsetMeters) };
+      pickupLat = snapped[1];
+      pickupLng = snapped[0];
+      doorstepPickup = false;
+    } else {
+      doorstepPickup = false;
+    }
+  }
+
   let doorstepDetourKm = null;
   if (doorstepPickup && Number.isFinite(routePickupLat) && Number.isFinite(routePickupLng)) {
     const [toRider, backToRoute] = await Promise.all([
@@ -288,6 +359,17 @@ async function createQuote({
     loyaltyDiscountPesewas,
     standingBand,
     doorstepDetourKm,
+    /**
+     * What the server decided about the pin, so the seats-and-extras page can
+     * state it instead of asking. `kerbPickup` is non-null only when the rider
+     * declined a doorstep pickup and their pickup point therefore MOVED — the
+     * app has to show them where to, and how far they will walk.
+     */
+    doorstepPickup,
+    doorstepOffsetMeters: Number.isFinite(kerbOffsetMeters) ? Math.round(kerbOffsetMeters) : null,
+    kerbPickup,
+    pickupLat,
+    pickupLng,
     durationMin: route?.durationMin ?? null,
     /**
      * The road the price was measured along, so the ride picker can draw it.

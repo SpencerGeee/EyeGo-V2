@@ -322,6 +322,22 @@ async function requestRide(userId, body) {
     const giveQuoteBack = () =>
       fareQuote.restoreQuote(quoteId, quote).catch(() => false);
 
+    /**
+     * THE QUOTE DECIDES THE PICKUP, NOT THE BODY THAT ASKED FOR IT.
+     *
+     * BUGFIX (item 6). `doorstepPickup` came off the request body and was
+     * written to the trip verbatim, so it was whatever the last screen happened
+     * to send — with no relationship to where the pin actually was. The quote
+     * now derives it from the road-snap offset and, when the rider declines a
+     * doorstep pickup, moves the pickup coordinate to the kerb point it priced
+     * (see fare-quote.service). Reading those two values back off the redeemed
+     * quote is what makes the price, the flag and the coordinate the driver
+     * navigates to one decision instead of three.
+     */
+    const effectiveDoorstep = quote.doorstepPickup ?? doorstepPickup;
+    const effectivePickupLat = Number.isFinite(quote.pickupLat) ? quote.pickupLat : pickupLat;
+    const effectivePickupLng = Number.isFinite(quote.pickupLng) ? quote.pickupLng : pickupLng;
+
     const trip = await prisma.$transaction(async (tx) => {
       const created = await tx.trip.create({
         data: {
@@ -334,9 +350,9 @@ async function requestRide(userId, body) {
           tier: quote.tier,
           status: S.REQUESTED,
           version: 0,
-          doorstepPickup,
-          pickupLat,
-          pickupLng,
+          doorstepPickup: effectiveDoorstep,
+          pickupLat: effectivePickupLat,
+          pickupLng: effectivePickupLng,
           pickupAddress,
           dropoffLat,
           dropoffLng,
@@ -393,8 +409,8 @@ async function requestRide(userId, body) {
           paymentMethod,
           paymentStatus: 'PENDING',
           status: 'CONFIRMED',
-          pickupLat,
-          pickupLng,
+          pickupLat: effectivePickupLat,
+          pickupLng: effectivePickupLng,
           pickupAddress,
           // Null for the ordinary case; set when booking on someone's behalf.
           guestName,

@@ -18,7 +18,7 @@ import { bookingsApi, walletApi, userApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Pressable, MorphSource, useMorph, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue } from '@eyego/ui';
+import { Text, Pressable, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue } from '@eyego/ui';
 import { getInitials, formatGhs } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -54,8 +54,6 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
-  const { morphTo } = useMorph();
-  const PROFILE_MORPH_ID = 'profile-hero-avatar';
 
   const scrollY = useSharedValue(0);
   // Pause the ambient shader while the list is actively scrolling — the
@@ -374,33 +372,43 @@ export default function ProfileScreen() {
         style={[styles.hero, { top: insets.top, height: HERO_HEIGHT }, heroStyle]}
       >
         <View style={styles.headerLeft}>
-          {/* MORPH FIX: the container transform's source is this avatar and its
-              target is the avatar on the edit screen — an avatar→avatar morph,
-              which is correct. What was wrong is that it used to be fired by
-              the pencil button on the far RIGHT of the header, so the
-              transform visibly launched out of an element the user had not
-              touched, half a screen away from their finger. The morph now
-              belongs to the thing that morphs: tap the avatar. */}
-          <MorphSource id={PROFILE_MORPH_ID} borderRadius={32} backgroundColor={colors.surfaceContainerHigh}>
-            <Pressable
-              onPress={() => morphTo(PROFILE_MORPH_ID, () => router.push('/profile/edit' as any))}
-              haptic="light"
-              accessibilityLabel="Edit profile photo and details"
-              accessibilityRole="button"
-            >
-              <Animated.View style={[styles.avatarRing, avatarStyle]}>
-                {user?.avatarUrl ? (
-                  <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Text style={[styles.avatarInitials, { color: colors.primary }]}>
-                      {user?.name ? getInitials(user.name) : '?'}
-                    </Text>
-                  </View>
-                )}
-              </Animated.View>
-            </Pressable>
-          </MorphSource>
+          {/**
+           * THE AVATAR NO LONGER MORPHS. IT PUSHES.
+           *
+           * BUGFIX ("the morph effect on the profile icon on the profile page,
+           * remove it — just make it fade into that edit profile page, or better
+           * still slide there").
+           *
+           * A container transform earns its cost when a small thing becomes a
+           * big thing and the eye needs help following it. This one moved a
+           * 64 pt circle to a 72 pt circle a few points away, so the clone spent
+           * its whole life almost exactly on top of the element it had left —
+           * which reads as a stutter, not as continuity, and it had to suppress
+           * the route animation to do even that.
+           *
+           * The screen now slides in like every other detail screen (see
+           * `detailPush` in app/_layout). Nothing is lost: the thing the morph
+           * was pointing at — "this avatar is what you are about to edit" — is
+           * said by the destination opening on that avatar.
+           */}
+          <Pressable
+            onPress={() => router.push('/profile/edit' as any)}
+            haptic="light"
+            accessibilityLabel="Edit profile photo and details"
+            accessibilityRole="button"
+          >
+            <Animated.View style={[styles.avatarRing, avatarStyle]}>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarFallback}>
+                  <Text style={[styles.avatarInitials, { color: colors.primary }]}>
+                    {user?.name ? getInitials(user.name) : '?'}
+                  </Text>
+                </View>
+              )}
+            </Animated.View>
+          </Pressable>
           <View style={{ flex: 1 }}>
             <Text variant="titleSmall" numberOfLines={1} style={{ color: colors.onSurface }}>
               {user?.name ?? 'Set your name'}

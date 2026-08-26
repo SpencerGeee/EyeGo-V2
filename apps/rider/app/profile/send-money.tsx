@@ -35,18 +35,18 @@ export default function SendMoneyScreen() {
     mutationFn: () => walletApi.sendMoney({ recipientPhone: phone.trim(), amountPesewas: pesewasFromCedis(parseFloat(amount)) }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
-      Alert.alert('Sent!', res?.data?.message ?? 'Money sent successfully.', [
+      Alert.alert('Credits sent', res?.data?.message ?? 'Their next ride is on you.', [
         { text: 'Done', onPress: () => router.back() },
       ]);
     },
     onError: (err: any) => {
       const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;
       const message =
-        code === 'RECIPIENT_NOT_FOUND' ? 'No EyeGo user found with that phone number.'
-        : code === 'INSUFFICIENT_WALLET' ? "You don't have enough wallet balance for this transfer."
-        : code === 'SELF_TRANSFER' ? 'You cannot send money to yourself.'
-        : err?.response?.data?.message ?? 'Could not send money. Please try again.';
-      Alert.alert('Send Failed', message);
+        code === 'RECIPIENT_NOT_FOUND' ? "That number isn't on EyeGo yet — credits can only go to someone with an EyeGo account."
+        : code === 'INSUFFICIENT_WALLET' ? "You don't have enough credits for that. Top up first."
+        : code === 'SELF_TRANSFER' ? 'These are already your credits.'
+        : err?.response?.data?.message ?? 'Could not send those credits. Please try again.';
+      Alert.alert("Couldn't send credits", message);
     },
   });
 
@@ -54,23 +54,35 @@ export default function SendMoneyScreen() {
     const trimmedPhone = phone.trim();
     const amt = pesewasFromCedis(parseFloat(amount));
     if (trimmedPhone.length < 9) {
-      Alert.alert('Invalid Phone', 'Please enter a valid recipient phone number.');
+      Alert.alert('Check the number', "Enter the EyeGo phone number of the person you're sending credits to.");
       return;
     }
     if (!amt || amt <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter an amount greater than 0.');
+      Alert.alert('Check the amount', 'Enter how many credits to send.');
       return;
     }
     if (typeof balance === 'number' && amt > balance) {
-      Alert.alert('Insufficient Balance', `You only have ${formatGhs(balance)} in your wallet.`);
+      Alert.alert('Not enough credits', `You have ${formatGhs(balance)} in credits. Top up to send more.`);
       return;
     }
+    /**
+     * SAY WHAT CREDITS ARE, AT THE POINT OF NO RETURN.
+     *
+     * They are spendable on EyeGo fares and nothing else — a rider wallet has
+     * no withdraw endpoint (only drivers do), which is precisely why calling
+     * this "Send Money" was misleading. The confirm step is the one moment the
+     * sender is guaranteed to read, so the rule is stated here rather than
+     * buried in terms nobody opens.
+     */
     Alert.alert(
-      'Confirm Transfer',
-      `Send ${formatGhs(amt)} to ${trimmedPhone}?`,
+      'Send these credits?',
+      `${formatGhs(amt)} in ride credits will move to ${trimmedPhone}.
+
+` +
+        'They can spend it on EyeGo fares. Credits cannot be cashed out, and this cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Send', onPress: () => sendMutation.mutate() },
+        { text: 'Send credits', onPress: () => sendMutation.mutate() },
       ],
     );
   };
@@ -81,19 +93,54 @@ export default function SendMoneyScreen() {
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text variant="titleMedium" style={styles.headerTitle}>Send Money</Text>
+        <Text variant="titleMedium" style={styles.headerTitle}>Send Ride Credits</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <KeyboardAwareScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         <View style={styles.balanceCard}>
-          <Text variant="caption" color={colors.onSurfaceVariant}>Available Balance</Text>
+          <Text variant="caption" color={colors.onSurfaceVariant}>Your ride credits</Text>
           <Text style={styles.balanceText}>{formatGhs(typeof balance === 'number' ? balance : 0)}</Text>
+        </View>
+
+        {/**
+         * ── THIS IS NOT A MONEY TRANSFER, AND IT NEVER WAS ────────────────
+         *
+         * BUGFIX ("the send money option in the wallet page is very misleading —
+         * customers wouldn't be able to send money to anyone; they might be able
+         * to send credits to a fellow EyeGo rider so they can pay for their
+         * ride, and that's it").
+         *
+         * Exactly right, and the code already worked that way: the endpoint only
+         * ever resolves a recipient who has an EyeGo account, and a rider wallet
+         * has no withdraw route at all — `POST /wallet/withdraw` is
+         * driver-only, behind driver auth, and pays out to a driver's payout
+         * account. So the balance can be topped up and spent on fares, and that
+         * is the whole of it.
+         *
+         * The name promised a P2P cash rail we do not operate and must not look
+         * like we operate: a rider who believes they can move money through
+         * EyeGo has been misled about a financial product, and the first person
+         * to find out otherwise is whoever tries to take it out again.
+         *
+         * Nothing about the mechanics changed. The screen now says what the
+         * mechanics have always been.
+         */}
+        <View style={styles.explainer}>
+          <Ionicons name="information-circle-outline" size={18} color={colors.primary} style={{ marginTop: 1 }} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text variant="label" color={colors.onSurface}>Credits, not cash</Text>
+            <Text variant="caption" color={colors.onSurfaceVariant} style={{ lineHeight: 17 }}>
+              Ride credits are bought with money and spent on EyeGo fares. You can pass them to
+              anyone with an EyeGo account so their next ride is on you — but they can’t be
+              withdrawn to a bank or mobile money wallet, by you or by them.
+            </Text>
+          </View>
         </View>
 
         <View style={styles.form}>
           <Input
-            label="Recipient Phone Number"
+            label="Their EyeGo phone number"
             value={phone}
             onChangeText={setPhone}
             keyboardType="phone-pad"
@@ -101,7 +148,7 @@ export default function SendMoneyScreen() {
             leftIcon={<Ionicons name="person-outline" size={20} color={colors.onSurfaceVariant} />}
           />
           <Input
-            label="Amount (GHS)"
+            label="How many credits (GHS)"
             value={amount}
             onChangeText={setAmount}
             keyboardType="decimal-pad"
@@ -119,7 +166,7 @@ export default function SendMoneyScreen() {
         </View>
 
         <Button
-          label="Send Money"
+          label="Send Credits"
           onPress={handleSend}
           loading={sendMutation.isPending}
           style={{ marginTop: spacing.xl }}
@@ -177,5 +224,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignSelf: 'center',
     marginTop: spacing.sm,
     padding: spacing.sm,
+  },
+  /** "Credits, not cash" — the sentence that stops this reading as a cash rail. */
+  explainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.base,
+    padding: spacing.base,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.22),
+    backgroundColor: withOpacity(colors.primary, 0.07),
   },
 });

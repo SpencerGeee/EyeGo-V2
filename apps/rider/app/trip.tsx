@@ -361,8 +361,21 @@ export default function TripScreen() {
         // the server refuse a second self-booking if there is one.
         .catch(() => useTripFlow.getState().pinToSearch(false));
     }
+    /**
+     * RE-SEED WHEN THE PARAMS CHANGE, NOT ONLY WHEN THE SCREEN MOUNTS.
+     *
+     * BUGFIX ("I choose Economy on Services and I get redirected to Where To
+     * with my trip in Comfort"). `/trip` is one route. Tapping a second tier
+     * card pushes it again with different params, and expo-router updates the
+     * params on the SAME mounted screen — so an effect keyed on `[]` never ran
+     * a second time and the surface kept whichever tier opened it first. The
+     * seeding code was correct; it simply was not reached.
+     *
+     * Keyed on the params that decide what this surface IS. Everything inside
+     * is idempotent for a given set of them.
+     */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [params.stage, params.tier, params.type, params.morphId, params.bookingId, params.resumeRequestId]);
 
   /**
    * THE PROJECTION. Once a trip exists its status decides the stage, full

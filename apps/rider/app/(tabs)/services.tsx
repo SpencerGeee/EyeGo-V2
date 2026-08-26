@@ -123,12 +123,30 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
     <Animated.View entering={FadeIn.duration(300)}>
       <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceCard}>
       <Pressable onPress={handlePress}>
+        {/**
+         * EVERY TIER GLOWS, IN ITS OWN COLOUR.
+         *
+         * BUGFIX ("the premium card clearly has a glow border and it's very
+         * catchy, but the comfort and the economy don't, so they seem left
+         * out"). `glow` and `glowPalette="gold"` were both gated on
+         * `isPremium`, so two of the three products on this screen were flat
+         * grey cards next to a lit one — which does not read as "these are
+         * cheaper", it reads as "these are the ones we didn't finish".
+         *
+         * The rings are the tier's own colour, so the glow tells the rider what
+         * they are looking at rather than which card we wanted them to press.
+         *
+         * `animated` stays on premium alone, deliberately: the rotating sweep is
+         * the expensive one, and GradientGlowBorder's own note is to keep it to
+         * a single card per screen. Economy and Comfort get the same ring,
+         * static — the difference is motion, not presence.
+         */}
         <Card
           padding={0}
-          elevated={!isPremium}
-          glow={isPremium}
+          elevated={false}
+          glow
           animated={isPremium}
-          glowPalette="gold"
+          glowPalette={tier.tier === 'premium' ? 'gold' : tier.tier === 'comfort' ? 'comfort' : 'economy'}
           style={styles.tierCard}
         >
           <View style={styles.tierContent}>
@@ -212,9 +230,26 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
           {row}
         </GradientGlowBorder>
       ) : (
-        <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.specialCard}>
+        /**
+         * A QUIET RING, NOT NO RING.
+         *
+         * FEATURE ("you can even give the schedule a ride and the group ride
+         * cards a faint glow border for them to also be alive"). These were bare
+         * glass on a screen where everything else is ringed, so they read as
+         * disabled rather than as secondary. Same primitive, its own colour, no
+         * outer glow and no rotation — present, and clearly one step down from
+         * the tier cards above rather than absent from the same system.
+         */
+        <GradientGlowBorder
+          palette={service.id === 'group' ? 'comfort' : 'economy'}
+          fillColor={colors.surfaceContainerHigh}
+          borderRadius={radii.xl}
+          thickness="thin"
+          style={styles.specialCard}
+        >
+          <GlassSurface borderRadius={radii.xl - 1} intensity="low" dark style={styles.specialGlassInset} />
           {row}
-        </GlassSurface>
+        </GradientGlowBorder>
       )}
     </Pressable>
   );
