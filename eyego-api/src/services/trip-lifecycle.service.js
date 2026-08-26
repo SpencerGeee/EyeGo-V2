@@ -76,6 +76,7 @@ const {
   ACTIVE_STATUSES,
   TERMINAL_STATUSES,
   PRE_DRIVER_STATUSES,
+  TRIP_STATUS: S,
 } = tripState;
 /** Booking states that still hold a seat / still read as live to a rider. */
 const LIVE_BOOKING_STATUSES = ['SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED', 'PENDING'];
@@ -251,9 +252,80 @@ async function releaseExpiredSeatHolds() {
   return count;
 }
 
+/**
+ * How long before departure a published trip starts calling itself FILLING.
+ *
+ * FEATURE ("when it gets to 20 minutes before departure, you can automatically
+ * switch it to filling status so the user knows that the driver is filling up").
+ *
+ * SCHEDULED and FILLING already meant different things to the state machine —
+ * "seats open, departure in the future" versus "seats being taken" — but only a
+ * booking could move a trip between them. So a bus leaving in five minutes with
+ * nobody on it yet still read as SCHEDULED, indistinguishable on the rider's
+ * home screen from one leaving tomorrow morning, and the rider had no way to
+ * tell which one they could actually walk up to.
+ *
+ * Time is the other thing that makes a trip fill. A driver at the kerb twenty
+ * minutes out IS filling up, booked or not, and that is the trip a rider looking
+ * for a ride right now wants at the top of their list.
+ */
+const FILLING_WINDOW_MINUTES = numFromEnv('TRIP_FILLING_WINDOW_MINUTES', 20);
+
+/**
+ * Promote SCHEDULED trips that are close enough to departure to be boarding.
+ *
+ * Deliberately a sweep rather than a timer armed at creation: departure times
+ * get edited, trips get published for a moment that has already passed, and the
+ * process restarts. A predicate over `departureTime` is true whenever it is
+ * true, with nothing to keep in sync.
+ *
+ * SCHEDULED → FILLING is `A_ANY` in the transition table, so this needs no new
+ * edge; and because it goes through `applyTransition`, both apps learn about it
+ * on the same `trip:event` channel as every other status change rather than
+ * discovering it on a refetch.
+ */
+async function promoteTripsToFilling() {
+  const now = Date.now();
+  const candidates = await prisma.trip.findMany({
+    where: {
+      status: S.SCHEDULED,
+      departureTime: {
+        // Inside the window, and not so far past departure that the expiry
+        // sweep above is about to take it anyway.
+        lte: new Date(now + FILLING_WINDOW_MINUTES * 60 * 1000),
+        gt: hoursAgo(PRETRIP_GRACE_HOURS),
+      },
+    },
+    select: { id: true },
+    orderBy: { departureTime: 'asc' },
+    take: BATCH_SIZE,
+  });
+
+  let promoted = 0;
+  for (const trip of candidates) {
+    try {
+      await tripState.applyTransition(trip.id, S.FILLING, {
+        actor: tripState.ACTOR.SYSTEM,
+        payload: { reason: 'DEPARTURE_WINDOW', windowMinutes: FILLING_WINDOW_MINUTES },
+      });
+      promoted += 1;
+    } catch (err) {
+      // Somebody booked a seat in the same tick and moved it first, or the trip
+      // was cancelled. Both are fine; neither is worth a line in the log.
+      if (!['TRIP_ALREADY_IN_STATE', 'ILLEGAL_TRANSITION', 'TRIP_TERMINAL'].includes(err?.code)) {
+        logger.warn(`Could not promote trip ${trip.id} to FILLING: ${err.message}`);
+      }
+    }
+  }
+  if (promoted > 0) logger.info(`Filling sweep: ${promoted} trip(s) now boarding`);
+  return promoted;
+}
+
 module.exports = {
   expireStaleTrips,
   releaseExpiredSeatHolds,
+  promoteTripsToFilling,
+  FILLING_WINDOW_MINUTES,
   expireTrip,
   isPastDeadline,
   TERMINAL_STATUSES,

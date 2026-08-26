@@ -143,12 +143,103 @@ function WhereToPressable({
   );
 }
 
+/**
+ * ── WHAT KIND OF TRIP IS THIS, TO A RIDER STANDING ON A KERB? ───────────────
+ *
+ * FEATURE ("if it's in scheduled it should be reflected on the rider app
+ * clearly so the rider knows the driver isn't moving now… on the rider app it
+ * just shows the suggested trips and nothing else on the homepage, but you can
+ * make it advanced so it accurately shows sections that are needed").
+ *
+ * One flat list called "Suggested for you" put a bus boarding in four minutes
+ * and a bus leaving on Thursday in the same rail, in the same treatment, sorted
+ * by nothing a rider cares about. The two are completely different products:
+ * one you run for, the other you plan around. `Trip.status` already draws that
+ * line — FILLING means seats are being taken NOW, SCHEDULED means the driver is
+ * not moving yet — and the server now promotes a trip across it twenty minutes
+ * before departure (`promoteTripsToFilling`), so the distinction is honest and
+ * time-aware rather than an artefact of who happened to book first.
+ */
+type TripGroup = 'boarding' | 'scheduled';
+
+/**
+ * Amber, matching the route line and the driver's fare card: on this app it
+ * always means "happening now, look at this". Green is the brand and is used
+ * for too many other things to carry urgency.
+ */
+const BOARDING_ACCENT = '#FFB020';
+
+const departureOf = (trip: any): Date | null => {
+  // `departureTime` is the column; `scheduledAt` was the name the card guessed
+  // at, and it does not exist on the search payload — which is why every card
+  // said "Departing soon" regardless of when it actually left.
+  const raw = trip?.departureTime ?? trip?.scheduledAt;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const groupOf = (trip: any): TripGroup =>
+  String(trip?.status ?? '').toUpperCase() === 'FILLING' ? 'boarding' : 'scheduled';
+
+/** "in 8 min" / "in 2 h 10" / "18:40 tomorrow" — what a rider needs to decide. */
+function departureLabel(trip: any): string {
+  const at = departureOf(trip);
+  if (!at) return 'Departing soon';
+  const mins = Math.round((at.getTime() - Date.now()) / 60000);
+  if (mins <= 0) return 'Leaving now';
+  if (mins < 60) return `Leaves in ${mins} min`;
+  const time = at.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
+  const today = new Date();
+  const sameDay = at.toDateString() === today.toDateString();
+  if (sameDay) return `Today ${time}`;
+  const tomorrow = new Date(today.getTime() + 86400000);
+  if (at.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
+  return `${at.toLocaleDateString('en-GH', { weekday: 'short', day: 'numeric', month: 'short' })} ${time}`;
+}
+
+function SectionHeading({
+  title,
+  subtitle,
+  accent,
+  count,
+  colors,
+  styles,
+  shiny,
+}: {
+  title: string;
+  subtitle: string;
+  accent: string;
+  count: number;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+  shiny?: boolean;
+}) {
+  return (
+    <View style={styles.sectionHead}>
+      <View style={[styles.sectionDot, { backgroundColor: accent }]} />
+      <View style={{ flex: 1 }}>
+        {shiny ? (
+          <ShinyText baseColor={colors.onSurface} textStyle={styles.sectionTitle}>{title}</ShinyText>
+        ) : (
+          <Text style={styles.sectionTitle}>{title}</Text>
+        )}
+        <Text style={styles.sectionSub}>{subtitle}</Text>
+      </View>
+      <View style={[styles.sectionCount, { borderColor: `${accent}55`, backgroundColor: `${accent}14` }]}>
+        <Text style={[styles.sectionCountText, { color: accent }]}>{count}</Text>
+      </View>
+    </View>
+  );
+}
+
 function SuggestedTripCard({
   trip,
   onPress,
   colors,
   styles,
   featured,
+  group = 'scheduled',
 }: {
   trip: any;
   onPress: () => void;
@@ -158,6 +249,8 @@ function SuggestedTripCard({
    * ring but static (GradientGlowBorder perf note: reserve rotation for one
    * card per screen). */
   featured: boolean;
+  /** Which section this card is standing in — drives the departure chip. */
+  group?: TripGroup;
 }) {
   const tierColors = getTierColors(colors);
   /**
@@ -279,15 +372,42 @@ function SuggestedTripCard({
               </Text>
             </View>
           )}
-          <Text style={styles.tripMeta}>
-            {trip.scheduledAt
-              ? new Date(trip.scheduledAt).toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' })
-              : 'Departing soon'}
-            {'  ·  '}
-            <Text style={{ color: seatsLow ? colors.statusError : colors.onSurfaceVariant }}>
-              {seatsLeft} seat{seatsLeft !== 1 ? 's' : ''} left
+          {/**
+           * The chip, not a bare time. A boarding trip is amber and says how
+           * many minutes are left; a scheduled one is muted and names the day.
+           * The old line read `trip.scheduledAt`, which is not a field on this
+           * payload — so every card in the rail said "Departing soon", boarding
+           * and next-Thursday alike.
+           */}
+          <View style={styles.tripMetaRow}>
+            <View
+              style={[
+                styles.tripWhenChip,
+                group === 'boarding'
+                  ? { backgroundColor: `${BOARDING_ACCENT}1F`, borderColor: `${BOARDING_ACCENT}44` }
+                  : { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant },
+              ]}
+            >
+              <Ionicons
+                name={group === 'boarding' ? 'radio-button-on' : 'calendar-outline'}
+                size={10}
+                color={group === 'boarding' ? BOARDING_ACCENT : colors.onSurfaceVariant}
+              />
+              <Text
+                style={[
+                  styles.tripWhenText,
+                  { color: group === 'boarding' ? BOARDING_ACCENT : colors.onSurfaceVariant },
+                ]}
+              >
+                {departureLabel(trip)}
+              </Text>
+            </View>
+            <Text style={styles.tripMeta}>
+              <Text style={{ color: seatsLow ? colors.statusError : colors.onSurfaceVariant }}>
+                {seatsLeft} seat{seatsLeft !== 1 ? 's' : ''} left
+              </Text>
             </Text>
-          </Text>
+          </View>
         </View>
       </View>
       <Text style={[styles.tripFare, { color: colors.onSurface }]}>
@@ -435,6 +555,34 @@ export default function HomeScreen() {
   const rawTrips: any[] = (Array.isArray(realTrips) ? realTrips : []).filter(
     (t: any) => t.id !== activeBooking?.tripId
   );
+
+  /**
+   * The three rails. `boarding` and `scheduled` are the trips the rider can act
+   * on right now versus later; `suggested` is everything the split did not
+   * claim, so nothing can fall out of the list by being an unexpected status.
+   *
+   * Sorted by departure inside each rail — the nearest bus first is the only
+   * ordering that answers "which one do I run for". The unsorted list put a
+   * Thursday bus above one leaving in four minutes purely on row order.
+   */
+  const { boardingTrips, scheduledTrips, suggestedTrips } = useMemo(() => {
+    const byDeparture = (a: any, b: any) =>
+      (departureOf(a)?.getTime() ?? Infinity) - (departureOf(b)?.getTime() ?? Infinity);
+    const boarding: any[] = [];
+    const scheduled: any[] = [];
+    const rest: any[] = [];
+    for (const t of rawTrips) {
+      const status = String(t?.status ?? '').toUpperCase();
+      if (status === 'FILLING') boarding.push(t);
+      else if (status === 'SCHEDULED') scheduled.push(t);
+      else rest.push(t);
+    }
+    return {
+      boardingTrips: boarding.sort(byDeparture),
+      scheduledTrips: scheduled.sort(byDeparture),
+      suggestedTrips: rest.sort(byDeparture),
+    };
+  }, [rawTrips]);
 
   // Center for the tiny non-interactive map preview in the active-ride bento
   // card. Falls back to a fixed default when the booking has no coordinates.
@@ -961,44 +1109,127 @@ export default function HomeScreen() {
           </Pressable>
         )}
 
-        {/* Suggested Rides */}
-        <View style={styles.suggestedSection}>
-          <ShinyText baseColor={colors.onSurface} textStyle={styles.sectionTitle}>Suggested for you</ShinyText>
-
-          {tripsLoading && (
+        {/**
+         * ── THREE RAILS, NOT ONE ────────────────────────────────────────
+         *
+         * Boarding first, because it is the only one a rider can act on in the
+         * next few minutes; then what is scheduled for later; then the general
+         * suggestions. Each keeps its own heading, accent and departure chip so
+         * the answer to "can I get on this now?" is visible without opening
+         * anything. See `groupOf` / `departureLabel` above.
+         *
+         * The TOP PICK sweep stays at one card per screen — it is the animated
+         * ring, and `GradientGlowBorder`'s own note is that rotating more than
+         * one of them costs frames — so it goes to the first boarding trip if
+         * there is one, and to the first suggestion otherwise.
+         */}
+        {tripsLoading && (
+          <View style={styles.suggestedSection}>
+            <ShinyText baseColor={colors.onSurface} textStyle={styles.sectionTitle}>Finding rides near you</ShinyText>
             <View style={{ gap: spacing.sm }}>
               {[1, 2].map((i) => (
                 <Skeleton key={i} style={styles.skeletonCard} />
               ))}
             </View>
-          )}
+          </View>
+        )}
 
-          {!tripsLoading && rawTrips.length === 0 && (
+        {!tripsLoading && rawTrips.length === 0 && (
+          <View style={styles.suggestedSection}>
+            <ShinyText baseColor={colors.onSurface} textStyle={styles.sectionTitle}>Suggested for you</ShinyText>
             <View style={styles.emptyState}>
               <Ionicons name="car-outline" size={36} color={colors.outline} />
               <Text style={styles.emptyText}>No rides available right now</Text>
               <Text style={styles.emptyHint}>Pull down to refresh</Text>
             </View>
-          )}
+          </View>
+        )}
 
-          {!tripsLoading && rawTrips.slice(0, 6).map((trip: any, idx: number) => (
-            <Animated.View
-              key={trip.id ?? idx}
-              entering={FadeIn.delay(idx * 60).duration(200)}
-            >
-              <SuggestedTripCard
-                trip={trip}
-                featured={idx === 0}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push(`/ride/${trip.id}` as any);
-                }}
-                colors={colors}
-                styles={styles}
-              />
-            </Animated.View>
-          ))}
-        </View>
+        {!tripsLoading && boardingTrips.length > 0 && (
+          <View style={styles.suggestedSection}>
+            <SectionHeading
+              title="Boarding now"
+              subtitle="Driver is at the pickup point filling seats"
+              accent={BOARDING_ACCENT}
+              count={boardingTrips.length}
+              colors={colors}
+              styles={styles}
+              shiny
+            />
+            {boardingTrips.slice(0, 4).map((trip: any, idx: number) => (
+              <Animated.View key={trip.id ?? `b${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
+                <SuggestedTripCard
+                  trip={trip}
+                  group="boarding"
+                  featured={idx === 0}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push(`/ride/${trip.id}` as any);
+                  }}
+                  colors={colors}
+                  styles={styles}
+                />
+              </Animated.View>
+            ))}
+          </View>
+        )}
+
+        {!tripsLoading && scheduledTrips.length > 0 && (
+          <View style={styles.suggestedSection}>
+            <SectionHeading
+              title="Scheduled"
+              subtitle="Booked ahead — the driver sets off at the departure time"
+              accent={colors.onSurfaceVariant}
+              count={scheduledTrips.length}
+              colors={colors}
+              styles={styles}
+            />
+            {scheduledTrips.slice(0, 4).map((trip: any, idx: number) => (
+              <Animated.View key={trip.id ?? `s${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
+                <SuggestedTripCard
+                  trip={trip}
+                  group="scheduled"
+                  featured={false}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push(`/ride/${trip.id}` as any);
+                  }}
+                  colors={colors}
+                  styles={styles}
+                />
+              </Animated.View>
+            ))}
+          </View>
+        )}
+
+        {!tripsLoading && suggestedTrips.length > 0 && (
+          <View style={styles.suggestedSection}>
+            <SectionHeading
+              title="Suggested for you"
+              subtitle="Going roughly your way"
+              accent={colors.primary}
+              count={suggestedTrips.length}
+              colors={colors}
+              styles={styles}
+              shiny
+            />
+            {suggestedTrips.slice(0, 6).map((trip: any, idx: number) => (
+              <Animated.View key={trip.id ?? `g${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
+                <SuggestedTripCard
+                  trip={trip}
+                  group={groupOf(trip)}
+                  featured={boardingTrips.length === 0 && idx === 0}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.push(`/ride/${trip.id}` as any);
+                  }}
+                  colors={colors}
+                  styles={styles}
+                />
+              </Animated.View>
+            ))}
+          </View>
+        )}
 
         <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
       </ScrollView>
@@ -1380,6 +1611,60 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   // ─── Suggested Rides ──────────────────────────────────────
   suggestedSection: { gap: 12 },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
+  },
+  /** Carries the rail's accent — the one element that colour-codes the section. */
+  sectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 2,
+  },
+  sectionSub: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.onSurfaceVariant,
+  },
+  sectionCount: {
+    minWidth: 26,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionCountText: {
+    fontFamily: fonts.labelCaps,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  tripMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 5,
+  },
+  /** The departure chip. Amber when boarding, muted when merely scheduled. */
+  tripWhenChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  tripWhenText: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    lineHeight: 14,
+  },
   sectionTitle: {
     fontFamily: fonts.semiBold,
     fontSize: 20,

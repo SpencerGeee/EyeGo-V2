@@ -130,6 +130,17 @@ async function start() {
       } catch (err) {
         logger.warn('Trip expiry sweep failed (non-blocking):', err.message);
       }
+      try {
+        /**
+         * The other end of the same clock. A trip within the departure window
+         * is boarding whether or not anybody has booked yet, and the rider's
+         * home screen sorts on exactly that distinction — see
+         * `promoteTripsToFilling`.
+         */
+        await tripLifecycle.promoteTripsToFilling();
+      } catch (err) {
+        logger.warn('Filling sweep failed (non-blocking):', err.message);
+      }
     };
     setImmediate(runTripExpiry);
     setInterval(runTripExpiry, 5 * 60 * 1000);

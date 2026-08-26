@@ -31,7 +31,13 @@ export default function InviteScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { activeBooking, selectedTrip, setSelectedTrip, setActiveBooking, computedFare } = useRideStore();
+  const { activeBooking, selectedTrip, setSelectedTrip, setActiveBooking, computedFare, guestInfo } = useRideStore();
+  /**
+   * "Book for my group" while your own ride is running — see `createBooking`.
+   * The organiser is the payer, not a passenger, so the copy on this screen has
+   * to stop saying "your seat".
+   */
+  const organiserNotTravelling = !!guestInfo;
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [payForEveryone, setPayForEveryone] = useState(false);
@@ -40,6 +46,8 @@ export default function InviteScreen() {
   const [linkState, setLinkState] = useState<LinkState>('generating');
   const [bookingReady, setBookingReady] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  /** The refusal that is a rule rather than a fault — see the error state below. */
+  const [alreadyOnARide, setAlreadyOnARide] = useState(false);
 
   // Reflect the booking's real server-side heavyCargo flag once it's loaded —
   // this can already be true if the rider left and came back to this screen.
@@ -82,11 +90,33 @@ export default function InviteScreen() {
       } catch {
         // keep the seatNumber=1 fallback
       }
+      /**
+       * WHEN THE ORGANISER IS ALREADY IN A CAR, THE FIRST SEAT IS NOT THEIRS.
+       *
+       * BUGFIX (items 13 + 14: "if I choose to book and invite my group I get
+       * 'we couldn't complete that just now'", and then "it showed me the option
+       * to go back to seat selection, which bypasses the already-on-a-ride
+       * gate").
+       *
+       * The host booking created here carried no passenger, so the server read
+       * it as the rider taking a SECOND seat for themselves and correctly
+       * refused with ALREADY_ON_A_RIDE. The whole screen then died on a generic
+       * "couldn't complete that" — for a request that is perfectly legitimate:
+       * organising and paying for other people's seats while you are mid-ride is
+       * exactly what this feature is for.
+       *
+       * `guestInfo` is who the organiser said is travelling (the trip screen now
+       * insists on that before opening this hub in on-another-ride mode), so the
+       * host booking becomes the first GROUP MEMBER's seat, paid for by the
+       * organiser. No schema change: `guestName`/`guestPhone` are the columns the
+       * group flow has always used for a seat booked on someone's behalf.
+       */
       const { data } = await bookingsApi.create({
         tripId: id ?? '',
         seatId: `seat-${seatNumber}`,
         seatNumber,
         paymentMethod: 'CASH' as any,
+        ...(guestInfo ? { guestName: guestInfo.name, guestPhone: guestInfo.phone } : {}),
       });
       // POST /bookings answers `{ booking, fareData, holdExpiry }` — storing the
       // wrapper as the booking left `activeBooking.id` undefined for every later
@@ -101,6 +131,8 @@ export default function InviteScreen() {
     },
     onError: (err: any) => {
       setBookingReady(false);
+      // A rule, not a fault — the recovery is different, so record which it was.
+      setAlreadyOnARide(err?.response?.data?.code === 'ALREADY_ON_A_RIDE');
       // Say what the server said. The hard-coded "the trip may be full" this
       // replaces was shown for EVERY failure, so a taken seat, an expired trip
       // and a dropped connection all read as a full bus — and the one thing
@@ -423,18 +455,44 @@ export default function InviteScreen() {
         <View style={styles.emptyState}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.error} />
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ marginTop: spacing.base, textAlign: 'center' }}>
-            {bookingError ?? 'Could not reserve a seat. Please try again.'}
+            {alreadyOnARide
+              ? "You're already on a ride, so this seat has to be booked for somebody else. Tell us who is travelling and we'll hold it for them."
+              : bookingError ?? 'Could not reserve a seat. Please try again.'}
           </Text>
+          {/**
+           * THE ESCAPE HATCH THAT WALKED ROUND THE RULE.
+           *
+           * BUGFIX (item 14). "Back to Seat Selection" sat under EVERY failure,
+           * including the one failure that is a rule rather than a fault — and
+           * the seat screen books straight through, so the offered recovery was
+           * a way to do the thing the server had just refused. Two seats, two
+           * live rides, one rider.
+           *
+           * A refusal now leads to the thing that IS allowed. Only genuine
+           * faults get a retry, because only they can succeed on one.
+           */}
+          {alreadyOnARide ? (
+            <Button
+              label="Choose who's travelling"
+              onPress={() => router.replace('/ride/guest-selection' as Href)}
+              style={{ marginTop: spacing.xl }}
+            />
+          ) : (
+            <Button
+              label="Try Again"
+              onPress={() => createBooking.mutate()}
+              loading={createBooking.isPending}
+              style={{ marginTop: spacing.xl }}
+            />
+          )}
           <Button
-            label="Try Again"
-            onPress={() => createBooking.mutate()}
-            loading={createBooking.isPending}
-            style={{ marginTop: spacing.xl }}
-          />
-          <Button
-            label="Back to Seat Selection"
+            label={alreadyOnARide ? 'Back to my ride' : 'Back to Seat Selection'}
             variant="ghost"
-            onPress={() => router.replace(`/ride/${id}/seat` as Href)}
+            onPress={() =>
+              alreadyOnARide
+                ? router.replace('/(tabs)/home' as Href)
+                : router.replace(`/ride/${id}/seat` as Href)
+            }
             style={{ marginTop: spacing.md }}
           />
         </View>
@@ -464,12 +522,20 @@ export default function InviteScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 100 }}
           style={styles.inviteCard}
         >
-          <Ionicons name="people-outline" size={28} color={colors.primary} />
+          <Ionicons name={organiserNotTravelling ? 'gift-outline' : 'people-outline'} size={28} color={colors.primary} />
           <Text variant="titleMedium" style={{ marginTop: spacing.base }}>
-            Invite your group
+            {organiserNotTravelling ? 'Booking for your group' : 'Invite your group'}
           </Text>
+          {/**
+           * The organiser is not one of the passengers here — they are already
+           * in another car. Saying so is the whole difference between this and
+           * the ordinary group hub, and the seat count below would otherwise
+           * read as though one of these seats were theirs.
+           */}
           <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.sm }}>
-            Share this link so your group can book seats on the same ride.
+            {organiserNotTravelling
+              ? `You're on another ride, so none of these seats are yours — the first is held for ${guestInfo?.name}. Share the link to let the rest of your group take theirs.`
+              : 'Share this link so your group can book seats on the same ride.'}
           </Text>
 
           {/* Link preview — three states: generating / ready / error */}

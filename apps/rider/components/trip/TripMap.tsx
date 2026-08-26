@@ -14,6 +14,7 @@ import {
   type CameraMode,
   type Coord,
 } from '@eyego/maps';
+import { routeLine } from '@eyego/config';
 import { useSheetMetrics } from '@eyego/ui';
 import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
@@ -95,7 +96,9 @@ function coord(lng: number | null | undefined, lat: number | null | undefined): 
  * driver app settled on it (`DriverTripMap.ROUTE_CORE`); both apps now draw the
  * same ride in the same colour.
  */
-const ROUTE_LINE = '#FFB020';
+// Single source: see `routeLine` in @eyego/config — the same amber every map
+// in both apps uses, chosen because the house style paints trunk roads green.
+const ROUTE_LINE = routeLine.stroke;
 
 /**
  * How far from the pickup the rider has to be before the approach line — and

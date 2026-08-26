@@ -716,26 +716,49 @@ export default function CreateTripScreen() {
                   <Text style={styles.fareTitle}>Fare Estimate ({tier})</Text>
                 </View>
                 <View style={styles.fareDivider} />
+                {/**
+                 * THREE NUMBERS, THREE MEANINGS, THREE COLOURS.
+                 *
+                 * BUGFIX ("the only thing the driver's eye catches is the
+                 * earnings per seat, which is green — the rest they don't, so
+                 * they might mistake the earnings per seat for the actual fare
+                 * per seat"). Two of these rows rendered in the same brand blue
+                 * as every other accent on the screen and one was green, so the
+                 * green one was the only figure that registered — and it is the
+                 * one that is NOT what the rider pays. A driver skimming this
+                 * card came away with the wrong price for their own trip.
+                 *
+                 * The colours are roles now, not decoration: amber is money
+                 * coming out of the rider's pocket, white is the whole-vehicle
+                 * total, green is money that ends up with the driver. Each row
+                 * carries a dot in its own colour so the three separate at a
+                 * glance, and the labels say whose money it is rather than
+                 * naming a total.
+                 */}
                 <FareRow
-                  label="Per passenger"
+                  label="Each rider pays"
                   value={formatGhs(fareEstimateData.farePerPersonPesewas)}
-                  sub={`at ~${seats} passengers`}
+                  sub={`per seat, at ~${seats} passengers`}
+                  accent={FARE_TONES.riderPays}
                   colors={colors}
                 />
                 <View style={styles.fareRowDivider} />
                 <FareRow
-                  label="Total trip cost"
+                  label="Whole trip, if full"
                   value={formatGhs(fareEstimateData.totalTripCostPesewas)}
+                  sub={`all ${seats} seats together`}
+                  accent={FARE_TONES.tripTotal}
                   colors={colors}
                 />
                 <View style={styles.fareRowDivider} />
                 <FareRow
-                  label="Your earnings per seat"
+                  label="You keep, per seat"
                   value={formatGhs(fareEstimateData.driverEarningsPerSeatPesewas)}
                   // Read from the estimate rather than hardcoded, so this can
                   // never drift from what the server actually deducts.
                   sub={`after ${Math.round(((fareEstimateData as { commissionRate?: number }).commissionRate ?? 0.15) * 100)}% commission`}
-                  valueColor="#22C55E"
+                  accent={FARE_TONES.youKeep}
+                  emphasis
                   colors={colors}
                 />
                 <View style={styles.fareNote}>
@@ -763,17 +786,39 @@ export default function CreateTripScreen() {
   );
 }
 
-function FareRow({ label, value, sub, valueColor, colors }: {
+/**
+ * The three roles money plays on this card. Kept together so the next person to
+ * add a row has to decide which of the three it is, rather than reaching for the
+ * brand colour by reflex — which is how two of them ended up identical.
+ */
+const FARE_TONES = {
+  /** Out of the rider's pocket. */
+  riderPays: '#F5A524',
+  /** The whole vehicle, gross. Deliberately neutral: context, not income. */
+  tripTotal: '#E7E7EA',
+  /** Into the driver's. */
+  youKeep: '#22C55E',
+} as const;
+
+function FareRow({ label, value, sub, accent, emphasis, colors }: {
   label: string;
   value: string;
   sub?: string;
-  valueColor?: string;
+  accent: string;
+  /** The number the driver is really deciding on — sized and weighted for it. */
+  emphasis?: boolean;
   colors: DriverColors;
 }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: emphasis ? spacing.md : spacing.sm }}>
+      {/* The dot is what makes three rows scannable without reading them. */}
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: accent }} />
       <View style={{ flex: 1 }}>
-        <Text style={{ fontFamily: fonts.medium, fontSize: fontSizes.bodySmall, color: colors.onSurface }}>
+        <Text style={{
+          fontFamily: emphasis ? fonts.semiBold : fonts.medium,
+          fontSize: fontSizes.bodySmall,
+          color: colors.onSurface,
+        }}>
           {label}
         </Text>
         {sub ? (
@@ -782,8 +827,8 @@ function FareRow({ label, value, sub, valueColor, colors }: {
       </View>
       <Text style={{
         fontFamily: fonts.displaySemiBold,
-        fontSize: fontSizes.titleSmall,
-        color: valueColor ?? colors.primary,
+        fontSize: emphasis ? fontSizes.titleMedium : fontSizes.titleSmall,
+        color: accent,
       }}>
         {value}
       </Text>

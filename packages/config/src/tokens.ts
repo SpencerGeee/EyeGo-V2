@@ -370,3 +370,29 @@ export const animation = {
   },
   premiumEase: [0.16, 1, 0.3, 1] as const,
 } as const;
+
+/**
+ * THE ROUTE LINE IS NOT THE BRAND COLOUR.
+ *
+ * BUGFIX ("on the suggested trip, the map at the top that shows the route is in
+ * green and the main roads are all green — change the colour of the route
+ * polyline"). EyeGo's primary is `#4be277`, and so are the trunk roads in the
+ * house map style. A green line drawn on top of green roads is not a route; it
+ * is a slightly thicker road. `TripMap` had already moved to amber for exactly
+ * this reason, but the trip-detail map was still painting `colors.primary`, so
+ * the same journey looked different depending on which screen you were on.
+ *
+ * Amber sits opposite green on the wheel and appears nowhere in the base style,
+ * so it reads as an overlay in both light and dark. The casing is the deep
+ * background colour, which is what gives it an edge over pale roads.
+ *
+ * One value, both apps, every map. Never substitute `colors.primary` here.
+ */
+export const routeLine = {
+  /** The line itself. */
+  stroke: '#FFB020',
+  /** Drawn underneath and wider, so the stroke never blends into a road. */
+  casing: '#000000',
+  /** The part already travelled, or a secondary leg (pickup → rider). */
+  muted: '#8A6A2A',
+} as const;

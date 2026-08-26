@@ -1,7 +1,7 @@
 ﻿import React, { useState, useMemo, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, TextInput, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams, type Href } from 'expo-router';
 import { MotiView, AnimatePresence } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -19,6 +19,23 @@ export default function GuestSelectionScreen() {
   const router = useRouter();
   const { guestInfo, setGuestInfo } = useRideStore();
   const showToast = useToastStore((s) => s.show);
+  /**
+   * WHERE THIS SCREEN LEADS, WHEN IT LEADS SOMEWHERE.
+   *
+   * BUGFIX (item 17: "I put the details in the guest name and number fields and
+   * it brings me back to the book-this-seat page… nothing on the driver app
+   * shows I've booked for someone and it's still showing me Book This Seat").
+   *
+   * Naming the passenger was never the booking — it only records WHO — but the
+   * screen popped back to a page that still said "Book This Seat", so the rider
+   * reasonably read the whole thing as finished and walked away with no seat
+   * held. Nothing was broken; the flow simply stopped one step short of itself.
+   *
+   * Callers that know the next step now say so, and this carries straight on
+   * into it. `RequestStage` deliberately passes nothing: it is watching for this
+   * screen to pop and sends the ride itself.
+   */
+  const { next } = useLocalSearchParams<{ next?: string }>();
 
   const [selection, setSelection] = useState<'myself' | 'guest'>(guestInfo ? 'guest' : 'myself');
   const [name, setName] = useState(guestInfo?.name ?? '');
@@ -53,14 +70,18 @@ export default function GuestSelectionScreen() {
       // saying what, and the crucial part is what happens NEXT — the very next
       // seat they pick is the guest's, not their own.
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      showToast(`Next seat you pick is for ${name.trim()}`, 'success');
+      showToast(
+        next ? `Booking for ${name.trim()} — pick their seat` : `Next seat you pick is for ${name.trim()}`,
+        'success',
+      );
     } else {
       setGuestInfo(null);
       Haptics.selectionAsync();
       showToast('Booking for yourself', 'info');
     }
-    router.back();
-  }, [selection, name, phone, setGuestInfo, router, showToast]);
+    if (next) router.replace(next as Href);
+    else router.back();
+  }, [selection, name, phone, setGuestInfo, router, showToast, next]);
 
   const isContinueDisabled = false; // Validation now happens inside handleContinue
 

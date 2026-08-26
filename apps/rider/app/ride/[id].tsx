@@ -9,7 +9,7 @@ import { tripsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs, routeLine } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
@@ -410,7 +410,7 @@ export default function RideDetailScreen() {
             <MapboxGL.LineLayer
               id="routeLineCasing"
               style={{
-                lineColor: colors.backgroundDeep,
+                lineColor: routeLine.casing,
                 lineWidth: roadRoute ? 11 : 5,
                 lineOpacity: roadRoute ? 0.9 : 0,
                 lineCap: 'round',
@@ -420,7 +420,10 @@ export default function RideDetailScreen() {
             <MapboxGL.LineLayer
               id="routeLineLayer"
               style={{
-                lineColor: colors.primary,
+                // Amber, not the brand green — the house map style paints trunk
+                // roads in the SAME green, so a green route read as a road. See
+                // `routeLine` in @eyego/config.
+                lineColor: routeLine.stroke,
                 lineWidth: roadRoute ? 6 : 3,
                 lineCap: 'round',
                 lineJoin: 'round',
@@ -630,7 +633,7 @@ export default function RideDetailScreen() {
                   }
                   onPress={() =>
                     bookingWhileOnAnotherRide && !guestInfo
-                      ? router.push('/ride/guest-selection' as Href)
+                      ? router.push({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/seat` } } as Href)
                       : router.push(`/ride/${id}/seat` as Href)
                   }
                   accessibilityRole="button"
@@ -648,14 +651,38 @@ export default function RideDetailScreen() {
                     </Text>
                   </View>
                 )}
+                {/**
+                 * "BOOK FOR MY GROUP", NOT "BOOK & INVITE MY GROUP".
+                 *
+                 * BUGFIX (item 13). While the rider's own ride is running, the
+                 * group they are organising is everyone EXCEPT them — they
+                 * already have a seat, in another car. The old label promised
+                 * the opposite, and the hub behind it duly tried to take a
+                 * second seat for the organiser and died on ALREADY_ON_A_RIDE
+                 * with "we couldn't complete that just now".
+                 *
+                 * The hub now books the first seat for `guestInfo` instead, so
+                 * the one thing it needs before opening is who is travelling.
+                 * Asking here — where the rider is already being asked the same
+                 * question for the single-seat CTA — is cheaper than failing
+                 * three screens later.
+                 */}
                 <Pressable
                   style={[styles.inviteButton, isGroupFlow && { backgroundColor: colors.secondary + '14', borderWidth: 1.5 }]}
-                  onPress={() => router.push(`/ride/${id}/invite` as Href)}
+                  onPress={() =>
+                    bookingWhileOnAnotherRide && !guestInfo
+                      ? router.push({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/invite` } } as Href)
+                      : router.push(`/ride/${id}/invite` as Href)
+                  }
                   accessibilityRole="button"
-                  accessibilityLabel="Book and invite my group"
+                  accessibilityLabel={
+                    bookingWhileOnAnotherRide ? 'Book seats for my group' : 'Book and invite my group'
+                  }
                 >
                   <Ionicons name="people-outline" size={18} color={colors.secondary} />
-                  <Text variant="label" color={colors.secondary}>Book & invite my group</Text>
+                  <Text variant="label" color={colors.secondary}>
+                    {bookingWhileOnAnotherRide ? 'Book for my group' : 'Book & invite my group'}
+                  </Text>
                 </Pressable>
                 {/* BUGFIX ("I enter the guest's name and phone and just get sent
                     back with nothing showing it worked"): the guest details were
