@@ -52,7 +52,17 @@ router.post(
       pickupLng: Number(req.body.pickupLng),
       dropoffLat: Number(req.body.dropoffLat),
       dropoffLng: Number(req.body.dropoffLng),
-      doorstepPickup: !!req.body.doorstepPickup,
+      /**
+       * TRI-STATE, NOT A BOOLEAN. `!!` was flattening "the rider has not said"
+       * into "the rider declined", and the quote's doorstep derivation needs
+       * the difference: an off-road pin nobody has commented on IS a doorstep
+       * pickup, while one the rider explicitly turned off moves the pickup to
+       * the kerb. See `createQuote`.
+       */
+      doorstepPickup:
+        req.body.doorstepPickup === undefined
+          ? undefined
+          : req.body.doorstepPickup === true || req.body.doorstepPickup === 'true',
       heavyLoad: !!req.body.heavyLoad,
     });
     res.json({ success: true, data: quote });

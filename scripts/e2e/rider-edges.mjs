@@ -11,7 +11,16 @@ import {
   BASE, section, check, fail, summary,
   GET, POST, PATCH, PUT, DEL, req,
   makeRider, makeDriver, goOnline, connectSocket, sleep, until, ACCRA,
+  advanceTrip,
 } from './lib.mjs';
+
+/** The status each lifecycle verb should leave the trip in. */
+const EXPECTED_STATUS = {
+  'en-route': 'DRIVER_EN_ROUTE',
+  arrived: 'ARRIVED_AT_PICKUP',
+  start: 'IN_PROGRESS',
+  complete: 'COMPLETED',
+};
 
 const ctx = {};
 
@@ -61,8 +70,10 @@ async function rideTo(stopAt, rider, driver) {
   await POST(`/rides/${tripId}/accept`, {}, { token: driver.token });
   if (stopAt === 'DRIVER_ASSIGNED') return { tripId, quote: q };
 
+  // `advanceTrip` boards the passengers before `start` and treats a status the
+  // trip has already reached as done — see the note on it in lib.mjs.
   for (const verb of ['en-route', 'arrived', 'start']) {
-    await POST(`/rides/${tripId}/${verb}`, {}, { token: driver.token });
+    await advanceTrip(driver.token, tripId, verb, EXPECTED_STATUS[verb]);
     if (stopAt === verb) return { tripId, quote: q };
   }
   return { tripId, quote: q };
@@ -243,7 +254,12 @@ async function main() {
     for (const verb of ['arrived', 'start']) {
       await POST(`/rides/${ctx.chatTripId}/${verb}`, {}, { token: ctx.driver.token }).catch(() => {});
     }
-    await POST(`/rides/${ctx.chatTripId}/complete`, {}, { token: ctx.driver.token });
+    // rideTo stopped at en-route/arrived, so the rail has to be walked the rest
+    // of the way — a trip cannot be completed from ARRIVED_AT_PICKUP, and
+    // `start` boards the passenger first (see advanceTrip in lib.mjs).
+    for (const step of ['arrived', 'start', 'complete']) {
+      await advanceTrip(ctx.driver.token, ctx.chatTripId, step, EXPECTED_STATUS[step]);
+    }
     ctx.chatBookingId = await bookingIdFor(ctx.rider, ctx.chatTripId);
     if (!ctx.chatBookingId) throw new Error('no booking row after completion');
     return ctx.chatBookingId.slice(0, 8);

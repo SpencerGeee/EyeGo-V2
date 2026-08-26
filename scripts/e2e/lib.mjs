@@ -247,3 +247,62 @@ export const ACCRA = {
   dropoff: { lat: 5.5717, lng: -0.2107 },
   nearPickup: { lat: 5.6045, lng: -0.1878 },
 };
+
+/**
+ * ── DRIVING A TRIP THROUGH ITS LIFECYCLE, THE WAY A DRIVER ACTUALLY DOES ────
+ *
+ * Two server rules post-date most of these scripts and made four suites fail on
+ * steps that were working correctly:
+ *
+ *   1. ACCEPT CAN AUTO-ADVANCE. A driver who accepts while already standing on
+ *      the pickup point goes straight to DRIVER_EN_ROUTE, and
+ *      `autoArriveIfAtPickup` can carry it on to ARRIVED_AT_PICKUP. The scripts
+ *      then POSTed `/en-route` and got a 409 for a state the trip was already
+ *      in — a correct refusal, reported as a lifecycle regression.
+ *
+ *   2. A RIDE CANNOT START WITH AN EMPTY CAR. `IN_PROGRESS` is gated on somebody
+ *      being boarded. `start` was refused, and every check after it failed as
+ *      collateral (complete → illegal transition → no receipt → nothing in the
+ *      activity tab), which is why one gate produced five failures per suite.
+ *
+ * `advanceTrip` is the shape of the real thing: board the passengers, then walk
+ * the verbs, treating "already there" as done rather than as broken.
+ */
+export async function boardEveryone(driverToken, tripId) {
+  const detail = await GET(`/driver/trips/${tripId}`, { token: driverToken }).catch(() => null);
+  const rows = (detail?.trip ?? detail)?.bookings ?? [];
+  let boarded = 0;
+  for (const b of rows) {
+    if (['CONFIRMED', 'PAID'].includes(b.status)) {
+      const okd = await POST(`/driver/trips/${tripId}/board/${b.id}`, {}, { token: driverToken })
+        .then(() => true)
+        .catch(() => false);
+      if (okd) boarded += 1;
+    }
+  }
+  return boarded;
+}
+
+/** The trip's status right now, read from the driver's own view. */
+export async function tripStatus(driverToken, tripId) {
+  const detail = await GET(`/driver/trips/${tripId}`, { token: driverToken }).catch(() => null);
+  return (detail?.trip ?? detail)?.status ?? null;
+}
+
+/**
+ * POST one lifecycle verb. Returns the status reached. A verb whose target the
+ * trip has ALREADY reached is a no-op, not a failure; anything else throws.
+ */
+export async function advanceTrip(driverToken, tripId, verb, expected) {
+  if (verb === 'start') await boardEveryone(driverToken, tripId);
+  try {
+    const r = await POST(`/rides/${tripId}/${verb}`, {}, { token: driverToken });
+    return { status: r.trip?.status || r.status || expected, already: false, raw: r };
+  } catch (err) {
+    const now = await tripStatus(driverToken, tripId);
+    if (err?.status === 409 && (err?.body?.code === 'TRIP_ALREADY_IN_STATE' || now === expected)) {
+      return { status: expected, already: true, raw: null };
+    }
+    throw err;
+  }
+}

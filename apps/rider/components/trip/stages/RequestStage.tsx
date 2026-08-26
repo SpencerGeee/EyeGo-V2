@@ -304,7 +304,10 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           dropoffLat: storeDestination.latitude,
           dropoffLng: storeDestination.longitude,
           tier: rideTier,
-          doorstepPickup,
+          // Tri-state: `undefined` (which axios drops) until the rider has
+          // actually answered. See the note on `doorstepPickup` in the ride
+          // store — `false` means "declined", not "not asked".
+          doorstepPickup: doorstepPickup ?? undefined,
           heavyLoad,
         });
 
@@ -317,7 +320,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             dropoffLat: storeDestination.latitude,
             dropoffLng: storeDestination.longitude,
             dropoffAddress: destination ?? undefined,
-            doorstepPickup,
+            doorstepPickup: doorstepPickup ?? undefined,
             // The seat stepper the rider actually used. This was read from the
             // store and then never sent — see the note on `seatCount` in
             // rides.api.ts. Whole-car pricing is unaffected; the driver just

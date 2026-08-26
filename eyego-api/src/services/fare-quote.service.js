@@ -18,6 +18,13 @@ const { haversineMeters } = require('../utils/geo');
  * price: the driver stops where they were going to stop anyway.
  */
 const DOORSTEP_OFFSET_METERS = Number(process.env.DOORSTEP_OFFSET_METERS ?? 40);
+
+/**
+ * Past this, the pin is not a doorstep a driver can reach — it is a place with
+ * no road to it. 800 m is a long private drive or a compound at the back of an
+ * unmapped lane, and well short of "you dropped the pin in the sea".
+ */
+const DOORSTEP_MAX_OFFSET_METERS = Number(process.env.DOORSTEP_MAX_OFFSET_METERS ?? 800);
 const { getSurgeMultiplier } = require('../modules/trips/surge.service');
 const logger = require('../utils/logger');
 // Owns the whole reputation model — see the note where the discount is applied.
@@ -117,7 +124,16 @@ async function createQuote({
   dropoffLat,
   dropoffLng,
   seatCount = 1,
-  doorstepPickup = false,
+  /**
+   * NO DEFAULT ON PURPOSE — `undefined` MEANS "THE RIDER HAS NOT SAID".
+   *
+   * This used to default to `false`, which made "not stated" and "declined"
+   * the same value. The derivation below needs to tell them apart: an off-road
+   * pin the rider has said nothing about IS a doorstep pickup, while one they
+   * explicitly declined moves the pickup to the kerb. With the default in
+   * place every quote looked like a decline and the fee could never apply.
+   */
+  doorstepPickup,
   heavyLoad = false,
   /** The trip's own pickup point, when this quote is for joining an existing
    *  trip. Only used to measure a door-pickup detour — see below. */
@@ -195,14 +211,45 @@ async function createQuote({
     Array.isArray(snapped) && snapped.length === 2
       ? haversineMeters(pickupLat, pickupLng, snapped[1], snapped[0])
       : null;
-  const isOffRoad = Number.isFinite(kerbOffsetMeters) && kerbOffsetMeters >= DOORSTEP_OFFSET_METERS;
+  const offsetKnown = Number.isFinite(kerbOffsetMeters);
+  const isOffRoad = offsetKnown && kerbOffsetMeters >= DOORSTEP_OFFSET_METERS;
+
+  /**
+   * PAST THIS, IT IS NOT A DOORSTEP — IT IS SOMEWHERE A CAR CANNOT GO.
+   *
+   * Measured: a pin dropped in the sea two kilometres off Labadi snaps to the
+   * coast road and reports a 2.4 km offset. Pricing that as a doorstep pickup
+   * would quote a fare for a collection that cannot happen, and the driver
+   * would arrive at a beach. Refused rather than priced, for the same reason
+   * `DETOUR_TOO_FAR` refuses the shared-trip version below.
+   */
+  if (offsetKnown && kerbOffsetMeters > DOORSTEP_MAX_OFFSET_METERS) {
+    throw new AppError(
+      'We cannot reach that pickup point by road. Move the pin closer to a road you can be picked up from.',
+      422,
+      'PICKUP_UNREACHABLE',
+    );
+  }
 
   // Only for on-demand. A shared trip prices doorstep by its detour from the
   // driver's own pickup point (below), which is a different question.
   const onDemand = !Number.isFinite(routePickupLat) || !Number.isFinite(routePickupLng);
   let kerbPickup = null;
   if (onDemand) {
-    if (isOffRoad && doorstepPickup !== false) {
+    if (!offsetKnown) {
+      /**
+       * ROUTING IS DOWN, SO WE DO NOT KNOW.
+       *
+       * `roadDistanceKm` falls back to a straight-line estimate with no
+       * geometry, and there is then nothing to snap against. Forcing `false`
+       * here would silently drop a fee the rider explicitly asked for and make
+       * the whole feature vanish whenever the routing provider is degraded —
+       * a pricing behaviour that changes with an upstream outage is worse than
+       * either answer. So the client's own flag stands, unmeasured, for exactly
+       * as long as we cannot measure it.
+       */
+      doorstepPickup = !!doorstepPickup;
+    } else if (isOffRoad && doorstepPickup !== false) {
       doorstepPickup = true;
     } else if (isOffRoad && doorstepPickup === false) {
       // Declined. Move the pickup to the point a car can actually stop at, and

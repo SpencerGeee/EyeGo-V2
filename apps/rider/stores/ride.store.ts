@@ -55,7 +55,14 @@ interface RideState {
   // On-demand ride options, chosen in the paged Where-to flow. The rider could
   // not pick any of these before: every quote went out on the server defaults.
   rideTier: 'ECO' | 'COMFORT' | 'PREMIUM';
-  doorstepPickup: boolean;
+  /**
+   * TRI-STATE. `null` means the rider has not said, which is NOT the same as
+   * declining — the server derives doorstep from how far the pickup pin sits
+   * off the road network, and only an explicit `false` moves the pickup to the
+   * kerb. Sending `false` by default made every ride look like a decline and
+   * the fee could never apply. See fare-quote.service.
+   */
+  doorstepPickup: boolean | null;
   heavyLoad: boolean;
 
   // Actions
@@ -73,7 +80,7 @@ interface RideState {
   setComputedFare: (fare: number | null) => void;
   setPendingPromoCode: (code: string | null) => void;
   setRequestSeats: (count: number, coverAll: boolean) => void;
-  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean; heavyLoad: boolean }>) => void;
+  setRideOptions: (o: Partial<{ rideTier: 'ECO' | 'COMFORT' | 'PREMIUM'; doorstepPickup: boolean | null; heavyLoad: boolean }>) => void;
   clearRideState: () => void;
 }
 
@@ -97,7 +104,7 @@ export const useRideStore = create<RideState>()(
       requestSeatCount: 1,
       requestCoverAll: true,
       rideTier: 'ECO',
-      doorstepPickup: false,
+      doorstepPickup: null,
       heavyLoad: false,
 
       setOrigin: (loc) => set({ origin: loc }),
@@ -136,7 +143,7 @@ export const useRideStore = create<RideState>()(
           requestSeatCount: 1,
           requestCoverAll: true,
           rideTier: 'ECO',
-          doorstepPickup: false,
+          doorstepPickup: null,
           heavyLoad: false,
         }),
     }),

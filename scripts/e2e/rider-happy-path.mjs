@@ -255,6 +255,42 @@ async function main() {
   });
 
   section('6 · lifecycle');
+  /**
+   * THE STEPS THE SERVER MAY ALREADY HAVE TAKEN.
+   *
+   * `accept` can auto-advance: a driver who accepts while already standing on
+   * the pickup point goes straight to DRIVER_EN_ROUTE (and `autoArriveIfAtPickup`
+   * can carry it to ARRIVED_AT_PICKUP), which is correct behaviour and made this
+   * loop fail its first two verbs with `TRIP_ALREADY_IN_STATE` — a 409 for a
+   * state the trip was already in, reported as a lifecycle regression.
+   *
+   * A verb whose target status has already been reached is a no-op here, not a
+   * failure. Anything else still fails loudly.
+   */
+  const statusNow = async () => {
+    const r = await GET(`/rides/active`, { token: ctx.rider.token }).catch(() => null);
+    return r?.trip?.status ?? r?.trip?.trip?.status ?? null;
+  };
+
+  /**
+   * A RIDE CANNOT START WITH AN EMPTY CAR.
+   *
+   * `IN_PROGRESS` is gated on somebody actually being boarded (and, where the
+   * rider has Verify My Ride on, on their PIN) — a deliberate rule, and one this
+   * script predates, so `start` was refused and every check after it failed as
+   * collateral. Boarding the passenger is what a driver does at this point, so
+   * the harness now does it too.
+   */
+  const boardEveryone = async () => {
+    const detail = await GET(`/driver/trips/${ctx.tripId}`, { token: ctx.driver.token }).catch(() => null);
+    const rows = (detail?.trip ?? detail)?.bookings ?? [];
+    for (const b of rows) {
+      if (['CONFIRMED', 'PAID'].includes(b.status)) {
+        await POST(`/driver/trips/${ctx.tripId}/board/${b.id}`, {}, { token: ctx.driver.token }).catch(() => {});
+      }
+    }
+  };
+
   const verbs = [
     ['en-route', 'DRIVER_EN_ROUTE'],
     ['arrived', 'ARRIVED_AT_PICKUP'],
@@ -262,8 +298,18 @@ async function main() {
     ['complete', 'COMPLETED'],
   ];
   for (const [verb, expected] of verbs) {
+    if (verb === 'start') await boardEveryone();
     await check(`driver POST /rides/:id/${verb} → ${expected}`, async () => {
-      const r = await POST(`/rides/${ctx.tripId}/${verb}`, {}, { token: ctx.driver.token });
+      let r;
+      try {
+        r = await POST(`/rides/${ctx.tripId}/${verb}`, {}, { token: ctx.driver.token });
+      } catch (err) {
+        const already =
+          err?.status === 409 &&
+          (err?.body?.code === 'TRIP_ALREADY_IN_STATE' || (await statusNow()) === expected);
+        if (!already) throw err;
+        return `status=${expected} (already there — the server advanced it)`;
+      }
       const st = r.trip?.status || r.status;
       if (st && st !== expected) throw new Error(`server says ${st}, expected ${expected}`);
       if (verb === 'complete') ctx.completion = r;

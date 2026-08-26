@@ -160,6 +160,15 @@ function ConfigureStageImpl() {
   const [doorstepInfo, setDoorstepInfo] = useState<{ offsetMeters: number; offRoad: boolean } | null>(null);
 
   /**
+   * What will ACTUALLY happen, which is what the toggle has to show.
+   *
+   * `doorstepPickup` is null until the rider answers, and on an off-road pin the
+   * server's answer to silence is "yes" — so a toggle rendered straight from the
+   * store would sit OFF while the fare beside it already included the detour.
+   */
+  const doorstepEffective = doorstepPickup ?? !!doorstepInfo?.offRoad;
+
+  /**
    * BACK POPS. IT DOES NOT NAVIGATE TO THE PREVIOUS SCREEN.
    *
    * BUGFIX — "when you tap back on the Where To page, it skips forward and
@@ -242,7 +251,11 @@ function ConfigureStageImpl() {
       pickupLng: origin.longitude,
       dropoffLat: destination.latitude,
       dropoffLng: destination.longitude,
-      doorstepPickup,
+      // `undefined` while the rider has not answered — axios drops the key, and
+      // the server reads its absence as "not stated". Sending `false` would read
+      // as "the rider declined a doorstep pickup", which moves their pickup to
+      // the kerb before they have been shown there is one to decline.
+      doorstepPickup: doorstepPickup ?? undefined,
       heavyLoad,
     };
     Promise.all(
@@ -615,11 +628,11 @@ function ConfigureStageImpl() {
                 <Toggle
                   label="Doorstep pickup"
                   blurb={
-                    doorstepPickup
+                    doorstepEffective
                       ? `Your pickup pin is about ${doorstepInfo.offsetMeters} m off the road, so the driver comes in to you. The detour is in the fare below.`
                       : `We'll meet you on the nearest road instead — about a ${doorstepInfo.offsetMeters} m walk, and no doorstep fee.`
                   }
-                  value={doorstepPickup}
+                  value={doorstepEffective}
                   onChange={(v) => setRideOptions({ doorstepPickup: v })}
                   colors={colors}
                   styles={styles}
@@ -697,10 +710,10 @@ function ConfigureStageImpl() {
                   colors={colors}
                 />
                 <Row label="Seats" value={String(seats)} styles={styles} colors={colors} />
-                {(doorstepPickup || heavyLoad) && (
+                {(doorstepEffective || heavyLoad) && (
                   <Row
                     label="Extras"
-                    value={[doorstepPickup && 'Doorstep pickup', heavyLoad && 'Heavy load']
+                    value={[doorstepEffective && 'Doorstep pickup', heavyLoad && 'Heavy load']
                       .filter(Boolean)
                       .join(' · ')}
                     styles={styles}

@@ -15,7 +15,16 @@ import {
   BASE, section, check, fail, summary,
   GET, POST, PATCH, req,
   makeRider, makeDriver, goOnline, connectSocket, sleep, until, ACCRA,
+  advanceTrip,
 } from './lib.mjs';
+
+/** The status each lifecycle verb should leave the trip in. */
+const EXPECTED_STATUS = {
+  'en-route': 'DRIVER_EN_ROUTE',
+  arrived: 'ARRIVED_AT_PICKUP',
+  start: 'IN_PROGRESS',
+  complete: 'COMPLETED',
+};
 
 const ctx = {};
 
@@ -151,8 +160,19 @@ async function main() {
 
   await check('driver accepts', async () => {
     const r = await POST(`/rides/${ctx.tripId}/accept`, {}, { token: ctx.driver.token });
-    if (r.status !== 'DRIVER_ASSIGNED') throw new Error(`status=${r.status}`);
-    return `v${r.version}`;
+    /**
+     * ACCEPT MAY LAND PAST DRIVER_ASSIGNED, AND THAT IS THE FEATURE.
+     *
+     * A driver who accepts while already standing on the pickup point is not
+     * "on the way" — there is no journey to watch — so the accept carries the
+     * trip straight to DRIVER_EN_ROUTE, and `autoArriveIfAtPickup` can carry it
+     * on to ARRIVED_AT_PICKUP. This e2e driver goes online AT the pickup, so
+     * that is the ordinary outcome here. What matters is that the trip is now
+     * this driver's and has not gone past pickup.
+     */
+    const claimed = ['DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP'];
+    if (!claimed.includes(r.status)) throw new Error(`status=${r.status}`);
+    return `v${r.version} ${r.status}`;
   });
 
   await check('a second driver accepting the same trip loses cleanly', async () => {
@@ -215,9 +235,9 @@ async function main() {
     ['arrived', 'ARRIVED_AT_PICKUP'],
   ]) {
     await check(`POST /rides/:id/${verb} → ${expected}`, async () => {
-      const r = await POST(`/rides/${ctx.tripId}/${verb}`, {}, { token: ctx.driver.token });
+      const r = await advanceTrip(ctx.driver.token, ctx.tripId, verb, expected);
       if (r.status !== expected) throw new Error(`server says ${r.status}`);
-      return '';
+      return r.already ? '(the accept had already taken this step)' : '';
     });
   }
 
@@ -243,7 +263,19 @@ async function main() {
   });
 
   await check('POST /rides/:id/start → IN_PROGRESS', async () => {
-    const r = await POST(`/rides/${ctx.tripId}/start`, {}, { token: ctx.driver.token });
+    /**
+     * THE WALLET WINDOW HAS TO OPEN BEFORE BOARDING, NOT AFTER IT.
+     *
+     * Boarding a CASH passenger is what debits the platform's commission from
+     * the driver's float — completion only settles what boarding missed. This
+     * snapshot used to be taken just before `complete`, which was after the
+     * commission had already moved, so the money check below measured a window
+     * in which nothing was left to happen and read a correct ride as "no
+     * commission was taken".
+     */
+    ctx.walletBefore = (await GET('/driver/wallet/balance', { token: ctx.driver.token })).balancePesewas;
+    // Boards the passengers first — the ride cannot start with an empty car.
+    const r = await advanceTrip(ctx.driver.token, ctx.tripId, 'start', 'IN_PROGRESS');
     if (r.status !== 'IN_PROGRESS') throw new Error(`status=${r.status}`);
     return '';
   });
@@ -264,8 +296,7 @@ async function main() {
 
   section('5 · completion and money');
   await check('driver completes the trip', async () => {
-    ctx.walletBefore = (await GET('/driver/wallet/balance', { token: ctx.driver.token })).balancePesewas;
-    const r = await POST(`/rides/${ctx.tripId}/complete`, {}, { token: ctx.driver.token });
+    const r = await advanceTrip(ctx.driver.token, ctx.tripId, 'complete', 'COMPLETED');
     if (r.status !== 'COMPLETED') throw new Error(`status=${r.status}`);
     return '';
   });

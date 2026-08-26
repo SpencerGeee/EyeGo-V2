@@ -669,15 +669,34 @@ async function createSavedPlace(userId, { label, address, lat, lng, icon, slot }
    * written under the old rule can have two Homes, and leaving them would keep
    * the shortcut resolving to whichever is oldest.
    */
-  if (data.slot) {
-    const claims = data.slot === 'HOME' ? claimsHomeSlot : claimsWorkSlot;
+  /**
+   * A ROW LABELLED "HOME" CLAIMS THE HOME SLOT, EVEN WITHOUT SAYING SO.
+   *
+   * BUGFIX (caught by the settings suite: "2 rows labelled Home"). The replace
+   * branch below only ran when the CALLER passed an explicit slot, so saving a
+   * free-form place called "Home" a second time created a second row — and
+   * `getSavedPlaces` then projected `slot: 'HOME'` onto BOTH of them, because
+   * `effectiveSlot` infers a slot from the label for rows written before the
+   * column existed. Two rows claiming one singular slot, and the Home shortcut
+   * on the where-to screen resolving to whichever happened to sort first.
+   *
+   * The inference is already trusted on the way OUT; trusting it on the way IN
+   * is what keeps the two ends agreeing. An explicit slot still wins, so a rider
+   * who deliberately names a custom place "Home office" is unaffected —
+   * `claimsHomeSlot` is the same predicate the read path uses.
+   */
+  const effectiveIncomingSlot =
+    data.slot ?? (claimsHomeSlot(data.label) ? 'HOME' : claimsWorkSlot(data.label) ? 'WORK' : null);
+
+  if (effectiveIncomingSlot) {
+    const claims = effectiveIncomingSlot === 'HOME' ? claimsHomeSlot : claimsWorkSlot;
     const existing = (
       await prisma.savedPlace.findMany({
         where: { userId },
         orderBy: { createdAt: 'asc' },
         select: { id: true, label: true, slot: true },
       })
-    ).filter((p) => (p.slot ? p.slot === data.slot : !p.slot && claims(p.label)));
+    ).filter((p) => (p.slot ? p.slot === effectiveIncomingSlot : !p.slot && claims(p.label)));
 
     if (existing.length) {
       const [keep, ...duplicates] = existing;

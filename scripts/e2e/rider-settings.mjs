@@ -19,7 +19,16 @@ import {
   BASE, section, check, info, summary,
   GET, POST, PATCH, PUT, DEL, req,
   makeRider, makeDriver, goOnline, until, ACCRA,
+  advanceTrip,
 } from './lib.mjs';
+
+/** The status each lifecycle verb should leave the trip in. */
+const EXPECTED_STATUS = {
+  'en-route': 'DRIVER_EN_ROUTE',
+  arrived: 'ARRIVED_AT_PICKUP',
+  start: 'IN_PROGRESS',
+  complete: 'COMPLETED',
+};
 
 const ctx = {};
 
@@ -748,12 +757,12 @@ async function main() {
 
     await check('the trip completes and a receipt is issued', async () => {
       const D = { token: ctx.driver.token };
-      // Drive it: en-route → arrived → start → complete.
-      for (const step of ['en-route', 'arrived', 'start']) {
-        const { status, body } = await req('POST', `/rides/${ctx.tripId}/${step}`, { ...D, raw: true, body: {} });
-        if (status >= 500) throw new Error(`${step} → ${status}: ${JSON.stringify(body).slice(0, 160)}`);
+      // Drive it: en-route → arrived → start → complete. `advanceTrip` boards
+      // the passengers before `start` (the ride cannot start with an empty car)
+      // and treats an already-reached status as done — see lib.mjs.
+      for (const step of ['en-route', 'arrived', 'start', 'complete']) {
+        await advanceTrip(ctx.driver.token, ctx.tripId, step, EXPECTED_STATUS[step]);
       }
-      await POST(`/rides/${ctx.tripId}/complete`, {}, D);
       // `/receipts/:bookingId` is the one the complete screen reads. A CASH
       // ride has no gateway Receipt row by design — `/trips/:id/receipt` is
       // built on that table and legitimately 404s here — so the money is
