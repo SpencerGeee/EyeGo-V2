@@ -277,7 +277,7 @@ async function nominatimSearch(query, limit, proximity, country) {
         return {
           placeId: String(r.place_id),
           name,
-          fullAddress: r.display_name || name,
+          fullAddress: tidyOsmAddress(r.display_name) || name,
           latitude,
           longitude,
           kind: r.type || 'place',
@@ -503,35 +503,97 @@ async function searchOnce({ query: trimmed, limit, proximity, country }) {
  * services/mapbox.service.js caches by rounded coordinate for a day, and this
  * endpoint is behind the picker's own debounce.
  */
-const REVERSE_TYPE_TIERS = ['address,street', 'poi', 'neighborhood,locality,place'];
+const MAPBOX_PRECISE_TIERS = ['address,street', 'poi'];
+
+/**
+ * The wide tier is a LAST resort, and it now sits behind OSM rather than in
+ * front of it.
+ *
+ * BUGFIX, second pass ("on the driver create-trip page it still has the same
+ * issue of the data put in the address fields as just Accra and nothing else",
+ * and the same on the rider's saved places). Splitting the tiers was right and
+ * it was not enough. Over most of Accra, Mapbox has no `address`, `street` or
+ * `poi` feature at all — measured, at the exact point that produced the report:
+ *
+ *     mapbox address,street            → nothing
+ *     mapbox poi                       → nothing
+ *     mapbox neighborhood,locality,place → "Accra, Greater Accra, Ghana"
+ *     nominatim (OSM)                  → "Obuakon Avenue, Shiashie, East Legon"
+ *
+ * Because the third Mapbox tier answered, the OSM branch below — which had the
+ * street name all along — was never reached. Every pin in that (large) part of
+ * the city therefore resolved to the city itself, and both apps faithfully
+ * stored and displayed "Accra" as an address.
+ *
+ * OSM's Ghana coverage is street-level and community-mapped; Mapbox's is
+ * strongest on POIs. Asking the precise Mapbox tiers first, then OSM, then
+ * Mapbox's administrative fallback, plays each to its strength and only prints
+ * "Accra" when nobody, anywhere, knows anything more specific about the point.
+ */
+const MAPBOX_WIDE_TIER = 'neighborhood,locality,place';
+
+/**
+ * OSM's `display_name` IS AN ADMINISTRATIVE PATH, NOT A POSTAL ADDRESS.
+ *
+ * It runs all the way up to the country and includes the district and postcode:
+ *
+ *   "Obuakon Avenue, Shiashie, East Legon, Accra, Ayawaso West Municipal
+ *    District, Greater Accra Region, GD-110-6313, Ghana"
+ *
+ * A driver glancing at a trip card, or a rider confirming a pickup, needs the
+ * first three of those and none of the rest — and this string is stored on the
+ * Trip and the Route, so the noise is carried into every screen that renders
+ * them. Nobody in Accra says the region, the district or the digital address
+ * when telling a driver where to go.
+ */
+const OSM_NOISE = /^(gh|ghana|greater accra region|greater accra|[A-Z]{2}-\d{3}-\d{4})$/i;
+const OSM_DISTRICT = /\b(municipal|metropolitan|district assembly)\b/i;
+
+function tidyOsmAddress(displayName) {
+  if (!displayName) return displayName;
+  const parts = String(displayName)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && !OSM_NOISE.test(s) && !OSM_DISTRICT.test(s));
+  // Four components is a street, a neighbourhood, a suburb and a city — the
+  // most anyone reads before they stop reading.
+  return parts.slice(0, 4).join(', ');
+}
+
+/** One reverse call to Mapbox for a given `types` filter. Null when it has nothing. */
+async function mapboxReverse(lat, lng, types) {
+  try {
+    const { data } = await axios.get(REVERSE_URL, {
+      params: {
+        longitude: lng,
+        latitude: lat,
+        limit: 1,
+        types,
+        language: 'en',
+        access_token: env.MAPBOX_SECRET_TOKEN,
+      },
+      timeout: SEARCH_TIMEOUT_MS,
+    });
+    const mapped = mapboxToResult(data?.features?.[0]);
+    return mapped ? { ...mapped, latitude: lat, longitude: lng } : null;
+  } catch (err) {
+    // A 422 here means "no feature of these types at this point", which is
+    // the ordinary case for the narrow tiers and not worth a warning line.
+    if (err?.response?.status !== 422) {
+      logger.warn(`Mapbox reverse (${types}) failed at ${lat},${lng}: ${err.message}`);
+    }
+    return null;
+  }
+}
 
 /** Reverse geocode for the map-pin picker. Coordinates stay the caller's. */
 async function reverseGeocode({ lat, lng }) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
   if (hasMapbox()) {
-    for (const types of REVERSE_TYPE_TIERS) {
-      try {
-        const { data } = await axios.get(REVERSE_URL, {
-          params: {
-            longitude: lng,
-            latitude: lat,
-            limit: 1,
-            types,
-            language: 'en',
-            access_token: env.MAPBOX_SECRET_TOKEN,
-          },
-          timeout: SEARCH_TIMEOUT_MS,
-        });
-        const mapped = mapboxToResult(data?.features?.[0]);
-        if (mapped) return { ...mapped, latitude: lat, longitude: lng };
-      } catch (err) {
-        // A 422 here means "no feature of these types at this point", which is
-        // the ordinary case for the narrow tiers and not worth a warning line.
-        if (err?.response?.status !== 422) {
-          logger.warn(`Mapbox reverse (${types}) failed at ${lat},${lng}: ${err.message}`);
-        }
-      }
+    for (const types of MAPBOX_PRECISE_TIERS) {
+      const hit = await mapboxReverse(lat, lng, types);
+      if (hit) return hit;
     }
   }
 
@@ -568,7 +630,7 @@ async function reverseGeocode({ lat, lng }) {
       return {
         placeId: String(data.place_id),
         name,
-        fullAddress: data.display_name,
+        fullAddress: tidyOsmAddress(data.display_name),
         latitude: lat,
         longitude: lng,
         kind: street ? 'address' : 'place',
@@ -576,6 +638,13 @@ async function reverseGeocode({ lat, lng }) {
     }
   } catch (err) {
     logger.warn(`Nominatim reverse failed at ${lat},${lng}: ${err.message}`);
+  }
+
+  // Nobody knows a street, a landmark or a neighbourhood here. The city is now
+  // the honest answer rather than the lazy one — see MAPBOX_WIDE_TIER.
+  if (hasMapbox()) {
+    const wide = await mapboxReverse(lat, lng, MAPBOX_WIDE_TIER);
+    if (wide) return { ...wide, approximate: true };
   }
   return null;
 }

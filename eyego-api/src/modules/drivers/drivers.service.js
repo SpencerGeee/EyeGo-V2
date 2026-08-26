@@ -1088,12 +1088,29 @@ async function uploadDocument(driverId, file, type) {
   if (!file || !file.buffer) throw new AppError('No file provided', 400);
   if (!type) throw new AppError('Document type is required', 400);
 
-  const result = await cloudinaryService.uploadBuffer(file.buffer, {
+  /**
+   * `uploadBuffer` RESOLVES THE URL ITSELF. IT IS NOT A CLOUDINARY RESPONSE.
+   *
+   * BUGFIX ("I upload the profile picture on the driver app and nothing
+   * happens"). This read `result.secure_url` off a value that is a plain
+   * string — every branch of `uploadBuffer` resolves the URL, not the provider's
+   * response object — so `url` was `undefined`, always. Prisma drops `undefined`
+   * from an update, so the column was never written and the endpoint answered a
+   * cheerful `200 {type, status: 'PENDING'}` with no `url` in it. The driver was
+   * told it worked, the avatar never changed, and the same silence swallowed the
+   * licence and Ghana-card uploads, which is the more serious half: a driver
+   * could complete verification with nothing stored against their account.
+   *
+   * Tolerant of both shapes so a future change to `uploadBuffer` cannot
+   * re-introduce it quietly.
+   */
+  const uploaded = await cloudinaryService.uploadBuffer(file.buffer, {
     folder: `eyego/drivers/${driverId}/documents`,
     resource_type: 'image',
     public_id: `${type.toLowerCase()}_${Date.now()}`,
   });
-  const url = result.secure_url;
+  const url = typeof uploaded === 'string' ? uploaded : uploaded?.secure_url;
+  if (!url) throw new AppError('Upload failed — the image could not be stored', 502, 'UPLOAD_FAILED');
 
   const fieldMap = {
     DRIVERS_LICENSE: 'licensePhoto',
@@ -1101,22 +1118,47 @@ async function uploadDocument(driverId, file, type) {
     GHANA_CARD: 'ghanaCardPhoto',
   };
 
+  /**
+   * A PROFILE PHOTO IS NOT A LEGAL DOCUMENT.
+   *
+   * BUGFIX ("when I upload the profile photo at the documents page it tells me
+   * it's been submitted and will take 1–2 business days"). `PROFILE_PHOTO` was
+   * filed into `documentReview` alongside the licence and the Ghana card, so
+   * changing your avatar queued a KYC review — and, because the review map is
+   * what gates going online, an avatar change could put a working driver back
+   * behind a verification wall.
+   *
+   * It is a picture of your face on your own profile. It saves, it shows, done.
+   */
+  const REVIEWABLE = ['DRIVERS_LICENSE', 'GHANA_CARD'];
+
   const field = fieldMap[type];
   if (field) {
-    // New/re-uploaded documents go to PENDING review, not straight to VERIFIED —
-    // previously any photo present flipped status to VERIFIED with zero human review.
-    const current = await prisma.driver.findUnique({ where: { id: driverId }, select: { documentReview: true } });
-    let review = {};
-    try { review = current?.documentReview ? JSON.parse(current.documentReview) : {}; } catch { /* reset on malformed data */ }
-    review[type] = { status: 'PENDING', reviewedAt: null, rejectionReason: null };
+    const data = { [field]: url };
 
-    await prisma.driver.update({
-      where: { id: driverId },
-      data: { [field]: url, documentReview: JSON.stringify(review) },
-    });
+    if (REVIEWABLE.includes(type)) {
+      // New/re-uploaded documents go to PENDING review, not straight to VERIFIED —
+      // previously any photo present flipped status to VERIFIED with zero human review.
+      const current = await prisma.driver.findUnique({ where: { id: driverId }, select: { documentReview: true } });
+      let review = {};
+      try { review = current?.documentReview ? JSON.parse(current.documentReview) : {}; } catch { /* reset on malformed data */ }
+      review[type] = { status: 'PENDING', reviewedAt: null, rejectionReason: null };
+      data.documentReview = JSON.stringify(review);
+    }
+
+    await prisma.driver.update({ where: { id: driverId }, data });
   }
 
-  return { url, type, status: 'PENDING' };
+  return {
+    url,
+    // The driver app reads whichever of these it finds — keep all three so a
+    // caller cannot miss the one field that matters.
+    documentUrl: url,
+    ...(type === 'PROFILE_PHOTO' ? { profilePhotoUrl: url } : {}),
+    type,
+    status: REVIEWABLE.includes(type) ? 'PENDING' : 'SAVED',
+    requiresReview: REVIEWABLE.includes(type),
+  };
 }
 
 /**
@@ -2859,8 +2901,13 @@ async function getDocuments(driverId) {
   const docs = [
     { id: 'license', type: 'DRIVERS_LICENSE', status: statusFor('DRIVERS_LICENSE', !!driver.licensePhoto), url: driver.licensePhoto ?? undefined, rejectionReason: review.DRIVERS_LICENSE?.rejectionReason ?? undefined },
     { id: 'ghana_card', type: 'GHANA_CARD', status: statusFor('GHANA_CARD', !!driver.ghanaCardPhoto), url: driver.ghanaCardPhoto ?? undefined, rejectionReason: review.GHANA_CARD?.rejectionReason ?? undefined },
-    { id: 'profile', type: 'PROFILE_PHOTO', status: statusFor('PROFILE_PHOTO', !!driver.profilePhoto), url: driver.profilePhoto ?? undefined, rejectionReason: review.PROFILE_PHOTO?.rejectionReason ?? undefined },
-  ];
+    /**
+     * A PROFILE PHOTO IS NOT REVIEWED — see `uploadDocument`. It is either
+     * there or it is not, and `requiresReview: false` is what lets the app stop
+     * telling drivers their own face will take 1–2 business days to approve.
+     */
+    { id: 'profile', type: 'PROFILE_PHOTO', status: driver.profilePhoto ? 'VERIFIED' : 'MISSING', url: driver.profilePhoto ?? undefined, requiresReview: false },
+  ].map((d) => ({ requiresReview: true, ...d }));
   return docs;
 }
 

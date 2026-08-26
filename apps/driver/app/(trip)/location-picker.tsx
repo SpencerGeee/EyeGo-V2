@@ -10,17 +10,11 @@ import * as Haptics from 'expo-haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
 import { eyegoDriverDarkStyle as eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useDriverStore } from '../../stores/driver.store';
-import { reverseGeocode, type GeocodeResult } from '../../utils/geocoding';
+import { reverseGeocode, searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { setPickedPlace } from '../../utils/placePickerResult';
 
 const ACCRA: [number, number] = [-0.187, 5.6037];
 
-type NominatimResult = {
-  display_name: string;
-  lat: string;
-  lon: string;
-  address?: { road?: string; suburb?: string; town?: string; city?: string };
-};
 
 /**
  * Fullscreen map with a fixed center pin — used for both the driver's ad-hoc
@@ -32,20 +26,55 @@ export default function DriverLocationPickerScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { title } = useLocalSearchParams<{ title?: string }>();
+  /**
+   * SEEDED — the picker opens on the point this field already holds.
+   *
+   * BUGFIX ("on the driver create-trip page, when I select a place and click on
+   * it to view where I clicked, it resets and makes me select the place again").
+   * The picker always booted from GPS, so re-opening a filled field discarded
+   * the driver's choice and offered their own kerb instead. Checking what you
+   * entered is the normal reason to reopen it, and it was destructive.
+   */
+  const { title, initialLat, initialLng, initialLabel, initialAddress } = useLocalSearchParams<{
+    title?: string;
+    initialLat?: string;
+    initialLng?: string;
+    initialLabel?: string;
+    initialAddress?: string;
+  }>();
   const { theme } = useDriverStore();
   const isDark = theme !== 'light';
 
-  const [center, setCenter] = useState<[number, number] | null>(null);
-  const [resolved, setResolved] = useState<GeocodeResult | null>(null);
+  const seeded = useMemo(() => {
+    const lat = Number(initialLat);
+    const lng = Number(initialLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+    return {
+      coords: [lng, lat] as [number, number],
+      place: {
+        placeId: 0,
+        name: initialLabel || initialAddress || 'Chosen location',
+        fullAddress: initialAddress || initialLabel || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        latitude: lat,
+        longitude: lng,
+      } as GeocodeResult,
+    };
+  }, [initialLat, initialLng, initialLabel, initialAddress]);
+
+  const [center, setCenter] = useState<[number, number] | null>(seeded?.coords ?? null);
+  const [resolved, setResolved] = useState<GeocodeResult | null>(seeded?.place ?? null);
   const [isResolving, setIsResolving] = useState(false);
   const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [initialCoords, setInitialCoords] = useState<[number, number] | null>(null);
+  const [initialCoords, setInitialCoords] = useState<[number, number] | null>(seeded?.coords ?? null);
   const cameraRef = useRef<CameraRef>(null);
+  /** Where the driver is, for the "you" puck and the recentre button. */
+  const [myCoords, setMyCoords] = useState<[number, number] | null>(null);
 
   const [query, setQuery] = useState('');
-  const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
+  const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  /** The last settled query, so an empty list can say so rather than render nothing. */
+  const [searchedFor, setSearchedFor] = useState<string | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -55,13 +84,22 @@ export default function DriverLocationPickerScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setInitialCoords([loc.coords.longitude, loc.coords.latitude]);
+          const me: [number, number] = [loc.coords.longitude, loc.coords.latitude];
+          setMyCoords(me);
+          if (!seeded) setInitialCoords(me);
           return;
         }
       } catch { /* non-fatal */ }
-      setInitialCoords(ACCRA);
+      if (!seeded) setInitialCoords(ACCRA);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const recentreOnMe = useCallback(() => {
+    if (!myCoords) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    cameraRef.current?.setCamera({ centerCoordinate: myCoords, zoomLevel: 16, animationDuration: 450 });
+  }, [myCoords]);
 
   const handleRegionChange = useCallback((feature: { geometry?: { coordinates?: [number, number] } } | null | undefined) => {
     const coords = feature?.geometry?.coordinates;
@@ -91,19 +129,35 @@ export default function DriverLocationPickerScreen() {
     router.back();
   }, [resolved, router]);
 
+  /**
+   * SEARCH GOES THROUGH OUR OWN GEO PROXY, NOT STRAIGHT TO NOMINATIM.
+   *
+   * This screen called `nominatim.openstreetmap.org/search` directly, which
+   * means it saw OSM data ONLY — no commercial POIs, no Mapbox Search Box
+   * typeahead, none of the tiering and fallback that `/geo/search` performs, and
+   * a raw `display_name` running all the way up to "Ghana" that then became the
+   * Route's stored address. The rider app has used the proxy for months; the
+   * driver's create-trip flow was still on the old path, which is a large part
+   * of why the two apps disagreed about what a place is called.
+   *
+   * It also hard-coded the OSM User-Agent and no proximity, so a driver in Accra
+   * searching "station" got a national alphabetical list.
+   */
   const handleSearch = useCallback((text: string) => {
     setQuery(text);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (text.length < 2) { setSuggestions([]); return; }
+    if (text.trim().length < 2) {
+      setSuggestions([]);
+      setSearchedFor(null);
+      setIsSearching(false);
+      return;
+    }
     searchTimer.current = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=gh&limit=6&addressdetails=1`,
-          { headers: { 'User-Agent': 'EyeGo/2.0 (eyego.app)' } },
-        );
-        const data = await res.json();
-        setSuggestions(Array.isArray(data) ? data : []);
+        const results = await searchPlaces(text, 8);
+        setSuggestions(results);
+        setSearchedFor(text.trim());
       } catch {
         setSuggestions([]);
       } finally {
@@ -112,17 +166,23 @@ export default function DriverLocationPickerScreen() {
     }, 300);
   }, []);
 
-  const handleSelectSuggestion = useCallback((s: NominatimResult) => {
-    const lat = parseFloat(s.lat);
-    const lng = parseFloat(s.lon);
-    const name = s.address?.road ?? s.address?.suburb ?? s.address?.town ?? s.address?.city ?? s.display_name.split(',')[0];
-    Haptics.selectionAsync();
-    setQuery(name);
+  /**
+   * PICKING A SUGGESTION IS THE ANSWER — the map closes.
+   *
+   * It used to fly the camera there and stay, leaving the driver to tap Confirm
+   * for a decision already made. Reopening the field now re-seeds the pin (see
+   * `seeded`), so adjusting is still one tap away when it is actually wanted.
+   */
+  const handleSelectSuggestion = useCallback((s: GeocodeResult) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    // A debounced reverse-geocode still in flight must not overwrite this.
+    if (geocodeTimer.current) clearTimeout(geocodeTimer.current);
     setSuggestions([]);
-    setCenter([lng, lat]);
-    setResolved({ placeId: 0, name, fullAddress: s.display_name, latitude: lat, longitude: lng });
-    cameraRef.current?.setCamera({ centerCoordinate: [lng, lat], zoomLevel: 16, animationDuration: 500 });
-  }, []);
+    setSearchedFor(null);
+    setPickedPlace(s);
+    router.back();
+  }, [router]);
 
   return (
     <View style={styles.root}>
@@ -133,12 +193,24 @@ export default function DriverLocationPickerScreen() {
           compassEnabled={false}
           onRegionDidChange={handleRegionChange}
         >
-          <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={15} />
-          {/* No <UserLocation>: this screen opens centred on the driver, so the
-              native blue dot + accuracy circle rendered directly underneath the
-              fixed centre pin below — one pin sitting inside a blue circle,
-              with no way to tell which one was being picked. The centre pin is
-              the only thing that means anything here. */}
+          <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={seeded ? 16 : 15} />
+          {/**
+           * You. Drawn as a small blue puck rather than the native
+           * `<UserLocation>` — the old note here was right that the native dot
+           * plus its accuracy circle sat under the centre pin and made the two
+           * indistinguishable. But drawing NOTHING leaves the driver panning an
+           * unlabelled map with no idea which way they have moved, and this
+           * screen no longer always opens on them (a seeded pin can start it
+           * somewhere else entirely). A flat blue disc next to a tall green
+           * teardrop is unambiguous.
+           */}
+          {myCoords && (
+            <MapboxGL.MarkerView id="driver-picker-me" coordinate={myCoords}>
+              <View style={styles.meHalo} pointerEvents="none">
+                <View style={styles.meDot} />
+              </View>
+            </MapboxGL.MarkerView>
+          )}
         </MapboxGL.MapView>
       )}
 
@@ -178,16 +250,31 @@ export default function DriverLocationPickerScreen() {
             />
             {isSearching && <Loader size={20} color={colors.primary} />}
           </View>
+          {!isSearching && searchedFor !== null && suggestions.length === 0 && (
+            <View style={styles.suggestionsBox}>
+              <View style={styles.suggestionRow}>
+                <Ionicons name="alert-circle-outline" size={16} color={colors.onSurfaceVariant} />
+                <Text style={styles.suggestionText} numberOfLines={2}>
+                  No places match “{searchedFor}” — try just the name, or drag the pin to the spot.
+                </Text>
+              </View>
+            </View>
+          )}
           {suggestions.length > 0 && (
             <View style={styles.suggestionsBox}>
               <FlatList
                 data={suggestions}
-                keyExtractor={(item, i) => `${item.lat}-${item.lon}-${i}`}
+                keyExtractor={(item, i) => `${item.placeId}-${item.latitude}-${item.longitude}-${i}`}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => (
                   <Pressable style={styles.suggestionRow} onPress={() => handleSelectSuggestion(item)}>
                     <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
-                    <Text style={styles.suggestionText} numberOfLines={1}>{item.display_name}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionText} numberOfLines={1}>{item.name}</Text>
+                      {item.fullAddress !== item.name && (
+                        <Text style={styles.suggestionSub} numberOfLines={1}>{item.fullAddress}</Text>
+                      )}
+                    </View>
                   </Pressable>
                 )}
               />
@@ -195,6 +282,18 @@ export default function DriverLocationPickerScreen() {
           )}
         </View>
       </SafeAreaView>
+
+      {myCoords && (
+        <Pressable
+          style={styles.locateBtn}
+          onPress={recentreOnMe}
+          accessibilityRole="button"
+          accessibilityLabel="Centre the map on my location"
+          hitSlop={8}
+        >
+          <Ionicons name="locate" size={20} color={colors.primary} />
+        </Pressable>
+      )}
 
       {/* Bottom confirm card */}
       <SafeAreaView style={styles.bottomWrap} edges={['bottom']} pointerEvents="box-none">
@@ -312,6 +411,48 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
     fontSize: 13,
     lineHeight: Math.round(13 * 1.3),
     color: colors.onSurface,
+  },
+  suggestionSub: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: Math.round(11 * 1.3),
+    color: colors.onSurfaceVariant,
+    marginTop: 1,
+  },
+  /** You. Blue on purpose — the pin is the app's green. */
+  meHalo: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(47,140,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  meDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2F8CFF',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  locateBtn: {
+    position: 'absolute',
+    right: 16,
+    bottom: 196,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(colors.surfaceCard, 0.96),
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
   },
   pinWrap: {
     position: 'absolute',

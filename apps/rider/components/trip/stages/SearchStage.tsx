@@ -254,6 +254,21 @@ function SearchStageImpl() {
     // The trip surface owns this screen, so coming back from it must not be
     // mistaken for backing into Where-To. See utils/tripSurfaceReturn.
     expectTripSurfaceReturn();
+    /**
+     * OPEN ON WHAT THE FIELD ALREADY HOLDS.
+     *
+     * BUGFIX ("I select a destination, then tap the field again to see what I
+     * put, and it shows my current location — I have to enter it again"). The
+     * picker booted from GPS every time because nothing told it otherwise, so
+     * re-opening a filled field silently discarded the answer in it. Tapping a
+     * filled field to check it is the ordinary case, and it was destructive.
+     */
+    const s = useRideStore.getState();
+    const current =
+      field === 'origin'
+        ? { lat: s.origin?.latitude, lng: s.origin?.longitude, label: originText, address: s.origin?.address }
+        : { lat: s.destination?.latitude, lng: s.destination?.longitude, label: destText, address: s.destination?.address };
+
     router.push({
       pathname: '/profile/place-picker',
       params: {
@@ -262,9 +277,17 @@ function SearchStageImpl() {
         // rider naming a business ("IPMC showroom") should be able to type it
         // the moment the screen opens.
         focusSearch: '1',
+        ...(Number.isFinite(current.lat) && Number.isFinite(current.lng)
+          ? {
+              initialLat: String(current.lat),
+              initialLng: String(current.lng),
+              initialLabel: current.label ?? '',
+              initialAddress: current.address ?? '',
+            }
+          : {}),
       },
     } as any);
-  }, [router]);
+  }, [router, originText, destText]);
 
   const commitPlace = useCallback((place: SearchPlace) => {
     setSearchPlace(place);

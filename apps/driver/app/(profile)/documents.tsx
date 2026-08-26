@@ -117,7 +117,26 @@ export default function DocumentsScreen() {
           updateDriver({ profilePhoto: url, avatarUrl: url });
         }
       }
-      Alert.alert('Uploaded', 'Your document has been submitted for review. Verification usually takes 1–2 business days.');
+      /**
+       * A PROFILE PHOTO IS NOT A DOCUMENT UNDER REVIEW.
+       *
+       * BUGFIX ("when I upload the profile photo at the documents page, it tells
+       * me it's been submitted and that it would take 1–2 business days"). Every
+       * upload got the KYC copy, so changing your own avatar read as though it
+       * had been queued behind a human — on the one item here that is not
+       * verified by anybody and takes effect immediately.
+       *
+       * The server now says which it is (`requiresReview`), so this reads the
+       * answer rather than assuming.
+       */
+      const payload = response?.data?.data as { requiresReview?: boolean } | undefined;
+      const needsReview = payload?.requiresReview ?? type !== 'PROFILE_PHOTO';
+      Alert.alert(
+        needsReview ? 'Submitted for review' : 'Photo updated',
+        needsReview
+          ? 'Your document has been submitted for review. Verification usually takes 1–2 business days.'
+          : 'Your profile photo is live — passengers will see it on your next trip.',
+      );
     },
     onError: (err) => Alert.alert('Upload Failed', (err as Error).message),
     onSettled: () => setUploadingType(null),
@@ -209,7 +228,7 @@ export default function DocumentsScreen() {
           style={{ flexDirection: 'row', gap: spacing.md, backgroundColor: `${colors.primary}14`, borderRadius: radii.xl, borderWidth: 1, borderColor: `${colors.primary}33`, padding: spacing.base }}>
           <Ionicons name="information-circle-outline" size={18} color={colors.primary} style={{ marginTop: 2 }} />
           <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1, lineHeight: 20 }}>
-            All documents are verified by the EyeGo team within 1–2 business days. You must have all documents verified to unlock full trip access.
+            Your licence and Ghana Card are verified by the EyeGo team within 1–2 business days, and both must be verified to unlock full trip access. Your profile photo is not reviewed — it goes live as soon as you upload it.
           </Text>
         </MotiView>
       </ScrollView>

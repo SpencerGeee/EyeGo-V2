@@ -19,3 +19,6 @@ nul
 # with the repo: a clone had a `schema.prisma` and a Prisma client expecting
 # columns no migration could create, and `prisma migrate deploy` on a fresh
 # environment had nothing to apply. Do not add it back.
+
+# Local image-upload fallback (no Cloudinary credentials configured)
+uploads/

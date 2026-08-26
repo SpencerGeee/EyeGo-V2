@@ -119,13 +119,35 @@ export default function MapReportFormScreen() {
   const qc = useQueryClient();
   const showToast = useToastStore((s) => s.show);
 
-  const { type: rawType } = useLocalSearchParams<{ type: string }>();
+  /**
+   * `prefillName/prefillLat/prefillLng` — arriving from a search that found nothing.
+   *
+   * The place picker now offers "Not seeing where you mean? Help us add it" on an
+   * empty result set, and hands over what the rider had already told it: the
+   * words they typed (which are the place's name) and the point they were
+   * looking at. Landing on a blank form and re-typing both would waste the one
+   * moment they were motivated to help.
+   */
+  const { type: rawType, prefillName, prefillLat, prefillLng } = useLocalSearchParams<{
+    type: string;
+    prefillName?: string;
+    prefillLat?: string;
+    prefillLng?: string;
+  }>();
   const type = (rawType ?? 'COMMENT') as MapReportType;
   const copy = TITLES[type] ?? TITLES.COMMENT;
 
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const prefillCoords = React.useMemo(() => {
+    const lat = Number(prefillLat);
+    const lng = Number(prefillLng);
+    return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0)
+      ? { lat, lng }
+      : null;
+  }, [prefillLat, prefillLng]);
+
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(prefillCoords);
   const [address, setAddress] = useState('');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(prefillName ?? '');
   const [note, setNote] = useState('');
   /**
    * ── A PHOTO IS TWO THINGS AT ONCE ─────────────────────────────────────────
@@ -362,6 +384,24 @@ export default function MapReportFormScreen() {
 
         {/* ── Where ── */}
         <Text variant="label" color={colors.onSurfaceVariant} style={styles.label}>WHERE</Text>
+        {/**
+         * THE TIP THAT MAKES THIS FIELD USABLE.
+         *
+         * The whole point of this screen is that the place is NOT on the map, so
+         * telling the rider to search for it is telling them to search for the
+         * thing they are here to add. What works is searching the nearest thing
+         * that IS mapped — a junction, a school, a filling station — and walking
+         * the pin from there, which is exactly how a Ghanaian address is given
+         * out loud. Nothing said so, and the field read as a dead end.
+         */}
+        <View style={styles.tipRow}>
+          <Ionicons name="bulb-outline" size={15} color={colors.primary} />
+          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+            Can’t find it? Search the nearest landmark — a junction, school or filling
+            station — then use “{coords ? 'Adjust the pin' : 'Pick the spot on the map'}” to
+            move the pin the last few metres.
+          </Text>
+        </View>
         <GlowSearchInput placeholder="Search an address or place" value={address} onChangeText={searchAddress} />
         {suggestions.length > 0 && (
           <View style={styles.suggestBox}>
@@ -385,7 +425,24 @@ export default function MapReportFormScreen() {
         )}
         <Pressable
           style={styles.mapBtn}
-          onPress={() => router.push('/profile/place-picker' as never)}
+          onPress={() =>
+            router.push({
+              pathname: '/profile/place-picker',
+              params: {
+                title: coords ? 'Adjust the pin' : 'Where is it?',
+                // Seeded, so "adjust" starts from the pin the rider already set
+                // rather than throwing it away and going back to GPS.
+                ...(coords
+                  ? {
+                      initialLat: String(coords.lat),
+                      initialLng: String(coords.lng),
+                      initialLabel: name || address,
+                      initialAddress: address,
+                    }
+                  : {}),
+              },
+            } as never)
+          }
           accessibilityRole="button"
           accessibilityLabel="Pick the spot on the map"
         >
@@ -587,6 +644,17 @@ const makeStyles = (colors: Colors) =>
     scroll: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing['4xl'] },
     hint: { lineHeight: 20, marginBottom: spacing.lg },
     label: { marginTop: spacing.lg, marginBottom: spacing.xs, letterSpacing: 0.8 },
+    tipRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      backgroundColor: withOpacity(colors.primary, 0.08),
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: withOpacity(colors.primary, 0.22),
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+    },
     input: {
       backgroundColor: colors.surfaceInput,
       borderRadius: radii.lg,

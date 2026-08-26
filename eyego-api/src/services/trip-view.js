@@ -616,18 +616,49 @@ async function loadTripSnapshot(tripId, viewer = {}) {
  * joined a friend's group trip rehydrates the same way an on-demand rider does.
  */
 async function findActiveTripForUser(userId) {
+  /**
+   * A SEAT IS WHAT MAKES A RIDE YOURS. NOT THE FACT THAT YOU ORDERED IT.
+   *
+   * BUGFIX ("the Activity tab says I have an active ride; cancelling says I
+   * cannot make this change, and ending it says the trip couldn't be updated").
+   *
+   * `{ requesterId: userId }` used to stand alone, with no condition on the
+   * booking at all. So a trip the rider had already left — booking CANCELLED,
+   * seat released, nothing owed — went on being "their active ride" for as long
+   * as the DRIVER left the trip row live. Every surface then disagreed in a way
+   * that looked like three separate bugs:
+   *
+   *   - Activity drew a live card for a ride with no passenger on it.
+   *   - Cancelling returned ACTOR_NOT_PERMITTED, because a rider may not cancel
+   *     an IN_PROGRESS trip — correctly; they are not on it, but the guard has
+   *     no way to know that.
+   *   - Requesting a new ride hit "you already have a ride in progress".
+   *
+   * And it could not self-heal: `trip-reconcile` deliberately refuses to touch
+   * IN_PROGRESS (a rider sitting in a moving car must not have their trip
+   * cancelled out from under them), so the ghost was permanent.
+   *
+   * The live booking is the honest test, and it is the same test the rider's own
+   * Activity list already used — which is precisely why the two disagreed.
+   *
+   * The `requesterId` fallback survives only inside the creation grace window,
+   * for the one legitimate moment a trip can exist before its booking does.
+   */
+  const LIVE_BOOKING_STATUSES = ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'];
+  const NEW_TRIP_GRACE_MS = 60 * 1000;
+
   const trip = await prisma.trip.findFirst({
     where: {
       status: { in: LIVE_STATUSES },
       OR: [
-        { requesterId: userId },
         {
           bookings: {
-            some: {
-              userId,
-              status: { in: ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID', 'BOARDED'] },
-            },
+            some: { userId, status: { in: LIVE_BOOKING_STATUSES } },
           },
+        },
+        {
+          requesterId: userId,
+          createdAt: { gt: new Date(Date.now() - NEW_TRIP_GRACE_MS) },
         },
       ],
     },

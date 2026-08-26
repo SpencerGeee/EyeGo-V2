@@ -15,6 +15,9 @@ import { setPickedPlace } from '../../utils/placePickerResult';
 
 const ACCRA: [number, number] = [-0.187, 5.6037];
 
+/** Blue, so "you" can never be mistaken for the green pin being confirmed. */
+const USER_DOT_BLUE = '#2F8CFF';
+
 /**
  * Fullscreen map with a fixed center pin: pan the map, the pin stays centered,
  * and each settle reverse-geocodes the coordinate so the user confirms an
@@ -31,15 +34,55 @@ export default function PlacePickerScreen() {
   // because a rider tapping "Where are you going?" wants to type a place name,
   // not to hunt for a pin on a map — searching was previously a second,
   // undiscovered step behind the map view.
-  const { title, focusSearch } = useLocalSearchParams<{ title?: string; focusSearch?: string }>();
+  /**
+   * `initialLat/initialLng/initialLabel` — THE PICKER OPENS ON WHAT YOU ALREADY CHOSE.
+   *
+   * BUGFIX ("on the where-to page I select a destination, then tap the field
+   * again to see what I put and it shows my current location — I have to enter
+   * it again"). The picker only ever booted from GPS, so re-opening a field that
+   * already held a place threw that place away and offered the rider their own
+   * doorstep instead. Tapping a filled field to CHECK it is the commonest reason
+   * to open this screen, and it was the one case it could not serve.
+   *
+   * Seeding all three means the map, the pin, the address card and the search
+   * box all open showing the current answer, and Confirm is live immediately.
+   */
+  const { title, focusSearch, initialLat, initialLng, initialLabel, initialAddress } =
+    useLocalSearchParams<{
+      title?: string;
+      focusSearch?: string;
+      initialLat?: string;
+      initialLng?: string;
+      initialLabel?: string;
+      initialAddress?: string;
+    }>();
   const { isDark } = useThemeStore();
 
-  const [center, setCenter] = useState<[number, number] | null>(null);
-  const [resolved, setResolved] = useState<GeocodeResult | null>(null);
+  const seeded = useMemo(() => {
+    const lat = Number(initialLat);
+    const lng = Number(initialLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat === 0 && lng === 0) return null;
+    return {
+      coords: [lng, lat] as [number, number],
+      place: {
+        placeId: 0,
+        name: initialLabel || initialAddress || 'Chosen location',
+        fullAddress: initialAddress || initialLabel || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        latitude: lat,
+        longitude: lng,
+      } as GeocodeResult,
+    };
+  }, [initialLat, initialLng, initialLabel, initialAddress]);
+
+  const [center, setCenter] = useState<[number, number] | null>(seeded?.coords ?? null);
+  const [resolved, setResolved] = useState<GeocodeResult | null>(seeded?.place ?? null);
   const [isResolving, setIsResolving] = useState(false);
   const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [initialCoords, setInitialCoords] = useState<[number, number] | null>(null);
+  const [initialCoords, setInitialCoords] = useState<[number, number] | null>(seeded?.coords ?? null);
   const cameraRef = useRef<CameraRef>(null);
+  /** Where the rider actually is, for the recentre button and the "you" dot. */
+  const [myCoords, setMyCoords] = useState<[number, number] | null>(null);
 
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
@@ -56,13 +99,42 @@ export default function PlacePickerScreen() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setInitialCoords([loc.coords.longitude, loc.coords.latitude]);
+          const me: [number, number] = [loc.coords.longitude, loc.coords.latitude];
+          setMyCoords(me);
+          // A seeded pin wins: the rider opened this to look at the place they
+          // already chose, not to be moved back to where they are standing.
+          if (!seeded) setInitialCoords(me);
           return;
         }
       } catch { /* non-fatal */ }
-      setInitialCoords(ACCRA);
+      if (!seeded) setInitialCoords(ACCRA);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * "IT DOESN'T SHOW YOU YOUR CURRENT LOCATION — IT'S A FULL MAP I HAVE TO TRACE."
+   *
+   * The old note here argued that the native blue dot sits under the fixed
+   * centre pin and makes the confirmation ambiguous. True the instant the screen
+   * opens, and false for the entire rest of the session: as soon as the rider
+   * pans, the dot is the only thing on screen telling them which way they
+   * moved. Without it the map is an unlabelled plane and "trace it to your
+   * intended location" is genuinely hard.
+   *
+   * Both are satisfied by making the two markers unmistakably different — a
+   * small flat puck for you, a tall teardrop for the pin — and by giving the
+   * rider a way back to themselves in one tap.
+   */
+  const recentreOnMe = useCallback(() => {
+    if (!myCoords) return;
+    haptic.light();
+    cameraRef.current?.setCamera({
+      centerCoordinate: myCoords,
+      zoomLevel: 16,
+      animationDuration: 450,
+    });
+  }, [myCoords]);
 
   const handleRegionChange = useCallback((feature: { geometry?: { coordinates?: [number, number] } } | null | undefined) => {
     const coords = feature?.geometry?.coordinates;
@@ -160,21 +232,56 @@ export default function PlacePickerScreen() {
     }, 300);
   }, [center, initialCoords]);
 
+  /**
+   * PICKING A SUGGESTION IS THE ANSWER. THE MAP GOES AWAY.
+   *
+   * This used to fly the camera to the result and then sit there, so the rider
+   * who had just named the place they wanted was left looking at a map with a
+   * Confirm button on it — one more tap for a decision they had already made,
+   * and (reported) "it shows even after the suggestion is clicked, which is not
+   * aesthetic".
+   *
+   * Anyone who does want to nudge the pin still can: every caller that offers
+   * that reopens this screen seeded on the chosen point (`initialLat/Lng`), so
+   * "adjust" is a deliberate act rather than a step everybody pays for.
+   */
   const handleSelectSuggestion = useCallback((s: GeocodeResult) => {
-    haptic.select();
-    setQuery(s.name);
+    haptic.medium();
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    // A pending debounced reverse-geocode from the last pan must not land after
+    // this and overwrite the rider's explicit choice.
+    if (geocodeTimer.current) clearTimeout(geocodeTimer.current);
     setSuggestions([]);
-    // Picking a result ends the search — otherwise the "no matches" row would
-    // appear the moment the list clears.
     setSearchedFor(null);
-    setCenter([s.longitude, s.latitude]);
-    setResolved(s);
-    cameraRef.current?.setCamera({
-      centerCoordinate: [s.longitude, s.latitude],
-      zoomLevel: 16,
-      animationDuration: 500,
-    });
-  }, []);
+    setPickedPlace(s);
+    router.back();
+  }, [router]);
+
+  /**
+   * "NOT SEEING YOUR PLACE?" — the road out of an empty result set.
+   *
+   * A search that matches nothing used to end in a dead sentence. In Ghana that
+   * is not an edge case: whole neighbourhoods are unmapped, and the rider
+   * usually knows exactly where the place is even though no provider does. They
+   * are the best possible source, and the map-report flow already exists to
+   * take what they know — it was simply never offered at the moment they had a
+   * reason to use it.
+   *
+   * The query they typed becomes the place's name and the pin they are looking
+   * at becomes its location, so the form opens most of the way filled in.
+   */
+  const reportMissingPlace = useCallback(() => {
+    haptic.light();
+    const at = center ?? myCoords;
+    router.push({
+      pathname: '/improve-map/[type]',
+      params: {
+        type: 'ADD_PLACE',
+        prefillName: searchedFor ?? query,
+        ...(at ? { prefillLat: String(at[1]), prefillLng: String(at[0]) } : {}),
+      },
+    } as never);
+  }, [router, center, myCoords, searchedFor, query]);
 
   return (
     <View style={styles.root}>
@@ -185,11 +292,16 @@ export default function PlacePickerScreen() {
           compassEnabled={false}
           onRegionDidChange={handleRegionChange}
         >
-          <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={15} />
-          {/* No <UserLocation> — same reason as the driver app's
-              (trip)/location-picker: the native blue dot lands underneath the
-              fixed centre pin and makes it ambiguous which marker is the one
-              being confirmed. */}
+          <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={seeded ? 16 : 15} />
+          {/* You. A flat puck, deliberately nothing like the tall centre pin —
+              see `recentreOnMe` for why this is here now. */}
+          {myCoords && (
+            <MapboxGL.MarkerView id="picker-me" coordinate={myCoords}>
+              <View style={styles.meHalo} pointerEvents="none">
+                <View style={styles.meDot} />
+              </View>
+            </MapboxGL.MarkerView>
+          )}
         </MapboxGL.MapView>
       )}
 
@@ -248,6 +360,23 @@ export default function PlacePickerScreen() {
                   </Text>
                 </View>
               </View>
+              <Pressable
+                style={[styles.suggestionRow, styles.helpRow]}
+                onPress={reportMissingPlace}
+                accessibilityRole="button"
+                accessibilityLabel="Help us find this place"
+              >
+                <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.suggestionText, { color: colors.primary }]} numberOfLines={1}>
+                    Not seeing where you mean? Help us add it
+                  </Text>
+                  <Text style={styles.suggestionSub} numberOfLines={2}>
+                    Put it on the map for every EyeGo rider — takes about a minute.
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+              </Pressable>
             </View>
           )}
           {suggestions.length > 0 && (
@@ -272,6 +401,19 @@ export default function PlacePickerScreen() {
           )}
         </View>
       </SafeAreaView>
+
+      {/* Back to me. Sits just above the confirm card so it never fights the pin. */}
+      {myCoords && (
+        <Pressable
+          style={styles.locateBtn}
+          onPress={recentreOnMe}
+          accessibilityRole="button"
+          accessibilityLabel="Centre the map on my location"
+          hitSlop={8}
+        >
+          <Ionicons name="locate" size={20} color={colors.primary} />
+        </Pressable>
+      )}
 
       {/* Bottom confirm card */}
       <SafeAreaView style={styles.bottomWrap} edges={['bottom']} pointerEvents="box-none">
@@ -395,6 +537,51 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: Math.round(11 * 1.3),
     color: colors.onSurfaceVariant,
     marginTop: 1,
+  },
+  /** The "help us add it" row. Tinted so it reads as an action, not another result. */
+  helpRow: {
+    backgroundColor: withOpacity(colors.primary, 0.1),
+    borderBottomWidth: 0,
+  },
+  /**
+   * You, on the map. Deliberately a flat puck: a second teardrop would be
+   * indistinguishable from the pin being confirmed, which is the ambiguity the
+   * old code avoided by drawing nothing at all.
+   */
+  meHalo: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(47,140,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  meDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: USER_DOT_BLUE,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  locateBtn: {
+    position: 'absolute',
+    right: 16,
+    // Clear of the confirm card, which is ~150 tall plus its own bottom inset.
+    bottom: 196,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(colors.surfaceCard, 0.96),
+    borderWidth: 1,
+    borderColor: colors.rimLight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
   },
   pinWrap: {
     position: 'absolute',

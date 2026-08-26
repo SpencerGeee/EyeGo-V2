@@ -599,10 +599,35 @@ async function cancelRide(userId, tripId, reason = null) {
      * same instant and the ride is under way with a real person on the way.
      * `ILLEGAL_TRANSITION`/`TRIP_TERMINAL` said neither of those things.
      */
-    if (err?.code === 'ILLEGAL_TRANSITION' || err?.code === 'TRIP_TERMINAL' || err?.code === 'TRIP_ALREADY_IN_STATE') {
+    /**
+     * ACTOR_NOT_PERMITTED WAS FALLING THROUGH AS A RAW 403.
+     *
+     * `IN_PROGRESS → CANCELLED` is `A_SYS` on purpose: a rider cannot cancel a
+     * ride they are sitting in. But that refusal arrived at the app as the
+     * generic `ACTOR_NOT_PERMITTED` copy — "You cannot make this change." — with
+     * no hint of what to do instead, on a screen whose only other control is
+     * Back. Reported as "it tells me I cannot make this change" with no way out.
+     *
+     * Folded in with the other legitimate refusals below so the rider gets a
+     * sentence naming the state and the way forward.
+     */
+    if (
+      err?.code === 'ILLEGAL_TRANSITION' ||
+      err?.code === 'TRIP_TERMINAL' ||
+      err?.code === 'TRIP_ALREADY_IN_STATE' ||
+      err?.code === 'ACTOR_NOT_PERMITTED'
+    ) {
       const now = await prisma.trip.findUnique({ where: { id: tripId }, select: { status: true, version: true } });
       if (now?.status === S.CANCELLED) {
         return { tripId, status: now.status, version: now.version, freeCancel: true, alreadyCancelled: true };
+      }
+      if (now?.status === S.IN_PROGRESS) {
+        throw new AppError(
+          'Your ride is already under way, so it can no longer be cancelled. ' +
+            'Ask your driver to end the trip, or use Help if something is wrong.',
+          409,
+          'RIDE_UNDER_WAY',
+        );
       }
       throw new AppError(
         now && tripState.hasDriver(now.status)

@@ -117,11 +117,24 @@ export default function CreateTripScreen() {
 
   const openLocationPicker = useCallback((field: 'origin' | 'destination') => {
     pickingFieldRef.current = field;
+    // Seed with what the field already holds — reopening it to CHECK a place
+    // used to throw that place away and re-centre on the driver's own position.
+    const current = field === 'origin' ? origin : destination;
     router.push({
       pathname: '/(trip)/location-picker',
-      params: { title: field === 'origin' ? 'Set Pickup Point' : 'Set Destination' },
+      params: {
+        title: field === 'origin' ? 'Set Pickup Point' : 'Set Destination',
+        ...(current
+          ? {
+              initialLat: String(current.latitude),
+              initialLng: String(current.longitude),
+              initialLabel: current.name ?? '',
+              initialAddress: current.fullAddress ?? '',
+            }
+          : {}),
+      },
     } as any);
-  }, [router]);
+  }, [router, origin, destination]);
 
   useFocusEffect(
     useCallback(() => {

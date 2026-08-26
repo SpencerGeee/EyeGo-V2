@@ -285,6 +285,28 @@ app.get('/map-style/:variant.json', (req, res) => {
   res.json(style);
 });
 
+/**
+ * ── Uploaded assets, when there is no Cloudinary account ─────────
+ *
+ * `cloudinary.service.uploadBuffer` falls back to writing bytes here and
+ * returning `<origin>/uploads/<random>.<ext>`. Public by design — these are the
+ * same avatars and document scans a CDN would serve, and the filename is 128
+ * bits of randomness, so there is nothing to enumerate. `index: false` and the
+ * static handler's own path normalisation keep it to exactly the files written.
+ *
+ * Immutable: a name is never reused, so a cached copy can never be wrong.
+ */
+app.use(
+  '/uploads',
+  express.static(require('./services/cloudinary.service').LOCAL_UPLOAD_DIR, {
+    index: false,
+    dotfiles: 'deny',
+    maxAge: '30d',
+    immutable: true,
+    fallthrough: false,
+  }),
+);
+
 // ── Legacy admin SPA (eyego-api/public) ──────────────────────────
 //
 // Superseded by apps/admin, which has real AdminUser accounts, RBAC and an
