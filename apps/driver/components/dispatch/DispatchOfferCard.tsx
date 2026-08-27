@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Pressable } from 'react-native';
 import Animated, {
   Easing,
@@ -23,21 +23,21 @@ import { DispatchMiniMap } from './DispatchMiniMap';
 import { CountdownRing } from './CountdownRing';
 
 /**
- * ONE OFFER, ONE CARD — used by the takeover sheet AND the dispatch screen.
+ * ONE OFFER, ONE CARD â€” used by the takeover sheet AND the dispatch screen.
  *
  * There were two offer surfaces in this app with nothing in common but the verb:
  * `DispatchOfferSheet` (the modal that fires when the cascade reaches you) and
- * `(trip)/dispatch/[id]` (what the Alerts → Dispatch list opens). They had
+ * `(trip)/dispatch/[id]` (what the Alerts â†’ Dispatch list opens). They had
  * different countdowns, different copy, different accept buttons and different
- * ideas of what an offer even is — the screen read the ride out of NAVIGATION
+ * ideas of what an offer even is â€” the screen read the ride out of NAVIGATION
  * PARAMS, which is why opening one from the list showed two blank lines where
  * the pickup and destination should be: the list passes no params.
  *
  * This is the single rendering of "here is a ride, take it or don't". Both
  * surfaces hand it the same shape and differ only in their chrome.
  *
- * ── THE URGENCY LADDER ─────────────────────────────────────────────────────
- * Calm (accent) → amber under ten seconds → red under five, applied to the
+ * â”€â”€ THE URGENCY LADDER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * Calm (accent) â†’ amber under ten seconds â†’ red under five, applied to the
  * ring, the digits and the swipe track together so the whole card shifts at
  * once. Haptics escalate on the same boundaries and are fired here rather than
  * by each caller, which is how the sheet ended up buzzing on a schedule the
@@ -58,10 +58,10 @@ export interface DispatchOfferView {
   etaSeconds?: number | null;
   /** Server-time deadline. Null for an offer with no private hold (a reassignment). */
   expiresAtServerMs?: number | null;
-  /** "3 of 8" — how deep into the cascade this offer is. */
+  /** "3 of 8" â€” how deep into the cascade this offer is. */
   attempt?: number | null;
   totalCandidates?: number | null;
-  /** DISPATCH · REQUEST · REASSIGNMENT — decides the headline and the rules line. */
+  /** DISPATCH Â· REQUEST Â· REASSIGNMENT â€” decides the headline and the rules line. */
   kind?: 'DISPATCH' | 'REQUEST' | 'REASSIGNMENT' | string | null;
 }
 
@@ -78,9 +78,32 @@ export interface DispatchOfferCardProps {
   onDecline: () => void;
   busy?: 'accept' | 'decline' | null;
   accepted?: boolean;
-  /** Hides the map — used where a map cannot be afforded (never, currently). */
+  /** Hides the map â€” used where a map cannot be afforded (never, currently). */
   showMap?: boolean;
   mapHeight?: number;
+  /**
+   * â”€â”€ WHERE THIS CARD IS STANDING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   *
+   * BUGFIX ("on the dispatch page, the way the glow borders and all is done,
+   * it's not niceâ€¦ the page needs to show the map so the driver can pan it and
+   * see how far out the pickup point is").
+   *
+   * `'card'` is the original: a self-contained object with its own glow ring and
+   * a small inert map inside it. That is right for the TAKEOVER SHEET, which
+   * floats over whatever the driver was doing and has to read as one thing that
+   * arrived.
+   *
+   * `'sheet'` is for the dispatch SCREEN, where the map is the whole background
+   * and this docks over it. There the ring was actively harmful: a glowing
+   * rounded rectangle around a panel that itself contains a map with its own
+   * vignette, sitting on a screen that is already a map, is three competing
+   * edges stacked within about twenty points of each other â€” which is what "the
+   * way the glow borders and all is done isn't nice" describes. In this variant
+   * the ring is gone, the internal map is gone (the real one is behind it, and
+   * it pans), and the panel gets a grabber and a flat bottom so it reads as an
+   * edge of the screen rather than a floating card that has been cropped.
+   */
+  variant?: 'card' | 'sheet';
 }
 
 /** Approximate straight-line km, only to say "2.1 km away" beside an ETA. */
@@ -107,9 +130,14 @@ export function DispatchOfferCard({
   accepted = false,
   showMap = true,
   mapHeight = 208,
+  variant = 'card',
 }: DispatchOfferCardProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const isSheet = variant === 'sheet';
+  // In the sheet variant the screen behind it IS the map, so never draw a
+  // second one inside the panel.
+  const withMap = showMap && !isSheet;
 
   const reducedMotion = useReducedMotion();
 
@@ -137,10 +165,10 @@ export function DispatchOfferCard({
    * The card is a thirty-second decision and it used to be completely static
    * until the ten-second mark, when everything changed at once. A 2.4 s pulse on
    * the glow says "this is live and it is counting" without adding a second
-   * thing to read — §7 `motion-meaning`: the motion IS the passage of time.
+   * thing to read â€” Â§7 `motion-meaning`: the motion IS the passage of time.
    *
    * Stops at the warning threshold so the escalation still lands as a change,
-   * and never starts under reduced motion (§1 `reduced-motion`), where the
+   * and never starts under reduced motion (Â§1 `reduced-motion`), where the
    * colour ladder carries the whole signal on its own.
    */
   const breathe = useSharedValue(0);
@@ -172,7 +200,7 @@ export function DispatchOfferCard({
    * width of the card's top edge, so a driver reading the addresses still sees
    * the time going without moving their eyes to the ring.
    *
-   * One linear timing to zero, exactly like `CountdownRing` — time is linear and
+   * One linear timing to zero, exactly like `CountdownRing` â€” time is linear and
    * an eased bar lies about how much of it is left.
    */
   const rail = useSharedValue(1);
@@ -193,7 +221,7 @@ export function DispatchOfferCard({
    * Escalating haptics, on the same boundaries as the colour.
    *
    * Fired against the SECOND, not the render: React may render a component many
-   * times within one second and a buzz is not idempotent — this is the bug that
+   * times within one second and a buzz is not idempotent â€” this is the bug that
    * made the old screen vibrate twice per tick at 500 ms.
    */
   const lastBuzz = useRef<number | null>(null);
@@ -215,7 +243,7 @@ export function DispatchOfferCard({
    * nothing happens").
    *
    * The arming tap only swapped a text label and a border tint on a button
-   * sitting under a 34pt fare and a sweeping countdown ring — on a phone at
+   * sitting under a 34pt fare and a sweeping countdown ring â€” on a phone at
    * arm's length that is indistinguishable from a dead control. The two-tap
    * design is right (an Alert over a live countdown steals the seconds the
    * driver is being timed on, and on iOS it can land after the offer has moved
@@ -250,15 +278,15 @@ export function DispatchOfferCard({
   const earnings = offer.driverEarningsPesewas ?? offer.farePesewas ?? null;
 
   /**
-   * WHAT THE JOB IS WORTH PER KILOMETRE DRIVEN — including the dead leg.
+   * WHAT THE JOB IS WORTH PER KILOMETRE DRIVEN â€” including the dead leg.
    *
    * The single number an experienced driver actually decides on, and the card
-   * did not have it. A ₵28 fare is a good job at 4 km and a poor one at 14, and
+   * did not have it. A â‚µ28 fare is a good job at 4 km and a poor one at 14, and
    * the pickup leg counts: those kilometres are driven for nothing, which is
    * precisely why a far pickup is worth refusing. Adding them to the
    * denominator is what makes two offers comparable at a glance.
    *
-   * Hidden rather than approximated when either distance is unknown — a rate
+   * Hidden rather than approximated when either distance is unknown â€” a rate
    * computed from half the journey is worse than no rate at all.
    */
   const ratePerKm =
@@ -266,42 +294,14 @@ export function DispatchOfferCard({
       ? earnings / (rideKm + (pickupKm ?? 0))
       : null;
 
-  return (
-    /**
-     * ── THE OFFER CARD, REBUILT ────────────────────────────────────────────
-     *
-     * "Make the page more aesthetic and premium. Think about it in a new light."
-     *
-     * What was wrong with it, specifically:
-     *
-     *  1. NO IDENTITY. Every offer was the same driver blue. A Premium fare and
-     *     an Economy one were distinguishable only by a grey text chip.
-     *  2. TWO FOCAL POINTS. A 34pt fare and a 96pt countdown ring sat side by
-     *     side at the same weight, so the eye had nowhere to land first on a
-     *     surface that exists to be read in about two seconds.
-     *  3. A VISIBLE SEAM. `GlassSurface` with `borderRadius: 0` butted straight
-     *     against the map, so the card read as two stacked rectangles rather
-     *     than one object.
-     *  4. NO ANSWER TO THE REAL QUESTION. "Is this job worth taking" is
-     *     earnings ÷ total kilometres, and the card made the driver do that
-     *     arithmetic from two numbers in two different places.
-     *
-     * The rebuild: a tier-coloured glow ring around the whole card (the same
-     * family as every other lit surface in this app), a draining rail on the
-     * top edge so urgency is peripheral, one hero money block with the per-km
-     * rate under it, a three-cell tabular stat strip, and a gradient that
-     * carries the map down into the panel so the two are one surface.
-     */
-    <GradientGlowBorder
-      palette={ringPalette}
-      fillColor={colors.surfaceCard}
-      borderRadius={radii['3xl']}
-      thickness={urgent ? 'regular' : 'thin'}
-      glow
-      glowIntensity={urgent ? 1 : 0.7}
-      maxGlowRadius={urgent ? 26 : 18}
-    >
-    <View style={styles.card}>
+  /**
+   * The card's contents, identical in both variants. Only the SHELL differs â€”
+   * see the note on `variant`. Extracted so the two branches cannot drift into
+   * two different offer layouts, which is exactly how this app ended up with two
+   * unrelated offer surfaces in the first place.
+   */
+  const inner = (
+    <View style={isSheet ? styles.sheetCard : styles.card}>
       {/* The window, draining. Sits above everything so it is never covered by
           the map's own gradient. */}
       {offer.expiresAtServerMs ? (
@@ -310,7 +310,15 @@ export function DispatchOfferCard({
         </View>
       ) : null}
 
-      {showMap ? (
+      {/* A grabber, so the panel reads as an edge of the screen the driver can
+          push against rather than a card that has been cropped by it. */}
+      {isSheet ? (
+        <View style={styles.grabberWrap} pointerEvents="none">
+          <View style={[styles.grabber, { backgroundColor: colors.outline }]} />
+        </View>
+      ) : null}
+
+      {withMap ? (
         <View>
           <DispatchMiniMap
             pickup={offer.pickup}
@@ -327,7 +335,7 @@ export function DispatchOfferCard({
             locations={[0, 0.62, 1]}
             style={styles.mapFade}
           />
-          {/* The breathing rim — see `breathe`. A hairline, not a shape: it
+          {/* The breathing rim â€” see `breathe`. A hairline, not a shape: it
               reads as the card being alive rather than as another element. */}
           <Animated.View
             pointerEvents="none"
@@ -336,8 +344,9 @@ export function DispatchOfferCard({
         </View>
       ) : null}
 
-      {/* The badge floats ON the map, so the panel below can be pure content. */}
-      <View style={styles.mapBadges} pointerEvents="none">
+      {/* The badge floats ON the map in the card variant; in the sheet it sits
+          at the head of the panel, where the map is behind rather than above. */}
+      <View style={withMap ? styles.mapBadges : styles.sheetBadges} pointerEvents="none">
         <View style={[styles.kindBadge, { borderColor: accent + '66', backgroundColor: colors.background + 'CC' }]}>
           <View style={[styles.kindDot, { backgroundColor: accent }]} />
           <Text style={[styles.kindLabel, { color: accent }]}>
@@ -353,8 +362,8 @@ export function DispatchOfferCard({
         ) : null}
       </View>
 
-      {/* ── The glass panel ── */}
-      <View style={styles.panel}>
+      {/* â”€â”€ The glass panel â”€â”€ */}
+      <View style={[styles.panel, isSheet && styles.sheetPanel]}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={0} intensity="high" />
 
         {/*
@@ -373,10 +382,10 @@ export function DispatchOfferCard({
               style={[styles.earnings, { color: colors.onSurface }]}
               accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
             >
-              {earnings != null ? formatGhs(earnings) : '—'}
+              {earnings != null ? formatGhs(earnings) : 'â€”'}
             </Text>
             <View style={styles.chipRow}>
-              {/* The tier, in the tier's own colour and its human label —
+              {/* The tier, in the tier's own colour and its human label â€”
                   "Economy", never the wire's "ECO". */}
               {offer.tier ? (
                 <View style={[styles.chip, { backgroundColor: tier.accent + '1A' }]}>
@@ -386,7 +395,7 @@ export function DispatchOfferCard({
                   </Text>
                 </View>
               ) : null}
-              {/* Earnings per kilometre DRIVEN, dead leg included — the number
+              {/* Earnings per kilometre DRIVEN, dead leg included â€” the number
                   the decision is actually made on. See `ratePerKm`. */}
               {ratePerKm != null ? (
                 <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh }]}>
@@ -435,7 +444,7 @@ export function DispatchOfferCard({
           comparing two offers had to hunt for each one in a different place.
 
           One strip, three cells, tabular figures so the digits do not shift
-          between renders (§6 `number-tabular`) — and dividers rather than boxes,
+          between renders (Â§6 `number-tabular`) â€” and dividers rather than boxes,
           because three more bordered rectangles on a card this dense is noise.
         */}
         {(etaMin != null || pickupKm != null || rideKm != null) && (
@@ -444,7 +453,7 @@ export function DispatchOfferCard({
               colors={colors}
               icon="navigate-outline"
               label="TO PICKUP"
-              value={etaMin != null ? `${etaMin} min` : pickupKm != null ? `${pickupKm.toFixed(1)} km` : '—'}
+              value={etaMin != null ? `${etaMin} min` : pickupKm != null ? `${pickupKm.toFixed(1)} km` : 'â€”'}
               sub={etaMin != null && pickupKm != null ? `${pickupKm.toFixed(1)} km` : null}
               accent={accent}
             />
@@ -453,7 +462,7 @@ export function DispatchOfferCard({
               colors={colors}
               icon="git-commit-outline"
               label="RIDE"
-              value={rideKm != null ? `${rideKm.toFixed(1)} km` : '—'}
+              value={rideKm != null ? `${rideKm.toFixed(1)} km` : 'â€”'}
               sub={null}
             />
             <View style={[styles.statDivider, { backgroundColor: colors.outline }]} />
@@ -461,7 +470,7 @@ export function DispatchOfferCard({
               colors={colors}
               icon="wallet-outline"
               label="FARE"
-              value={offer.farePesewas != null ? formatGhs(offer.farePesewas) : '—'}
+              value={offer.farePesewas != null ? formatGhs(offer.farePesewas) : 'â€”'}
               sub={
                 earnings != null && offer.farePesewas != null && offer.farePesewas > earnings
                   ? `you keep ${Math.round((earnings / offer.farePesewas) * 100)}%`
@@ -471,7 +480,7 @@ export function DispatchOfferCard({
           </View>
         )}
 
-        {/* ── The ride, as a spine ── */}
+        {/* â”€â”€ The ride, as a spine â”€â”€ */}
         <View style={styles.spine}>
           <View style={styles.spineRail}>
             <View style={[styles.spineDot, { backgroundColor: accent }]} />
@@ -487,7 +496,7 @@ export function DispatchOfferCard({
                   <Text variant="caption" color={accent}>
                     {[etaMin != null ? `${etaMin} min` : null, pickupKm != null ? `${pickupKm.toFixed(1)} km` : null]
                       .filter(Boolean)
-                      .join(' · ')}
+                      .join(' Â· ')}
                   </Text>
                 ) : null}
               </View>
@@ -507,15 +516,15 @@ export function DispatchOfferCard({
 
         {isReassignment || isRequest ? (
           <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rule}>
-            First driver to accept gets it — this one is not being held for you.
+            First driver to accept gets it â€” this one is not being held for you.
           </Text>
         ) : null}
 
-        {/* ── Actions ── */}
+        {/* â”€â”€ Actions â”€â”€ */}
         <View style={styles.actions}>
           <SwipeToConfirm
             label={accepted ? 'Accepted' : 'Swipe to accept'}
-            loadingLabel="Claiming…"
+            loadingLabel="Claimingâ€¦"
             confirmedLabel="Yours"
             onConfirm={onAccept}
             loading={busy === 'accept'}
@@ -566,16 +575,16 @@ export function DispatchOfferCard({
                 ]}
               >
                 {busy === 'decline'
-                  ? 'Passing…'
+                  ? 'Passingâ€¦'
                   : declineArmed
-                    ? `Tap again to pass · ${armSeconds}`
+                    ? `Tap again to pass Â· ${armSeconds}`
                     : 'Pass'}
               </Text>
             </View>
           </Pressable>
 
           {/* Says out loud what passing now costs, because it is no longer
-              permanent — see `declineCooldownSeconds` on the server. The old
+              permanent â€” see `declineCooldownSeconds` on the server. The old
               copy said nothing, and a driver who had passed once believed the
               ride was gone for good. */}
           {declineArmed ? (
@@ -586,6 +595,50 @@ export function DispatchOfferCard({
         </View>
       </View>
     </View>
+  );
+
+  /**
+   * The sheet variant is its own shell: no ring, flat bottom, top corners only.
+   * See the note on `variant` for why a ring here made the screen worse.
+   */
+  if (isSheet) return inner;
+
+  return (
+    /**
+     * â”€â”€ THE OFFER CARD, REBUILT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+     *
+     * "Make the page more aesthetic and premium. Think about it in a new light."
+     *
+     * What was wrong with it, specifically:
+     *
+     *  1. NO IDENTITY. Every offer was the same driver blue. A Premium fare and
+     *     an Economy one were distinguishable only by a grey text chip.
+     *  2. TWO FOCAL POINTS. A 34pt fare and a 96pt countdown ring sat side by
+     *     side at the same weight, so the eye had nowhere to land first on a
+     *     surface that exists to be read in about two seconds.
+     *  3. A VISIBLE SEAM. `GlassSurface` with `borderRadius: 0` butted straight
+     *     against the map, so the card read as two stacked rectangles rather
+     *     than one object.
+     *  4. NO ANSWER TO THE REAL QUESTION. "Is this job worth taking" is
+     *     earnings Ã· total kilometres, and the card made the driver do that
+     *     arithmetic from two numbers in two different places.
+     *
+     * The rebuild: a tier-coloured glow ring around the whole card (the same
+     * family as every other lit surface in this app), a draining rail on the
+     * top edge so urgency is peripheral, one hero money block with the per-km
+     * rate under it, a three-cell tabular stat strip, and a gradient that
+     * carries the map down into the panel so the two are one surface.
+     */
+    <GradientGlowBorder
+      palette={ringPalette}
+      fillColor={colors.surfaceCard}
+      borderRadius={radii['3xl']}
+      thickness={urgent ? 'regular' : 'thin'}
+      glow
+      glowIntensity={urgent ? 1 : 0.7}
+      maxGlowRadius={urgent ? 26 : 18}
+    >
+      {inner}
     </GradientGlowBorder>
   );
 }
@@ -640,7 +693,7 @@ const statStyles = StyleSheet.create({
     lineHeight: 21,
     letterSpacing: -0.3,
     // Digits must not shift width between renders while a countdown is running
-    // next to them — §6 `number-tabular`.
+    // next to them â€” Â§6 `number-tabular`.
     fontVariant: ['tabular-nums'],
   },
   sub: { fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
@@ -655,6 +708,35 @@ const makeStyles = (colors: DriverColors) =>
       overflow: 'hidden',
       backgroundColor: colors.surfaceCard,
     },
+    /**
+     * ── THE SHEET VARIANT ────────────────────────────────────────────────────
+     *
+     * Top corners only, flat bottom, no ring — it is docked to the bottom of a
+     * full-bleed map and reads as an edge of the screen. A hairline top rim
+     * rather than a glow: over a moving map a glow smears, and the map behind
+     * already provides all the separation this needs.
+     */
+    sheetCard: {
+      borderTopLeftRadius: radii['3xl'],
+      borderTopRightRadius: radii['3xl'],
+      overflow: 'hidden',
+      backgroundColor: colors.surfaceCard,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.rimLight,
+    },
+    grabberWrap: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: 2 },
+    grabber: { width: 38, height: 4, borderRadius: 2, opacity: 0.7 },
+    /** In the sheet the badges are content, not an overlay on a map. */
+    sheetBadges: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.sm,
+    },
+    /** The head padding is carried by `sheetBadges`, so the panel starts tighter. */
+    sheetPanel: { paddingTop: spacing.base },
+
     /** The offer window, draining left to right along the card's top edge. */
     railTrack: {
       position: 'absolute',
@@ -720,7 +802,7 @@ const makeStyles = (colors: DriverColors) =>
     },
     chipText: { fontFamily: fonts.bold, fontSize: 9.5, letterSpacing: 0.7 },
 
-    /** The three-number strip. Dividers, not boxes — see its render comment. */
+    /** The three-number strip. Dividers, not boxes â€” see its render comment. */
     stats: {
       flexDirection: 'row',
       alignItems: 'flex-start',
@@ -763,7 +845,7 @@ const makeStyles = (colors: DriverColors) =>
     decline: {
       alignSelf: 'center',
       paddingHorizontal: spacing.xl,
-      // 44pt minimum touch target (§2 `touch-target-size`). The old
+      // 44pt minimum touch target (Â§2 `touch-target-size`). The old
       // `spacing.md` padding put this at roughly 40 and it is the one control
       // on the card a driver reaches for without looking.
       minHeight: 46,

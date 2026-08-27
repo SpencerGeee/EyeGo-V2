@@ -15,7 +15,7 @@ import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, type TierId } from '@eyego/ui';
 
-import { formatGhs, formatTripDate, formatDuration, formatDistance } from '@eyego/utils';
+import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 import { fetchRoute, type RouteResult } from '../../utils/routing';
 
@@ -112,8 +112,14 @@ export default function RideDetailScreen() {
        * unpaid — exactly what sharing an invite does. `getTrip` now derives it
        * once from the occupancy-filtered bookings; the fallback keeps an older
        * server from rendering NaN.
+       *
+       * The fallback counts SEATS, not ROWS. `bookings.length` treats a party of
+       * three — one Booking row carrying `seats: 3` — as a single passenger, so
+       * a full vehicle advertised two free seats it did not have. `bookedSeats`
+       * is the shared sum that the driver's screens and the seat map already
+       * use, which is the point of having it in one place.
        */
-      availableSeats: rawTrip.availableSeats ?? Math.max(0, rawTrip.maxSeats - (rawTrip.bookings?.length ?? 0)),
+      availableSeats: rawTrip.availableSeats ?? Math.max(0, rawTrip.maxSeats - bookedSeats(rawTrip)),
       totalSeats: rawTrip.maxSeats,
       distanceKm: rawTrip.route?.distanceKm ?? 0,
       // Duration comes from the traffic-aware route fetched below (see
@@ -568,10 +574,34 @@ export default function RideDetailScreen() {
                 <Text variant="caption" color={colors.onSurfaceVariant}>
                   per seat · drops as more join
                 </Text>
+                {/**
+                  * ONE PRICE, NAMED ONCE.
+                  *
+                  * BUGFIX (the other half of "fix this discrepancy… make sure the
+                  * price breakdown is very dynamic and accurate"). "Base fare"
+                  * and "Total" printed the SAME value on two lines with a divider
+                  * between them, which is a table that promises a calculation and
+                  * then performs none — and it invited the reader to look for the
+                  * missing middle rows in the breakdown sheet, where they found
+                  * the invented promotion.
+                  *
+                  * A shared seat is one fixed price. Say it once, name what it
+                  * buys, and let the sheet carry the itemisation.
+                  */}
                 <View style={styles.fareBreakdown}>
-                  <FareRow label="Base fare" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? 0)} />
-                  <View style={styles.fareDivider} />
-                  <FareRow label="Total" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? 0)} bold />
+                  <FareRow label="Your seat" value={formatGhs(computedFare ?? trip?.farePerSeatPesewas ?? 0)} bold />
+                  {(trip?.distanceKm || durationMinutes) ? (
+                    <>
+                      <View style={styles.fareDivider} />
+                      <FareRow
+                        label="Journey"
+                        value={[
+                          trip?.distanceKm ? formatDistance(trip.distanceKm) : null,
+                          durationMinutes ? formatDuration(durationMinutes) : null,
+                        ].filter(Boolean).join(' · ')}
+                      />
+                    </>
+                  ) : null}
                 </View>
                 {/* Tappable link → full per-trip price breakdown sheet */}
                 <Pressable
@@ -716,13 +746,36 @@ export default function RideDetailScreen() {
         </View>
       </InlayPanel>
 
+      {/**
+        * THE SHEET EXPLAINS THE NUMBER ON THE BUTTON, SO IT IS FED THE SAME
+        * NUMBER AND THE SAME JOURNEY.
+        *
+        * BUGFIX ("it shows base fare as 55.19 and all, but on the price
+        * breakdown it shows promotion 10% and all"). Two things were wrong at
+        * this call site, on top of the invented rows inside the sheet itself:
+        *
+        *  • `seats` was the VEHICLE'S CAPACITY. This page books ONE seat — the
+        *    button says "Book This Seat" — so a 14-seater made the breakdown
+        *    announce "Seats 14" beside a one-seat fare, which reads as a total
+        *    fourteen times the price the rider is about to pay.
+        *  • the journey behind the price was never passed at all, so the sheet
+        *    had nothing real to itemise and fell through to its constants.
+        *
+        * `durationMinutes` is the traffic-aware figure this screen already
+        * computed for its own meta pill, so the two cannot disagree.
+        */}
       <FareBreakdownSheet
         visible={showFareBreakdown}
         onClose={() => setShowFareBreakdown(false)}
         farePesewas={computedFare ?? trip?.farePerSeatPesewas ?? 0}
-        // `?? 4` invented a seat count in the PRICE BREAKDOWN, which is the one
-        // sheet whose entire job is explaining how the number was reached.
-        seats={trip?.maxSeats ?? trip?.totalSeats ?? 0}
+        seats={1}
+        perSeatPesewas={computedFare ?? trip?.farePerSeatPesewas ?? null}
+        distanceKm={roadRoute?.distanceKm ?? trip?.distanceKm ?? null}
+        durationMin={durationMinutes}
+        deviationSurchargePesewas={(trip as any)?.deviationSurchargePesewas ?? null}
+        cargoSurchargePesewas={(trip as any)?.cargoSurchargePesewas ?? null}
+        promotionPesewas={(trip as any)?.promotionPesewas ?? null}
+        loyaltyDiscountPesewas={(trip as any)?.loyaltyDiscountPesewas ?? 0}
         surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
       />
     </View>

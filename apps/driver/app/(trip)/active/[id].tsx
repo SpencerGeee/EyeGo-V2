@@ -954,6 +954,31 @@ export default function ActiveTripScreen() {
     (n: number, b: any) => n + (b.status === 'BOARDED' || b.status === 'COMPLETED' ? seatsOf(b) : 0),
     0,
   );
+
+  /**
+   * ── IS THERE A SEAT TO SELL AT ALL? ────────────────────────────────────────
+   *
+   * BUGFIX ("I booked 2 seats… I tried to add an offline passenger but it's
+   * allowing me to. Once it's booked I shouldn't be able to").
+   *
+   * "Add Rider" was rendered unconditionally, on every trip, at every occupancy.
+   * Two cases where it should never appear:
+   *
+   *  • A PRIVATE ON-DEMAND RIDE. The vehicle belongs to the party that hailed
+   *    it, however many of them there are; there is no seat that is the
+   *    driver's to sell, and offering one puts a stranger in a car a rider
+   *    booked for their own people.
+   *  • A FULL VEHICLE. Counted as PEOPLE, so a single booking carrying a party
+   *    of three fills three seats — the row-count version of this sum is what
+   *    told the driver "1 of 2 free" about a car with two passengers in it.
+   *
+   * The server refuses both (`PRIVATE_RIDE_NO_OFFLINE_SEATS` / `TRIP_FULL`), so
+   * this is the same rule stated where the driver can see it rather than
+   * discovered as a rejected request.
+   */
+  const isPrivateRide = trip?.isOnDemand === true || (!trip?.routeId && !trip?.route);
+  const occupiedSeats = activeBookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
+  const canAddRider = !isPrivateRide && occupiedSeats < (trip?.maxSeats ?? 0);
   /**
    * ONE FARE DENOMINATOR. Sum the seats that were actually sold, at the price
    * each was actually sold for.
@@ -1522,13 +1547,16 @@ export default function ActiveTripScreen() {
               onLongPress={() => openNavigation(true)}
               colors={colors}
             />
-            <QuickAction
-              icon="person-add-outline"
-              label="Add Rider"
-              color={colors.primary}
-              onPress={() => router.push({ pathname: '/(trip)/add-passenger', params: { tripId: id } })}
-              colors={colors}
-            />
+            {/* Only when there is genuinely a seat to sell — see `canAddRider`. */}
+            {canAddRider && (
+              <QuickAction
+                icon="person-add-outline"
+                label="Add Rider"
+                color={colors.primary}
+                onPress={() => router.push({ pathname: '/(trip)/add-passenger', params: { tripId: id } })}
+                colors={colors}
+              />
+            )}
             <QuickAction
               icon="chatbubble-outline"
               label="Chat"

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useRef, useEffect, useMemo } from 'react';
+﻿import React, { useCallback, useRef, useEffect, useMemo, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -82,16 +82,66 @@ export default function TripCompleteScreen() {
    * know both shapes; distance and vehicle are named explicitly.
    */
   const selectedTrip = useMemo(() => {
-    const snapDistance = ride?.quotedKm ?? (snapshot as any)?.route?.distanceKm ?? null;
-    const origin = originLabel(snapshot as any) ?? originLabel(storeTrip as any);
-    const destination = destinationLabel(snapshot as any) ?? destinationLabel(storeTrip as any);
+    const snap = snapshot as any;
+    /**
+     * DISTANCE, FROM WHICHEVER SOURCE ACTUALLY HAS IT.
+     *
+     * BUGFIX ("on the trip complete page before the rate driver page, it doesn't
+     * seem to be consistent — I can see dashes and it's very minimal").
+     *
+     * The chain stopped at `quotedKm` and `route.distanceKm`. `quotedKm` is read
+     * off the REQUESTED event, which only exists for a hailed ride; `route` only
+     * exists for a group/bus one. A ride that had been dispatched from the map
+     * without a stored quote had neither, so the stats row printed an em-dash on
+     * the one screen whose whole job is to account for the trip.
+     *
+     * `path.distanceKm` is the road geometry the ride was actually driven along,
+     * which is present for every product and is the most honest of the three.
+     */
+    const snapDistance =
+      ride?.quotedKm ??
+      (typeof snap?.path?.distanceKm === 'number' ? snap.path.distanceKm : null) ??
+      snap?.route?.distanceKm ??
+      null;
+
+    /**
+     * DURATION — THE RIDE THAT HAPPENED, NOT THE ONE THAT WAS ESTIMATED.
+     *
+     * This only ever read `storeTrip.durationMinutes`, a field populated by the
+     * GROUP flow's trip picker. An on-demand rider never touches that picker, so
+     * for the primary product it was null on every single receipt and the value
+     * beside the distance was permanently blank.
+     *
+     * The snapshot carries the real timestamps. Wall-clock between departure and
+     * completion is what the rider experienced, so it is what the receipt should
+     * state; the routed estimate is the fallback for a trip whose departure was
+     * never stamped.
+     */
+    const departedAt = snap?.timestamps?.departedAt ? new Date(snap.timestamps.departedAt).getTime() : null;
+    const completedAt = snap?.timestamps?.completedAt ? new Date(snap.timestamps.completedAt).getTime() : null;
+    const elapsedMin =
+      departedAt && completedAt && completedAt > departedAt
+        ? Math.max(1, Math.round((completedAt - departedAt) / 60000))
+        : null;
+
+    const origin = originLabel(snap) ?? originLabel(storeTrip as any);
+    const destination = destinationLabel(snap) ?? destinationLabel(storeTrip as any);
     return {
       origin: origin ? { address: origin } : (storeTrip as any)?.origin ?? null,
       destination: destination ? { address: destination } : (storeTrip as any)?.destination ?? null,
       distanceKm: snapDistance ?? (storeTrip as any)?.distanceKm ?? null,
-      durationMinutes: (storeTrip as any)?.durationMinutes ?? null,
-      vehicle: (snapshot as any)?.vehicle ?? (storeTrip as any)?.vehicle ?? null,
+      durationMinutes:
+        elapsedMin ??
+        (typeof snap?.path?.durationMin === 'number' ? Math.round(snap.path.durationMin) : null) ??
+        (storeTrip as any)?.durationMinutes ??
+        null,
+      vehicle: snap?.vehicle ?? (storeTrip as any)?.vehicle ?? null,
+      driver: snap?.driver ?? (storeTrip as any)?.driver ?? null,
       farePerSeatPesewas: (storeTrip as any)?.farePerSeatPesewas ?? null,
+      /** Whichever of the two ends of the ride we can date the receipt from. */
+      completedAt: snap?.timestamps?.completedAt ?? null,
+      paymentMethod: snap?.fare?.paymentMethod ?? null,
+      tier: snap?.tier ?? null,
     };
   }, [snapshot, storeTrip, ride?.quotedKm]);
 
@@ -133,6 +183,19 @@ export default function TripCompleteScreen() {
    */
   const totalFare: number | null =
     fareBreakdown?.total ??
+    /**
+     * The snapshot's own figure, ahead of the in-memory store.
+     *
+     * `fare.amountPesewas` is what this rider owes for this ride, summed across
+     * every seat they are paying for, and it is on every snapshot. A receipt row
+     * is generated asynchronously after completion, so for the first seconds on
+     * this screen — which is most of the time anyone spends on it, given the 4 s
+     * auto-advance — the receipt query is still in flight and this is the only
+     * real number available. Without it the card showed a skeleton for its
+     * headline and then, for a group flow, a per-seat price that disagreed with
+     * the total once the receipt landed.
+     */
+    ((snapshot as any)?.fare?.amountPesewas as number | undefined) ??
     activeBooking?.fareAmountPesewas ??
     activeBooking?.fare ??
     selectedTrip?.farePerSeatPesewas ??
@@ -148,24 +211,100 @@ export default function TripCompleteScreen() {
    * saying "N seats" is what makes a bigger-than-expected total legible instead of
    * looking like an overcharge.
    */
-  const fareSeatCount = fareBreakdown?.seatCount ?? 1;
-  const farePerSeat = fareBreakdown?.perSeatPesewas ?? null;
+  const fareSeatCount = fareBreakdown?.seatCount ?? (snapshot as any)?.fare?.seatsPaidFor ?? 1;
+  const farePerSeat = fareBreakdown?.perSeatPesewas ?? (snapshot as any)?.fare?.perSeatPesewas ?? null;
+
+  /**
+   * ── THE LINES, AS THE SERVER ADDED THEM UP ─────────────────────────────────
+   *
+   * The old card showed a total and nothing else, which is what "it's very
+   * minimal" is about: a receipt that states a figure and cannot account for it
+   * is a number, not a receipt. Each of these is already on the snapshot's
+   * `fare` block or on the generated receipt; none is computed here, and a line
+   * with nothing behind it is dropped rather than shown as a zero.
+   */
+  const fareLines = useMemo(() => {
+    const snapFare = (snapshot as any)?.fare ?? {};
+    const n = (v: unknown) => (typeof v === 'number' && v > 0 ? v : 0);
+    const rows: { label: string; value: string; accent?: boolean }[] = [];
+
+    if (farePerSeat != null && fareSeatCount > 1) {
+      rows.push({ label: `Seats (× ${fareSeatCount})`, value: formatGhs(farePerSeat * fareSeatCount) });
+    } else if (n(fareBreakdown?.baseFarePesewas)) {
+      rows.push({ label: 'Ride', value: formatGhs(fareBreakdown!.baseFarePesewas) });
+    }
+
+    const cargo = n(snapFare.cargoSurchargePesewas);
+    if (cargo) rows.push({ label: 'Heavy cargo', value: formatGhs(cargo) });
+
+    const deviation = n(snapFare.deviationSurchargePesewas);
+    if (deviation) rows.push({ label: 'Pickup detour', value: formatGhs(deviation) });
+
+    const surcharges = n(fareBreakdown?.surcharges);
+    if (surcharges && !cargo && !deviation) {
+      rows.push({ label: 'Surcharges', value: formatGhs(surcharges) });
+    }
+
+    const fee = n(fareBreakdown?.platformFeePesewas);
+    if (fee) rows.push({ label: 'Service fee', value: formatGhs(fee) });
+
+    const discount = n(fareBreakdown?.discount);
+    if (discount) rows.push({ label: 'Discount', value: `− ${formatGhs(discount)}`, accent: true });
+
+    const tip = n(fareBreakdown?.tip);
+    if (tip) rows.push({ label: 'Tip', value: formatGhs(tip), accent: true });
+
+    return rows;
+  }, [snapshot, fareBreakdown, farePerSeat, fareSeatCount]);
+
+  /** "Paid by mobile money" — sentence case, never the wire's SCREAMING_SNAKE. */
+  const paymentLabel = useMemo(() => {
+    const raw =
+      selectedTrip?.paymentMethod ??
+      (activeBooking as any)?.paymentMethod ??
+      null;
+    if (!raw) return null;
+    const words = String(raw).replace(/_/g, ' ').toLowerCase();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }, [selectedTrip?.paymentMethod, activeBooking]);
+
+  /** The day the ride ended, for the receipt's own dateline. */
+  const completedLabel = useMemo(() => {
+    const when = selectedTrip?.completedAt ?? receiptData?.issuedAt ?? null;
+    if (!when) return null;
+    const d = new Date(when);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-GH', {
+      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    });
+  }, [selectedTrip?.completedAt, receiptData?.issuedAt]);
 
   // Auto-navigate to rating after 4 s — but not when this screen was opened
   // to view an OLD completed trip's receipt from Activity (viewOnly=1). This
   // screen is also the "just finished a ride" celebration/rating funnel, so
   // without this guard, browsing a past receipt would forcibly kick the rider
   // into "rate your driver" for a ride they may have already rated.
+  /**
+   * A READER IS NOT AN IDLE USER.
+   *
+   * The card now carries the itemised fare, the journey and the receipt number,
+   * and four seconds is not enough to read any of it — the screen would snatch
+   * itself away mid-sentence, which is its own kind of "not consistent". Eight
+   * seconds is the unattended default, and touching the page at all cancels the
+   * advance entirely: a rider who is reading their receipt has said what they
+   * want, and the Rate button is right there when they are done.
+   */
+  const [autoAdvance, setAutoAdvance] = useState(true);
   useEffect(() => {
-    if (!id || isViewOnly) return;
+    if (!id || isViewOnly || !autoAdvance) return;
     const timer = setTimeout(() => {
       if (!navigated.current) {
         navigated.current = true;
         router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
       }
-    }, 4000);
+    }, 8000);
     return () => clearTimeout(timer);
-  }, [id, bookingId, router]);
+  }, [id, bookingId, router, isViewOnly, autoAdvance]);
 
   const handleRateAndTip = useCallback(() => {
     navigated.current = true;
@@ -273,6 +412,9 @@ export default function TripCompleteScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        // Any touch means the rider is reading — see `autoAdvance`.
+        onScrollBeginDrag={() => setAutoAdvance(false)}
+        onTouchStart={() => setAutoAdvance(false)}
       >
         {/* Checkmark icon */}
         <MotiView
@@ -330,37 +472,108 @@ export default function TripCompleteScreen() {
             </Text>
           )}
 
-          {/* Route timeline */}
-          <View style={styles.routeRow}>
-            <View style={styles.routeDot} />
-            <Text style={styles.routeText} numberOfLines={1}>
-              {selectedTrip?.origin?.address?.split(',')[0] ?? 'Origin'}
-            </Text>
-          </View>
-          <View style={styles.routeLine} />
-          <View style={styles.routeRow}>
-            <View style={[styles.routeDot, styles.routeDotDest]} />
-            <Text style={styles.routeText} numberOfLines={1}>
-              {selectedTrip?.destination?.address?.split(',')[0] ?? 'Destination'}
-            </Text>
+          {/**
+            * ── THE JOURNEY, AS A SPINE ────────────────────────────────────────
+            *
+            * The addresses were truncated at the first comma, which on a Ghanaian
+            * address is often the whole useful part ("Ring Road East, Accra" kept
+            * only "Ring Road East" — fine; "Shop 4, Oxford Street" kept "Shop 4").
+            * Two lines each, full label, so a receipt names the places it is a
+            * receipt for. The rail beside them is what turns two lines of text
+            * into a trip that went from one to the other.
+            */}
+          <View style={styles.spine}>
+            <View style={styles.spineRail}>
+              <View style={styles.spineDot} />
+              <View style={styles.spineLine} />
+              <View style={[styles.spineDot, styles.spineDotDest]} />
+            </View>
+            <View style={styles.spineBody}>
+              <View>
+                <Text style={styles.spineLabel}>PICKED UP</Text>
+                <Text style={styles.spineText} numberOfLines={2}>
+                  {selectedTrip?.origin?.address ?? 'Your pickup point'}
+                </Text>
+              </View>
+              <View style={styles.spineDrop}>
+                <Text style={styles.spineLabel}>DROPPED OFF</Text>
+                <Text style={styles.spineText} numberOfLines={2}>
+                  {selectedTrip?.destination?.address ?? 'Your destination'}
+                </Text>
+              </View>
+            </View>
           </View>
 
-          <View style={styles.fareCardDivider} />
-
-          {/* Stats row */}
-          <View style={styles.statsRow}>
-            <View>
-              <Text style={styles.statsLabel}>DISTANCE / TIME</Text>
-              <Text style={styles.statsValue}>
-                {selectedTrip?.distanceKm ? formatDistance(selectedTrip.distanceKm) : '—'}
-                {selectedTrip?.durationMinutes ? ` · ${formatDuration(selectedTrip.durationMinutes)}` : ''}
-              </Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.statsLabel}>VEHICLE</Text>
-              <Text style={[styles.statsValue, { color: colors.primary }]}>{vehicleDisplay}</Text>
-            </View>
+          {/**
+            * ── THREE FACTS, NOT TWO AND A DASH ────────────────────────────────
+            *
+            * "DISTANCE / TIME" packed two values into one cell joined by a
+            * slash, so when either was missing the cell read as a bare em-dash
+            * and the other half vanished with it. Separate cells fail
+            * separately: an unknown duration no longer erases a known distance.
+            *
+            * Each cell also hides itself when it has nothing, so the strip is
+            * always full of real numbers rather than padded with placeholders —
+            * which is the actual answer to "I can see dashes".
+            */}
+          <View style={styles.statsStrip}>
+            {selectedTrip?.distanceKm ? (
+              <Stat label="DISTANCE" value={formatDistance(selectedTrip.distanceKm)} styles={styles} />
+            ) : null}
+            {selectedTrip?.durationMinutes ? (
+              <Stat label="DURATION" value={formatDuration(selectedTrip.durationMinutes)} styles={styles} />
+            ) : null}
+            <Stat label="VEHICLE" value={vehicleDisplay} styles={styles} accent={colors.primary} />
           </View>
+
+          {/* The lines behind the total. See `fareLines`. */}
+          {fareLines.length > 0 && (
+            <View style={styles.lines}>
+              {fareLines.map((row) => (
+                <View key={row.label} style={styles.lineRow}>
+                  <Text style={styles.lineLabel}>{row.label}</Text>
+                  <Text style={[styles.lineValue, row.accent && { color: colors.primary }]}>
+                    {row.value}
+                  </Text>
+                </View>
+              ))}
+              <View style={[styles.lineRow, styles.lineTotal]}>
+                <Text style={styles.lineTotalLabel}>Total paid</Text>
+                <Text style={styles.lineTotalValue}>
+                  {fareIsKnown ? formatGhs(totalFare as number) : '…'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Who drove it and how it was settled — the two things a rider looks
+              for on a receipt after the amount. Each is omitted rather than
+              placeholdered when unknown. */}
+          {(selectedTrip?.driver?.name || paymentLabel || completedLabel) && (
+            <View style={styles.footRow}>
+              {selectedTrip?.driver?.name ? (
+                <View style={styles.footItem}>
+                  <Ionicons name="person-circle-outline" size={14} color={colors.onSurfaceVariant} />
+                  {/* First name only — the same privacy rule as the share text. */}
+                  <Text style={styles.footText} numberOfLines={1}>
+                    {String(selectedTrip.driver.name).split(' ')[0]}
+                  </Text>
+                </View>
+              ) : null}
+              {paymentLabel ? (
+                <View style={styles.footItem}>
+                  <Ionicons name="card-outline" size={14} color={colors.onSurfaceVariant} />
+                  <Text style={styles.footText} numberOfLines={1}>{paymentLabel}</Text>
+                </View>
+              ) : null}
+              {completedLabel ? (
+                <View style={styles.footItem}>
+                  <Ionicons name="time-outline" size={14} color={colors.onSurfaceVariant} />
+                  <Text style={styles.footText} numberOfLines={1}>{completedLabel}</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
 
           {/* Receipt link */}
           {receiptNumber && (
@@ -390,6 +603,35 @@ export default function TripCompleteScreen() {
         </MotiView>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+/**
+ * One cell of the stats strip.
+ *
+ * Local and deliberately dumb: three cells with identical structure line up on
+ * the baseline, which three hand-written blocks did not. A cell is only rendered
+ * when its caller has a value, so this never has to decide what to print for
+ * "unknown" — the answer is that the cell is absent.
+ */
+function Stat({
+  label,
+  value,
+  styles,
+  accent,
+}: {
+  label: string;
+  value: string;
+  styles: ReturnType<typeof makeStyles>;
+  accent?: string;
+}) {
+  return (
+    <View style={styles.statCell} accessibilityLabel={`${label}: ${value}`}>
+      <Text style={styles.statLabel}>{label}</Text>
+      <Text style={[styles.statValue, accent ? { color: accent } : null]} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
@@ -475,58 +717,122 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     opacity: 0.5,
     marginBottom: spacing.sm,
   },
-  routeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  routeDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  routeDotDest: {
+  /** The journey rail. Aligned to the first line of text, not to the block. */
+  spine: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xs },
+  spineRail: { width: 12, alignItems: 'center', paddingTop: 18 },
+  spineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
+  spineDotDest: {
     backgroundColor: 'transparent',
     borderWidth: 2,
     borderColor: colors.onSurface,
   },
-  routeLine: {
-    width: 2,
-    height: 16,
+  spineLine: {
+    width: 1.5,
+    flex: 1,
+    minHeight: 28,
+    marginVertical: 5,
+    borderRadius: 1,
     backgroundColor: colors.rimLight,
-    marginLeft: 4,
   },
-  routeText: {
+  spineBody: { flex: 1 },
+  spineDrop: { marginTop: spacing.base },
+  spineLabel: {
+    fontFamily: fonts.medium,
+    fontSize: 9.5,
+    lineHeight: 13,
+    letterSpacing: 1,
+    color: colors.onSurfaceVariant,
+  },
+  spineText: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
-    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.35),
     color: colors.onSurface,
-    flex: 1,
+    marginTop: 2,
   },
-  fareCardDivider: {
-    height: 1,
-    backgroundColor: colors.rimLightSubtle,
-    marginVertical: spacing.xs,
-  },
-  statsRow: {
+
+  /** The stats strip — an inset tray, one radius step in from the card. */
+  statsStrip: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.base,
+    borderRadius: radii.lg,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.rimLightSubtle,
+    marginTop: spacing.xs,
   },
-  statsLabel: {
+  statCell: { flex: 1, gap: 3 },
+  statLabel: {
     fontFamily: fonts.medium,
-    fontSize: 10,
+    fontSize: 9.5,
     lineHeight: 13,
     color: colors.onSurfaceVariant,
-    letterSpacing: 0.8,
-    marginBottom: 4,
+    letterSpacing: 0.9,
   },
-  statsValue: {
+  statValue: {
     fontFamily: fonts.semiBold,
     fontSize: fontSizes.bodyMedium,
     lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
     color: colors.onSurface,
+    // Figures must not shift width between renders as the receipt resolves.
+    fontVariant: ['tabular-nums'],
+  },
+
+  /** The itemisation. Rows, then a ruled total. */
+  lines: { gap: spacing.sm, marginTop: spacing.xs },
+  lineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
+  lineLabel: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.35),
+    color: colors.onSurfaceVariant,
+    flexShrink: 1,
+  },
+  lineValue: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    lineHeight: Math.round(fontSizes.bodySmall * 1.35),
+    color: colors.onSurface,
+    fontVariant: ['tabular-nums'],
+  },
+  lineTotal: {
+    marginTop: spacing.xs,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.rimLightSubtle,
+  },
+  lineTotalLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+    color: colors.onSurface,
+  },
+  lineTotalValue: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSizes.titleSmall,
+    lineHeight: Math.round(fontSizes.titleSmall * 1.25),
+    color: colors.onSurface,
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
+
+  /** Driver, payment, time — quiet metadata, wrapping rather than truncating. */
+  footRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.xs,
+  },
+  footItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  footText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.caption,
+    lineHeight: 16,
+    color: colors.onSurfaceVariant,
   },
   receiptLink: {
     flexDirection: 'row',

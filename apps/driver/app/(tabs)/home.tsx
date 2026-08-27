@@ -1,5 +1,5 @@
 import React, { useRef, useMemo, useEffect, useCallback, useState } from 'react';
-import { formatGhs, originShort, destinationShort } from '@eyego/utils';
+import { formatGhs } from '@eyego/utils';
 import {
   View,
   StyleSheet,
@@ -36,6 +36,7 @@ import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { OnlineToggle } from '../../components/OnlineToggle';
 import { DestinationModeCard } from '../../components/DestinationModeCard';
 import { PendingDispatchList } from '../../components/PendingDispatchList';
+import { LiveTripCard } from '../../components/LiveTripCard';
 import DemandOverlay from '../../components/DemandOverlay';
 import mapStyles from '@eyego/map-styles';
 
@@ -699,37 +700,38 @@ export default function HomeScreen() {
             </Entrance>
           )}
 
-          {/* Active trip / Create trip CTA — the screen's hero action gets the premium ring */}
+          {/**
+            * ── THE HERO SLOT ────────────────────────────────────────────────
+            *
+            * Two completely different states used to share one ring and one
+            * `Button`: "you are in the middle of a ride" and "you have nothing
+            * on". A live trip is not a call to action, it is a situation, and it
+            * now gets a surface that says what phase it is in, who is aboard and
+            * what it pays — see `LiveTripCard`. The empty state keeps the ringed
+            * button, which is the right shape for the one thing there is to do.
+            */}
           <Entrance animation="slideDown" delay={200} style={styles.ctaWrapper}>
-            <GradientGlowBorder
-              palette="driver"
-              fillColor={colors.surfaceContainerHigh}
-              borderRadius={radii['2xl']}
-              glow
-              disabled={!isOnline && !activeTripData}
-              style={styles.ctaGlow}
-            >
-              {activeTripData ? (
-                <>
-                  <View style={styles.activeTripBanner}>
-                    <View style={[styles.activeDot, { backgroundColor: colors.online }]} />
-                    <Text style={styles.activeTripText}>
-                      Active trip: {originShort(activeTripData as any) ?? 'Pickup'} → {destinationShort(activeTripData as any) ?? 'Destination'}
-                    </Text>
-                  </View>
-                  <Button
-                    label="Resume Trip"
-                    onPress={() => router.push(`/(trip)/active/${activeTripData.id}`)}
-                  />
-                </>
-              ) : (
+            {activeTripData ? (
+              <LiveTripCard
+                trip={activeTripData}
+                onPress={() => router.push(`/(trip)/active/${activeTripData.id}` as Href)}
+              />
+            ) : (
+              <GradientGlowBorder
+                palette="driver"
+                fillColor={colors.surfaceContainerHigh}
+                borderRadius={radii['2xl']}
+                glow
+                disabled={!isOnline}
+                style={styles.ctaGlow}
+              >
                 <Button
                   label="+ Create Trip"
                   onPress={() => router.push('/(trip)/create')}
                   disabled={!isOnline}
                 />
-              )}
-            </GradientGlowBorder>
+              </GradientGlowBorder>
+            )}
             {!isOnline && !activeTripData && (
               <Text variant="caption" color={colors.onSurfaceVariant} style={styles.offlineHint}>
                 Go online to start accepting trips
@@ -803,24 +805,9 @@ const makeStyles = (colors: DriverColors) =>
     ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     ctaWrapper: { gap: spacing.md },
     ctaGlow: { padding: spacing.base, gap: spacing.sm },
-    activeTripBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      backgroundColor: `${colors.online}18`,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: `${colors.online}44`,
-      padding: spacing.base,
-    },
-    activeDot: { width: 8, height: 8, borderRadius: 4 },
-    activeTripText: {
-      fontFamily: fonts.medium,
-      fontSize: fontSizes.bodyMedium,
-      lineHeight: Math.round(fontSizes.bodyMedium * 1.4),
-      color: colors.onSurface,
-      flex: 1,
-    },
+    // `activeTripBanner` / `activeDot` / `activeTripText` lived here for the
+    // one-line "Active trip: X → Y" strip. That is now `LiveTripCard`, which
+    // owns its own styles.
     offlineHint: { textAlign: 'center', marginTop: spacing.xs },
     errorBanner: {
       position: 'absolute',

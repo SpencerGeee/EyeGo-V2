@@ -426,6 +426,29 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
           commissionAmountPesewas: finalCommission,
           paymentMethod: normalizePaymentMethod(paymentMethod),
           status: 'SEAT_HELD',
+          /**
+           * THE HOLD HAS TO EXPIRE IN THE DATABASE, NOT JUST IN THE RESPONSE.
+           *
+           * BUGFIX ("I chose to book my seat and invite my group, went back and
+           * chose to book just one seat, but it's showing that one seat is
+           * reserved — which I guess is mine — and if I choose to book again it
+           * would take another one").
+           *
+           * `holdExpiry` was computed here and handed to the client as a
+           * countdown, and that is all it ever was. The ROW carried no deadline,
+           * and SEAT_HELD is in SEAT_OCCUPYING_STATUSES, so the seat counted
+           * against capacity from the moment it was written and nothing ever
+           * wrote it back. Opening the group-invite hub creates one of these
+           * before the rider has agreed to anything; backing out of that screen
+           * left a seat sold to nobody, for the life of the trip.
+           *
+           * The offline-passenger path (drivers.service `addOfflinePassenger`)
+           * already set this and the expiry sweep already looks for it — this
+           * side simply never filled it in. Same column, same sweep, so an
+           * abandoned hold now dies on its own even if every client-side release
+           * fails.
+           */
+          holdExpiresAt: holdExpiry,
           boardingQr,
           guestName,
           guestPhone,

@@ -330,3 +330,15 @@ Decisions:
 - Test the console against a production `next build`, never dev; dev masks nothing but costs minutes per page.
 Rejected: trusting static audit marks for UI correctness — 3 of 8 defects were confidently-wrong on-screen numbers. Grepping "activeTrip" as proof a field is consumed (name matched, shape did not).
 Open: no refund path, no CSV export, SOS alerts reach nobody from the web console.
+
+## 2026-08-27 [saved]
+Goal: 12-item sweep — tier glow colours, dispatch redesign, seat/fare correctness.
+Decisions:
+- `Card` dropped `glowPalette` unless `animated`; that was the Comfort-green bug.
+- Dispatch screen is now a full-bleed pannable map with a docked glass sheet, no ring.
+- Offline seats counted as people and refused on on-demand trips (`assertSeatIsSellable`).
+- Driver ratings are aggregate-only; per-rating rows removed from the API, not hidden.
+- Pre-departure trips get a `toPickup` leg; drop-off preview anchors at the pickup.
+Rejected: keeping a glow ring around a card that sits on a map — four stacked edges.
+Rejected: hardcoded fallback rows in FareBreakdownSheet (the fake "Promotion 10%").
+Open: runtime e2e not run (API down); two rotating rings on Services needs an FPS check.

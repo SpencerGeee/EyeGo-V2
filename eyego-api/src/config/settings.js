@@ -266,8 +266,8 @@ const REGISTRY = [
   },
   {
     key: 'DISPATCH_OFFER_TTL_SECONDS', group: 'dispatch', type: TYPES.INT,
-    label: 'Offer countdown', envDefault: 20, unit: 'seconds',
-    help: 'How long one driver has to accept before the offer moves to the next candidate.',
+    label: 'Offer countdown', envDefault: 45, unit: 'seconds',
+    help: 'How long one driver has to accept before the offer moves to the next candidate. Was 20 s, which is roughly the time it takes a driver at a junction to notice the phone, read the pickup and read the fare — the offer expired while they were still deciding. 45 s is enough to make an actual decision and still short enough that a rider is not left waiting on somebody who has walked away from their handset.',
     min: 5, max: 120,
   },
   {

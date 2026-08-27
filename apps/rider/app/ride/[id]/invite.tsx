@@ -48,6 +48,12 @@ export default function InviteScreen() {
   const [bookingError, setBookingError] = useState<string | null>(null);
   /** The refusal that is a rule rather than a fault — see the error state below. */
   const [alreadyOnARide, setAlreadyOnARide] = useState(false);
+  /**
+   * The seat this screen reserved, while it is still nobody's decision.
+   * Declared up here because `createBooking` writes it — see the release effect
+   * below for the whole story.
+   */
+  const abandonedHoldRef = useRef<string | null>(null);
 
   // Reflect the booking's real server-side heavyCargo flag once it's loaded —
   // this can already be true if the rider left and came back to this screen.
@@ -128,6 +134,9 @@ export default function InviteScreen() {
       setActiveBooking(bookingData);
       setBookingReady(true);
       setBookingError(null);
+      // This screen created the hold, so this screen owns giving it back if the
+      // rider walks away from it — see `abandonedHoldRef`.
+      abandonedHoldRef.current = bookingData?.id ?? null;
     },
     onError: (err: any) => {
       setBookingReady(false);
@@ -159,6 +168,57 @@ export default function InviteScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * ── GIVE THE SEAT BACK WHEN THE RIDER WALKS AWAY ────────────────────────
+   *
+   * BUGFIX ("I chose to book my seat and invite my group, went back and chose to
+   * book just one seat, but it's showing that one seat is reserved — which I
+   * guess is mine — and if I choose to book again it would take another one").
+   *
+   * Opening this screen creates a SEAT_HELD booking before the rider has agreed
+   * to anything: the invite link has to point at a real booking, so the hold
+   * comes first. That is correct, and it is also a decision the rider has not
+   * made yet. Nothing gave the seat back when they tapped Back, so the trip they
+   * returned to had one fewer seat, held by them, and booking "just one seat"
+   * from there would have taken a SECOND one.
+   *
+   * The rule for whether the hold is theirs to keep:
+   *   • somebody has JOINED the group  → the hold is load-bearing, keep it;
+   *   • they went on to PAYMENT        → they are committing, keep it;
+   *   • anything else (Back, the swipe gesture, a push that navigates away)
+   *     → they are not doing this, release it.
+   *
+   * A ref, not state, for the same reason the driver's offline-hold release
+   * uses one: this runs from an unmount cleanup, which sees the values captured
+   * when its effect was created and would otherwise cancel a booking that has
+   * since become real. Fire-and-forget — the server's own hold sweep
+   * (`releaseExpiredSeatHolds`) is the backstop if this never lands.
+   */
+  const keepHold = useCallback(() => {
+    abandonedHoldRef.current = null;
+  }, []);
+
+  useEffect(
+    () => () => {
+      const heldBookingId = abandonedHoldRef.current;
+      if (!heldBookingId) return;
+      abandonedHoldRef.current = null;
+      bookingsApi.cancel(heldBookingId).catch(() => {});
+      // The rider is going back to a screen that shows seat counts, so the
+      // freed seat has to be visible there rather than on the next poll.
+      queryClient.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey as unknown[];
+          return k[0] === 'trip' || k[0] === 'trips' || k[0] === 'bookings';
+        },
+      });
+      setActiveBooking(null as any);
+    },
+    // Mount/unmount only — see the ref note above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   // ── Step 2: Generate the invite link once we have a booking ───────────
   // The bookingId is always a real booking ID — never the trip id.
@@ -209,6 +269,15 @@ export default function InviteScreen() {
   });
 
   const members = groupData?.data?.data?.members ?? [];
+
+  /**
+   * Somebody else is now depending on this seat, so it stops being an abandoned
+   * hold and starts being a group. The host's own row is always in `members`,
+   * which is why the test is "more than one" rather than "any".
+   */
+  useEffect(() => {
+    if (members.length > 1) keepHold();
+  }, [members.length, keepHold]);
 
   /**
    * THE MONEY, AS THE SERVER ADDED IT UP.
@@ -509,7 +578,13 @@ export default function InviteScreen() {
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Group Hub</Text>
-        <Pressable onPress={() => router.replace(`/ride/${id}/payment` as Href)}>
+        <Pressable
+          onPress={() => {
+            // The other way out to payment — same commitment, same rule.
+            keepHold();
+            router.replace(`/ride/${id}/payment` as Href);
+          }}
+        >
           <Text variant="label" color={colors.primary}>Pay</Text>
         </Pressable>
       </View>
@@ -762,6 +837,9 @@ export default function InviteScreen() {
             variant="glow"
             label="Proceed to Payment"
             onPress={() => {
+              // Paying for it is the decision the hold was waiting on, so it is
+              // no longer this screen's to hand back. See `abandonedHoldRef`.
+              keepHold();
               // Same reason as handleChangePickup — payment is a surface-owned
               // push, and backing out of it must land here, not on Where-To.
               expectTripSurfaceReturn();

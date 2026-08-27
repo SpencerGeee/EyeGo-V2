@@ -9,15 +9,40 @@ import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../utils/useColors';
 
 /**
- * Per-trip fare breakdown bottom sheet (matches the client's reference design).
+ * Per-trip fare breakdown bottom sheet.
  *
  * Motion comes from the shared `PanelSheet` engine (spring open, velocity
  * drag-to-dismiss, derived backdrop) — this component owns content only.
  *
- * The exact line-item rates (wait-time, booking fee, fixed platform fee) are
- * presentational config — Ghana-market defaults that mirror the reference
- * screenshots and can be wired to backend config later. Fare, seats, promotion
- * and surge come from the live trip so the headline numbers are always real.
+ * ── EVERY LINE IN HERE IS A REAL NUMBER, OR IT IS NOT IN HERE ───────────────
+ *
+ * BUGFIX ("on the book-this-seat page it shows base fare as 55.19, but on the
+ * price breakdown it shows promotion 10% and all — make sure the price
+ * breakdown is very dynamic and accurate so it's correctly presented per ride").
+ *
+ * The sheet had two branches. The on-demand one itemises the server's own quote
+ * and is correct. The other one — the branch a shared-route seat lands on,
+ * because a group trip is priced on the trip card and never produces a
+ * `POST /rides/quote` breakdown — rendered four CONSTANTS typed in from a
+ * reference screenshot:
+ *
+ *     Wait time    GH₵0.98/MIN
+ *     Booking Fee  6.1%
+ *     Platform Fee GH₵1.00
+ *     Promotion    10%
+ *
+ * None of them were computed from anything. The promotion was the worst of the
+ * four because it is the only one that claims money back: a rider looking at a
+ * GH₵55.19 seat was told they were getting 10% off a fare that had no discount
+ * on it, in the one control whose entire job is to justify the number above it.
+ * The others were quieter but no better — they would have kept quoting 6.1%
+ * forever after an admin retuned the rate from the console.
+ *
+ * The rule now: a line appears when there is a value behind it. A shared-route
+ * seat genuinely has fewer lines than a metered on-demand ride — it is a fixed
+ * seat price, not a meter — so it shows the seat price, the journey it buys,
+ * whatever surcharges are actually on this booking, and the total. Fewer honest
+ * rows beat a full-looking table of invented ones.
  */
 export interface FareBreakdownSheetProps {
   visible: boolean;
@@ -36,12 +61,29 @@ export interface FareBreakdownSheetProps {
   seats: number;
   /** show the "prices temporarily higher" banner (surgeMultiplier > 1) */
   surge?: boolean;
-  promotionPct?: number;
-  /** presentational config — override per market/tier when backend exposes them */
-  waitTimeRate?: number; // GH₵ per minute
-  bookingFeePct?: number;
-  /** Cedis, not pesewas — this was misnamed and read as a fixed GH₵ amount. */
-  platformFeeCedis?: number;
+  /**
+   * ── THE SHARED-SEAT LINES ────────────────────────────────────────────────
+   *
+   * Everything below describes a fixed-price seat on a route trip, which is the
+   * case that used to render invented constants. Each one is optional and each
+   * one is omitted from the render when it is absent, so the sheet can only ever
+   * say things the caller actually knows.
+   */
+  /** Price of ONE seat. `farePesewas × seats` is the total, by construction. */
+  perSeatPesewas?: number | null;
+  /** Road distance the seat buys, in km. */
+  distanceKm?: number | null;
+  /** Road duration, in minutes. */
+  durationMin?: number | null;
+  /** Charged when the rider moved their pickup off the trip's own stop. */
+  deviationSurchargePesewas?: number | null;
+  /** Charged when the rider declared heavy luggage. */
+  cargoSurchargePesewas?: number | null;
+  /**
+   * A REAL promotion, in pesewas off the fare — never a percentage this
+   * component made up. Absent or zero hides the row entirely.
+   */
+  promotionPesewas?: number | null;
   /**
    * The SERVER's own breakdown of this quote, straight off `POST /rides/quote`.
    *
@@ -89,18 +131,18 @@ export interface RideFareBreakdown {
   durationMin?: number;
 }
 
-const gh = (n: number, dp = 2) => `GH₵${n.toFixed(dp)}`;
-
 export function FareBreakdownSheet({
   visible,
   onClose,
   farePesewas,
   seats,
   surge = false,
-  promotionPct = 10,
-  waitTimeRate = 0.98,
-  bookingFeePct = 6.1,
-  platformFeeCedis = 1.0,
+  perSeatPesewas = null,
+  distanceKm = null,
+  durationMin = null,
+  deviationSurchargePesewas = null,
+  cargoSurchargePesewas = null,
+  promotionPesewas = null,
   breakdown = null,
   loyaltyDiscountPesewas = 0,
 }: FareBreakdownSheetProps) {
@@ -109,6 +151,56 @@ export function FareBreakdownSheet({
 
   const hasServerLines = !!breakdown && typeof breakdown.ridePesewas === 'number';
   const px = (n: number | undefined) => (typeof n === 'number' ? n : 0);
+
+  /**
+   * The shared-seat rows, built from what the caller could actually supply.
+   *
+   * `.filter(Boolean)` at the end is the whole design: a row that has no number
+   * behind it does not exist, rather than falling back to a plausible constant.
+   * If every optional field is missing this collapses to the seat price and the
+   * total, which is exactly as much as we honestly know.
+   */
+  const seatRows = useMemo(() => {
+    const unit = perSeatPesewas ?? (seats > 0 ? Math.round(farePesewas / seats) : farePesewas);
+    const rows: { label: string; value: string; accent?: boolean }[] = [];
+
+    rows.push({
+      label: seats > 1 ? `Seat fare (× ${seats})` : 'Seat fare',
+      value: formatGhs(unit),
+    });
+
+    if (typeof distanceKm === 'number' && distanceKm > 0) {
+      rows.push({ label: 'Distance', value: `${distanceKm.toFixed(1)} km` });
+    }
+    if (typeof durationMin === 'number' && durationMin > 0) {
+      rows.push({ label: 'Journey time', value: `${Math.round(durationMin)} min` });
+    }
+    if (px(deviationSurchargePesewas ?? undefined) > 0) {
+      rows.push({ label: 'Pickup detour', value: formatGhs(deviationSurchargePesewas as number) });
+    }
+    if (px(cargoSurchargePesewas ?? undefined) > 0) {
+      rows.push({ label: 'Heavy cargo', value: formatGhs(cargoSurchargePesewas as number) });
+    }
+    if (px(promotionPesewas ?? undefined) > 0) {
+      rows.push({
+        label: 'Promotion',
+        value: `− ${formatGhs(promotionPesewas as number)}`,
+        accent: true,
+      });
+    }
+    if (loyaltyDiscountPesewas > 0) {
+      rows.push({
+        label: 'Good standing discount',
+        value: `− ${formatGhs(loyaltyDiscountPesewas)}`,
+        accent: true,
+      });
+    }
+    return rows;
+  }, [
+    perSeatPesewas, seats, farePesewas, distanceKm, durationMin,
+    deviationSurchargePesewas, cargoSurchargePesewas, promotionPesewas,
+    loyaltyDiscountPesewas,
+  ]);
 
   return (
     <PanelSheet visible={visible} onDismiss={onClose} maxHeightPct={0.8} sheetStyle={styles.sheet}>
@@ -201,12 +293,21 @@ export function FareBreakdownSheet({
           <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
         </>
       ) : (
+        /* A fixed-price seat on a shared route. See the note at the top of this
+           file for why this branch has no wait rate, no booking-fee percentage
+           and no promotion unless one genuinely applies. */
         <>
-          <DottedRow label="Wait time" value={`${gh(waitTimeRate)}/MIN`} colors={colors} styles={styles} />
-          <DottedRow label="Booking Fee" value={`${bookingFeePct}%`} colors={colors} styles={styles} />
-          <DottedRow label="Platform Fee" value={gh(platformFeeCedis)} colors={colors} styles={styles} />
-          <DottedRow label="Promotion" value={`${promotionPct}%`} colors={colors} styles={styles} accent />
-          <DottedRow label="Seats" value={String(seats)} colors={colors} styles={styles} />
+          {seatRows.map((r) => (
+            <DottedRow
+              key={r.label}
+              label={r.label}
+              value={r.value}
+              accent={r.accent}
+              colors={colors}
+              styles={styles}
+            />
+          ))}
+          <DottedRow label="Total" value={formatGhs(farePesewas)} colors={colors} styles={styles} bold />
         </>
       )}
 
@@ -224,18 +325,28 @@ function DottedRow({
   colors,
   styles,
   accent,
+  bold,
 }: {
   label: string;
   value: string;
   colors: Colors;
   styles: ReturnType<typeof makeStyles>;
   accent?: boolean;
+  /** The settled figure at the foot of the list — heavier, with a rule above. */
+  bold?: boolean;
 }) {
   return (
-    <View style={styles.row}>
-      <Text variant="bodyMedium" color={colors.onSurface}>{label}</Text>
+    <View style={[styles.row, bold && styles.totalRow]}>
+      <Text variant={bold ? 'titleSmall' : 'bodyMedium'} color={colors.onSurface}>{label}</Text>
       <View style={styles.dottedLeader} />
-      <Text variant="bodyMedium" color={accent ? colors.primary : colors.onSurface}>{value}</Text>
+      <Text
+        variant={bold ? 'titleSmall' : 'bodyMedium'}
+        color={accent ? colors.primary : colors.onSurface}
+        // Money must not jitter as digits change width between renders.
+        style={styles.rowValue}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -278,6 +389,14 @@ const makeStyles = (colors: Colors) =>
       alignItems: 'flex-end',
       gap: spacing.sm,
       paddingVertical: spacing.md,
+    },
+    /** Tabular figures so the column does not shuffle as amounts change. */
+    rowValue: { fontVariant: ['tabular-nums'] },
+    totalRow: {
+      marginTop: spacing.xs,
+      paddingTop: spacing.base,
+      borderTopWidth: 1,
+      borderTopColor: colors.outlineVariant,
     },
     dottedLeader: {
       flex: 1,

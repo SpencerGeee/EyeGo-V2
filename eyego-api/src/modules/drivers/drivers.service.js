@@ -1663,6 +1663,64 @@ async function arriveTrip(driverId, tripId) {
   return result;
 }
 
+/**
+ * ── A SEAT IS A PERSON, AND A BOOKING CAN BE SEVERAL OF THEM ────────────────
+ *
+ * BUGFIX ("I booked 2 seats on the rider app, boarded with the PIN, and the
+ * driver app still let me add an offline passenger — it says 1 of 2 is free. If
+ * I book 3 seats and the driver verifies my PIN, all 3 seats are booked,
+ * because my people are with me").
+ *
+ * Two distinct faults, both of them the same misreading of the data:
+ *
+ *  1. CAPACITY WAS COUNTED IN ROWS. An on-demand party of N is ONE Booking row
+ *     carrying `seats: N` (see the schema note on `Booking.seats`) sitting in
+ *     one `seatNumber`. Every check here asked "is THIS seat number taken",
+ *     which for a party of two answers yes for seat 1 and no for seat 2 — so a
+ *     full car reported a free seat and sold it.
+ *
+ *  2. A PRIVATE RIDE IS NOT A BUS. On an on-demand trip the vehicle belongs to
+ *     the party that hailed it. There is no seat for a driver to sell, at any
+ *     occupancy, and offering one is a safety problem before it is a billing
+ *     one: it puts a stranger in a car a rider booked for their own people.
+ *
+ * Both paths that create an offline booking go through this, so they cannot
+ * drift apart again.
+ */
+async function assertSeatIsSellable(tx, trip, seatNumber) {
+  // `!routeId` is the same test `trip-view.js` publishes as `isOnDemand`.
+  if (!trip.routeId) {
+    throw new AppError(
+      'This is a private ride. Every seat belongs to the passenger who booked it.',
+      409,
+      'PRIVATE_RIDE_NO_OFFLINE_SEATS',
+    );
+  }
+
+  const occupying = await tx.booking.findMany({
+    where: { tripId: trip.id, ...seatOccupyingWhere() },
+    select: { seatNumber: true, seats: true },
+  });
+
+  // SUM of party sizes, never `occupying.length`.
+  const taken = occupying.reduce((n, b) => n + (b.seats && b.seats > 0 ? b.seats : 1), 0);
+  if (taken >= trip.maxSeats) {
+    throw new AppError('Every seat on this trip is taken', 409, 'TRIP_FULL');
+  }
+
+  /**
+   * A multi-seat booking occupies a RANGE. It is written with one `seatNumber`
+   * — the first of the party's seats — so the seats after it look empty to a
+   * bare equality check even though the people are sitting in them.
+   */
+  const clash = occupying.some((b) => {
+    if (typeof b.seatNumber !== 'number') return false;
+    const span = b.seats && b.seats > 0 ? b.seats : 1;
+    return seatNumber >= b.seatNumber && seatNumber < b.seatNumber + span;
+  });
+  if (clash) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
+}
+
 async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
   const trip = await prisma.trip.findFirst({
     where: { id: tripId, driverId },
@@ -1684,22 +1742,15 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (driver.walletBalancePesewas < commissionAmountPesewas) throw new InsufficientWalletError();
 
-  // Atomically check seat contention + create booking inside a transaction
-  // to prevent overbooking when two drivers add offline passengers concurrently
-  const existing = await prisma.booking.findFirst({
-    where: { tripId, seatNumber, ...seatOccupyingWhere() },
-  });
-  if (existing) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
+  // Fail fast outside the transaction so a full trip or a private ride costs
+  // nothing, then re-assert inside it to catch a concurrent create.
+  await assertSeatIsSellable(prisma, trip, seatNumber);
 
   const otp = otpService.generateOfflineOtp();
   const otpExp = otpService.offlineOtpExpiry();
 
   const booking = await prisma.$transaction(async (tx) => {
-    // Re-check seat inside the tx to catch concurrent creates
-    const conflict = await tx.booking.findFirst({
-      where: { tripId, seatNumber, ...seatOccupyingWhere() },
-    });
-    if (conflict) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
+    await assertSeatIsSellable(tx, trip, seatNumber);
 
     return tx.booking.create({
       data: {
@@ -1777,10 +1828,9 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
   // updateMany + gte re-checks the balance atomically at decrement time, same
   // pattern as wallet.service.js's withdraw().
   return prisma.$transaction(async (tx) => {
-    const conflict = await tx.booking.findFirst({
-      where: { tripId, seatNumber, ...seatOccupyingWhere() },
-    });
-    if (conflict) throw new AppError('Seat already taken', 409, 'SEAT_TAKEN');
+    // Same rule as the phone+OTP path: seats are counted as PEOPLE, and a
+    // private on-demand ride has none to sell. See assertSeatIsSellable.
+    await assertSeatIsSellable(tx, trip, seatNumber);
 
     const debited = await tx.driver.updateMany({
       where: { id: driverId, walletBalancePesewas: { gte: commissionAmountPesewas } },
@@ -2814,22 +2864,56 @@ const COMPLIMENT_TAGS = [
 ];
 
 // ── Ratings ────────────────────────────────────────────────────────
+/**
+ * ── A RATING IS ANONYMOUS, AND ANONYMITY IS A SERVER PROPERTY ───────────────
+ *
+ * FEATURE ("make sure on the ratings of the driver app the driver isn't able to
+ * view the ratings made by riders — it needs to be anonymous so riders can
+ * freely share how they felt").
+ *
+ * This used to return the last ten individual ratings, each with its `tripId`,
+ * its exact `createdAt` and its free-text comment, and it joined `user: { name
+ * }` on top. Even with the name dropped from the response, a driver reading
+ * "2 stars, Tuesday, trip #4821" knows precisely which rider left it — they
+ * drove them. That is not a leak at the edges, it is the whole identification:
+ * a rider who can be worked out is a rider who will not say anything true.
+ *
+ * What a driver legitimately needs is their own STANDING, and that survives
+ * intact: the average, the star histogram, how many ratings it rests on, the
+ * compliment tallies, and the behavioural band. Every one of those is an
+ * aggregate over the whole population of their riders and none of them can be
+ * traced back to a person.
+ *
+ * The individual rows are removed HERE rather than hidden in the app, because a
+ * client-side omission is a decision any future screen (or anyone reading the
+ * response in a proxy) can quietly undo. The payload simply does not contain
+ * them.
+ *
+ * Riders' own comments still reach the people who need to act on them — support
+ * and the admin console read `DriverRating` directly, and the standing rollup
+ * already turns a pattern of low scores into a band the driver can see move.
+ */
 async function getRatings(driverId) {
   // The headline average and the star breakdown both exclude chronic low-raters
-  // so the two agree with each other and with what riders are shown. The recent
-  // list is unfiltered on purpose: a driver should still be able to read every
-  // comment left about them, including the ones that don't count.
+  // so the two agree with each other and with what riders are shown.
   const countableWhere = await ratingIntegrity.ratingWhere({ driverId });
-  const [aggregate, allRatings, recent] = await Promise.all([
+  const [aggregate, allRatings] = await Promise.all([
     prisma.driverRating.aggregate({ where: countableWhere, _avg: { stars: true }, _count: true }),
     prisma.driverRating.findMany({ where: countableWhere, select: { stars: true, comment: true } }),
-    prisma.driverRating.findMany({
-      where: { driverId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      include: { user: { select: { name: true } } },
-    }),
   ]);
+
+  /**
+   * The last thirty days as ONE number, so a driver can still tell whether they
+   * are improving without being able to point at a rider. Deliberately a mean
+   * over a window and not a list: it moves when their driving changes and says
+   * nothing about who rated them.
+   */
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recentAgg = await prisma.driverRating.aggregate({
+    where: { ...countableWhere, createdAt: { gte: since } },
+    _avg: { stars: true },
+    _count: true,
+  });
 
   // Build star breakdown
   const breakdown = [5, 4, 3, 2, 1].map((stars) => {
@@ -2869,12 +2953,16 @@ async function getRatings(driverId) {
     standing,
     breakdown,
     compliments,
-    recent: recent.map((r) => ({
-      tripId: r.tripId,
-      stars: r.stars,
-      comment: r.comment || undefined,
-      createdAt: r.createdAt.toISOString(),
-    })),
+    /**
+     * The 30-day trend, as an aggregate. Replaces the per-rating `recent` list —
+     * see the note on this function. `count` is how many ratings the window
+     * rests on, so the app can hide the figure rather than present a mean of
+     * one as a trend.
+     */
+    last30Days: {
+      average: recentAgg._avg.stars ?? null,
+      count: recentAgg._count,
+    },
   };
 }
 

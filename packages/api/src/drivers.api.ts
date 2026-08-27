@@ -92,12 +92,23 @@ export interface DriverPerformance {
   weeklyGoalProgress: number;
 }
 
+/**
+ * A driver's own standing. Aggregates ONLY — there is deliberately no list of
+ * individual ratings on this type.
+ *
+ * A rating is anonymous, and `recent: { tripId, stars, comment, createdAt }[]`
+ * was not: a driver holding a trip id and a timestamp knows exactly which rider
+ * left the score, because they drove them. The server no longer returns those
+ * rows at all (see `getRatings` in drivers.service.js), so removing the field
+ * here keeps the contract honest rather than describing data that is gone.
+ */
 export interface DriverRatings {
   average: number;
   total: number;
   breakdown: { stars: number; count: number; percentage: number }[];
   compliments: { label: string; count: number; icon: string }[];
-  recent: { tripId: string; stars: number; comment?: string; createdAt: string }[];
+  /** Rolling 30-day mean. `average` is null until the window has any ratings. */
+  last30Days?: { average: number | null; count: number };
 }
 
 export interface DriverDocument {
@@ -130,6 +141,17 @@ export interface CreateTripPayload {
 export interface DriverTrip {
   id: string;
   shortId?: string;
+  /**
+   * A PRIVATE RIDE VERSUS A SHARED ONE — the distinction the offline-passenger
+   * flow turns on.
+   *
+   * `!routeId` is how the server derives it (`trip-view.js`), and it is already
+   * published on every snapshot; it was simply missing from this type, so the
+   * screens that need it had to re-derive it from `routeId` and a truthiness
+   * check on `route`. On an on-demand trip the vehicle belongs to the party that
+   * hailed it and the driver has no seat to sell — see `assertSeatIsSellable`.
+   */
+  isOnDemand?: boolean;
   routeId: string;
   route: {
     id: string;
@@ -168,6 +190,12 @@ export interface DriverTrip {
     id: string;
     userId?: string;
     seatNumber?: number;
+    /**
+     * How many people this ONE row is carrying. An on-demand party of three is a
+     * single booking with `seats: 3`; a group/bus seat is a row of one. Absent
+     * on legacy rows, which are one seat — always read it through `seatsOf`.
+     */
+    seats?: number;
     fareAmountPesewas: number;
     paymentStatus: string;
     status: string;
@@ -498,7 +526,8 @@ export const driverApi = {
       note?: string;
     }>>('/driver/presence', body),
 
-  // Ratings — star breakdown + compliments + recent trip ratings
+  // Ratings — star breakdown, compliments and the 30-day trend. Aggregates
+  // only: individual ratings are anonymous. See DriverRatings.
   getRatings: () =>
     apiClient.get<ApiResponse<DriverRatings>>('/driver/ratings'),
 

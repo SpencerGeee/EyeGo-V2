@@ -2,7 +2,7 @@
 
 const prisma = require('../config/database');
 const { LIVE_STATUSES } = require('./trip-state.service');
-const { peekRouteForTrip } = require('./route-geometry.service');
+const { ensureRouteForTrip } = require('./route-geometry.service');
 const { SEAT_OCCUPYING_STATUSES } = require('../utils/booking-status');
 const supply = require('./supply-index.service');
 const env = require('../config/env');
@@ -548,16 +548,22 @@ function buildTripSnapshot(trip, viewer = {}) {
 /**
  * Serialize, with the cached route line attached.
  *
- * `peek`, never `compute`: rendering a snapshot must not be able to block on a
- * Mapbox round trip, and must not be a way for a client to spend Directions
- * quota by refreshing. The line is produced by the driver's location pipeline;
- * this only hands over whatever that has most recently published.
+ * `peek` for every leg the driver's location pipeline keeps warm: rendering a
+ * snapshot must not be able to block on a Mapbox round trip, and must not be a
+ * way for a client to spend Directions quota by refreshing.
+ *
+ * `ensureRouteForTrip` keeps that rule and adds exactly one exception — the
+ * pre-departure pickup→dropoff PREVIEW, which no location pipeline ever
+ * computes because a bus that is still filling has no live leg being pinged.
+ * Without it the fill-up screen has no line at all for the whole time a rider
+ * is looking at it. That leg is fixed geometry shared by every viewer, so it is
+ * computed once and served from the normal cache. See the note there.
  */
 async function buildTripSnapshotWithPath(trip, viewer = {}) {
   if (!trip) return null;
   let path = null;
   try {
-    path = await peekRouteForTrip(trip);
+    path = await ensureRouteForTrip(trip);
   } catch {
     // A snapshot without a line is still a correct snapshot.
   }

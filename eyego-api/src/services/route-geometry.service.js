@@ -68,6 +68,8 @@ const FALLBACK_KPH = Number(process.env.ETA_FALLBACK_SPEED_KPH) || 22;
 const ROAD_FACTOR = 1.35;
 
 const cacheKey = (tripId, leg) => `route:${tripId}:${leg}`;
+/** In-flight inline previews, so N simultaneous viewers cost one call. See `ensureRouteForTrip`. */
+const inflightPreviews = new Map();
 const strikeKey = (tripId) => `route:${tripId}:strikes`;
 
 /**
@@ -102,6 +104,24 @@ function activeLeg(status) {
 function usable(v) {
   return typeof v === 'number' && Number.isFinite(v);
 }
+
+/**
+ * Statuses where the vehicle has NOT left the pickup yet.
+ *
+ * Two rules key off this, and they are the same fact seen from both ends:
+ * `liveLeg` gives a driver who is still approaching their own pickup the
+ * `toPickup` leg, and `legEndpoints` anchors the drop-off preview at the pickup
+ * rather than at the driver. Written once so those two cannot disagree about
+ * when a trip is under way.
+ */
+const PRE_DEPARTURE_STATUSES = new Set([
+  'SCHEDULED',
+  'FILLING',
+  'CONFIRMED',
+  'DRIVER_ASSIGNED',
+  'DRIVER_EN_ROUTE',
+  'ARRIVED_AT_PICKUP',
+]);
 
 /**
  * How close counts as "already there".
@@ -140,6 +160,44 @@ const AT_PICKUP_METERS = parseInt(process.env.AT_PICKUP_METERS, 10) || 150;
  */
 function liveLeg(trip, driver) {
   const leg = activeLeg(trip?.status);
+
+  /**
+   * A DRIVER DRIVING TO THEIR OWN PICKUP IS ON THE PICKUP LEG, WHATEVER THE
+   * STATUS SAYS.
+   *
+   * BUGFIX ("I made the pickup point on the driver-created trip different from
+   * where I am, and when I start the ride to the pickup it shows a dash for the
+   * calculating ETA and the route polyline is literally a straight line. The
+   * rider app showed the same thing").
+   *
+   * `activeLeg` maps SCHEDULED/FILLING to `toDropoff` so a bus that has not
+   * departed still advertises where it goes. That is right for the rider
+   * browsing the trip and wrong for the driver, who at that moment is nowhere
+   * near the pickup and is driving to it. There was no `toPickup` leg for those
+   * statuses at all, so:
+   *
+   *   - nothing computed a driver→pickup route, hence no ETA and the em-dash;
+   *   - the only line either app had was `toDropoff`, whose origin is the
+   *     driver's own position (see `legEndpoints`) — a single Directions call
+   *     from the driver straight to the destination, cutting past the pickup.
+   *     Drawn over a city that reads exactly as "a straight line".
+   *
+   * So a pre-departure trip whose driver is still more than `AT_PICKUP_METERS`
+   * from the pickup gets the pickup leg, and the existing rule below flips it
+   * back to `toDropoff` the moment they arrive. One threshold, both directions.
+   */
+  if (leg === 'toDropoff' && PRE_DEPARTURE_STATUSES.has(trip?.status)) {
+    const pickup = effectivePickup(trip);
+    if (usable(pickup.lat) && usable(pickup.lng)) {
+      const pos = driverPos(driver);
+      if (pos) {
+        const metres = haversineMeters(pos.lat, pos.lng, pickup.lat, pickup.lng);
+        if (metres > AT_PICKUP_METERS) return 'toPickup';
+      }
+    }
+    return leg;
+  }
+
   if (leg !== 'toPickup') return leg;
 
   const pos = driverPos(driver);
@@ -270,8 +328,26 @@ function legEndpoints(trip, leg, driver) {
   // dashed hint even though the server was being asked for the real road.
   const pickupLat = usable(trip.pickupLat) ? trip.pickupLat : trip.route?.originLat;
   const pickupLng = usable(trip.pickupLng) ? trip.pickupLng : trip.route?.originLng;
-  const originLat = pos ? pos.lat : pickupLat;
-  const originLng = pos ? pos.lng : pickupLng;
+  /**
+   * "Once underway" is the condition, and the status is what says so.
+   *
+   * BUGFIX ("on the waiting-to-fill-up page of the rider tracking page it
+   * doesn't show the route polyline, just the pickup and destination points").
+   *
+   * Starting the drop-off line at the driver is right for a ride IN PROGRESS and
+   * wrong for every state before it. A bus still filling has a driver who may be
+   * across town, so the "where this bus goes" line was drawn from wherever the
+   * driver happened to be — past the pickup, to the destination. That is not the
+   * journey the rider is being sold, and on the fill-up screen (which frames the
+   * pickup and the destination) the line ran off the edge of the framed area and
+   * read as no line at all.
+   *
+   * Pre-departure the drop-off leg is a PREVIEW of the ride: pickup → dropoff,
+   * fixed, cacheable, and identical for every rider looking at the trip.
+   */
+  const underway = !PRE_DEPARTURE_STATUSES.has(trip.status);
+  const originLat = underway && pos ? pos.lat : pickupLat;
+  const originLng = underway && pos ? pos.lng : pickupLng;
   if (!usable(originLat) || !usable(originLng)) return null;
   return { originLat, originLng, destLat, destLng };
 }
@@ -447,6 +523,66 @@ async function peekRouteForTrip(trip, driver = null) {
 }
 
 /**
+ * Peek, and compute ONCE if the answer is a line that can never be wrong.
+ *
+ * BUGFIX ("on the waiting-to-fill-up page of the rider tracking page it doesn't
+ * show the route polyline, just the pickup and destination points").
+ *
+ * `peekRouteForTrip` is read-only by design — a snapshot must not block on a
+ * Mapbox round trip, and a client must not be able to spend Directions quota by
+ * refreshing. The consequence nobody accounted for is a trip that NEVER has a
+ * cache entry: a bus sitting at SCHEDULED/FILLING has no live leg being pinged,
+ * so nothing ever calls `getRouteForTrip`, so `path` is null for the entire
+ * fill-up window — which is most of the time a rider spends looking at it.
+ *
+ * The narrow exception this adds: the PRE-DEPARTURE DROP-OFF PREVIEW. That leg
+ * runs pickup → dropoff, both fixed columns, so it does not move with the
+ * driver, it is identical for every viewer, and one computation serves the whole
+ * trip through the normal 180 s cache. Every other leg still peeks.
+ *
+ * Best-effort throughout: a snapshot with no line is a worse screen, never a
+ * failed request.
+ */
+async function ensureRouteForTrip(trip, driver = null) {
+  const cached = await peekRouteForTrip(trip, driver);
+  if (cached) return cached;
+
+  const leg = liveLeg(trip, driver);
+  // Only the static preview is worth paying for inline — see above.
+  if (leg !== 'toDropoff' || !PRE_DEPARTURE_STATUSES.has(trip?.status)) return null;
+  if (!legEndpoints(trip, leg, driver)) return null;
+
+  /**
+   * ONE DIRECTIONS CALL PER TRIP, NOT ONE PER VIEWER.
+   *
+   * A popular bus can have a dozen riders on its page at once, and they all hit
+   * a cold cache in the same instant — the classic stampede, and the reason the
+   * read-only rule existed in the first place. The Redis cache only helps AFTER
+   * the first call returns; this covers the window before it.
+   *
+   * Keyed by trip and leg, cleared in `finally` so a failure cannot wedge the
+   * entry, and process-local by design: a second API instance racing the first
+   * costs one extra call, which is not worth a distributed lock.
+   */
+  const key = cacheKey(trip.id, leg);
+  const existing = inflightPreviews.get(key);
+  if (existing) return existing;
+
+  const p = (async () => {
+    try {
+      return await getRouteForTrip(trip, driver);
+    } catch (err) {
+      logger.debug('[route] inline preview failed', { tripId: trip?.id, error: err?.message });
+      return null;
+    } finally {
+      inflightPreviews.delete(key);
+    }
+  })();
+  inflightPreviews.set(key, p);
+  return p;
+}
+
+/**
  * Compute the trip's live leg NOW, so the first snapshot after a status change
  * already carries a line and an ETA.
  *
@@ -582,6 +718,8 @@ module.exports = {
   deviationMeters,
   getRouteForTrip,
   peekRouteForTrip,
+  // Peek, plus a one-off compute for the static pre-departure preview line.
+  ensureRouteForTrip,
   warmRouteForTrip,
   clearRouteForTrip,
   etaPayloadFor,

@@ -124,28 +124,41 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
       <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceCard}>
       <Pressable onPress={handlePress}>
         {/**
-         * EVERY TIER GLOWS, IN ITS OWN COLOUR.
+         * ── THREE TIERS, THREE COLOURS, THREE INTENSITIES ────────────────────
          *
-         * BUGFIX ("the premium card clearly has a glow border and it's very
-         * catchy, but the comfort and the economy don't, so they seem left
-         * out"). `glow` and `glowPalette="gold"` were both gated on
-         * `isPremium`, so two of the three products on this screen were flat
-         * grey cards next to a lit one — which does not read as "these are
-         * cheaper", it reads as "these are the ones we didn't finish".
+         * BUGFIX ("make the comfort card glow border blue — its green is
+         * matching the economy, but they all have different tier colours. And
+         * make it a bit intense, so you leave the most intense as the premium.
+         * If you could make that particular one animated as well, but faintly").
          *
-         * The rings are the tier's own colour, so the glow tells the rider what
-         * they are looking at rather than which card we wanted them to press.
+         * The palettes here were always right — `comfort` is the electric blue
+         * sampled from `tierComfort`, `economy` is the tier green. They never
+         * arrived: `Card` only forwarded `glowPalette` on its `glow && animated`
+         * branch, and only PREMIUM was animated, so ECONOMY and COMFORT fell
+         * through to a plain bordered surface painted in `colors.primary`. Two
+         * cards rendering the same hard-coded green is why Comfort looked like
+         * Economy. Fixed in `Card` — the palette now applies whether or not the
+         * ring rotates.
          *
-         * `animated` stays on premium alone, deliberately: the rotating sweep is
-         * the expensive one, and GradientGlowBorder's own note is to keep it to
-         * a single card per screen. Economy and Comfort get the same ring,
-         * static — the difference is motion, not presence.
+         * With colour restored, the three cards are RANKED by glow rather than
+         * separated by presence-vs-absence:
+         *
+         *   ECONOMY   green,  static,   0.55  — present, clearly the quiet one
+         *   COMFORT   blue,   rotating, 0.85  — alive, a step below the flagship
+         *   PREMIUM   gold,   rotating, 1.25  — unmistakably the loudest
+         *
+         * Comfort's motion is the same shared ambient clock Premium rides (one
+         * rotation value drives every ring in the tree), so the second animated
+         * card costs one more gradient layer, not a second animation loop. The
+         * "faintly" is carried by intensity, not by a slower sweep: two rings
+         * turning at different speeds beside each other reads as a glitch.
          */}
         <Card
           padding={0}
           elevated={false}
           glow
-          animated={isPremium}
+          animated={isPremium || tier.tier === 'comfort'}
+          glowIntensity={isPremium ? 1.25 : tier.tier === 'comfort' ? 0.85 : 0.55}
           glowPalette={tier.tier === 'premium' ? 'gold' : tier.tier === 'comfort' ? 'comfort' : 'economy'}
           style={styles.tierCard}
         >

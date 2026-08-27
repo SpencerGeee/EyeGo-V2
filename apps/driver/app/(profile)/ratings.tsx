@@ -62,6 +62,29 @@ export default function RatingsScreen() {
 
   const rating = driver?.rating ?? 0;
 
+  /**
+   * The 30-day trend, derived once. `average` is null until the window has any
+   * ratings in it, which is a real state on a driver who took a fortnight off —
+   * and it must not read as "0.00 stars".
+   */
+  const recentAverage = ratingsData?.last30Days?.average ?? null;
+  const allTime = ratingsData?.average ?? rating;
+  const delta = recentAverage != null ? recentAverage - allTime : 0;
+  const trendLabel =
+    recentAverage == null
+      ? ''
+      : Math.abs(delta) < 0.05
+        ? 'In line with your average'
+        : delta > 0
+          ? `Up ${delta.toFixed(2)} on your average`
+          : `Down ${Math.abs(delta).toFixed(2)} on your average`;
+  const trendColor =
+    recentAverage == null || Math.abs(delta) < 0.05
+      ? colors.onSurfaceVariant
+      : delta > 0
+        ? colors.primary
+        : colors.error;
+
   return (
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
@@ -171,49 +194,68 @@ export default function RatingsScreen() {
           )}
         </MotiView>
 
-        {/* Recent ratings */}
+        {/**
+          * ── THE LAST THIRTY DAYS, AS ONE NUMBER ────────────────────────────
+          *
+          * FEATURE ("make sure on the ratings of the driver app the driver isn't
+          * able to view the ratings made by riders — it needs to be anonymous so
+          * the riders can freely share how they felt").
+          *
+          * This card replaces the "Recent Ratings" list, which printed each
+          * rating with its trip id, its date and its comment. A driver reading
+          * "2 stars, Tuesday, trip #4821" knows exactly which rider wrote it,
+          * because they drove them — the name was never the thing that
+          * identified them. A rider who can be worked out is a rider who does
+          * not say anything true, which costs the driver the honest signal too.
+          *
+          * What is left is the part that is actually useful for improving: is my
+          * recent driving rated better or worse than my all-time average. That
+          * moves when their driving changes and points at nobody.
+          *
+          * The server no longer returns the individual rows at all (see
+          * `getRatings`), so this is not a screen hiding data it still holds.
+          */}
         <MotiView
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', ...springs.standard, delay: 200 }}
           style={styles.card}
         >
-          <Text style={styles.cardTitle}>Recent Ratings</Text>
+          <Text style={styles.cardTitle}>Last 30 days</Text>
           {ratingsData?.total === 0 ? (
             <View style={{ alignItems: 'center', paddingVertical: spacing.xl, gap: spacing.md }}>
               <Ionicons name="star-outline" size={40} color={colors.onSurfaceVariant} />
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-                No ratings yet. Complete trips to receive ratings!
+                No ratings yet. Complete trips to receive ratings.
               </Text>
             </View>
-          ) : !ratingsData?.recent?.length ? (
-            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ paddingVertical: spacing.lg, textAlign: 'center' }}>
-              No ratings yet
+          ) : recentAverage == null ? (
+            <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ paddingVertical: spacing.lg }}>
+              No ratings in the last 30 days. Your all-time average is unchanged.
             </Text>
           ) : (
-            ratingsData.recent.map((r, i) => (
-              <MotiView
-                key={r.tripId}
-                from={{ opacity: 0, translateX: -10 }}
-                animate={{ opacity: 1, translateX: 0 }}
-                transition={{ type: 'spring', ...springs.standard, delay: 220 + i * 50 }}
-                style={[styles.recentRow, i < ratingsData.recent.length - 1 && styles.recentBorder]}
-              >
-                <View style={styles.recentStars}>
-                  {Array.from({ length: 5 }).map((_, j) => (
-                    <Ionicons key={j} name={j < r.stars ? 'star' : 'star-outline'} size={13} color="#F59E0B" />
-                  ))}
-                </View>
-                {r.comment ? (
-                  <Text variant="bodyMedium" color={colors.onSurface} style={styles.recentComment}>
-                    "{r.comment}"
+            <>
+              <View style={styles.trendRow}>
+                <Text style={styles.trendNumber}>{recentAverage.toFixed(2)}</Text>
+                <View style={{ flex: 1, gap: 2 }}>
+                  {/* Only claim a direction when the gap is big enough to be a
+                      direction. Within 0.05 stars, two averages are the same
+                      average with different rounding. */}
+                  <Text style={[styles.trendDelta, { color: trendColor }]}>{trendLabel}</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    from {ratingsData?.last30Days?.count ?? 0} rating
+                    {(ratingsData?.last30Days?.count ?? 0) === 1 ? '' : 's'} · all-time {rating.toFixed(2)}
                   </Text>
-                ) : null}
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {new Date(r.createdAt).toLocaleDateString()}
+                </View>
+              </View>
+              <View style={styles.anonNote}>
+                <Ionicons name="lock-closed-outline" size={13} color={colors.onSurfaceVariant} />
+                <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1, lineHeight: 17 }}>
+                  Ratings are anonymous. Riders rate the trip, not you personally, and
+                  nobody can see who said what.
                 </Text>
-              </MotiView>
-            ))
+              </View>
+            </>
           )}
         </MotiView>
       </ScrollView>
@@ -286,8 +328,34 @@ const makeStyles = (colors: DriverColors) =>
       lineHeight: Math.round((fontSizes.bodySmall ?? 12) * 1.3),
       color: colors.onSurface,
     },
-    recentRow: { paddingVertical: spacing.md, gap: spacing.xs },
-    recentBorder: { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant },
-    recentStars: { flexDirection: 'row', gap: 2 },
-    recentComment: { fontStyle: 'italic', lineHeight: 20 },
+    /** The 30-day trend. One large figure, its reading beside it. */
+    trendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.base,
+      paddingVertical: spacing.xs,
+    },
+    trendNumber: {
+      fontFamily: fonts.displayBold,
+      fontSize: 40,
+      lineHeight: 46,
+      color: colors.onSurface,
+      letterSpacing: -1.6,
+      // The figure must not shift width as the average moves.
+      fontVariant: ['tabular-nums'],
+    },
+    trendDelta: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+    },
+    anonNote: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      marginTop: spacing.md,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.outlineVariant,
+    },
   });

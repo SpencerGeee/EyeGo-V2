@@ -17,7 +17,17 @@ interface CardProps {
   padding?: number;
   /** Ring palette for the glow variant — match it to the card's accent
    * (e.g. 'gold' for the PREMIUM tier card). */
-  glowPalette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort';
+  glowPalette?: 'default' | 'gold' | 'royal' | 'economy' | 'comfort' | 'driver' | 'green' | 'brandGreen';
+  /**
+   * Multiplier on the ring's glow. 1 is the tuned default; below it the card is
+   * present but clearly secondary, above it the card is the loudest on screen.
+   *
+   * This is how a set of cards can share one ring treatment and still be RANKED
+   * — Economy quiet, Comfort brighter, Premium brightest — without three
+   * different components. Passed straight through to GradientGlowBorder, which
+   * clamps it.
+   */
+  glowIntensity?: number;
 }
 
 export function Card({
@@ -29,11 +39,34 @@ export function Card({
   selected = false,
   padding = spacing.base,
   glowPalette,
+  glowIntensity,
 }: CardProps) {
   const colors = useThemedColors();
   const styles = getStyles(colors);
 
-  if (glow && animated) {
+  /**
+   * ── A PALETTE IS A PALETTE WHETHER OR NOT THE RING TURNS ────────────────────
+   *
+   * BUGFIX ("on the services page, make the comfort card glow border blue — its
+   * green is matching the economy, but they all have different tier colours").
+   *
+   * The palette only reached `GradientGlowBorder` on the `glow && animated`
+   * branch. Every other glowing card fell through to the plain `View` below,
+   * whose `styles.glow` paints `colors.primary` — the brand GREEN — into both
+   * the border and the shadow. So the Services screen asked for three tier
+   * colours and got two: gold on PREMIUM, which is animated, and the same green
+   * on ECONOMY and COMFORT, which are not. The Comfort card was not "matching
+   * economy" by accident; the two were rendering the identical hard-coded colour
+   * and the palette prop was being dropped on the floor.
+   *
+   * `animated` now decides one thing only — whether the sweep ROTATES. A static
+   * ring is `disabled`, which is exactly what GradientGlowBorder's own low-power
+   * path renders, so a non-animated card gets its real colour at no extra cost.
+   *
+   * Without a palette the behaviour is unchanged: animated cards keep the
+   * premium blue/orange sweep, plain ones keep the cheap bordered surface.
+   */
+  if (glow && (animated || glowPalette)) {
     return (
       <GradientGlowBorder
         {...(glowPalette
@@ -47,6 +80,9 @@ export function Card({
         fillColor={elevated ? colors.surfaceContainerHigh : colors.surfaceCard}
         borderRadius={radii['2xl']}
         glow
+        glowIntensity={glowIntensity}
+        // Colour always; motion only when asked for.
+        disabled={!animated}
         style={[{ padding }, style]}
       >
         {children}

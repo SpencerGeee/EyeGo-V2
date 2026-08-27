@@ -15,7 +15,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { tripsApi, bookingsApi, ridesApi, queryKeys } from '@eyego/api';
 import { useUnreadNotifications } from '../../hooks/useUnreadNotifications';
 import { useAuthStore } from '../../stores/auth.store';
-import { fonts, spacing, withOpacity } from '@eyego/config';
+import { fonts, fontSizes, radii, spacing, withOpacity } from '@eyego/config';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
@@ -169,6 +169,23 @@ type TripGroup = 'boarding' | 'scheduled';
  */
 const BOARDING_ACCENT = '#FFB020';
 
+/**
+ * The scheduled rail's own colour.
+ *
+ * BUGFIX ("on the homepage of the rider app, the way you've made the scheduled
+ * section and all, it's not nice").
+ *
+ * The rail was rendered with `accent={colors.onSurfaceVariant}` — the token used
+ * for de-emphasised body text. Against an amber "Boarding now" heading directly
+ * above it, a grey heading does not read as "later", it reads as "disabled", and
+ * on a screen where everything else is lit it looked like the section nobody had
+ * finished. Blue is the app's forward-planning colour (it is `tierComfort`, and
+ * the same blue already marks the next-scheduled card and the destination row on
+ * the live-trip card), so the rail is now a peer of the boarding one in a
+ * different key rather than a faded copy of it.
+ */
+const SCHEDULED_ACCENT_TOKEN = 'tierComfort' as const;
+
 const departureOf = (trip: any): Date | null => {
   // `departureTime` is the column; `scheduledAt` was the name the card guessed
   // at, and it does not exist on the search payload — which is why every card
@@ -196,6 +213,162 @@ function departureLabel(trip: any): string {
   const tomorrow = new Date(today.getTime() + 86400000);
   if (at.toDateString() === tomorrow.toDateString()) return `Tomorrow ${time}`;
   return `${at.toLocaleDateString('en-GH', { weekday: 'short', day: 'numeric', month: 'short' })} ${time}`;
+}
+
+/** "Thu" / "Tomorrow" / "Today" plus "06:40" — a departure, split for a stub. */
+function departureParts(trip: any): { day: string; time: string; away: string | null } {
+  const at = departureOf(trip);
+  if (!at) return { day: 'Soon', time: '--:--', away: null };
+  const time = at.toLocaleTimeString('en-GH', { hour: '2-digit', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today.getTime() + 86400000);
+  const day =
+    at.toDateString() === today.toDateString()
+      ? 'Today'
+      : at.toDateString() === tomorrow.toDateString()
+        ? 'Tomorrow'
+        : at.toLocaleDateString('en-GH', { weekday: 'short', day: 'numeric', month: 'short' });
+
+  const mins = Math.round((at.getTime() - Date.now()) / 60000);
+  const away =
+    mins <= 0
+      ? 'Leaving now'
+      : mins < 60
+        ? `in ${mins} min`
+        : mins < 60 * 24
+          ? `in ${Math.floor(mins / 60)} h ${mins % 60 ? `${mins % 60}` : ''}`.trim()
+          : `in ${Math.round(mins / (60 * 24))} days`;
+
+  return { day, time, away };
+}
+
+/**
+ * ── A SCHEDULED RIDE IS A DEPARTURE, NOT A CAR ──────────────────────────────
+ *
+ * FEATURE ("the way you've made the scheduled section and all, it's not nice…
+ * make me proud, I need very aesthetic and premium feels with high-tech stuff").
+ *
+ * The scheduled rail reused `SuggestedTripCard` exactly as-is: tier icon on the
+ * left, destination in the middle, fare on the right, with a grey "calendar"
+ * chip mentioning the day. Two problems, one visual and one about meaning:
+ *
+ *  • VISUALLY it was the same card as the rail above it in a duller colour,
+ *    which is the section-layout-repetition that makes a screen read as
+ *    templated. Four identical rows in two stacked rails is one rail with a
+ *    divider in it.
+ *  • IN MEANING it buried the only fact that distinguishes the product. You do
+ *    not choose a scheduled bus by its tier, you choose it by WHEN IT LEAVES —
+ *    and the time was the smallest, greyest text on the card.
+ *
+ * So the departure becomes the card's left-hand stub: the time set large in the
+ * display face with the day above it and the countdown below, ruled off from the
+ * body by a perforation. The body carries the destination, the tier and the
+ * seats. A boarding-pass shape, which is what this actually is, and a layout
+ * family that appears nowhere else on the screen.
+ */
+function ScheduledTripCard({
+  trip,
+  onPress,
+  colors,
+  styles,
+}: {
+  trip: any;
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const tierColors = getTierColors(colors);
+  const tier = normalizeTier(trip.tier as string | null | undefined);
+  const tierColor = tierColors[tier] ?? tierColors.ECONOMY;
+  const accent = colors[SCHEDULED_ACCENT_TOKEN];
+
+  const { day, time, away } = departureParts(trip);
+
+  const capacity = trip.maxSeats ?? trip.vehicle?.seaterCount ?? 0;
+  const seatsLeft =
+    typeof trip.availableSeats === 'number'
+      ? trip.availableSeats
+      : Math.max(0, capacity - (trip.confirmedSeats ?? 0) - (trip.pendingSeats ?? 0));
+  const seatsLow = seatsLeft <= 2;
+
+  const destination: string | null =
+    trip.route?.destinationName ?? trip.dropoffAddress ?? trip.destination ?? null;
+  const origin: string | null = trip.route?.originName ?? trip.pickupAddress ?? null;
+
+  return (
+    <Pressable
+      style={({ pressed }) => pressed && styles.pressed}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Scheduled ride to ${destination ?? 'your destination'}, departing ${day} at ${time}`}
+    >
+      <GradientGlowBorder
+        palette="comfort"
+        fillColor={colors.surfaceCard}
+        borderRadius={20}
+        thickness="thin"
+        // No outer bloom on a rail: four glowing cards in a column is a haze,
+        // not a hierarchy. The ring alone carries the section's colour.
+        glow={false}
+        disabled
+        style={styles.schedCard}
+      >
+        <GlassSurface borderRadius={18} intensity="low" dark style={styles.schedGlassInset} />
+        <View style={styles.schedRow}>
+          {/* ── The stub: when it leaves ── */}
+          <View style={styles.schedStub}>
+            <Text style={[styles.schedDay, { color: accent }]} numberOfLines={1}>
+              {day.toUpperCase()}
+            </Text>
+            <Text style={styles.schedTime}>{time}</Text>
+            {away ? (
+              <Text style={styles.schedAway} numberOfLines={1}>{away}</Text>
+            ) : null}
+          </View>
+
+          {/* The perforation. A dashed rule reads as a ticket tear; a solid one
+              reads as a table border, and this is not a table. */}
+          <View style={styles.schedPerf} />
+
+          {/* ── The body: where it goes ── */}
+          <View style={styles.schedBody}>
+            <Text style={styles.schedDest} numberOfLines={1}>
+              {destination ?? 'Your destination'}
+            </Text>
+            {origin ? (
+              <View style={styles.schedFromRow}>
+                <Ionicons name="ellipse-outline" size={9} color={colors.onSurfaceVariant} />
+                <Text style={styles.schedFrom} numberOfLines={1}>from {origin}</Text>
+              </View>
+            ) : null}
+            <View style={styles.schedMetaRow}>
+              <View style={[styles.schedTierChip, { backgroundColor: `${tierColor}1A`, borderColor: `${tierColor}33` }]}>
+                <Text style={[styles.schedTierText, { color: tierColor }]}>
+                  {tier.charAt(0) + tier.slice(1).toLowerCase()}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.schedSeats,
+                  { color: seatsLow ? colors.statusError : colors.onSurfaceVariant },
+                ]}
+              >
+                {seatsLeft} seat{seatsLeft !== 1 ? 's' : ''} left
+              </Text>
+            </View>
+          </View>
+
+          {/* ── The fare, and the way in ── */}
+          <View style={styles.schedRight}>
+            <Text style={styles.schedFare}>{formatGhs(trip.farePerSeatPesewas ?? 0)}</Text>
+            <View style={[styles.schedGo, { backgroundColor: `${accent}1F`, borderColor: `${accent}44` }]}>
+              <Ionicons name="arrow-forward" size={13} color={accent} />
+            </View>
+          </View>
+        </View>
+      </GradientGlowBorder>
+    </Pressable>
+  );
 }
 
 function SectionHeading({
@@ -1074,35 +1247,63 @@ export default function HomeScreen() {
               router.push(`/scheduled/${nextScheduledIntent.id}` as any);
             }}
           >
+            {/**
+              * THE RIDER'S OWN NEXT DEPARTURE — the one scheduled thing on this
+              * screen that is already theirs.
+              *
+              * BUGFIX, part of "the way you've made the scheduled section and
+              * all, it's not nice". This was a grey icon tile, a label and a
+              * chevron inside a ring with `glow={false}` — visually the same row
+              * as "Finding your driver" above it, with nothing to say it belongs
+              * to the rider rather than being another thing on offer.
+              *
+              * It now wears the same boarding-pass grammar as the rail below —
+              * departure on the left, tear line, destination on the right — so
+              * the two read as one system, and it keeps the comfort ring LIT
+              * because unlike the rail it is a single card and can afford the
+              * bloom. The countdown is the point: a rider glancing at this wants
+              * "in 2 h 40", not a formatted date they have to subtract from now.
+              */}
             <Animated.View entering={FadeIn.duration(250)} style={styles.statusBentoCard}>
               <GradientGlowBorder
-                palette="green"
+                palette="comfort"
                 fillColor={colors.surfaceCard}
                 borderRadius={24}
-                glow={false}
+                glow
+                glowIntensity={0.7}
+                maxGlowRadius={16}
                 style={styles.statusBentoInner}
               >
-                <View style={styles.statusBentoRow}>
-                  <View style={[styles.statusBentoIcon, { backgroundColor: withOpacity(colors.tierComfort, 0.12) }]}>
-                    <Ionicons name="calendar" size={20} color={colors.tierComfort} />
+                <View style={styles.schedRow}>
+                  <View style={styles.schedStub}>
+                    <Text style={[styles.schedDay, { color: colors.tierComfort }]} numberOfLines={1}>
+                      {departureParts({ departureTime: nextScheduledIntent.scheduledAt }).day.toUpperCase()}
+                    </Text>
+                    <Text style={styles.schedTime}>
+                      {departureParts({ departureTime: nextScheduledIntent.scheduledAt }).time}
+                    </Text>
+                    <Text style={styles.schedAway} numberOfLines={1}>
+                      {departureParts({ departureTime: nextScheduledIntent.scheduledAt }).away ?? ''}
+                    </Text>
                   </View>
-                  <View style={{ flex: 1 }}>
+
+                  <View style={styles.schedPerf} />
+
+                  <View style={styles.schedBody}>
                     <View style={styles.statusBentoLabelRow}>
                       <View style={[styles.statusBentoDot, { backgroundColor: colors.tierComfort }]} />
                       <Text style={styles.statusBentoLabel}>
-                        {nextScheduledIntent.status === 'MATCHED' ? 'DRIVER CONFIRMED' : 'SCHEDULED RIDE'}
+                        {nextScheduledIntent.status === 'MATCHED' ? 'DRIVER CONFIRMED' : 'YOUR SCHEDULED RIDE'}
                       </Text>
                     </View>
-                    <Text style={styles.statusBentoTitle} numberOfLines={1}>
+                    <Text style={styles.schedDest} numberOfLines={1}>
                       {nextScheduledIntent.route?.destinationName ?? 'Your destination'}
                     </Text>
-                    <Text style={styles.statusBentoMeta}>
-                      {new Date(nextScheduledIntent.scheduledAt).toLocaleString('en-GH', {
-                        weekday: 'short', hour: '2-digit', minute: '2-digit',
-                      })}
-                    </Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+
+                  <View style={[styles.schedGo, { backgroundColor: withOpacity(colors.tierComfort, 0.12), borderColor: withOpacity(colors.tierComfort, 0.27) }]}>
+                    <Ionicons name="arrow-forward" size={13} color={colors.tierComfort} />
+                  </View>
                 </View>
               </GradientGlowBorder>
             </Animated.View>
@@ -1177,19 +1378,19 @@ export default function HomeScreen() {
         {!tripsLoading && scheduledTrips.length > 0 && (
           <View style={styles.suggestedSection}>
             <SectionHeading
-              title="Scheduled"
-              subtitle="Booked ahead — the driver sets off at the departure time"
-              accent={colors.onSurfaceVariant}
+              title="Departing later"
+              subtitle="Reserve a seat now and be there when it leaves"
+              accent={colors[SCHEDULED_ACCENT_TOKEN]}
               count={scheduledTrips.length}
               colors={colors}
               styles={styles}
             />
             {scheduledTrips.slice(0, 4).map((trip: any, idx: number) => (
               <Animated.View key={trip.id ?? `s${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
-                <SuggestedTripCard
+                {/* A boarding pass, not another suggestion row — see
+                    `ScheduledTripCard` for why this rail has its own layout. */}
+                <ScheduledTripCard
                   trip={trip}
-                  group="scheduled"
-                  featured={false}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     router.push(`/ride/${trip.id}` as any);
@@ -1674,6 +1875,95 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: 2,
   },
   pressed: { opacity: 0.82 },
+  /**
+   * ── THE SCHEDULED BOARDING PASS ──────────────────────────────────────────
+   * A stub on the left carrying the departure, a dashed perforation, then the
+   * destination. See `ScheduledTripCard` for why this rail does not reuse
+   * `tripCard` below.
+   */
+  schedCard: { width: '100%', overflow: 'hidden' },
+  schedGlassInset: { position: 'absolute', top: 2, left: 2, right: 2, bottom: 2 },
+  schedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  schedStub: { width: 76, alignItems: 'flex-start', gap: 1 },
+  schedDay: {
+    fontFamily: fonts.labelCaps,
+    fontSize: 9.5,
+    lineHeight: 13,
+    letterSpacing: 1,
+  },
+  schedTime: {
+    fontFamily: fonts.displayBold,
+    fontSize: 24,
+    lineHeight: 29,
+    letterSpacing: -0.8,
+    color: colors.onSurface,
+    // A departure board's whole job is that the times line up.
+    fontVariant: ['tabular-nums'],
+  },
+  schedAway: {
+    fontFamily: fonts.monoRegular,
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.onSurfaceVariant,
+  },
+  /** The tear line. Dashed reads as a ticket; solid reads as a table border. */
+  schedPerf: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: 2,
+    borderLeftWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.outlineVariant,
+    opacity: 0.8,
+  },
+  schedBody: { flex: 1, gap: 3 },
+  schedDest: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyLarge,
+    lineHeight: Math.round(fontSizes.bodyLarge * 1.25),
+    color: colors.onSurface,
+    letterSpacing: -0.2,
+  },
+  schedFromRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  schedFrom: {
+    fontFamily: fonts.regular,
+    fontSize: fontSizes.caption,
+    lineHeight: 16,
+    color: colors.onSurfaceVariant,
+    flex: 1,
+  },
+  schedMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3 },
+  schedTierChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  schedTierText: { fontFamily: fonts.semiBold, fontSize: 10, lineHeight: 14, letterSpacing: 0.2 },
+  schedSeats: { fontFamily: fonts.regular, fontSize: fontSizes.caption, lineHeight: 16 },
+  schedRight: { alignItems: 'flex-end', gap: 6 },
+  schedFare: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyLarge,
+    lineHeight: Math.round(fontSizes.bodyLarge * 1.25),
+    color: colors.onSurface,
+    fontVariant: ['tabular-nums'],
+  },
+  schedGo: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   tripCard: {
     width: '100%',
     overflow: 'hidden',

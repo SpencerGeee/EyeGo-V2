@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, AppBackground, MorphTarget, useMorph } from '@eyego/ui';
+import { Text, AppBackground, MorphTarget, useMorph, GlassSurface, getTierTheme } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -16,10 +17,32 @@ import { useDriverStore } from '../../../stores/driver.store';
 import { useDriverTripStore } from '../../../stores/trip.store';
 import { lastKnownReportedFix } from '../../../hooks/useDriverLocation';
 import { DispatchOfferCard, type DispatchOfferView } from '../../../components/dispatch/DispatchOfferCard';
+import { DispatchLiveMap, type DispatchLiveMapHandle } from '../../../components/dispatch/DispatchLiveMap';
 import { morphIdFor } from '../../../components/PendingDispatchList';
 
-/** Fallback window when the payload carries no deadline (the REASSIGNMENT path). */
-const DEFAULT_WINDOW_S = 30;
+/**
+ * How much of the screen the offer sheet is assumed to occupy.
+ *
+ * Used for two things that must agree: the bottom padding handed to the map's
+ * `fitBounds` (so the ride is framed into the space ABOVE the sheet rather than
+ * behind it) and where the "Frame the ride" control sits. A single constant so
+ * the framing and the control cannot drift apart — the failure mode of two
+ * numbers here is a button that floats over the panel it is trying to clear.
+ */
+const SHEET_RESERVE = 430;
+/** Hard ceiling on the sheet so the map is never fully covered on a small phone. */
+const SHEET_MAX_HEIGHT = 560;
+
+/**
+ * Fallback window when the payload carries no deadline (the REASSIGNMENT path).
+ *
+ * Was 30 s, against a server that now holds an offer for 45 (see
+ * `DISPATCH_OFFER_TTL_SECONDS`). A client that counts down faster than the
+ * server's own deadline shows a ring hitting zero on an offer that is still
+ * live — "the dispatch timer is very fast and short" is partly this number and
+ * partly the server's old 20 s. Both are 45 now, so the ring and the hold agree.
+ */
+const DEFAULT_WINDOW_S = 45;
 
 /**
  * THE OFFER SCREEN — what the Dispatch list opens.
@@ -52,6 +75,9 @@ export default function DispatchScreen() {
   const colors = useColors();
   const theme = useDriverStore((s) => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // The chrome floats over a full-bleed map, so the safe area is applied per
+  // element rather than by a SafeAreaView that would inset the map itself.
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const qc = useQueryClient();
   const setActiveTripId = useDriverStore((s) => s.setActiveTripId);
@@ -329,11 +355,87 @@ export default function DispatchScreen() {
     return fix ? coordOf(fix.lng, fix.lat) : null;
   }, []);
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <AppBackground isDark={theme !== 'light'} />
+  /**
+   * The map has been panned away from the ride. Drives the framing control —
+   * see `DispatchLiveMap`.
+   */
+  const [framed, setFramed] = useState(true);
+  const mapRef = useRef<DispatchLiveMapHandle | null>(null);
 
-      <View style={styles.topBar}>
+  /**
+   * The road line, when the server has one for this trip.
+   *
+   * A dispatch offer is pre-assignment, so `path` is usually absent and the map
+   * draws its bowed hint instead. When it IS there — a reassignment on a trip
+   * that already had geometry — drawing the real road costs nothing and is
+   * strictly better than the hint.
+   */
+  const routeGeoJson = useMemo(() => {
+    const g = (heldOffer as any)?.geometry ?? (fetched as any)?.geometry ?? null;
+    if (!g?.coordinates || !Array.isArray(g.coordinates) || g.coordinates.length < 2) return null;
+    return { type: 'Feature', properties: {}, geometry: g } as GeoJSON.Feature;
+  }, [heldOffer, fetched]);
+
+  const tier = getTierTheme(colors as any, offer?.tier);
+  const urgent = secondsLeft != null && secondsLeft <= 5;
+  const warning = secondsLeft != null && secondsLeft <= 10 && !urgent;
+  const accent = urgent ? colors.error : warning ? colors.statusWarning : tier.accent;
+
+  /**
+   * ── THE DISPATCH SCREEN, REBUILT ───────────────────────────────────────────
+   *
+   * "The way the glow borders and all is done, it's not nice… the page needs to
+   * show the map so the driver can pan the map and see how far out the pickup
+   * point is and all. Right now it's looking basic and not well thought of."
+   *
+   * What was actually on the screen before: a scroll view containing ONE card.
+   * That card had a glow ring around it, a 208pt frozen map inside it with its
+   * own vignette, and a glass panel under the map with its own top rim. Stacked
+   * within twenty points of each other, that is four competing edges, and the
+   * outer glow was the loudest of them — hence "the glow borders and all". And
+   * the map, the one element that answers the only question a driver has about
+   * an offer, was a postage stamp that could not be touched.
+   *
+   * The rebuild inverts the composition:
+   *
+   *   THE MAP IS THE PAGE.        Full-bleed, pannable, zoomable. The pickup pin
+   *                               breathes so it is findable at a glance.
+   *   THE OFFER IS AN ISLAND.     Docked at the bottom, glass, top corners only,
+   *                               a grabber, and a draining rail on its top edge.
+   *                               No ring: over a live map a glow smears, and the
+   *                               map already separates the panel from the world.
+   *   PANNING IS SAFE.            The camera is never yanked back. Instead, the
+   *                               moment the driver moves it, a "Frame the ride"
+   *                               control fades in above the sheet, and the map
+   *                               is padded so `fitBounds` frames into the space
+   *                               ABOVE the sheet rather than behind it.
+   *   ONE ACCENT.                 The tier's colour drives the route line, the
+   *                               pickup pin, the rail, the ring and the swipe
+   *                               track together, and urgency overrides all of
+   *                               them at once at ten and five seconds.
+   */
+  return (
+    <View style={styles.safe}>
+      {offer ? (
+        <DispatchLiveMap
+          ref={mapRef}
+          pickup={offer.pickup}
+          dropoff={offer.dropoff}
+          driver={driverAt}
+          routeGeoJson={routeGeoJson}
+          accent={accent}
+          // Framed into the space the sheet does not cover. Without the bottom
+          // inset, half the ride sits behind the panel and the map looks like it
+          // is refusing to show the pickup.
+          padding={{ top: insets.top + 96, bottom: SHEET_RESERVE, left: 52, right: 52 }}
+          onFramedChange={setFramed}
+        />
+      ) : (
+        <AppBackground isDark={theme !== 'light'} />
+      )}
+
+      {/* ── Floating chrome ── */}
+      <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
         <Pressable
           onPress={goHome}
           hitSlop={12}
@@ -341,19 +443,49 @@ export default function DispatchScreen() {
           accessibilityLabel="Back to home"
           style={styles.back}
         >
-          <Ionicons name="chevron-down" size={20} color={colors.onSurfaceVariant} />
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={18} intensity="high" />
+          <Ionicons name="chevron-down" size={20} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.topTitle}>Dispatch</Text>
+        <View style={styles.topTitleWrap}>
+          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.full} intensity="high" />
+          <View style={[styles.topDot, { backgroundColor: accent }]} />
+          <Text style={styles.topTitle}>
+            {offer?.kind === 'REASSIGNMENT' ? 'Up for grabs' : 'New offer'}
+          </Text>
+        </View>
         <View style={{ width: 36 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
-        {offer ? (
-          /**
+      {offer ? (
+        <>
+          {/* Re-frame. Only offered once the driver has actually moved the
+              camera — a control that is always there is a control that says the
+              map is broken. */}
+          {!framed && (
+            <Animated.View
+              entering={FadeIn.duration(160)}
+              exiting={FadeOut.duration(120)}
+              style={[styles.frameFabWrap, { bottom: SHEET_RESERVE + spacing.md }]}
+              pointerEvents="box-none"
+            >
+              <Pressable
+                onPress={() => {
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                  mapRef.current?.frame(true);
+                  setFramed(true);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Frame the whole ride on the map"
+                style={styles.frameFab}
+              >
+                <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.full} intensity="high" />
+                <Ionicons name="scan-outline" size={15} color={accent} />
+                <Text style={[styles.frameFabText, { color: colors.onSurface }]}>Frame the ride</Text>
+              </Pressable>
+            </Animated.View>
+          )}
+
+          {/**
            * THE CARD THE DRIVER TAPPED IS THE CARD THAT LANDS HERE.
            *
            * BUGFIX (item 14: "when you tap on the live dispatch card on the
@@ -372,54 +504,63 @@ export default function DispatchScreen() {
            * `Entrance` is gone from this branch. Two entrance animations on one
            * element fight: the morph is already animating position, size and
            * radius, and a slide-up underneath it was the jitter on arrival.
-           */
-          <MorphTarget id={morphIdFor(id)} borderRadius={radii['3xl']}>
-            <DispatchOfferCard
-              offer={offer}
-              driverAt={driverAt}
-              nowMs={serverNow()}
-              windowMs={windowMs}
-              secondsLeft={secondsLeft}
-              onAccept={handleAccept}
-              onDecline={handleDecline}
-              busy={busy}
-              accepted={accepted}
-            />
-          </MorphTarget>
-        ) : (
-          <View style={styles.empty}>
-            {loading ? (
-              <>
-                <ActivityIndicator color={colors.accent} />
-                <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.emptyText}>
-                  Pulling this ride up…
-                </Text>
-              </>
-            ) : (
-              <>
-                <Ionicons name="cloud-offline-outline" size={30} color={colors.onSurfaceVariant} />
-                <Text style={styles.emptyTitle}>This offer is gone</Text>
-                <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.emptyText}>
-                  It expired, or another driver took it. You are still online and still in the pool.
-                </Text>
-                <Pressable onPress={goHome} style={[styles.emptyBtn, { borderColor: colors.outline }]}>
-                  <Text style={{ fontFamily: fonts.semiBold, color: colors.accent }}>Back to home</Text>
-                </Pressable>
-              </>
-            )}
+           */}
+          <View style={styles.sheetDock} pointerEvents="box-none">
+            <MorphTarget id={morphIdFor(id)} borderRadius={radii['3xl']}>
+              <ScrollView
+                style={{ maxHeight: SHEET_MAX_HEIGHT }}
+                contentContainerStyle={{ paddingBottom: insets.bottom + spacing.base }}
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+              >
+                <DispatchOfferCard
+                  variant="sheet"
+                  offer={offer}
+                  driverAt={driverAt}
+                  nowMs={serverNow()}
+                  windowMs={windowMs}
+                  secondsLeft={secondsLeft}
+                  onAccept={handleAccept}
+                  onDecline={handleDecline}
+                  busy={busy}
+                  accepted={accepted}
+                />
+                {expired ? (
+                  <View style={[styles.expiredNote, { borderColor: colors.outline }]}>
+                    <Ionicons name="time-outline" size={15} color={colors.onSurfaceVariant} />
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                      Offer expired, taking you back
+                    </Text>
+                  </View>
+                ) : null}
+              </ScrollView>
+            </MorphTarget>
           </View>
-        )}
-
-        {expired && offer ? (
-          <View style={[styles.expiredNote, { borderColor: colors.outline }]}>
-            <Ionicons name="time-outline" size={15} color={colors.onSurfaceVariant} />
-            <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-              Offer expired — taking you back
-            </Text>
-          </View>
-        ) : null}
-      </ScrollView>
-    </SafeAreaView>
+        </>
+      ) : (
+        <View style={styles.empty}>
+          {loading ? (
+            <>
+              <ActivityIndicator color={colors.accent} />
+              <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.emptyText}>
+                Pulling this ride up…
+              </Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="cloud-offline-outline" size={30} color={colors.onSurfaceVariant} />
+              <Text style={styles.emptyTitle}>This offer is gone</Text>
+              <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.emptyText}>
+                It expired, or another driver took it. You are still online and still in the pool.
+              </Text>
+              <Pressable onPress={goHome} style={[styles.emptyBtn, { borderColor: colors.outline }]}>
+                <Text style={{ fontFamily: fonts.semiBold, color: colors.accent }}>Back to home</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -432,8 +573,16 @@ function coordOf(lng: unknown, lat: unknown): Coord | null {
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
-    safe: { flex: 1, backgroundColor: 'transparent' },
+    // The map is full-bleed underneath everything, so this must not paint.
+    safe: { flex: 1, backgroundColor: colors.background },
+
+    /** Floating chrome over the map — glass pills, not a bar. */
     topBar: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 4,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -443,17 +592,51 @@ const makeStyles = (colors: DriverColors) =>
     back: {
       width: 36, height: 36, borderRadius: 18,
       alignItems: 'center', justifyContent: 'center',
-      backgroundColor: colors.surfaceContainerHigh,
+      overflow: 'hidden',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.rimLight,
     },
+    topTitleWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.base,
+      height: 36,
+      borderRadius: radii.full,
+      overflow: 'hidden',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.rimLight,
+    },
+    topDot: { width: 6, height: 6, borderRadius: 3 },
     topTitle: {
       fontFamily: fonts.semiBold,
       fontSize: fontSizes.bodyMedium,
-      color: colors.onSurfaceVariant,
-      letterSpacing: 0.4,
+      color: colors.onSurface,
+      letterSpacing: 0.2,
     },
-    scroll: { padding: spacing.lg, paddingTop: spacing.sm, gap: spacing.base },
+
+    /** "Frame the ride" — appears only once the driver has panned away. */
+    frameFabWrap: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 3 },
+    frameFab: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      // 44pt minimum touch target, reached for without looking.
+      minHeight: 44,
+      paddingHorizontal: spacing.lg,
+      borderRadius: radii.full,
+      overflow: 'hidden',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.rimLight,
+    },
+    frameFabText: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
+
+    /** Where the offer docks. `box-none` so the map stays draggable around it. */
+    sheetDock: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2 },
 
     empty: {
+      flex: 1,
+      justifyContent: 'center',
       alignItems: 'center',
       gap: spacing.md,
       paddingVertical: spacing['4xl'],
@@ -479,8 +662,11 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
       paddingVertical: spacing.md,
       borderRadius: radii.full,
       borderWidth: StyleSheet.hairlineWidth,
+      backgroundColor: colors.surfaceCard,
     },
   });

@@ -13,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
+// Seats are counted as PEOPLE, never as booking rows — see `takenSeats`.
+import { bookedSeats, seatsOf } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,20 +57,62 @@ export default function AddPassengerScreen() {
   });
 
   const maxSeats: number = trip?.maxSeats ?? trip?.vehicle?.seatCapacity ?? 14;
+
+  /**
+   * ── A BOOKING CAN BE MORE THAN ONE PERSON ──────────────────────────────────
+   *
+   * BUGFIX ("I booked 2 seats on the rider app, boarded with the PIN, and it
+   * still let me add an offline passenger — it says 1 of 2 is free. If I book 3
+   * seats and the driver verifies my PIN, all 3 are booked, because my people
+   * are with me").
+   *
+   * `rows.map(b => b.seatNumber)` puts ONE number in this set per booking row.
+   * An on-demand party of N is a single row carrying `seats: N` in a single
+   * `seatNumber` (see the schema note on `Booking.seats`), so a party of two
+   * marked seat 1 taken and left seat 2 looking empty — on a two-seat trip that
+   * is exactly the reported "1 of 2 free", and the seat it offered was one the
+   * rider had already paid for and was sitting in.
+   *
+   * A row occupies the RANGE `[seatNumber, seatNumber + seats)`. Rows with no
+   * seat number at all (an on-demand booking made before a seat map existed)
+   * still consume capacity, which is why the free COUNT below is derived from
+   * `bookedSeats` — the shared sum — rather than from this set's size.
+   */
   const takenSeats = useMemo(() => {
     const rows: any[] = trip?.bookings ?? [];
-    return new Set(
-      rows
-        .filter((b) => !['CANCELLED', 'REFUNDED', 'EXPIRED', 'NO_SHOW'].includes(b.status))
-        .map((b) => b.seatNumber)
-        .filter((n): n is number => typeof n === 'number'),
-    );
+    const taken = new Set<number>();
+    rows
+      .filter((b) => !['CANCELLED', 'REFUNDED', 'EXPIRED', 'NO_SHOW'].includes(b.status))
+      .forEach((b) => {
+        if (typeof b.seatNumber !== 'number') return;
+        const span = seatsOf(b);
+        for (let i = 0; i < span; i += 1) taken.add(b.seatNumber + i);
+      });
+    return taken;
   }, [trip]);
 
+  /**
+   * Seats free, counted as PEOPLE. `maxSeats - takenSeats.size` would undercount
+   * the occupancy of any booking with no seat number, so the count comes from
+   * the same `bookedSeats` sum the server and the rider's screens use.
+   */
+  const seatsFree = Math.max(0, maxSeats - bookedSeats(trip as any));
+
   const firstFreeSeat = useMemo(() => {
+    if (seatsFree <= 0) return null;
     for (let n = 1; n <= maxSeats; n += 1) if (!takenSeats.has(n)) return n;
     return null;
-  }, [maxSeats, takenSeats]);
+  }, [maxSeats, takenSeats, seatsFree]);
+
+  /**
+   * A PRIVATE RIDE HAS NO SEAT TO SELL.
+   *
+   * The server refuses this outright (`PRIVATE_RIDE_NO_OFFLINE_SEATS`), and the
+   * screen should never have offered it in the first place: on an on-demand trip
+   * the vehicle belongs to the party that hailed it, so "add a passenger" is
+   * putting a stranger in a car somebody booked for their own people.
+   */
+  const isPrivateRide = trip?.isOnDemand === true || (trip != null && !trip.routeId && !trip.route);
 
   /** Next free seat in `dir`, or the current one if there is none that way. */
   const stepSeat = useCallback(
@@ -233,8 +277,40 @@ export default function AddPassengerScreen() {
             <View style={{ width: 36 }} />
           </View>
 
+          {/**
+            * ── SAY NO BEFORE THE DRIVER HAS TYPED A PHONE NUMBER ─────────────
+            *
+            * Both refusals are enforced on the server, but discovering them from
+            * a rejected request after entering a number and a seat is how the
+            * original bug reads to a driver: the screen offered the seat, so the
+            * seat must exist, so the error must be a fault. Refusing up front,
+            * with the reason, is the difference between a rule and a failure.
+            */}
+          {mode === 'select' && (isPrivateRide || firstFreeSeat == null) && (
+            <Entrance animation="slideDown" style={styles.optionsContainer}>
+              <View style={styles.blockedCard}>
+                <View style={[styles.optionIcon, { backgroundColor: `${colors.onSurfaceVariant}22` }]}>
+                  <Ionicons
+                    name={isPrivateRide ? 'lock-closed-outline' : 'people-outline'}
+                    size={24}
+                    color={colors.onSurfaceVariant}
+                  />
+                </View>
+                <Text style={styles.optionTitle}>
+                  {isPrivateRide ? 'This ride is private' : 'The vehicle is full'}
+                </Text>
+                <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ lineHeight: 21 }}>
+                  {isPrivateRide
+                    ? 'Every seat belongs to the passenger who booked it. Their party travels together, so there is no seat to sell.'
+                    : `All ${maxSeats} seats are taken. A seat frees up if somebody cancels or is marked a no-show.`}
+                </Text>
+                <Button label="Back to trip" variant="secondary" onPress={() => router.back()} />
+              </View>
+            </Entrance>
+          )}
+
           {/* Mode: Select */}
-          {mode === 'select' && (
+          {mode === 'select' && !isPrivateRide && firstFreeSeat != null && (
             <Entrance animation="slideDown" style={styles.optionsContainer}>
               <Text style={styles.sectionTitle}>How is this passenger paying?</Text>
               <Pressable
@@ -299,7 +375,7 @@ export default function AddPassengerScreen() {
                   />
                 </View>
               </View>
-              <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} takenCount={takenSeats.size} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
+              <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} seatsFree={seatsFree} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
               <Button
                 label="Send OTP to Passenger"
                 onPress={() => addByPhone.mutate()}
@@ -344,7 +420,7 @@ export default function AddPassengerScreen() {
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Select the seat number for this passenger.
               </Text>
-              <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} takenCount={takenSeats.size} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
+              <SeatPicker seatNumber={seatNumber} onDecrement={() => stepSeat(-1)} onIncrement={() => stepSeat(1)} canDecrement={canStep(-1)} canIncrement={canStep(1)} seatsFree={seatsFree} maxSeats={maxSeats} soldOut={firstFreeSeat == null} colors={colors} styles={styles} />
               <Button
                 label="Add Cash Passenger"
                 onPress={() => addCash.mutate()}
@@ -366,14 +442,19 @@ export default function AddPassengerScreen() {
  */
 function SeatPicker({
   seatNumber, onDecrement, onIncrement, canDecrement, canIncrement,
-  takenCount, maxSeats, soldOut, colors, styles,
+  seatsFree, maxSeats, soldOut, colors, styles,
 }: {
   seatNumber: number;
   onDecrement: () => void;
   onIncrement: () => void;
   canDecrement: boolean;
   canIncrement: boolean;
-  takenCount: number;
+  /**
+   * Seats free counted as PEOPLE, passed in rather than derived from the taken
+   * set's size — a party of three is one row holding three seats, and a booking
+   * with no seat number still occupies one. See `seatsFree` in the screen.
+   */
+  seatsFree: number;
   maxSeats: number;
   soldOut: boolean;
   colors: DriverColors;
@@ -384,7 +465,7 @@ function SeatPicker({
       <Text variant="caption" color={colors.onSurfaceVariant} style={styles.fieldLabel}>
         {soldOut
           ? 'Every seat is taken'
-          : `Seat number · ${maxSeats - takenCount} of ${maxSeats} free`}
+          : `Seat number · ${seatsFree} of ${maxSeats} free`}
       </Text>
       <View style={styles.seatPickerRow}>
         <Pressable
@@ -465,6 +546,16 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: radii.lg,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    /** The refusal card — same surface as an option row, no chevron, no tap. */
+    blockedCard: {
+      backgroundColor: colors.surfaceContainer,
+      borderRadius: radii.xl,
+      borderWidth: 1.5,
+      borderColor: colors.outline,
+      padding: spacing.xl,
+      gap: spacing.md,
+      alignItems: 'flex-start',
     },
     optionInfo: { flex: 1 },
     optionTitle: {

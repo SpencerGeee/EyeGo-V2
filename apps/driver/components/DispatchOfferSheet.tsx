@@ -57,7 +57,16 @@ export default function DispatchOfferSheet() {
   const [accepted, setAccepted] = useState(false);
   const announced = useRef<string | null>(null);
   /** The window this particular offer opened with, so the ring starts full. */
-  const windowMsRef = useRef(20_000);
+  /**
+   * The ring's starting fraction when the payload carries no deadline.
+   *
+   * Was 20 s, matching the server's old `DISPATCH_OFFER_TTL_SECONDS`. That knob
+   * is 45 now ("the dispatch timer to lose on the driver app is very fast and
+   * short"), and a client that assumes a shorter window than the server holds
+   * draws a ring that empties while the offer is still claimable. Kept in step
+   * with `DEFAULT_WINDOW_S` on the dispatch screen.
+   */
+  const windowMsRef = useRef(45_000);
 
   // One interval, alive only while an offer is on screen. Reading the deadline
   // from the store each tick (rather than counting down local state) means a
