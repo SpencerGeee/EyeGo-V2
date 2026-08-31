@@ -312,6 +312,28 @@ async function start() {
     setInterval(runQuestRegeneration, 60 * 60 * 1000);
 
     /**
+     * Warn drivers before their paperwork lapses.
+     *
+     * Hourly for the same reason quests are: a 24-hour interval measured from
+     * process start lands at whatever time the API last deployed, so "daily"
+     * warnings would go out at 3am for a server restarted at 3am. The sweep
+     * de-duplicates within a run and push is best-effort, so the cost of the
+     * extra frequency is bounded.
+     *
+     * Not fatal, and never blocking: a driver who misses the warning is still
+     * caught by the go-online gate, which is the check that actually matters.
+     */
+    const runDocumentExpiryWarnings = async () => {
+      try {
+        await require('./services/driver-documents.service').runExpiryWarnings();
+      } catch (err) {
+        logger.warn('Document expiry sweep failed (non-blocking):', err.message);
+      }
+    };
+    setImmediate(runDocumentExpiryWarnings);
+    setInterval(runDocumentExpiryWarnings, 60 * 60 * 1000);
+
+    /**
      * SAFETY PRE-FLIGHT — loud, but not fatal.
      *
      * An empty `SOS_ONCALL_PHONES` means a panic alert raises a support ticket

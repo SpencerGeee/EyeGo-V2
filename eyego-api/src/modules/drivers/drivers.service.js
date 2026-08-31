@@ -458,6 +458,18 @@ async function goOnline(driverId, lat, lng) {
         'DOCUMENTS_NOT_VERIFIED',
       );
     }
+
+    /**
+     * Verified is not the same as current.
+     *
+     * The check above asks whether somebody once approved the document. It
+     * cannot ask whether the document is still valid, because `documentReview`
+     * holds a status and no dates — so a licence approved in January was still
+     * "VERIFIED" in December and a lapsed insurance certificate was invisible.
+     * `DriverDocument` carries the dates; this refuses a driver whose paperwork
+     * has run out, and says which. A driver with no dates on file is unaffected.
+     */
+    await require('../../services/driver-documents.service').assertDocumentsCurrent(driverId);
   }
 
   if (driver.walletBalancePesewas < 0) {

@@ -338,6 +338,7 @@ model Driver {
   shifts          DriverShift[]
   destinationPref DriverDestinationPreference?
   vehicleInspections VehicleInspection[]
+  documents          DriverDocument[]
   receipts            DriverReceipt[]
   dispatchActions     DispatchAction[]
   onlineSessions      OnlineSession[]
@@ -1020,6 +1021,63 @@ model DriverDestinationPreference {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────
+// DRIVER DOCUMENTS
+// ─────────────────────────────────────────
+
+/// A driver's compliance paperwork, WITH EXPIRY DATES.
+///
+/// Before this, all of it lived in `Driver.documentReview` — a JSON blob
+/// holding a status per document and nothing else. It could record that a
+/// licence had been verified. It could not record when that licence expired,
+/// and there was no insurance or roadworthiness entry at all. So a driver
+/// approved in January with a certificate expiring in March stayed approved
+/// indefinitely, and the platform had no way to know it was dispatching riders
+/// into an uninsured car. That is a liability the operator carries, not the
+/// driver.
+///
+/// ADDITIVE on purpose. The licence and Ghana-card upload and review path still
+/// runs through `documentReview` and is untouched; this table carries the dates
+/// and the document types that previously had nowhere to live. Rewriting a
+/// working verification flow that cannot be device-tested would trade a real
+/// liability gap for a real regression risk.
+model DriverDocument {
+  id        String   @id @default(cuid())
+  driverId  String
+  driver    Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  /// DRIVERS_LICENSE | GHANA_CARD | INSURANCE | ROADWORTHINESS | VEHICLE_REGISTRATION
+  /// A free-form String, matching this schema's enum-less convention. The
+  /// allow-list lives in services/driver-documents.service.js.
+  type      String
+
+  url       String?
+  /// The document's own number — policy, certificate or licence number. Lets an
+  /// operator check against the issuer without opening the photo.
+  number    String?
+
+  issuedAt  DateTime?
+  /// The whole reason this table exists. Null means no expiry was recorded, and
+  /// is treated as NOT expired: a missing date must never strand a driver whose
+  /// paperwork predates the column.
+  expiresAt DateTime?
+
+  /// PENDING | VERIFIED | REJECTED
+  status          String    @default("PENDING")
+  rejectionReason String?
+  reviewedAt      DateTime?
+  reviewedById    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One row per type per driver. Re-uploading replaces rather than
+  /// accumulating, so "this driver's current insurance" is always a single row.
+  @@unique([driverId, type])
+  /// The nightly expiry sweep scans by date across every driver.
+  @@index([expiresAt])
 }
 
 // ─────────────────────────────────────────
