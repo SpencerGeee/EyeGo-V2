@@ -123,6 +123,29 @@ function fitFor(
   previewCoords: Coord[] | null,
   /** The chosen pickup, which is not necessarily where the rider is standing. */
   pickupPin: Coord | null,
+  /**
+   * The LIVE route the server is currently serving, sampled.
+   *
+   * BUGFIX — "if I board the passenger on the driver app and on the rider app it
+   * shows as on board, it doesn't show a route polyline to the pickup point even
+   * though the driver app says heading to pickup."
+   *
+   * The line was there. The camera was not looking at it. `route-geometry.service`
+   * switches the served leg from `toPickup` to `toDropoff` the moment the driver
+   * comes within 75 m of the pickup — correct, because a zero-length pickup leg
+   * is not a route — so the rider's `path` becomes the whole journey ahead. But
+   * the pre-departure cases below fit `[driver, pickup]`, and those two points
+   * are now the SAME POINT. The map framed a 75 m box and the kilometres-long
+   * line drawn inside it left the viewport immediately, which on a phone is
+   * indistinguishable from no polyline at all.
+   *
+   * A route is a shape, not two endpoints — the same reasoning the `default`
+   * branch already carries for the preview. Folding the live line's own extremes
+   * into every live case makes the camera track whichever leg the server decided
+   * to serve, without this file having to re-derive that decision and get a
+   * third opinion on it.
+   */
+  liveCoords: Coord[] | null,
 ): Coord[] {
   const pickup = coord(snapshot?.pickup?.lng, snapshot?.pickup?.lat);
   const dropoff = coord(snapshot?.dropoff?.lng, snapshot?.dropoff?.lat);
@@ -148,9 +171,9 @@ function fitFor(
     case 'DRIVER_ASSIGNED':
     case 'DRIVER_EN_ROUTE':
     case 'ARRIVED_AT_PICKUP':
-      return [driver, pickup, riderIfDistant].filter(Boolean) as Coord[];
+      return [driver, pickup, riderIfDistant, ...(liveCoords ?? [])].filter(Boolean) as Coord[];
     case 'IN_PROGRESS':
-      return [driver ?? pickup, dropoff].filter(Boolean) as Coord[];
+      return [driver ?? pickup, dropoff, ...(liveCoords ?? [])].filter(Boolean) as Coord[];
     /**
      * WAITING TO FILL UP — THE STATE THIS MAP HAD NO CASE FOR.
      *
@@ -341,6 +364,14 @@ function TripMapImpl() {
     [previewPath],
   );
 
+  /* The server's live line, sampled to its extremes — see `liveCoords` in
+     fitFor. Sampled and not passed whole: a 400-point geometry through a bounds
+     reducer 60 times a second is arithmetic nobody sees. */
+  const liveFitCoords = useMemo(
+    () => sampleRoute(path?.geometry?.coordinates as [number, number][] | undefined),
+    [path],
+  );
+
   const fit = useMemo(
     () => fitFor(
       status,
@@ -351,8 +382,9 @@ function TripMapImpl() {
       driverPins,
       previewFitCoords,
       pickupCoord,
+      liveFitCoords,
     ),
-    [status, snapshot, searchPlace, userCoords, driverPins, previewFitCoords, pickupCoord],
+    [status, snapshot, searchPlace, userCoords, driverPins, previewFitCoords, pickupCoord, liveFitCoords],
   );
 
   /**
@@ -843,9 +875,30 @@ function TripMapImpl() {
           </MapboxGL.MarkerView>
         )}
 
+        {/* THE PICKUP — A PIN, LIKE THE DESTINATION.
+
+            BUGFIX — "on the book a ride page where the map is shown, the pickup
+            point doesn't have a pin, only the destination has one."
+
+            It had a 16 pt dot. On a dark map, next to a 36 pt pin with a shadow
+            and a tail, that does not read as the other end of the same journey —
+            it reads as a stray marker, or as nothing at all. Uber, Bolt and
+            Yango all give both ends a pin and distinguish them by FORM, not by
+            weight: the origin is a ring (you are leaving from here) and the
+            destination is solid (you are going to here).
+
+            So: same silhouette, same tail, same anchor — `bottom`, so the tail
+            sits on the coordinate rather than the pin's middle floating over it.
+            The difference is the core, which is a hollow ring in the pickup
+            accent instead of a filled glyph. */}
         {pickup && (
-          <MapboxGL.MarkerView id="pickup-pin" coordinate={pickup}>
-            <View style={styles.pickupDot} />
+          <MapboxGL.MarkerView id="pickup-pin" coordinate={pickup} anchor="bottom">
+            <View style={styles.destPin}>
+              <View style={styles.pickupPinBubble}>
+                <View style={styles.pickupPinRing} />
+              </View>
+              <View style={styles.pickupPinTail} />
+            </View>
           </MapboxGL.MarkerView>
         )}
 
@@ -960,10 +1013,26 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3, shadowRadius: 5, elevation: 7,
   },
-  pickupDot: {
-    width: 16, height: 16, borderRadius: 8,
-    backgroundColor: colors.onSurface,
-    borderWidth: 3, borderColor: colors.surfaceCard,
+  /** The pickup pin. Same silhouette as `destPin`; see the render note. */
+  pickupPinBubble: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 2.5, borderColor: colors.onSurface,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.28, shadowRadius: 6,
+    elevation: 6,
+  },
+  /* Hollow, not solid: "from here" reads as an origin, "to here" as a target.
+     Concentric with the 32 pt bubble minus its 2.5 pt rim and 4 pt of inset. */
+  pickupPinRing: {
+    width: 11, height: 11, borderRadius: 6,
+    borderWidth: 3, borderColor: colors.onSurface,
+  },
+  pickupPinTail: {
+    width: 0, height: 0,
+    borderLeftWidth: 5.5, borderRightWidth: 5.5, borderTopWidth: 7.5,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.onSurface,
+    marginTop: -1,
   },
   destPin: { alignItems: 'center' },
   destPinBubble: {

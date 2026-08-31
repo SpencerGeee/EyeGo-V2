@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale } from '@eyego/ui';
+import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -99,7 +99,7 @@ export default function TripsScreen() {
         trip={item}
         onPress={() =>
           segment === 'dispatch'
-            ? router.push({
+            ? goDeeper({
                 pathname: '/(trip)/dispatch/[id]',
                 params: {
                   id: item.id,
@@ -109,14 +109,14 @@ export default function TripsScreen() {
                 },
               } as any)
             : segment === 'history'
-            ? router.push(`/(trip)/detail/${item.id}` as any)
-            : router.push(`/(trip)/active/${item.id}`)
+            ? goDeeper(`/(trip)/detail/${item.id}` as any)
+            : goDeeper(`/(trip)/active/${item.id}`)
         }
       />
       {segment === 'history' && item.status === 'COMPLETED' && (
         <Pressable
           style={styles.reportBtn}
-          onPress={() => router.push(`/(trip)/report/${item.id}` as any)}
+          onPress={() => goDeeper(`/(trip)/report/${item.id}` as any)}
         >
           <Ionicons name="flag-outline" size={13} color={colors.onSurfaceVariant} />
           <Text variant="caption" color={colors.onSurfaceVariant}>Report passenger</Text>

@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable } from '@eyego/ui';
+import { MotiView, Pressable, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
@@ -165,7 +165,7 @@ export default function ReserveScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8}>
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>Reserve Seat</Text>

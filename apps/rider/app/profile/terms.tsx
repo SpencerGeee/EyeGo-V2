@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii } from '@eyego/config';
-import { Text, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
+import { Text, AppBackground, backgroundScrollPauseProps, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 
@@ -73,7 +73,7 @@ export default function TermsScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground variant="static" isDark={isDark} />
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Terms of Service</Text>

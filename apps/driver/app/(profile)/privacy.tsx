@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, Loader } from '@eyego/ui';
+import { MotiView, Loader, goBack } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground } from '@eyego/ui';
@@ -25,7 +25,7 @@ export default function PrivacyScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

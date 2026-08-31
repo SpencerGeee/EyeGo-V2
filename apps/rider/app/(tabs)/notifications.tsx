@@ -1,7 +1,7 @@
 ﻿import React, { useMemo, useCallback, useState } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
-import { AnimatedList } from '@eyego/ui';
+import { AnimatedList, goDeeper } from '@eyego/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Entrance } from '@eyego/ui';
@@ -141,7 +141,7 @@ export default function NotificationsScreen() {
     if (!item.read) markRead(item.id);
     // Trip/payment notifications carry a real tripId to jump back into —
     // without this, tapping a notification did nothing but mark it read.
-    if (item.tripId) router.push(`/ride/${item.tripId}` as Href);
+    if (item.tripId) goDeeper(`/ride/${item.tripId}` as Href);
   }, [markRead, router]);
 
   const renderItem = useCallback(({ item, index }: { item: AppNotification; index: number }) => (

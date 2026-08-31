@@ -16,7 +16,7 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -627,7 +627,7 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerCenter}>

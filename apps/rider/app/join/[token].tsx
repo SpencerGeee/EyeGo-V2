@@ -2,7 +2,7 @@
 import { View, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi } from '@eyego/api';
@@ -40,7 +40,7 @@ export default function JoinScreen() {
           </Text>
           <Button
             label="Sign In"
-            onPress={() => router.push('/(auth)/phone')}
+            onPress={() => goDeeper('/(auth)/phone')}
             style={{ marginTop: spacing['2xl'], width: 220 }}
           />
         </View>
@@ -162,7 +162,7 @@ export default function JoinScreen() {
         >
           <Button
             label="Book My Seat"
-            onPress={() => router.push(`/ride/${(trip as any).id}/seat` as any)}
+            onPress={() => goDeeper(`/ride/${(trip as any).id}/seat` as any)}
           />
           <Button
             label="Not now"

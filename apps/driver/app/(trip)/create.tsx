@@ -18,7 +18,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -120,7 +120,7 @@ export default function CreateTripScreen() {
     // Seed with what the field already holds — reopening it to CHECK a place
     // used to throw that place away and re-centre on the driver's own position.
     const current = field === 'origin' ? origin : destination;
-    router.push({
+    goDeeper({
       pathname: '/(trip)/location-picker',
       params: {
         title: field === 'origin' ? 'Set Pickup Point' : 'Set Destination',
@@ -305,7 +305,7 @@ export default function CreateTripScreen() {
             { text: 'OK' },
             {
               text: 'Go to Profile',
-              onPress: () => router.push('/(profile)/vehicle'),
+              onPress: () => goDeeper('/(profile)/vehicle'),
             },
           ]
         );
@@ -335,7 +335,7 @@ export default function CreateTripScreen() {
       <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : router.back())} style={styles.backBtn}>
+        <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : goBack())} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Create Trip</Text>

@@ -9,7 +9,7 @@ import {
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
@@ -79,7 +79,7 @@ export default function DisputeScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
+          <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8}>
             <Ionicons name="close" size={22} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall">Report Issue</Text>
@@ -105,7 +105,7 @@ export default function DisputeScreen() {
             We'll review your report within 24 hours.
           </Text>
           <View style={{ marginTop: spacing['3xl'], width: '100%' }}>
-            <Button label="Done" onPress={() => router.back()} variant="primary" />
+            <Button label="Done" onPress={() => goBack()} variant="primary" />
           </View>
         </MotiView>
       </SafeAreaView>
@@ -115,7 +115,7 @@ export default function DisputeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.iconBtn} hitSlop={8}>
+        <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8}>
           <Ionicons name="close" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={{ width: 40 }} />

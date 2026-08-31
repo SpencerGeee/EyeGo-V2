@@ -2,7 +2,7 @@
 import { View, StyleSheet, ScrollView, TextInput, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, type Href } from 'expo-router';
-import { MotiView, AnimatePresence } from '@eyego/ui';
+import { MotiView, AnimatePresence, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRideStore } from '../../stores/ride.store';
@@ -80,7 +80,7 @@ export default function GuestSelectionScreen() {
       showToast('Booking for yourself', 'info');
     }
     if (next) router.replace(next as Href);
-    else router.back();
+    else goBack();
   }, [selection, name, phone, setGuestInfo, router, showToast, next]);
 
   const isContinueDisabled = false; // Validation now happens inside handleContinue
@@ -90,7 +90,7 @@ export default function GuestSelectionScreen() {
       <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Who is riding?</Text>

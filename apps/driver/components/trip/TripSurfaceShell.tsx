@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, InlayPanel, GradientGlowBorder } from '@eyego/ui';
+import { Text, GlassSurface, InlayPanel, GradientGlowBorder, CardAuroraGlow } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverConnection } from '../../stores/connection.store';
 
@@ -43,12 +43,56 @@ export interface TripSurfaceShellProps {
   overlay?: React.ReactNode;
   /** Panel content. */
   children: React.ReactNode;
+  /**
+   * The trip's status, which tints the panel's bloom. See `AURORA_TINT`.
+   * Optional: with none, the panel wears the app's own blue.
+   */
+  status?: string | null;
 }
+
+/**
+ * ── THE PANEL IS LIT, AND EXACTLY ONE CANVAS DOES IT ────────────────────────
+ *
+ * "On the manage and tracking page, since you removed the Skia background, the
+ * pages look bland. Do something about it."
+ *
+ * Both true, and the removal was still right: the old canvas was a full-screen
+ * raymarch mounted UNDERNEATH a full-screen opaque map, so it painted nothing a
+ * driver ever saw while costing a shader every frame of every trip. Putting it
+ * back would buy the same nothing at the same price.
+ *
+ * The bland part is real and it is somewhere else: the SHEET. That surface is
+ * genuinely visible, it is where the driver looks for the whole trip, and it
+ * was a flat fill. So the canvas moves there — one `CardAuroraGlow`, in the
+ * shell, which is the single component both the manage and tracking screens
+ * build their panel from. One owner, so it is structurally impossible to stack
+ * two of them; the stacked-canvas problem this codebase has paid for twice
+ * cannot recur here.
+ *
+ * `CardAuroraGlow` is a STATIC paint — one gradient, no clock, no loop. On a
+ * screen already running MapLibre and a gesture-driven panel, a breathing
+ * background would be the third thing asking for the same frame.
+ *
+ * The tint follows the trip, so the panel changes colour as the ride advances:
+ * amber on the way to the pickup, violet standing at it, green underway. It is
+ * the cheapest possible "the app knows where I am in this job", and it is the
+ * thing a flat sheet could never say.
+ */
+const AURORA_TINT: Record<string, string> = {
+  DRIVER_ASSIGNED: '#94A3B8',
+  DRIVER_EN_ROUTE: '#F59E0B',
+  ARRIVED_AT_PICKUP: '#A78BFA',
+  IN_PROGRESS: '#4BE277',
+  FILLING: '#3B82F6',
+  SCHEDULED: '#94A3B8',
+  CONFIRMED: '#94A3B8',
+};
 
 export function TripSurfaceShell({
   snapPointsPct = [0.34, 0.66],
   overlay,
   children,
+  status,
 }: TripSurfaceShellProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -91,6 +135,14 @@ export function TripSurfaceShell({
         grabberColor={colors.outline}
         publishMetrics
       >
+        {/* The one canvas. Anchored low and capped well under half alpha, so
+            it lights the sheet's lower edge without ever competing with body
+            text above it — see CardAuroraGlow's own three constraints. */}
+        <CardAuroraGlow
+          color={AURORA_TINT[String(status ?? '').toUpperCase()] ?? colors.primary}
+          intensity={0.16}
+          reach={0.5}
+        />
         <View style={styles.sheetBody}>{children}</View>
       </InlayPanel>
     </>

@@ -14,7 +14,7 @@ import { spacing, radii, fonts, fontSizes, withOpacity , MAX_SEATS_PER_BOOKING, 
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, GlassCard, Button, Pressable } from '@eyego/ui';
+import { Text, GlassCard, Button, Pressable, goDeeper, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -202,7 +202,7 @@ export default function ScheduleRideScreen() {
       {/* ── Header ── */}
       <View style={styles.header}>
         <GlassCard style={styles.backBtnGlass}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+          <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
         </GlassCard>
@@ -221,7 +221,7 @@ export default function ScheduleRideScreen() {
             style={styles.searchBar}
             onPress={() => {
               pickingFieldRef.current = 'pickup';
-              router.push('/profile/place-picker' as any);
+              goDeeper('/profile/place-picker' as any);
             }}
           >
             <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
@@ -238,7 +238,7 @@ export default function ScheduleRideScreen() {
             style={styles.searchBar}
             onPress={() => {
               pickingFieldRef.current = 'dest';
-              router.push('/profile/place-picker' as any);
+              goDeeper('/profile/place-picker' as any);
             }}
           >
             <Ionicons name="navigate-outline" size={18} color={colors.primary} />

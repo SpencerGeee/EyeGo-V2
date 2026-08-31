@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, Loader } from '@eyego/ui';
+import { Text, Button, Loader, goDeeper, goBack , SmoothDefer } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { haptic } from '../../utils/haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
@@ -199,7 +199,7 @@ export default function PlacePickerScreen() {
     if (!place) return;
     haptic.medium();
     setPickedPlace(place);
-    router.back();
+    goBack();
   }, [resolved, center, router]);
 
   // Search from within the picker so it's consistent with the where-to search —
@@ -254,7 +254,7 @@ export default function PlacePickerScreen() {
     setSuggestions([]);
     setSearchedFor(null);
     setPickedPlace(s);
-    router.back();
+    goBack();
   }, [router]);
 
   /**
@@ -273,7 +273,7 @@ export default function PlacePickerScreen() {
   const reportMissingPlace = useCallback(() => {
     haptic.light();
     const at = center ?? myCoords;
-    router.push({
+    goDeeper({
       pathname: '/improve-map/[type]',
       params: {
         type: 'ADD_PLACE',
@@ -286,6 +286,10 @@ export default function PlacePickerScreen() {
   return (
     <View style={styles.root}>
       {initialCoords && (
+                <SmoothDefer /* deferred one beat past the push — see packages/ui/src/motion/smooth */
+          delayMs={120}
+          placeholder={<View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
+        >
         <MapboxGL.MapView
           style={StyleSheet.absoluteFill}
           styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
@@ -303,6 +307,7 @@ export default function PlacePickerScreen() {
             </MapboxGL.MarkerView>
           )}
         </MapboxGL.MapView>
+        </SmoothDefer>
       )}
 
       {/* Fixed center pin — offset up so the pin TIP marks the map center */}
@@ -318,7 +323,7 @@ export default function PlacePickerScreen() {
         <View style={styles.headerRow}>
           <Pressable
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={() => goBack()}
             accessibilityRole="button"
             accessibilityLabel="Cancel"
           >

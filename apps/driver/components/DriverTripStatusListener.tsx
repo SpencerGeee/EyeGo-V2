@@ -13,6 +13,7 @@ import { useNotificationsStore } from '../stores/notifications.store';
 import { useDriverTripStore } from '../stores/trip.store';
 import { useChatUnread } from '../stores/chatUnread.store';
 import { DriverToast, type ToastTone } from './DriverToast';
+import { goDeeper } from '@eyego/ui';
 
 // Hermes-safe property accessor — wraps reads in try-catch because Hermes
 // throws ReferenceError for properties that don't exist on objects deserialized
@@ -379,7 +380,7 @@ export function DriverTripStatusListener() {
     if (!dest?.tripId) return;
     dismissToast();
     if (dest.type === 'chat') {
-      router.push({ pathname: '/(trip)/chat/[id]', params: { id: dest.tripId } } as Href);
+      goDeeper({ pathname: '/(trip)/chat/[id]', params: { id: dest.tripId } } as Href);
     } else if (dest.type === 'dispatch') {
       /**
        * A DISPATCH BANNER IS ONLY A DOOR WHILE THE RIDE IS STILL LIVE.
@@ -402,9 +403,9 @@ export function DriverTripStatusListener() {
         });
         return;
       }
-      router.push({ pathname: '/(trip)/dispatch/[id]', params: { id: dest.tripId, kind: dest.kind } } as Href);
+      goDeeper({ pathname: '/(trip)/dispatch/[id]', params: { id: dest.tripId, kind: dest.kind } } as Href);
     } else {
-      router.push({ pathname: '/(trip)/tracking/[id]', params: { id: dest.tripId } } as Href);
+      goDeeper({ pathname: '/(trip)/tracking/[id]', params: { id: dest.tripId } } as Href);
     }
   };
 

@@ -139,7 +139,21 @@ export interface CameraRef {
     animationDuration?: number;
     padding?: { paddingTop?: number; paddingBottom?: number; paddingLeft?: number; paddingRight?: number };
   }) => void;
-  fitBounds: (coords: LngLat[], edgePadding?: { top?: number; bottom?: number; left?: number; right?: number }, animated?: boolean) => void;
+  /**
+   * `edgePadding` is an EDGE INSET — `top`/`right`/`bottom`/`left`. It is NOT
+   * the `CameraPadding` shape `setCamera` takes (`paddingTop`/…), and handing
+   * that one over here is how every overview fit in the rider app lost its
+   * sheet inset; see the note in useMapCamera's `applyPlan`. Both spellings are
+   * accepted now so the mistake cannot be made again silently.
+   */
+  fitBounds: (
+    coords: LngLat[],
+    edgePadding?: {
+      top?: number; bottom?: number; left?: number; right?: number;
+      paddingTop?: number; paddingBottom?: number; paddingLeft?: number; paddingRight?: number;
+    },
+    animated?: boolean,
+  ) => void;
 }
 
 /**
@@ -542,14 +556,21 @@ export const Camera = React.forwardRef<CameraRef, CameraProps>(function Camera(
         const k = max / total;
         return [a * k, b * k] as const;
       };
+      // Accept either spelling — see the note on CameraRef.fitBounds.
+      const inset = {
+        top: edgePadding?.top ?? edgePadding?.paddingTop ?? 0,
+        bottom: edgePadding?.bottom ?? edgePadding?.paddingBottom ?? 0,
+        left: edgePadding?.left ?? edgePadding?.paddingLeft ?? 0,
+        right: edgePadding?.right ?? edgePadding?.paddingRight ?? 0,
+      };
       const [padTop, padBottom] = clampAxis(
-        Math.max(0, edgePadding?.top ?? 0),
-        Math.max(0, edgePadding?.bottom ?? 0),
+        Math.max(0, inset.top),
+        Math.max(0, inset.bottom),
         winH,
       );
       const [padLeft, padRight] = clampAxis(
-        Math.max(0, edgePadding?.left ?? 0),
-        Math.max(0, edgePadding?.right ?? 0),
+        Math.max(0, inset.left),
+        Math.max(0, inset.right),
         winW,
       );
 

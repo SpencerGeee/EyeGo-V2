@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -176,7 +176,7 @@ export default function DriverOtpScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backButton}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -194,7 +194,7 @@ export default function DriverOtpScreen() {
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
             Sent to {maskedPhone}
           </Text>
-          <Pressable onPress={() => router.back()}>
+          <Pressable onPress={() => goBack()}>
             <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>
               Change number
             </Text>

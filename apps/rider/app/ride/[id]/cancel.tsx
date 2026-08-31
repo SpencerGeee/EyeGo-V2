@@ -12,7 +12,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, AnimatePresence, Pressable } from '@eyego/ui';
+import { MotiView, AnimatePresence, Pressable, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Radio, GlassSurface } from '@eyego/ui';
@@ -190,7 +190,7 @@ export default function CancelRideScreen() {
       <SafeAreaView style={styles.safe}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+          <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8}>
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall" style={{ color: colors.onSurface }}>
@@ -456,7 +456,7 @@ export default function CancelRideScreen() {
         <View style={styles.footer}>
           <Pressable
             style={({ pressed }) => [styles.keepButton, pressed && { transform: [{ scale: 0.98 }] }]}
-            onPress={() => router.back()}
+            onPress={() => goBack()}
           >
             <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
             <Text style={styles.keepButtonText}>Keep My Ride</Text>

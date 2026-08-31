@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { View, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import { fonts, spacing, radii, springs } from '@eyego/config';
 import { Text, AppBackground, backgroundScrollPauseProps } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -78,7 +78,7 @@ export default function TermsScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.header}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} hitSlop={12} style={styles.backBtn}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
         <Text variant="titleMedium" style={styles.headerTitle} color={colors.onSurface}>

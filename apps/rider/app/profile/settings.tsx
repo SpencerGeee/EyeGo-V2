@@ -9,7 +9,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, springs } from '@eyego/config';
-import { Text, Toggle, GlassSurface } from '@eyego/ui';
+import { Text, Toggle, GlassSurface, goDeeper, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 
@@ -22,7 +22,7 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Settings</Text>
@@ -65,7 +65,7 @@ export default function SettingsScreen() {
             NOTIFICATIONS
           </Text>
           <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.card}>
-            <Pressable style={styles.row} onPress={() => router.push('/profile/notification-preferences' as any)}>
+            <Pressable style={styles.row} onPress={() => goDeeper('/profile/notification-preferences' as any)}>
               <View style={styles.rowLeft}>
                 <Ionicons name="notifications-outline" size={20} color={colors.onSurfaceVariant} />
                 <View>

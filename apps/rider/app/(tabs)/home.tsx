@@ -21,7 +21,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
-import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText, normalizeTier, AnnouncementBanner } from '@eyego/ui';
+import { Text, Pressable, Skeleton, Avatar, GlowSearchPressable, MorphSource, type MorphSourceHandle, useMorph, backgroundScrollPauseProps, GradientGlowBorder, GlassSurface, ShinyText, normalizeTier, AnnouncementBanner, goDeeper, SmoothScreen, SmoothIn } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 import MapboxGL from '../../utils/mapbox';
@@ -169,6 +169,21 @@ type TripGroup = 'boarding' | 'scheduled';
  * for too many other things to carry urgency.
  */
 const BOARDING_ACCENT = '#FFB020';
+
+/**
+ * HOW MANY CARDS A RAIL SHOWS BEFORE IT HANDS OVER.
+ *
+ * FEATURE — "if there are about 30 trips created by different drivers and the
+ * user comes to the homepage, currently he'd see a plethora of cards stacked
+ * vertically and would scroll on and on."
+ *
+ * Correct, and the caps that were here (4, 4, 6) only bounded it — fourteen
+ * full-width cards is still a screen nobody reads to the end of, and the rider
+ * had no way to see the fifteenth. Two per rail is a PREVIEW: enough to show
+ * what kind of thing is in there and whether it is worth opening, which is all
+ * a home screen owes. The rest live on /browse, with a map and filters.
+ */
+const RAIL_PREVIEW = 2;
 
 /**
  * The scheduled rail's own colour.
@@ -368,6 +383,49 @@ function ScheduledTripCard({
           </View>
         </View>
       </GradientGlowBorder>
+    </Pressable>
+  );
+}
+
+/**
+ * "SEE ALL 27" — the door out of a preview rail.
+ *
+ * Full-width and 44 pt so it is a real target, not a text link: this is the
+ * primary way a rider reaches the other twenty-five rides, and an underlined
+ * word at the bottom of a list is not a control anyone finds.
+ */
+function SeeAllRow({
+  count,
+  group,
+  accent,
+  colors,
+  styles,
+}: {
+  count: number;
+  group: 'boarding' | 'scheduled' | 'suggested';
+  accent: string;
+  colors: Colors;
+  styles: any;
+}) {
+  if (count <= RAIL_PREVIEW) return null;
+  return (
+    <Pressable
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        goDeeper(`/browse/${group}`);
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={`See all ${count} rides`}
+      style={({ pressed }) => [
+        styles.seeAll,
+        { borderColor: `${accent}44`, backgroundColor: `${accent}0F` },
+        pressed && { opacity: 0.75, transform: [{ scale: 0.99 }] },
+      ]}
+    >
+      <Text style={[styles.seeAllText, { color: accent }]}>
+        See all {count} · map view
+      </Text>
+      <Ionicons name="arrow-forward" size={14} color={accent} />
     </Pressable>
   );
 }
@@ -941,7 +999,7 @@ export default function HomeScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     // Container-transform: the pill flies into the trip surface's search card
     // (route uses animation 'none' + transparentModal, see root _layout).
-    morphTo('where-to-pill', () => router.push('/trip?stage=search' as any));
+    morphTo('where-to-pill', () => goDeeper('/trip?stage=search' as any));
   };
 
   const handleQuickAction = (id: string) => {
@@ -953,10 +1011,28 @@ export default function HomeScreen() {
       promos:   '/profile/promotions',
       wallet:   '/profile/wallet',
     };
-    if (routes[id]) router.push(routes[id] as any);
+    if (routes[id]) goDeeper(routes[id] as any);
   };
 
   return (
+    /*
+      ── WHY THIS SCREEN IS WRAPPED ─────────────────────────────────────────
+      "Clicking on a trip card of the homepage of the rider app and going back
+      to the homepage — it's laggy and jumps back."
+
+      The jump was this screen re-introducing itself. Every card below carried
+      `entering={FadeIn.delay(i * 60)}`, which replays on any commit that
+      recreates the element — and coming back from a push does exactly that, via
+      the focus refetch. So the rider watched a list they had already seen fade
+      in a second time, on top of the pop animation.
+
+      `SmoothScreen` knows the difference between arriving and returning, and
+      `SmoothIn` below asks it. First visit: the stagger, after the transition
+      has finished. Every visit after: already there, no animation at all.
+      `eager` because this is a tab, not a push — there is nothing to defer
+      behind, only the entrance bookkeeping to get right.
+    */
+    <SmoothScreen eager style={{ backgroundColor: 'transparent' }}>
     <View style={[styles.root, { backgroundColor: 'transparent' }]}>
       {/* ── Header ───────────────────────────────────────── */}
       {/*
@@ -996,7 +1072,7 @@ export default function HomeScreen() {
             answer the same question the same way. */}
         <Pressable
           style={styles.avatarBtn}
-          onPress={() => router.push('/(tabs)/account' as any)}
+          onPress={() => goDeeper('/(tabs)/account' as any)}
           accessibilityLabel="Account"
         >
           {user?.avatarUrl ? (
@@ -1012,7 +1088,7 @@ export default function HomeScreen() {
 
         <Pressable
           style={styles.notifBtn}
-          onPress={() => router.push('/(tabs)/notifications' as any)}
+          onPress={() => goDeeper('/(tabs)/notifications' as any)}
           accessibilityLabel="Notifications"
         >
           <Ionicons name="notifications" size={21} color={colors.onSurface} />
@@ -1108,7 +1184,7 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              morphTo('home-active-ride', () => router.push('/trip?stage=assigned' as any));
+              morphTo('home-active-ride', () => goDeeper('/trip?stage=assigned' as any));
             }}
           >
           <Animated.View entering={FadeIn.duration(250)} style={styles.activeBentoCard}>
@@ -1204,7 +1280,7 @@ export default function HomeScreen() {
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 morphTo('home-pending-request', () =>
-                  router.push(
+                  goDeeper(
                     `/trip?stage=request&morphId=home-pending-request&resumeRequestId=${pendingRequestId}` as any,
                   ),
                 );
@@ -1245,7 +1321,7 @@ export default function HomeScreen() {
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push(`/scheduled/${nextScheduledIntent.id}` as any);
+              goDeeper(`/scheduled/${nextScheduledIntent.id}` as any);
             }}
           >
             {/**
@@ -1358,21 +1434,28 @@ export default function HomeScreen() {
               styles={styles}
               shiny
             />
-            {boardingTrips.slice(0, 4).map((trip: any, idx: number) => (
-              <Animated.View key={trip.id ?? `b${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
+            {boardingTrips.slice(0, RAIL_PREVIEW).map((trip: any, idx: number) => (
+              <SmoothIn key={trip.id ?? `b${idx}`} index={idx}>
                 <SuggestedTripCard
                   trip={trip}
                   group="boarding"
                   featured={idx === 0}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push(`/ride/${trip.id}` as any);
+                    goDeeper(`/ride/${trip.id}`);
                   }}
                   colors={colors}
                   styles={styles}
                 />
-              </Animated.View>
+              </SmoothIn>
             ))}
+            <SeeAllRow
+              count={boardingTrips.length}
+              group="boarding"
+              accent={BOARDING_ACCENT}
+              colors={colors}
+              styles={styles}
+            />
           </View>
         )}
 
@@ -1386,21 +1469,28 @@ export default function HomeScreen() {
               colors={colors}
               styles={styles}
             />
-            {scheduledTrips.slice(0, 4).map((trip: any, idx: number) => (
-              <Animated.View key={trip.id ?? `s${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
+            {scheduledTrips.slice(0, RAIL_PREVIEW).map((trip: any, idx: number) => (
+              <SmoothIn key={trip.id ?? `s${idx}`} index={idx}>
                 {/* A boarding pass, not another suggestion row — see
                     `ScheduledTripCard` for why this rail has its own layout. */}
                 <ScheduledTripCard
                   trip={trip}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push(`/ride/${trip.id}` as any);
+                    goDeeper(`/ride/${trip.id}`);
                   }}
                   colors={colors}
                   styles={styles}
                 />
-              </Animated.View>
+              </SmoothIn>
             ))}
+            <SeeAllRow
+              count={scheduledTrips.length}
+              group="scheduled"
+              accent={colors[SCHEDULED_ACCENT_TOKEN]}
+              colors={colors}
+              styles={styles}
+            />
           </View>
         )}
 
@@ -1415,22 +1505,47 @@ export default function HomeScreen() {
               styles={styles}
               shiny
             />
-            {suggestedTrips.slice(0, 6).map((trip: any, idx: number) => (
-              <Animated.View key={trip.id ?? `g${idx}`} entering={FadeIn.delay(idx * 60).duration(200)}>
+            {suggestedTrips.slice(0, RAIL_PREVIEW).map((trip: any, idx: number) => (
+              <SmoothIn key={trip.id ?? `g${idx}`} index={idx}>
                 <SuggestedTripCard
                   trip={trip}
                   group={groupOf(trip)}
                   featured={boardingTrips.length === 0 && idx === 0}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push(`/ride/${trip.id}` as any);
+                    goDeeper(`/ride/${trip.id}`);
                   }}
                   colors={colors}
                   styles={styles}
                 />
-              </Animated.View>
+              </SmoothIn>
             ))}
+            <SeeAllRow
+              count={suggestedTrips.length}
+              group="suggested"
+              accent={colors.primary}
+              colors={colors}
+              styles={styles}
+            />
           </View>
+        )}
+
+        {/* One door to everything, always — a rider who wants the whole board
+            should not have to find a rail with an overflow to get there. */}
+        {!tripsLoading && rawTrips.length > 0 && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              goDeeper('/browse/all');
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Browse all ${rawTrips.length} rides on a map`}
+            style={({ pressed }) => [styles.browseAll, pressed && { opacity: 0.8 }]}
+          >
+            <Ionicons name="map-outline" size={16} color={colors.onSurface} />
+            <Text style={styles.browseAllText}>Browse all {rawTrips.length} rides on a map</Text>
+            <Ionicons name="arrow-forward" size={14} color={colors.onSurfaceVariant} />
+          </Pressable>
         )}
 
         <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
@@ -1448,6 +1563,7 @@ export default function HomeScreen() {
       */}
       <RideEndedSheet />
     </View>
+    </SmoothScreen>
   );
 }
 
@@ -1825,6 +1941,34 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   // ─── Suggested Rides ──────────────────────────────────────
   suggestedSection: { gap: 12 },
+  /** The overflow door on a rail. See SeeAllRow. */
+  seeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    minHeight: 44,
+    borderRadius: radii.full,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  seeAllText: { fontFamily: fonts.semiBold, fontSize: 13, letterSpacing: 0.1 },
+  browseAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 52,
+    paddingHorizontal: spacing.base,
+    borderRadius: radii.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.rimLight,
+    backgroundColor: colors.surfaceCard,
+  },
+  browseAllText: {
+    flex: 1,
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurface,
+  },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',

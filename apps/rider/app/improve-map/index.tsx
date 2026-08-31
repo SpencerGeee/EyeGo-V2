@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { mapReportsApi, type MapReport, type MapReportType } from '@eyego/api';
 import { relativeTime } from '@eyego/utils';
 import { spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Pressable, AppBackground, backgroundScrollPauseProps, Entrance, Loader } from '@eyego/ui';
+import { Text, Pressable, AppBackground, backgroundScrollPauseProps, Entrance, Loader, goDeeper, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 
@@ -121,7 +121,7 @@ export default function ImproveMapScreen() {
 
   const open = (type: MapReportType) => {
     void Haptics.selectionAsync().catch(() => {});
-    router.push(`/improve-map/${type}` as never);
+    goDeeper(`/improve-map/${type}` as never);
   };
 
   return (
@@ -130,7 +130,7 @@ export default function ImproveMapScreen() {
 
       <View style={styles.header}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           style={styles.backBtn}
           hitSlop={8}
           accessibilityRole="button"

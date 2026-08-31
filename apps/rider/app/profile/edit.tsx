@@ -19,7 +19,7 @@ import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorph, backgroundScrollPauseProps } from '@eyego/ui';
+import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorph, backgroundScrollPauseProps, goBack } from '@eyego/ui';
 import { getInitials } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -32,7 +32,7 @@ export default function EditProfileScreen() {
   // Reverse the hero-avatar morph back into the profile screen. Falls back to
   // a plain pop when no morph is in flight (deep link / no source measured).
   const handleBack = useCallback(() => {
-    morphBack(() => router.back());
+    morphBack(() => goBack());
   }, [morphBack, router]);
   const { user, updateUser } = useAuthStore();
   const qc = useQueryClient();

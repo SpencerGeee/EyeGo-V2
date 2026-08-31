@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
-import { fonts, fontSizes, spacing, radii } from '@eyego/config';
+import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { Text, AppBackground, MorphTarget, useMorph, GlassSurface, getTierTheme } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 
@@ -528,11 +528,25 @@ export default function DispatchScreen() {
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={18} intensity="high" />
           <Ionicons name="chevron-down" size={20} color={colors.onSurface} />
         </Pressable>
+        {/*
+          THE HEADER SAYS WHAT KIND OF OFFER THIS IS, AND HOW HARD IT IS HELD.
+
+          It read "New offer" for everything, which is the one thing a driver
+          already knows — a dispatch screen is on their phone. What they cannot
+          tell by looking is whether the ride is THEIRS for the next forty-five
+          seconds or whether they are racing every other driver for it, and that
+          changes how fast they have to decide. The dot breathes on the ones
+          that are a race.
+        */}
         <View style={styles.topTitleWrap}>
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.full} intensity="high" />
           <View style={[styles.topDot, { backgroundColor: accent }]} />
           <Text style={styles.topTitle}>
-            {offer?.kind === 'REASSIGNMENT' ? 'Up for grabs' : 'New offer'}
+            {offer?.kind === 'REASSIGNMENT'
+              ? 'Up for grabs · first to accept'
+              : offer?.kind === 'REQUEST'
+                ? 'Open request'
+                : 'Held for you'}
           </Text>
         </View>
         <View style={{ width: 36 }} />
@@ -596,10 +610,31 @@ export default function DispatchScreen() {
                 card's own top rows — which is the "everything is overlapping"
                 on the busiest part of this screen. `box-none` so it never eats
                 a pan meant for the map. */}
+            {/*
+              THE SCRIM WAS A HARDCODED NAVY.
+
+              `rgba(3,12,24,…)` is this app's dark background written out by
+              hand, which means in light mode the screen painted a dark smear
+              across the bottom of a light map — and if the palette ever moves,
+              this one gradient stays behind. It is the app's own
+              `backgroundDeep` now, faded from nothing to near-opaque, so it
+              belongs to whatever theme is running.
+
+              It also carries a breath of the offer's accent at its midpoint.
+              That is not decoration: the sheet below it is tinted with the same
+              accent, so a scrim that steps straight from map to panel reads as
+              two materials butted together, and one that passes through the
+              accent reads as one surface lifting off the map.
+            */}
             <LinearGradient
               pointerEvents="none"
-              colors={['rgba(3,12,24,0)', 'rgba(3,12,24,0.55)', 'rgba(3,12,24,0.88)']}
-              locations={[0, 0.45, 1]}
+              colors={[
+                withOpacity(colors.backgroundDeep, 0),
+                withOpacity(accent, 0.1),
+                withOpacity(colors.backgroundDeep, 0.72),
+                withOpacity(colors.backgroundDeep, 0.94),
+              ]}
+              locations={[0, 0.3, 0.62, 1]}
               style={styles.sheetScrim}
             />
             <MorphTarget id={morphIdFor(id)} borderRadius={radii['3xl']}>

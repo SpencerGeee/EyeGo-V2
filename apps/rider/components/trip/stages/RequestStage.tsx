@@ -7,9 +7,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder } from '@eyego/ui';
+import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder, goDeeper, goBack } from '@eyego/ui';
 import { useThemeStore } from '../../../stores/theme.store';
-import { SearchingIndicator } from '../SearchingIndicator';
+import { SearchingPanel } from '../SearchingPanel';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripFlow } from '../../../stores/tripFlow.store';
@@ -445,7 +445,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
     setGuestInfo(null);
     awaitingGuestRef.current = true;
     expectTripSurfaceReturn();
-    router.push('/ride/guest-selection' as any);
+    goDeeper('/ride/guest-selection' as any);
   }, [router, setGuestInfo]);
 
   useFocusEffect(
@@ -574,7 +574,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    */
   const handleBack = () => {
     if (mode === 'route') {
-      router.back();
+      goBack();
       return;
     }
     if (status === 'error' || status === 'timeout') {
@@ -617,55 +617,34 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       </View>
 
       <View style={variant === 'stage' ? styles.panelBody : styles.body}>
-        {/* Concentric ring pulse — one UI-thread animation, no gradients, no
-            shadow layers. See SearchingIndicator for what this replaced and
-            why the old version cost frames exactly when dispatch needed them. */}
-        <View style={variant === 'stage' ? styles.iconContainerCompact : styles.iconContainer}>
-          <SearchingIndicator status={status as any} />
-        </View>
+        {/*
+          ── THE SEARCH ITSELF ──────────────────────────────────────────────
+          Was: a 72 pt ring, a centred headline, a centred paragraph and two
+          centred hint lines — eight centred elements, none of them the thing
+          the rider is waiting on. See SearchingPanel for what Uber, Bolt and
+          Yango do instead and why the sweeping edge rail is the whole trick.
 
-        <Text style={styles.title}>
-          {status === 'matched' ? 'Driver found!'
-            : conflict ? 'You already have a ride'
-            : status === 'error' ? "Couldn't send request"
-            : status === 'timeout' ? 'All our drivers are busy'
-            : 'Looking for a driver'}
-        </Text>
-        <Text style={styles.subtitle}>
-          {conflict ? (
-            'One of your trips is still running. Do you want to book a separate trip as well?'
-          ) : status === 'error' ? (
-            errorReason ?? 'Something went wrong sending your request. Please try again.'
-          ) : status === 'timeout' ? (
-            'All our drivers are busy right now. Please try again in a few minutes, or book a scheduled ride instead.'
-          ) : (
-            <>
-              Your trip request to{' '}
-              <Text style={styles.highlight}>{destination ?? 'your destination'}</Text>
-              {formattedTime ? ` on ${formattedTime}` : ''}{' '}
-              {status === 'sending'
-                ? 'is being sent to nearby drivers…'
-                : status === 'matched'
-                ? 'was accepted — taking you to your trip.'
-                : 'has been sent to nearby drivers.'}
-            </>
-          )}
-        </Text>
-        {/* Cascade progress. Dispatch asks one driver at a time, so this is a
-            truthful count of where the search has got to, not a fake spinner. */}
-        {status === 'searching' && dispatchAttempt.total > 0 && (
-          <Text style={styles.hint}>
-            {dispatchOffer
-              ? `Asking driver ${dispatchAttempt.attempt} of ${dispatchAttempt.total}…`
-              : `${dispatchAttempt.total} driver${dispatchAttempt.total === 1 ? '' : 's'} nearby — contacting them in turn…`}
-          </Text>
-        )}
-        {!conflict && (
-          <Text style={styles.hint}>
-            {status === 'timeout'
-              ? 'Nothing was charged for this request.'
-              : "You'll be taken to live tracking automatically as soon as a driver accepts."}
-          </Text>
+          The conflict case keeps its own copy: it is not a search at all, it is
+          a question, and dressing a question as a progress state would be a lie.
+        */}
+        {conflict ? (
+          <>
+            <Text style={styles.title}>You already have a ride</Text>
+            <Text style={styles.subtitle}>
+              One of your trips is still running. Do you want to book a separate trip as well?
+            </Text>
+          </>
+        ) : (
+          <SearchingPanel
+            status={status as any}
+            originText={origin?.address ?? null}
+            destinationText={destination ?? null}
+            attempt={dispatchAttempt}
+            offerPending={!!dispatchOffer}
+            seats={requestSeatCount}
+            scheduledFor={formattedTime}
+            errorReason={errorReason}
+          />
         )}
 
         {/* THE SECOND-RIDE CHOICE.
@@ -900,11 +879,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  /**
+   * LEFT-ALIGNED, AND SITTING LOW.
+   *
+   * `alignItems: 'center'` + `justifyContent: 'center'` is what made every
+   * child of this screen a centred island — see SearchingPanel's header. The
+   * panel now owns its own internal alignment, so this only has to place it:
+   * `flex-end` so the content sits where a sheet would, over the map, rather
+   * than floating in the vertical middle of a phone.
+   */
   body: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     paddingHorizontal: spacing['2xl'],
+    paddingBottom: spacing['2xl'],
     gap: spacing.lg,
   },
   /** Reading ground for the floating back control. */
@@ -958,10 +946,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * height of the screen and push the map off. This is the same content,
    * measured by what is in it.
    */
+  /* Stretch, not centre — the panel is a full-width block now. */
   panelBody: {
     alignSelf: 'stretch',
-    alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.lg,
   },
   /**
    * NOT a sheet stage, deliberately.

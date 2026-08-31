@@ -15,7 +15,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
-import { Text, Pressable, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader } from '@eyego/ui';
+import { Text, Pressable, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
@@ -146,7 +146,7 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         // Route each status to what's actually true about it instead.
         if (booking.status === 'COMPLETED') {
           Haptics.selectionAsync();
-          router.push(`/ride/${tripId}/complete?bookingId=${booking.id}&viewOnly=1` as any);
+          goDeeper(`/ride/${tripId}/complete?bookingId=${booking.id}&viewOnly=1` as any);
           return;
         }
         /**
@@ -195,7 +195,7 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         // /ride/[id] looks up by TRIP id (tripsApi.getById), not booking id —
         // booking.tripId is the FK to the actual trip; booking.id is a
         // different entity and would 404 the detail screen.
-        morphTo(cardMorphId, () => router.push(`/ride/${tripId}` as any));
+        morphTo(cardMorphId, () => goDeeper(`/ride/${tripId}` as any));
       }}
     >
       <View style={[styles.itemIcon, { backgroundColor: withOpacity(statusColor, 0.1) }]}>
@@ -236,7 +236,7 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
             onPress={(e) => {
               e.stopPropagation();
               Haptics.selectionAsync();
-              router.push({ pathname: '/ride/[id]/cancel', params: { id: booking.id } } as any);
+              goDeeper({ pathname: '/ride/[id]/cancel', params: { id: booking.id } } as any);
             }}
             style={({ pressed }) => [styles.rowCancel, pressed && { opacity: 0.6 }]}
           >
@@ -288,7 +288,7 @@ function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnTyp
       // (this push + RequestStage's dismissTo) and crash the app.
       if (useRideStore.getState().pendingTripRequestId !== pendingTripRequestId) return;
       setPendingTripRequest(null);
-      router.push('/trip?stage=assigned' as any);
+      goDeeper('/trip?stage=assigned' as any);
     } else if (req.status === 'CANCELLED') {
       setPendingTripRequest(null);
     }
@@ -308,7 +308,7 @@ function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnTyp
       <Pressable
         onPress={() => {
           Haptics.selectionAsync();
-          router.push({ pathname: '/trip', params: { stage: 'request', resumeRequestId: pendingTripRequestId } } as any);
+          goDeeper({ pathname: '/trip', params: { stage: 'request', resumeRequestId: pendingTripRequestId } } as any);
         }}
       >
         <View style={styles.liveDotWrap}>
@@ -429,9 +429,9 @@ function LiveScheduledCard({
         onPress={() => {
           Haptics.selectionAsync();
           if (intent.matchedTripId) {
-            router.push('/trip?stage=assigned' as any);
+            goDeeper('/trip?stage=assigned' as any);
           } else {
-            router.push(`/scheduled/${intent.id}` as any);
+            goDeeper(`/scheduled/${intent.id}` as any);
           }
         }}
       >
@@ -863,7 +863,7 @@ export default function ActivityScreen() {
                   style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.8 }, { marginTop: spacing.lg }]}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.push('/ride/schedule' as any);
+                    goDeeper('/ride/schedule' as any);
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="Schedule a ride"
@@ -929,7 +929,7 @@ export default function ActivityScreen() {
                     style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.8 }]}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.push('/trip?stage=search' as any);
+                      goDeeper('/trip?stage=search' as any);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Request a trip"
@@ -941,7 +941,7 @@ export default function ActivityScreen() {
                     style={({ pressed }) => [styles.emptyCta, styles.emptyCtaSecondary, pressed && { opacity: 0.8 }]}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.push('/ride/schedule' as any);
+                      goDeeper('/ride/schedule' as any);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Schedule a ride"

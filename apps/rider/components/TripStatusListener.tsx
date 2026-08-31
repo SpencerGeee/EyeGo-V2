@@ -28,7 +28,7 @@ import {
   setTripLiveActivityStatus,
   endTripLiveActivity,
 } from '../utils/liveActivity';
-import { Text } from '@eyego/ui';
+import { Text, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
 import { useTripStore } from '../stores/trip.store';
@@ -447,7 +447,7 @@ export function TripStatusListener() {
           showBanner('You have arrived! Rate your trip', 'checkmark-circle');
           setTimeout(() => {
             disconnectSocket();
-            router.push(
+            goDeeper(
               `/ride/${tId}/complete${bookingId ? `?bookingId=${bookingId}` : ''}` as Href
             );
           }, 1500);
@@ -598,9 +598,9 @@ export function TripStatusListener() {
     if (!tId) return;
     if (bannerDestinationRef.current === 'chat') {
       bannerDestinationRef.current = null;
-      router.push(`/ride/${tId}/chat` as Href);
+      goDeeper(`/ride/${tId}/chat` as Href);
     } else {
-      router.push('/trip?stage=assigned' as Href);
+      goDeeper('/trip?stage=assigned' as Href);
     }
   };
 

@@ -28,7 +28,7 @@ import { useThemeStore } from '../../../stores/theme.store';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in SearchStage.tsx.
-import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, useMorph, Entrance, getTierTheme, normalizeTier } from '@eyego/ui';
+import { Text, Button, Pressable, EmptyState, Avatar, AppBackground, MorphSource, MorphCTA, useMorph, Entrance, getTierTheme, normalizeTier, goDeeper, goBack } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import type { TripTier, Trip } from '@eyego/types';
 import { captureException } from '../../../lib/sentry';
@@ -124,8 +124,8 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
    * case where leaving the surface is the right answer.
    */
   const handleBack = React.useCallback(() => {
-    if (mode === 'route') { router.back(); return; }
-    if (popStage() == null) router.back();
+    if (mode === 'route') { goBack(); return; }
+    if (popStage() == null) goBack();
   }, [mode, router, popStage]);
 
   React.useEffect(() => {
@@ -338,7 +338,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         <Entrance animation="slideUp" delay={40}>
           <Pressable
             style={styles.searchBar}
-            onPress={() => (mode === 'route' ? router.push('/trip?stage=search' as any) : popStage())}
+            onPress={() => (mode === 'route' ? goDeeper('/trip?stage=search' as any) : popStage())}
             accessibilityRole="button"
             accessibilityLabel="Change destination"
           >
@@ -485,7 +485,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     style={[styles.noDriversCtaBtn, { backgroundColor: colors.primary }]}
                     onPress={() => {
                       setRequestSeats(requestSeats, requestPayForAll);
-                      mode === 'route' ? router.push('/ride/request' as any) : goStage('request');
+                      mode === 'route' ? goDeeper('/ride/request' as any) : goStage('request');
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Request a trip from a driver"
@@ -498,7 +498,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                   </Pressable>
                   <Pressable
                     style={[styles.noDriversCtaBtn, { backgroundColor: colors.surfaceContainer, borderWidth: 1, borderColor: colors.outlineVariant }]}
-                    onPress={() => { expectTripSurfaceReturn(); router.push('/ride/schedule' as any); }}
+                    onPress={() => { expectTripSurfaceReturn(); goDeeper('/ride/schedule' as any); }}
                     accessibilityRole="button"
                     accessibilityLabel="Schedule a trip for later"
                   >
@@ -624,7 +624,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                         expectTripSurfaceReturn();
                         // Container-transform: card grows into the ride detail
                         // screen (route uses animation 'fade', see root _layout).
-                        morphTo(`ride-card-${trip.id}`, () => router.push(path as any));
+                        morphTo(`ride-card-${trip.id}`, () => goDeeper(path as any));
                       }}
                       accessibilityRole="button"
                       accessibilityLabel={`Book ${tier} ride`}

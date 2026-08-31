@@ -7,7 +7,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, spacing } from '@eyego/config';
-import { Text, usePressScale } from '@eyego/ui';
+import { Text, usePressScale , smoothScreenLayout } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 
@@ -150,8 +150,21 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 export default function TabLayout() {
   return (
     <Tabs
+      /* Same wrapper as the root stack — see the rider's tab layout. */
+      screenLayout={smoothScreenLayout}
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false }}
+      screenOptions={{
+        headerShown: false,
+        /**
+         * A TAB YOU ARE NOT LOOKING AT STOPS THINKING.
+         *
+         * Worst case for the driver: every tab stays mounted for the session,
+         * so without this a single GPS fix re-rendered Home, Quests, Trips,
+         * Earnings, Alerts and Profile together — six trees for one visible
+         * screen, once a second, all day.
+         */
+        freezeOnBlur: true,
+      }}
     >
       <Tabs.Screen name="home" />
       <Tabs.Screen name="quests" />

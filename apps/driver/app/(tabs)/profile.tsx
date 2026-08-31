@@ -6,15 +6,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import {
-  Text,
-  Avatar,
-  Skeleton,
-  Entrance,
-  GlassSurface,
-  GradientGlowBorder,
-  AppBackground,
-} from '@eyego/ui';
+import { Text, Avatar, Skeleton, Entrance, GlassSurface, GradientGlowBorder, AppBackground, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -65,62 +57,62 @@ export default function ProfileScreen() {
     {
       icon: 'person-outline',
       label: 'Edit Profile',
-      action: () => router.push('/(profile)/edit'),
+      action: () => goDeeper('/(profile)/edit'),
     },
     {
       icon: 'car-outline',
       label: 'My Vehicle',
-      action: () => router.push('/(profile)/vehicle'),
+      action: () => goDeeper('/(profile)/vehicle'),
     },
     {
       icon: 'star-outline',
       label: 'My Ratings',
-      action: () => router.push('/(profile)/ratings'),
+      action: () => goDeeper('/(profile)/ratings'),
     },
     {
       icon: 'document-text-outline',
       label: 'Documents',
-      action: () => router.push('/(profile)/documents'),
+      action: () => goDeeper('/(profile)/documents'),
     },
     {
       icon: 'shield-outline',
       label: 'Safety',
-      action: () => router.push('/(profile)/safety'),
+      action: () => goDeeper('/(profile)/safety'),
     },
     {
       icon: 'stats-chart-outline',
       label: 'Performance',
-      action: () => router.push('/(profile)/performance'),
+      action: () => goDeeper('/(profile)/performance'),
     },
     {
       icon: 'help-circle-outline',
       label: 'Help & Support',
-      action: () => router.push('/(profile)/help'),
+      action: () => goDeeper('/(profile)/help'),
     },
     {
       icon: 'cash-outline',
       label: 'Payout Account',
-      action: () => router.push('/(profile)/payout-account'),
+      action: () => goDeeper('/(profile)/payout-account'),
     },
     {
       icon: 'settings-outline',
       label: 'Settings & Privacy',
-      action: () => router.push('/(profile)/settings'),
+      action: () => goDeeper('/(profile)/settings'),
     },
     {
       icon: 'document-text-outline',
       label: 'Driver Agreement',
-      action: () => router.push('/(profile)/terms'),
+      action: () => goDeeper('/(profile)/terms'),
     },
     {
       icon: 'shield-outline',
       label: 'Privacy Policy',
-      action: () => router.push('/(profile)/privacy'),
+      action: () => goDeeper('/(profile)/privacy'),
     },
     {
       icon: 'trash-outline',
       label: 'Delete Account',
-      action: () => router.push('/(profile)/account-deletion'),
+      action: () => goDeeper('/(profile)/account-deletion'),
       destructive: true,
     },
     {

@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '@eyego/api';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, Toggle } from '@eyego/ui';
+import { Text, Button, Input, Toggle, goBack } from '@eyego/ui';
 
 export default function BusinessProfileScreen() {
   const colors = useColors();
@@ -74,7 +74,7 @@ export default function BusinessProfileScreen() {
       <View style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+          <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleMedium" style={styles.headerTitle}>Business Profile</Text>

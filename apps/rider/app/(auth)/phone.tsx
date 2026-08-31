@@ -10,7 +10,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Entrance } from '@eyego/ui';
+import { Entrance, goDeeper } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -33,7 +33,7 @@ export default function PhoneScreen() {
       // Keyed off the response — NOT __DEV__ — so it still works in sideloaded
       // preview/release builds. A production backend never returns _dev_otp.
       const devOtp = (res as any)?.data?.data?._dev_otp;
-      router.push({
+      goDeeper({
         pathname: '/(auth)/otp',
         // Strip '+' prefix to avoid URL encoding issues in dev builds
         params: { phone: `233${phone.replace(/\s/g, '')}`, ...(devOtp ? { devOtp } : {}) },
@@ -147,14 +147,14 @@ export default function PhoneScreen() {
             <Button
               label="Continue with Google"
               variant="secondary"
-              onPress={() => router.push('/(auth)/social' as any)}
+              onPress={() => goDeeper('/(auth)/social' as any)}
               accessibilityLabel="Continue with Google"
             />
             {Platform.OS === 'ios' && (
               <Button
                 label="Continue with Apple"
                 variant="secondary"
-                onPress={() => router.push('/(auth)/social' as any)}
+                onPress={() => goDeeper('/(auth)/social' as any)}
                 style={styles.appleBtn}
                 accessibilityLabel="Continue with Apple"
               />

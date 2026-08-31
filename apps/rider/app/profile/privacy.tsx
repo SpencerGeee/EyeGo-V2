@@ -16,7 +16,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useToastStore } from '../../stores/toast.store';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button } from '@eyego/ui';
+import { Text, Button, goDeeper, goBack } from '@eyego/ui';
 
 const PRIVACY_KEYS = {
   locationSharing: 'eyego_privacy_location',
@@ -160,7 +160,7 @@ export default function PrivacyScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Privacy & Settings</Text>
@@ -238,7 +238,7 @@ export default function PrivacyScreen() {
         <View
           >
           <Pressable
-            onPress={() => router.push('/profile/terms' as any)}
+            onPress={() => goDeeper('/profile/terms' as any)}
             style={styles.tosLink}
           >
             <Text variant="bodySmall" color={colors.primary}>

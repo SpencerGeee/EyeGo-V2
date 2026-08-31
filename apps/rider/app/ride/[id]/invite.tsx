@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Share, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect, type Href } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -439,7 +439,7 @@ export default function InviteScreen() {
      * dropped the host out of the invite they were part-way through.
      */
     expectTripSurfaceReturn();
-    router.push('/profile/place-picker' as any);
+    goDeeper('/profile/place-picker' as any);
   }, [router]);
 
   useFocusEffect(
@@ -497,7 +497,7 @@ export default function InviteScreen() {
       <SafeAreaView style={styles.safe}>
         <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => goBack()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleMedium">Group Hub</Text>
@@ -515,7 +515,7 @@ export default function InviteScreen() {
       <SafeAreaView style={styles.safe}>
         <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => goBack()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleMedium">Group Hub</Text>
@@ -574,7 +574,7 @@ export default function InviteScreen() {
       <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Group Hub</Text>
@@ -843,7 +843,7 @@ export default function InviteScreen() {
               // Same reason as handleChangePickup — payment is a surface-owned
               // push, and backing out of it must land here, not on Where-To.
               expectTripSurfaceReturn();
-              router.push(`/ride/${id}/payment` as Href);
+              goDeeper(`/ride/${id}/payment` as Href);
             }}
           />
         </MotiView>

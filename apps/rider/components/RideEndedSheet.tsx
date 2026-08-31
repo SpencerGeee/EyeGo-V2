@@ -17,7 +17,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { fonts, fontSizes, radii, spacing, springs, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, goDeeper } from '@eyego/ui';
 
 import { useColors, type Colors } from '../utils/useColors';
 import { useRideEnded, shouldAnnounce, type RideEndedReason } from '../stores/rideEnded.store';
@@ -175,7 +175,7 @@ export function RideEndedSheet() {
     // Straight back into the flow at the search step. The rider's destination
     // is already in the ride store when there is one, so this is one tap from
     // "my ride vanished" to "somebody is coming".
-    router.push('/trip?stage=search' as never);
+    goDeeper('/trip?stage=search' as never);
   };
 
   return (

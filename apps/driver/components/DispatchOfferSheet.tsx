@@ -20,6 +20,7 @@ import { useDriverStore } from '../stores/driver.store';
 import { useDriverTripStore } from '../stores/trip.store';
 import { lastKnownReportedFix } from '../hooks/useDriverLocation';
 import { DispatchOfferCard, type DispatchOfferView } from './dispatch/DispatchOfferCard';
+import { goDeeper } from '@eyego/ui';
 
 /**
  * THE OFFER TAKEOVER — a ride is being held for THIS driver, right now.
@@ -133,7 +134,7 @@ export default function DispatchOfferSheet() {
       await useDriverTripStore.getState().hydrate();
       setTimeout(() => {
         clearOffer();
-        router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as Href);
+        goDeeper({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as Href);
       }, 420);
     } catch (err: any) {
       const status = err?.response?.status;

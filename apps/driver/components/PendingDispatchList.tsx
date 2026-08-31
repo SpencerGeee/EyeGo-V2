@@ -15,7 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, MorphSource, useMorph, getTierTheme } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, ShinyText, Skeleton, MorphSource, useMorph, getTierTheme, goDeeper } from '@eyego/ui';
 import {
   MapView,
   Camera,
@@ -149,7 +149,7 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
        * Keyed on the trip id, not on a fixed string: several rows can be on the
        * board at once and each has to land on its own offer.
        */
-      morphTo(morphIdFor(r.tripId), () => router.push(`/(trip)/dispatch/${r.tripId}` as any));
+      morphTo(morphIdFor(r.tripId), () => goDeeper(`/(trip)/dispatch/${r.tripId}` as any));
     },
     [router, morphTo],
   );

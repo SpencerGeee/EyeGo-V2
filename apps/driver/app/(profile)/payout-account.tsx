@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
@@ -82,7 +82,7 @@ export default function PayoutAccountScreen() {
     mutationFn: (payload: object) => apiClient.patch('/driver/wallet/payout-account', payload),
     onSuccess: () => {
       Alert.alert('Saved successfully');
-      router.back();
+      goBack();
     },
     onError: (err: any) => {
       Alert.alert('Error', err?.message ?? 'Failed to save payout account.');
@@ -126,7 +126,7 @@ export default function PayoutAccountScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

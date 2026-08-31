@@ -15,7 +15,7 @@ import * as Haptics from 'expo-haptics';
 const AnimatedIonicons = Animated.createAnimatedComponent(Ionicons);
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, type ColorTokens } from '@eyego/config';
-import { Text, GlassSurface } from '@eyego/ui';
+import { Text, GlassSurface , smoothScreenLayout } from '@eyego/ui';
 import { useColors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 import { useProfileSync } from '../../hooks/useProfileSync';
@@ -191,6 +191,10 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      /* Same wrapper as the root stack — a tab swap is a transition too, and
+         these are the screens a rider re-enters most often. See
+         packages/ui/src/motion/smooth/smoothScreenLayout.tsx. */
+      screenLayout={smoothScreenLayout}
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
@@ -206,6 +210,16 @@ export default function TabLayout() {
         // own Entrance fade-in-on-mount could overlap with an in-flight tab
         // cross-fade, leaving a moment where neither scene was fully opaque.
         animation: 'none',
+        /**
+         * A TAB YOU ARE NOT LOOKING AT STOPS THINKING.
+         *
+         * Tabs are the worst case for this: every tab a rider has ever opened
+         * stays mounted for the life of the session, so without freezing, a
+         * socket frame or a poll tick re-rendered Home, Services, Activity and
+         * Account together — four trees for one visible screen. State and
+         * native views are kept; only React commits are suspended.
+         */
+        freezeOnBlur: true,
       }}
     >
       <Tabs.Screen name="home" />

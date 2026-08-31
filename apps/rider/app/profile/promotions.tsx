@@ -12,7 +12,7 @@ import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
 // `Pressable` from @eyego/ui, never from react-native — NativeWind's css-interop
 // drops the `({ pressed }) => style` form this screen uses. See the promo card.
-import { Text, Button, GlowSearchInput, ShinyText, AppBackground, Pressable } from '@eyego/ui';
+import { Text, Button, GlowSearchInput, ShinyText, AppBackground, Pressable, goBack } from '@eyego/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
@@ -120,7 +120,7 @@ export default function PromotionsScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground variant="static" isDark={isDark} />
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Promotions</Text>

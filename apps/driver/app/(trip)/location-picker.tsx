@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, withOpacity } from '@eyego/config';
-import { Text, Button, Loader } from '@eyego/ui';
+import { Text, Button, Loader, goBack , SmoothDefer } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import * as Haptics from 'expo-haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
@@ -126,7 +126,7 @@ export default function DriverLocationPickerScreen() {
     if (!resolved) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPickedPlace(resolved);
-    router.back();
+    goBack();
   }, [resolved, router]);
 
   /**
@@ -181,12 +181,16 @@ export default function DriverLocationPickerScreen() {
     setSuggestions([]);
     setSearchedFor(null);
     setPickedPlace(s);
-    router.back();
+    goBack();
   }, [router]);
 
   return (
     <View style={styles.root}>
       {initialCoords && (
+                <SmoothDefer /* deferred one beat past the push — see packages/ui/src/motion/smooth */
+          delayMs={120}
+          placeholder={<View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
+        >
         <MapboxGL.MapView
           style={StyleSheet.absoluteFill}
           styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
@@ -212,6 +216,7 @@ export default function DriverLocationPickerScreen() {
             </MapboxGL.MarkerView>
           )}
         </MapboxGL.MapView>
+        </SmoothDefer>
       )}
 
       {/* Fixed center pin — offset up so the pin TIP marks the map center */}
@@ -227,7 +232,7 @@ export default function DriverLocationPickerScreen() {
         <View style={styles.headerRow}>
           <Pressable
             style={styles.backBtn}
-            onPress={() => router.back()}
+            onPress={() => goBack()}
             accessibilityRole="button"
             accessibilityLabel="Cancel"
           >

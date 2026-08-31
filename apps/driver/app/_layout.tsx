@@ -11,7 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
+import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout } from '@eyego/ui';
 import {
   useFonts,
   Geist_300Light,
@@ -54,6 +54,16 @@ Notifications.setNotificationHandler({
 });
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * NATIVE SCREEN RECYCLING + FREEZE, BEFORE ANYTHING RENDERS.
+ *
+ * Without this every screen the app has ever opened keeps re-rendering for the
+ * life of the session, so one location fix costs a commit per screen on the
+ * stack rather than one. See packages/ui/src/motion/smooth for the whole
+ * diagnosis; this is the half of it that has to run at module scope.
+ */
+enableSmoothNavigation();
 
 // D4: ErrorBoundary — catches render errors and shows a fallback screen
 interface ErrorBoundaryState { hasError: boolean; error?: Error }
@@ -625,6 +635,9 @@ export default function RootLayout() {
     <KeyboardProvider>
     <AmbientRotationProvider>
       <QueryClientProvider client={queryClient}>
+      {/* The floor under the smoothness system — see the twin note in the
+          rider's root layout. */}
+      <SmoothNavigationProvider queryClient={queryClient}>
         <StatusBar style={theme === 'light' ? 'dark' : 'light'} backgroundColor={colors.backgroundDeep} />
         {/* Ambient premium background — fade-group screens (transparent
             contentStyle above) show this instead of a flat fill. */}
@@ -634,10 +647,26 @@ export default function RootLayout() {
             Stack so sources/targets living inside screens can register. */}
         <MorphProvider>
         <Stack
+          /**
+           * THE SMOOTHNESS SYSTEM, ON EVERY SCREEN AT ONCE. See the twin note
+           * in the rider's root layout, and
+           * packages/ui/src/motion/smooth/smoothScreenLayout.tsx.
+           */
+          screenLayout={smoothScreenLayout}
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: colors.background },
             animation: 'fade_from_bottom',
+            /**
+             * A BLURRED SCREEN STOPS THINKING.
+             *
+             * Pairs with `enableSmoothNavigation()` at module scope: freeze is
+             * the native capability, this is the navigator opting every screen
+             * into it. State and native views are kept; only React commits are
+             * suspended — which on this app means the manage screen underneath
+             * a tracking screen stops re-rendering on every GPS fix.
+             */
+            freezeOnBlur: true,
           }}
         >
           <Stack.Screen name="index" options={{ contentStyle: TRANSPARENT_CONTENT }} />
@@ -744,6 +773,7 @@ export default function RootLayout() {
             <RNText style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} numberOfLines={2}>{inAppBanner.body}</RNText>
           </Animated.View>
         )}
+      </SmoothNavigationProvider>
       </QueryClientProvider>
     </AmbientRotationProvider>
     </KeyboardProvider>

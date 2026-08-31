@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AnimatedCheckmark, AppBackground } from '@eyego/ui';
+import { Text, Button, Entrance, AnimatedCheckmark, AppBackground, goBack } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { apiClient, driverApi } from '@eyego/api';
@@ -50,7 +50,7 @@ export default function ReportPassengerScreen() {
   // D8: guard invalid id — navigate back after all hooks have run
   useEffect(() => {
     if (!id || typeof id !== 'string') {
-      router.back();
+      goBack();
     }
   }, [id, router]);
 
@@ -149,7 +149,7 @@ export default function ReportPassengerScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </Entrance>

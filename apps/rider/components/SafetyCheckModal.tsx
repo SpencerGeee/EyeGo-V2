@@ -1,6 +1,6 @@
 import React, { useCallback, useRef } from 'react';
 import { View, StyleSheet, Modal, Pressable } from 'react-native';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, type Href } from 'expo-router';
 import { Text, Button } from '@eyego/ui';
@@ -46,7 +46,7 @@ export default function SafetyCheckModal({ visible, reason, tripId, onDismiss }:
 
   const handleGetHelp = useCallback(() => {
     onDismiss();
-    router.push(`/ride/${tripId}/sos` as Href);
+    goDeeper(`/ride/${tripId}/sos` as Href);
   }, [tripId, router, onDismiss]);
 
   if (!visible) return null;

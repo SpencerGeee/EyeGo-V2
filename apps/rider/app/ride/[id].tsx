@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Image, ScrollView } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, queryKeys } from '@eyego/api';
@@ -13,7 +13,7 @@ import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs, routeL
 import { useColors, Colors } from '../../utils/useColors';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
-import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, type TierId } from '@eyego/ui';
+import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton, Loader, MorphTarget, MorphBackSwipeDetector, useMorph, InlayPanel, getTierTheme, normalizeTier, RIDER_TIERS, SmoothScreen, SmoothDefer, type TierId } from '@eyego/ui';
 
 import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
@@ -61,7 +61,7 @@ export default function RideDetailScreen() {
   // Reverse the container-transform back into the originating card. Falls back
   // to a plain pop when no morph is in flight (deep link / no source measured).
   const handleBack = useCallback(() => {
-    morphBack(() => router.back());
+    morphBack(() => goBack());
   }, [morphBack, router]);
   const { user } = useAuthStore();
   const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare, guestInfo } = useRideStore();
@@ -328,7 +328,7 @@ export default function RideDetailScreen() {
         <Button
           label="Go back"
           variant="secondary"
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           style={{ marginTop: 24 }}
         />
       </View>
@@ -336,9 +336,28 @@ export default function RideDetailScreen() {
   }
 
   return (
+    /*
+      ── WHY THE MAP ARRIVES A BEAT LATE ────────────────────────────────────
+      "Clicking on a trip card of the homepage… it's laggy."
+
+      This screen is a MORPH TARGET: the card the rider tapped expands into it,
+      and that expansion is a real animation with a real frame budget. Mounting
+      a MapLibre GL surface — the single most expensive node either app has —
+      inside the same commit is what ate it.
+
+      `SmoothScreen eager` because the content itself must NOT be held back: the
+      morph animates this screen's own layout, so an empty target would morph
+      into nothing. Only the map waits, and only for the length of the morph.
+      See packages/ui/src/motion/smooth.
+    */
     <MorphTarget id={`ride-card-${id}`} borderRadius={0} style={{ flex: 1 }}>
+    <SmoothScreen eager>
     <View style={styles.container}>
       {/* Map background */}
+      <SmoothDefer
+        delayMs={280}
+        placeholder={<View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
+      >
       <MapboxGL.MapView
         style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]}
         styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
@@ -439,6 +458,7 @@ export default function RideDetailScreen() {
           </MapboxGL.ShapeSource>
         )}
       </MapboxGL.MapView>
+      </SmoothDefer>
 
       {/* Swipe-back area (map layer only — matches Yango's pull-on-top pattern) */}
       {/* Swipe-back zone (top 80px only — map area preserved for interaction) */}
@@ -663,8 +683,8 @@ export default function RideDetailScreen() {
                   }
                   onPress={() =>
                     bookingWhileOnAnotherRide && !guestInfo
-                      ? router.push({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/seat` } } as Href)
-                      : router.push(`/ride/${id}/seat` as Href)
+                      ? goDeeper({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/seat` } } as Href)
+                      : goDeeper(`/ride/${id}/seat` as Href)
                   }
                   accessibilityRole="button"
                   accessibilityLabel={
@@ -701,8 +721,8 @@ export default function RideDetailScreen() {
                   style={[styles.inviteButton, isGroupFlow && { backgroundColor: colors.secondary + '14', borderWidth: 1.5 }]}
                   onPress={() =>
                     bookingWhileOnAnotherRide && !guestInfo
-                      ? router.push({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/invite` } } as Href)
-                      : router.push(`/ride/${id}/invite` as Href)
+                      ? goDeeper({ pathname: '/ride/guest-selection', params: { next: `/ride/${id}/invite` } } as Href)
+                      : goDeeper(`/ride/${id}/invite` as Href)
                   }
                   accessibilityRole="button"
                   accessibilityLabel={
@@ -727,7 +747,7 @@ export default function RideDetailScreen() {
                     { borderColor: guestInfo ? colors.primary : colors.outlineVariant },
                     guestInfo && { backgroundColor: withOpacity(colors.primary, 0.08) },
                   ]}
-                  onPress={() => router.push('/ride/guest-selection' as Href)}
+                  onPress={() => goDeeper('/ride/guest-selection' as Href)}
                   accessibilityRole="button"
                   accessibilityLabel={guestInfo ? `Booking for ${guestInfo.name}. Change passenger` : 'Book for someone else'}
                 >
@@ -779,6 +799,7 @@ export default function RideDetailScreen() {
         surge={!!((trip as any)?.surgeMultiplier && (trip as any).surgeMultiplier > 1)}
       />
     </View>
+    </SmoothScreen>
     </MorphTarget>
   );
 }

@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
-import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface, Loader } from '@eyego/ui';
+import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface, Loader, goDeeper, goBack } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
@@ -93,7 +93,7 @@ export default function ScheduledRideDetailScreen() {
     mutationFn: (intentId: string) => tripsApi.cancelScheduledRide(intentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
-      router.back();
+      goBack();
     },
     onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
   });
@@ -119,7 +119,7 @@ export default function ScheduledRideDetailScreen() {
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
+          <Pressable onPress={() => goBack()} hitSlop={12} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <Text style={styles.headerTitle}>Scheduled ride</Text>
@@ -233,7 +233,7 @@ export default function ScheduledRideDetailScreen() {
                 label="Open live tracking"
                 onPress={() => {
                   Haptics.selectionAsync();
-                  router.push('/trip?stage=assigned' as any);
+                  goDeeper('/trip?stage=assigned' as any);
                 }}
                 style={{ marginTop: spacing.sm }}
               />

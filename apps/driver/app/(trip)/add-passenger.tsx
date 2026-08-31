@@ -16,7 +16,7 @@ import { driverApi } from '@eyego/api';
 // Seats are counted as PEOPLE, never as booking rows — see `takenSeats`.
 import { bookedSeats, seatsOf } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -229,7 +229,7 @@ export default function AddPassengerScreen() {
     mutationFn: () => driverApi.boardPassenger(tripId, pendingBookingId!),
     onSuccess: async () => {
       await refreshTrip();
-      router.back();
+      goBack();
     },
     onError: (err) => Alert.alert('Error', (err as Error).message ?? 'Failed to board passenger. Please try again.'),
   });
@@ -238,7 +238,7 @@ export default function AddPassengerScreen() {
     mutationFn: () => driverApi.addCashPassenger(tripId, { seatNumber }),
     onSuccess: async () => {
       await refreshTrip();
-      router.back();
+      goBack();
     },
     onError: (err) => Alert.alert('Error', (err as Error).message),
   });
@@ -266,7 +266,7 @@ export default function AddPassengerScreen() {
                   setPendingBookingId(null);
                   setOtp('');
                 }
-                if (mode === 'select') router.back();
+                if (mode === 'select') goBack();
                 else setMode('select');
               }}
               style={styles.backBtn}
@@ -304,7 +304,7 @@ export default function AddPassengerScreen() {
                     ? 'Every seat belongs to the passenger who booked it. Their party travels together, so there is no seat to sell.'
                     : `All ${maxSeats} seats are taken. A seat frees up if somebody cancels or is marked a no-show.`}
                 </Text>
-                <Button label="Back to trip" variant="secondary" onPress={() => router.back()} />
+                <Button label="Back to trip" variant="secondary" onPress={() => goBack()} />
               </View>
             </Entrance>
           )}

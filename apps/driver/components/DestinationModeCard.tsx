@@ -9,7 +9,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in rider SearchStage.tsx.
-import { Text, Pressable, GradientGlowBorder } from '@eyego/ui';
+import { Text, Pressable, GradientGlowBorder, goDeeper } from '@eyego/ui';
 import { useColors, type DriverColors } from '../utils/useColors';
 import { consumePickedPlace } from '../utils/placePickerResult';
 
@@ -124,7 +124,7 @@ export function DestinationModeCard() {
       return;
     }
     void Haptics.selectionAsync();
-    router.push('/(trip)/location-picker' as any);
+    goDeeper('/(trip)/location-picker' as any);
   };
 
   if (!mode) return null;

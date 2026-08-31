@@ -2,7 +2,7 @@
 import { View, StyleSheet, Alert, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Entrance } from '@eyego/ui';
+import { Entrance, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -93,7 +93,7 @@ export default function SocialAuthScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
       </View>

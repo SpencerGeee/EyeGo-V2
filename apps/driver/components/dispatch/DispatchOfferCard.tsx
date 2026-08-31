@@ -412,46 +412,97 @@ export function DispatchOfferCard({
       {/* â”€â”€ The glass panel â”€â”€ */}
       <View style={[styles.panel, isSheet && styles.sheetPanel]}>
         <GlassSurface style={StyleSheet.absoluteFill} borderRadius={0} intensity="high" />
-
         {/*
-          MONEY IS THE HERO. The clock is beside it, deliberately smaller.
+          ── THE HERO: MONEY, ON ITS OWN GROUND ──────────────────────────────
+          "Beautify the dispatch page of the driver app before the driver
+          accepts the trip."
 
-          These used to be the same visual weight, which left the eye with no
-          first stop on a card that has about two seconds of attention. The fare
-          now owns the row: bigger, with the per-km rate and the tier under it,
-          while the ring drops to 84pt and hands most of its urgency job to the
-          rail on the top edge.
+          The fare was already the biggest thing on the card, and it was still
+          sitting on the same flat fill as everything else — so it read as the
+          largest ITEM in a list rather than as the card's subject. Uber, Bolt
+          and Yango all put the money on its own ground: a tinted panel, the
+          accent's own hue, a hairline rim. That one move is most of what makes
+          an offer card look like an offer instead of a receipt.
+
+          ── AND THE DUPLICATION IS GONE ─────────────────────────────────────
+          There used to be a three-cell stats strip here — TO PICKUP, RIDE,
+          FARE — sitting directly above a spine that ALSO printed the pickup ETA
+          and the pickup distance. Every one of those facts appeared twice on a
+          card a driver reads in about two seconds, and the second copy is
+          purely a thing to re-read and discard.
+
+          Each fact now appears exactly once, where it means something:
+            · what you earn, the rate and your share  →  the money panel
+            · how far away the pickup is              →  ON the spine, between
+                                                          you and the pickup
+            · how long the ride is                    →  ON the spine, between
+                                                          pickup and drop-off
+          The connector is the natural place for a distance because a distance
+          IS the gap between two points; printing it in a box above the map was
+          always describing the picture instead of drawing it.
         */}
-        <View style={styles.headRow}>
+        <View style={[styles.hero, { borderColor: accent + '33', backgroundColor: accent + '0E' }]}>
           <View style={styles.money}>
-            <Text style={styles.moneyLabel}>YOU EARN</Text>
+            <Text style={[styles.moneyLabel, { color: accent }]}>YOU EARN</Text>
             <Text
               style={[styles.earnings, { color: colors.onSurface }]}
               accessibilityLabel={earnings != null ? `You earn ${formatGhs(earnings)}` : 'Earnings unknown'}
             >
-              {earnings != null ? formatGhs(earnings) : 'â€”'}
+              {earnings != null ? formatGhs(earnings) : '—'}
             </Text>
+
             <View style={styles.chipRow}>
-              {/* The tier, in the tier's own colour and its human label â€”
+              {/* The tier, in the tier's own colour and its human label —
                   "Economy", never the wire's "ECO". */}
               {offer.tier ? (
-                <View style={[styles.chip, { backgroundColor: tier.accent + '1A' }]}>
+                <View style={[styles.chip, { backgroundColor: tier.accent + '1F', borderColor: tier.accent + '3D' }]}>
                   <Ionicons name={tier.icon} size={10} color={tier.accent} />
                   <Text style={[styles.chipText, { color: tier.accent }]}>
                     {tier.label.toUpperCase()}
                   </Text>
                 </View>
               ) : null}
-              {/* Earnings per kilometre DRIVEN, dead leg included â€” the number
+
+              {/* Earnings per kilometre DRIVEN, dead leg included — the number
                   the decision is actually made on. See `ratePerKm`. */}
               {ratePerKm != null ? (
-                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh }]}>
+                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
                   <Text style={[styles.chipText, { color: colors.onSurface }]}>
                     {formatGhs(Math.round(ratePerKm))}/KM
                   </Text>
                 </View>
               ) : null}
+
+              {/* Your share of the fare. It was buried as a sub-line of a stats
+                  cell labelled FARE, which is the platform's number, not the
+                  driver's — and a commission split is a thing a driver wants to
+                  see BEFORE they swipe, not a footnote under a figure that is
+                  not theirs. */}
+              {earnings != null && offer.farePesewas != null && offer.farePesewas > earnings ? (
+                <View style={[styles.chip, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outline }]}>
+                  <Text style={[styles.chipText, { color: colors.onSurfaceVariant }]}>
+                    {Math.round((earnings / offer.farePesewas) * 100)}% OF {formatGhs(offer.farePesewas)}
+                  </Text>
+                </View>
+              ) : null}
             </View>
+
+            {/*
+              HOW DEEP INTO THE CASCADE THIS IS.
+
+              Dispatch asks one driver at a time, so "3 of 8" is a real position
+              in a real queue — and it is genuinely useful to the person holding
+              the phone: being asked first means the ride is close, being asked
+              eighth means seven drivers already passed. It was on the payload
+              and had nowhere to go.
+            */}
+            {offer.attempt != null && offer.totalCandidates != null && offer.totalCandidates > 0 ? (
+              <Text style={[styles.cascade, { color: colors.onSurfaceVariant }]}>
+                {offer.attempt === 1
+                  ? 'You are the closest driver'
+                  : `Driver ${offer.attempt} of ${offer.totalCandidates} asked`}
+              </Text>
+            ) : null}
           </View>
 
           {secondsLeft != null && offer.expiresAtServerMs ? (
@@ -459,10 +510,11 @@ export function DispatchOfferCard({
               expiresAtMs={offer.expiresAtServerMs}
               windowMs={windowMs}
               nowMs={nowMs}
-              // Was 96, matching the fare's weight. The rail on the top edge now
-              // carries the peripheral half of this job, so the ring can step
-              // back and let the money lead.
-              size={84}
+              // 76, not the old 84 and not the 96 before that. The rail on the
+              // card's top edge carries the peripheral half of this job, so the
+              // ring only has to answer "exactly how long" when looked at
+              // directly — and every point it gives up is a point the fare gains.
+              size={76}
               stroke={4.5}
               color={accent}
               trackColor={colors.outline}
@@ -483,77 +535,62 @@ export function DispatchOfferCard({
         </View>
 
         {/*
-          THE THREE NUMBERS THAT SIZE THE JOB.
+          ── THE RIDE, AS A SPINE — WITH THE NUMBERS ON THE RAIL ──────────────
 
-          They existed before, scattered: the pickup ETA was a caption beside
-          the word PICKUP, the ride distance was a grey chip under the fare, and
-          the dead-leg distance was in the same caption as the ETA. A driver
-          comparing two offers had to hunt for each one in a different place.
+          Two stops joined by a line, and the line is labelled. That is the
+          shape of a journey, and it is what every navigation product draws,
+          because the reader's eye follows the connector and arrives at the
+          number without being sent to look for it.
 
-          One strip, three cells, tabular figures so the digits do not shift
-          between renders (Â§6 `number-tabular`) â€” and dividers rather than boxes,
-          because three more bordered rectangles on a card this dense is noise.
+          The two markers are deliberately DIFFERENT SHAPES, not two dots in
+          different colours: a hollow ring is a place you leave from, a filled
+          square is a place you arrive at. Shape survives a glance through a
+          windscreen in daylight; hue does not.
         */}
-        {(etaMin != null || pickupKm != null || rideKm != null) && (
-          <View style={styles.stats}>
-            <Stat
-              colors={colors}
-              icon="navigate-outline"
-              label="TO PICKUP"
-              value={etaMin != null ? `${etaMin} min` : pickupKm != null ? `${pickupKm.toFixed(1)} km` : 'â€”'}
-              sub={etaMin != null && pickupKm != null ? `${pickupKm.toFixed(1)} km` : null}
-              accent={accent}
-            />
-            <View style={[styles.statDivider, { backgroundColor: colors.outline }]} />
-            <Stat
-              colors={colors}
-              icon="git-commit-outline"
-              label="RIDE"
-              value={rideKm != null ? `${rideKm.toFixed(1)} km` : 'â€”'}
-              sub={null}
-            />
-            <View style={[styles.statDivider, { backgroundColor: colors.outline }]} />
-            <Stat
-              colors={colors}
-              icon="wallet-outline"
-              label="FARE"
-              value={offer.farePesewas != null ? formatGhs(offer.farePesewas) : 'â€”'}
-              sub={
-                earnings != null && offer.farePesewas != null && offer.farePesewas > earnings
-                  ? `you keep ${Math.round((earnings / offer.farePesewas) * 100)}%`
-                  : null
-              }
-            />
-          </View>
-        )}
-
-        {/* â”€â”€ The ride, as a spine â”€â”€ */}
         <View style={styles.spine}>
           <View style={styles.spineRail}>
-            <View style={[styles.spineDot, { backgroundColor: accent }]} />
+            <View style={[styles.spineOrigin, { borderColor: accent }]} />
             <View style={[styles.spineLine, { backgroundColor: colors.outline }]} />
-            <Ionicons name="location" size={13} color={colors.error} />
+            <View style={[styles.spineDest, { backgroundColor: colors.error }]} />
           </View>
 
           <View style={styles.spineBody}>
-            <View>
-              <View style={styles.legHead}>
-                <Text variant="caption" color={colors.onSurfaceVariant}>PICKUP</Text>
-                {pickupKm != null || etaMin != null ? (
-                  <Text variant="caption" color={accent}>
-                    {[etaMin != null ? `${etaMin} min` : null, pickupKm != null ? `${pickupKm.toFixed(1)} km` : null]
-                      .filter(Boolean)
-                      .join(' Â· ')}
-                  </Text>
-                ) : null}
-              </View>
+            <View style={styles.leg}>
+              <Text style={[styles.legLabel, { color: colors.onSurfaceVariant }]}>PICKUP</Text>
               <Text style={styles.legText} numberOfLines={2}>
                 {offer.pickupAddress ?? 'Pickup point on the map'}
               </Text>
             </View>
 
-            <View style={{ marginTop: spacing.md }}>
-              <Text variant="caption" color={colors.onSurfaceVariant}>DROP-OFF</Text>
+            {/* The gap between the two stops — which is exactly what these two
+                numbers measure. See the note above. */}
+            <View style={styles.legGap}>
+              {etaMin != null || pickupKm != null ? (
+                <View style={styles.legGapRow}>
+                  <Ionicons name="navigate" size={11} color={accent} />
+                  <Text style={[styles.legGapText, { color: accent }]}>
+                    {[
+                      etaMin != null ? `${etaMin} min` : null,
+                      pickupKm != null ? `${pickupKm.toFixed(1)} km` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}{' '}
+                    to collect
+                  </Text>
+                </View>
+              ) : null}
+              {rideKm != null ? (
+                <View style={styles.legGapRow}>
+                  <Ionicons name="git-commit-outline" size={11} color={colors.onSurfaceVariant} />
+                  <Text style={[styles.legGapText, { color: colors.onSurfaceVariant }]}>
+                    {rideKm.toFixed(1)} km on the ride
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.leg}>
+              <Text style={[styles.legLabel, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
               <Text style={styles.legText} numberOfLines={2}>
                 {offer.dropoffAddress ?? 'Destination on the map'}
               </Text>
@@ -717,61 +754,11 @@ export function DispatchOfferCard({
   );
 }
 
-/**
- * One cell of the stat strip.
- *
- * Deliberately dumb and local: three cells with identical structure, so they
- * line up on the baseline and the strip cannot drift out of alignment the way
- * three hand-written blocks did.
+/*
+ * The three-cell stat strip and its `Stat` cell were removed with the hero
+ * rebuild: every number they carried now appears exactly once, on the money
+ * panel or on the spine's connector. See the render note above `styles.hero`.
  */
-function Stat({
-  colors,
-  icon,
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  colors: DriverColors;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  label: string;
-  value: string;
-  sub?: string | null;
-  accent?: string;
-}) {
-  return (
-    <View style={statStyles.cell} accessibilityLabel={`${label}: ${value}${sub ? `, ${sub}` : ''}`}>
-      <View style={statStyles.head}>
-        <Ionicons name={icon} size={11} color={accent ?? colors.onSurfaceVariant} />
-        <Text style={[statStyles.label, { color: colors.onSurfaceVariant }]}>{label}</Text>
-      </View>
-      <Text style={[statStyles.value, { color: accent ?? colors.onSurface }]} numberOfLines={1}>
-        {value}
-      </Text>
-      {sub ? (
-        <Text style={[statStyles.sub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
-          {sub}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
-const statStyles = StyleSheet.create({
-  cell: { flex: 1, gap: 3 },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  label: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.9 },
-  value: {
-    fontFamily: fonts.displayBold,
-    fontSize: 17,
-    lineHeight: 21,
-    letterSpacing: -0.3,
-    // Digits must not shift width between renders while a countdown is running
-    // next to them â€” Â§6 `number-tabular`.
-    fontVariant: ['tabular-nums'],
-  },
-  sub: { fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
-});
 
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
@@ -850,6 +837,25 @@ const makeStyles = (colors: DriverColors) =>
     panel: { padding: spacing.xl, gap: spacing.lg, overflow: 'hidden' },
 
     headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.base },
+    /**
+     * THE MONEY'S OWN GROUND.
+     *
+     * A tinted panel in the accent's hue with a hairline rim, so the fare sits
+     * ON something instead of floating on the same fill as the addresses below
+     * it. 18 pt of radius against the card's 28 keeps the two concentric —
+     * inner radius + padding ≈ outer radius — which is the difference between a
+     * panel that belongs to a card and a rectangle dropped on one.
+     */
+    hero: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.base,
+      paddingVertical: spacing.base,
+      paddingHorizontal: spacing.base,
+      borderRadius: 18,
+      borderWidth: StyleSheet.hairlineWidth,
+    },
     money: { flex: 1, gap: 2 },
     moneyLabel: {
       fontFamily: fonts.bold,
@@ -875,6 +881,14 @@ const makeStyles = (colors: DriverColors) =>
       borderRadius: radii.sm,
     },
     chipText: { fontFamily: fonts.bold, fontSize: 9.5, letterSpacing: 0.7 },
+    /** "You are the closest driver" / "Driver 3 of 8 asked". */
+    cascade: {
+      fontFamily: fonts.medium,
+      fontSize: 11,
+      lineHeight: 15,
+      marginTop: spacing.xs,
+      fontVariant: ['tabular-nums'],
+    },
 
     /** The three-number strip. Dividers, not boxes â€” see its render comment. */
     stats: {
@@ -903,8 +917,29 @@ const makeStyles = (colors: DriverColors) =>
     spine: { flexDirection: 'row', gap: spacing.md },
     spineRail: { width: 16, alignItems: 'center', paddingTop: 16 },
     spineDot: { width: 9, height: 9, borderRadius: 5 },
+    /**
+     * TWO SHAPES, NOT TWO COLOURS.
+     *
+     * A hollow ring is a place you leave from; a filled square is a place you
+     * arrive at. Shape survives a glance through a windscreen in daylight, and
+     * it survives colour blindness; two dots in different hues do neither.
+     */
+    spineOrigin: { width: 11, height: 11, borderRadius: 6, borderWidth: 2.5 },
+    spineDest: { width: 10, height: 10, borderRadius: 2.5 },
     spineLine: { width: 1.5, flex: 1, minHeight: 26, marginVertical: 5, borderRadius: 1 },
     spineBody: { flex: 1 },
+    leg: { gap: 1 },
+    legLabel: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 1, lineHeight: 12 },
+    /** The gap between the two stops — which is what the numbers in it measure. */
+    legGap: { gap: 3, paddingVertical: spacing.md, paddingLeft: 1 },
+    legGapRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    legGapText: {
+      fontFamily: fonts.semiBold,
+      fontSize: 11.5,
+      lineHeight: 15,
+      letterSpacing: 0.1,
+      fontVariant: ['tabular-nums'],
+    },
     legHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
     legText: {
       fontFamily: fonts.semiBold,

@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable } from '@eyego/ui';
+import { MotiView, Pressable, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
@@ -43,7 +43,7 @@ export default function AddCardScreen() {
         Alert.alert(
           'Card Saved',
           `${(card.brand as string).toUpperCase()} ending in ${card.last4} has been saved.`,
-          [{ text: 'Done', onPress: () => router.back() }]
+          [{ text: 'Done', onPress: () => goBack() }]
         );
       } catch (err: any) {
         const msg = err?.response?.data?.message ?? 'Card could not be verified. Please try again.';
@@ -62,7 +62,7 @@ export default function AddCardScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>Add Payment Method</Text>

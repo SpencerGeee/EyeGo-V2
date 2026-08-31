@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
@@ -300,7 +300,7 @@ export default function TripCompleteScreen() {
     const timer = setTimeout(() => {
       if (!navigated.current) {
         navigated.current = true;
-        router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
+        goDeeper(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
       }
     }, 8000);
     return () => clearTimeout(timer);
@@ -308,7 +308,7 @@ export default function TripCompleteScreen() {
 
   const handleRateAndTip = useCallback(() => {
     navigated.current = true;
-    router.push(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
+    goDeeper(`/ride/${id}/rate-tip${bookingId ? `?bookingId=${bookingId}` : ''}` as Href);
   }, [router, id, bookingId]);
 
   /** Make + model only — never the plate. See the privacy note on the share. */
@@ -343,7 +343,35 @@ export default function TripCompleteScreen() {
    * support asks for and it grants no access on its own.
    */
   const handleShareReceipt = useCallback(() => {
-    const firstPart = (s?: string | null) => (s ? String(s).split(',')[0].trim() : null);
+    /**
+     * THE PLACE, ON A RECEIPT SOMEBODY ELSE WILL READ.
+     *
+     * BUGFIX — "on the receipt section of the rider app, when I choose to share
+     * it and view the content, it shows that the destination was Home and not
+     * the actual street name."
+     *
+     * This was `split(',')[0]` — the FIRST segment only. That is right for a
+     * geocoded address ("Oxford Street, Osu, Accra" → "Oxford Street") and
+     * exactly wrong for a saved place, because `placeLabel` composes those as
+     * "<your name for it>, <the real address>". So the one segment it kept was
+     * the rider's private alias and the one it threw away was the street — a
+     * receipt that reads "To: Home" proves nothing to the person it was sent to,
+     * which is the entire reason anyone shares one.
+     *
+     * Two segments, not one. A saved place keeps its alias AND gains its street;
+     * a plain address gains its neighbourhood. Still short of the full string,
+     * so the privacy note above still holds: this publishes a street, never a
+     * house number and a city and a country.
+     */
+    const firstPart = (s?: string | null) =>
+      s
+        ? String(s)
+            .split(',')
+            .slice(0, 2)
+            .map((t) => t.trim())
+            .filter(Boolean)
+            .join(', ') || null
+        : null;
     const money = (p?: number | null) => (typeof p === 'number' ? formatGhs(p) : null);
 
     const when = receiptData?.issuedAt ?? (selectedTrip as any)?.completedAt ?? null;
@@ -400,7 +428,7 @@ export default function TripCompleteScreen() {
     Share.share({ message: lines.join('\n'), title: 'EyeGo Receipt' }).catch(() => {});
   }, [receiptNumber, receiptData, totalFare, selectedTrip, fareBreakdown, farePerSeat, fareSeatCount, activeBooking, vehicleDisplay]);
 
-  useEffect(() => { if (!id) router.back(); }, [id, router]);
+  useEffect(() => { if (!id) goBack(); }, [id, router]);
   if (!id) return null;
 
 

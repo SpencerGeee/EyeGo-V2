@@ -18,7 +18,7 @@ import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
-import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm } from '@eyego/ui';
+import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm, goLateral, SmoothScreen, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -217,6 +217,34 @@ export default function ActiveTripScreen() {
   const [pinBusy, setPinBusy] = useState(false);
 
   /**
+   * A BOARDING RUN — the kerbside routine, as one gesture.
+   *
+   * FEATURE ("if a rider orders a ride and the driver accepts and gets to the
+   * pickup, if they want to start the trip, they would be prompted to put the
+   * pin (if there's a pin) and it automatically boards the passenger. that
+   * makes it consistent").
+   *
+   * Exactly right, and the old shape had it backwards. Boarding was a thing the
+   * driver had to remember to do on the seat map FIRST, and starting the ride
+   * was a separate swipe that the server refused until they had. Two steps, in
+   * an order nobody is told, with the failure arriving as a 409 alert — which
+   * is why "I chose to start the trip without boarding" kept being reported.
+   *
+   * Now the swipe IS the routine. Swiping Start walks every passenger who is
+   * not yet aboard: it boards each one, stops for a code where the rider asked
+   * for one, offers `Not here` for the seat nobody claims, and pulls off when
+   * the queue is empty. One gesture, and the server's precondition is satisfied
+   * on the way past rather than discovered afterwards.
+   *
+   * `queue` is frozen when the run starts. Re-deriving it per step would let a
+   * booking that lands mid-run extend a queue the driver is already standing
+   * in — the bus would never leave.
+   */
+  const [boardingRun, setBoardingRun] = useState<
+    { queue: { bookingId: string; seatNumber: number; name: string }[]; index: number } | null
+  >(null);
+
+  /**
    * "IT'S DOWN THERE" — the pointer for a refused departure.
    *
    * The server now refuses IN_PROGRESS while the car is empty or a Verify My
@@ -300,7 +328,7 @@ export default function ActiveTripScreen() {
   });
 
   useEffect(() => {
-    if (!id || typeof id !== 'string') router.back();
+    if (!id || typeof id !== 'string') goBack();
   }, [id, router]);
 
   const isActiveTrip = !!trip && !['COMPLETED', 'CANCELLED'].includes(trip.status);
@@ -354,7 +382,7 @@ export default function ActiveTripScreen() {
 
   // Route to the dedicated cancel screen (reason picker + note + penalty
   // warning) instead of a bare confirm Alert with no reason capture.
-  const handleCancel = () => router.push(`/(trip)/cancel/${id}` as Href);
+  const handleCancel = () => goDeeper(`/(trip)/cancel/${id}` as Href);
 
   // Dedicated no-show endpoint — not cancelTrip. It guards to pre-departure
   // states only, issues no-show-labeled refunds, and sends riders the
@@ -548,15 +576,30 @@ export default function ActiveTripScreen() {
        * and departure now go there too, after the same short confirmation beat
        * so the swipe control gets to finish its own animation first.
        */
+      /**
+       * ARRIVING KEEPS YOU WHERE THE NEXT ACTION IS.
+       *
+       * BUGFIX — "if I get to the pickup point and I swipe to say arrived, you
+       * don't have to bring me to the tracking page again for me to go back to
+       * the manage page to swipe to start. Make it consistent."
+       *
+       * A previous sweep sent every forward step to the tracking screen, on the
+       * reasoning that a swipe with no visible consequence looks broken. The
+       * reasoning was sound and the destination was wrong for THIS step:
+       * arriving is the moment the driver starts boarding people, and boarding
+       * happens on the seat map — which is on this screen. Bouncing them to a
+       * map and making them navigate back was a round trip to see less.
+       *
+       * So arrival stays put, and the consequence is made visible HERE instead:
+       * `flashConfirmed` lands on the swipe control, and the arrival banner
+       * (see `atPickup` in the render) puts the state where it cannot be missed.
+       * Departure still goes to tracking — that IS a change of activity.
+       */
       if (toStatus === 'ARRIVED_AT_PICKUP') {
-        flashConfirmed('Marked as arrived');
+        flashConfirmed('At the pickup point');
         addNotification({ type: 'ARRIVED_AT_PICKUP', title: 'Arrived at pickup', body: 'You have arrived at the pickup stop.', tripId: id });
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
         qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-        setTimeout(
-          () => router.replace({ pathname: '/(trip)/tracking/[id]', params: { id } } as Href),
-          520,
-        );
         return;
       }
       if (toStatus === 'IN_PROGRESS') {
@@ -683,7 +726,29 @@ export default function ActiveTripScreen() {
         return;
       }
 
+      /**
+       * "NOTHING HAPPENS."
+       *
+       * BUGFIX — "if I board the passenger on the driver app, it's like it
+       * overrides everything, and even if I swipe to say I've arrived, nothing
+       * happens."
+       *
+       * It was doing something. Boarding a passenger advances the trip on the
+       * server, so the driver's next swipe asks to move OUT of a status the trip
+       * has already left, and the server answers 409. The handling for that was
+       * to append a row to the notifications LIST — a screen the driver is not
+       * on, behind a tab they have no reason to open mid-trip. From the kerb it
+       * was indistinguishable from a swipe that did not register, so drivers
+       * swiped again, which is how the same conflict gets manufactured twice.
+       *
+       * Say it on the control that was swiped. `flashConfirmed` is the swipe's
+       * own confirmed state — the same green tick a successful step produces —
+       * because from the driver's point of view the step IS done. The list entry
+       * stays for the record.
+       */
       if (status === 409) {
+        flashConfirmed('Already up to date');
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         addNotification({
           type: 'DRIVER_EN_ROUTE',
           title: 'Already updated',
@@ -968,6 +1033,134 @@ export default function ActiveTripScreen() {
   );
 
   /**
+   * ── THE BOARDING RUN ──────────────────────────────────────────────────────
+   * Everyone who has paid and is not yet in the vehicle, in seat order. Unpaid
+   * holds are excluded: a hold is a reservation that may still evaporate, and
+   * boarding one would put somebody in a seat they have not bought.
+   *
+   * Plain consts and plain functions, deliberately — they sit below this
+   * screen's loading guard, where a hook cannot go.
+   */
+  const pendingBoarders: { bookingId: string; seatNumber: number; name: string }[] =
+    (activeBookings as any[])
+      .filter((b) => b.status !== 'BOARDED' && b.status !== 'COMPLETED' && !isHeld(b))
+      .slice()
+      .sort((a, b) => (a.seatNumber ?? 0) - (b.seatNumber ?? 0))
+      .map((b) => ({
+        bookingId: b.id as string,
+        seatNumber: typeof b.seatNumber === 'number' ? b.seatNumber : 0,
+        name: (b.guestName ?? b.user?.name ?? 'Passenger') as string,
+      }));
+
+  /**
+   * Walk the queue. Each step boards one passenger; a rider who asked for a
+   * code stops the walk at the keypad and the driver's `Confirm` resumes it
+   * from the same index with the digits attached.
+   *
+   * A named function expression so the recursion has a name to call, and
+   * recursive rather than a loop because the pauses are asynchronous — the
+   * driver typing four digits is a suspension of the walk, not an exit from it.
+   */
+  const runBoarding = async function step(
+    queue: { bookingId: string; seatNumber: number; name: string }[],
+    index: number,
+    pin?: string,
+  ): Promise<void> {
+    if (index >= queue.length) {
+      // Queue drained: everybody who is coming is aboard. Pull off.
+      setBoardingRun(null);
+      setPinPrompt(null);
+      setPinValue('');
+      setPinError(null);
+      advanceStatus.mutate();
+      return;
+    }
+
+    const who = queue[index];
+    setBoardingRun({ queue, index });
+    try {
+      setPinBusy(true);
+      await driverApi.boardPassenger(id!, who.bookingId, pin);
+      setPinPrompt(null);
+      setPinValue('');
+      setPinError(null);
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+      await step(queue, index + 1);
+    } catch (err: any) {
+      const code = err?.response?.data?.code ?? err?.response?.data?.error?.code;
+      const msg = err?.response?.data?.message ?? 'Could not board that passenger.';
+      if (code === 'PIN_REQUIRED') {
+        // Stop here and raise the code on the rider's phone too — the driver is
+        // about to ask for a number the rider has to be able to see.
+        setPinValue('');
+        setPinError(null);
+        setPinPrompt(who);
+        void driverApi.requestBoardingPin(id!, who.bookingId).catch(() => {});
+        return;
+      }
+      if (code === 'PIN_INCORRECT') {
+        // Keypad stays open. A mistyped digit is not a rejected passenger.
+        setPinError(msg);
+        setPinValue('');
+        return;
+      }
+      if (err?.response?.status === 409) {
+        // Already aboard — the queue catching up with a seat the driver boarded
+        // by hand a moment ago. Not a failure; carry on down the row.
+        await step(queue, index + 1);
+        return;
+      }
+      setBoardingRun(null);
+      setPinPrompt(null);
+      Alert.alert('Could not board that passenger', msg);
+    } finally {
+      setPinBusy(false);
+    }
+  };
+
+  /**
+   * "NOT HERE" — the seat nobody claimed.
+   *
+   * Releases it and moves on rather than abandoning the whole run: a bus that
+   * cannot leave because one passenger did not show is the exact situation
+   * `riderNoShow` exists to end. A failure to release is swallowed on purpose —
+   * stranding the vehicle over a bookkeeping call would be worse than the
+   * stale seat it leaves behind, and the server reconciles it either way.
+   */
+  const skipBoarder = async () => {
+    if (!boardingRun) return;
+    const { queue, index } = boardingRun;
+    const who = queue[index];
+    try {
+      setPinBusy(true);
+      await driverApi.riderNoShow(id!, who.bookingId);
+      qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
+    } catch {
+      /* see above */
+    } finally {
+      setPinBusy(false);
+    }
+    await runBoarding(queue, index + 1);
+  };
+
+  /**
+   * WHAT THE PRIMARY SWIPE DOES.
+   *
+   * At the kerb it is the whole boarding routine (see `boardingRun`). Anywhere
+   * else it is the plain status transition it has always been — heading to the
+   * pickup, completing the trip. Only `ARRIVED_AT_PICKUP` has passengers
+   * standing in front of the vehicle waiting to get in.
+   */
+  const startsTheRide = trip.status === 'ARRIVED_AT_PICKUP';
+  const beginPrimaryAction = () => {
+    if (startsTheRide && pendingBoarders.length > 0) {
+      void runBoarding(pendingBoarders, 0);
+      return;
+    }
+    advanceStatus.mutate();
+  };
+
+  /**
    * ── IS THERE A SEAT TO SELL AT ALL? ────────────────────────────────────────
    *
    * BUGFIX ("I booked 2 seats… I tried to add an offline passenger but it's
@@ -1038,7 +1231,51 @@ export default function ActiveTripScreen() {
     seatsHeldByUser.set(uid, (seatsHeldByUser.get(uid) ?? 0) + seatsOf(b));
   }
 
-  const seats = activeBookings.map((b: any) => {
+  /**
+   * ── ONE TILE PER SEAT, NOT ONE TILE PER BOOKING ──────────────────────────
+   *
+   * BUGFIX ("if a rider books for 3 seats (on demand ride) and the rider is
+   * boarded, it should mark all the seats as boarded in the seat map — at the
+   * moment it marks just one seat as boarded and the rest are left in the
+   * reserved state, but it shows 3/3 booked").
+   *
+   * The two halves of the card were counting different things. Every header
+   * number on this screen already went through `seatsOf`, which reads
+   * `Booking.seats` and answers 3 for a party of three — so the header said
+   * 3/3. The grid underneath was `activeBookings.map`, one tile per ROW, and a
+   * party of three is ONE row. So three seats were sold, three seats were paid
+   * for, one tile was drawn, and boarding that tile left the other two looking
+   * like passengers who had not turned up.
+   *
+   * A booking carries a single `seatNumber` — its anchor. The extra seats it
+   * bought are real seats on the vehicle that simply have no row of their own,
+   * so they are allocated here: the lowest free numbers not already claimed by
+   * another booking's anchor. Every tile a booking owns then shares that
+   * booking's status, which is the invariant that was missing — boarding a
+   * party boards the whole party, because it always did server-side.
+   *
+   * Allocation is deterministic (anchors first, then ascending) so the grid
+   * does not reshuffle itself between renders.
+   */
+  const claimedSeatNumbers = new Set<number>(
+    (activeBookings as any[])
+      .map((b) => b.seatNumber)
+      .filter((n): n is number => typeof n === 'number'),
+  );
+  let nextFreeSeat = 1;
+  const takeFreeSeat = (): number => {
+    while (claimedSeatNumbers.has(nextFreeSeat)) nextFreeSeat += 1;
+    claimedSeatNumbers.add(nextFreeSeat);
+    return nextFreeSeat;
+  };
+  /** The seat numbers one booking occupies: its anchor plus its extra seats. */
+  const seatNumbersFor = (b: any): number[] => {
+    const anchor = typeof b.seatNumber === 'number' ? b.seatNumber : takeFreeSeat();
+    const extra = Math.max(0, seatsOf(b) - 1);
+    return [anchor, ...Array.from({ length: extra }, () => takeFreeSeat())];
+  };
+
+  const seats = activeBookings.flatMap((b: any) => {
     const userId = b.user?.id ?? b.userId;
     /**
      * WHO IS IN THE SEAT, NOT WHO PAID FOR IT.
@@ -1061,8 +1298,8 @@ export default function ActiveTripScreen() {
     const realName = b.guestName ?? b.user?.name ?? 'Passenger';
     const holdsMany = userId != null && (seatsHeldByUser.get(userId) ?? 0) > 1;
     const isAnchor = userId != null && anchorSeatByUser.get(userId) === b.seatNumber;
-    return {
-      seatNumber: b.seatNumber,
+    return seatNumbersFor(b).map((seatNumber: number, seatIdx: number) => ({
+      seatNumber,
       // BUGFIX: an unpaid hold used to fall through to 'EMPTY', so the seat map
       // drew it as free while the header counted it as booked — the two halves of
       // the same card disagreed, and a rider whose hold expired looked to the
@@ -1071,7 +1308,11 @@ export default function ActiveTripScreen() {
         b.status === 'BOARDED' ? 'BOARDED' : isHeld(b) ? 'HELD' : 'BOOKED'
       ) as 'BOARDED' | 'BOOKED' | 'HELD',
       userId,
-      userName: holdsMany && !isAnchor ? `Covered by ${realName}` : realName,
+      /* The payer's name goes on the anchor tile only — and now, on a party
+         booking, only on its FIRST tile. The extra seats this booking bought
+         say who covered them rather than printing the same person three times
+         across the van, which is the same rule the cover-all case already had. */
+      userName: holdsMany && !(isAnchor && seatIdx === 0) ? `Covered by ${realName}` : realName,
       bookingId: b.id,
       /**
        * WHO IS ACTUALLY IN THIS SEAT.
@@ -1106,7 +1347,7 @@ export default function ActiveTripScreen() {
       // could read the PIN would not have to be told it. See
       // scrubBookingSecrets in drivers.service.js.
       needsPin: !!b.requiresBoardingPin,
-    };
+    }));
   });
 
   const currentStepIndex = stepIndexFor(trip.status);
@@ -1134,7 +1375,7 @@ export default function ActiveTripScreen() {
 
       {/* Glassmorphic top header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable style={styles.headerIconBtn} onPress={() => router.back()}>
+        <Pressable style={styles.headerIconBtn} onPress={() => goBack()}>
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
 
@@ -1196,7 +1437,7 @@ export default function ActiveTripScreen() {
         clear the route card, the status chips AND the swipe action on arrival —
         tracking only has to clear its ETA card.
       */}
-      <TripSurfaceShell snapPointsPct={[0.52, 0.85]}>
+      <TripSurfaceShell snapPointsPct={[0.52, 0.85]} status={trip?.status}>
         <View style={styles.sheetInner}>
           {/* Route summary — the screen's headline fact, now a lit surface
               rather than bare text on the sheet. Same ring family as the
@@ -1405,7 +1646,7 @@ export default function ActiveTripScreen() {
                 actions.push({
                   text: 'Message',
                   onPress: () =>
-                    router.push({
+                    goDeeper({
                       pathname: '/(trip)/chat/[id]',
                       params: {
                         id,
@@ -1601,7 +1842,7 @@ export default function ActiveTripScreen() {
                 icon="person-add-outline"
                 label="Add Rider"
                 color={colors.primary}
-                onPress={() => router.push({ pathname: '/(trip)/add-passenger', params: { tripId: id } })}
+                onPress={() => goDeeper({ pathname: '/(trip)/add-passenger', params: { tripId: id } })}
                 colors={colors}
               />
             )}
@@ -1609,7 +1850,7 @@ export default function ActiveTripScreen() {
               icon="chatbubble-outline"
               label="Chat"
               color={colors.onSurfaceVariant}
-              onPress={() => router.push(`/(trip)/chat/${id}`)}
+              onPress={() => goDeeper(`/(trip)/chat/${id}`)}
               colors={colors}
               badge={unreadChats}
             />
@@ -1617,7 +1858,10 @@ export default function ActiveTripScreen() {
               icon="map-outline"
               label="Tracking"
               color={colors.onSurfaceVariant}
-              onPress={() => router.push(`/(trip)/tracking/${id}`)}
+              /* SIDEWAYS, not deeper — see goLateral. Manage and tracking are two
+                 views of one trip, and `push` was building a stack seven live
+                 maps deep as the driver toggled between them. */
+              onPress={() => goLateral(`/(trip)/tracking/${id}`)}
               colors={colors}
             />
           </Entrance>
@@ -1684,6 +1928,57 @@ export default function ActiveTripScreen() {
             </Pressable>
           </Entrance>
 
+          {/*
+            "I AM HERE." — THE ARRIVAL, MADE UNMISSABLE.
+
+            BUGFIX — "if I board the passenger it's like it overrides everything
+            and even if I swipe to say I've arrived, nothing happens. Maybe
+            that's how it's supposed to be, but at least make it more visible if
+            the driver says he's at the pickup point, just so the user knows the
+            driver updated the status."
+
+            Arriving used to be a word in a progress rail and a chip colour, and
+            both of those are the same size as every other word on the screen.
+            Now the screen changes state: a lit strip that names where the driver
+            is and what the vehicle is waiting for. It is also what replaces the
+            jump to the tracking screen (see the ARRIVED_AT_PICKUP branch) — the
+            consequence of the swipe is visible without leaving.
+          */}
+          {trip.status === 'ARRIVED_AT_PICKUP' && (
+            <Entrance animation="slideDown" delay={170}>
+              <GradientGlowBorder
+                palette="driver"
+                fillColor={colors.surfaceCard}
+                borderRadius={radii.xl}
+                thickness="thin"
+                glow
+                glowIntensity={0.75}
+                maxGlowRadius={18}
+              >
+                <View style={styles.arrivedStrip}>
+                  <View style={[styles.arrivedDot, { backgroundColor: colors.primary }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.arrivedTitle, { color: colors.onSurface }]}>
+                      You're at the pickup point
+                    </Text>
+                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>
+                      {pendingBoarders.length === 0
+                        ? 'Everyone is aboard — swipe to set off.'
+                        : pendingBoarders.length === 1
+                          ? `Waiting on ${pendingBoarders[0].name}. Swipe below to board and go.`
+                          : `Waiting on ${pendingBoarders.length} passengers. Swipe below to board them all and go.`}
+                    </Text>
+                  </View>
+                  <View style={[styles.arrivedCount, { borderColor: colors.primary }]}>
+                    <Text style={[styles.arrivedCountText, { color: colors.primary }]}>
+                      {boardedSeats}/{occupiedSeats}
+                    </Text>
+                  </View>
+                </View>
+              </GradientGlowBorder>
+            </Entrance>
+          )}
+
           {statusInfo.next && (
             <Entrance animation="slideDown" delay={200}>
               {/* Ringed, like the route card above it and the ETA card on the
@@ -1703,10 +1998,16 @@ export default function ActiveTripScreen() {
                 maxGlowRadius={16}
               >
                 <SwipeToConfirm
-                  label={`Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`}
-                  loadingLabel={`${statusInfo.action}…`}
-                  onConfirm={() => advanceStatus.mutate()}
-                  loading={advanceStatus.isPending}
+                  label={
+                    startsTheRide && pendingBoarders.length > 0
+                      ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
+                      : `Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`
+                  }
+                  loadingLabel={
+                    boardingRun ? `Boarding ${boardingRun.index + 1} of ${boardingRun.queue.length}…` : `${statusInfo.action}…`
+                  }
+                  onConfirm={beginPrimaryAction}
+                  loading={advanceStatus.isPending || boardingRun != null}
                   confirmed={confirmedLabel != null}
                   confirmedLabel={confirmedLabel ?? undefined}
                   color={colors.primary}
@@ -1779,15 +2080,41 @@ export default function ActiveTripScreen() {
         visible={pinPrompt != null}
         transparent
         animationType="fade"
-        onRequestClose={() => setPinPrompt(null)}
+        onRequestClose={() => {
+          // Backing out of a run ends the run — otherwise the swipe control
+          // would sit in its loading state with no keypad to resume from.
+          setBoardingRun(null);
+          setPinPrompt(null);
+        }}
       >
         <View style={styles.pinBackdrop}>
           <View style={styles.pinSheet}>
+            {/* WHERE THE DRIVER IS IN THE ROW.
+                A keypad with no position is a keypad that could be the last one
+                or the first of six, and a driver holding up a queue needs to
+                know which. Only shown during a run — a single hand-boarded seat
+                has no queue to count. */}
+            {boardingRun && boardingRun.queue.length > 1 && (
+              <View style={styles.pinProgress}>
+                {boardingRun.queue.map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.pinProgressPip,
+                      i < boardingRun.index && { backgroundColor: colors.primary },
+                      i === boardingRun.index && { backgroundColor: colors.primary, width: 18 },
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
             <Text variant="titleSmall" style={{ color: colors.onSurface }}>
-              Verify {pinPrompt?.name ?? 'passenger'}
+              Seat {pinPrompt?.seatNumber} · {pinPrompt?.name ?? 'passenger'}
             </Text>
             <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-              Ask them to read out the 4-digit code on their screen.
+              {boardingRun && boardingRun.queue.length > 1
+                ? `Passenger ${boardingRun.index + 1} of ${boardingRun.queue.length}. Ask them to read out the 4-digit code on their screen.`
+                : 'Ask them to read out the 4-digit code on their screen.'}
             </Text>
 
             <TextInput
@@ -1812,24 +2139,47 @@ export default function ActiveTripScreen() {
             )}
 
             <View style={styles.pinActions}>
+              {/* DURING A RUN THE LEFT BUTTON IS "NOT HERE", NOT "CANCEL".
+                  Cancelling out of a boarding run abandons every passenger
+                  behind this one; what the driver actually wants at a kerb is
+                  to release the seat of the person who did not turn up and keep
+                  going. Outside a run it stays a plain dismiss. */}
               <Pressable
                 style={styles.pinCancel}
-                onPress={() => { setPinPrompt(null); setPinValue(''); setPinError(null); }}
+                disabled={pinBusy}
+                onPress={() => {
+                  if (boardingRun) {
+                    void skipBoarder();
+                    return;
+                  }
+                  setPinPrompt(null);
+                  setPinValue('');
+                  setPinError(null);
+                }}
                 accessibilityRole="button"
+                accessibilityLabel={boardingRun ? 'This passenger is not here' : 'Cancel'}
               >
-                <Text style={{ color: colors.onSurfaceVariant }}>Cancel</Text>
+                <Text style={{ color: colors.onSurfaceVariant }}>
+                  {boardingRun ? 'Not here' : 'Cancel'}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.pinConfirm, (pinValue.length !== 4 || pinBusy) && { opacity: 0.5 }]}
                 disabled={pinValue.length !== 4 || pinBusy}
-                onPress={() =>
-                  pinPrompt &&
-                  void boardWithPin(pinPrompt.bookingId, pinPrompt.seatNumber, pinPrompt.name, pinValue)
-                }
+                onPress={() => {
+                  if (!pinPrompt) return;
+                  // Inside a run, resume the walk at the same index with the
+                  // digits attached; outside one, board this seat alone.
+                  if (boardingRun) {
+                    void runBoarding(boardingRun.queue, boardingRun.index, pinValue);
+                    return;
+                  }
+                  void boardWithPin(pinPrompt.bookingId, pinPrompt.seatNumber, pinPrompt.name, pinValue);
+                }}
                 accessibilityRole="button"
               >
                 <Text style={{ color: colors.onPrimary ?? '#0A0D14', fontFamily: fonts.semiBold }}>
-                  {pinBusy ? 'Checking…' : 'Confirm'}
+                  {pinBusy ? 'Checking…' : boardingRun ? 'Board' : 'Confirm'}
                 </Text>
               </Pressable>
             </View>
@@ -2084,6 +2434,45 @@ const makeStyles = (colors: DriverColors) =>
       padding: spacing['2xl'],
       gap: spacing.md,
       alignItems: 'center',
+    },
+    /** The arrival strip. See the render note above `ARRIVED_AT_PICKUP`. */
+    arrivedStrip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      paddingVertical: spacing.base,
+      paddingHorizontal: spacing.base,
+      borderRadius: radii.xl,
+    },
+    arrivedDot: { width: 9, height: 9, borderRadius: 5 },
+    arrivedTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+      letterSpacing: -0.1,
+    },
+    arrivedCount: {
+      minWidth: 46,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      alignItems: 'center',
+    },
+    /* Tabular figures: this counter changes as passengers board and a
+       proportional 1 would shuffle the pill's width every time. */
+    arrivedCountText: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodySmall,
+      fontVariant: ['tabular-nums'],
+    },
+    /** Where in the row of passengers this keypad is. See the render. */
+    pinProgress: { flexDirection: 'row', gap: 5, alignItems: 'center', marginBottom: 2 },
+    pinProgressPip: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.outline,
     },
     /** Big and widely tracked — the driver is reading this back against a code
      *  being spoken to them, often through a window. */

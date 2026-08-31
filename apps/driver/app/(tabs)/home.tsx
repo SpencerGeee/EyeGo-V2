@@ -13,16 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import {
-  Text,
-  Button,
-  Entrance,
-  GlassSurface,
-  InlayPanel,
-  GradientGlowBorder,
-  SkeletonValue,
-  AnnouncementBanner,
-} from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, InlayPanel, GradientGlowBorder, SkeletonValue, AnnouncementBanner, goDeeper , SmoothDefer } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -31,6 +22,7 @@ import { useDriverTripStore } from '../../stores/trip.store';
 import { useNotificationsStore } from '../../stores/notifications.store';
 import { useDriverLocation, beatPresenceNow } from '../../hooks/useDriverLocation';
 import { DispatchBlockedBanner, describeDispatchBlock } from '../../components/DispatchBlockedBanner';
+import { DriverAlertBanner } from '../../components/DriverAlertBanner';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { OnlineToggle } from '../../components/OnlineToggle';
@@ -64,7 +56,7 @@ export default function HomeScreen() {
   const reconnectAttemptsRef = useRef(0);
   // FIX2: single ref for reconnect timer — prevents leaked timers on rapid disconnect/reconnect
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guards router.push() calls fired from async socket callbacks (e.g. onTripAssigned)
+  // Guards goDeeper() calls fired from async socket callbacks (e.g. onTripAssigned)
   // against navigating on/after unmount — e.g. driver switches tabs the instant a
   // dispatch offer lands.
   const isMountedRef = useRef(true);
@@ -248,7 +240,7 @@ export default function HomeScreen() {
         tripId: data.tripId,
       });
       if (!isMountedRef.current) return; // home screen unmounted (e.g. driver switched tabs) — don't navigate
-      router.push({
+      goDeeper({
         pathname: '/(trip)/dispatch/[id]',
         params: {
           id: data.tripId,
@@ -267,13 +259,34 @@ export default function HomeScreen() {
         },
       } as any);
     });
-    // D14: reconnect on disconnect if still online, capped at 5 attempts
+    /**
+     * RECONNECT FAST, AND KEEP TRYING.
+     *
+     * BUGFIX — "the time for it to reconnect if the dispatch can't see you
+     * should be faster."
+     *
+     * The old curve was `3000 × 2^(n-1)`, capped at 60 s, and it gave up after
+     * five attempts. In wall-clock terms a driver who lost the socket waited
+     * 3 s, then 6, then 12, then 24, then 48 — a minute and a half of silence
+     * before the app stopped trying altogether and left them online, invisible
+     * to dispatch, with no further attempt for the rest of the session. That is
+     * the single most expensive state this app has, and it was the one we backed
+     * off out of.
+     *
+     * Now: 700 ms, then ×1.7 to a 10 s ceiling, and it never stops while the
+     * driver is online. A tunnel or a lift is measured in seconds, so the first
+     * few retries — the ones that actually recover a real-world dropout — all
+     * land inside three seconds. The ceiling keeps a genuinely dead network from
+     * spinning the radio flat, and the attempt counter now only shapes the
+     * curve rather than terminating it: a driver who is online wants to be
+     * reachable, indefinitely, and that is the whole job.
+     */
     const cleanDisconnect = driverSocketEvents.onDisconnect(() => {
-      if (useDriverStore.getState().isOnline && reconnectAttemptsRef.current < 5) {
+      if (useDriverStore.getState().isOnline) {
         reconnectAttemptsRef.current += 1;
         // FIX2: clear any pending reconnect before scheduling a new one
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-        const delay = Math.min(3000 * Math.pow(2, reconnectAttemptsRef.current - 1), 60000);
+        const delay = Math.min(700 * Math.pow(1.7, reconnectAttemptsRef.current - 1), 10000);
         reconnectTimerRef.current = setTimeout(() => {
           reconnectTimerRef.current = null;
           if (useDriverStore.getState().isOnline) {
@@ -386,7 +399,7 @@ export default function HomeScreen() {
     if (!dispatchStatus || dispatchStatus.dispatchable) return null;
     switch (describeDispatchBlock(dispatchStatus.reason).action) {
       case 'DOCUMENTS':
-        return { label: 'Finish my documents', onPress: () => router.push('/(profile)/documents' as Href) };
+        return { label: 'Finish my documents', onPress: () => goDeeper('/(profile)/documents' as Href) };
       case 'GO_ONLINE':
         return { label: 'Re-register me now', onPress: () => goOnline.mutate() };
       case 'RESUME':
@@ -396,11 +409,11 @@ export default function HomeScreen() {
           ? {
               label: 'Open my trip',
               onPress: () =>
-                router.push({ pathname: '/(trip)/active/[id]', params: { id: activeTripId } } as Href),
+                goDeeper({ pathname: '/(trip)/active/[id]', params: { id: activeTripId } } as Href),
             }
           : { label: 'Refresh', onPress: () => void beatPresenceNow().catch(() => {}) };
       case 'SIGN_OUT':
-        return { label: 'Sign out', onPress: () => router.push('/(profile)/settings' as Href) };
+        return { label: 'Sign out', onPress: () => goDeeper('/(profile)/settings' as Href) };
       default:
         return {
           label: 'Check now',
@@ -463,6 +476,15 @@ export default function HomeScreen() {
       {/* MAP — full-bleed, mirrors the rider app's map screens (ride/[id].tsx,
           tracking.tsx) instead of a boxed card. AppBackground (mounted in
           _layout.tsx) only shows through the loading/error veil now. */}
+      {/* THE MAP ARRIVES A BEAT AFTER THE TAB DOES.
+          A MapLibre GL surface is the most expensive node either app mounts, and
+          the driver's home tab mounts it on every cold start and every return
+          from a trip. `SmoothDefer` lets the tab paint its panel and header
+          first; the map fills in behind them. See packages/ui/src/motion/smooth. */}
+      <SmoothDefer
+        delayMs={140}
+        placeholder={<View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
+      >
       <MapboxGL.MapView
         ref={mapRef}
         style={StyleSheet.absoluteFillObject}
@@ -488,6 +510,7 @@ export default function HomeScreen() {
           visible={showHeatmap && isOnline}
         />
       </MapboxGL.MapView>
+      </SmoothDefer>
 
       {/* Header overlay — glass */}
       <Entrance animation="slideUp" delay={100} style={[styles.header, { top: insets.top + 12 }]}>
@@ -523,67 +546,101 @@ export default function HomeScreen() {
         </View>
       </Entrance>
 
-      {/* Online error banner */}
-      {!!onlineError && (
-        <Entrance animation="slideUp" style={[styles.errorBanner, { top: insets.top + 64 }]}>
-          <Ionicons
-            name={onlineError === 'pending_review' ? 'time-outline' : 'warning-outline'}
-            size={16}
-            color={colors.error}
-          />
-          <View style={{ flex: 1, gap: 6 }}>
-            <Text variant="caption" color={colors.error}>
-              {onlineError === 'pending_review'
-                ? 'Account pending approval.'
-                : onlineError === 'wallet'
-                ? 'Wallet error — please check your balance.'
-                : onlineError}
-            </Text>
-            {onlineError === 'pending_review' && (
-              <Pressable
-                onPress={() => devActivate.mutate()}
-                disabled={devActivate.isPending}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-              >
-                <Ionicons name="flash-outline" size={12} color={colors.primary} />
-                <Text style={{ fontFamily: fonts.semiBold, fontSize: 11, lineHeight: 14, color: colors.primary }}>
-                  {devActivate.isPending ? 'Activating…' : 'Activate Account (Dev)'}
-                </Text>
-              </Pressable>
-            )}
-          </View>
-          <Pressable onPress={() => setOnlineError(null)}>
-            <Ionicons name="close" size={14} color={colors.onSurfaceVariant} />
-          </Pressable>
-        </Entrance>
-      )}
+      {/*
+        ── THE STATUS COLUMN ──────────────────────────────────────────────────
 
-      {/* No internet banner */}
-      {isOffline && (
-        <Entrance animation="slideUp" style={[styles.offlineBanner, { top: insets.top + (onlineError ? 112 : 64) }]}>
-          <Ionicons name="cloud-offline-outline" size={14} color="#fff" />
-          <Text variant="caption" style={{ color: '#fff', flex: 1 }}>No internet connection</Text>
-        </Entrance>
-      )}
+        BUGFIX — "the toast notification thing isn't fixed, it's still showing
+        the old thing", and "when the toast notification comes up it takes a
+        while to go".
+
+        Every banner on this screen used to position itself absolutely and work
+        out its own `top` by adding up guessed heights for whatever might be
+        above it — `insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 :
+        0) + (announcement ? 64 : 0)`. Four sources of truth for one column, each
+        one wrong the moment a banner wrapped to a second line, which is exactly
+        how they ended up on top of each other.
+
+        One absolutely-positioned column with a gap. Layout does the arithmetic,
+        the order is the order of the JSX, and adding a fifth banner costs
+        nothing. See DriverAlertBanner for why the two hand-rolled pills that
+        used to live here are gone.
+      */}
+      <View style={[styles.bannerColumn, { top: insets.top + 64 }]} pointerEvents="box-none">
+        {!!onlineError && (
+          <DriverAlertBanner
+            tone={onlineError === 'pending_review' ? 'warn' : 'error'}
+            icon={onlineError === 'pending_review' ? 'time' : 'warning'}
+            title={
+              onlineError === 'pending_review'
+                ? 'Your account is still being reviewed'
+                : onlineError === 'wallet'
+                  ? 'We could not read your wallet'
+                  : 'You could not be brought online'
+            }
+            detail={
+              onlineError === 'pending_review'
+                ? 'You cannot take trips until an operator approves you. We will notify you the moment that happens.'
+                : onlineError === 'wallet'
+                  ? 'Check your balance — a negative wallet blocks new trips.'
+                  : onlineError
+            }
+            /* Transient: it describes an attempt that failed, not a state the
+               driver is in. Nine seconds is long enough to read two lines. */
+            autoDismissMs={9000}
+            onDismiss={() => setOnlineError(null)}
+            action={
+              onlineError === 'pending_review'
+                ? __DEV__
+                  ? { label: devActivate.isPending ? 'Activating…' : 'Activate account (dev)', onPress: () => devActivate.mutate() }
+                  : { label: 'Open my documents', onPress: () => goDeeper('/(profile)/documents' as any) }
+                : onlineError === 'wallet'
+                  ? { label: 'Open my wallet', onPress: () => goDeeper('/(tabs)/earnings' as any) }
+                  : { label: 'Try going online again', onPress: () => { setOnlineError(null); goOnline.mutate(); } }
+            }
+            busy={devActivate.isPending || goOnline.isPending}
+          />
+        )}
+
+        {isOffline && (
+          /* STATE, not event — so no clock and no dismiss: hiding "no internet"
+             would not restore the internet. What it gets instead is a verb. */
+          <DriverAlertBanner
+            tone="offline"
+            icon="cloud-offline"
+            title="No internet connection"
+            detail="You are not reachable by dispatch while this is showing. We keep retrying on our own."
+            autoDismissMs={null}
+            pulse
+            action={{
+              label: 'Retry now',
+              onPress: () => {
+                // Force the socket to try immediately rather than waiting out
+                // the backoff — the driver tapping this is new information:
+                // they believe the network is back.
+                reconnectAttemptsRef.current = 0;
+                if (reconnectTimerRef.current) {
+                  clearTimeout(reconnectTimerRef.current);
+                  reconnectTimerRef.current = null;
+                }
+                if (useDriverStore.getState().isOnline) getDriverSocket().connect();
+                qc.invalidateQueries({ queryKey: ['driver'] });
+              },
+            }}
+          />
+        )}
 
       {/*
         The operator's announcement banner.
 
         `APP_ANNOUNCEMENT_TEXT` is set from the admin console and reaches the
         phone through `GET /v1/config/public` on foreground — no store release.
-        Stacked under whatever error banners are already showing, using the same
-        offset arithmetic as the dispatch banner below it.
+        Just another child of the status column: it stacks under whatever is
+        already showing because it comes after it in the JSX, which is the whole
+        point of the column replacing the hand-summed offsets.
       */}
       {platformConfig.announcement ? (
         <Entrance
           animation="slideUp"
-          style={{
-            position: 'absolute',
-            left: spacing.lg,
-            right: spacing.lg,
-            top: insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0),
-            zIndex: 20,
-          }}
         >
           <AnnouncementBanner
             text={platformConfig.announcement.text}
@@ -609,13 +666,16 @@ export default function HomeScreen() {
         beat has answered, so a cold start does not flash a warning.
       */}
       {isOnline && dispatchStatus && !dispatchStatus.dispatchable && (
+        /* No `top`: it is the last child of the column above and layout places
+           it. See DispatchBlockedBannerProps for why the hand-summed offset
+           had to go. */
         <DispatchBlockedBanner
           reason={dispatchStatus.reason}
-          top={insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0) + (platformConfig.announcement ? 64 : 0)}
           action={dispatchBlockAction}
           busy={goOnline.isPending || goOffline.isPending || resumeRequests.isPending}
         />
       )}
+      </View>
 
       {/*
         Bottom panel.
@@ -714,7 +774,7 @@ export default function HomeScreen() {
             {activeTripData ? (
               <LiveTripCard
                 trip={activeTripData}
-                onPress={() => router.push(`/(trip)/active/${activeTripData.id}` as Href)}
+                onPress={() => goDeeper(`/(trip)/active/${activeTripData.id}` as Href)}
               />
             ) : (
               <GradientGlowBorder
@@ -727,7 +787,7 @@ export default function HomeScreen() {
               >
                 <Button
                   label="+ Create Trip"
-                  onPress={() => router.push('/(trip)/create')}
+                  onPress={() => goDeeper('/(trip)/create')}
                   disabled={!isOnline}
                 />
               </GradientGlowBorder>
@@ -809,6 +869,20 @@ const makeStyles = (colors: DriverColors) =>
     // one-line "Active trip: X → Y" strip. That is now `LiveTripCard`, which
     // owns its own styles.
     offlineHint: { textAlign: 'center', marginTop: spacing.xs },
+    /**
+     * ONE COLUMN FOR EVERY STATUS SURFACE ON THIS SCREEN.
+     *
+     * `gap` rather than four hand-computed `top` offsets — see the render.
+     * `box-none` on the container so the map underneath still takes pans
+     * between the cards; only the cards themselves are hit targets.
+     */
+    bannerColumn: {
+      position: 'absolute',
+      left: spacing.lg,
+      right: spacing.lg,
+      gap: spacing.md,
+      zIndex: 20,
+    },
     errorBanner: {
       position: 'absolute',
       left: spacing['2xl'],

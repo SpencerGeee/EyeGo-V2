@@ -351,7 +351,46 @@ function applyPlan(
     lastOverviewKeyRef.current = key;
     lastPaddingKeyRef.current = paddingKey;
     fitSettlesAtRef.current = now + duration;
-    cameraRef.fitBounds?.([plan.bounds.ne, plan.bounds.sw], plan.padding, duration);
+    /**
+     * ── THE PADDING HAD TO BE RENAMED, AND NEVER WAS ────────────────────────
+     *
+     * BUGFIX — "the camera position of the map isn't correctly positioned and I
+     * have to adjust it before it's corrected" / "the camera frame of the map
+     * isn't done correctly" / "the camera frame location thing just affects the
+     * rider app and not the driver app."
+     *
+     * All three are this one line. `CameraPadding` in camera.ts spells its keys
+     * `paddingTop`/`paddingBottom`/… — the shape `setCamera` takes. The Camera
+     * wrapper's `fitBounds` takes an EDGE INSET spelled `top`/`bottom`/… and
+     * this call handed it the other object verbatim. Every key read came back
+     * `undefined` and fell through to `?? 0`, so every overview fit in the app
+     * has been framed against the FULL viewport with no insets whatsoever.
+     *
+     * What that looks like on a phone: the pickup and destination are centred
+     * in the whole screen, which puts them behind the bottom sheet, so the
+     * rider drags the map up to see the pins the app just placed. Exactly the
+     * report — and the whole elaborate sheet interlock above, which computes
+     * the live padding off the sheet's springing top edge, was being thrown
+     * away at the last step.
+     *
+     * Rider-only because only the rider's TripMap uses `overview`/`fitBounds`;
+     * the driver's screens follow the vehicle through `setCamera`, whose
+     * padding key names already matched. That is why the driver app was fine.
+     *
+     * `duration > 0` rather than `duration`: the wrapper's third argument is a
+     * BOOLEAN `animated`, and passing the millisecond count happened to behave
+     * correctly only because 0 is falsy.
+     */
+    cameraRef.fitBounds?.(
+      [plan.bounds.ne, plan.bounds.sw],
+      {
+        top: padding.paddingTop ?? 0,
+        right: padding.paddingRight ?? 0,
+        bottom: padding.paddingBottom ?? 0,
+        left: padding.paddingLeft ?? 0,
+      },
+      duration > 0,
+    );
     return;
   }
 

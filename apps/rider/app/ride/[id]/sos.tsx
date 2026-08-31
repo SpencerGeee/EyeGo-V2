@@ -16,7 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable } from '@eyego/ui';
+import { MotiView, Pressable, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
@@ -461,7 +461,7 @@ export default function SOSScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8}>
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Safety</Text>
@@ -557,7 +557,7 @@ export default function SOSScreen() {
         {/* Trusted Contacts */}
         <View style={styles.contactsHeader}>
           <Text style={styles.sectionLabel}>Trusted Contacts</Text>
-          <Pressable onPress={() => router.push('/profile/emergency-contacts')} hitSlop={8}>
+          <Pressable onPress={() => goDeeper('/profile/emergency-contacts')} hitSlop={8}>
             <Text style={styles.manageLink}>Manage</Text>
           </Pressable>
         </View>
@@ -565,7 +565,7 @@ export default function SOSScreen() {
           {contactsList.slice(0, 3).map((c, i) => (
             <View key={`${c.name ?? 'contact'}-${i}`} style={styles.contactCard}>
               <Pressable
-                onPress={() => router.push('/profile/emergency-contacts')}
+                onPress={() => goDeeper('/profile/emergency-contacts')}
                 style={styles.contactClose}
                 hitSlop={8}
               >
@@ -586,7 +586,7 @@ export default function SOSScreen() {
           ))}
           {contactsList.length < 3 && (
             <Pressable
-              onPress={() => router.push('/profile/emergency-contacts')}
+              onPress={() => goDeeper('/profile/emergency-contacts')}
               style={styles.addCard}
             >
               <View style={styles.addIcon}>

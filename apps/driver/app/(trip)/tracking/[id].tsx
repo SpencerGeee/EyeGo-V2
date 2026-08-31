@@ -18,13 +18,13 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, springs, durations, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
-import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground } from '@eyego/ui';
+import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground, goLateral, SmoothScreen } from '@eyego/ui';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -326,7 +326,25 @@ export default function DriverTrackingScreen() {
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(a))) <= AT_PICKUP_M;
   }, [driverLocation?.latitude, driverLocation?.longitude, pickupCoord, destCoord]);
 
-  const pickupLegDone = statusSaysPickupDone || atPickupNow;
+  /**
+   * THE LEG FOLLOWS THE STATUS. PROXIMITY IS NOT A STATUS.
+   *
+   * BUGFIX — "on the tracking page it now shows driving to destination instead
+   * of pickup for that status."
+   *
+   * This was `statusSaysPickupDone || atPickupNow`, and `atPickupNow` is true
+   * from 75 m out. So the instant the driver pulled up — before they had swiped
+   * anything, while the chip above still read "Heading to pickup" — the card
+   * underneath started describing the drop-off leg. One screen, two answers to
+   * "where am I going", which is exactly what was reported.
+   *
+   * Being NEAR the pickup is not the same event as having FINISHED with it: the
+   * driver still has to stop, find the passenger and board them. So the leg is
+   * decided by the trip's status alone, and `atPickupNow` keeps its own, more
+   * honest job below — saying "you're at the pickup point" instead of counting
+   * down a distance that is already zero.
+   */
+  const pickupLegDone = statusSaysPickupDone;
   /**
    * The leg to render RIGHT NOW: the drop-off once the pickup is behind us
    * (by status OR by position), otherwise whatever the server last said, and
@@ -522,7 +540,7 @@ export default function DriverTrackingScreen() {
           { text: 'Not now', style: 'cancel' },
           {
             text: 'Open Manage trip',
-            onPress: () => router.push({ pathname: '/(trip)/active/[id]', params: { id } } as Href),
+            onPress: () => goLateral({ pathname: '/(trip)/active/[id]', params: { id } }),
           },
         ]);
         return;
@@ -664,7 +682,7 @@ export default function DriverTrackingScreen() {
       <View style={styles.headerOverlay}>
         <View style={styles.headerRow}>
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
+          <Pressable onPress={() => goBack()} style={styles.headerBtn}>
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <View style={styles.headerRouteInfo}>
@@ -740,7 +758,7 @@ export default function DriverTrackingScreen() {
         moving between them mid-trip felt like two different apps. The geometry
         below is the rider tracking screen's, which is the one that reads right.
       */}
-      <TripSurfaceShell snapPointsPct={[0.38, 0.72]}>
+      <TripSurfaceShell snapPointsPct={[0.38, 0.72]} status={trip?.status}>
         {/* No inner padding wrapper: the shell's own sheet body owns the
             horizontal inset, the top gap that keeps a card's glow off the
             sheet edge, and the vertical rhythm between cards. Keeping a second
@@ -788,7 +806,13 @@ export default function DriverTrackingScreen() {
                     instead, and keep the calculating copy for the one case
                     where it is honest: still driving, no answer yet.
                   */}
-                  {etaMinutes != null
+                  {/* Standing on the pickup with the trip not yet started beats
+                      any ETA: "0 min to pickup" is a number, not information.
+                      Checked BEFORE `etaMinutes` for that reason — it used to
+                      sit in the fallback chain and could therefore never win. */}
+                  {atPickupNow && !statusSaysPickupDone
+                    ? "You're at the pickup point"
+                    : etaMinutes != null
                     ? (effectiveLeg === 'toPickup' ? 'to pickup' : 'to destination')
                     : trip?.status === 'ARRIVED_AT_PICKUP'
                       ? 'At the pickup point'
@@ -853,7 +877,7 @@ export default function DriverTrackingScreen() {
                     key={b.id ?? i}
                     style={styles.passengerRow}
                     disabled={aboard}
-                    onPress={() => router.push(`/(trip)/active/${id}` as Href)}
+                    onPress={() => goLateral(`/(trip)/active/${id}`)}
                     accessibilityRole={aboard ? undefined : 'button'}
                     accessibilityLabel={
                       aboard
@@ -926,7 +950,7 @@ export default function DriverTrackingScreen() {
             <Entrance animation="slideDown" delay={80}>
               <Button
                 label={`${statusInfo.action} — open Manage`}
-                onPress={() => router.push(`/(trip)/active/${id}`)}
+                onPress={() => goLateral(`/(trip)/active/${id}`)}
               />
             </Entrance>
           )}
@@ -935,7 +959,7 @@ export default function DriverTrackingScreen() {
           <Entrance animation="slideDown" delay={100} style={styles.secondaryActions}>
             <Pressable
               style={styles.secondaryBtn}
-              onPress={() => router.push(`/(trip)/chat/${id}`)}
+              onPress={() => goDeeper(`/(trip)/chat/${id}`)}
             >
               <Ionicons name="chatbubble-outline" size={18} color={colors.onSurfaceVariant} />
               <Text style={[styles.secondaryBtnText, { color: colors.onSurfaceVariant }]}>Chat</Text>
@@ -957,7 +981,7 @@ export default function DriverTrackingScreen() {
             </Pressable>
             <Pressable
               style={styles.secondaryBtn}
-              onPress={() => router.push(`/(trip)/active/${id}`)}
+              onPress={() => goLateral(`/(trip)/active/${id}`)}
             >
               <Ionicons name="grid-outline" size={18} color={colors.primary} />
               <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Manage</Text>

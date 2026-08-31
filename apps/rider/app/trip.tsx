@@ -14,7 +14,7 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, goBack } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
@@ -448,7 +448,7 @@ export default function TripScreen() {
    * to the homepage."
    *
    * The trip surface is a single route. Everything downstream of it — payment,
-   * invite, guest selection — pushes ON TOP of it, so every `router.back()`
+   * invite, guest selection — pushes ON TOP of it, so every `goBack()`
    * from those screens necessarily lands back here, and here re-seeds from
    * `params.stage`, which for a normal booking was never set and therefore
    * defaulted to 'search'. Backing out of payment dropped the rider on the

@@ -10,7 +10,7 @@ import { userApi } from '@eyego/api';
 import QRCode from 'react-native-qrcode-svg';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text } from '@eyego/ui';
+import { Text, goDeeper, goBack } from '@eyego/ui';
 
 /**
  * Public web origin that also backs the universal/app links. The QR codes now
@@ -142,10 +142,10 @@ export default function ScanPayScreen() {
       // The trip detail screen, not tracking: a rider scanning a driver's code
       // has not booked yet, and tracking is only readable once they are on the
       // trip. Detail is where they pick a seat and pay.
-      router.push({ pathname: '/ride/[id]', params: { id: parsed.value } } as any);
+      goDeeper({ pathname: '/ride/[id]', params: { id: parsed.value } } as any);
       return;
     }
-    router.push({
+    goDeeper({
       pathname: '/profile/send-money',
       params: parsed.amountCedis
         ? { phone: parsed.value, amount: parsed.amountCedis }
@@ -183,7 +183,7 @@ export default function ScanPayScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium" style={styles.headerTitle}>Scan & Pay</Text>

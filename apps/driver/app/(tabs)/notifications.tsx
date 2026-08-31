@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GlassSurface, AnimatedList, AppBackground } from '@eyego/ui';
+import { Text, Entrance, GlassSurface, AnimatedList, AppBackground, goDeeper } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
@@ -110,12 +110,12 @@ export default function NotificationsScreen() {
     if (!n.read) markRead(n.id);
     if (!n.tripId) return;
     if (n.type === 'COMPLETED') {
-      router.push(`/(trip)/complete/${n.tripId}` as any);
+      goDeeper(`/(trip)/complete/${n.tripId}` as any);
     } else if (n.type === 'TRIP_ASSIGNED') {
-      router.push(`/(trip)/dispatch/${n.tripId}` as any);
+      goDeeper(`/(trip)/dispatch/${n.tripId}` as any);
     } else {
       // DRIVER_EN_ROUTE / ARRIVED_AT_PICKUP / IN_PROGRESS / everything else in-trip
-      router.push(`/(trip)/active/${n.tripId}` as any);
+      goDeeper(`/(trip)/active/${n.tripId}` as any);
     }
   }, [markRead, router]);
 

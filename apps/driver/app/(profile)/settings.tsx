@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Switch, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMutation } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
@@ -89,7 +89,7 @@ export default function SettingsScreen() {
     // inline flow PATCHed { isDeleted: true } — a field updateMe ignores —
     // then logged out regardless: the account was never actually deleted
     // and any failure was swallowed.
-    router.push('/(profile)/account-deletion' as any);
+    goDeeper('/(profile)/account-deletion' as any);
   };
 
   const toggleNotifications = (val: boolean) => {
@@ -120,7 +120,7 @@ export default function SettingsScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

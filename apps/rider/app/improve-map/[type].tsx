@@ -10,7 +10,7 @@ import * as Location from 'expo-location';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { mapReportsApi, type MapReportType } from '@eyego/api';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text, Pressable, Button, AppBackground, backgroundScrollPauseProps, GlowSearchInput } from '@eyego/ui';
+import { Text, Pressable, Button, AppBackground, backgroundScrollPauseProps, GlowSearchInput, goDeeper, goBack } from '@eyego/ui';
 
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -336,7 +336,7 @@ export default function MapReportFormScreen() {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       qc.invalidateQueries({ queryKey: ['map-reports', 'mine'] });
       showToast('Thanks — we will take a look.', 'success');
-      router.back();
+      goBack();
     },
     onError: (err: any) => {
       if (err?.message === 'NO_LOCATION') {
@@ -364,7 +364,7 @@ export default function MapReportFormScreen() {
       <AppBackground variant="static" isDark={isDark} />
 
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>{copy.title}</Text>
@@ -426,7 +426,7 @@ export default function MapReportFormScreen() {
         <Pressable
           style={styles.mapBtn}
           onPress={() =>
-            router.push({
+            goDeeper({
               pathname: '/profile/place-picker',
               params: {
                 title: coords ? 'Adjust the pin' : 'Where is it?',

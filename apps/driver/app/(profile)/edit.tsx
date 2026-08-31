@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goBack } from '@eyego/ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
@@ -81,7 +81,7 @@ export default function EditProfileScreen() {
       });
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
       qc.invalidateQueries({ queryKey: ['driver', 'documents'] });
-      router.back();
+      goBack();
     },
     onError: (err: any) => {
       setError(err?.response?.data?.message ?? 'Failed to save. Please try again.');
@@ -130,7 +130,7 @@ export default function EditProfileScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

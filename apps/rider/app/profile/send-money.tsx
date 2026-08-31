@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { walletApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input } from '@eyego/ui';
+import { Text, Button, Input, goDeeper, goBack } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis } from "@eyego/utils";
 
 export default function SendMoneyScreen() {
@@ -36,7 +36,7 @@ export default function SendMoneyScreen() {
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
       Alert.alert('Credits sent', res?.data?.message ?? 'Their next ride is on you.', [
-        { text: 'Done', onPress: () => router.back() },
+        { text: 'Done', onPress: () => goBack() },
       ]);
     },
     onError: (err: any) => {
@@ -90,7 +90,7 @@ export default function SendMoneyScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium" style={styles.headerTitle}>Send Ride Credits</Text>
@@ -157,7 +157,7 @@ export default function SendMoneyScreen() {
           />
           <Pressable
             style={styles.scanLink}
-            onPress={() => router.push('/profile/scan-pay' as any)}
+            onPress={() => goDeeper('/profile/scan-pay' as any)}
             accessibilityRole="button"
           >
             <Ionicons name="qr-code-outline" size={16} color={colors.primary} />

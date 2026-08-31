@@ -100,3 +100,29 @@ export {
   contentEnter,
   contentExit,
 } from './motion/layoutTransitions';
+
+/**
+ * THE SMOOTHNESS SYSTEM — one import path for the whole of it.
+ * See packages/ui/src/motion/smooth/index.ts for what it is and how to adopt it.
+ */
+export {
+  SmoothScreen,
+  SmoothDefer,
+  SmoothIn,
+  SmoothSection,
+  useSmoothScreen,
+  useSettled,
+  goDeeper,
+  goLateral,
+  goInstead,
+  goBack,
+  enableSmoothNavigation,
+  SmoothNavigationProvider,
+  smoothScreenLayout,
+  isTransitioning,
+  beginTransition,
+  subscribeTransition,
+  afterTransition,
+  TRANSITION_MS,
+} from './motion/smooth';
+export type { SmoothScreenProps, SmoothScreenState, SmoothInProps, SmoothNavigationProviderProps } from './motion/smooth';

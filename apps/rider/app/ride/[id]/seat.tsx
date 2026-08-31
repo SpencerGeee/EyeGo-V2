@@ -15,7 +15,7 @@ import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useThemeStore } from '../../../stores/theme.store';
-import { Text, Button, EmptyState, AppBackground, Entrance, GlassSurface } from '@eyego/ui';
+import { Text, Button, EmptyState, AppBackground, Entrance, GlassSurface, goDeeper, goBack } from '@eyego/ui';
 import type { Seat } from '@eyego/types';
 
 export default function SeatPickerScreen() {
@@ -79,7 +79,7 @@ export default function SeatPickerScreen() {
   const handleConfirm = () => {
     if (!selectedSeat) return;
     setSelectedSeat(selectedSeat);
-    router.push(`/ride/${id}/payment` as Href);
+    goDeeper(`/ride/${id}/payment` as Href);
   };
 
   // Fail loudly: if seats can't be loaded we show a real error with retry,
@@ -89,7 +89,7 @@ export default function SeatPickerScreen() {
       <SafeAreaView style={styles.safe}>
         <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} hitSlop={12}>
+          <Pressable onPress={() => goBack()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="labelCaps">Choose Your Seat</Text>
@@ -112,7 +112,7 @@ export default function SeatPickerScreen() {
       <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerBackBtn} hitSlop={12}>
+        <Pressable onPress={() => goBack()} style={styles.headerBackBtn} hitSlop={12}>
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="labelCaps">Choose Your Seat</Text>

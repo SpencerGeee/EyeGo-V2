@@ -1,41 +1,63 @@
-# state.md
+# State — 20-item sweep + global smoothness rollout (2026-08-31)
 
 ## Current Goal
-14-item sweep (2026-08-31): dispatch/toast/map polish, wallet-at-accept, rider redesigns, E2E harness.
+All 20 items delivered; smoothness system now applied app-wide to BOTH apps;
+driver dispatch offer screen rebuilt. Awaiting device testing.
 
-## Plan Status
-All 14 items implemented. Both apps `tsc --noEmit` green; backend `node --check` green;
-`yarn test:invariants` 2/2. **Nothing device-tested — every item below needs a real handset.**
+## ⚠ NOTHING IS COMMITTED
+The sideloaded build is `96bbaa6`, which predates every change in this session.
+That is why the toast redesign and the "looking for a driver" redesign both
+looked missing on device — they are in the working tree, not in the APK.
 
-| # | Item | Where |
-|---|---|---|
-| 1 | Dispatch map polyline was a bowed arc | `DispatchLiveMap.useRoadLeg` fetches both legs via `/geo/route` |
-| 2 | "Insufficient funds" at boarding | `cashFloatPesewas` on the offer + `assertCanAffordTrip` in `claimTrip` + card warning |
-| 3 | Rider told nothing on driver no-show | new `rideEnded.store` + `RideEndedSheet`, mounted on rider home |
-| 4 | Services glow borders overlapping | gaps `sm`→`base`, `glowRoom` padding, `maxGlowRadius` caps |
-| 5 | Dispatch page overlap | sheet measured via `onLayout`; map padding + FAB read the measurement |
-| 6 | "Looking for a driver" was static | `RequestStage` is map-first; `TripMap` draws an animated ROAD line to the asked driver |
-| 7 | Driver toast + stale-trip nav | `DriverToast` rebuilt opaque w/ real CTA; `dest` moved onto toast state; terminal guard |
-| 8 | Map-picker placeholder spaced out | `lineHeight` removed from the `TextInput` (both apps) |
-| 9 | Seat hint missing on driver-created trips | `BOARDING_STATUSES`, and the hint moved to its own line |
-| 10 | Straight polyline + false "at pickup" | `effectivePickup` reads `Route.originLat`; `AT_PICKUP_METERS` 150→75; `ensureRouteForTrip` pays for `toPickup` |
-| 11 | Driver app lag | blooms + high-intensity blur removed from live-map screens; shader paused over full-bleed maps |
-| 12 | E2E harness | 5 new suites + `run-all.mjs` + README |
-| 13 | Map is pinchable, nothing said so | `MapGestureHint` on `ConfigureStage`, once per rider ever |
-| 14 | Home dispatch map inert | `DispatchBoardMap` pins + body are tappable → same `open()` → morph |
+## Verification (all green)
+- `node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.json` (packages)
+- `... -p apps/rider/tsconfig.json`
+- `... -p apps/driver/tsconfig.json`
+- `node scripts/invariants.test.mjs` — 2/2
+- `node --check scripts/e2e/purge-test-data.mjs`
+- **`npx` is broken here — always use the node path above.**
+- NOT device-tested.
 
-## Decisions
-- Dispatch offer geometry is fetched CLIENT-side (`/geo/route`), not added to the cascade payload:
-  one driver views an offer at a time, and it cannot destabilise dispatch.
-- The wallet check is a HARD refusal at `claimTrip` (402 + `details`), and only a WARNING on the
-  card — the server is the authority, and greying the swipe out on a stale balance costs rides.
-- Glow rings kept, glow BLOOMS dropped on live-map screens: the ring is one gradient, the bloom is
-  2–4 iOS-shadowed views that re-rasterise whenever their content ticks.
+## The smoothness system — now global, not selective
+`packages/ui/src/motion/smooth/`
 
-## Open Issues
-- `ensureRouteForTrip` now pays for the pre-departure `toPickup` leg. On a group trip whose driver
-  is far away, both parties now see driver→pickup rather than the pickup→dropoff preview. Believed
-  better (it is live and carries the ETA), but it is a behaviour change on the rider's fill-up page.
-- `geo-routing.mjs` will fail loudly if `MAPBOX_SECRET_TOKEN` is unset — that is the point, but it
-  means a first run on a fresh env reports a real config gap as a suite failure.
-- The 5 new E2E suites have never been run: no local stack was up in this session.
+| Piece | Reach |
+|---|---|
+| `smoothScreenLayout` via `screenLayout` | **every screen**, on both root Stacks and both Tabs — including screens added later |
+| `SmoothNavigationProvider` | arms the transition clock from the navigator's own `state` event, so the back gesture, deep links, notification taps and tab presses all count — not just routed helpers |
+| …its query half | holds React Query's focus signal until the transition ends, so an arriving screen's refetches commit into a free thread |
+| `Entrance` rewritten | **127 call sites / 26 files** — shared values instead of Reanimated layout animations, waits for `settled`, travels 14 pt not a screen-height |
+| `StaggerList` / `AnimatedList` | inherit it (both build on `Entrance`) |
+| `enableFreeze(true)` + `freezeOnBlur` | both Stacks **and** both Tab navigators |
+| `goDeeper`/`goBack` sweep | **239 call sites across 88 files** (147 pushes + 92 backs) |
+| `goLateral` | driver manage ⇄ tracking (was a 7-deep stack of live maps) |
+| `SmoothDefer` on heavy maps | rider `ride/[id]`, `browse/[group]`, `profile/place-picker`; driver `(tabs)/home`, `(trip)/location-picker` |
+
+Design notes that matter:
+- `screenLayout` is **eager** on purpose — a blanket hold would break the morph
+  targets (`ride/[id]` expands out of the card the rider tapped). Screens opt
+  into holding individually.
+- `Entrance` deliberately does NOT gate on `firstAppearance`; only `SmoothIn`
+  does. Entrance wraps banners and transient UI that are genuinely new on mount.
+
+## Driver dispatch offer screen (rebuilt)
+- Money now sits on **its own tinted panel** with a hairline rim, concentric
+  radius (18 inner / 28 outer).
+- **The duplicated stats strip is gone.** TO PICKUP / RIDE / FARE were printed
+  twice — once in the strip, once in the spine. Each fact now appears once:
+  earnings + rate + your-share on the money panel; distances **on the spine's
+  connector**, which is what a connector is for.
+- Two marker **shapes** (hollow ring = origin, filled square = destination) —
+  survives a glance through a windscreen; hue does not.
+- Cascade position surfaced: "You are the closest driver" / "Driver 3 of 8 asked".
+- Header says how hard the offer is held ("Held for you" vs "Up for grabs ·
+  first to accept") instead of "New offer" for everything.
+- Sheet scrim was a **hardcoded `rgba(3,12,24,…)`** — a dark smear in light
+  mode. Now `colors.backgroundDeep`, passing through the accent at its midpoint.
+- Ring 84 → 76; dead `Stat` component removed.
+
+## Open
+- Device testing for all of it.
+- `apps/rider/components/trip/SearchingIndicator.tsx` is now unreferenced —
+  delete once the new `SearchingPanel` survives review.
+- Everything needs committing before the next sideload/OTA.

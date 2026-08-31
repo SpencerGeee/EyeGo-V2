@@ -6,7 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GradientGlowBorder, AppBackground, bookingStatusLabel } from '@eyego/ui';
+import { Text, Entrance, GradientGlowBorder, AppBackground, bookingStatusLabel, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -48,7 +48,7 @@ export default function TripDetailScreen() {
   // D8: guard after all hooks — navigate back for invalid id
   useEffect(() => {
     if (!id || typeof id !== 'string') {
-      router.back();
+      goBack();
     }
   }, [id, router]);
 
@@ -107,7 +107,7 @@ export default function TripDetailScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
-        <Pressable onPress={() => router.back()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Pressable onPress={() => goBack()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Ionicons name="arrow-back" size={18} color={colors.onSurfaceVariant} />
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Back</Text>
         </Pressable>

@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, GradientGlowBorder } from '@eyego/ui';
+import { Text, Button, GradientGlowBorder, goDeeper, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -56,7 +56,7 @@ export default function ScheduledRidesScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Ionicons name="arrow-back" size={22} color={colors.onSurface} onPress={() => router.back()} />
+        <Ionicons name="arrow-back" size={22} color={colors.onSurface} onPress={() => goBack()} />
         <Text style={styles.title}>Scheduled Rides</Text>
         <View style={{ width: 22 }} />
       </View>
@@ -89,7 +89,7 @@ export default function ScheduledRidesScreen() {
                   liveIntent.matchedTripId ? 'Track your scheduled ride' : 'View scheduled ride details'
                 }
                 onPress={() =>
-                  router.push(
+                  goDeeper(
                     (liveIntent.matchedTripId
                       ? '/trip?stage=assigned'
                       : `/scheduled/${liveIntent.id}`) as any,

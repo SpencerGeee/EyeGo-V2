@@ -47,6 +47,15 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(here, '..', '..', 'eyego-api', '.env') });
 
 const CONFIRM = process.argv.includes('--confirm');
+/**
+ * How far past its departure time a FILLING/SCHEDULED board has to be before it
+ * counts as dead. Six hours: long enough that a genuinely delayed bus is safe,
+ * short enough that yesterday's harness run is not still on the rider's home
+ * screen. `--stale-hours=N` to override.
+ */
+const STALE_HOURS = Number(
+  (process.argv.find((a) => a.startsWith('--stale-hours=')) || '').split('=')[1] || 6,
+);
 const url = process.env.DATABASE_URL || '';
 
 if (!/@(127\.0\.0\.1|localhost)[:/]/.test(url) && !process.env.E2E_ALLOW_REMOTE) {
@@ -103,19 +112,68 @@ async function main() {
   const tripIds = trips.map((t) => t.id);
 
   /**
-   * Orphaned live trips: no driver, no cascade, parked at MATCHING long enough
-   * that nothing is coming for them. These are what the driver's dispatch tab
-   * was advertising. Included even when every actor on them looks real, because
-   * a MATCHING trip older than an hour is dead whoever made it.
+   * ── EVERYTHING ELSE THAT CANNOT COMPLETE ─────────────────────────────────
+   *
+   * BUGFIX — "on the homepage of the rider app I can see leftover seeded data
+   * from the e2e harness. You need to clean up so I can test stuff correctly."
+   *
+   * The actor sweep above only reaches a trip whose requester, driver or
+   * passenger is still IN THE DATABASE. Three ways a harness trip escapes that
+   * and lands on the rider's home screen anyway:
+   *
+   *   1. A PARTIAL EARLIER PURGE. Delete the fixture driver and the trip is
+   *      suddenly owned by nobody — it matches no actor filter ever again, and
+   *      it sits on the board forever because no driver exists to advance it.
+   *   2. AN `e2e_`-NAMED ROW. The admin fixture seed names trips and routes
+   *      directly; those never had an actor to be found by.
+   *   3. A STALE BOARD. `FILLING` and `SCHEDULED` are exactly the two statuses
+   *      the rider's home screen queries, and a bus whose departure time passed
+   *      hours ago is not a ride anyone can take. Real or seeded, it is dead —
+   *      and it is the majority of what "leftover seeded data" looks like.
+   *
+   * All three are structural facts about the row, not guesses about who made
+   * it, which is the same standard the markers above hold to.
    */
-  const orphans = await prisma.trip.findMany({
+  const STALE_MS = STALE_HOURS * 60 * 60 * 1000;
+  const liveDriverIds = new Set(drivers.map((d) => d.id));
+  const orphanCandidates = await prisma.trip.findMany({
     where: {
-      status: { in: ['MATCHING', 'REASSIGNING'] },
-      createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
       id: { notIn: tripIds.length ? tripIds : ['-'] },
+      OR: [
+        // 1 + 2 — named by the seed, or dispatch never resolved.
+        { id: { startsWith: 'e2e_' } },
+        { routeId: { startsWith: 'e2e_' } },
+        {
+          status: { in: ['MATCHING', 'REASSIGNING'] },
+          createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+        // 3 — a board that has already left.
+        {
+          status: { in: ['FILLING', 'SCHEDULED', 'CONFIRMED'] },
+          departureTime: { lt: new Date(Date.now() - STALE_MS) },
+        },
+      ],
     },
-    select: { id: true, status: true, routeId: true },
+    select: { id: true, status: true, routeId: true, driverId: true, departureTime: true },
   });
+
+  /** A non-terminal trip whose driver row is gone can never be advanced. */
+  const driverless = await prisma.trip.findMany({
+    where: {
+      id: { notIn: tripIds.length ? tripIds : ['-'] },
+      status: {
+        in: ['FILLING', 'SCHEDULED', 'CONFIRMED', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'],
+      },
+      NOT: { driverId: null },
+    },
+    select: { id: true, status: true, routeId: true, driverId: true },
+  });
+
+  const seen = new Set(orphanCandidates.map((t) => t.id));
+  const orphans = [
+    ...orphanCandidates,
+    ...driverless.filter((t) => !seen.has(t.id) && !liveDriverIds.has(t.driverId)),
+  ];
 
   const allTripIds = [...tripIds, ...orphans.map((t) => t.id)];
   const routeIds = [...new Set([...trips, ...orphans].map((t) => t.routeId).filter(Boolean))];
@@ -129,9 +187,10 @@ async function main() {
   console.log('\n── DELETING ──────────────────────────────────────────────');
   console.log(`  test riders          ${testUserIds.length}`);
   console.log(`  test drivers         ${testDriverIds.length}`);
-  console.log(`  trips                ${allTripIds.length}   (${orphans.length} of them orphaned live trips)`);
+  console.log(`  trips                ${allTripIds.length}   (${orphans.length} of them orphaned/stale)`);
   console.log(`  bookings             ${bookingIds.length}`);
   console.log(`  ad-hoc routes        ${routeIds.length}`);
+  console.log(`  (stale threshold: departures more than ${STALE_HOURS} h in the past)`);
 
   const live = [...trips, ...orphans].filter((t) =>
     ['MATCHING', 'REASSIGNING', 'FILLING', 'SCHEDULED', 'CONFIRMED', 'DRIVER_ASSIGNED', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'].includes(t.status),
@@ -161,6 +220,30 @@ async function main() {
 
     await tx.dispatchAction.deleteMany({ where: { OR: [{ tripId: inT }, { driverId: inD }] } });
     await tx.tripEvent.deleteMany({ where: { tripId: inT } });
+    /**
+     * The rest of what hangs off a trip. Each is `?.` because this script has
+     * to keep working against a schema that gains models — a purge that throws
+     * half way leaves the database in a worse state than the one it was called
+     * to fix, and "this model does not exist here" is not a reason to abort.
+     */
+    await tx.message?.deleteMany({ where: { tripId: inT } });
+    await tx.sosEvent?.deleteMany({ where: { OR: [{ tripId: inT }, { userId: inU }] } });
+    await tx.tripReport?.deleteMany({ where: { OR: [{ tripId: inT }, { driverId: inD }] } });
+    await tx.callSession?.deleteMany({ where: { tripId: inT } });
+    await tx.tripRequest?.deleteMany({ where: { OR: [{ matchedTripId: inT }, { userId: inU }] } });
+    await tx.scheduledTask?.deleteMany({ where: { tripId: inT } });
+    await tx.mapReport?.deleteMany({ where: { OR: [{ userId: inU }, { driverId: inD }] } });
+    // AdminNote is polymorphic — `subjectType` + `subjectId`, no foreign key —
+    // so it is addressed by subject rather than by relation.
+    await tx.adminNote?.deleteMany({
+      where: {
+        OR: [
+          { subjectType: 'TRIP', subjectId: inT },
+          { subjectType: 'USER', subjectId: inU },
+          { subjectType: 'DRIVER', subjectId: inD },
+        ],
+      },
+    });
     await tx.driverRating.deleteMany({ where: { OR: [{ driverId: inD }, { userId: inU }] } });
     await tx.passengerRating.deleteMany({ where: { userId: inU } });
     await tx.trip.deleteMany({ where: { id: inT } });

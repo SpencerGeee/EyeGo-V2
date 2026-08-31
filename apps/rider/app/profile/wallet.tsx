@@ -10,7 +10,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS } from '@eyego/ui';
+import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
 
 // Green-accent variant of the premium ring sweep — two narrow emerald arcs
@@ -113,7 +113,7 @@ export default function WalletScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>Wallet</Text>
@@ -184,11 +184,11 @@ export default function WalletScreen() {
            * what this button actually does is pass credits to another EyeGo
            * account, and its name is now that. See profile/send-money.tsx.
            */}
-          <Pressable style={styles.quickCard} onPress={() => router.push('/profile/send-money' as any)}>
+          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/send-money' as any)}>
             <Ionicons name="gift-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Send Credits</Text>
           </Pressable>
-          <Pressable style={styles.quickCard} onPress={() => router.push('/profile/scan-pay' as any)}>
+          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/scan-pay' as any)}>
             <Ionicons name="qr-code-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Scan & Pay</Text>
           </Pressable>

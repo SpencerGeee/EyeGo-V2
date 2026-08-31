@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder } from '@eyego/ui';
+import { Text, GlassSurface, DriverInfoCard, RollingDigits, GradientGlowBorder, goDeeper } from '@eyego/ui';
 import { formatGhs } from '@eyego/utils';
 import { SheetContent } from '../sheetSlot';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -137,7 +137,7 @@ function AssignedStageImpl() {
 
   const handleCancel = () => {
     if (!tripId) return;
-    router.push(`/ride/${tripId}/cancel` as Href);
+    goDeeper(`/ride/${tripId}/cancel` as Href);
   };
 
   return (
@@ -274,7 +274,7 @@ function AssignedStageImpl() {
               // handler, so no number means no button — rather than a button
               // that opens the dialler on nothing.
               onCall={driver.phone ? handleCall : undefined}
-              onChat={() => tripId && router.push(`/ride/${tripId}/chat` as Href)}
+              onChat={() => tripId && goDeeper(`/ride/${tripId}/chat` as Href)}
               unreadChats={unreadChats}
             />
           )}
@@ -315,7 +315,7 @@ function AssignedStageImpl() {
             <Action
               icon="shield-checkmark-outline"
               label="Safety"
-              onPress={() => tripId && router.push(`/ride/${tripId}/sos` as Href)}
+              onPress={() => tripId && goDeeper(`/ride/${tripId}/sos` as Href)}
               colors={colors}
             />
             <Action

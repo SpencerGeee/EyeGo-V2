@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground, goBack } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 
@@ -155,7 +155,7 @@ export default function RatePassengersScreen() {
    * nothing to press, so the earnings breakdown the driver had just been reading
    * was unreachable the moment they tapped Rate Passengers.
    *
-   * `router.back()` is deliberately NOT used. The receipt reaches this screen by
+   * `goBack()` is deliberately NOT used. The receipt reaches this screen by
    * `push`, so back would usually work — but the receipt itself is reached by
    * `router.replace` from two different trip screens, and a rating flow resumed
    * from a notification has no receipt underneath it at all. Naming the

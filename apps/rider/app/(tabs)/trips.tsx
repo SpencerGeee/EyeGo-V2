@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import Animated from 'react-native-reanimated';
 import { useRouter, type Href } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper } from '@eyego/ui';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, queryKeys } from '@eyego/api';
@@ -35,7 +35,7 @@ export default function TripsScreen() {
 
   // Navigate to the cancel screen (with reason picker) instead of a bare Alert
   const handleCancel = useCallback((bookingId: string) => {
-    router.push({ pathname: '/ride/[id]/cancel', params: { id: bookingId } } as Href);
+    goDeeper({ pathname: '/ride/[id]/cancel', params: { id: bookingId } } as Href);
   }, [router]);
 
   const { data: activeData } = useQuery({
@@ -73,7 +73,7 @@ export default function TripsScreen() {
           styles.tripCard,
           { borderLeftWidth: 3, borderLeftColor: segment === 'Upcoming' ? colors.primary : colors.outlineVariant },
         ]}
-        onPress={() => router.push(`/ride/${item.tripId}` as Href)}
+        onPress={() => goDeeper(`/ride/${item.tripId}` as Href)}
         accessibilityRole="button"
         accessibilityLabel={`Trip from ${item.trip?.route?.originName ?? 'Origin'} to ${item.trip?.route?.destinationName ?? 'Destination'}`}
       >
@@ -82,7 +82,7 @@ export default function TripsScreen() {
           showCancel={segment === 'Upcoming' && ['CONFIRMED', 'SEAT_HELD', 'BOARDED'].includes(item.status)}
           onCancel={() => handleCancel(item.id)}
           showDispute={segment === 'Past' && ['COMPLETED', 'CANCELLED'].includes(displayStatusFor(item))}
-          onDispute={() => router.push({ pathname: '/ride/[id]/dispute', params: { id: item.id } } as Href)}
+          onDispute={() => goDeeper({ pathname: '/ride/[id]/dispute', params: { id: item.id } } as Href)}
         />
       </Pressable>
     </View>
@@ -128,7 +128,7 @@ export default function TripsScreen() {
       {/* Active booking banner */}
       {activeBooking && (
         <Pressable
-          onPress={() => router.push('/trip?stage=assigned' as Href)}
+          onPress={() => goDeeper('/trip?stage=assigned' as Href)}
           style={[styles.activeBanner, { borderLeftColor: colors.primary }]}
           accessibilityRole="button"
           accessibilityLabel="Active ride — tap to track"

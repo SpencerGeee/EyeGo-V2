@@ -6,7 +6,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, GlassSurface } from '@eyego/ui';
+import { Text, Button, Pressable, GlassSurface, goDeeper, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { walletApi } from '@eyego/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -42,7 +42,7 @@ export default function PaymentMethodsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>Payment Methods</Text>
@@ -135,7 +135,7 @@ export default function PaymentMethodsScreen() {
       <View style={styles.footer}>
         <Pressable
           style={({ pressed }) => [styles.addBtn, pressed && { transform: [{ scale: 0.97 }] }]}
-          onPress={() => router.push('/payment/add-card')}
+          onPress={() => goDeeper('/payment/add-card')}
           accessibilityRole="button"
           accessibilityLabel="Add payment method"
         >

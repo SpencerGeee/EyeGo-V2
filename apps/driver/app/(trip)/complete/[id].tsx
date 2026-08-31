@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { formatGhs, originLabel, destinationLabel } from '@eyego/utils';
+import { formatGhs, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
 import type { Trip, Booking } from '@eyego/types';
 import type { DriverTrip } from '@eyego/api';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
@@ -8,18 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import {
-  Text,
-  Button,
-  Entrance,
-  AnimatedCheckmark,
-  AnimatedFareText,
-  Skeleton,
-  GradientGlowBorder,
-  GlassSurface,
-  AppBackground,
-  bookingStatusLabel,
-} from '@eyego/ui';
+import { Text, Button, Entrance, AnimatedCheckmark, AnimatedFareText, Skeleton, GradientGlowBorder, GlassSurface, AppBackground, bookingStatusLabel, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -63,7 +52,7 @@ export default function TripCompleteScreen() {
   // D8: guard invalid id — navigate back after all hooks have run
   useEffect(() => {
     if (!id || typeof id !== 'string') {
-      router.back();
+      goBack();
     }
   }, [id, router]);
 
@@ -190,8 +179,24 @@ export default function TripCompleteScreen() {
    * why the unit price used to be fetched from an unrelated field and disagreed.
    */
   const sold = (completedTrip as { sold?: { seatCount: number; perSeatPesewas: number | null; surchargesPesewas: number } } | undefined)?.sold ?? null;
-  // Seats that were actually sold — the number the gross above belongs to.
-  const boarded = sold?.seatCount ?? bookings.length;
+  /**
+   * SEATS, NOT ROWS.
+   *
+   * BUGFIX — "on the earnings breakdown section of the driver app it's showing
+   * 1 seat × 52.39, but I booked for 3 seats."
+   *
+   * `bookings.length` counts BOOKING ROWS, and a rider who takes a party of
+   * three buys three seats on ONE row. So the receipt said one seat, and then
+   * divided the gross by that one seat to get a unit price — which is why the
+   * multiplication underneath did not equal the total printed above it. Every
+   * other seat figure in these apps already goes through `seatsOf`, which reads
+   * `Booking.seats`; this one line was the last row-count left.
+   *
+   * The server's own `sold.seatCount` still wins when present — it is computed
+   * from the same rows the gross is — and this is only the fallback for a
+   * payload that predates it. Both now answer in the same unit.
+   */
+  const boarded = sold?.seatCount ?? bookings.reduce((n: number, b: any) => n + seatsOf(b), 0);
   const total = completedTrip?.maxSeats ?? 14;
   const surchargesPesewas = sold?.surchargesPesewas ?? 0;
   const farePerSeatPesewas =
@@ -509,7 +514,7 @@ export default function TripCompleteScreen() {
             */}
           <Button
             label={allPassengersRated ? 'Passengers rated' : 'Rate Passengers'}
-            onPress={() => router.push(`/(trip)/rate-passengers/${id}`)}
+            onPress={() => goDeeper(`/(trip)/rate-passengers/${id}`)}
             variant="secondary"
             disabled={allPassengersRated}
           />

@@ -38,6 +38,7 @@ import { haptic } from '../../../utils/haptics';
 import { consumePickedPlace } from '../../../utils/placePickerResult';
 import { expectTripSurfaceReturn } from '../../../utils/tripSurfaceReturn';
 import { slotOfPlace } from '../../../utils/savedPlaceSlots';
+import { goDeeper, goBack } from '@eyego/ui';
 
 /**
  * Search stage of the persistent trip surface — the where-to card.
@@ -269,7 +270,7 @@ function SearchStageImpl() {
         ? { lat: s.origin?.latitude, lng: s.origin?.longitude, label: originText, address: s.origin?.address }
         : { lat: s.destination?.latitude, lng: s.destination?.longitude, label: destText, address: s.destination?.address };
 
-    router.push({
+    goDeeper({
       pathname: '/profile/place-picker',
       params: {
         title: field === 'origin' ? 'Set pickup' : 'Where to?',
@@ -363,14 +364,14 @@ function SearchStageImpl() {
   const handleSchedule = useCallback(() => {
     haptic.light();
     expectTripSurfaceReturn();
-    router.push('/ride/schedule' as any);
+    goDeeper('/ride/schedule' as any);
   }, [router]);
 
   // Reverse the container-transform back into the home pill. The route uses
   // animation 'none', so morphBack owns the entire exit choreography.
   const { morphBack } = useMorph();
   const handleClose = useCallback(() => {
-    morphBack(() => router.back());
+    morphBack(() => goBack());
   }, [morphBack, router]);
 
   useEffect(() => {
@@ -441,7 +442,7 @@ function SearchStageImpl() {
   const openSavedPlaces = useCallback(() => {
     haptic.light();
     expectTripSurfaceReturn();
-    router.push('/profile/saved-places' as any);
+    goDeeper('/profile/saved-places' as any);
   }, [router]);
 
   /**

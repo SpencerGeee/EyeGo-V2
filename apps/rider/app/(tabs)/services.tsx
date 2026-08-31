@@ -25,6 +25,7 @@ import {
   Pressable,
 } from '@eyego/ui';
 import * as Haptics from 'expo-haptics';
+import { goDeeper } from '@eyego/ui';
 
 type TierKey = 'economy' | 'comfort' | 'premium';
 
@@ -115,7 +116,7 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
     // Container-transform: the tier card grows into the trip surface's
     // search stage, which reads morphId to mount its MorphTarget.
     morphTo(morphId, () =>
-      router.push(`/trip?stage=search&tier=${tier.tier}&morphId=${morphId}` as any)
+      goDeeper(`/trip?stage=search&tier=${tier.tier}&morphId=${morphId}` as any)
     );
   };
 
@@ -196,10 +197,10 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
     if (canMorph) {
       const sep = service.route.includes('?') ? '&' : '?';
       morphTo(morphId, () =>
-        router.push(`${service.route}${sep}morphId=${morphId}` as any)
+        goDeeper(`${service.route}${sep}morphId=${morphId}` as any)
       );
     } else {
-      router.push(service.route as any);
+      goDeeper(service.route as any);
     }
   };
 
@@ -311,7 +312,10 @@ export default function ServicesScreen() {
           ))}
         </View>
 
-        <Text style={[styles.sectionHeader, { marginTop: spacing['2xl'] }]}>Special Services</Text>
+        {/* 24, not 32. A section break should be bigger than the gap between
+           rows inside a section (12) and no bigger than it needs to be to say
+           "new group" — 32 read as the end of the screen. */}
+        <Text style={[styles.sectionHeader, { marginTop: spacing.xl }]}>Special Services</Text>
         <View style={styles.specialContainer}>
           {SPECIAL_SERVICES.map((service) => (
             <SpecialServiceCard
@@ -380,13 +384,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * neighbour's card body then painted straight over the light. Three cards in a
    * row of that is the "stacked on each other" look.
    *
-   * The gap is now larger than the reach of the ring it has to clear, and each
-   * card additionally carries its own vertical padding (`glowRoom`) so the light
-   * belongs to the card rather than to the space between two of them.
+   * The gap has to clear the reach of the ring, and each card additionally
+   * carries its own vertical padding (`glowRoom`) so the light belongs to the
+   * card rather than to the space between two of them.
+   *
+   * ── AND THEN IT WAS TOO MUCH ─────────────────────────────────────────────
+   * "On the services page the space in between is way too much. You need to
+   * decrease the space so it's aesthetic and nice."
+   *
+   * Also true, and the first fix over-corrected because it budgeted for a halo
+   * that is not there. It reasoned from `GradientGlowBorder`'s 28–36 pt default
+   * reach — but these cards are `Card`, which pins `maxGlowRadius` to 20 (see
+   * packages/ui/src/Card.tsx). So the layout was reserving up to 36 pt of clear
+   * space per edge for a 20 pt halo, and 8 + 16 + 8 = 32 pt between two rows of
+   * a LIST is a gap you read as a mistake before you read it as generosity.
+   *
+   * 4 + 12 + 4 = 20 pt: exactly the reach, so neighbouring halos meet only
+   * where their alpha has already fallen to nothing, and the page reads as one
+   * list instead of five posters.
    */
-  tiersContainer: { gap: spacing.base },
+  tiersContainer: { gap: spacing.md },
   /** Breathing room for one card's halo. See `tiersContainer`. */
-  glowRoom: { paddingVertical: spacing.sm },
+  glowRoom: { paddingVertical: spacing.xs },
   tierCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -426,7 +445,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 2,
   },
   chevron: { marginRight: spacing.md },
-  specialContainer: { gap: spacing.base },
+  /* Same reasoning as `tiersContainer`, and these carry no `glowRoom` padding
+     of their own, so the gap alone has to clear the ring. */
+  specialContainer: { gap: spacing.md },
   specialCard: {
     overflow: 'hidden',
   },

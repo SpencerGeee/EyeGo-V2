@@ -38,7 +38,7 @@ import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, 
 import { resolveApiUrl } from '../stores/api.store';
 import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -170,6 +170,16 @@ async function registerForPushNotifications() {
 }
 
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * NATIVE SCREEN RECYCLING + FREEZE, BEFORE ANYTHING RENDERS.
+ *
+ * Without this every screen the app has ever opened keeps re-rendering for the
+ * life of the session, so one location fix costs a commit per screen on the
+ * stack rather than one. See packages/ui/src/motion/smooth for the whole
+ * diagnosis; this is the half of it that has to run at module scope.
+ */
+enableSmoothNavigation();
 
 /** Screens that show the shared root <AppBackground /> through their content
  *  view. ONLY safe on fade-animated screens — slide transitions over a
@@ -570,6 +580,21 @@ export default function RootLayout() {
       <KeyboardProvider>
         <AmbientRotationProvider>
         <QueryClientProvider client={queryClient}>
+        {/*
+          THE FLOOR UNDER THE WHOLE SMOOTHNESS SYSTEM.
+
+          Arms the transition clock from the navigator's own `state` event, so
+          EVERY navigation counts — the back gesture, a deep link, a push
+          notification, a tab press, and every un-migrated `router.push` in the
+          app — not only the ones routed through `goDeeper`/`goLateral`.
+
+          Also holds React Query's focus signal until the transition is over, so
+          an arriving screen's refetches commit into a free thread instead of
+          into the middle of the animation.
+
+          See packages/ui/src/motion/smooth/SmoothNavigationProvider.tsx.
+        */}
+        <SmoothNavigationProvider queryClient={queryClient}>
           <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.backgroundDeep} />
           {/* Ambient premium background — fade-group screens (transparent
               contentStyle below) show this instead of a flat fill. */}
@@ -579,6 +604,19 @@ export default function RootLayout() {
               overlay renders above every screen but below toasts/banners. */}
           <MorphProvider>
           <Stack
+            /**
+             * THE SMOOTHNESS SYSTEM, ON EVERY SCREEN AT ONCE.
+             *
+             * React Navigation 7's `screenLayout` wraps every screen this
+             * navigator renders — including ones added after today. That is why
+             * this is one line here instead of ninety edits across the app, and
+             * why a new screen cannot forget to opt in.
+             *
+             * See packages/ui/src/motion/smooth/smoothScreenLayout.tsx for why
+             * it is `eager` (a blanket hold would break the morph targets) and
+             * what every screen gets for free regardless.
+             */
+            screenLayout={smoothScreenLayout}
             screenOptions={{
               headerShown: false,
               // Opaque by default: pushed screens MUST NOT be transparent or
@@ -586,6 +624,16 @@ export default function RootLayout() {
               // them mid-flight (the "white flash / covering lag" bug).
               contentStyle: { backgroundColor: colors.backgroundDeep },
               animation: 'fade',
+              /**
+               * A BLURRED SCREEN STOPS THINKING.
+               *
+               * Pairs with `enableSmoothNavigation()` at module scope: freeze is
+               * the native capability, this is the navigator opting every screen
+               * into it. State and native views are kept; only React commits are
+               * suspended, so a screen two deep in the stack no longer re-renders
+               * on every socket frame the screen on top receives.
+               */
+              freezeOnBlur: true,
             }}
           >
             {/* Fade-group screens share the root AppBackground through a
@@ -722,6 +770,13 @@ export default function RootLayout() {
             />
             {/* "Improve maps" — the hub and the one form that serves all six
                 report types. See app/improve-map/[type].tsx. */}
+            {/* The overflow of every home rail: a map, filters and a long list.
+                `detailPush` because it IS deeper — the rider came from home and
+                will go back to it. See apps/rider/app/browse/[group].tsx. */}
+            <Stack.Screen
+              name="browse/[group]"
+              options={detailPush}
+            />
             <Stack.Screen
               name="improve-map/index"
               options={detailPush}
@@ -893,6 +948,7 @@ export default function RootLayout() {
               <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }} numberOfLines={2}>{inAppBanner.body}</Text>
             </View>
           )}
+        </SmoothNavigationProvider>
         </QueryClientProvider>
         </AmbientRotationProvider>
       </KeyboardProvider>

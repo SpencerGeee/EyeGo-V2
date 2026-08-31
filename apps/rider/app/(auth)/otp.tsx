@@ -9,7 +9,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Entrance } from '@eyego/ui';
+import { Entrance, goBack } from '@eyego/ui';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -153,7 +153,7 @@ export default function OtpScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Back button */}
       <Entrance animation="slideDown" delay={0} style={styles.backButton}>
-        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </Entrance>
@@ -172,7 +172,7 @@ export default function OtpScreen() {
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
             Sent to {maskPhone(phone ?? '')}
           </Text>
-          <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Change phone number">
+          <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Change phone number">
             <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>
               Change number
             </Text>

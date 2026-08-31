@@ -18,7 +18,7 @@ import { bookingsApi, walletApi, userApi, queryKeys } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Pressable, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue } from '@eyego/ui';
+import { Text, Pressable, setBackgroundBusy, backgroundScrollPauseProps, SkeletonValue, goDeeper } from '@eyego/ui';
 import { getInitials, formatGhs } from '@eyego/utils';
 import { TAB_BAR_BASE_HEIGHT } from './_layout';
 
@@ -165,33 +165,33 @@ export default function ProfileScreen() {
     {
       title: 'Account',
       items: [
-        { label: 'Edit Profile', icon: 'person-outline', onPress: () => router.push('/profile/edit' as RiderRoute) },
-        { label: 'Payment Methods', icon: 'card-outline', onPress: () => router.push('/profile/payment-methods' as RiderRoute) },
-        { label: 'Saved Places', icon: 'bookmark-outline', onPress: () => router.push('/profile/saved-places' as RiderRoute) },
-        { label: 'Business Profile', icon: 'briefcase-outline', onPress: () => router.push('/profile/business' as RiderRoute) },
-        { label: 'Trip History', icon: 'time-outline', onPress: () => router.push('/(tabs)/activity' as any) },
+        { label: 'Edit Profile', icon: 'person-outline', onPress: () => goDeeper('/profile/edit' as RiderRoute) },
+        { label: 'Payment Methods', icon: 'card-outline', onPress: () => goDeeper('/profile/payment-methods' as RiderRoute) },
+        { label: 'Saved Places', icon: 'bookmark-outline', onPress: () => goDeeper('/profile/saved-places' as RiderRoute) },
+        { label: 'Business Profile', icon: 'briefcase-outline', onPress: () => goDeeper('/profile/business' as RiderRoute) },
+        { label: 'Trip History', icon: 'time-outline', onPress: () => goDeeper('/(tabs)/activity' as any) },
       ],
     },
     {
       title: 'Safety',
       items: [
-        { label: 'Safety Center', icon: 'shield-checkmark-outline', accent: 'success', onPress: () => router.push('/profile/safety' as RiderRoute) },
-        { label: 'Emergency Contacts', icon: 'alert-circle-outline', accent: 'error', onPress: () => router.push('/profile/emergency-contacts' as RiderRoute) },
-        { label: 'Notification Preferences', icon: 'notifications-outline', onPress: () => router.push('/profile/notification-preferences' as RiderRoute) },
+        { label: 'Safety Center', icon: 'shield-checkmark-outline', accent: 'success', onPress: () => goDeeper('/profile/safety' as RiderRoute) },
+        { label: 'Emergency Contacts', icon: 'alert-circle-outline', accent: 'error', onPress: () => goDeeper('/profile/emergency-contacts' as RiderRoute) },
+        { label: 'Notification Preferences', icon: 'notifications-outline', onPress: () => goDeeper('/profile/notification-preferences' as RiderRoute) },
       ],
     },
     {
       title: 'General',
       items: [
-        { label: 'Promotions & Referrals', icon: 'pricetag-outline', onPress: () => router.push('/profile/promotions' as RiderRoute) },
+        { label: 'Promotions & Referrals', icon: 'pricetag-outline', onPress: () => goDeeper('/profile/promotions' as RiderRoute) },
         // Riders know the streets we route over. See app/improve-map for why
         // this is worth having and what the six report types are.
-        { label: 'Improve maps', icon: 'map-outline', onPress: () => router.push('/improve-map' as RiderRoute) },
-        { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => router.push('/profile/help' as RiderRoute) },
-        { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/profile/settings' as RiderRoute) },
-        { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => router.push('/profile/privacy' as RiderRoute) },
-        { label: 'Terms of Service', icon: 'document-text-outline', onPress: () => router.push('/profile/terms' as RiderRoute) },
-        { label: 'Delete Account', icon: 'trash-outline', accent: 'error', onPress: () => router.push('/profile/account-deletion' as RiderRoute) },
+        { label: 'Improve maps', icon: 'map-outline', onPress: () => goDeeper('/improve-map' as RiderRoute) },
+        { label: 'Help & Support', icon: 'help-circle-outline', onPress: () => goDeeper('/profile/help' as RiderRoute) },
+        { label: 'Settings', icon: 'settings-outline', onPress: () => goDeeper('/profile/settings' as RiderRoute) },
+        { label: 'Privacy Policy', icon: 'lock-closed-outline', onPress: () => goDeeper('/profile/privacy' as RiderRoute) },
+        { label: 'Terms of Service', icon: 'document-text-outline', onPress: () => goDeeper('/profile/terms' as RiderRoute) },
+        { label: 'Delete Account', icon: 'trash-outline', accent: 'error', onPress: () => goDeeper('/profile/account-deletion' as RiderRoute) },
       ],
     },
   ];
@@ -251,7 +251,7 @@ export default function ProfileScreen() {
               </SkeletonValue>
             </View>
             <Pressable
-              onPress={() => router.push('/profile/wallet' as any)}
+              onPress={() => goDeeper('/profile/wallet' as any)}
               haptic="light"
               style={styles.topUpBtn}
               accessibilityRole="button"
@@ -297,7 +297,7 @@ export default function ProfileScreen() {
                   haptic="light"
                   scaleOnPress={0.99}
                   disabled={!item.route}
-                  onPress={() => item.route && router.push(item.route as RiderRoute)}
+                  onPress={() => item.route && goDeeper(item.route as RiderRoute)}
                   style={styles.setupRow}
                   accessibilityRole="button"
                   accessibilityLabel={`${item.label}. ${item.description}`}
@@ -392,7 +392,7 @@ export default function ProfileScreen() {
            * said by the destination opening on that avatar.
            */}
           <Pressable
-            onPress={() => router.push('/profile/edit' as any)}
+            onPress={() => goDeeper('/profile/edit' as any)}
             haptic="light"
             accessibilityLabel="Edit profile photo and details"
             accessibilityRole="button"
@@ -435,7 +435,7 @@ export default function ProfileScreen() {
             transform animates, so firing one from here read as the UI jumping
             for no reason. The avatar above owns the morph. */}
         <Pressable
-          onPress={() => router.push('/profile/edit' as any)}
+          onPress={() => goDeeper('/profile/edit' as any)}
           haptic="light"
           style={styles.editBtn}
           accessibilityLabel="Edit profile"
@@ -467,7 +467,7 @@ export default function ProfileScreen() {
             {user?.name ?? 'Profile'}
           </Text>
           <Pressable
-            onPress={() => router.push('/profile/edit' as any)}
+            onPress={() => goDeeper('/profile/edit' as any)}
             haptic="light"
             style={styles.navEditBtn}
             accessibilityLabel="Edit profile"

@@ -105,8 +105,18 @@ export function describeDispatchBlock(reason: string | null | undefined): {
 
 export interface DispatchBlockedBannerProps {
   reason: string | null | undefined;
-  /** Absolute top offset, stacked under whatever banners are already showing. */
-  top: number;
+  /**
+   * Absolute top offset. OMIT IT to render in normal flow.
+   *
+   * The caller used to compute this by hand —
+   * `insets.top + 64 + (onlineError ? 48 : 0) + (isOffline ? 40 : 0) + …` —
+   * one term per banner that might be above this one, with a guessed height for
+   * each. Every guess was wrong for a two-line variant, which is how banners
+   * ended up overlapping. The home screen now stacks these in a column with a
+   * gap and lets layout do the arithmetic, so this prop survives only for any
+   * caller that genuinely needs to pin one.
+   */
+  top?: number;
   action?: DispatchBlockAction | null;
   busy?: boolean;
 }
@@ -175,7 +185,7 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
      * tint survives where it belongs: the leading rule, the icon, and a faint
      * 8% wash that colours the surface without eating the button's contrast.
      */
-    <Animated.View style={[styles.wrap, { top }, enterStyle]}>
+    <Animated.View style={[top == null ? null : styles.wrap, top == null ? null : { top }, enterStyle]}>
       <GradientGlowBorder
         palette={isError ? 'default' : 'gold'}
         fillColor={colors.surfaceCard}

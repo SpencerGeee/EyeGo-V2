@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
@@ -249,7 +249,7 @@ export default function OnboardingScreen() {
                     <Pressable
                       key={doc.type}
                       style={[styles.docRow, idx === REQUIRED_DOCS.length - 1 && { borderBottomWidth: 0 }]}
-                      onPress={() => router.push('/(profile)/documents' as any)}
+                      onPress={() => goDeeper('/(profile)/documents' as any)}
                     >
                       <View style={styles.iconBg}>
                         <Ionicons

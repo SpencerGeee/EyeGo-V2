@@ -10,7 +10,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@eyego/api';
@@ -436,7 +436,7 @@ export default function PaymentScreen() {
             { text: 'Open my ride', onPress: () => router.replace('/trip?stage=assigned' as any) },
             {
               text: 'Book for someone else',
-              onPress: () => router.push('/ride/guest-selection' as any),
+              onPress: () => goDeeper('/ride/guest-selection' as any),
             },
           ],
         );
@@ -650,7 +650,7 @@ export default function PaymentScreen() {
       >
           {/* Header */}
           <View style={styles.header}>
-            <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Pressable onPress={() => goBack()} hitSlop={12}>
               <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
             </Pressable>
             <Text variant="titleMedium">Payment</Text>
@@ -943,7 +943,7 @@ export default function PaymentScreen() {
                     'Card payments need an email for your receipt. Add one to your profile to continue.',
                     [
                       { text: 'Cancel', style: 'cancel' },
-                      { text: 'Add email', onPress: () => router.push('/profile/edit') },
+                      { text: 'Add email', onPress: () => goDeeper('/profile/edit') },
                     ]
                   );
                   return;

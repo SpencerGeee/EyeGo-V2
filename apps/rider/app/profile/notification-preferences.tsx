@@ -3,7 +3,7 @@ import { View, StyleSheet, ScrollView, Pressable, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, goBack } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { apiClient } from '@eyego/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -129,7 +129,7 @@ export default function NotificationPreferencesScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>Notification Preferences</Text>

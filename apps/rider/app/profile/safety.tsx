@@ -17,7 +17,7 @@ import { userApi, queryKeys, type SafetySettings } from '@eyego/api';
 import { spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useToastStore } from '../../stores/toast.store';
-import { Text } from '@eyego/ui';
+import { Text, goDeeper, goBack } from '@eyego/ui';
 
 const CACHE_KEY = 'eyego_safety_settings';
 
@@ -190,7 +190,7 @@ export default function SafetyScreen() {
         style={styles.header}
       >
         <Pressable
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           style={styles.backBtn}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -324,7 +324,7 @@ export default function SafetyScreen() {
           >
           <Pressable
             style={styles.linkRow}
-            onPress={() => router.push('/profile/emergency-contacts' as any)}
+            onPress={() => goDeeper('/profile/emergency-contacts' as any)}
             accessibilityRole="button"
             accessibilityLabel="Manage emergency contacts"
           >
@@ -346,7 +346,7 @@ export default function SafetyScreen() {
           >
           <Pressable
             style={styles.linkRow}
-            onPress={() => router.push('/profile/help' as any)}
+            onPress={() => goDeeper('/profile/help' as any)}
             accessibilityRole="button"
             accessibilityLabel="Safety help center"
           >
