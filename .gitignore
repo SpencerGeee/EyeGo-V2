@@ -97,3 +97,14 @@ eyego/
 # Git refuses to index a path named after a reserved device name, so leaving it
 # untracked-but-unignored made every `git add -A` fail outright.
 nul
+
+# ── Design reference, not source ─────────────────────────────────────────────
+# Exported comps, style boards and screen captures. Nothing in either build
+# reads them, and git keeps every blob it has ever seen forever — so committing
+# ~22 MB of PNGs would be a permanent cost on every future clone, paid for
+# assets that are re-exported whenever the design moves.
+#
+# Keep them locally; share them the way design is shared.
+design system v2/
+design system v3/
+screenshots/
