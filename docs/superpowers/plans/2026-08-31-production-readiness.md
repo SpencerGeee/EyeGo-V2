@@ -92,11 +92,31 @@ Apple's privacy labels, no SDK weight, no event upload on metered Ghanaian data.
 - ops: `/metrics` via prom-client, small Grafana on the box, alerts on match
   rate drop, dispatch queue depth, 5xx rate
 
-### 2.5 Money — settled
+### 2.5 Money — **finding withdrawn, scope cancelled**
 
-**Mobile money, both directions.** `PaymentMethod` is currently CASH, CARD,
-WALLET. In Ghana MoMo is the dominant rail; without it most riders can only pay
-cash and no driver can be paid without a manual transfer.
+> **This was wrong, and it was the largest single item in the agreed scope.**
+>
+> The audit reported that mobile money was missing from both the pay-in and
+> payout sides, on the strength of grepping `schema.prisma` and finding the
+> strings CASH, CARD and WALLET. Those are free-text values, not an enum, and
+> the grep simply did not reach the code that matters.
+>
+> **MoMo is built, end to end, on both sides.**
+> `paystack.client.js` has `initiateMomoCharge`, `createTransferRecipient`
+> with `recipientType: 'mobile_money'`, `initiateTransfer` and
+> `resolvePayoutBankCode`. It is called from `payments.service`,
+> `bookings.service` and the rider wallet top-up. On the client, the rider's
+> payment screen has a Mobile Money tab, the wallet tops up with
+> `method: 'MOMO'`, and the driver has a payout-account screen and withdrawals
+> that default to `MOMO_MTN`.
+>
+> Items 12 and 13 of the backlog are therefore **cancelled, not deferred**.
+> Nothing was built for them. What follows is the original decision, kept for
+> the record of what was agreed and why it turned out to be unnecessary.
+
+**Mobile money, both directions.** ~~`PaymentMethod` is currently CASH, CARD,
+WALLET.~~ In Ghana MoMo is the dominant rail; without it most riders can only
+pay cash and no driver can be paid without a manual transfer.
 
 Pay-in: `MOMO` method + network enum, Paystack charge → pending → OTP/USSD →
 webhook. Asynchronous — the trip must never block on a charge settling. A
@@ -285,12 +305,17 @@ everything here ships before handover.
 
 **Group 3 — money**
 
-12. MoMo pay-in: `MOMO` method, Paystack charge → OTP → webhook, async, with a
-    reconciliation sweep for stuck pendings (§2.5)
-13. MoMo payout: recipients, transfer, webhook, ledger, balance hold (§2.5)
-14. Immutable money ledger + driver earnings statement + admin reconciliation
-    (§2.6 #8)
-15. Trip receipts by email/SMS (§2.6 #7)
+12. ~~MoMo pay-in~~ — **cancelled, already built.** See the note at the top of
+    §2.5.
+13. ~~MoMo payout~~ — **cancelled, already built.**
+14. Driver earnings statement. The *server* half exists and is orphaned:
+    `GET /v1/driver/earnings/breakdown` and `/earnings/transactions` have no
+    caller (finding R2). `PaymentTransaction`, `WalletTransaction` and
+    `RiderWalletTransaction` are the ledger, and admin already reconciles rider
+    wallets. What is missing is the driver-facing screen and the admin's
+    cash-collected vs commission-owed view.
+15. Trip receipts by email/SMS (§2.6 #7) — genuinely missing, nothing sends a
+    receipt anywhere today.
 
 **Group 4 — trust and compliance**
 

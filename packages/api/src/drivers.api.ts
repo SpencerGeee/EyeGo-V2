@@ -568,6 +568,28 @@ export const driverApi = {
       '/driver/wallet/balance',
     ),
 
+  /**
+   * The server's own earnings arithmetic for a period.
+   *
+   * This endpoint existed for a long time with no caller: the earnings screen
+   * re-derived the same totals on the phone from a page of wallet
+   * transactions, which is where the flat-zero chart bug came from — a period
+   * longer than the page under-reports by construction. The server aggregates
+   * over the whole period regardless of page size, so these are the numbers to
+   * trust when the two disagree.
+   */
+  getEarningsBreakdown: (period: 'today' | 'day' | 'week' | 'month' | 'year' = 'week') =>
+    apiClient.get<ApiResponse<{
+      totalEarningsPesewas: number;
+      totalTrips: number;
+      totalTips: number;
+      totalDeductions: number;
+      netEarnings: number;
+      averagePerTripPesewas: number;
+      dailyBreakdown: { date: string; amountPesewas: number }[];
+      recentTrips: { id: string; shortId: string | null; createdAt: string; baseFarePesewas: number | null }[];
+    }>>('/driver/earnings/breakdown', { params: { period } }),
+
   getWalletTransactions: (params?: { page?: number; limit?: number }) =>
     apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amountPesewas: number; description: string; createdAt: string }> }>>(
       '/driver/earnings/transactions',

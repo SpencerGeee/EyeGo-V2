@@ -280,6 +280,74 @@ async function syncLiveActivity(trip, status) {
  * `applyTransition` returns via TRIP_INCLUDE); anything missing degrades to
  * the generic copy rather than failing.
  */
+/**
+ * ── THE RECEIPT ─────────────────────────────────────────────────────────────
+ *
+ * A completed trip sends each rider an SMS receipt naming what they paid and
+ * for what.
+ *
+ * WHY IT LIVES HERE. Receipts are a notification, and this service is the sole
+ * owner of every trip-lifecycle notification — the reason that rule exists is
+ * that notifications used to be scattered across four socket handlers with
+ * four slightly different payloads. A `receipt.service` that also reacted to
+ * COMPLETED would be exactly that mistake again, and it would double-send the
+ * moment `notifyTransition`'s replay guard and its own disagreed.
+ *
+ * WHY SMS AND NOT EMAIL. Email is optional on a User row and usually absent —
+ * riders sign up with a phone. Africa's Talking is already wired and already
+ * sends the OTP that got them into the app, so SMS reaches everybody. When an
+ * email provider is added, the address is on the row and this is where the
+ * second channel goes.
+ *
+ * WHY IT MATTERS. In-app receipts already exist. A SENT receipt is a different
+ * artifact: it is timestamped, it is outside the app, and it survives the rider
+ * uninstalling — which is what makes a fare dispute tractable rather than one
+ * person's word about a number they can no longer see.
+ *
+ * Governed by the same `tripCompleted` preference as the completion push, so a
+ * rider who has silenced trip-completion messages is not texted anyway.
+ */
+async function sendReceipts(trip) {
+  const smsService = require('./sms.service');
+  if (!smsService.isConfigured?.()) return;
+
+  const bookings = await prisma.booking.findMany({
+    where: { tripId: trip.id, ...seatOccupyingWhere() },
+    select: {
+      id: true,
+      // `fareAmountPesewas`, not `fareAmount`. The suffix is load-bearing in
+      // this schema: money is stored in pesewas everywhere and the name is what
+      // stops a read site treating it as cedis.
+      fareAmountPesewas: true,
+      paymentMethod: true,
+      user: { select: { phone: true, notificationPrefs: true } },
+    },
+  });
+
+  const { destinationName } = namesFor(trip);
+  const shortId = String(trip.id).slice(0, 8).toUpperCase();
+
+  await Promise.all(
+    bookings.map((b) => {
+      const phone = b.user?.phone;
+      if (!phone) return null;
+      if (!pushService.prefAllows(b.user.notificationPrefs, 'tripCompleted')) return null;
+
+      // Pesewas → cedis at the edge, exactly once, like every other money
+      // string in this codebase.
+      const pesewas = Number(b.fareAmountPesewas ?? 0);
+      const amount = (pesewas / 100).toFixed(2);
+      const method = b.paymentMethod ? String(b.paymentMethod).toLowerCase() : 'your selected method';
+
+      const text =
+        `EyeGo receipt ${shortId}: GHS ${amount} paid by ${method} for your trip to ` +
+        `${destinationName}. Full breakdown in the app under Activity.`;
+
+      return smsService.sendSms(phone, text).catch(() => null);
+    }),
+  );
+}
+
 function notifyTransition(trip, event) {
   if (!trip?.id || !trip.status) return;
   if (alreadyNotified(trip.id, trip.version)) return;
@@ -313,6 +381,11 @@ function notifyTransition(trip, event) {
       if (PUSHABLE.has(status)) await sendRiderPushes(trip, status);
     } catch (err) {
       logger.debug(`[trip-notify] rider push failed for ${trip.id}: ${err?.message ?? err}`);
+    }
+    try {
+      if (status === 'COMPLETED') await sendReceipts(trip);
+    } catch (err) {
+      logger.debug(`[trip-notify] receipt failed for ${trip.id}: ${err?.message ?? err}`);
     }
   });
 
