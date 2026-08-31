@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react';
 import { formatGhs, originLabel, destinationLabel, seatsOf } from '@eyego/utils';
-import type { Trip, Booking } from '@eyego/types';
+import type { Trip, Booking, TripBooking } from '@eyego/types';
 import type { DriverTrip } from '@eyego/api';
 import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -141,7 +141,7 @@ export default function TripCompleteScreen() {
     (completedTrip?.bookings as Booking[] | undefined)?.filter((b: Booking) => !RELEASED.includes(b.status)) ?? [];
   // A seat with money behind it: paid outright, or a confirmed/ridden cash seat.
   // A bare hold is neither, and must never reach an earnings figure.
-  const isSettled = (b: any) =>
+  const isSettled = (b: TripBooking) =>
     b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
   const bookings = allActiveBookings.filter(isSettled);
   const grossEarnings = bookings.reduce((sum: number, b: any) => sum + (parseFloat(b.fareAmountPesewas) || 0), 0);
@@ -206,8 +206,8 @@ export default function TripCompleteScreen() {
       : completedTrip?.farePerSeatPesewas ?? 0);
 
   // Receipt breakdown per passenger
-  const paidBookings = bookings.filter((b: any) => b.paymentStatus === 'PAID');
-  const cashBookings = bookings.filter((b: any) => b.paymentStatus !== 'PAID');
+  const paidBookings = bookings.filter((b: TripBooking) => b.paymentStatus === 'PAID');
+  const cashBookings = bookings.filter((b: TripBooking) => b.paymentStatus !== 'PAID');
   const totalPaidPesewas = paidBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmountPesewas) || 0), 0);
   const totalCash = cashBookings.reduce((s: number, b: any) => s + (parseFloat(b.fareAmountPesewas) || 0), 0);
   const commissionTotal = bookings.reduce((s: number, b: any) => {

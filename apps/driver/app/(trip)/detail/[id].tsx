@@ -10,6 +10,7 @@ import { Text, Entrance, GradientGlowBorder, AppBackground, bookingStatusLabel, 
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
+import type { TripBooking } from '@eyego/types';
 
 function StatBox({ icon, label, value, color, colors }: {
   icon: keyof typeof Ionicons.glyphMap;
@@ -75,9 +76,9 @@ export default function TripDetailScreen() {
    * people rode or what the trip paid.
    */
   const RELEASED = ['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'];
-  const isSettled = (b: any) =>
+  const isSettled = (b: TripBooking) =>
     b.paymentStatus === 'PAID' || ['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
-  const activeBookings = (trip?.bookings ?? []).filter((b: any) => !RELEASED.includes(b.status) && isSettled(b));
+  const activeBookings = (trip?.bookings ?? []).filter((b: TripBooking) => !RELEASED.includes(b.status) && isSettled(b));
   const boardedCount = activeBookings.length;
   // D24: guard against trip being undefined before reduce
   // "Total Earned" is the driver's net cut, not the raw fare — subtract each
@@ -229,7 +230,7 @@ export default function TripDetailScreen() {
                 in — so the section rendered empty on exactly the trips it is
                 for. */}
             {activeBookings
-              .map((booking: any) => (
+              .map((booking: TripBooking) => (
                 <Entrance
                   // D21: use booking.id as key; warn if missing
                   key={booking.id /* booking.id should always be present; log if missing */}

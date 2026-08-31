@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { bookingsApi, tripsApi } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -31,7 +32,7 @@ export default function InviteScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { activeBooking, selectedTrip, setSelectedTrip, setActiveBooking, computedFare, guestInfo } = useRideStore();
+  const { activeBooking, selectedTrip, setSelectedTrip, setActiveBooking, computedFare, guestInfo } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip, setSelectedTrip: s.setSelectedTrip, setActiveBooking: s.setActiveBooking, computedFare: s.computedFare, guestInfo: s.guestInfo })));
   /**
    * "Book for my group" while your own ride is running — see `createBooking`.
    * The organiser is the payer, not a passenger, so the copy on this screen has

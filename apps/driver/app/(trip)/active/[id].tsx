@@ -38,6 +38,7 @@ import type { GeoPlace } from '@eyego/utils';
 // imported here any more.
 import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 import { TripStatusRail, type RailStep } from '../../../components/trip/TripStatusRail';
+import type { TripBooking } from '@eyego/types';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -973,7 +974,7 @@ export default function ActiveTripScreen() {
   // seatOccupyingWhere(), and "not CANCELLED" would let an EXPIRED hold, a
   // NO_SHOW and a REFUND back in as passengers.
   const activeBookings = rawBookings.filter(
-    (b: any) => !['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'].includes(b.status),
+    (b: TripBooking) => !['CANCELLED', 'EXPIRED', 'REFUNDED', 'NO_SHOW'].includes(b.status),
   );
   /** Who is paying for whom — see attachGroupSummary in drivers.service.js. */
   const groupInfo = (trip as {
@@ -1006,11 +1007,11 @@ export default function ActiveTripScreen() {
   // on it; `CONFIRMED` and beyond is a rider who said yes, which for cash means
   // the fare is owed to the driver in hand. Paid outright counts regardless, and
   // so does a seat the driver added themselves.
-  const isHeld = (b: any) =>
+  const isHeld = (b: TripBooking) =>
     !b.isOffline &&
     b.paymentStatus !== 'PAID' &&
     !['CONFIRMED', 'BOARDED', 'COMPLETED'].includes(b.status);
-  const paidBookings = activeBookings.filter((b: any) => !isHeld(b));
+  const paidBookings = activeBookings.filter((b: TripBooking) => !isHeld(b));
   /**
    * SEATS, NOT ROWS.
    *
@@ -1271,13 +1272,13 @@ export default function ActiveTripScreen() {
     return nextFreeSeat;
   };
   /** The seat numbers one booking occupies: its anchor plus its extra seats. */
-  const seatNumbersFor = (b: any): number[] => {
+  const seatNumbersFor = (b: TripBooking): number[] => {
     const anchor = typeof b.seatNumber === 'number' ? b.seatNumber : takeFreeSeat();
     const extra = Math.max(0, seatsOf(b) - 1);
     return [anchor, ...Array.from({ length: extra }, () => takeFreeSeat())];
   };
 
-  const seats = activeBookings.flatMap((b: any) => {
+  const seats = activeBookings.flatMap((b: TripBooking) => {
     const userId = b.user?.id ?? b.userId;
     /**
      * WHO IS IN THE SEAT, NOT WHO PAID FOR IT.

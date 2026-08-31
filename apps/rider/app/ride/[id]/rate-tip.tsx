@@ -18,6 +18,7 @@ import Animated, {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, queryKeys, ridesApi } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
@@ -54,7 +55,7 @@ export default function RateTipScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id, bookingId: paramBookingId } = useLocalSearchParams<{ id: string; bookingId?: string }>();
   const router = useRouter();
-  const { activeBooking, selectedTrip, clearRideState } = useRideStore();
+  const { activeBooking, selectedTrip, clearRideState } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip, clearRideState: s.clearRideState })));
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
 

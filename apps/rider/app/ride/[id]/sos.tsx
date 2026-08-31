@@ -25,6 +25,7 @@ import { apiClient, userApi, socketEvents, connectSocket, disconnectSocket } fro
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useAuthStore } from '../../../stores/auth.store';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripStore } from '../../../stores/trip.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
@@ -37,7 +38,7 @@ export default function SOSScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { driverLocation } = useRideStore();
+  const { driverLocation } = useRideStore(useShallow((s) => ({ driverLocation: s.driverLocation })));
 
   const [alertSent, setAlertSent] = useState(false);
   /**

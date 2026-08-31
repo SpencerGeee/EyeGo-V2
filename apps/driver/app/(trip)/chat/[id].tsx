@@ -26,6 +26,7 @@ import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { scheduleLocalNotification } from '../../../utils/notifications';
+import type { TripBooking } from '@eyego/types';
 
 interface Message {
   id: string;
@@ -96,7 +97,7 @@ export default function TripChatScreen() {
   const activePassengers = useMemo(() => {
     const bookings = tripData?.bookings ?? [];
     return bookings
-      .filter((b: any) =>
+      .filter((b: TripBooking) =>
         ['CONFIRMED', 'BOARDED', 'SEAT_HELD'].includes(b.status) && b.user?.id
       )
       .sort((a: any, b: any) => (a.seatNumber ?? 99) - (b.seatNumber ?? 99));

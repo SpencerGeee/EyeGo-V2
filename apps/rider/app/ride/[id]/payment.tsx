@@ -17,6 +17,7 @@ import { queryKeys } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { bookingsApi, paymentsApi, socketEvents, walletApi } from '@eyego/api';
 import * as Haptics from 'expo-haptics';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useAuthStore } from '../../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
@@ -32,7 +33,7 @@ export default function PaymentScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const router = useRouter();
-  const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore();
+  const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, selectedSeat: s.selectedSeat, activeBooking: s.activeBooking, computedFare: s.computedFare, setActiveBooking: s.setActiveBooking, setComputedFare: s.setComputedFare, pendingPromoCode: s.pendingPromoCode, setPendingPromoCode: s.setPendingPromoCode, guestInfo: s.guestInfo, setGuestInfo: s.setGuestInfo })));
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
 

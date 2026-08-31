@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams, type Href } from 'expo-router';
 import { MotiView, AnimatePresence, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
 import { useToastStore } from '../../stores/toast.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
@@ -17,7 +18,7 @@ export default function GuestSelectionScreen() {
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { guestInfo, setGuestInfo } = useRideStore();
+  const { guestInfo, setGuestInfo } = useRideStore(useShallow((s) => ({ guestInfo: s.guestInfo, setGuestInfo: s.setGuestInfo })));
   const showToast = useToastStore((s) => s.show);
   /**
    * WHERE THIS SCREEN LEADS, WHEN IT LEADS SOMEWHERE.

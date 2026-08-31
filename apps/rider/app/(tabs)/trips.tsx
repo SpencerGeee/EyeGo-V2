@@ -8,6 +8,7 @@ import { MotiView, goDeeper } from '@eyego/ui';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, queryKeys } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
 import { spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -30,7 +31,7 @@ export default function TripsScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const [segment, setSegment] = useState<Segment>('Upcoming');
-  const { activeBooking: storeActiveBooking } = useRideStore();
+  const { activeBooking: storeActiveBooking } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking })));
   const queryClient = useQueryClient();
 
   // Navigate to the cancel screen (with reason picker) instead of a bare Alert

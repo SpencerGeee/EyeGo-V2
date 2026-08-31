@@ -36,6 +36,7 @@ import { useNotificationsStore } from '../../../stores/notifications.store';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { DriverTripMap } from '../../../components/trip/DriverTripMap';
+import type { TripBooking } from '@eyego/types';
 
 /**
  * Must cover every status `advanceStatus` below can act on, and must agree with
@@ -608,7 +609,7 @@ export default function DriverTrackingScreen() {
   // ── Computed values ──
   const statusInfo = STATUS_FLOW[trip?.status] ?? STATUS_FLOW.FILLING;
   const rawBookings = trip?.bookings ?? [];
-  const activeBookings = rawBookings.filter((b: any) => b.status !== 'CANCELLED');
+  const activeBookings = rawBookings.filter((b: TripBooking) => b.status !== 'CANCELLED');
   /**
    * PEOPLE, NOT BOOKING ROWS.
    *

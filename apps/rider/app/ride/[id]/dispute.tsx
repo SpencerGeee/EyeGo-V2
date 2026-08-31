@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { apiClient } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -33,7 +34,7 @@ export default function DisputeScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { selectedTrip } = useRideStore();
+  const { selectedTrip } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip })));
   const queryClient = useQueryClient();
 
   const [selectedType, setSelectedType] = useState('');

@@ -19,6 +19,7 @@ import { useColors, Colors } from '../../../utils/useColors';
 import { cancellationApi } from '@eyego/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useKeyboardState } from 'react-native-keyboard-controller';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { formatGhs } from '@eyego/utils';
 
@@ -37,7 +38,7 @@ export default function CancelRideScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
-  const { selectedTrip, clearRideState } = useRideStore();
+  const { selectedTrip, clearRideState } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, clearRideState: s.clearRideState })));
 
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [note, setNote] = useState('');

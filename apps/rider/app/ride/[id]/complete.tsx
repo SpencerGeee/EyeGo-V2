@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -24,7 +25,7 @@ export default function TripCompleteScreen() {
   const { id, bookingId: paramBookingId, viewOnly } = useLocalSearchParams<{ id: string; bookingId?: string; viewOnly?: string }>();
   const isViewOnly = viewOnly === '1';
   const router = useRouter();
-  const { activeBooking, selectedTrip: storeTrip } = useRideStore();
+  const { activeBooking, selectedTrip: storeTrip } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip })));
   const navigated = useRef(false);
 
   /**

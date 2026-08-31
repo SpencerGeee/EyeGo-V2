@@ -16,6 +16,7 @@ import { Text, Button, GlowSearchInput, ShinyText, AppBackground, Pressable, goB
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { bookingsApi, apiClient, userApi, type RiderPromotion, type RiderPromotions } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 
@@ -49,7 +50,7 @@ export default function PromotionsScreen() {
   const [isValidating, setIsValidating] = useState(false);
   const [promoStatus, setPromoStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
-  const { activeBooking, setPendingPromoCode, pendingPromoCode } = useRideStore();
+  const { activeBooking, setPendingPromoCode, pendingPromoCode } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, setPendingPromoCode: s.setPendingPromoCode, pendingPromoCode: s.pendingPromoCode })));
   const { user } = useAuthStore();
   const referralCode = user?.referralCode ?? null;
   const queryClient = useQueryClient();

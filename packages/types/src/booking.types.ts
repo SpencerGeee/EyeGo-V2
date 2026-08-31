@@ -24,6 +24,19 @@ export const isSeatHeld = (s: BookingStatus | null | undefined): boolean =>
   s === 'SEAT_HELD' || s === 'PENDING';
 
 export interface Booking {
+  /** Joined on some payloads — the trip's route, when there is one. */
+  route?: { id?: string; name?: string; originName?: string; destinationName?: string } | null;
+  /** The account that booked. Absent on a driver-added offline passenger. */
+  /**
+   * Kept structurally identical to `Trip['bookings'][number].user`, so the two
+   * are assignable to each other. They were not, and the mismatch surfaced the
+   * moment the driver's seat-map reducer stopped being `any` — two interfaces
+   * describing one row is a second source of truth, and it is exactly the drift
+   * this reconciliation exists to end.
+   *
+   * `id` is optional: an offline passenger the driver added has no account.
+   */
+  user?: { id?: string; name?: string; phone?: string; profilePhoto?: string } | null;
   id: string;
   tripId: string;
   passengerId: string;

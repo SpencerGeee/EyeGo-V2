@@ -22,6 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { connectSocket, socketEvents, getSocket, tripsApi } from '@eyego/api';
 import NetInfo from '@react-native-community/netinfo';
 import { useAuthStore } from '../../../stores/auth.store';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
@@ -97,7 +98,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuthStore();
-  const { selectedTrip } = useRideStore();
+  const { selectedTrip } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip })));
 
   const { data: tripData } = useQuery({
     queryKey: ['trip', id],

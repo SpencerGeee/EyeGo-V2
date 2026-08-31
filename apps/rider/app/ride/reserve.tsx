@@ -9,6 +9,7 @@ import { MotiView, Pressable, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
@@ -54,7 +55,7 @@ export default function ReserveScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { setScheduledTime, selectedTrip, origin, destination } = useRideStore();
+  const { setScheduledTime, selectedTrip, origin, destination } = useRideStore(useShallow((s) => ({ setScheduledTime: s.setScheduledTime, selectedTrip: s.selectedTrip, origin: s.origin, destination: s.destination })));
 
   const dates = useMemo(() => generateDates(), []);
   const timeSlots = useMemo(() => generateTimeSlots(), []);

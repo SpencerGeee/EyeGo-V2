@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, GradientGlowBorder, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Button, GradientGlowBorder, goDeeper, goBack, notify, EmptyState } from '@eyego/ui';
 import { useColors, Colors } from '../utils/useColors';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -125,7 +125,18 @@ export default function ScheduledRidesScreen() {
           ) : null
         }
         ListEmptyComponent={
-          !isLoading ? <Text style={styles.empty}>No scheduled rides yet.</Text> : null
+          /* Was a single grey sentence. An empty screen is the one moment a
+             rider is guaranteed to be looking for what to do next, and "No
+             scheduled rides yet." answers that with nothing — so it gets the
+             shared surface and, more importantly, a verb. */
+          !isLoading ? (
+            <EmptyState
+              icon="calendar-outline"
+              title="No scheduled rides yet"
+              subtitle="Book a ride for later and we'll find you a driver shortly before your pickup time."
+              action={{ label: 'Schedule a ride', onPress: () => goDeeper('/ride/schedule') }}
+            />
+          ) : null
         }
         renderItem={({ item }) => (
           <View style={styles.card}>

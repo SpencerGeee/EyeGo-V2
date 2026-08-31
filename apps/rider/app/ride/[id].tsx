@@ -6,6 +6,7 @@ import { MotiView, goDeeper, goBack } from '@eyego/ui';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, queryKeys } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +19,7 @@ import { Text, Button, Card, DriverInfoCard, SeatBar, AnimatedFareText, Skeleton
 import { formatGhs, formatTripDate, formatDuration, formatDistance, bookedSeats } from '@eyego/utils';
 import { FareBreakdownSheet } from '../../components/FareBreakdownSheet';
 import { fetchRoute, type RouteResult } from '../../utils/routing';
+import type { TripBooking } from '@eyego/types';
 
 
 // Fallback camera center (Accra) — same value used by the map-pin picker.
@@ -64,7 +66,7 @@ export default function RideDetailScreen() {
     morphBack(() => goBack());
   }, [morphBack, router]);
   const { user } = useAuthStore();
-  const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare, guestInfo } = useRideStore();
+  const { selectedTrip, setSelectedTrip, activeBooking, origin, destination, setSelectedTier: setStoreTier, computedFare, guestInfo } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, setSelectedTrip: s.setSelectedTrip, activeBooking: s.activeBooking, origin: s.origin, destination: s.destination, setSelectedTier: s.setSelectedTier, computedFare: s.computedFare, guestInfo: s.guestInfo })));
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [selectedTier, setSelectedTier] = useState<TierKey>(() => normalizeTier(tierParam));
   const [showFareBreakdown, setShowFareBreakdown] = useState(false);
@@ -188,7 +190,7 @@ export default function RideDetailScreen() {
   const isAlreadyBooked = useMemo(() => {
     const rawTrip = (data?.data?.data as any)?.trip;
     if (rawTrip?.bookings && user?.id) {
-      return rawTrip.bookings.some((b: any) => b.userId === user.id);
+      return rawTrip.bookings.some((b: TripBooking) => b.userId === user.id);
     }
     return activeBooking?.tripId === id;
   }, [data, user, activeBooking, id]);

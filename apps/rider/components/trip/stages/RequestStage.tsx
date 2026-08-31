@@ -13,6 +13,7 @@ import { SearchingPanel } from '../SearchingPanel';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useTripFlow } from '../../../stores/tripFlow.store';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripStore, isTerminal } from '../../../stores/trip.store';
 
@@ -51,7 +52,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   // local state, because local state is exactly what could disagree with the
   // server about which driver was being asked.
   const queryClient = useQueryClient();
-  const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll, setGuestInfo } = useRideStore();
+  const { origin, destination: storeDestination, setPendingTripRequest, requestSeatCount, requestCoverAll, setGuestInfo } = useRideStore(useShallow((s) => ({ origin: s.origin, destination: s.destination, setPendingTripRequest: s.setPendingTripRequest, requestSeatCount: s.requestSeatCount, requestCoverAll: s.requestCoverAll, setGuestInfo: s.setGuestInfo })));
   /** True between opening guest-selection and coming back with an answer. */
   const awaitingGuestRef = useRef(false);
   const { destination: paramDestination, scheduledAt, resumeRequestId } = useLocalSearchParams<{

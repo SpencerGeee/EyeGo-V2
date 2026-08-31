@@ -31,6 +31,7 @@ import {
 import { placeLabel } from '@eyego/utils';
 import { reverseGeocode } from '../../../utils/geocoding';
 import { useColors, Colors } from '../../../utils/useColors';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow, type SearchPlace } from '../../../stores/tripFlow.store';
 import { useRecentPlaces } from '../../../stores/recentPlaces.store';
@@ -154,7 +155,7 @@ function SearchStageImpl() {
   );
   const fieldTextWidth = Math.max(60, fieldColWidth - FIELD_CHROME_W);
 
-  const { origin, setOrigin, setDestination } = useRideStore();
+  const { origin, setOrigin, setDestination } = useRideStore(useShallow((s) => ({ origin: s.origin, setOrigin: s.setOrigin, setDestination: s.setDestination })));
   const morphId = useTripFlow((s) => s.morphId);
   const selectedPlace = useTripFlow((s) => s.searchPlace);
   const setSearchPlace = useTripFlow((s) => s.setSearchPlace);

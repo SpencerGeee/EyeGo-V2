@@ -21,7 +21,9 @@ import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert } from 'react-native';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
+import type { TripBooking } from '@eyego/types';
 
 type FilterTab = 'trips' | 'alerts' | 'scheduled';
 
@@ -262,7 +264,7 @@ const CANCELLABLE_BOOKING_STATUSES = ['PENDING', 'SEAT_HELD', 'CONFIRMED', 'PAID
 // palette used for other in-flight-state surfaces).
 function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnType<typeof makeStyles> }) {
   const router = useRouter();
-  const { pendingTripRequestId, pendingTripRequestDestination, setPendingTripRequest } = useRideStore();
+  const { pendingTripRequestId, pendingTripRequestDestination, setPendingTripRequest } = useRideStore(useShallow((s) => ({ pendingTripRequestId: s.pendingTripRequestId, pendingTripRequestDestination: s.pendingTripRequestDestination, setPendingTripRequest: s.setPendingTripRequest })));
 
   const { data } = useQuery({
     queryKey: ['trips', 'request-status', pendingTripRequestId],
@@ -751,7 +753,9 @@ export default function ActivityScreen() {
 
   const tripSections = useMemo(() => {
     const items: FeedEntry[] = rawBookings
-      .map((b: any) => ({ type: 'trip' as const, data: b, date: b.departureTime ?? b.createdAt }))
+      .map((b: TripBooking) => ({ type: 'trip' as const, data: b, // Both are optional now that the type is honest about the payload; a feed
+        // row with no date at all sorts to the bottom rather than becoming NaN.
+        date: b.departureTime ?? b.createdAt ?? '' }))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return withDateSections(items);
   }, [rawBookings]);

@@ -20,6 +20,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { tripsApi } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs, MAX_SEATS_PER_BOOKING } from '@eyego/config';
@@ -139,7 +140,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const { type: rideType } = useLocalSearchParams<{ type?: string }>();
   const isGroupFlow = (rideType ?? flowType) === 'group';
   const { morphTo } = useMorph();
-  const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime, setRequestSeats } = useRideStore();
+  const { origin, destination, setOrigin, setDestination, guestInfo, scheduledTime, setRequestSeats } = useRideStore(useShallow((s) => ({ origin: s.origin, destination: s.destination, setOrigin: s.setOrigin, setDestination: s.setDestination, guestInfo: s.guestInfo, scheduledTime: s.scheduledTime, setRequestSeats: s.setRequestSeats })));
   const [requestSeats, setRequestSeatsLocal] = useState(1);
   const [requestPayForAll, setRequestPayForAll] = useState(true);
   const [originText, setOriginText] = useState(origin?.address ?? '');

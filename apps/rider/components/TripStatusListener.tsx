@@ -12,6 +12,7 @@ import { useRouter, useSegments, type Href } from 'expo-router';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { socketEvents, connectSocket, disconnectSocket, bookingsApi, queryKeys } from '@eyego/api';
+import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../stores/ride.store';
 import { useRideEnded } from '../stores/rideEnded.store';
 import { useAuthStore } from '../stores/auth.store';
@@ -72,7 +73,7 @@ export function TripStatusListener() {
   const colors = useColors();
   const queryClient = useQueryClient();
   const { isLoggedIn } = useAuthStore();
-  const { activeBooking, selectedTrip } = useRideStore();
+  const { activeBooking, selectedTrip } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking, selectedTrip: s.selectedTrip })));
 
   // ── Safely extract booking properties ──
   // Must come BEFORE useQuery hooks because safeRead wraps try-catch for Hermes

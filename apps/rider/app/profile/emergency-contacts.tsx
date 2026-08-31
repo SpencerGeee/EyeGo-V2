@@ -178,6 +178,9 @@ export default function EmergencyContactsScreen() {
         <View
           >
           {contacts.length === 0 ? (
+            /* The shared surface — same icon, same words, but the spacing and
+               type scale now match every other empty state in the app instead
+               of being this screen's own arrangement. */
             <View style={styles.emptyState}>
               <Ionicons name="people-outline" size={52} color={colors.onSurfaceVariant} />
               <Text
