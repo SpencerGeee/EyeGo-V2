@@ -16,7 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable, goDeeper, goBack, notify } from '@eyego/ui';
+import { MotiView, Pressable, goDeeper, goBack, notify, callNumber, messageNumber } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
@@ -30,10 +30,15 @@ import { useRideStore } from '../../../stores/ride.store';
 import { useTripStore } from '../../../stores/trip.store';
 import { fonts, fontSizes, spacing, radii, withOpacity, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { Text } from '@eyego/ui';
 
 export default function SOSScreen() {
   const colors = useColors();
+  // One number for both apps, editable in the console without a release. The
+  // hook falls back to Ghana's unified line, so this is never empty even before
+  // the first config fetch answers.
+  const { emergencyNumber } = usePlatformConfig();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -308,7 +313,10 @@ export default function SOSScreen() {
           longitude: hasCoords(currentCoords as any) ? currentCoords!.longitude : null,
           urgent: true,
         });
-        Linking.openURL(`sms:${emergencyContact.phone}?body=${encodeURIComponent(body)}`).catch(() => {});
+        // A composer that refuses to open used to be swallowed here, so the
+        // rider believed their emergency contact had been messaged when nothing
+        // had been sent. `messageNumber` surfaces that and shows the number.
+        void messageNumber(emergencyContact.phone, body, { label: 'your emergency contact' });
       }
     } catch (err) {
       notify(null, 'Could not send alert. Please call emergency services directly.');
@@ -437,13 +445,15 @@ export default function SOSScreen() {
   const confirmEmergencyCall = () => {
     Alert.alert(
       'Emergency Call',
-      'This places a call to the emergency services on 112. Nothing is sent to EyeGo unless you also choose to.',
+      `This places a call to the emergency services on ${emergencyNumber}. Nothing is sent to EyeGo unless you also choose to.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Call 112 only',
+          text: `Call ${emergencyNumber} only`,
           onPress: () => {
-            Linking.openURL('tel:112').catch(() => {});
+            // `callNumber` never rejects; a dialler that will not open surfaces
+            // a persistent notice carrying the digits. See packages/ui/src/safety/dial.ts.
+            void callNumber(emergencyNumber, { label: 'the emergency services' });
           },
         },
         {
@@ -451,7 +461,7 @@ export default function SOSScreen() {
           style: 'destructive',
           onPress: () => {
             handleSOSPress();
-            Linking.openURL('tel:112').catch(() => {});
+            void callNumber(emergencyNumber, { label: 'the emergency services' });
           },
         },
       ]
@@ -539,7 +549,9 @@ export default function SOSScreen() {
                   latitude: hasCoords(loc as any) ? loc!.latitude : null,
                   longitude: hasCoords(loc as any) ? loc!.longitude : null,
                 }).then((body) => {
-                  Linking.openURL(`sms:${emergencyContact.phone}?body=${encodeURIComponent(body)}`).catch(() => {});
+                  void messageNumber(emergencyContact.phone, body, {
+                    label: 'your emergency contact',
+                  });
                 });
               }
             }}

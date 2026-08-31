@@ -311,6 +311,35 @@ async function start() {
     setImmediate(runQuestRegeneration);
     setInterval(runQuestRegeneration, 60 * 60 * 1000);
 
+    /**
+     * SAFETY PRE-FLIGHT — loud, but not fatal.
+     *
+     * An empty `SOS_ONCALL_PHONES` means a panic alert raises a support ticket
+     * and a console badge and reaches no human until somebody happens to look.
+     * That is the difference between having an SOS feature and appearing to.
+     *
+     * It is a WARNING rather than a refusal on purpose: the roster is a
+     * `PlatformSetting` edited in the admin console, and the console cannot
+     * load until this process is listening. Refusing to boot on an empty roster
+     * would deadlock the very first deploy, with no way to set the value that
+     * would let it start. So it shouts here, `/v1/admin/sos-events/alerting-health`
+     * reports it, and the go-live checklist makes it a gate.
+     */
+    try {
+      const settings = require('./config/settings');
+      const roster = String(settings.get('SOS_ONCALL_PHONES') || '').trim();
+      const smsOn = settings.get('SOS_SMS_ALERTS_ENABLED') !== false;
+      if (!roster || !smsOn) {
+        logger.error(
+          '[safety] SOS alerting is NOT reaching anyone by SMS ' +
+            `(roster ${roster ? 'set' : 'EMPTY'}, SMS ${smsOn ? 'on' : 'OFF'}). ` +
+            'Set SOS_ONCALL_PHONES in the admin console before taking real rides.',
+        );
+      }
+    } catch (err) {
+      logger.warn('[safety] could not run the SOS pre-flight check:', err.message);
+    }
+
     server.listen(env.PORT, () => {
       logger.info(`EyeGo API running on port ${env.PORT} (${env.NODE_ENV})`);
       logger.info(`Health: http://localhost:${env.PORT}/health`);

@@ -18,7 +18,7 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, notify, callNumber } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -28,6 +28,7 @@ import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, Inl
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
+import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { openExternalNavigation } from '../../../utils/externalNav';
 import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -67,6 +68,10 @@ const STATUS_FLOW: Record<string, { label: string; next: string | null; action: 
 };
 
 export default function DriverTrackingScreen() {
+  // One emergency number for both apps, editable in the console without a
+  // release. Falls back to Ghana’s unified line, so it is never empty even
+  // before the first config fetch answers.
+  const { emergencyNumber } = usePlatformConfig();
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -992,11 +997,11 @@ export default function DriverTrackingScreen() {
               onPress={() => {
                 Alert.alert(
                   'Emergency SOS',
-                  'This will call Ghana Police (191). Are you in immediate danger?',
+                  `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
                   [
                     { text: 'Cancel', style: 'cancel' },
                     {
-                      text: 'Call 191',
+                      text: `Call ${emergencyNumber}`,
                       style: 'destructive',
                       onPress: async () => {
                         const payload = {
@@ -1011,7 +1016,7 @@ export default function DriverTrackingScreen() {
                           // must still reach dispatch, so queue it for retry.
                           offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
                         }
-                        Linking.openURL('tel:191');
+                        void callNumber(emergencyNumber, { label: 'the emergency services' });
                       },
                     },
                   ],

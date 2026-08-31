@@ -33,6 +33,12 @@ export interface PlatformConfig {
   /** Kill switch. False means drivers may not go online right now. */
   driverOnlineEnabled: boolean;
   supportPhone: string | null;
+  /**
+   * Dialled by both apps for the emergency services. Never null — the server
+   * falls back to Ghana's unified line rather than publishing nothing, because
+   * a panic button with no number is worse than a wrong one.
+   */
+  emergencyNumber: string;
   seatHoldMinutes: number;
   minFarePerSeatPesewas: number;
   driverRequiredWalletPesewas: number;
@@ -57,6 +63,7 @@ export const PLATFORM_CONFIG_FALLBACK: PlatformConfig = {
   bookingEnabled: true,
   driverOnlineEnabled: true,
   supportPhone: null,
+  emergencyNumber: '112',
   seatHoldMinutes: 10,
   minFarePerSeatPesewas: 800,
   driverRequiredWalletPesewas: 2000,

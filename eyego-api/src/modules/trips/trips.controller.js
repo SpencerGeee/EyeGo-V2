@@ -6,7 +6,7 @@ const { estimateFare } = require('./fare.calculator');
 const { ok } = require('../../utils/response');
 const tripRequestService = require('./trip-request.service');
 const prisma = require('../../config/database');
-const { NotFoundError } = require('../../utils/errors');
+const { NotFoundError, ForbiddenError } = require('../../utils/errors');
 
 const getFareEstimate = async (req, res) => {
   const { lat, lng, tier, distanceKm, doorstepPickup, heavyLoad, availableSeats } = req.query;
@@ -89,6 +89,34 @@ const emergencyAlert = async (req, res) => {
   const { latitude, longitude, passengerPhone, timestamp, emergencyContactPhone } = req.body;
   const tripId = req.params.id;
   const userId = req.user.userId;
+
+  /**
+   * The caller must actually be on this trip.
+   *
+   * Without this, any authenticated account could POST an arbitrary trip id and
+   * set the whole escalation chain running — the URGENT support ticket, the FCM
+   * fan-out and, the expensive one, the on-call SMS. That is a way to wake a
+   * human at 3am, for free, about a trip that has nothing to do with the
+   * sender, and to bury real alerts underneath it. `SosEvent.userId` carries no
+   * foreign key, so nothing downstream would have rejected it either.
+   *
+   * One indexed lookup on (tripId, userId), awaited BEFORE the response rather
+   * than inside the `setImmediate` below, because a rejection has to be a 403
+   * rather than a cheerful "alert dispatched". With the database colocated this
+   * costs a fraction of a millisecond; the latency the fire-and-forget shape
+   * was avoiding was a cross-region round trip that no longer exists.
+   *
+   * Any booking counts, not just a seat-occupying one: someone whose booking
+   * was just cancelled mid-trip is exactly the person who might be in danger.
+   */
+  const membership = await prisma.booking.findFirst({
+    where: { tripId, userId },
+    select: { id: true },
+  });
+
+  if (!membership) {
+    throw new ForbiddenError('You can only raise an emergency alert on a trip you are on.');
+  }
 
   // Return immediately — SOS must be instant
   ok(res, { alertReceived: true }, 'Emergency alert dispatched');

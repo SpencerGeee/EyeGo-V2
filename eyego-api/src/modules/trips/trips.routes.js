@@ -18,7 +18,11 @@ const router = Router();
 // Everything below this line answers without a token. `publicShareLimiter`
 // exists because these are the routes where a guessed identifier returns a live
 // position and a pickup address — see middleware/rateLimiter.js.
-router.get('/pulse', tripsController.getPulseSchedules);
+// `/pulse` was the one public route on this router with no limiter at all. It
+// takes no identifier, so it leaks nothing a guess could target — but it is an
+// unauthenticated database read, which makes it the cheapest thing on the API
+// to hammer. Same limiter as its siblings; there is no reason for it to differ.
+router.get('/pulse', publicShareLimiter, tripsController.getPulseSchedules);
 router.get('/join/:shareToken', publicShareLimiter, tripsController.getTripByShareToken);
 // Public live-tracking data for the share-trip web page
 router.get('/track/:shortId/data', publicShareLimiter, tripsController.getTrackingData);

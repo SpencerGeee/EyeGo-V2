@@ -1,73 +1,74 @@
-# State — quality pass complete (2026-08-31)
+# State — production readiness run (2026-08-31)
 
 ## Where things stand
-All three quality-pass commits are done, verified and **pushed to `main`**.
-The database has been purged of harness fixtures. Nothing is device-tested.
 
-    fdfd9e9  perf: 9,495 re-renders removed, and a Trip type that matches the wire
-    be456d6  feat: text that can grow, and 199 controls a screen reader can name
-    09fcc79  feat: 151 blocking modals become one in-app notice
-    885e2c2  chore: keep the design boards and screen captures out of history
-    a441895  fix: a toast that was never the toast … (the 20-item sweep)
+The previous quality pass is done and pushed (`a4353ca` and below). Nothing is
+device-tested.
 
-Plan and the full analysis that produced it:
-`docs/superpowers/plans/2026-08-31-quality-pass.md`
+Thirteen questions resolved the scope; the audit then ran. The contract and all
+findings live at:
 
-## ⚠ Before running the harness again
-`node scripts/e2e/run-all.mjs` **re-seeds** the database — 261 riders, 176
-drivers, 173 trips last time. It was purged after the final run, so the board is
-clean right now. **Sideload and test first; run the harness after.**
+    docs/superpowers/plans/2026-08-31-production-readiness.md
+
+**Audit complete** — three batches in §3, ranked into 28 items across 7 groups
+in §3b. No fixes applied yet. Next action is Group 1.
+
+## The frame, in one paragraph
+
+Ship-safe launch, not Bolt parity. One continuous run — the user sideloads once
+at the end, not per phase. Production is a single Docker box with API, Postgres
+and Redis colocated. No external accounts exist yet (Apple, Play, Paystack live,
+domain, Firebase/APNs, VPS) and the client buys them last, so everything must be
+credential-pluggable and documented.
+
+## Next action
+
+Execute §3b Group 1 (safety and correctness), then Groups 2–7 in order.
+
+## What the audit concluded
+
+The codebase is **mature, not half-built**. 286 server routes, 266 client call
+sites, and not one client call to a route that does not exist. Money paths hold
+under concurrency. Zero TODO markers. The gaps are things that were never
+started — mobile money, document expiry, reviewer mode, backups, telemetry —
+plus five genuine defects, of which one (A1, swallowed SOS dialer failures) is
+the only high-severity find in the app layer.
+
+## ⚠ Before running the harness
+
+`node scripts/e2e/run-all.mjs` **re-seeds** the database. It was purged after
+the last run, so the board is clean.
 
     node scripts/e2e/purge-test-data.mjs            # dry run
     node scripts/e2e/purge-test-data.mjs --confirm
 
-## Verification (all green, all re-runnable)
-- `node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.json` (packages)
+## Verification commands (unchanged)
+
+- `node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.json`
 - `... -p apps/rider/tsconfig.json` · `... -p apps/driver/tsconfig.json`
-- `node scripts/e2e/run-all.mjs` → **340/340 · 11/11** against the live backend,
-  run after each of the three commits
-- `node scripts/invariants.test.mjs` → 2/2
-- `node scripts/bench/ride-store-renders.mjs` → the 10,032 → 537 measurement
+- `cd apps/admin && next build`
+- `node scripts/e2e/run-all.mjs` — needs the API and docker stack up
+- `node scripts/invariants.test.mjs`
 - **`npx` is broken here — always use the node path above.**
 
-## What changed, and the findings behind it
+## Facts established today (not in the plan doc)
 
-**Commit 1 — the error surface.** 96 `Alert.alert` calls were two different
-things: 36 real decisions (kept) and 151 pure reports (a blocking modal used as
-a status line). `notify(title, message, opts?)` is positionally identical to
-`Alert.alert`, which is the only reason a 151-site migration finished.
-`useNetworkStatus` existed in both apps and the rider's copy had **zero
-consumers**; offline now suppresses rather than stacks, reading the real
-`offlineQueue` depth. 25 titles saying `"Error"` rewritten.
-
-**Commit 2 — text scaling.** Neither app had *any* font-scaling policy against
-142 fixed heights. 1.4 cap on shared `Text`, 60 `TextInput`s capped,
-text-bearing heights → `minHeight`. The a11y gap was **41 controls, not 201**:
-158 unlabelled Pressables carry visible text and were never silent, only
-roleless.
-
-**Commit 3 — perf and types.** 19 whole-store `useRideStore()` subscriptions
-woke on every GPS frame (the store holds `driverLocation`). Measured 94.6%
-reduction. The shared `Trip` type was **fiction** — it required `driver`/
-`vehicle`/`origin` (absent on unassigned trips) and omitted 25 read fields
-including `bookings[].seats`, the field behind both seats-vs-rows bugs.
-Rebuilt by observation; new `TripBooking` adopted in 15 `(b: any)` reducers.
-
-## Deliberately not done (with reasons, for the re-audit)
-- **Zod at the API boundary.** The right long-term answer — parse, don't cast.
-  The reconciled types will drift again. Revisit if the server contract moves.
-- **The other 23 whole-store subscriptions.** `useAuthStore` changes twice a
-  session; converting it is churn dressed as optimisation.
-- **Full dynamic type.** Converting all 142 heights would inflate map markers.
-- **The ~25 form-validation notices → inline fields**, and ~6 blocking-state
-  ones → persistent banner. Queued as a hand pass; the sweep put them all on
-  the toast first so nothing was lost.
-
-## Open
-- Device testing for everything from this session.
-- `apps/rider/components/trip/SearchingIndicator.tsx` is unreferenced — delete
-  once `SearchingPanel` survives review.
-- Two claims of mine that a re-audit should re-check rather than trust:
-  `notifications.tsx` does have an empty state (my detector missed it), and the
-  driver store does **not** hold live location (so its 16 whole-store
-  subscriptions are harmless).
+- `PaymentMethod` is CASH / CARD / WALLET only — no mobile money anywhere.
+- Driver documents are a JSON blob on `Driver.documentReview`: status only, no
+  expiry dates, no insurance, no roadworthiness, no enforcement.
+- Driver app has `lib/sentry.ts` but **no** `ErrorBoundary` component.
+- Admin has no Sentry at all.
+- Neither `app.json` has `ios.privacyManifests`; `eas.json` `submit.production`
+  is empty.
+- Rider dials `tel:112`, driver dials `tel:191` — two different emergency
+  numbers, neither configurable.
+- `apps/admin/lib/api.ts` falls back to an `x-admin-secret` header when
+  `EYEGO_ADMIN_LEGACY_SECRET` is set — a full bypass of the JWT path.
+- SOS is genuinely end-to-end (events, ack/release/resolve, alerting-health,
+  admin device push) — the old "reaches nobody" note is stale.
+- Already built, do not rebuild: idempotency, in-app receipts, cancellation
+  fees, promotions, support tickets, trip share links, user anonymisation,
+  driver deactivation, TOTP MFA + RBAC + audit log on admin.
+- Zero TODO/FIXME markers across all four codebases.
+- `eyego-api/docker-compose.yml` (pg16) contradicts the root
+  `docker-compose.yml` (pg18) — the api one is stale dev leftovers.

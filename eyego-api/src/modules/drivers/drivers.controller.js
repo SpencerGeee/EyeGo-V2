@@ -8,6 +8,7 @@ const surgeService = require('../trips/surge.service');
 const mapboxService = require('../../services/mapbox.service');
 const { blacklistToken } = require('../../middleware/auth');
 const { ok, created } = require('../../utils/response');
+const { ForbiddenError } = require('../../utils/errors');
 const destinationMode = require('../../services/destination-mode.service');
 const { seatOccupyingWhere } = require('../../utils/booking-status');
 
@@ -449,6 +450,25 @@ const emergencyAlert = async (req, res) => {
   const { latitude, longitude, timestamp } = req.body;
   const tripId = req.params.id;
   const driverId = req.user.userId;
+
+  /**
+   * Same guard as the rider side (trips.controller.js): the driver must be the
+   * one assigned to this trip. `SosEvent` has no foreign key on its identifier
+   * columns, so an arbitrary trip id would otherwise be accepted and would page
+   * the on-call roster by SMS about a trip the sender has nothing to do with.
+   *
+   * Awaited before the response so a rejection is a 403 and not a cheerful
+   * "alert dispatched".
+   */
+  const prismaClient = require('../../config/database');
+  const assigned = await prismaClient.trip.findFirst({
+    where: { id: tripId, driver: { userId: driverId } },
+    select: { id: true },
+  });
+
+  if (!assigned) {
+    throw new ForbiddenError('You can only raise an emergency alert on a trip you are driving.');
+  }
 
   ok(res, { alertReceived: true }, 'Emergency alert dispatched');
 

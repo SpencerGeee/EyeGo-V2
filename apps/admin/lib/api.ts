@@ -51,8 +51,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   // The legacy shared secret is a deliberate fallback for local development
   // before the first superadmin is seeded. It is only ever read on the server,
-  // and setting it in production defeats the point of per-admin accounts.
+  // and setting it in production defeats the point of per-admin accounts —
+  // every action it performs is attributed to a synthetic "legacy" admin, so
+  // the audit log records that something happened but not who did it.
+  //
+  // The API already defaults its own side of this OFF in production, but a
+  // console that keeps SENDING the header would then fail every request with a
+  // confusing 401 rather than an honest error. Refusing here makes the
+  // misconfiguration loud at the first request instead of silent until someone
+  // reads the audit log and finds it useless.
   if (!token && process.env.EYEGO_ADMIN_LEGACY_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ApiError(
+        'EYEGO_ADMIN_LEGACY_SECRET is set in production. Shared-secret access makes every ' +
+          'admin action unattributable — remove it and sign in with a console account.',
+        500,
+      );
+    }
     headers.set('x-admin-secret', process.env.EYEGO_ADMIN_LEGACY_SECRET);
   }
 

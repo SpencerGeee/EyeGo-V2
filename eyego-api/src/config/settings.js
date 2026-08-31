@@ -393,6 +393,19 @@ const REGISTRY = [
     min: 1, max: 1440,
     help: 'How long a panic alert may sit with nobody holding it before the console escalates how it is shown. This does not close anything — it decides when the queue starts shouting.',
   },
+  // The number the apps dial when a rider or driver asks for the emergency
+  // services. It was hardcoded in five places and disagreed with itself: the
+  // rider dialled 112 and the driver dialled 191. 112 is Ghana's unified
+  // emergency line and reaches police, ambulance and fire; 191 is the police
+  // desk only, so a driver reporting a medical emergency was calling the wrong
+  // service. One setting, one number, and a second market is a console edit
+  // rather than a release.
+  {
+    key: 'EMERGENCY_NUMBER', group: 'safety', type: TYPES.TEXT,
+    label: 'Emergency services number', envDefault: '112',
+    help: 'Dialled by both apps when someone chooses to call the emergency services. Ghana’s unified line is 112. Digits, +, # and * only — it is passed straight to the dialler.',
+    maxLength: 20,
+  },
   {
     key: 'ADMIN_MFA_REQUIRED', group: 'safety', type: TYPES.BOOLEAN,
     label: 'Require two-factor for all console accounts', envDefault: false,
@@ -661,6 +674,10 @@ function publicConfig() {
     bookingEnabled: get('RIDER_BOOKING_ENABLED') !== false,
     driverOnlineEnabled: get('DRIVER_ONLINE_ENABLED') !== false,
     supportPhone: get('SUPPORT_PHONE') || null,
+    // Both apps dial this. Falls back to Ghana's unified emergency line rather
+    // than to null — a missing setting must never leave the panic button with
+    // no number to call.
+    emergencyNumber: get('EMERGENCY_NUMBER') || '112',
     seatHoldMinutes: get('SEAT_HOLD_DURATION_MINUTES'),
     minFarePerSeatPesewas: get('RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS'),
     driverRequiredWalletPesewas: get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS'),

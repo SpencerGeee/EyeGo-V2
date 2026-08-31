@@ -142,3 +142,10 @@ export {
 } from './notify/notice';
 export type { Notice, NoticeTone, NotifyOptions } from './notify/notice';
 export { NoticeHost } from './notify/NoticeHost';
+
+/**
+ * Dialling and texting that cannot fail silently. Use these instead of
+ * `Linking.openURL('tel:…')` anywhere a failure matters — see
+ * packages/ui/src/safety/dial.ts for the five SOS call sites that did not.
+ */
+export { callNumber, messageNumber } from './safety/dial';

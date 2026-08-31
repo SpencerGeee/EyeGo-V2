@@ -4,13 +4,14 @@ import * as Contacts from 'expo-contacts';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goBack, notify } from '@eyego/ui';
+import { MotiView, goBack, notify, callNumber } from '@eyego/ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
+import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { useDriverStore } from '../../stores/driver.store';
 import { offlineQueue } from '../../utils/offlineQueue';
 
@@ -23,6 +24,10 @@ const SAFETY_TIPS = [
 ];
 
 export default function SafetyScreen() {
+  // One emergency number for both apps, editable in the console without a
+  // release. Falls back to Ghana’s unified line, so it is never empty even
+  // before the first config fetch answers.
+  const { emergencyNumber } = usePlatformConfig();
   const colors = useColors();
   const theme = useDriverStore(s => s.theme);
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -122,18 +127,18 @@ export default function SafetyScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, { color: colors.error }]}>Emergency SOS</Text>
             <Text variant="caption" color={colors.onSurfaceVariant}>
-              Calls 191 (Ghana Police){activeTripId ? ' and shares your live location with your emergency contact' : ''}.
+              Calls {emergencyNumber} (emergency services){activeTripId ? ' and shares your live location with your emergency contact' : ''}.
             </Text>
           </View>
           <Pressable
             style={styles.sosBtn}
             onPress={() => Alert.alert(
               'Emergency SOS',
-              'This will call Ghana Police (191). Are you in immediate danger?',
+              `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                  text: 'Call 191',
+                  text: `Call ${emergencyNumber}`,
                   style: 'destructive',
                   onPress: async () => {
                     if (activeTripId) {
@@ -152,7 +157,7 @@ export default function SafetyScreen() {
                         offlineQueue.enqueue('SOS', `/driver/trips/${activeTripId}/emergency`, 'POST', payload);
                       }
                     }
-                    Linking.openURL('tel:191');
+                    void callNumber(emergencyNumber, { label: 'the emergency services' });
                   },
                 },
               ]

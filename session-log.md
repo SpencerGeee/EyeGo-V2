@@ -362,3 +362,14 @@ Decisions:
 - A frame broadcast to a trip room CANNOT carry `myBooking` — that field is resolved from a `forUserId`. Match booking-scoped events on the envelope's `type` + `payload.bookingId`.
 Rejected: asserting on `snapshot.myBooking` in anything that reads a broadcast (dead code by construction); reverse-geocoding inside POST /rides (the hot path must return immediately).
 Open: 5 harness suites were written blind and needed 12 shape corrections before they were trustworthy — treat a brand-new suite's first red as suspect until proven.
+
+## 2026-08-31 20:45 [saved]
+Goal: Grill out the scope of a production-readiness run across rider, driver, admin, backend.
+Decisions:
+- Ship-safe launch, not Bolt parity — surge/pooling/multi-city explicitly out of scope.
+- Prod is one Docker box, API+PG+Redis colocated; that alone closes the 281ms/query Frankfurt gap.
+- Drop ACCESS_BACKGROUND_LOCATION for a foreground service — skips Play's declaration + demo-video review loop entirely.
+- Telemetry is a server-side events table read by admin, never a third-party SDK — keeps the Data Safety form free of data-sharing.
+- Mobile money is missing from both pay-in and payout; in Ghana that means most riders can only pay cash.
+Rejected: managed Postgres or AWS af-south-1 (reintroduces the cross-region hop for ~40ms); analytics SDKs in the apps; phase-gated sideloading (user tests once, at the end).
+Open: audit not yet run; no external accounts exist (Apple/Play/Paystack/domain/VPS), client buys last.
