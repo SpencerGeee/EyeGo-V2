@@ -1,0 +1,105 @@
+# TLS, and the only two doors into the box.
+#
+# Caddy obtains and renews Let's Encrypt certificates without being asked, which
+# removes the most dependable annual outage in a small deployment: the
+# certificate nobody remembered was theirs to renew.
+#
+# Set the domains before first boot. Caddy will try to issue a certificate for
+# whatever is written here on startup, and a name that does not resolve to this
+# box fails the ACME challenge and retries in a loop.
+
+{
+	# The address Let's Encrypt uses to warn about expiry. A real inbox someone
+	# reads, not a role alias nobody has ever logged into.
+	email ops@eyego.app
+
+	# Uncomment for a dry run against the staging CA while DNS is still settling.
+	# Staging certificates are untrusted by browsers but are not rate-limited,
+	# and the production endpoint WILL lock you out for a week after five
+	# failures on the same domain.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# ── The API ─────────────────────────────────────────────────────────────────
+api.eyego.app {
+	encode zstd gzip
+
+	# Socket.IO. Caddy proxies WebSocket upgrades natively, but the timeouts
+	# matter: a trip's tracking socket is open for the length of the ride, and a
+	# default idle timeout would cut a rider's live map mid-journey.
+	reverse_proxy api:5020 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		transport http {
+			read_timeout 3600s
+			write_timeout 3600s
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# The API answers JSON to native apps; there is no browser document here
+		# to protect with a CSP, and the header would only be noise.
+		-Server
+	}
+
+	log {
+		output file /data/api-access.log {
+			roll_size 50MiB
+			roll_keep 10
+		}
+	}
+}
+
+# ── The admin console ───────────────────────────────────────────────────────
+#
+# A console that can move money and read every rider's phone number. It is
+# behind per-admin accounts with TOTP, but defence in depth is cheap here.
+admin.eyego.app {
+	encode zstd gzip
+	reverse_proxy admin:4000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# OPTIONAL, and worth considering seriously: restrict the console to the
+	# office and the on-call VPN. Uncomment and set real ranges.
+	#
+	# @not_allowed not remote_ip 41.x.x.0/24 10.8.0.0/24
+	# respond @not_allowed "Not available from this network" 403
+}
+
+# ── Share and invite links ──────────────────────────────────────────────────
+#
+# The public trip-tracking pages a rider texts to someone waiting for them.
+# Same origin as the API so the share token resolves without a CORS hop.
+eyego.app, www.eyego.app {
+	encode zstd gzip
+
+	# The marketing site and the legal pages (/privacy, /terms) that both stores
+	# require. Static until there is a reason for it not to be.
+	root * /srv/www
+	file_server
+
+	# Anything the static site does not have falls through to the API, which
+	# serves the /join and /track pages.
+	handle_errors {
+		@404 expression {err.status_code} == 404
+		reverse_proxy @404 api:5020
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

@@ -1,0 +1,91 @@
+# The production box: TLS, the API, the admin console.
+#
+# Layered ON TOP of docker-compose.yml, which owns Postgres and Redis and is the
+# same file you have been running locally for weeks. That is the point — go-live
+# should be a copy, not an experiment.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --env-file .env.docker up -d
+#
+# ── WHAT THIS ADDS, AND WHY ─────────────────────────────────────────────────
+#
+# Caddy, because TLS should not be a task anyone performs. It gets certificates
+# from Let's Encrypt on first boot and renews them without being asked, which
+# removes the most reliable annual outage in small deployments.
+#
+# The admin console in a container on this box rather than on Vercel, so its
+# server-side calls to the API stay on loopback. A console rendered in another
+# continent would put every page load back across the internet — the exact cost
+# that colocating the database removed.
+#
+# The API is NOT in docker-compose.yml because that file is also the laptop dev
+# stack, where the API runs from source with a file watcher.
+
+services:
+  api:
+    build:
+      context: ./eyego-api
+      dockerfile: Dockerfile
+    container_name: eyego-api
+    restart: unless-stopped
+    env_file: .env.docker
+    environment:
+      NODE_ENV: production
+      # Loopback names inside the compose network. Nothing here crosses a
+      # public interface.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-eyego}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-eyego}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # NOT published to the host. Caddy is the only way in, which means there is
+    # no port to forget to firewall.
+    expose:
+      - '5020'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:5020/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  admin:
+    build:
+      context: .
+      dockerfile: apps/admin/Dockerfile
+    container_name: eyego-admin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Over the compose network, never the internet. The console reads the API
+      # from server components on every page render.
+      EYEGO_API_URL: http://api:5020
+      # Deliberately absent: EYEGO_ADMIN_LEGACY_SECRET. The shared secret makes
+      # every admin action unattributable, and apps/admin/lib/api.ts refuses to
+      # use it when NODE_ENV=production rather than failing confusingly later.
+    depends_on:
+      - api
+    expose:
+      - '4000'
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: eyego-caddy
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - admin
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -3,7 +3,18 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "npx prisma migrate deploy && node src/server.js"
+# MIGRATIONS ARE NOT RUN HERE.
+#
+# This used to be `npx prisma migrate deploy && node src/server.js`. With one
+# replica that is merely untidy; with two it is a race, because both containers
+# start at once and both try to take the migration advisory lock — and the
+# loser either blocks on boot or fails its health check while waiting. It also
+# means a bad migration takes the API down rather than failing a deploy step you
+# can stop at.
+#
+# Migrations are an explicit step in the runbook (docs/go-live/09-deploy-runbook.md),
+# run once, before the new image is rolled out.
+startCommand = "node src/server.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
