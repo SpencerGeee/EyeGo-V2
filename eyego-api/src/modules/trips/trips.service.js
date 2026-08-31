@@ -1427,8 +1427,34 @@ async function driverNoShow(tripId, reportingUserId) {
   return result;
 }
 
+/**
+ * THE PASSENGER WHO IS MARKED ABSENT HAS TO BE TOLD THEY WERE.
+ *
+ * BUGFIX, found by the E2E harness — nothing static could see it, because the
+ * code that was missing is code that was never written.
+ *
+ * This function marked the booking NO_SHOW, released the seat, decremented the
+ * counter, wrote a log line and returned. That is everything EXCEPT telling the
+ * one person it happened to. Their seat is gone, their booking is dead, and
+ * their app is still sitting on "your driver is arriving" — with nothing on any
+ * channel that will ever move it off that screen.
+ *
+ * Its sibling `driverNoShow` does not have this bug, and the reason is
+ * instructive: that one CANCELS THE TRIP, so it goes through
+ * `applyTransitionTx` and the whole trip-event machinery announces it for free.
+ * A rider no-show does not cancel the trip — the bus drives on with everybody
+ * else aboard — so it never touched that machinery and therefore announced
+ * nothing. The notification was a side effect of a transition, and this is the
+ * one path with no transition to have it.
+ *
+ * `recordEvent` is the right carrier, and it is the same one `announceBoarding`
+ * uses for the mirror-image fact: it bumps the trip version, writes a replayable
+ * `TripEvent`, and publishes the FULL snapshot — inside which is
+ * `myBooking.status`. So a rider watching the screen sees it immediately and one
+ * whose phone was asleep gets it on replay.
+ */
 async function riderNoShow(tripId, bookingId, reportingUserId) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const trip = await tx.trip.findUnique({ where: { id: tripId }, select: { driverId: true } });
     if (!trip) throw new NotFoundError('Trip');
     if (trip.driverId !== reportingUserId) {
@@ -1493,8 +1519,44 @@ async function riderNoShow(tripId, bookingId, reportingUserId) {
     }
 
     logger.info('Rider no-show recorded', { tripId, bookingId });
-    return { bookingId };
+    return { bookingId, userId: booking.userId, seatNumber: booking.seatNumber };
   });
+
+  /**
+   * After the commit, never inside it.
+   *
+   * Both of these are announcements about a fact that is already true. Doing
+   * them in the transaction would let a dead FCM token or a disconnected socket
+   * roll back a no-show the driver has already acted on — and the driver is
+   * standing at the kerb about to depart.
+   */
+  tripState
+    .recordEvent(tripId, 'PASSENGER_NO_SHOW', {
+      actor: tripState.ACTOR.DRIVER,
+      actorId: reportingUserId,
+      payload: { bookingId, seatNumber: result.seatNumber ?? null },
+    })
+    .catch((err) => logger.warn(`Rider no-show event failed for ${tripId}: ${err.message}`));
+
+  (async () => {
+    if (!result.userId) return;
+    const user = await prisma.user.findUnique({
+      where: { id: result.userId },
+      select: { fcmToken: true },
+    });
+    if (!user?.fcmToken) return;
+    // Positional, like every other caller — `sendPush(token, title, body, data)`.
+    await pushService.sendPush(
+      user.fcmToken,
+      'Your driver marked you as a no-show',
+      // No refund promised: a rider no-show is explicitly NOT refunded (see the
+      // transaction above), and telling them otherwise buys a support ticket.
+      'They could not find you at the pickup and have released your seat.',
+      { type: 'RIDER_NO_SHOW', tripId, bookingId },
+    );
+  })().catch((err) => logger.warn(`Rider no-show push failed for ${bookingId}: ${err.message}`));
+
+  return { bookingId: result.bookingId };
 }
 
 // Group/on-demand pivot: riders no longer pick a fixed Route — they give a

@@ -353,3 +353,12 @@ Decisions:
 - Toast destination lives on the toast's own state, never a ref — a ref outlived its banner and sent drivers to cancelled trips.
 Rejected: adding offer geometry to the dispatch cascade payload (client `/geo/route` is cheaper and cannot destabilise dispatch); greying out the swipe on a short wallet (stale balance would cost real rides).
 Open: pre-departure `toPickup` now wins over the rider's fill-up preview; the 5 new E2E suites are unrun.
+
+## 2026-08-31 (harness run) [saved]
+Goal: Run the new E2E harness against a live stack and act on what it found.
+Decisions:
+- 340/340 checks, 11/11 suites green against a real server. The cash-float fix (offer advertises, accept refuses with 402+details, boarding debits once, prepaid needs zero) is now PROVEN, not asserted.
+- `riderNoShow` told the affected passenger nothing — no socket frame, no push. Its sibling `driverNoShow` only works because it CANCELS the trip and inherits the transition machinery; a rider no-show has no transition, so it announced nothing. Now records `PASSENGER_NO_SHOW` + pushes.
+- A frame broadcast to a trip room CANNOT carry `myBooking` — that field is resolved from a `forUserId`. Match booking-scoped events on the envelope's `type` + `payload.bookingId`.
+Rejected: asserting on `snapshot.myBooking` in anything that reads a broadcast (dead code by construction); reverse-geocoding inside POST /rides (the hot path must return immediately).
+Open: 5 harness suites were written blind and needed 12 shape corrections before they were trustworthy — treat a brand-new suite's first red as suspect until proven.

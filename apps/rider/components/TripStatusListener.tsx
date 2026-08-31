@@ -203,6 +203,67 @@ export function TripStatusListener() {
 
     const unsubStatus = socketEvents.onTripStatus((data) => {
       const segs = segmentsRef.current;
+
+      /**
+       * ── MY OWN SEAT DIED, EVEN THOUGH THE TRIP DID NOT ───────────────────
+       *
+       * A driver can mark ONE passenger as a no-show. The bus then drives on
+       * with everybody else aboard, so the TRIP status never becomes terminal —
+       * and every branch below keys off the trip status, so this rider was
+       * shown nothing at all while their seat was released underneath them.
+       *
+       * Found by the E2E harness (`lifecycle-edges`), which could see it only
+       * because it fires a real rider-no-show and then waits on the rider's own
+       * socket. The server half is in `trips.service.riderNoShow`, which now
+       * records a `PASSENGER_NO_SHOW` event — that publishes the full snapshot,
+       * and `myBooking.status` inside it is what this reads.
+       *
+       * Deliberately BEFORE the trip-status branches: for this rider the ride is
+       * over regardless of what the trip goes on to do.
+       */
+      /**
+       * Matched on the ENVELOPE, not on `snapshot.myBooking`.
+       *
+       * The first version of this read `snapshot.myBooking.status`, and the
+       * harness proved it could never fire: `myBooking` is resolved from a
+       * `forUserId` (see trip-view.js), and a frame broadcast to the whole trip
+       * room has no single viewer — so the published snapshot carries no
+       * `myBooking` at all. The check looked right and was dead code.
+       *
+       * What the broadcast DOES carry is the event `type` and its payload, so
+       * the rider identifies their own seat by id. `myBooking` is still read as
+       * a second path because the REST-hydrated snapshot IS viewer-scoped and
+       * does carry it.
+       *
+       * An explicit id match, never "a no-show happened on my trip": on a group
+       * trip that would fire for every other passenger aboard.
+       */
+      const evt = (data as any)?.type ?? (data as any)?.event;
+      const noShowBookingId = (data as any)?.payload?.bookingId;
+      const myBookingId =
+        safeRead(useRideStore.getState().activeBooking, 'id') ??
+        (data as any)?.snapshot?.myBooking?.id;
+      const myBookingStatus =
+        (data as any)?.snapshot?.myBooking?.status ?? (data as any)?.myBooking?.status;
+      const iWasNoShowed =
+        (evt === 'PASSENGER_NO_SHOW' && !!noShowBookingId && noShowBookingId === myBookingId) ||
+        myBookingStatus === 'NO_SHOW';
+      if (iWasNoShowed) {
+        showBanner('Your driver marked you as a no-show', 'close-circle');
+        useRideEnded.getState().raise({
+          reason: 'DRIVER_NO_SHOW',
+          // A rider no-show is explicitly NOT refunded — see the transaction in
+          // riderNoShow. Promising money back here would be a lie.
+          refunded: false,
+          destinationLabel: useRideStore.getState().destination?.address ?? null,
+        });
+        endTripLiveNotification();
+        endTripLiveActivity('CANCELLED');
+        queryClient.invalidateQueries({ queryKey: ['rides', 'active'] });
+        queryClient.invalidateQueries({ queryKey: ['bookings', 'active'] });
+        useRideStore.getState().clearRideState();
+        return;
+      }
       /**
        * The trip surface owns its own exit — don't double-fire.
        *

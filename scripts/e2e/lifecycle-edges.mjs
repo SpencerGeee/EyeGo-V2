@@ -78,20 +78,38 @@ async function main() {
     await goOnline(ctx.driverA, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
     ctx.tripCancelled = await bookRide(ctx.riderA);
     await waitClaimable(ctx.driverA, ctx.tripCancelled);
-    await POST(`/rides/${ctx.tripCancelled}/cancel`, { reason: 'CHANGED_MIND' }, { token: ctx.riderA.token });
+    ctx.cancelBody = await POST(
+      `/rides/${ctx.tripCancelled}/cancel`,
+      { reason: 'CHANGED_MIND' },
+      { token: ctx.riderA.token },
+    );
     return ctx.tripCancelled.slice(0, 8);
   });
 
   await check('the trip reaches a terminal status', async () => {
     if (!ctx.tripCancelled) return 'skipped';
-    const s = await until(
-      async () => {
-        const st = await tripStatus(ctx.driverA.token, ctx.tripCancelled).catch(() => null);
-        return ['CANCELLED', 'EXPIRED', 'REFUNDED'].includes(st) ? st : null;
-      },
-      { timeoutMs: 20000, everyMs: 1000, label: 'terminal status' },
-    );
-    return s;
+    /**
+     * The cancel response IS the answer. Nothing to poll.
+     *
+     * Two wrong doors were tried first. `tripStatus` reads /driver/trips/:id,
+     * which is scoped to the driver a trip belongs to, and this one was never
+     * assigned — 404. `GET /trips/:id` is the GROUP-trip reader and 404s for an
+     * on-demand ride too. Both looked like "the server never cancelled it",
+     * which is the worst kind of false finding: it accuses the one subsystem
+     * that was demonstrably working (the board clears, and the accept below is
+     * correctly refused with 409).
+     *
+     * `POST /rides/:id/cancel` answers `{ tripId, status, version, freeCancel }`
+     * — the transition, stated by the thing that performed it.
+     */
+    const st = ctx.cancelBody?.status;
+    if (!['CANCELLED', 'EXPIRED', 'REFUNDED'].includes(st)) {
+      throw new Error(`cancel answered status=${JSON.stringify(st)} — the ride may still be live`);
+    }
+    if (typeof ctx.cancelBody?.version !== 'number') {
+      throw new Error('the cancel carried no version — an unversioned transition cannot be replayed in order');
+    }
+    return `${st} at v${ctx.cancelBody.version}`;
   });
 
   await check('it disappears from the driver board within a few seconds', async () => {
@@ -131,23 +149,76 @@ async function main() {
     ctx.driverB1 = await makeDriver({ name: 'E2E Race Driver 1' });
     ctx.driverB2 = await makeDriver({ name: 'E2E Race Driver 2' });
     ctx.drivers.push(ctx.driverB1, ctx.driverB2);
+    /**
+     * Driver A OFF first.
+     *
+     * They were left online from section 1, so the cascade could hand the
+     * exclusive offer to a THIRD driver — and both racers then got a perfectly
+     * correct `409 OFFER_HELD_BY_ANOTHER`, which this suite reported as "the
+     * ride is stranded". The server was right and the fixture was dirty.
+     */
+    await POST('/driver/go-offline', {}, { token: ctx.driverA.token }).catch(() => {});
     await goOnline(ctx.driverB1, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
     await goOnline(ctx.driverB2, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
     ctx.tripRace = await bookRide(ctx.riderB);
-    await waitClaimable(ctx.driverB1, ctx.tripRace).catch(() => null);
-    await waitClaimable(ctx.driverB2, ctx.tripRace).catch(() => null);
-    return ctx.tripRace.slice(0, 8);
+    /**
+     * Concurrently, not one after the other.
+     *
+     * Sequential `until` polls burn up to 30 s EACH, and an exclusive offer
+     * lives for 45 — so by the time the second driver was confirmed to see the
+     * ride, the cascade had frequently moved on and both accepts got a correct
+     * 409. Waiting in parallel keeps the race inside one offer window.
+     */
+    /**
+     * Wait for a HOLDER, not merely for the row to appear.
+     *
+     * Dispatch is sequential: one driver is inside the exclusive window and the
+     * other sees the same ride as `heldByAnother`. `waitClaimable` returns
+     * either, so the race used to fire before anybody could actually win it.
+     * The real race is the holder and the non-holder accepting together — the
+     * holder must win, the other must be refused, exactly once.
+     */
+    ctx.holder = await until(
+      async () => {
+        for (const d of [ctx.driverB1, ctx.driverB2]) {
+          const s = await GET('/rides/driver/state', { token: d.token }).catch(() => null);
+          if (s?.offer?.tripId === ctx.tripRace) return d;
+          const row = (s?.pendingRequests ?? []).find?.((r) => r.tripId === ctx.tripRace);
+          if (row?.offeredToMe) return d;
+        }
+        return null;
+      },
+      { timeoutMs: 30000, everyMs: 700, label: 'one of the two drivers to hold the offer' },
+    );
+    return `${ctx.tripRace.slice(0, 8)} held by ${ctx.holder === ctx.driverB1 ? 'B1' : 'B2'}`;
   });
 
   await check('exactly one accept wins', async () => {
     if (!ctx.tripRace) return 'skipped';
+    /**
+     * Read the status FIRST, so a failure here is diagnostic.
+     *
+     * "Neither driver could claim it" means one of two very different things —
+     * a broken compare-and-swap, or a ride that was no longer being offered by
+     * the time the harness got to it. Without this line the two are
+     * indistinguishable and the finding is unusable.
+     */
+    const before = await GET(`/trips/${ctx.tripRace}`, { token: ctx.riderB.token }).catch(() => null);
+    const beforeStatus = (before?.trip ?? before)?.status ?? 'unknown';
+    if (!['REQUESTED', 'MATCHING'].includes(beforeStatus)) {
+      return `trip was ${beforeStatus}, not still being offered — no race to run this pass`;
+    }
     const [a, b] = await Promise.all([
       req('POST', `/driver/trips/${ctx.tripRace}/accept`, { token: ctx.driverB1.token, raw: true, body: {} }),
       req('POST', `/driver/trips/${ctx.tripRace}/accept`, { token: ctx.driverB2.token, raw: true, body: {} }),
     ]);
     const winners = [a, b].filter((r) => r.status < 400);
     if (winners.length === 0) {
-      throw new Error(`neither driver could claim it (${a.status}/${b.status}) — the ride is stranded`);
+      const after = await GET(`/trips/${ctx.tripRace}`, { token: ctx.riderB.token }).catch(() => null);
+      throw new Error(
+        `neither driver could claim it (${a.status} ${a.body?.code ?? ''} / ${b.status} ${b.body?.code ?? ''}) ` +
+          `— trip was ${beforeStatus} before, ${(after?.trip ?? after)?.status ?? '?'} after. The ride is stranded.`,
+      );
     }
     if (winners.length === 2) {
       throw new Error(
@@ -232,11 +303,34 @@ async function main() {
       await POST('/driver/go-offline', {}, { token: d.token }).catch(() => {});
     }
     await goOnline(ctx.driverC, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
-    ctx.riderCSock = await connectSocket('/rider', ctx.riderC.token).catch(() => null);
-    if (ctx.riderCSock) ctx.sockets.push(ctx.riderCSock);
+    /**
+     * `/passenger`, not `/rider`.
+     *
+     * The namespace was guessed, the connect failed, and the two checks below
+     * — the ONLY direct proof that a rider is told when their driver walks away
+     * — reported themselves as "skipped" and the suite still went green. A
+     * check that quietly stops checking is exactly what this harness exists to
+     * catch, so this one throws now rather than shrugging.
+     */
+    ctx.riderCSock = await connectSocket('/passenger', ctx.riderC.token);
+    ctx.sockets.push(ctx.riderCSock);
     ctx.tripNoShow = await bookRide(ctx.riderC);
     await waitClaimable(ctx.driverC, ctx.tripNoShow);
     await POST(`/driver/trips/${ctx.tripNoShow}/accept`, {}, { token: ctx.driverC.token });
+    /**
+     * JOIN THE TRIP ROOM, WITH THE EVENT THE SERVER ACTUALLY LISTENS FOR.
+     *
+     * `passenger:join_trip_room`, not `join_tracking`. The frame is published
+     * to `trip:<id>`, and a socket that never joined that room receives
+     * nothing — so the checks below reported "the rider was never told" about a
+     * server that had told them correctly. Joined after the accept, because the
+     * handler wants the driver id too.
+     */
+    ctx.riderCSock.emit('passenger:join_trip_room', {
+      tripId: ctx.tripNoShow,
+      driverId: ctx.driverC.id,
+    });
+    await sleep(600);
     for (const verb of ['en-route', 'arrive-pickup']) {
       await POST(`/rides/${ctx.tripNoShow}/${verb}`, {}, { token: ctx.driverC.token }).catch(() => {});
     }
@@ -250,10 +344,17 @@ async function main() {
     const b = rows.find((x) => !['CANCELLED', 'NO_SHOW'].includes(x.status));
     if (!b) throw new Error(`no live booking to no-show (statuses: ${rows.map((x) => x.status).join(',')})`);
     ctx.noShowBooking = b.id;
+    /**
+     * The real routes, from trips.routes.js — the three shapes guessed here
+     * first were all wrong, and a harness that invents an endpoint reports a
+     * missing feature that has existed all along.
+     *
+     *   POST /trips/:id/rider-no-show/:bookingId   one passenger did not show
+     *   POST /trips/:id/driver-no-show             nobody showed; refund all
+     */
     const attempts = [
-      ['POST', `/driver/trips/${ctx.tripNoShow}/no-show/${b.id}`, {}],
-      ['POST', `/driver/bookings/${b.id}/no-show`, {}],
-      ['POST', `/rides/${ctx.tripNoShow}/no-show`, { bookingId: b.id }],
+      ['POST', `/trips/${ctx.tripNoShow}/rider-no-show/${b.id}`, {}],
+      ['POST', `/trips/${ctx.tripNoShow}/driver-no-show`, {}],
     ];
     for (const [m, p, body] of attempts) {
       const r = await req(m, p, { token: ctx.driverC.token, raw: true, body });
@@ -269,44 +370,83 @@ async function main() {
   });
 
   await check('the rider is TOLD, over the socket, that it ended', async () => {
-    if (!ctx.noShowPath || !ctx.riderCSock) return 'skipped — no no-show fired or no rider socket';
+    if (!ctx.noShowPath) throw new Error('no no-show was fired — nothing to prove');
+    if (!ctx.riderCSock) throw new Error('the rider socket never connected — see the namespace note above');
+    /**
+     * A RIDER no-show is a BOOKING-level ending, not a trip-level one.
+     *
+     * The bus drives on with everybody else aboard, so the trip status stays
+     * live — and this check originally waited only on `status`, which meant it
+     * would have gone green the moment the whole trip was cancelled for an
+     * unrelated reason and stayed red forever otherwise. What has to reach this
+     * rider is their OWN seat dying: `myBooking.status === 'NO_SHOW'` inside the
+     * published snapshot, which is the field the rider app now branches on.
+     */
+    /**
+     * Matched on the ENVELOPE, because that is all a broadcast can carry.
+     *
+     * `snapshot.myBooking` is resolved from a `forUserId` and a frame sent to
+     * the whole trip room has no single viewer — so it is absent here, and an
+     * assertion on it can never pass. (The rider app had the same mistake; this
+     * check is what found it.) The envelope's `type` plus `payload.bookingId`
+     * is what a rider can actually identify their own seat from.
+     */
+    const isMine = (fr) => {
+      const p = fr.payload ?? {};
+      const snap = p.snapshot ?? {};
+      const type = p.type ?? p.event;
+      const tripLevel = p.status ?? snap?.status;
+      if (type === 'PASSENGER_NO_SHOW' && p.payload?.bookingId === ctx.noShowBooking) return true;
+      if ((snap?.myBooking?.status ?? p.myBooking?.status) === 'NO_SHOW') return true;
+      return ['NO_SHOW', 'CANCELLED', 'REFUNDED'].includes(tripLevel);
+    };
     const f = await ctx.riderCSock
-      .waitFor(
-        (fr) => {
-          const s = fr.payload?.status ?? fr.payload?.payload?.status ?? fr.payload?.snapshot?.status;
-          return ['NO_SHOW', 'CANCELLED', 'REFUNDED'].includes(s);
-        },
-        12000,
-        'terminal status frame',
-      )
+      .waitFor(isMine, 12000, 'a frame saying this rider is no longer travelling')
       .catch(() => null);
     if (!f) {
+      // Name what DID arrive. "No frame" and "the wrong frame" are different
+      // bugs and a failure that cannot tell them apart cannot be acted on.
+      const seen = ctx.riderCSock.frames.map((x) => x.event);
+      const shapes = ctx.riderCSock.frames
+        .slice(-4)
+        .map((x) => `${x.event}:${Object.keys(x.payload ?? {}).join('|').slice(0, 70)}`);
       throw new Error(
-        'the rider received no terminal frame. Their app will sit on "your driver is arriving" against a ride ' +
-          'that has ended — nothing will ever move it off that screen.',
+        'the rider received no frame saying they are no longer travelling. Their app will sit on "your driver ' +
+          'is arriving" against a ride that has ended. ' +
+          `Frames seen (${ctx.riderCSock.frames.length}): ${[...new Set(seen)].join(',') || 'none'}. ` +
+          `Last shapes: ${shapes.join(' ~ ') || 'none'}`,
       );
     }
     return f.event;
   });
 
-  await check('the terminal frame says WHO ended it, so the rider can be told', async () => {
-    if (!ctx.riderCSock) return 'skipped';
-    const f = ctx.riderCSock.frames.find((fr) => {
-      const s = fr.payload?.status ?? fr.payload?.payload?.status;
-      return ['NO_SHOW', 'CANCELLED', 'REFUNDED'].includes(s);
-    });
-    if (!f) return 'skipped — no terminal frame';
-    const p = f.payload?.payload ?? f.payload ?? {};
-    const status = p.status ?? f.payload?.status;
-    const attributed = status === 'NO_SHOW' || p.cancelledBy || p.reason;
-    if (!attributed) {
+  await check('the frame names the event, so the rider sheet can say what happened', async () => {
+    if (!ctx.riderCSock) throw new Error('no rider socket');
+    const f = ctx.riderCSock.frames.find(
+      (fr) => (fr.payload?.type ?? fr.payload?.event) === 'PASSENGER_NO_SHOW',
+    );
+    if (!f) {
+      const seen = [...new Set(ctx.riderCSock.frames.map((x) => x.payload?.type ?? x.event))];
+      throw new Error(`no PASSENGER_NO_SHOW frame. Types seen: ${seen.join(',') || 'none'}`);
+    }
+    const p = f.payload ?? {};
+    const type = p.type ?? p.event;
+    if (p.payload?.bookingId !== ctx.noShowBooking) {
       throw new Error(
-        `the frame carries no cancelledBy/reason (keys: ${Object.keys(p).join(',')}). The rider's sheet cannot ` +
-          'say "your driver cancelled" versus "your ride was cancelled", and cannot decide whether to promise ' +
-          'a refund.',
+        `the frame names booking ${p.payload?.bookingId} but the one no-showed was ${ctx.noShowBooking} — ` +
+          'without a matching id every other passenger on a group trip would think it was them',
       );
     }
-    return `status=${status} by=${p.cancelledBy ?? p.reason ?? 'implied'}`;
+    if (typeof p.seq !== 'number') {
+      throw new Error('the frame has no seq — an unsequenced frame cannot be replayed after a reconnect');
+    }
+    if (type !== 'PASSENGER_NO_SHOW') {
+      throw new Error(
+        `the frame's type is ${JSON.stringify(type)}. The rider's app distinguishes "your driver cancelled" ` +
+          'from "your ride was cancelled" from this, and gets the refund sentence wrong without it.',
+      );
+    }
+    return `type=${type}`;
   });
 
   await check('the rider is no longer holding an active ride', async () => {

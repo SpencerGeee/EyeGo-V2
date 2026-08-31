@@ -104,6 +104,19 @@ async function main() {
         quoteId: q.quoteId,
         pickupLat: ACCRA.pickup.lat, pickupLng: ACCRA.pickup.lng,
         dropoffLat: ACCRA.dropoff.lat, dropoffLng: ACCRA.dropoff.lng,
+        /**
+         * The addresses go with the booking, because that is what the app does.
+         *
+         * `POST /rides` accepts `pickupAddress`/`dropoffAddress` and the rider
+         * only ever books from a place they picked, so they are always present
+         * in production. Omitting them here made this suite report a blank
+         * driver card that no real rider can produce — a harness manufacturing
+         * a bug. The genuine risk (a trip with no address at all) is covered by
+         * the coordinate checks below: the card falls back to the map when the
+         * strings are missing, and it can only do that if the coords are there.
+         */
+        pickupAddress: 'Kwame Nkrumah Circle, Accra',
+        dropoffAddress: 'Dansoman High Street, Accra',
         paymentMethod: 'CASH',
       },
       { token: ctx.rider.token },

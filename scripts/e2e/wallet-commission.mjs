@@ -30,6 +30,22 @@ import {
 
 const ctx = { drivers: [] };
 
+/**
+ * A LONG ride, because a short one cannot make a dev driver broke.
+ *
+ * `POST /driver/dev-activate` seeds a wallet (GH20 on this build), and the
+ * 3 km Accra hop the other suites use carries about GH4 of commission — so the
+ * "driver cannot afford it" case could never be reached, and the four checks
+ * that depend on it failed as collateral while the guard they were testing was
+ * working correctly.
+ *
+ * Winneba is ~55 km down the coast road. At 15% the commission on that clears
+ * any plausible seeded float, so the refusal is genuinely exercised. If a build
+ * ever seeds MORE than this ride's commission, the check below says so in as
+ * many words rather than reporting a bug that is not there.
+ */
+const FAR = { lat: 5.35, lng: -0.63 };
+
 /** The driver's spendable balance, in pesewas. */
 async function balance(driver) {
   const b = await GET('/driver/wallet/balance', { token: driver.token });
@@ -47,13 +63,13 @@ async function setBalance(driver, targetPesewas) {
   return balance(driver);
 }
 
-/** Book a CASH ride and return its trip id. */
-async function bookCashRide(rider) {
+/** Book a ride and return its trip id. */
+async function bookRide(rider, { dropoff = ACCRA.dropoff, paymentMethod = 'CASH' } = {}) {
   const q = await POST(
     '/rides/quote',
     {
       pickupLat: ACCRA.pickup.lat, pickupLng: ACCRA.pickup.lng,
-      dropoffLat: ACCRA.dropoff.lat, dropoffLng: ACCRA.dropoff.lng,
+      dropoffLat: dropoff.lat, dropoffLng: dropoff.lng,
       tier: 'ECO',
     },
     { token: rider.token },
@@ -63,13 +79,16 @@ async function bookCashRide(rider) {
     {
       quoteId: q.quoteId,
       pickupLat: ACCRA.pickup.lat, pickupLng: ACCRA.pickup.lng,
-      dropoffLat: ACCRA.dropoff.lat, dropoffLng: ACCRA.dropoff.lng,
-      paymentMethod: 'CASH',
+      dropoffLat: dropoff.lat, dropoffLng: dropoff.lng,
+      pickupAddress: 'Kwame Nkrumah Circle, Accra',
+      dropoffAddress: 'Destination',
+      paymentMethod,
     },
     { token: rider.token },
   );
   return (r.trip ?? r)?.id ?? r.tripId;
 }
+const bookCashRide = (rider) => bookRide(rider);
 
 /** Wait until this driver can see the trip on their board or as an offer. */
 async function waitForOffer(driver, tripId) {
@@ -211,29 +230,29 @@ async function main() {
   });
 
   section('4 · a broke driver is refused at the OFFER, not at the kerb');
-  await check('the broke driver has less than one commission in the wallet', async () => {
-    const b = await balance(ctx.broke);
-    if (b >= (ctx.requiredA ?? 1)) {
-      // A dev fixture may seed a balance. Nothing here can spend it down, so
-      // say so rather than pretend the case was covered.
-      throw new Error(
-        `broke driver starts on ${b} pesewas, which already covers the ${ctx.requiredA} commission — ` +
-          'this environment seeds driver wallets, so the refusal case cannot be exercised here',
-      );
-    }
-    return `GH₵${(b / 100).toFixed(2)}`;
-  });
-
-  await check('a second CASH ride reaches the broke driver', async () => {
+  await check('a long CASH ride reaches a driver who cannot cover its commission', async () => {
     await POST('/driver/go-offline', {}, { token: ctx.flush.token }).catch(() => {});
     await goOnline(ctx.broke, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
     ctx.rider2 = await makeRider('E2E Wallet Rider 2');
-    ctx.tripB = await bookCashRide(ctx.rider2);
+    // FAR, not the usual 3 km hop — see the note on `FAR`. A dev driver is
+    // seeded with a float that a short ride's commission cannot exhaust, so
+    // the refusal path was unreachable and four checks failed as collateral.
+    ctx.tripB = await bookRide(ctx.rider2, { dropoff: FAR });
     ctx.offerB = await waitForOffer(ctx.broke, ctx.tripB);
-    return `trip ${ctx.tripB.slice(0, 8)}`;
+    ctx.requiredB = ctx.offerB?.walletRequiredPesewas ?? 0;
+    ctx.brokeBalance = await balance(ctx.broke);
+    if (ctx.brokeBalance >= ctx.requiredB) {
+      throw new Error(
+        `the driver holds ${ctx.brokeBalance} pesewas and the ride only demands ${ctx.requiredB} — this ` +
+          'build seeds a bigger float than a 55 km commission, so the refusal path cannot be exercised. ' +
+          'Lower the dev seed or lengthen FAR.',
+      );
+    }
+    return `needs ${ctx.requiredB}p, has ${ctx.brokeBalance}p`;
   });
 
   await check('ACCEPT is refused with 402 INSUFFICIENT_WALLET_FOR_TRIP', async () => {
+    if (!ctx.requiredB || ctx.brokeBalance >= ctx.requiredB) return 'skipped — see above';
     const { status, body } = await req('POST', `/driver/trips/${ctx.tripB}/accept`, {
       token: ctx.broke.token,
       raw: true,
@@ -252,7 +271,8 @@ async function main() {
     return `${status} ${body.code}`;
   });
 
-  await check('the refusal carries the numbers the app needs to say "top up GH₵X"', async () => {
+  await check('the refusal carries the numbers the app needs to say how much to add', async () => {
+    if (!ctx.requiredB || ctx.brokeBalance >= ctx.requiredB) return 'skipped — see above';
     const { body } = await req('POST', `/driver/trips/${ctx.tripB}/accept`, {
       token: ctx.broke.token,
       raw: true,
@@ -269,12 +289,25 @@ async function main() {
     return `short GH₵${(d.shortfallPesewas / 100).toFixed(2)}`;
   });
 
-  await check('the trip is still claimable by somebody who CAN pay', async () => {
-    const after = await setBalance(ctx.broke, (ctx.requiredA ?? 500) + 20_00);
-    const r = await POST(`/driver/trips/${ctx.tripB}/accept`, {}, { token: ctx.broke.token });
-    const t = r.trip ?? r;
-    if (!t?.id) throw new Error(`accept after top-up still failed: ${JSON.stringify(r).slice(0, 160)}`);
-    return `topped to GH₵${(after / 100).toFixed(2)}, accepted`;
+  await check('the SAME ride is claimable once the wallet can cover it', async () => {
+    if (!ctx.requiredB) return 'skipped — no offer to claim';
+    // Topped against `requiredB`, the float THIS ride demands. The old version
+    // topped up against the SHORT ride's commission, which was never enough for
+    // the long one, so the retry was refused a second time and the check
+    // blamed the guard for a number the harness got wrong.
+    const after = await setBalance(ctx.broke, ctx.requiredB + 20_00);
+    let t = null;
+    try {
+      const r = await POST(`/driver/trips/${ctx.tripB}/accept`, {}, { token: ctx.broke.token });
+      t = r?.trip ?? r;
+    } catch (e) {
+      throw new Error(
+        `accept still failed after topping up to ${after} pesewas: ${e.message}. A refusal the driver ` +
+          'cannot clear by paying is worse than no guard at all.',
+      );
+    }
+    if (!t?.id) throw new Error('accept returned no trip after the top-up');
+    return `topped to ${after}p, accepted`;
   });
 
   section('5 · a prepaid ride demands no float at all');
@@ -303,9 +336,14 @@ async function main() {
     if (!tripId) throw new Error('no trip id');
     ctx.tripC = tripId;
 
+    // A FRESH driver: `flush` and `broke` are both mid-trip by now, and a busy
+    // driver is correctly excluded from the pool — so reusing one made this
+    // check time out waiting for an offer that was never going to come.
     await POST('/driver/go-offline', {}, { token: ctx.broke.token }).catch(() => {});
-    await goOnline(ctx.flush, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
-    const offer = await waitForOffer(ctx.flush, tripId);
+    ctx.prepaid = await makeDriver({ name: 'E2E Prepaid Driver' });
+    ctx.drivers.push(ctx.prepaid);
+    await goOnline(ctx.prepaid, ACCRA.nearPickup.lat, ACCRA.nearPickup.lng);
+    const offer = await waitForOffer(ctx.prepaid, tripId);
     const v = offer?.walletRequiredPesewas;
     if (v === undefined) throw new Error('walletRequiredPesewas absent on a MOMO offer');
     if (v !== 0) {
