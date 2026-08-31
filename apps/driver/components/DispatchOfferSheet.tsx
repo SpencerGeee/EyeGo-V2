@@ -173,6 +173,7 @@ export default function DispatchOfferSheet() {
     dropoff: coordOf(offer.dropoffLng, offer.dropoffLat),
     driverEarningsPesewas: offer.driverEarningsPesewas,
     farePesewas: offer.farePesewas,
+    walletRequiredPesewas: offer.walletRequiredPesewas ?? null,
     tier: offer.tier,
     etaSeconds: offer.etaSeconds,
     expiresAtServerMs: offer.expiresAtServerMs,

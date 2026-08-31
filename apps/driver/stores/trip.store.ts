@@ -43,6 +43,8 @@ export interface DispatchOffer {
   /** Gross fare on the trip, and what this driver actually keeps. Pesewas. */
   farePesewas: number | null;
   driverEarningsPesewas: number | null;
+  /** Wallet balance needed to BOARD this ride — see PendingOffer in @eyego/api. */
+  walletRequiredPesewas: number | null;
   tier: string | null;
   /** Server deadline. Never compare this to Date.now() directly. */
   expiresAtServerMs: number;
@@ -236,6 +238,7 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
               dropoffAddress: liveOffer.dropoffAddress ?? null,
               farePesewas: liveOffer.farePesewas ?? null,
               driverEarningsPesewas: liveOffer.driverEarningsPesewas ?? null,
+              walletRequiredPesewas: liveOffer.walletRequiredPesewas ?? null,
               tier: liveOffer.tier ?? null,
               expiresAtServerMs: liveOffer.expiresAtServerMs,
               etaSeconds: liveOffer.etaSeconds ?? null,
@@ -304,6 +307,7 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
               dropoffAddress: p.dropoffAddress ?? null,
               farePesewas: p.farePesewas ?? null,
               driverEarningsPesewas: p.driverEarningsPesewas ?? null,
+              walletRequiredPesewas: p.walletRequiredPesewas ?? null,
               offeredToMe: true,
               expiresAtServerMs: p.expiresAtServerMs,
               heldByAnother: false,
@@ -323,6 +327,7 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
             dropoffAddress: p.dropoffAddress ?? null,
             farePesewas: p.farePesewas ?? null,
             driverEarningsPesewas: p.driverEarningsPesewas ?? null,
+            walletRequiredPesewas: p.walletRequiredPesewas ?? null,
             tier: p.tier ?? null,
             expiresAtServerMs: p.expiresAtServerMs,
             etaSeconds: p.etaSeconds ?? null,

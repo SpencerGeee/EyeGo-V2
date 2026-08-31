@@ -24,6 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useColors } from '../../utils/useColors';
+import { fetchRoute } from '../../utils/routing';
 
 /**
  * ── THE OFFER MAP THE DRIVER CAN ACTUALLY LOOK AROUND ───────────────────────
@@ -77,6 +78,51 @@ export interface DispatchLiveMapProps {
   padding?: { top: number; bottom: number; left: number; right: number };
   /** Fires false as soon as the driver moves the camera off the framed view. */
   onFramedChange?: (framed: boolean) => void;
+}
+
+/**
+ * THE OFFER MAP DRAWS REAL ROADS.
+ *
+ * BUGFIX ("on the new dispatch screen shown to the driver, the route polyline
+ * is showing a straight line").
+ *
+ * It was, and the reason is structural rather than cosmetic: a dispatch offer
+ * is PRE-assignment, so `route-geometry.service` has never been asked for a leg
+ * on this trip — `activeLeg('MATCHING')` is null — and the offer payload
+ * therefore carries no geometry. The map fell through to `arcBetween`, a bowed
+ * hint that at city scale is visually indistinguishable from a ruler laid
+ * across the map. And the one question a driver asks about an offer is
+ * geographic, so a fabricated line is worse than no line.
+ *
+ * So the screen fetches the two legs itself, through the same `/v1/geo/route`
+ * proxy the create-trip screen already uses (Mapbox `driving-traffic` → OSRM →
+ * estimate). Two calls, once, on a screen one driver looks at for 45 seconds —
+ * the same cost `create.tsx` pays per destination change. The arc survives as
+ * the frame-zero placeholder and as the answer when routing is genuinely down,
+ * and `dashed` marks it as an estimate either way.
+ */
+function useRoadLeg(from: Coord | null | undefined, to: Coord | null | undefined) {
+  const [road, setRoad] = useState<Coord[] | null>(null);
+  const key = isUsableCoord(from) && isUsableCoord(to) ? `${from.join(',')}|${to.join(',')}` : null;
+
+  useEffect(() => {
+    setRoad(null);
+    if (!key || !isUsableCoord(from) || !isUsableCoord(to)) return undefined;
+    let cancelled = false;
+    void fetchRoute(from, to).then((r) => {
+      // `estimate` is the proxy's own straight-line fallback. Taking it would
+      // paint a two-point line in the SOLID road style, which is precisely the
+      // fabricated road this exists to avoid — so it stays on the dashed arc.
+      if (cancelled || !r || r.source === 'estimate' || r.coordinates.length < 2) return;
+      setRoad(r.coordinates as Coord[]);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return road;
 }
 
 /**
@@ -201,15 +247,29 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
       transform: [{ scale: 0.7 + halo.value * 0.85 }],
     }));
 
-    const approach = useMemo(
-      () => (isUsableCoord(driver) && isUsableCoord(pickup) ? arcBetween(driver, pickup) : null),
-      [driver, pickup],
-    );
+    /**
+     * The two legs, on real roads.
+     *
+     * The approach is deliberately fetched too: "how far out is the pickup"
+     * is the question the driver is actually answering, and a crow-flies arc
+     * through a river or a one-way system is not an answer.
+     */
+    const approachRoad = useRoadLeg(driver, pickup);
+    const rideRoad = useRoadLeg(routeGeoJson ? null : pickup, routeGeoJson ? null : dropoff);
+
+    const approach = useMemo(() => {
+      if (approachRoad) return approachRoad;
+      return isUsableCoord(driver) && isUsableCoord(pickup) ? arcBetween(driver, pickup) : null;
+    }, [approachRoad, driver, pickup]);
+    /** False while we are still on the bowed placeholder — see the line styles. */
+    const approachIsRoad = !!approachRoad;
 
     const ride = useMemo(() => {
       if (routeGeoJson) return null;
+      if (rideRoad) return rideRoad;
       return isUsableCoord(pickup) && isUsableCoord(dropoff) ? arcBetween(pickup, dropoff) : null;
-    }, [routeGeoJson, pickup, dropoff]);
+    }, [routeGeoJson, rideRoad, pickup, dropoff]);
+    const rideIsRoad = !!routeGeoJson || !!rideRoad;
 
     return (
       <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.surfaceInput }]}>
@@ -243,7 +303,9 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
           <Camera ref={cameraRef} animationMode="easeTo" />
 
           {/* The approach: dashed and dimmer, because it is the part the driver
-              has to drive before the fare starts. */}
+              has to drive before the fare starts. Dashes stay ON even once it
+              is a real road — the dash is what distinguishes "the unpaid leg"
+              from "the ride"; `approachIsRoad` only firms up its weight. */}
           {approach ? (
             <ShapeSource
               id="dispatch-live-approach"
@@ -253,10 +315,11 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
                 id="dispatch-live-approach-line"
                 style={{
                   lineColor: colors.onSurfaceVariant,
-                  lineWidth: 2.5,
-                  lineOpacity: 0.6,
-                  lineDasharray: [1.6, 2.2],
+                  lineWidth: approachIsRoad ? 3.5 : 2.5,
+                  lineOpacity: approachIsRoad ? 0.85 : 0.5,
+                  lineDasharray: approachIsRoad ? [2.4, 1.8] : [1.6, 2.2],
                   lineCap: 'round',
+                  lineJoin: 'round',
                 }}
               />
             </ShapeSource>
@@ -280,7 +343,17 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
               />
               <LineLayer
                 id="dispatch-live-ride-line"
-                style={{ lineColor: line, lineWidth: 5, lineOpacity: 1, lineCap: 'round', lineJoin: 'round' }}
+                style={{
+                  lineColor: line,
+                  lineWidth: 5,
+                  lineOpacity: 1,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  // Until the road answers, the ride is a bowed placeholder.
+                  // Dashing it is the honest way to say "this is roughly where
+                  // it goes" without drawing a road that does not exist.
+                  ...(rideIsRoad ? null : { lineDasharray: [2, 2] }),
+                }}
               />
             </ShapeSource>
           ) : null}

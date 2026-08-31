@@ -68,15 +68,39 @@ export function DriverTripStatusListener() {
    * four things that were wrong with the old one. This component's job is to
    * decide WHAT to say; the toast decides how it looks.
    */
+  type BannerDest = {
+    type: 'chat' | 'dispatch' | 'tracking';
+    tripId: string;
+    kind?: 'REQUEST' | 'REASSIGNMENT';
+    /** The words on the toast's button. No label, no button — see DriverToast. */
+    label: string;
+  };
+
   const [toast, setToast] = useState<{
     message: string;
     title?: string;
     icon: keyof typeof Ionicons.glyphMap;
     tone: ToastTone;
     durationMs?: number;
+    /**
+     * WHERE THIS BANNER GOES, CARRIED BY THE BANNER ITSELF.
+     *
+     * BUGFIX ("I had one of the notifications and chose to click on the
+     * unstyled part, and it took me to a cancelled trip that's stale — the map
+     * is blank and all").
+     *
+     * The destination used to live in a ref that `showBanner` never cleared.
+     * Every banner without a destination of its own — "Payment received", "A
+     * passenger cancelled their booking", "Trip completed" — inherited whatever
+     * the LAST navigable banner had pointed at, which for a driver who has been
+     * online a while is a dispatch offer that expired an hour ago. Tapping it
+     * opened the offer screen on a dead trip.
+     *
+     * Making it part of the toast's own state removes the failure by
+     * construction: a banner that names no destination has none.
+     */
+    dest?: BannerDest | null;
   } | null>(null);
-  // Where tapping the banner should navigate, with the route param.
-  const bannerDestRef = useRef<{ type: 'chat' | 'dispatch' | 'tracking'; tripId: string; kind?: 'REQUEST' | 'REASSIGNMENT' } | null>(null);
 
   // Refs so socket callbacks never read stale closure values
   const activeTripIdRef = useRef(activeTripId);
@@ -88,7 +112,7 @@ export function DriverTripStatusListener() {
     (
       msg: string,
       icon: keyof typeof Ionicons.glyphMap = 'notifications',
-      opts: { tone?: ToastTone; title?: string; durationMs?: number } = {},
+      opts: { tone?: ToastTone; title?: string; durationMs?: number; dest?: BannerDest | null } = {},
     ) => {
       setToast({
         message: msg,
@@ -96,6 +120,9 @@ export function DriverTripStatusListener() {
         tone: opts.tone ?? 'info',
         title: opts.title,
         durationMs: opts.durationMs,
+        // Explicit, every time. `undefined` here means "this banner goes
+        // nowhere", not "keep whatever the last one pointed at".
+        dest: opts.dest ?? null,
       });
     },
     [],
@@ -143,7 +170,6 @@ export function DriverTripStatusListener() {
       if (activeTripIdRef.current && activeTripIdRef.current !== tId) return;
       queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
       const kind = safeRead(data, 'kind') as 'REQUEST' | 'REASSIGNMENT' | undefined;
-      bannerDestRef.current = { type: 'dispatch', tripId: tId, kind };
       const route = safeRead(data, 'routeOrigin');
       const dest = safeRead(data, 'routeDestination');
       const title = kind === 'REQUEST' ? 'New ride request nearby' : kind === 'REASSIGNMENT' ? 'Trip needs a driver' : 'New trip assigned';
@@ -154,9 +180,14 @@ export function DriverTripStatusListener() {
         tripId: tId,
       });
       showBanner(
-        route && dest ? `${title}: ${route} → ${dest}` : `${title} — tap to view`,
+        route && dest ? `${title}: ${route} → ${dest}` : title,
         'navigate-circle',
-        { tone: 'offer', title, durationMs: 9000 },
+        {
+          tone: 'offer',
+          title,
+          durationMs: 9000,
+          dest: { type: 'dispatch', tripId: tId, kind, label: 'See the offer' },
+        },
       );
     });
 
@@ -233,8 +264,9 @@ export function DriverTripStatusListener() {
       // in this app, so the message left no trace to come back to.
       useChatUnread.getState().received(tId);
       const preview = text.length > 55 ? text.slice(0, 52) + '…' : text;
-      bannerDestRef.current = { type: 'chat', tripId: tId };
-      showBanner(`${sender}: ${preview}`, 'chatbubble-ellipses');
+      showBanner(`${sender}: ${preview}`, 'chatbubble-ellipses', {
+        dest: { type: 'chat', tripId: tId, label: 'Reply' },
+      });
     });
 
     // Private (1:1) chat banners.
@@ -247,8 +279,9 @@ export function DriverTripStatusListener() {
       if (!tId) return;
       useChatUnread.getState().received(tId);
       const preview = text.length > 55 ? text.slice(0, 52) + '…' : text;
-      bannerDestRef.current = { type: 'chat', tripId: tId };
-      showBanner(`${sender} (private): ${preview}`, 'lock-closed');
+      showBanner(`${sender} (private): ${preview}`, 'lock-closed', {
+        dest: { type: 'chat', tripId: tId, label: 'Reply' },
+      });
     });
 
     return () => {
@@ -319,13 +352,18 @@ export function DriverTripStatusListener() {
       if (segmentsRef.current.some((sg) => sg === 'dispatch')) return;
       if (activeTripIdRef.current) return;
 
-      bannerDestRef.current = { type: 'dispatch', tripId: subject.tripId, kind: 'REQUEST' };
       showBanner(
         subject.where
-          ? `Open request from ${subject.where} — tap to take it`
-          : 'A ride nearby is open — tap to take it',
+          ? `Open request from ${subject.where}`
+          : 'A ride nearby is open',
         'flash',
-        { tone: 'offer', title: 'Ride available', durationMs: 9000 },
+        {
+          tone: 'offer',
+          title: 'Ride available',
+          durationMs: 9000,
+          // "tap to take it" is gone from the copy: the button says it now.
+          dest: { type: 'dispatch', tripId: subject.tripId, kind: 'REQUEST', label: 'Take the ride' },
+        },
       );
     });
   }, [isLoggedIn, showBanner]);
@@ -335,13 +373,35 @@ export function DriverTripStatusListener() {
   const isOnTrip = segments.some((s) => s === 'tracking' || s === 'active' || s === 'dispatch');
   if (!toast || isOnChat || isOnTrip) return null;
 
+  const dest = toast.dest ?? null;
+
   const handlePress = () => {
-    const dest = bannerDestRef.current;
     if (!dest?.tripId) return;
-    bannerDestRef.current = null;
+    dismissToast();
     if (dest.type === 'chat') {
       router.push({ pathname: '/(trip)/chat/[id]', params: { id: dest.tripId } } as Href);
     } else if (dest.type === 'dispatch') {
+      /**
+       * A DISPATCH BANNER IS ONLY A DOOR WHILE THE RIDE IS STILL LIVE.
+       *
+       * The trip store is the driver's own live view of what is being
+       * dispatched. If this trip is no longer in it, the search has ended —
+       * taken, expired or cancelled — and the offer screen would open on a dead
+       * trip with a blank map. It refuses that itself now (see the terminal
+       * guard in `(trip)/dispatch/[id].tsx`), but not sending the driver there
+       * in the first place is the better answer.
+       */
+      const live = useDriverTripStore.getState();
+      const stillLive =
+        live.offer?.tripId === dest.tripId ||
+        live.pendingRequests.some((r) => r.tripId === dest.tripId);
+      if (!stillLive) {
+        showBanner('That ride is gone — another driver took it, or it expired.', 'close-circle', {
+          tone: 'alert',
+          title: 'No longer available',
+        });
+        return;
+      }
       router.push({ pathname: '/(trip)/dispatch/[id]', params: { id: dest.tripId, kind: dest.kind } } as Href);
     } else {
       router.push({ pathname: '/(trip)/tracking/[id]', params: { id: dest.tripId } } as Href);
@@ -355,7 +415,8 @@ export function DriverTripStatusListener() {
       icon={toast.icon}
       tone={toast.tone}
       durationMs={toast.durationMs}
-      onPress={bannerDestRef.current?.tripId ? handlePress : undefined}
+      actionLabel={dest?.label ?? null}
+      onPress={dest?.tripId ? handlePress : undefined}
       onDismiss={dismissToast}
     />
   );

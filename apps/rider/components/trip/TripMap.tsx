@@ -21,6 +21,7 @@ import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
 import { useTripStore } from '../../stores/trip.store';
 import { useColors, Colors } from '../../utils/useColors';
+import { fetchRoute } from '../../utils/routing';
 
 /**
  * The ONE MapView in the rider app.
@@ -537,21 +538,83 @@ function TripMapImpl() {
     ? [camera.puck.longitude, camera.puck.latitude]
     : coord(snapshot?.driver?.lng, snapshot?.driver?.lat);
 
-  // A straight pickup→driver line rather than a road route: the offer only
-  // lasts ~20 seconds and moves between drivers, so a per-offer Directions call
-  // would spend quota on a line that is about to be replaced.
-  const dispatchLine = useMemo(() => {
+  /**
+   * ── THE LINE TO THE DRIVER WE ARE ASKING ──────────────────────────────────
+   *
+   * FEATURE ("on the 'looking for a driver' page… include the map, a route
+   * polyline to the nearest driver, and it should be animated").
+   *
+   * This used to be two points — pickup and driver — joined by a ruler, on the
+   * reasoning that an offer lasts seconds and a Directions call for it is
+   * wasted quota. That trade was made when nobody could see the line: the
+   * request stage painted an opaque gradient over the whole map. Now that the
+   * stage IS the map, this line is the only thing on screen doing the work of
+   * saying "somebody real is nearby and we are asking them" — and a straight
+   * line through three city blocks says the opposite.
+   *
+   * The cost is bounded by the cascade itself: ONE call per driver asked, each
+   * of whom holds the offer for 45 seconds. That is roughly one Directions call
+   * per minute of searching, against a screen the rider is watching the whole
+   * time.
+   *
+   * It draws itself on (`useRouteReveal`), and because the reveal restarts
+   * whenever the geometry changes, each new driver in the cascade gets its own
+   * draw — the animation and the story are the same event.
+   */
+  const [dispatchRoad, setDispatchRoad] = useState<Coord[] | null>(null);
+  const dispatchKey =
+    dispatchOffer && pickupCoord &&
+    Number.isFinite(dispatchOffer.longitude) && Number.isFinite(dispatchOffer.latitude)
+      ? `${dispatchOffer.longitude},${dispatchOffer.latitude}|${pickupCoord[0]},${pickupCoord[1]}`
+      : null;
+
+  useEffect(() => {
+    setDispatchRoad(null);
+    if (!dispatchKey || !dispatchOffer || !pickupCoord) return undefined;
+    let cancelled = false;
+    void fetchRoute(
+      [dispatchOffer.longitude, dispatchOffer.latitude],
+      pickupCoord,
+    ).then((r) => {
+      // `estimate` is the proxy's own straight-line fallback. Drawing it in the
+      // solid road style would be a fabricated road; the two-point line below
+      // already covers that case honestly.
+      if (cancelled || !r || r.source === 'estimate' || r.coordinates.length < 2) return;
+      setDispatchRoad(r.coordinates as Coord[]);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatchKey]);
+
+  /** Straight, until the road answers. */
+  const dispatchCoords = useMemo<Coord[] | null>(() => {
+    if (dispatchRoad) return dispatchRoad;
     if (!dispatchOffer || !pickupCoord) return null;
     if (!Number.isFinite(dispatchOffer.longitude) || !Number.isFinite(dispatchOffer.latitude)) return null;
+    return [pickupCoord, [dispatchOffer.longitude, dispatchOffer.latitude] as Coord];
+  }, [dispatchRoad, dispatchOffer, pickupCoord]);
+
+  // Only the ROAD draws itself on. Revealing a two-point estimate is revealing
+  // one segment, which reads as a glitch rather than as motion.
+  const dispatchRevealed = useRouteReveal(dispatchRoad, { durationMs: 1100 });
+  const dispatchDraw = dispatchRoad ? dispatchRevealed : dispatchCoords;
+
+  const dispatchLine = useMemo(() => {
+    if (!dispatchDraw || dispatchDraw.length < 2) return null;
     return {
       type: 'Feature' as const,
       properties: {},
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: [pickupCoord, [dispatchOffer.longitude, dispatchOffer.latitude]],
-      },
+      geometry: { type: 'LineString' as const, coordinates: dispatchDraw },
     };
-  }, [dispatchOffer, pickupCoord]);
+  }, [dispatchDraw]);
+
+  /** The head of the line — where the ask has reached. */
+  const dispatchHead = useMemo<Coord | null>(
+    () => (dispatchDraw && dispatchDraw.length >= 2 ? dispatchDraw[dispatchDraw.length - 1] : null),
+    [dispatchDraw],
+  );
 
   // Falls back to the flow's chosen pickup so the route preview has both of its
   // ends marked on the ride picker, where no trip (and so no snapshot) exists.
@@ -702,11 +765,49 @@ function TripMapImpl() {
 
         {dispatchLine && (
           <MapboxGL.ShapeSource id="dispatch-line" shape={dispatchLine}>
+            {/* Cased, like the route line: the map style's own road casings are
+                bright and this line has to survive being drawn across one. */}
+            <MapboxGL.LineLayer
+              id="dispatch-line-casing"
+              style={{
+                lineColor: '#000000',
+                lineWidth: 9,
+                lineOpacity: 0.85,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
             <MapboxGL.LineLayer
               id="dispatch-line-layer"
-              style={{ lineColor: colors.primary, lineWidth: 4, lineOpacity: 0.9, lineCap: 'round' }}
+              style={{
+                lineColor: colors.primary,
+                lineWidth: 4.5,
+                lineOpacity: 0.95,
+                lineCap: 'round',
+                lineJoin: 'round',
+                // Dashed only while it is the straight-line estimate — a solid
+                // line claims a road, and until Directions answers there isn't
+                // one to claim.
+                ...(dispatchRoad ? null : { lineDasharray: [2, 2] }),
+              }}
             />
           </MapboxGL.ShapeSource>
+        )}
+
+        {/* The head of the reach — a bright dot travelling to the driver as the
+            line draws. It is what makes the reveal read as "we are asking them
+            right now" rather than as a line that happens to be growing. */}
+        {dispatchHead && dispatchRoad && (
+          <MapboxGL.MarkerView
+            id="dispatch-head"
+            coordinate={dispatchHead}
+            anchor="center"
+          >
+            <View style={styles.dispatchHeadWrap} pointerEvents="none">
+              <View style={[styles.dispatchHeadHalo, { backgroundColor: colors.primary }]} />
+              <View style={[styles.dispatchHeadCore, { backgroundColor: colors.primary, borderColor: colors.backgroundDeep }]} />
+            </View>
+          </MapboxGL.MarkerView>
         )}
 
         {/* Idle nearby drivers, only while dispatch is actually running —
@@ -877,6 +978,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: colors.primary,
     marginTop: -1,
   },
+  /** The travelling head of the dispatch reveal — see the layer above. */
+  dispatchHeadWrap: { width: 26, height: 26, alignItems: 'center', justifyContent: 'center' },
+  dispatchHeadHalo: { position: 'absolute', width: 24, height: 24, borderRadius: 12, opacity: 0.28 },
+  dispatchHeadCore: { width: 10, height: 10, borderRadius: 5, borderWidth: 2 },
   recenter: {
     position: 'absolute', right: 16,
     width: 40, height: 40, borderRadius: 20,

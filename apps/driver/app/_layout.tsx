@@ -211,6 +211,28 @@ export default function RootLayout() {
   // profile screens with no blur layer behind them to run for).
   const isOpaqueDetail = segments.length >= 3;
 
+  /**
+   * A SHADER NOBODY CAN SEE STILL COSTS EVERY FRAME.
+   *
+   * `isOpaqueDetail` (depth ≥ 3) catches the pushed trip screens, but not the
+   * one screen a driver spends their whole shift on: `(tabs)/home` is two
+   * segments deep and is a FULL-BLEED MapboxGL map. So the Skia pillar ran at
+   * 30 fps, all shift, underneath an opaque GL surface — pure fill-rate spent
+   * on pixels that are covered.
+   *
+   * Paused rather than unmounted: these screens declare a transparent content
+   * style and briefly show the background through the map's own load veil, so
+   * removing it would trade a frame cost for a black flash. Pausing stops the
+   * frame callback, which is the entire cost; the last frame stays on screen.
+   */
+  const segPath = segments.join('/');
+  const overFullBleedMap =
+    segPath.includes('home') ||
+    segPath.includes('active') ||
+    segPath.includes('tracking') ||
+    segPath.includes('dispatch') ||
+    segPath.includes('location-picker');
+
   const [splashDone, setSplashDone] = useState(false);
   const [inAppBanner, setInAppBanner] = React.useState<{ title: string; body: string } | null>(null);
   const bannerTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -606,7 +628,7 @@ export default function RootLayout() {
         <StatusBar style={theme === 'light' ? 'dark' : 'light'} backgroundColor={colors.backgroundDeep} />
         {/* Ambient premium background — fade-group screens (transparent
             contentStyle above) show this instead of a flat fill. */}
-        <AppBackground isDark={theme !== 'light'} paused={isOpaqueDetail} />
+        <AppBackground isDark={theme !== 'light'} paused={isOpaqueDetail || overFullBleedMap} />
         {/* MorphProvider hosts the container-transform overlay for future
             morph transitions (trip-card → active-trip, etc.) — wraps the
             Stack so sources/targets living inside screens can register. */}

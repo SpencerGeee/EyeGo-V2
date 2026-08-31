@@ -81,6 +81,17 @@ export function Card({
         borderRadius={radii['2xl']}
         glow
         glowIntensity={glowIntensity}
+        /**
+         * A CARD'S HALO MUST FIT BETWEEN CARDS.
+         *
+         * Uncapped, the ring's widest pass reaches ~28 pt past the card (36 with
+         * a secondary colour), and a `Card` is almost always one of a stacked
+         * list. At any sane list gap that put every card's light under its
+         * neighbour's opaque body — "the way the glow borders are stacked on each
+         * other, it's not nice". 20 pt is the reach a 32 pt gap can hold, and
+         * `glowIntensity` still scales the brightness independently.
+         */
+        maxGlowRadius={20}
         // Colour always; motion only when asked for.
         disabled={!animated}
         style={[{ padding }, style]}

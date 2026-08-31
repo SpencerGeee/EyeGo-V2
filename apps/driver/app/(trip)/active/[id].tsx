@@ -111,6 +111,18 @@ const TRIP_STATUS_CONFIG: Record<string, { label: string; color: string }> =
 const STATUS_STEPS = ['SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS', 'COMPLETED'];
 
 /**
+ * Statuses where BOARDING is the thing the driver is doing right now.
+ *
+ * Both products in one list. A driver-created trip loads at SCHEDULED/FILLING
+ * and never sees `ARRIVED_AT_PICKUP`; a dispatched ride reaches the kerb at
+ * `ARRIVED_AT_PICKUP` and never sits at FILLING. Gating the boarding hint on
+ * either one alone hides it from the other product — which is exactly what was
+ * reported. `DRIVER_EN_ROUTE` is deliberately absent: the driver is still
+ * driving to the pickup, and there is nobody to board yet.
+ */
+const BOARDING_STATUSES = ['SCHEDULED', 'FILLING', 'ARRIVED_AT_PICKUP'];
+
+/**
  * Which step a status stands on — NOT `STATUS_STEPS.indexOf(status)`.
  *
  * BUGFIX ("on the tracking page it's showing Ready to Start at the top, but on
@@ -1196,11 +1208,18 @@ export default function ActiveTripScreen() {
               fillColor={colors.surfaceContainer}
               borderRadius={radii.xl}
               thickness="thin"
-              glow
-              // Brightness and reach are separate knobs. The glow was being
-              // clipped by the sheet's top edge, and turning the intensity down
-              // to stop that would have taken the brightness with it. Capping
-              // the RADIUS keeps the light where the padding above can hold it.
+              /**
+               * RING, NO BLOOM — the driver-app lag fix.
+               *
+               * The ring is one masked gradient. The BLOOM is two full-size
+               * views carrying iOS shadows, and iOS re-rasterises a shadow
+               * whenever the layer under it changes — which on this card is
+               * every second, because the seat counts and the ETA tick. Two
+               * offscreen passes per second per card, over a live GL map, in a
+               * panel the driver is dragging, is "on the driver app it lags a
+               * lot". The rider's tracking screen, which the same report calls
+               * smooth, has no ring and no glass over its map at all.
+               */
               glowIntensity={0.75}
               maxGlowRadius={14}
               style={styles.routeCard}
@@ -1267,14 +1286,31 @@ export default function ActiveTripScreen() {
             ]}
           >
             <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-            {/* WHY THE RIDE WILL NOT START — stated where the fix is, not in a
-                dialogue the driver has already dismissed. Only while it is
-                actually blocking: at ARRIVED_AT_PICKUP with an empty car. */}
-            {trip.status === 'ARRIVED_AT_PICKUP' && boardedSeats === 0 && seats.length > 0 && (
+            {/*
+              WHY THE RIDE WILL NOT START — stated where the fix is, not in a
+              dialogue the driver has already dismissed.
+
+              BUGFIX ("on the manage-trip page of driver-created trips I can't
+              see the hint that says click on the seat to board them. At the
+              moment the rider-requested trip is the only one doing that").
+
+              Exactly so, and the cause was one status name: this was gated on
+              `ARRIVED_AT_PICKUP`, which is a DISPATCHED ride's status. A trip
+              the driver created themselves never passes through it — it sits at
+              SCHEDULED or FILLING right up until Start Ride — so the one line
+              telling the driver how to board a passenger was shown on exactly
+              the product that did not need it and hidden on the one that did.
+
+              The real condition was never the status. It is: passengers are
+              sold, nobody is aboard, and the vehicle has not left. That is what
+              this asks now.
+            */}
+            {BOARDING_STATUSES.includes(String(trip.status)) && boardedSeats === 0 && seats.length > 0 && (
               <View style={[styles.boardingNotice, { borderColor: `${colors.statusWarning}66`, backgroundColor: `${colors.statusWarning}14` }]}>
                 <Ionicons name="people-outline" size={14} color={colors.statusWarning} />
                 <Text variant="caption" style={{ color: colors.statusWarning, flex: 1 }}>
-                  Tap each seat to board your passengers. The ride cannot start until someone is aboard.
+                  Tap each seat to board your passengers. The ride cannot start until someone is
+                  aboard.
                 </Text>
               </View>
             )}
@@ -1295,11 +1331,6 @@ export default function ActiveTripScreen() {
                   feature being used; it is hidden once there is nobody to tap,
                   so an empty bus does not advertise an action that does nothing.
                 */}
-                {seats.length > 0 && (
-                  <Text variant="caption" color={colors.onSurfaceVariant} style={styles.seatHint}>
-                    <Ionicons name="hand-left-outline" size={11} />  Tap a seat for passenger details
-                  </Text>
-                )}
                 <Pressable
                   onPress={() => setShowPaymentQr(true)}
                   style={styles.qrBtn}
@@ -1311,6 +1342,23 @@ export default function ActiveTripScreen() {
                 </Pressable>
               </View>
             </View>
+            {/*
+              Its own line, not squeezed into the header row.
+
+              It used to sit between "3/14 booked" and the QR button, where on a
+              trip with held seats the count string alone fills the row — so the
+              hint wrapped to a sliver or was pushed out of the layout entirely.
+              A hint nobody can read is the same as no hint, which is half of
+              what was reported here.
+            */}
+            {seats.length > 0 && (
+              <View style={styles.seatHintRow}>
+                <Ionicons name="hand-left-outline" size={12} color={colors.onSurfaceVariant} />
+                <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
+                  Tap a seat to see the passenger and mark them boarded
+                </Text>
+              </View>
+            )}
             <SeatMap
               seats={seats}
               totalSeats={total}
@@ -1500,7 +1548,7 @@ export default function ActiveTripScreen() {
               palette="driver"
               fillColor={colors.surfaceContainer}
               borderRadius={radii['2xl']}
-              glow
+              /* Ring only. See the seat-map card above. */
               style={styles.earningsCard}
             >
               <Text style={styles.earningsTitle}>Earnings Estimate</Text>
@@ -2196,6 +2244,14 @@ const makeStyles = (colors: DriverColors) =>
       marginBottom: spacing.md,
     },
     seatHint: { marginTop: 2, opacity: 0.85 },
+    /** The tap hint, on its own line under the Seat Map header. */
+    seatHintRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.xs,
+      marginBottom: spacing.sm,
+    },
     qrBtn: {
       width: 28,
       height: 28,

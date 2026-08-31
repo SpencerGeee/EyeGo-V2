@@ -301,12 +301,18 @@ export default function DriverTrackingScreen() {
    * leg: no useful route, therefore no `trip:eta` frame, therefore a label stuck
    * on its placeholder for the rest of the trip.
    *
-   * The same 150 m rule the server applies in `route-geometry.liveLeg`, written
-   * here too so the card is right on the very first frame rather than waiting
-   * for the server's answer to arrive — and the same number in both places so
-   * the two cannot name different legs for the same moment.
+   * The same rule the server applies in `route-geometry.liveLeg`, written here
+   * too so the card is right on the very first frame rather than waiting for
+   * the server's answer to arrive — and the same number in both places so the
+   * two cannot name different legs for the same moment.
+   *
+   * 75 m, not the 150 it was. See `AT_PICKUP_METERS` on the server: 150 claimed
+   * a driver was standing on a pickup that was a one-minute walk away, which is
+   * exactly what was reported for a driver-created trip whose pickup is the next
+   * street over. 75 is the same radius the arrival geofence uses, so "at the
+   * pickup" now means one thing in the router, in this copy, and in the trip.
    */
-  const AT_PICKUP_M = 150;
+  const AT_PICKUP_M = 75;
   const atPickupNow = useMemo(() => {
     if (!driverLocation || !pickupCoord || !destCoord) return false;
     const [plng, plat] = pickupCoord;
@@ -746,10 +752,22 @@ export default function DriverTrackingScreen() {
               palette="driver"
               fillColor={colors.surfaceContainer}
               borderRadius={radii.xl}
-              glow
+              /**
+               * NEITHER A BLOOM NOR A HEAVY BLUR ON THE ONE CARD THAT TICKS.
+               *
+               * This card's minutes change every second, and it used to carry
+               * both an iOS shadow bloom (re-rasterised on every one of those
+               * changes) and a HIGH-intensity BlurView, which on iOS resamples
+               * whatever is behind it — here, a live MapboxGL surface — every
+               * frame. That combination, inside a draggable panel, is why the
+               * driver's tracking screen stuttered where the rider's is smooth.
+               *
+               * The ring stays: it is a single masked gradient and costs
+               * nothing next to either of those.
+               */
               style={styles.etaSection}
             >
-              <GlassSurface borderRadius={radii.xl - 3} intensity="high" dark style={styles.glassInset} />
+              <GlassSurface borderRadius={radii.xl - 3} intensity="low" dark style={styles.glassInset} />
               <View style={styles.etaLeft}>
                 <Text style={styles.etaValue}>
                   {etaMinutes != null ? `${etaMinutes} min` : '...'}
@@ -804,8 +822,7 @@ export default function DriverTrackingScreen() {
               fillColor={colors.surfaceContainer}
               borderRadius={radii.xl}
               thickness="thin"
-              glow
-              glowIntensity={0.5}
+              /* Ring only — see the ETA card above. */
               style={styles.passengerListCard}
             >
             <View style={styles.passengerListHeader}>

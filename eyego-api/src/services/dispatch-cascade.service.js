@@ -366,6 +366,34 @@ async function emitProgress(tripId, type, payload) {
 }
 
 /**
+ * THE WALLET BALANCE THIS TRIP WILL DEMAND, BEFORE ANYBODY ACCEPTS IT.
+ *
+ * BUGFIX ("I accepted a trip and got to the pickup point, but when I tried to
+ * mark the passenger as boarded, THAT is when I got 'insufficient funds'. The
+ * drivers need to know this before they can even accept the trip").
+ *
+ * Exactly right, and the sequence was as bad as it sounds: a CASH seat debits
+ * its commission from the driver's wallet at BOARDING (see
+ * `drivers.service.boardPassenger` — cash never touches a payment webhook, so
+ * that is the only moment the platform's cut can be collected). Nothing
+ * upstream of that ever looked at the balance, so a short driver could be
+ * dispatched, drive across town, and discover the problem with the passenger
+ * standing at the door.
+ *
+ * This is the number that has to travel with the offer. Only CASH seats that
+ * are not already PAID count: a card/MoMo seat settles through the webhook and
+ * a completed trip CREDITS the driver, so neither needs a float.
+ */
+function cashFloatPesewas(trip) {
+  const rate = trip?.commissionRate ?? 0.15;
+  const rows = Array.isArray(trip?.bookings) ? trip.bookings : [];
+  return rows.reduce((n, b) => {
+    if (b.paymentMethod !== 'CASH' || b.paymentStatus === 'PAID') return n;
+    return n + (b.commissionAmountPesewas ?? Math.round((b.fareAmountPesewas || 0) * rate));
+  }, 0);
+}
+
+/**
  * Offer the trip to the candidate at `state.index`, or finish the cascade.
  *
  * Availability is re-checked immediately before each offer rather than trusted
@@ -399,7 +427,15 @@ async function offerNext(tripId) {
         },
         bookings: {
           where: livePassengerWhere(),
-          select: { fareAmountPesewas: true, commissionAmountPesewas: true },
+          select: {
+            fareAmountPesewas: true,
+            commissionAmountPesewas: true,
+            // Needed for cashFloatPesewas — the wallet balance a driver must
+            // already hold before this trip can be boarded. See drivers.service
+            // .boardPassenger: a CASH seat debits its commission at boarding.
+            paymentMethod: true,
+            paymentStatus: true,
+          },
         },
       },
     });
@@ -469,6 +505,12 @@ async function offerNext(tripId) {
         dropoffAddress: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
+        commissionPesewas,
+        /**
+         * What the driver's wallet must already hold to BOARD this ride. Zero
+         * for a card/MoMo trip. See `cashFloatPesewas`.
+         */
+        walletRequiredPesewas: cashFloatPesewas(trip),
         tier: trip.tier,
         // Server-authoritative countdown. The driver app renders
         // (expiresAtServerMs - serverNowMs), never its own clock, so a phone
@@ -938,7 +980,15 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         },
         bookings: {
           where: livePassengerWhere(),
-          select: { fareAmountPesewas: true, commissionAmountPesewas: true },
+          select: {
+            fareAmountPesewas: true,
+            commissionAmountPesewas: true,
+            // Needed for cashFloatPesewas — the wallet balance a driver must
+            // already hold before this trip can be boarded. See drivers.service
+            // .boardPassenger: a CASH seat debits its commission at boarding.
+            paymentMethod: true,
+            paymentStatus: true,
+          },
         },
       },
     });
@@ -1019,6 +1069,9 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         dropoffAddress: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
+        commissionPesewas,
+        /** Wallet balance needed to board this one — see `cashFloatPesewas`. */
+        walletRequiredPesewas: cashFloatPesewas(trip),
         /** True when THIS driver is the one the cascade is currently asking. */
         offeredToMe: held?.tripId === trip.id || holder === driverId,
         expiresAtServerMs: holder === driverId ? state.expiresAtMs ?? null : null,

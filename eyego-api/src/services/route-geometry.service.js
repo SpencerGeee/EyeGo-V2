@@ -126,13 +126,24 @@ const PRE_DEPARTURE_STATUSES = new Set([
 /**
  * How close counts as "already there".
  *
- * Generous rather than tight: a consumer GPS fix in a built-up area is good to
- * roughly 20–50 m, a pickup pin is dropped by a human on a map, and the cost of
- * being slightly too generous (the ETA card switches to the drop-off a street
- * early) is far smaller than the cost of being too strict (an ETA that never
- * arrives at all, which is the bug this exists for).
+ * ONE NUMBER, NOT TWO. This was 150 m while `rides.service.ARRIVAL_RADIUS_M`
+ * (the geofence that actually marks a driver as arrived) was 75, so there was a
+ * 75-metre band in which the router had decided the driver was standing on the
+ * pickup and the trip had not. That band is what produced "it says I'm at the
+ * pickup point, but I made it the street next to me — a one-minute walk from
+ * where I am": a one-minute walk is roughly 80 m, i.e. squarely inside the old
+ * threshold and outside the real one.
+ *
+ * 75 m is still generous against a 20–50 m consumer GPS fix, which is the
+ * accuracy this has to tolerate; it is tight enough that a different street is
+ * a different place. The failure it was widened to avoid — a zero-length
+ * `toPickup` leg producing no route and therefore an ETA that never arrives —
+ * is unaffected, because inside 75 m there is genuinely nothing left to route.
  */
-const AT_PICKUP_METERS = parseInt(process.env.AT_PICKUP_METERS, 10) || 150;
+const AT_PICKUP_METERS =
+  parseInt(process.env.AT_PICKUP_METERS, 10) ||
+  parseInt(process.env.ARRIVAL_RADIUS_M, 10) ||
+  75;
 
 /**
  * THE PICKUP LEG IS OVER WHEN THE DRIVER IS STANDING ON IT.
@@ -241,7 +252,35 @@ function liveLeg(trip, driver) {
  * rather than a wrong one.
  */
 function effectivePickup(trip) {
-  const fallback = { lat: trip.pickupLat, lng: trip.pickupLng };
+  /**
+   * THE ROUTE'S ORIGIN IS A PICKUP TOO.
+   *
+   * BUGFIX ("when I create a trip on the driver app and choose to make the
+   * pickup point a different side from mine, the route polyline shows a
+   * straight line instead of following the road. It's also showing that I'm at
+   * the pickup point when I'm a one-minute walk away").
+   *
+   * Both halves of that are this one line. A DRIVER-CREATED trip is Route-backed:
+   * its endpoints live on `Route.originLat/originLng` and its own
+   * `Trip.pickupLat/pickupLng` columns are NULL. `legEndpoints` learned that for
+   * the drop-off leg; this function never did. So for every driver-created trip:
+   *
+   *   · `liveLeg`'s pre-departure rule — "a driver more than AT_PICKUP_METERS
+   *     from the pickup is on the PICKUP leg" — bailed on the unusable
+   *     coordinate before it could ever measure. No `toPickup` leg was ever
+   *     computed, so no driver→pickup road route existed, so the driver's map
+   *     fell through to its `[puck, target]` placeholder: THE STRAIGHT LINE.
+   *   · `metersFromPickup` returned null, so nothing server-side could say how
+   *     far off the pickup the driver actually was.
+   *
+   * The order is deliberate: a single joiner's own pickup wins (they are paying a
+   * deviation surcharge to be collected there), then the trip's own columns, then
+   * the route's origin. Callers that did not select `route` get exactly the old
+   * answer, so this cannot regress a query that was already correct.
+   */
+  const fallback = usable(trip.pickupLat) && usable(trip.pickupLng)
+    ? { lat: trip.pickupLat, lng: trip.pickupLng }
+    : { lat: trip.route?.originLat, lng: trip.route?.originLng };
   const bookings = Array.isArray(trip.bookings) ? trip.bookings : null;
   if (!bookings || bookings.length !== 1) return fallback;
   const own = bookings[0];
@@ -548,8 +587,30 @@ async function ensureRouteForTrip(trip, driver = null) {
   if (cached) return cached;
 
   const leg = liveLeg(trip, driver);
-  // Only the static preview is worth paying for inline — see above.
-  if (leg !== 'toDropoff' || !PRE_DEPARTURE_STATUSES.has(trip?.status)) return null;
+  /**
+   * BOTH PRE-DEPARTURE LEGS ARE WORTH PAYING FOR INLINE, NOT JUST THE PREVIEW.
+   *
+   * BUGFIX ("when I create a trip and make the pickup point a different side
+   * from mine, the route polyline shows a straight line instead of following
+   * the road").
+   *
+   * This used to admit `toDropoff` only. That was correct while a driver-created
+   * trip could never HAVE a pre-departure pickup leg — `effectivePickup` did not
+   * read the Route's origin, so `liveLeg` could not measure the driver against
+   * it and always answered `toDropoff`. With that fixed, a driver who set their
+   * pickup a street away is now correctly on the PICKUP leg, and this early
+   * return was the next thing standing between them and a road: no cache entry,
+   * no inline compute, `path: null`, and the driver's map falling back to its
+   * two-point placeholder — the straight line.
+   *
+   * The original reasoning for the narrow exception was that the drop-off
+   * preview "does not move with the driver". Nor does this one, in the way that
+   * matters: it is guarded by the same per-trip in-flight map, cached for the
+   * same 180 s, and recomputed only on a real deviation. One extra Directions
+   * call per trip, for the leg the driver is actually driving.
+   */
+  if (!PRE_DEPARTURE_STATUSES.has(trip?.status)) return null;
+  if (leg !== 'toDropoff' && leg !== 'toPickup') return null;
   if (!legEndpoints(trip, leg, driver)) return null;
 
   /**

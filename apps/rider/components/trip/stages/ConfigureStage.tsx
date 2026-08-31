@@ -18,6 +18,7 @@ import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, MAX_SEATS_PER_BOOKING } from '@eyego/config';
 import { Text, Button, Entrance, GradientGlowBorder, getTierTheme } from '@eyego/ui';
 import { useColors, Colors } from '../../../utils/useColors';
+import { MapGestureHint } from '../MapGestureHint';
 import { useRideStore } from '../../../stores/ride.store';
 import { useTripFlow } from '../../../stores/tripFlow.store';
 
@@ -433,7 +434,21 @@ function ConfigureStageImpl() {
 
         {/* The window onto the map. Not a spacer — this IS the route preview,
             and its height is what `SHEET_TOP_FRACTION` is naming. */}
-        <View style={{ height: mapWindow }} pointerEvents="none" />
+        <View style={{ height: mapWindow }} pointerEvents="none">
+          {/*
+            THE MAP IS LIVE, AND NOTHING SAID SO.
+
+            Every cue on this stage points at the sheet: the sheet is opaque,
+            the sheet has the controls, the map sits behind a scrim looking like
+            a printed route. It is in fact pinchable and draggable, and "how far
+            is that really" is the question a rider is weighing while they
+            choose between three prices.
+
+            One demonstration, twice, once per rider ever. See MapGestureHint
+            for why it leaves the way it does.
+          */}
+          <MapGestureHint height={mapWindow} />
+        </View>
 
         <View style={styles.sheet}>
         <ScrollView

@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -21,15 +22,23 @@ import { DispatchLiveMap, type DispatchLiveMapHandle } from '../../../components
 import { morphIdFor } from '../../../components/PendingDispatchList';
 
 /**
- * How much of the screen the offer sheet is assumed to occupy.
+ * FIRST-FRAME GUESS AT THE SHEET'S HEIGHT — THEN IT IS MEASURED.
  *
- * Used for two things that must agree: the bottom padding handed to the map's
- * `fitBounds` (so the ride is framed into the space ABOVE the sheet rather than
- * behind it) and where the "Frame the ride" control sits. A single constant so
- * the framing and the control cannot drift apart — the failure mode of two
- * numbers here is a button that floats over the panel it is trying to clear.
+ * BUGFIX ("there are so many things overlapping each other on the dispatch page
+ * (the swipe to accept). The frame-this-camera is overlapping the map").
+ *
+ * This used to be a constant, and both the map's `fitBounds` bottom padding and
+ * the "Frame the ride" control were positioned off it. The offer card is not a
+ * fixed height — the address block wraps, the reassignment banner appears and
+ * disappears, the expiry note is added on expiry — so on any offer whose card
+ * ran past 430 pt the control sat ON the sheet it was supposed to clear, and
+ * the ride was framed into a window that did not exist.
+ *
+ * The sheet now publishes its real height on layout and everything that has to
+ * clear it reads that. This value survives only as the value for the frames
+ * before the first `onLayout`, which is why it is a floor rather than a guess.
  */
-const SHEET_RESERVE = 430;
+const SHEET_RESERVE_FALLBACK = 380;
 /** Hard ceiling on the sheet so the map is never fully covered on a small phone. */
 const SHEET_MAX_HEIGHT = 560;
 
@@ -43,6 +52,17 @@ const SHEET_MAX_HEIGHT = 560;
  * partly the server's old 20 s. Both are 45 now, so the ring and the hold agree.
  */
 const DEFAULT_WINDOW_S = 45;
+
+/**
+ * The only trip statuses this screen has anything to say about.
+ *
+ * Mirrors the server's own claim paths (`drivers.service.claimTrip`): MATCHING
+ * is a live cascade, REASSIGNING is up for grabs, and SCHEDULED/FILLING is a
+ * trip already assigned to this driver awaiting their accept. Anything else —
+ * CANCELLED, COMPLETED, EXPIRED, NO_DRIVERS_FOUND, or a ride already IN_PROGRESS
+ * under somebody else — is not an offer and must not render as one.
+ */
+const CLAIMABLE_STATUSES = ['MATCHING', 'REASSIGNING', 'SCHEDULED', 'FILLING', 'REQUESTED'];
 
 /**
  * THE OFFER SCREEN — what the Dispatch list opens.
@@ -119,6 +139,7 @@ export default function DispatchScreen() {
         dropoff: coordOf(heldOffer.dropoffLng, heldOffer.dropoffLat),
         driverEarningsPesewas: heldOffer.driverEarningsPesewas,
         farePesewas: heldOffer.farePesewas,
+        walletRequiredPesewas: heldOffer.walletRequiredPesewas ?? null,
         tier: heldOffer.tier,
         etaSeconds: heldOffer.etaSeconds,
         expiresAtServerMs: heldOffer.expiresAtServerMs,
@@ -138,6 +159,7 @@ export default function DispatchScreen() {
         dropoff: coordOf(row.dropoffLng, row.dropoffLat),
         driverEarningsPesewas: row.driverEarningsPesewas,
         farePesewas: row.farePesewas,
+        walletRequiredPesewas: (row as any).walletRequiredPesewas ?? null,
         tier: row.tier,
         expiresAtServerMs: row.expiresAtServerMs,
         kind: row.status === 'REASSIGNING' ? 'REASSIGNMENT' : (params.kind ?? 'DISPATCH'),
@@ -176,7 +198,22 @@ export default function DispatchScreen() {
         // is not in `pendingRequests` for a driver who has not been offered it.
         const trip: any = await driverApi.getTripById(id).catch(() => null);
         const t = trip?.data?.data?.trip ?? trip?.trip ?? trip;
-        if (t?.id) {
+        /**
+         * A DEAD TRIP IS NOT AN OFFER.
+         *
+         * BUGFIX ("I clicked on the notification and it took me to a cancelled
+         * trip that's stale — the map is blank and all. You need to make sure
+         * this page isn't even accessible in the first place").
+         *
+         * This branch rendered whatever `getTripById` returned. A trip that has
+         * been cancelled, completed or expired still returns 200 with a row, and
+         * a cancelled row's coordinates are frequently null — which is exactly
+         * the "blank map with an offer card on it" that was reported. Only the
+         * statuses a driver can actually claim from get through; everything else
+         * falls to the "This offer is gone" state, which already exists below
+         * and says the true thing.
+         */
+        if (t?.id && CLAIMABLE_STATUSES.includes(String(t.status))) {
           setFetched({
             tripId: id,
             pickupAddress: originLabel(t),
@@ -298,7 +335,31 @@ export default function DispatchScreen() {
        * "gone already" copy and bouncing the driver home told them the ride was
        * lost when in most cases it is back on their board seconds later.
        */
-      if (code === 'OFFER_HELD_BY_ANOTHER') {
+      /**
+       * "INSUFFICIENT FUNDS" BELONGS HERE, NOT AT THE KERB.
+       *
+       * BUGFIX ("I accepted a trip and got to the pickup point, but when I
+       * tried to mark the passenger as boarded, THAT is when I got insufficient
+       * funds"). The server now refuses the claim itself (`assertCanAffordTrip`)
+       * and sends the numbers with it, so this can say what to do rather than
+       * what went wrong — and it offers the one action that fixes it.
+       */
+      if (code === 'INSUFFICIENT_WALLET_FOR_TRIP' || status === 402) {
+        const short = err?.response?.data?.details?.shortfallPesewas;
+        Alert.alert(
+          'Top up to take this one',
+          err?.response?.data?.message ??
+            'This ride is paid in cash, and the commission comes out of your wallet when you board.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            {
+              text: short ? `Add GH₵${(short / 100).toFixed(2)}` : 'Top up',
+              // Earnings is where the wallet and its top-up sheet live.
+              onPress: () => router.replace('/(tabs)/earnings' as Href),
+            },
+          ],
+        );
+      } else if (code === 'OFFER_HELD_BY_ANOTHER') {
         Alert.alert(
           'Being decided',
           err?.response?.data?.message ??
@@ -361,6 +422,21 @@ export default function DispatchScreen() {
    */
   const [framed, setFramed] = useState(true);
   const mapRef = useRef<DispatchLiveMapHandle | null>(null);
+
+  /**
+   * The sheet's REAL height, published on layout.
+   *
+   * Rounded to 8 pt before it is stored: `onLayout` fires on sub-pixel changes
+   * during the morph, and re-framing the camera on a 0.4 pt difference is a map
+   * that twitches for the whole of the entrance animation.
+   */
+  const [sheetHeight, setSheetHeight] = useState(SHEET_RESERVE_FALLBACK);
+  const onSheetLayout = useCallback((e: { nativeEvent: { layout: { height: number } } }) => {
+    const h = Math.round(e.nativeEvent.layout.height / 8) * 8;
+    if (h > 0) setSheetHeight((cur) => (Math.abs(cur - h) < 8 ? cur : h));
+  }, []);
+  /** Everything that must clear the sheet reads this one number. */
+  const sheetClearance = Math.max(SHEET_RESERVE_FALLBACK, sheetHeight);
 
   /**
    * The road line, when the server has one for this trip.
@@ -426,8 +502,14 @@ export default function DispatchScreen() {
           accent={accent}
           // Framed into the space the sheet does not cover. Without the bottom
           // inset, half the ride sits behind the panel and the map looks like it
-          // is refusing to show the pickup.
-          padding={{ top: insets.top + 96, bottom: SHEET_RESERVE, left: 52, right: 52 }}
+          // is refusing to show the pickup. `sheetClearance` is the sheet's
+          // MEASURED height, so this is the real window and not an assumption.
+          padding={{
+            top: insets.top + 96,
+            bottom: sheetClearance + spacing.lg,
+            left: 52,
+            right: 52,
+          }}
           onFramedChange={setFramed}
         />
       ) : (
@@ -465,7 +547,10 @@ export default function DispatchScreen() {
             <Animated.View
               entering={FadeIn.duration(160)}
               exiting={FadeOut.duration(120)}
-              style={[styles.frameFabWrap, { bottom: SHEET_RESERVE + spacing.md }]}
+              // Measured, not assumed. See `sheetClearance`: this used to sit at
+              // a fixed 446 pt and any offer with a taller card put it behind
+              // the panel it exists to clear.
+              style={[styles.frameFabWrap, { bottom: sheetClearance + spacing.md }]}
               pointerEvents="box-none"
             >
               <Pressable
@@ -505,7 +590,18 @@ export default function DispatchScreen() {
            * element fight: the morph is already animating position, size and
            * radius, and a slide-up underneath it was the jitter on arrival.
            */}
-          <View style={styles.sheetDock} pointerEvents="box-none">
+          <View style={styles.sheetDock} pointerEvents="box-none" onLayout={onSheetLayout}>
+            {/* A scrim under the sheet's top edge. The panel is glass, so
+                without it the map's brightest tiles read straight through the
+                card's own top rows — which is the "everything is overlapping"
+                on the busiest part of this screen. `box-none` so it never eats
+                a pan meant for the map. */}
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(3,12,24,0)', 'rgba(3,12,24,0.55)', 'rgba(3,12,24,0.88)']}
+              locations={[0, 0.45, 1]}
+              style={styles.sheetScrim}
+            />
             <MorphTarget id={morphIdFor(id)} borderRadius={radii['3xl']}>
               <ScrollView
                 style={{ maxHeight: SHEET_MAX_HEIGHT }}
@@ -633,6 +729,8 @@ const makeStyles = (colors: DriverColors) =>
 
     /** Where the offer docks. `box-none` so the map stays draggable around it. */
     sheetDock: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 2 },
+    /** Darkens the map behind the glass panel's top edge — see the note there. */
+    sheetScrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 132 },
 
     empty: {
       flex: 1,

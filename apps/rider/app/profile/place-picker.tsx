@@ -335,7 +335,7 @@ export default function PlacePickerScreen() {
               style={styles.searchInput}
               value={query}
               onChangeText={handleSearch}
-              placeholder="Search a place, business or landmark…"
+              placeholder="Search a place, business or landmark"
               placeholderTextColor={colors.onSurfaceVariant}
               returnKeyType="search"
               autoFocus={focusSearch === '1'}
@@ -499,13 +499,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
+  /**
+   * No `lineHeight` on a TextInput — it spaces the placeholder's glyphs out.
+   * Same fix and the same reasoning as the driver's location-picker; the two
+   * pickers were written from one template and carried the same bug.
+   */
   searchInput: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 15,
-    lineHeight: Math.round(15 * 1.3),
+    letterSpacing: 0,
     color: colors.onSurface,
     padding: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   suggestionsBox: {
     marginTop: 8,

@@ -258,7 +258,35 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
         </View>
       ) : (
         <>
-          <DispatchBoardMap requests={requests} focusedTripId={focused} />
+          <DispatchBoardMap
+            requests={requests}
+            focusedTripId={focused}
+            /**
+             * THE MAP IS A DOOR, NOT A PICTURE.
+             *
+             * BUGFIX ("on the live map that shows on the driver homepage when
+             * there's a request, tapping it does nothing. You need to make sure
+             * it morphs into the page it should be for it to work").
+             *
+             * Every gesture on this map was off — deliberately, so a drag on the
+             * home panel could not fight it — and nothing was put in place of
+             * them. So the one surface on the home screen that says WHERE the
+             * work is was inert: a driver tapped the pin they were looking at
+             * and the app did nothing at all.
+             *
+             * It routes through the SAME `open()` the rows use, so the tap
+             * inherits the morph, the held-by-another rule and the haptics
+             * rather than growing a second, divergent path to the same screen.
+             * Tapping a pin opens that ride; tapping the map body opens the one
+             * the board is already about — the focused row, else the offer
+             * that is exclusively this driver's, else the first claimable.
+             */
+            onOpen={(tripId) => {
+              const r = requests.find((x) => x.tripId === tripId);
+              if (r) open(r);
+            }}
+            primaryTripId={focused ?? mine[0]?.tripId ?? open_[0]?.tripId ?? null}
+          />
 
           <View style={{ gap: spacing.md }}>
             {requests.map((r) => (
@@ -321,9 +349,15 @@ const pulseStyles = StyleSheet.create({
 function DispatchBoardMap({
   requests,
   focusedTripId,
+  onOpen,
+  primaryTripId,
 }: {
   requests: PendingDispatch[];
   focusedTripId: string | null;
+  /** Opens the ride. Wired to the list's own `open()` — see the note there. */
+  onOpen?: (tripId: string) => void;
+  /** What a tap on the map body (rather than on a pin) opens. */
+  primaryTripId?: string | null;
 }) {
   const colors = useColors();
   const cameraRef = useRef<CameraRef | null>(null);
@@ -420,7 +454,16 @@ function DispatchBoardMap({
 
           {pins.map((p) => (
             <MarkerView key={p.tripId} coordinate={p.coord} anchor="center">
-              <View style={boardStyles.pinWrap}>
+              {/* A pin is a 16 pt dot; the Pressable around it is 56 × 56, so
+                  the target is the one a thumb can actually hit. */}
+              <Pressable
+                onPress={() => onOpen?.(p.tripId)}
+                disabled={!onOpen}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Open this ride"
+                style={boardStyles.pinWrap}
+              >
                 <View
                   style={[
                     boardStyles.halo,
@@ -441,7 +484,7 @@ function DispatchBoardMap({
                     },
                   ]}
                 />
-              </View>
+              </Pressable>
             </MarkerView>
           ))}
         </MapView>
@@ -453,6 +496,23 @@ function DispatchBoardMap({
           style={StyleSheet.absoluteFill}
         />
 
+        {/*
+          The map body, as one target. Sits ABOVE the gradient so the whole
+          surface is tappable, and below nothing — the pins are inside the
+          MapView beneath it, so a pin tap and a body tap can pick different
+          rides only where the pin's own 56 pt target wins. In practice both
+          land on something sensible, which is the point: nowhere on this
+          surface is dead.
+        */}
+        {onOpen && primaryTripId ? (
+          <Pressable
+            onPress={() => onOpen(primaryTripId)}
+            accessibilityRole="button"
+            accessibilityLabel="Open the live request"
+            style={StyleSheet.absoluteFill}
+          />
+        ) : null}
+
         <View style={boardStyles.legend} pointerEvents="none">
           <View style={[boardStyles.legendChip, { backgroundColor: colors.background + 'CC' }]}>
             <View style={[boardStyles.legendDot, { backgroundColor: colors.accent }]} />
@@ -463,6 +523,21 @@ function DispatchBoardMap({
             <Text style={[boardStyles.legendText, { color: colors.onSurfaceVariant }]}>Open</Text>
           </View>
         </View>
+
+        {/*
+          THE AFFORDANCE.
+
+          A map with no controls on it reads as an illustration. One chip in the
+          corner is what says "this is a door" — and it names the destination
+          rather than the gesture, because "Open the ride" is information and
+          "Tap here" is instruction.
+        */}
+        {onOpen && primaryTripId ? (
+          <View style={boardStyles.openChip} pointerEvents="none">
+            <Ionicons name="expand-outline" size={12} color={colors.accent} />
+            <Text style={[boardStyles.openChipText, { color: colors.onSurface }]}>Open the ride</Text>
+          </View>
+        ) : null}
       </View>
     </GradientGlowBorder>
   );
@@ -750,6 +825,22 @@ const boardStyles = StyleSheet.create({
   },
   legendDot: { width: 6, height: 6, borderRadius: 3 },
   legendText: { fontFamily: fonts.bold, fontSize: 9, letterSpacing: 0.6 },
+  /** "Open the ride" — the chip that says the map is a door. */
+  openChip: {
+    position: 'absolute',
+    right: spacing.md,
+    bottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radii.full,
+    backgroundColor: 'rgba(3,12,24,0.82)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  openChipText: { fontFamily: fonts.semiBold, fontSize: 11, letterSpacing: 0.1 },
 });
 
 const makeStyles = (colors: DriverColors) =>

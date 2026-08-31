@@ -601,10 +601,10 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       })
     : null;
 
-  const body = (
+  const body = (variant: 'route' | 'stage') => (
     <>
-      {/* Back */}
-      <View style={styles.header}>
+      {/* Back. Stage mode floats its own over the map — see the render. */}
+      <View style={styles.header} pointerEvents={variant === 'stage' ? 'none' : 'auto'}>
         <Pressable
           onPress={handleBack}
           style={styles.backBtn}
@@ -616,11 +616,11 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         </Pressable>
       </View>
 
-      <View style={styles.body}>
+      <View style={variant === 'stage' ? styles.panelBody : styles.body}>
         {/* Concentric ring pulse — one UI-thread animation, no gradients, no
             shadow layers. See SearchingIndicator for what this replaced and
             why the old version cost frames exactly when dispatch needed them. */}
-        <View style={styles.iconContainer}>
+        <View style={variant === 'stage' ? styles.iconContainerCompact : styles.iconContainer}>
           <SearchingIndicator status={status as any} />
         </View>
 
@@ -703,6 +703,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             no `palette` it also swept blue/orange over a green-brand screen.
             Faint on purpose ("or better still make it faint"): it only has to say
             "still looking". */}
+        {variant === 'route' && (
         <GradientGlowBorder
           palette="brandGreen"
           borderRadius={radii.lg}
@@ -721,6 +722,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             </Text>
           </View>
         </GradientGlowBorder>
+        )}
 
         {status === 'searching' ? (
           <>
@@ -759,16 +761,18 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           />
         )}
 
-        <Pressable
-          style={styles.activityBtn}
-          onPress={() => router.dismissTo('/(tabs)/activity' as any)}
-          accessibilityRole="button"
-          accessibilityLabel="View in Activity"
-        >
-          <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
-            View in Activity
-          </Text>
-        </Pressable>
+        {variant === 'route' && (
+          <Pressable
+            style={styles.activityBtn}
+            onPress={() => router.dismissTo('/(tabs)/activity' as any)}
+            accessibilityRole="button"
+            accessibilityLabel="View in Activity"
+          >
+            <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textDecorationLine: 'underline' }}>
+              View in Activity
+            </Text>
+          </Pressable>
+        )}
       </View>
     </>
   );
@@ -790,29 +794,78 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       <View style={styles.routeRoot}>
         <AppBackground variant="static" isDark={isDark} />
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-          {body}
+          {body('route')}
         </SafeAreaView>
       </View>
     );
   }
-  // Stage mode. This used to lay a 90%-opaque scrim over the whole surface,
-  // which hid the very thing the rider wants to see while waiting: where the
-  // drivers around them are, and which one is being asked right now. The map
-  // stays visible up top and the status content sits in a gradient-anchored
-  // panel below it — the Uber/Bolt arrangement.
+  /**
+   * ── STAGE MODE: THE MAP IS THE PAGE ────────────────────────────────────────
+   *
+   * FEATURE ("on the 'looking for a driver' page when the rider requests a
+   * trip, it should be redesigned to be more aesthetic and nice, since that's
+   * where the user would spend a bit of time looking for a ride. Make sure you
+   * include the map, a route polyline to the nearest driver, and it should be
+   * animated. That page is a static page and it needs to be done correctly").
+   *
+   * It was a static page in the literal sense: a full-screen `LinearGradient`
+   * that went fully opaque by 62% of the screen height, laid over a map that
+   * the trip surface was already mounting and drawing on. Underneath that
+   * gradient, invisible, were the idle cars around the rider and the line to
+   * the driver being asked this second — the only things on the whole screen
+   * that were actually moving. A ring pulsing over a black rectangle for two
+   * minutes is the least informative way to spend the most anxious part of the
+   * flow.
+   *
+   * The rebuild is the arrangement every hailing app converged on, for the
+   * reason they converged on it: while you wait, you watch.
+   *
+   *   THE MAP IS UNCOVERED   Top ~56% of the screen. Pannable, because the
+   *                          question the rider is asking is "is anyone near
+   *                          me". `box-none` all the way down so the pans reach
+   *                          it — the exact bug the tracking stage had.
+   *   THE LINE IS THE STORY  `TripMap` now draws a real ROAD route from the
+   *                          driver being asked to the pickup, and draws it ON,
+   *                          restarting for each driver the cascade reaches.
+   *                          The cascade's progress and the animation are the
+   *                          same event rather than two descriptions of it.
+   *   THE PANEL IS OPAQUE    Not glass. Live map tiles are bright, arbitrarily
+   *                          coloured and moving, and body copy does not
+   *                          survive being laid on them; the scrim above the
+   *                          panel carries the transition instead.
+   */
   return (
     // Landing target for the home screen's pending-request card, so tapping it
     // grows into this surface instead of hard-pushing. Inert when the rider
     // arrived any other way.
     <MorphTarget id="home-pending-request" borderRadius={0} style={styles.safe}>
-    <View style={[styles.safe, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+    <View style={[styles.safe, { paddingTop: insets.top }]} pointerEvents="box-none">
+      {/* Reading ground for the back control, which floats on live tiles. */}
       <LinearGradient
-        colors={['transparent', withOpacity(colors.backgroundDeep, 0.72), colors.backgroundDeep]}
-        locations={[0, 0.38, 0.62]}
-        style={StyleSheet.absoluteFillObject}
+        colors={[withOpacity(colors.backgroundDeep, 0.85), 'transparent']}
+        style={styles.topScrim}
         pointerEvents="none"
       />
-      {body}
+      <Pressable
+        onPress={handleBack}
+        style={[styles.floatingBack, { top: insets.top + spacing.sm }]}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+      >
+        <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+      </Pressable>
+
+      <View style={styles.panelDock} pointerEvents="box-none">
+        <LinearGradient
+          colors={['transparent', withOpacity(colors.backgroundDeep, 0.9)]}
+          style={styles.panelScrim}
+          pointerEvents="none"
+        />
+        <View style={[styles.panel, { paddingBottom: insets.bottom + spacing.lg }]}>
+          {body('stage')}
+        </View>
+      </View>
     </View>
     </MorphTarget>
   );
@@ -853,6 +906,62 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing['2xl'],
     gap: spacing.lg,
+  },
+  /** Reading ground for the floating back control. */
+  topScrim: { position: 'absolute', top: 0, left: 0, right: 0, height: 132 },
+  /** Stage mode's back control — on the map, not in the panel. */
+  floatingBack: {
+    position: 'absolute',
+    left: spacing.lg,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(colors.backgroundDeep, 0.78),
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: withOpacity(colors.onSurface, 0.14),
+    zIndex: 5,
+  },
+  /** The panel's version of the searching ring — half the height. */
+  iconContainerCompact: {
+    width: 58,
+    height: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  /** The bottom half. `box-none` so pans land on the map above it. */
+  panelDock: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  /** Softens the map into the panel's top edge instead of cutting it. */
+  panelScrim: { position: 'absolute', left: 0, right: 0, bottom: '100%', height: 96 },
+  /**
+   * The opaque half. Not glass — see the note at the render site: map tiles
+   * are bright and moving, and a translucent panel is a different colour
+   * everywhere it sits.
+   */
+  panel: {
+    backgroundColor: colors.backgroundDeep,
+    borderTopLeftRadius: radii['4xl'],
+    borderTopRightRadius: radii['4xl'],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: withOpacity(colors.onSurface, 0.1),
+    paddingTop: spacing.xl,
+    paddingHorizontal: spacing['2xl'],
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  /**
+   * The panel's own content box.
+   *
+   * `body` centres itself in a full screen, which is right for route mode and
+   * wrong here: inside a docked panel `flex: 1` would stretch it to the full
+   * height of the screen and push the map off. This is the same content,
+   * measured by what is in it.
+   */
+  panelBody: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    gap: spacing.md,
   },
   /**
    * NOT a sheet stage, deliberately.

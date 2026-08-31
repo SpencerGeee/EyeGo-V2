@@ -29,6 +29,7 @@ import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
 import { useRideStore } from '../../stores/ride.store';
 import { useToastStore } from '../../stores/toast.store';
+import { RideEndedSheet } from '../../components/RideEndedSheet';
 
 // Accra fallback center — same default used by apps/driver/app/(tabs)/home.tsx
 // when no coordinate is available.
@@ -1434,6 +1435,18 @@ export default function HomeScreen() {
 
         <View style={{ height: TAB_BAR_BASE_HEIGHT + insets.bottom + 24 }} />
       </ScrollView>
+
+      {/*
+        "YOUR DRIVER CANCELLED", WHERE THE RIDER WILL ACTUALLY SEE IT.
+
+        Mounted here rather than in the root layout on purpose: this is the
+        screen the rider lands on when a ride is taken away from them, and the
+        sheet has to arrive AFTER the trip surface has finished retiring — not
+        over the top of it while it is still tearing down. It renders nothing
+        until `rideEnded.store` holds a notice. See that file for why the
+        existing toast was never read.
+      */}
+      <RideEndedSheet />
     </View>
   );
 }

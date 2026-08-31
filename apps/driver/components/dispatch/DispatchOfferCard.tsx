@@ -13,6 +13,8 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useQuery } from '@tanstack/react-query';
+import { driverApi } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { Text, GlassSurface, SwipeToConfirm, GradientGlowBorder, getTierTheme } from '@eyego/ui';
@@ -63,6 +65,16 @@ export interface DispatchOfferView {
   totalCandidates?: number | null;
   /** DISPATCH Â· REQUEST Â· REASSIGNMENT â€” decides the headline and the rules line. */
   kind?: 'DISPATCH' | 'REQUEST' | 'REASSIGNMENT' | string | null;
+  /**
+   * WHAT THIS RIDE TAKES OUT OF THE WALLET BEFORE IT PAYS ANYTHING IN.
+   *
+   * A CASH seat's commission is debited at BOARDING, so a short driver used to
+   * find out at the pickup with the passenger standing there ("I accepted a
+   * trip and got to the pickup point, but when I tried to mark the passenger as
+   * boarded, THAT is when I got insufficient funds"). Zero for card/MoMo.
+   * Computed by the server in `dispatch-cascade.cashFloatPesewas`.
+   */
+  walletRequiredPesewas?: number | null;
 }
 
 export interface DispatchOfferCardProps {
@@ -135,6 +147,41 @@ export function DispatchOfferCard({
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isSheet = variant === 'sheet';
+
+  /**
+   * ── THE WALLET, BEFORE THE DECISION ───────────────────────────────────────
+   *
+   * "I accepted a trip and got to the pickup point, but when I tried to mark
+   * the passenger as boarded, THAT is when I got 'insufficient funds'. The
+   * drivers need to know this BEFORE they can even accept the trip."
+   *
+   * The balance is polled cheaply and cached — it changes on top-ups and on
+   * completed rides, neither of which happens while an offer is on screen — so
+   * a stale-for-a-minute number is fine, and it means opening an offer does not
+   * cost a round trip before the card can render.
+   */
+  const { data: walletBalancePesewas } = useQuery({
+    // Same key the home screen already warms, so this is usually a cache read.
+    queryKey: ['driver', 'me'],
+    queryFn: () => driverApi.getMe(),
+    select: (r: any) => {
+      const d = r?.data?.data?.driver ?? r?.data?.data;
+      return typeof d?.walletBalancePesewas === 'number' ? d.walletBalancePesewas : null;
+    },
+    staleTime: 30_000,
+  });
+
+  const walletRequired = offer.walletRequiredPesewas ?? 0;
+  /**
+   * Only warn when we actually KNOW the balance is short. A null balance (the
+   * query has not answered, or the shape changed) must not put a red bar on an
+   * offer that is perfectly takeable — the server's own guard at accept is the
+   * backstop, and a false warning costs the driver a ride.
+   */
+  const walletShortfall =
+    walletRequired > 0 && typeof walletBalancePesewas === 'number' && walletBalancePesewas < walletRequired
+      ? walletRequired - walletBalancePesewas
+      : 0;
   // In the sheet variant the screen behind it IS the map, so never draw a
   // second one inside the panel.
   const withMap = showMap && !isSheet;
@@ -520,6 +567,33 @@ export function DispatchOfferCard({
           </Text>
         ) : null}
 
+        {/*
+          THE WALLET NOTICE — the thing the driver used to find out at the kerb.
+
+          Sits directly ON the swipe control, not up in the fare block, because
+          it is a fact about the decision the driver is about to make with their
+          thumb. The swipe stays ENABLED: the server is the authority on whether
+          a claim is allowed, and a client that grays out the control on a stale
+          balance would cost a driver a ride they could have taken. This warns;
+          `assertCanAffordTrip` decides.
+        */}
+        {walletShortfall > 0 ? (
+          <View style={[styles.walletNote, { borderColor: colors.statusWarning + '55', backgroundColor: colors.statusWarning + '14' }]}>
+            <Ionicons name="wallet-outline" size={15} color={colors.statusWarning} />
+            <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1, lineHeight: 17 }}>
+              Cash ride — {formatGhs(walletRequired)} commission comes out of your wallet when you
+              board. You are {formatGhs(walletShortfall)} short.
+            </Text>
+          </View>
+        ) : walletRequired > 0 ? (
+          <View style={styles.walletHint}>
+            <Ionicons name="cash-outline" size={13} color={colors.onSurfaceVariant} />
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              Cash ride — {formatGhs(walletRequired)} commission is taken from your wallet at boarding
+            </Text>
+          </View>
+        ) : null}
+
         {/* â”€â”€ Actions â”€â”€ */}
         <View style={styles.actions}>
           <SwipeToConfirm
@@ -841,6 +915,27 @@ const makeStyles = (colors: DriverColors) =>
     },
     rule: { lineHeight: 16 },
 
+    /** The "you are short" bar — see the note where it renders. */
+    walletNote: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      marginTop: spacing.base,
+      marginBottom: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+    },
+    /** The quieter version, for a driver who can afford it. */
+    walletHint: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.base,
+      marginBottom: spacing.xs,
+      paddingHorizontal: spacing.xs,
+    },
     actions: { gap: spacing.md },
     decline: {
       alignSelf: 'center',

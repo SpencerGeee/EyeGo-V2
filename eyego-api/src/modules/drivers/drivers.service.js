@@ -953,12 +953,88 @@ const ACCEPTABLE_DISPATCH_STATUSES = ['SCHEDULED', 'FILLING'];
  * The trip row already knows which case it is. Nothing about that decision
  * belonged on the client.
  */
+/**
+ * WHAT THIS TRIP WILL TAKE OUT OF THE DRIVER'S WALLET BEFORE IT PAYS ANYTHING IN.
+ *
+ * A CASH seat has no payment webhook, so the platform's commission is collected
+ * at BOARDING (`boardPassenger`) by debiting the driver. Card/MoMo seats settle
+ * through the webhook and `completeTrip` CREDITS the driver, so they need no
+ * float at all.
+ *
+ * Shared by `assertCanAffordTrip` below and exported so the offer payload and
+ * the accept guard cannot compute two different numbers for one ride.
+ */
+async function walletRequiredForTrip(tripId) {
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: {
+      commissionRate: true,
+      bookings: {
+        where: seatOccupyingWhere(),
+        select: {
+          fareAmountPesewas: true,
+          commissionAmountPesewas: true,
+          paymentMethod: true,
+          paymentStatus: true,
+        },
+      },
+    },
+  });
+  if (!trip) return 0;
+  const rate = trip.commissionRate ?? 0.15;
+  return trip.bookings.reduce((n, b) => {
+    if (b.paymentMethod !== 'CASH' || b.paymentStatus === 'PAID') return n;
+    return n + (b.commissionAmountPesewas ?? Math.round((b.fareAmountPesewas || 0) * rate));
+  }, 0);
+}
+
+/**
+ * REFUSE THE RIDE AT THE OFFER, NOT AT THE KERB.
+ *
+ * BUGFIX ("I accepted a trip and got to the pickup point, but when I tried to
+ * mark the passenger as boarded, THAT is when I got insufficient funds. The
+ * drivers need to know this before they can even accept the trip").
+ *
+ * The only check that existed lived inside `boardPassenger`, which is the last
+ * possible moment: the driver has already been dispatched, already declined
+ * other work, already driven to the pickup, and the passenger is standing
+ * there. Same fact, moved to the front of the trip — and it answers with the
+ * numbers, so the app can say "top up GH₵4.20", not "insufficient funds".
+ *
+ * Deliberately in `claimTrip`, the ONE verb every accept path routes through
+ * (dispatch, cascade and reassignment), so no fourth path can skip it.
+ */
+async function assertCanAffordTrip(driverId, tripId) {
+  const required = await walletRequiredForTrip(tripId);
+  if (required <= 0) return;
+  const driver = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { walletBalancePesewas: true },
+  });
+  const balance = driver?.walletBalancePesewas ?? 0;
+  if (balance >= required) return;
+  const err = new AppError(
+    `This ride is paid in cash, so GH₵${(required / 100).toFixed(2)} of commission comes out of your wallet when you board. You have GH₵${(balance / 100).toFixed(2)}. Top up GH₵${((required - balance) / 100).toFixed(2)} and it is yours.`,
+    402,
+    'INSUFFICIENT_WALLET_FOR_TRIP',
+  );
+  err.details = {
+    requiredPesewas: required,
+    balancePesewas: balance,
+    shortfallPesewas: required - balance,
+  };
+  throw err;
+}
+
 async function claimTrip(driverId, tripId) {
   const trip = await prisma.trip.findUnique({
     where: { id: tripId },
     select: { id: true, driverId: true, status: true },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  // Before any of the three claim paths commit anything.
+  await assertCanAffordTrip(driverId, tripId);
 
   if (trip.status === 'REASSIGNING') {
     return claimReassignedTrip(driverId, tripId);
@@ -2728,6 +2804,7 @@ module.exports = {
   getNotifications,
   startTrip, departTrip, arriveAtPickup, arriveTrip, cancelTrip, recordPresence,
   getTripById, acceptDispatch, claimTrip, declineDispatch, declineTrip, uploadDocument, reviewDocument,
+  walletRequiredForTrip, assertCanAffordTrip,
   addOfflinePassenger, addCashNoPhone, verifyOfflineOtp, releaseOfflineHold, boardPassenger, requestBoardingPin, setRequestsPaused,
   getPerformance, getRatings, getDocuments, updateEmergencyContact, updatePreferences, ratePassenger,
   setDestinationFilter, getDestinationFilter, deleteDestinationFilter,

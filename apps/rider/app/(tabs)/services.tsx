@@ -120,7 +120,7 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
   };
 
   return (
-    <Animated.View entering={FadeIn.duration(300)}>
+    <Animated.View entering={FadeIn.duration(300)} style={styles.glowRoom}>
       <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceCard}>
       <Pressable onPress={handlePress}>
         {/**
@@ -229,6 +229,13 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
           glow
           glowColor={colors.premiumBlue}
           glowColorSecondary={colors.premiumOrange}
+          /**
+           * The two-colour ring's widest halo defaults to a 36 pt reach, which
+           * is more than the 32 pt of clear space between two cards — so it
+           * would still meet its neighbour's. Capped to fit the room the layout
+           * actually gives it. See `tiersContainer` for the full note.
+           */
+          maxGlowRadius={20}
           style={styles.specialCard}
         >
           {/* Inset by the ring's stroke thickness (3, GradientGlowBorder's
@@ -268,7 +275,7 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
   );
 
   return (
-    <Animated.View entering={FadeIn.duration(300)}>
+    <Animated.View entering={FadeIn.duration(300)} style={styles.glowRoom}>
       {canMorph ? (
         <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceContainerHigh}>
           {inner}
@@ -358,7 +365,28 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: spacing.md,
   },
-  tiersContainer: { gap: spacing.sm },
+  /**
+   * ROOM FOR THE GLOW TO BE A GLOW.
+   *
+   * BUGFIX ("on the services page, the way the glow borders are stacked on each
+   * other, it's not nice — give each card padding up and down so they have room
+   * to shine their glow borders, I don't need them overlapping each other").
+   *
+   * `GradientGlowBorder` paints its halo as iOS shadows with a radius of up to
+   * 28 pt (36 for the two-colour premium ring), which means the light reaches
+   * roughly 28 pt PAST the card on every side. These containers were on an 8 pt
+   * gap, so each card's halo landed well inside its neighbour — and because the
+   * halo layers carry an opaque `fillColor` silhouette to cast from, the
+   * neighbour's card body then painted straight over the light. Three cards in a
+   * row of that is the "stacked on each other" look.
+   *
+   * The gap is now larger than the reach of the ring it has to clear, and each
+   * card additionally carries its own vertical padding (`glowRoom`) so the light
+   * belongs to the card rather than to the space between two of them.
+   */
+  tiersContainer: { gap: spacing.base },
+  /** Breathing room for one card's halo. See `tiersContainer`. */
+  glowRoom: { paddingVertical: spacing.sm },
   tierCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -398,7 +426,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 2,
   },
   chevron: { marginRight: spacing.md },
-  specialContainer: { gap: spacing.sm },
+  specialContainer: { gap: spacing.base },
   specialCard: {
     overflow: 'hidden',
   },

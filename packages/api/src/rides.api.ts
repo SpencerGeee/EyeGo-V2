@@ -98,6 +98,16 @@ export interface PendingOffer {
   dropoffLat: number | null; dropoffLng: number | null; dropoffAddress: string | null;
   farePesewas: number | null;
   driverEarningsPesewas: number | null;
+  /**
+   * The wallet balance this ride demands BEFORE it pays anything in.
+   *
+   * A CASH seat's commission is debited at boarding, so a driver with a short
+   * wallet used to discover the problem at the pickup with the passenger
+   * standing there. Computed server-side in `dispatch-cascade.cashFloatPesewas`.
+   * Zero for a card/MoMo ride.
+   */
+  walletRequiredPesewas?: number | null;
+  commissionPesewas?: number | null;
   tier: string | null;
   expiresAtServerMs: number;
   etaSeconds: number | null;
@@ -123,6 +133,9 @@ export interface PendingDispatch {
   dropoffLat: number | null; dropoffLng: number | null; dropoffAddress: string | null;
   farePesewas: number | null;
   driverEarningsPesewas: number | null;
+  /** See `PendingOffer.walletRequiredPesewas`. */
+  walletRequiredPesewas?: number | null;
+  commissionPesewas?: number | null;
   offeredToMe: boolean;
   expiresAtServerMs: number | null;
   heldByAnother: boolean;

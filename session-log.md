@@ -342,3 +342,14 @@ Decisions:
 Rejected: keeping a glow ring around a card that sits on a map — four stacked edges.
 Rejected: hardcoded fallback rows in FareBreakdownSheet (the fake "Promotion 10%").
 Open: runtime e2e not run (API down); two rotating rings on Services needs an FPS check.
+
+## 2026-08-31 [saved]
+Goal: 14-item sweep — dispatch/toast polish, wallet-at-accept, rider redesigns, E2E harness.
+Decisions:
+- Commission for a CASH seat is advertised on the offer and refused at `claimTrip`, not at boarding — a driver must never learn they cannot afford a ride at the kerb.
+- `effectivePickup` reads `Route.originLat` — its absence made every driver-created trip skip the pickup leg, which was the straight polyline.
+- `AT_PICKUP_METERS` 150 → 75, matching `ARRIVAL_RADIUS_M`: one number for "at the pickup" across router, copy and geofence.
+- Glow BLOOMS off on the driver's live-map screens (rings kept) — an iOS shadow re-rasterises whenever the ETA under it ticks.
+- Toast destination lives on the toast's own state, never a ref — a ref outlived its banner and sent drivers to cancelled trips.
+Rejected: adding offer geometry to the dispatch cascade payload (client `/geo/route` is cheaper and cannot destabilise dispatch); greying out the swipe on a short wallet (stale balance would cost real rides).
+Open: pre-departure `toPickup` now wins over the rider's fill-up preview; the 5 new E2E suites are unrun.

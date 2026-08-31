@@ -107,7 +107,17 @@ export function TripSurfaceShell({
 export function GlowCard({
   children,
   style,
-  glow = true,
+  /**
+   * Off by default now.
+   *
+   * Every card built with this sits inside a draggable panel over a live GL
+   * map, and the bloom is two full-size iOS-shadowed views that re-rasterise
+   * whenever their content changes — which for an ETA or a seat count is once
+   * a second. The ring alone (one masked gradient) carries the look; the bloom
+   * carried the stutter. Pass `glow` explicitly for the ONE hero element on a
+   * screen that has earned it.
+   */
+  glow = false,
 }: {
   children: React.ReactNode;
   style?: any;

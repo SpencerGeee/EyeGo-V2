@@ -244,7 +244,7 @@ export default function DriverLocationPickerScreen() {
               style={styles.searchInput}
               value={query}
               onChangeText={handleSearch}
-              placeholder="Search a place…"
+              placeholder="Search for a place"
               placeholderTextColor={colors.onSurfaceVariant}
               returnKeyType="search"
             />
@@ -379,13 +379,34 @@ const makeStyles = (colors: DriverColors) => StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
+  /**
+   * THE PLACEHOLDER WAS COMING OUT SPACED-OUT.
+   *
+   * BUGFIX ("the placeholder in the search field is showing 'search a place'
+   * all having space in between").
+   *
+   * `lineHeight` on a `TextInput` is the cause. React Native applies it by
+   * wrapping the text in a paragraph style, and for the PLACEHOLDER — which is
+   * measured before any text exists — that produces the wrong advance width per
+   * glyph on both platforms; on Android it additionally fights
+   * `includeFontPadding`. A `TextInput` needs a `height` (46 pt, set on the bar
+   * above) and NOT a line height; the value here was a copy-paste from the
+   * `Text` styles elsewhere in this file, where it is correct.
+   *
+   * `letterSpacing: 0` is stated rather than left to default so nothing
+   * inherited from a parent text style can reintroduce the gap, and the
+   * ellipsis is gone: '…' is one glyph in Geist but renders from a fallback
+   * face at some sizes, which widens the run it sits in.
+   */
   searchInput: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: 15,
-    lineHeight: Math.round(15 * 1.3),
+    letterSpacing: 0,
     color: colors.onSurface,
     padding: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   suggestionsBox: {
     marginTop: 8,

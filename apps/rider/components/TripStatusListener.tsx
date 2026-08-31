@@ -13,6 +13,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { BlurView } from 'expo-blur';
 import { socketEvents, connectSocket, disconnectSocket, bookingsApi, queryKeys } from '@eyego/api';
 import { useRideStore } from '../stores/ride.store';
+import { useRideEnded } from '../stores/rideEnded.store';
 import { useAuthStore } from '../stores/auth.store';
 import { useColors } from '../utils/useColors';
 import {
@@ -313,6 +314,40 @@ export function TripStatusListener() {
                 : 'Trip was cancelled',
           'close-circle',
         );
+
+        /**
+         * AND SAY IT AGAIN WHERE THE RIDER WILL ACTUALLY BE.
+         *
+         * FEATURE ("if the driver marks as no-show, when the rider is redirected
+         * to the homepage they should be given a notification or popup like 'the
+         * driver cancelled' or something").
+         *
+         * The banner above fires into a screen that is about to unmount: the
+         * terminal event tears the trip surface down and drops the rider on
+         * Home, taking the toast with it. So the FACT is recorded here and
+         * `RideEndedSheet` (mounted on Home) presents it whenever the rider
+         * arrives — see stores/rideEnded.store.ts.
+         *
+         * `byDriver` and `prepaid` are read off the server's own payload, which
+         * is why this can promise a refund without guessing: a cash rider gets
+         * "you have not been charged" and never a refund that does not exist.
+         */
+        useRideEnded.getState().raise({
+          reason: noDrivers
+            ? 'NO_DRIVERS'
+            : data.status === 'EXPIRED'
+              ? 'EXPIRED'
+              : data.status === 'NO_SHOW' || p.reason === 'DRIVER_NO_SHOW'
+                ? 'DRIVER_NO_SHOW'
+                : byDriver
+                  ? 'DRIVER_CANCELLED'
+                  : 'RIDER_CANCELLED',
+          refunded: prepaid,
+          destinationLabel:
+            useRideStore.getState().destination?.address ??
+            (data as any)?.snapshot?.dropoffAddress ??
+            null,
+        });
         endTripLiveNotification();
         endTripLiveActivity('CANCELLED');
         queryClient.invalidateQueries({ queryKey: queryKeys.bookings.myHistory() });
