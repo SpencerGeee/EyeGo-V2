@@ -223,6 +223,22 @@ export const userApi = {
   updatePrivacySettings: (settings: PrivacySettings) =>
     apiClient.put<ApiResponse<{ settings: PrivacySettings }>>('/user/me/privacy-settings', settings),
 
+  /**
+   * Record consent to the current terms and privacy policy.
+   *
+   * Takes no arguments on purpose. The server stamps the versions it considers
+   * current rather than believing a version the client names — a client that
+   * could name it could claim to have shown a document it never displayed,
+   * which makes the record useless as the evidence it exists to be.
+   */
+  acceptTerms: () =>
+    apiClient.post<ApiResponse<{
+      acceptedTermsVersion: string | null;
+      acceptedTermsAt: string | null;
+      acceptedPrivacyVersion: string | null;
+      acceptedPrivacyAt: string | null;
+    }>>('/user/me/accept-terms'),
+
   getSavedPlaces: () =>
     apiClient.get<ApiResponse<{ places: SavedPlace[] }>>('/user/me/saved-places'),
 

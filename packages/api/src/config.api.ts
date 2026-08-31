@@ -39,6 +39,15 @@ export interface PlatformConfig {
    * a panic button with no number is worse than a wrong one.
    */
   emergencyNumber: string;
+  /**
+   * Consent. The app compares these against the versions stamped on the user
+   * and shows the consent gate when either differs — a null on the user side
+   * being an account that predates consent being recorded at all.
+   */
+  termsVersion: string | null;
+  privacyVersion: string | null;
+  termsUrl: string | null;
+  privacyUrl: string | null;
   seatHoldMinutes: number;
   minFarePerSeatPesewas: number;
   driverRequiredWalletPesewas: number;
@@ -64,6 +73,12 @@ export const PLATFORM_CONFIG_FALLBACK: PlatformConfig = {
   driverOnlineEnabled: true,
   supportPhone: null,
   emergencyNumber: '112',
+  // Null rather than a guess: a fallback version that disagreed with the server
+  // would prompt every user for consent the moment the config call failed.
+  termsVersion: null,
+  privacyVersion: null,
+  termsUrl: null,
+  privacyUrl: null,
   seatHoldMinutes: 10,
   minFarePerSeatPesewas: 800,
   driverRequiredWalletPesewas: 2000,
@@ -78,7 +93,48 @@ export const PLATFORM_CONFIG_FALLBACK: PlatformConfig = {
   platformFeePesewas: 100,
 };
 
+/**
+ * The release gate, as the app sees it. Answered WITHOUT a token — see the
+ * `/client` route in eyego-api/src/modules/config/config.routes.js for why that
+ * is load-bearing rather than an oversight.
+ */
+export interface ClientGate {
+  app: 'rider' | 'driver';
+  platform: 'ios' | 'android';
+  /** Oldest build the operator still serves. Null means the gate is off. */
+  minVersion: string | null;
+  /** Where to send someone to update. Null when the operator has not set it. */
+  storeUrl: string | null;
+  /** True when THIS build is below `minVersion`. */
+  upgradeRequired: boolean;
+  maintenance: boolean;
+  maintenanceMessage: string | null;
+}
+
+/**
+ * What the app assumes when the gate has not answered.
+ *
+ * Both flags OFF. A gate that fails closed would take the whole platform down
+ * on a network blip — the exact failure it exists to prevent, caused by itself.
+ */
+export const CLIENT_GATE_FALLBACK: ClientGate = {
+  app: 'rider',
+  platform: 'android',
+  minVersion: null,
+  storeUrl: null,
+  upgradeRequired: false,
+  maintenance: false,
+  maintenanceMessage: null,
+};
+
 export const configApi = {
+  /**
+   * Unauthenticated. Poll at cold start and on foreground, BEFORE the session
+   * is restored — a build too old to refresh its token still has to be able to
+   * find out that it is too old.
+   */
+  getClientGate: () => apiClient.get<ApiResponse<ClientGate>>('/config/client'),
+
   /**
    * Authenticated, edge-cached for a minute, and cheap. Poll it on foreground —
    * that is the whole point of it being remote.

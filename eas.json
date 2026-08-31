@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 16.0.0"
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -15,13 +16,38 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENV": "preview"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENV": "production"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "//": "Every value here comes from the client's Apple accounts, which do not exist yet (see docs/go-live/01-credentials-checklist.md). Filled from EAS secrets rather than committed: ascAppId is the numeric App Store Connect id, appleTeamId the 10-character team id. `expo-apple-app-specific-password` is NOT used — an App Store Connect API key (.p8) uploaded to EAS is what lets CI submit without a human.",
+        "ascAppId": "$ASC_APP_ID",
+        "appleTeamId": "$APPLE_TEAM_ID"
+      },
+      "android": {
+        "//": "serviceAccountKeyPath points at the Google Play service-account JSON. Store it as an EAS file secret, never in the repo. `internal` is deliberate: the first upload of a new package name has to go to a testing track, and production is promoted from the Play Console once the store listing is complete.",
+        "serviceAccountKeyPath": "./google-play-service-account.json",
+        "track": "internal",
+        "releaseStatus": "draft",
+        "changesNotSentForReview": false
+      }
+    }
   }
 }

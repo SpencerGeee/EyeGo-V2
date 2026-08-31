@@ -115,14 +115,64 @@ export function setApiBaseUrl(url: string): void {
   apiClient.defaults.baseURL = url;
 }
 
+/**
+ * WHO IS CALLING, AND WHICH BUILD.
+ *
+ * Every request carries the app name and its native version. Two things need
+ * it and neither can work without it:
+ *
+ *   1. The force-upgrade gate. A native build that is already in a store cannot
+ *      be recalled — the only lever is refusing to serve it. The API compares
+ *      this against `minSupportedVersion` and answers 426 on write routes, so a
+ *      client too old to be trusted with money or dispatch is stopped at the
+ *      boundary rather than left to misbehave.
+ *   2. Crash triage. A Sentry issue that does not name the build it came from
+ *      is a report you cannot act on.
+ *
+ * The version reported is `expoConfig.version` — the one in app.json — rather
+ * than a native query, so this needs no extra native module. The caveat that
+ * comes with that: an OTA update ships its own app.json, so an OTA CAN move
+ * this number without the installed binary changing. That is survivable only
+ * because of the standing rule in this project that the version is bumped for
+ * native changes; an OTA must leave it alone. If that rule is ever broken, the
+ * gate starts measuring the wrong thing, and `expo-application`'s
+ * `nativeApplicationVersion` is the correct replacement.
+ */
+function clientIdentity(): { app: string; version: string; platform: string } {
+  try {
+    // Guarded: this module is also imported by the admin console's Node
+    // process, where neither of these exists.
+
+    const { Platform } = require('react-native');
+
+    const Constants = require('expo-constants').default;
+    const slug = String(Constants?.expoConfig?.slug ?? '');
+    return {
+      app: slug.includes('driver') ? 'driver' : slug.includes('rider') ? 'rider' : '',
+      version: String(Constants?.expoConfig?.version ?? ''),
+      platform: String(Platform?.OS ?? ''),
+    };
+  } catch {
+    return { app: '', version: '', platform: '' };
+  }
+}
+
+const IDENTITY = clientIdentity();
+
 export const apiClient: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
+    ...(IDENTITY.app ? { 'x-eyego-app': IDENTITY.app } : {}),
+    ...(IDENTITY.version ? { 'x-eyego-version': IDENTITY.version } : {}),
+    ...(IDENTITY.platform ? { 'x-eyego-platform': IDENTITY.platform } : {}),
   },
 });
+
+/** What this build reports itself as. Exported so the upgrade gate can show it. */
+export const clientBuild = IDENTITY;
 
 // Attach JWT to every request. Async so the auth-ready gate above can hold the
 // very first requests of a cold start until the stored session is in memory —

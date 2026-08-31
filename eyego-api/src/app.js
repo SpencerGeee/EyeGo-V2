@@ -162,6 +162,38 @@ app.get('/health/dispatch', async (_req, res) => {
   }
 });
 
+/**
+ * ── THE RELEASE GATE ──────────────────────────────────────────────
+ *
+ * Refuses WRITES from an app build the operator has declared too old, with 426
+ * Upgrade Required. See utils/app-version.js for why this exists at all: a bad
+ * native build in a store cannot be recalled, and an OTA cannot reach one that
+ * crashes before its update check.
+ *
+ * Three deliberate exemptions, and the reasoning matters more than the list:
+ *
+ *   GET and HEAD are never gated. Someone mid-ride on a stale build must still
+ *   be able to watch their driver approach while the app tells them to update.
+ *   Refusing reads turns "please update" into "your trip has vanished".
+ *
+ *   /v1/auth is never gated, because refreshing a token is how a stale client
+ *   stays able to READ. Gating it would log out exactly the people the gate is
+ *   trying to warn.
+ *
+ *   /v1/config is never gated, because /v1/config/client is where a client goes
+ *   to find out it has been gated. Refusing that is a closed loop.
+ *
+ * Everything else that changes state — booking, dispatch, payment, wallet — is
+ * covered, which is the set where an old client can do damage rather than just
+ * look wrong.
+ */
+const { requireSupportedClient } = require('./utils/app-version');
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  if (req.path.startsWith('/v1/auth') || req.path.startsWith('/v1/config')) return next();
+  return requireSupportedClient(req, res, next);
+});
+
 // ── API Routes ────────────────────────────────────────────────────
 app.use('/v1/auth', authRoutes);
 app.use('/v1/user', usersRoutes);

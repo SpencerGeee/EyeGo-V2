@@ -274,7 +274,14 @@ everything here ships before handover.
    clients (§2.6 #2)
 9. Reviewer/demo mode across both apps and dispatch (§2.6 #5)
 10. Terms + privacy acceptance, version-stamped (§2.6 #6)
-11. Driver `ErrorBoundary`, Sentry in admin, release tagging, sourcemap upload
+11. ~~Driver `ErrorBoundary`~~ — **finding withdrawn.** The driver root has
+    `AppErrorBoundary` defined inline in `app/_layout.tsx:72`, wrapping the
+    whole tree and reporting through `captureException`. The audit looked for
+    `components/ErrorBoundary.tsx` and concluded from the filename that no
+    boundary existed. It does, and it is correct. Remaining under this item:
+    Sentry in admin (needs `npm i @sentry/nextjs` — deferred to the go-live
+    pack rather than added to `package.json` without an install, which would
+    break `next build`), release/dist tagging and sourcemap upload.
 
 **Group 3 — money**
 

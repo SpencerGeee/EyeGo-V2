@@ -149,3 +149,12 @@ export { NoticeHost } from './notify/NoticeHost';
  * packages/ui/src/safety/dial.ts for the five SOS call sites that did not.
  */
 export { callNumber, messageNumber } from './safety/dial';
+
+/**
+ * The release gate — the only way to stop a native build that is already
+ * installed on a phone. See packages/ui/src/gate/ReleaseGate.tsx.
+ */
+export { ReleaseGate } from './gate/ReleaseGate';
+export type { ReleaseGateProps } from './gate/ReleaseGate';
+export { ConsentGate } from './gate/ConsentGate';
+export type { ConsentGateProps } from './gate/ConsentGate';

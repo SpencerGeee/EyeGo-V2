@@ -425,8 +425,29 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // there is a live trip to justify it. Foreground reporting already works
       // without it (see the emitLocation in applyPosition above), so being online
       // and idle needs nothing more than While-Using.
+      /**
+       * ANDROID NEVER ASKS FOR BACKGROUND LOCATION. iOS STILL DOES.
+       *
+       * Android 10 introduced ACCESS_BACKGROUND_LOCATION, and Google gates it
+       * behind a Play Console declaration, a recorded demo video and a policy
+       * review that is the most common reason a driver app sits in review for
+       * weeks. A foreground service with the `location` type does not need it:
+       * started while the app is visible — which it is, because the driver just
+       * accepted a trip — it keeps receiving fixes with the screen off and the
+       * app backgrounded. What is given up is tracking after the driver swipes
+       * the app away, which is the case a persistent notification is there to
+       * discourage anyway.
+       *
+       * iOS has no equivalent trade. UIBackgroundModes: [location] plus the
+       * Always authorisation is the ordinary, uncontroversial way to do this,
+       * Apple reviews it without ceremony, and dropping it would cost real
+       * tracking for nothing.
+       *
+       * If this ever needs revisiting, the decision and its cost are in
+       * docs/superpowers/plans/2026-08-31-production-readiness.md §2.3.
+       */
       let bgStatus: Location.PermissionStatus | 'skipped' = 'skipped';
-      if (isOnTrip) {
+      if (isOnTrip && Platform.OS === 'ios') {
         // Don't re-prompt on every trip: if it was already decided, respect that.
         const existing = await Location.getBackgroundPermissionsAsync();
         if (existing.status === 'granted') {

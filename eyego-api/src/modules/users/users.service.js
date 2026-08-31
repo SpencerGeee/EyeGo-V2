@@ -16,6 +16,13 @@ async function getMe(userId) {
       profilePhoto: true, preferredTier: true, authProvider: true, createdAt: true,
       businessMode: true, businessCompanyName: true, businessTaxId: true, businessExpenseEmail: true,
       requireBoardingPin: true,
+      // Consent. The app compares these against `termsVersion` / `privacyVersion`
+      // from /v1/config/public and prompts when either differs — a null being an
+      // account created before consent was recorded, which prompts the same way.
+      acceptedTermsVersion: true, acceptedPrivacyVersion: true,
+      // Suppresses the consent prompt and the real dispatch path for the two
+      // seeded store-review accounts. Never settable by a user.
+      isReviewer: true,
     },
   });
   if (!user) throw new NotFoundError('User');
@@ -548,6 +555,33 @@ const getPrivacySettings = (userId) => getSettingsBlob(userId, 'privacySettings'
 const updatePrivacySettings = (userId, patch) => updateSettingsBlob(userId, 'privacySettings', patch);
 
 /**
+ * Stamp the current terms and privacy versions on the user.
+ *
+ * Idempotent: accepting twice writes the same values, which is exactly what a
+ * client retrying after a dropped connection does. The versions arrive from the
+ * controller, which reads them from settings rather than from the request — see
+ * the note there for why a client-supplied version makes the record worthless.
+ */
+const acceptTerms = async (userId, { termsVersion, privacyVersion }) => {
+  const now = new Date();
+  return prisma.user.update({
+    where: { id: userId },
+    data: {
+      acceptedTermsVersion: termsVersion || null,
+      acceptedTermsAt: termsVersion ? now : null,
+      acceptedPrivacyVersion: privacyVersion || null,
+      acceptedPrivacyAt: privacyVersion ? now : null,
+    },
+    select: {
+      acceptedTermsVersion: true,
+      acceptedTermsAt: true,
+      acceptedPrivacyVersion: true,
+      acceptedPrivacyAt: true,
+    },
+  });
+};
+
+/**
  * ── SAVED PLACES ────────────────────────────────────────────────────────────
  *
  * "You need to also implement the system where users can add multiple saved
@@ -772,4 +806,4 @@ async function deleteSavedPlace(userId, placeId) {
 }
 
 module.exports = {
-  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };
+  getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, acceptTerms, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };

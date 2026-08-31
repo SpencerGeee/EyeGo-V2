@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NetworkReporter } from '../components/NetworkReporter';
 import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost } from '@eyego/ui';
+import { ReleaseGateHost } from '../components/ReleaseGateHost';
 import {
   useFonts,
   Geist_300Light,
@@ -744,6 +745,8 @@ export default function RootLayout() {
             inlined in (tabs)/home.tsx and therefore only existed there. */}
         <NetworkReporter />
         <NoticeHost />
+        {/* Covers the app when the operator retires this build or turns on maintenance. */}
+        <ReleaseGateHost />
         {/* Off-screen parity: app-wide socket banners (chat/dispatch/status) +
             cache invalidation, mirroring the rider TripStatusListener. */}
         {isLoggedIn && <DriverTripStatusListener />}

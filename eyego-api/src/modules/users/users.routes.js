@@ -116,6 +116,9 @@ router.put(
 router.post('/me/insurance', upload.single('card'), controller.uploadInsurance);
 
 // ── Privacy settings ─────────────────────────────────────────────────
+// Consent. See the controller for why the version is server-decided.
+router.post('/me/accept-terms', controller.acceptTerms);
+
 router.get('/me/privacy-settings', controller.getPrivacySettings);
 
 router.put(

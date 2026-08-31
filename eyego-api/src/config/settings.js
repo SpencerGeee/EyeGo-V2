@@ -369,6 +369,87 @@ const REGISTRY = [
     maxLength: 32,
   },
 
+  // ── RELEASE CONTROL ──────────────────────────────────────────────
+  //
+  // A native build that is already in a store cannot be recalled. Apple and
+  // Google will remove a listing, but every phone that already installed it
+  // keeps running it, and an OTA cannot reach a build whose JavaScript is
+  // broken enough to crash before the update check. The only reliable lever is
+  // the server refusing to serve it.
+  //
+  // These are set BEFORE they are needed, not during the incident: an empty
+  // minimum means no gate, which is the correct default and also the state you
+  // do not want to discover at 2am.
+  {
+    key: 'MIN_SUPPORTED_VERSION_RIDER', group: 'release', type: TYPES.TEXT,
+    label: 'Oldest rider build still allowed', envDefault: '',
+    help: 'Semver, e.g. 1.2.0. Anything older is refused on write routes with 426 and shown a blocking upgrade screen. Empty disables the gate entirely. Raise this ONLY for a build that is genuinely unsafe to keep serving — it strands every user who cannot update.',
+    maxLength: 20,
+  },
+  {
+    key: 'MIN_SUPPORTED_VERSION_DRIVER', group: 'release', type: TYPES.TEXT,
+    label: 'Oldest driver build still allowed', envDefault: '',
+    help: 'As above, for the driver app. Remember that a stranded driver cannot earn — this is a bigger hammer here than on the rider side.',
+    maxLength: 20,
+  },
+  {
+    key: 'STORE_URL_RIDER_IOS', group: 'release', type: TYPES.TEXT,
+    label: 'Rider App Store URL', envDefault: '', maxLength: 300,
+    help: 'Where the upgrade screen sends people. Without it the screen can tell someone to update but not how.',
+  },
+  {
+    key: 'STORE_URL_RIDER_ANDROID', group: 'release', type: TYPES.TEXT,
+    label: 'Rider Play Store URL', envDefault: '', maxLength: 300,
+  },
+  {
+    key: 'STORE_URL_DRIVER_IOS', group: 'release', type: TYPES.TEXT,
+    label: 'Driver App Store URL', envDefault: '', maxLength: 300,
+  },
+  {
+    key: 'STORE_URL_DRIVER_ANDROID', group: 'release', type: TYPES.TEXT,
+    label: 'Driver Play Store URL', envDefault: '', maxLength: 300,
+  },
+  {
+    key: 'MAINTENANCE_MODE', group: 'release', type: TYPES.BOOLEAN,
+    label: 'Maintenance mode', envDefault: false,
+    help: 'On shows both apps a maintenance screen instead of a home screen that half works. It does NOT stop the API — trips already in progress must be able to finish, and cutting them off mid-ride is worse than whatever you are fixing. Use the booking and driver-online kill switches to stop new work.',
+  },
+  {
+    key: 'MAINTENANCE_MESSAGE', group: 'release', type: TYPES.TEXT,
+    label: 'Maintenance message', envDefault: 'EyeGo is briefly down for maintenance. We will be back shortly.',
+    maxLength: 300,
+    help: 'Shown verbatim. Say what is happening and when it ends if you know.',
+  },
+
+  // ── LEGAL ────────────────────────────────────────────────────────
+  //
+  // A version string, not a boolean. "Did they accept" is never the question
+  // that matters; "did they accept THIS" is. Bumping either version re-prompts
+  // everybody at their next app open, and the acceptance is stamped on the User
+  // row with the version they saw.
+  //
+  // Bump these ONLY when the document changes in substance. Re-consenting the
+  // whole user base for a typo teaches people to tap through the screen without
+  // reading it, which defeats the purpose of having it.
+  {
+    key: 'TERMS_VERSION', group: 'legal', type: TYPES.TEXT,
+    label: 'Current terms version', envDefault: '2026-09-01', maxLength: 40,
+    help: 'Any stable string; a date is easiest to reconcile against the published document.',
+  },
+  {
+    key: 'PRIVACY_VERSION', group: 'legal', type: TYPES.TEXT,
+    label: 'Current privacy policy version', envDefault: '2026-09-01', maxLength: 40,
+  },
+  {
+    key: 'TERMS_URL', group: 'legal', type: TYPES.TEXT,
+    label: 'Terms of service URL', envDefault: 'https://eyego.app/terms', maxLength: 300,
+    help: 'Linked from both apps and required on both store listings. It must resolve — a dead policy link is a rejection.',
+  },
+  {
+    key: 'PRIVACY_URL', group: 'legal', type: TYPES.TEXT,
+    label: 'Privacy policy URL', envDefault: 'https://eyego.app/privacy', maxLength: 300,
+  },
+
   // ── SAFETY AND ESCALATION ────────────────────────────────────────
   //
   // The SOS fan-out used to reach only admin phones that had registered an FCM
@@ -439,6 +520,8 @@ const GROUPS = [
   { id: 'dispatch', label: 'Dispatch' },
   { id: 'apps', label: 'Apps', help: 'Changes both apps pick up without a store release.' },
   { id: 'safety', label: 'Safety and escalation', help: 'Who gets woken when a rider or driver hits the panic button, and what the console requires of its own operators.' },
+  { id: 'legal', label: 'Terms and privacy', help: 'Bumping a version here re-prompts every user for consent at their next app open. The URLs are required on both store listings and must resolve.' },
+  { id: 'release', label: 'Releases and maintenance', help: 'The only lever that reaches a bad build already installed on a phone. Set the store URLs before you ever need the version gate — an upgrade screen with nowhere to send people is not much of an upgrade screen.' },
 ];
 
 /** Definition default, from env when it names one. */
@@ -678,6 +761,12 @@ function publicConfig() {
     // than to null — a missing setting must never leave the panic button with
     // no number to call.
     emergencyNumber: get('EMERGENCY_NUMBER') || '112',
+    // What the apps must have consent for, and where the documents live. The
+    // app compares these against the versions stamped on the signed-in user.
+    termsVersion: get('TERMS_VERSION') || null,
+    privacyVersion: get('PRIVACY_VERSION') || null,
+    termsUrl: get('TERMS_URL') || null,
+    privacyUrl: get('PRIVACY_URL') || null,
     seatHoldMinutes: get('SEAT_HOLD_DURATION_MINUTES'),
     minFarePerSeatPesewas: get('RIDE_GROUP_MIN_FARE_PER_SEAT_PESEWAS'),
     driverRequiredWalletPesewas: get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS'),

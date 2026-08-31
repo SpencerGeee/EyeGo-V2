@@ -49,8 +49,8 @@ export type { Notification as AppNotification } from './notifications.api';
 // retired fixed, admin-curated routes in favour of ad-hoc `Route` rows created
 // behind a map pin. Every call in that module 404s. It stays on disk because the
 // fixed-route product may come back; exporting it only offers callers a trap.
-export { configApi, PLATFORM_CONFIG_FALLBACK } from './config.api';
-export type { PlatformConfig, PlatformTier } from './config.api';
+export { configApi, PLATFORM_CONFIG_FALLBACK, CLIENT_GATE_FALLBACK } from './config.api';
+export type { PlatformConfig, PlatformTier, ClientGate } from './config.api';
 export { driverApi, MOMO_NETWORKS, VEHICLE_TIERS, MIN_SEATER_COUNT, MAX_SEATER_COUNT } from './drivers.api';
 export type { DriverProfile, DriverTrip, CreateTripPayload, DriverPerformance, DriverRatings, DriverDocument, PendingTripRequest, UpcomingScheduledTrip, MomoNetwork, DriverVerificationInput, VehicleTier } from './drivers.api';
 export { walletApi } from './wallet.api';

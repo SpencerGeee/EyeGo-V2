@@ -143,6 +143,25 @@ const updatePrivacySettings = async (req, res) => {
   ok(res, { settings }, 'Privacy settings saved');
 };
 
+/**
+ * Record that this user accepted the current terms and privacy policy.
+ *
+ * The versions are taken from settings, NOT from the request body. A client
+ * that could name the version it accepted could also claim to have accepted a
+ * version it never displayed, which makes the record worthless as evidence —
+ * and evidence is the entire reason the record exists. The client's job is to
+ * show the current documents and say that the user agreed; the server decides
+ * what current meant at that moment.
+ */
+const acceptTerms = async (req, res) => {
+  const settings = require('../../config/settings');
+  const acceptance = await usersService.acceptTerms(req.user.userId, {
+    termsVersion: String(settings.get('TERMS_VERSION') || ''),
+    privacyVersion: String(settings.get('PRIVACY_VERSION') || ''),
+  });
+  ok(res, acceptance, 'Thanks — recorded.');
+};
+
 const getSavedPlaces = async (req, res) => {
   const places = await usersService.getSavedPlaces(req.user.userId);
   ok(res, { places });
@@ -169,4 +188,4 @@ const deleteSavedPlace = async (req, res) => {
 };
 
 module.exports = {
-  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };
+  getAccountChecklist, getPreferences, updatePreferences, getMe, updateMe, uploadAvatar, updateFcmToken, deleteMe, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, getNotificationPreferences, updateNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, uploadInsurance, getPrivacySettings, updatePrivacySettings, acceptTerms, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };

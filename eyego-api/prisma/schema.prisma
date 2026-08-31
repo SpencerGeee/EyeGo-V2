@@ -115,6 +115,36 @@ model User {
   businessCompanyName   String?
   businessTaxId         String?
   businessExpenseEmail  String?
+  // ── Terms and privacy acceptance ───────────────────────────────────────
+  //
+  // Both stores expect the policy links; a dispute, a chargeback or the Data
+  // Protection Commission expects the RECORD — which version this person
+  // agreed to, and when. A checkbox at signup that leaves no row behind proves
+  // nothing six months later.
+  //
+  // Version rather than a boolean, because the interesting question is never
+  // "did they accept" but "did they accept THIS". Bumping
+  // CURRENT_TERMS_VERSION in the console re-prompts everyone; a `null` here is
+  // an account created before this existed and is re-prompted the same way.
+  acceptedTermsVersion    String?
+  acceptedTermsAt         DateTime?
+  acceptedPrivacyVersion  String?
+  acceptedPrivacyAt       DateTime?
+
+  // ── App-review account ─────────────────────────────────────────────────
+  //
+  // Apple reviews from Cupertino and Google from wherever their reviewer sits.
+  // Neither has an EyeGo driver within a hundred miles, so a reviewer opening
+  // the rider app requests a ride, waits, and gets "no drivers available" —
+  // which reads as an app whose core function does not work, and is the single
+  // most common rejection reason for a ride-hailing submission.
+  //
+  // A flagged account gets a scripted driver that accepts, drives a canned
+  // polyline and completes, with payment forced down the sandbox path. It is
+  // set from the admin console on two seeded accounts and nothing else; there
+  // is no way for a user to give it to themselves.
+  isReviewer    Boolean      @default(false)
+
   isActive      Boolean      @default(true)
   isBanned      Boolean      @default(false)
   walletBalancePesewas Int   @default(0)

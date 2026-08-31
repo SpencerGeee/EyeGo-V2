@@ -1,0 +1,52 @@
+# The repo is developed on Windows and deployed to Linux, and until this file
+# existed it held a mix of CRLF and LF with no rule. That is not only diff
+# noise: JavaScript's `.` does not match \r, so a regex written as `(.*)$` and
+# run line-by-line over a CRLF file matches nothing. It silently dropped 16 of
+# 20 route files during the production-readiness audit, and it will do the same
+# to the next tool anyone writes against this repo.
+#
+# Normalise everything textual to LF in the repository. Working copies still get
+# whatever the platform wants on checkout.
+* text=auto eol=lf
+
+# Shell scripts and anything that runs inside the Docker images must be LF even
+# on a Windows checkout — a CRLF shebang line makes the kernel look for an
+# interpreter whose name ends in \r, and the error ("no such file or directory"
+# naming a binary that plainly exists) is memorably unhelpful.
+*.sh              text eol=lf
+*.mjs             text eol=lf
+Dockerfile        text eol=lf
+*.Dockerfile      text eol=lf
+docker-compose*.yml text eol=lf
+
+# Windows-only tooling keeps CRLF.
+*.bat             text eol=crlf
+*.cmd             text eol=crlf
+*.ps1             text eol=crlf
+
+# Binaries: never touched, never diffed as text.
+*.png             binary
+*.jpg             binary
+*.jpeg            binary
+*.gif             binary
+*.webp            binary
+*.ico             binary
+*.pdf             binary
+*.ttf             binary
+*.otf             binary
+*.woff            binary
+*.woff2           binary
+*.mp4             binary
+*.mov             binary
+*.apk             binary
+*.aab             binary
+*.ips             binary
+*.keystore        binary
+*.p8              binary
+*.p12             binary
+
+# Generated and vendored files: keep them out of diffs and out of language
+# statistics, but still stored as text.
+*.lock            -diff
+package-lock.json -diff linguist-generated=true
+yarn.lock         -diff linguist-generated=true

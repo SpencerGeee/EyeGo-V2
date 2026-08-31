@@ -37,7 +37,12 @@ Thumbs.db
 **/prisma/dev.db-journal
 
 # EAS / Firebase / signing
+# Both spellings: eas.json names the Play key `google-play-service-account.json`
+# and only the shorter form was ignored, so the one file that grants publish
+# rights to the Play account was the one file not covered.
 google-service-account.json
+google-play-service-account.json
+*service-account*.json
 GoogleService-Info.plist
 google-services.json
 *.jks

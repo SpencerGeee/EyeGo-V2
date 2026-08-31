@@ -41,6 +41,7 @@ import { useColors } from '../utils/useColors';
 import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { ReleaseGateHost } from '../components/ReleaseGateHost';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
 import { offlineQueue } from '../utils/offlineQueue';
 import { useOtaUpdates } from '../hooks/useOtaUpdates';
@@ -936,6 +937,8 @@ export default function RootLayout() {
           */}
           <NetworkReporter />
           <NoticeHost />
+          {/* Covers the app when the operator retires this build or turns on maintenance. */}
+          <ReleaseGateHost />
           <GlobalToast />
           {/* Global foreground push notification banner */}
           {inAppBanner && (
