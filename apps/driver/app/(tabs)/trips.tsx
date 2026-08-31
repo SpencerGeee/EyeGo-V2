@@ -117,7 +117,7 @@ export default function TripsScreen() {
         <Pressable
           style={styles.reportBtn}
           onPress={() => goDeeper(`/(trip)/report/${item.id}` as any)}
-        >
+         accessibilityRole="button">
           <Ionicons name="flag-outline" size={13} color={colors.onSurfaceVariant} />
           <Text variant="caption" color={colors.onSurfaceVariant}>Report passenger</Text>
         </Pressable>
@@ -129,7 +129,7 @@ export default function TripsScreen() {
           style={styles.reportBtn}
           onPress={() => confirmCancel(item.id)}
           disabled={cancelMutation.isPending}
-        >
+         accessibilityRole="button">
           <Ionicons name="close-circle-outline" size={13} color={colors.error} />
           <Text variant="caption" color={colors.error}>Cancel trip</Text>
         </Pressable>
@@ -165,7 +165,7 @@ export default function TripsScreen() {
       {isError ? (
         <View style={styles.emptyWrapper}>
           <Text variant="bodyMedium" color={colors.error} style={{ marginBottom: 12 }}>Failed to load trips.</Text>
-          <Pressable onPress={() => refetch()} style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 8 }}>
+          <Pressable onPress={() => refetch()} style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 8 }} accessibilityRole="button">
             <Text style={{ color: colors.onPrimary, fontFamily: fonts.semiBold }}>Retry</Text>
           </Pressable>
         </View>

@@ -181,7 +181,7 @@ export default function OnboardingScreen() {
                 ].map(({ label, placeholder, value, setter, numeric }, idx, arr) => (
                   <View key={label} style={[styles.fieldRow, idx === arr.length - 1 && { borderBottomWidth: 0 }]}>
                     <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>{label}</Text>
-                    <TextInput
+                    <TextInput maxFontSizeMultiplier={1.4}
                       style={styles.input}
                       value={value}
                       onChangeText={setter}
@@ -211,7 +211,7 @@ export default function OnboardingScreen() {
                       key={t}
                       onPress={() => setTier(t)}
                       style={[styles.tierChip, selected && { borderColor: colors.primary, backgroundColor: colors.primary + '1A' }]}
-                    >
+                     accessibilityRole="button">
                       <Text
                         variant="labelMedium"
                         color={selected ? colors.primary : colors.onSurfaceVariant}
@@ -249,7 +249,7 @@ export default function OnboardingScreen() {
                       key={doc.type}
                       style={[styles.docRow, idx === REQUIRED_DOCS.length - 1 && { borderBottomWidth: 0 }]}
                       onPress={() => goDeeper('/(profile)/documents' as any)}
-                    >
+                     accessibilityRole="button">
                       <View style={styles.iconBg}>
                         <Ionicons
                           name={uploaded ? 'checkmark-circle' : 'document-attach-outline'}

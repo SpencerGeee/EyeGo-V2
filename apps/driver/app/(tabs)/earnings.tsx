@@ -367,7 +367,7 @@ export default function EarningsScreen() {
           <Pressable
             onPress={() => goDeeper('/(profile)/payout-account' as any)}
             style={styles.payoutLink}
-          >
+           accessibilityRole="button">
             <Ionicons name="card-outline" size={13} color={colors.onSurfaceVariant} />
             <Text variant="caption" color={colors.onSurfaceVariant}>Manage payout account</Text>
           </Pressable>
@@ -382,7 +382,7 @@ export default function EarningsScreen() {
                 key={p.key}
                 style={[styles.periodBtn, period === p.key && styles.periodActive]}
                 onPress={() => setPeriod(p.key)}
-              >
+               accessibilityRole="button">
                 <Text
                   style={[
                     styles.periodText,
@@ -541,7 +541,7 @@ export default function EarningsScreen() {
           <KeyboardStickyView style={styles.stickyGroup}>
             <View style={styles.amountInputWrapper}>
               <Text style={styles.ghsPrefix}>GHS</Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.amountInput}
                 value={topUpAmount}
                 onChangeText={setTopUpAmount}
@@ -600,7 +600,7 @@ export default function EarningsScreen() {
           <KeyboardStickyView style={styles.stickyGroup}>
             <View style={styles.amountInputWrapper}>
               <Text style={styles.ghsPrefix}>GHS</Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.amountInput}
                 value={withdrawAmount}
                 onChangeText={setWithdrawAmount}

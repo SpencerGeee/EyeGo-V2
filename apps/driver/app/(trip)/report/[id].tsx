@@ -149,7 +149,7 @@ export default function ReportPassengerScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </Entrance>
@@ -255,7 +255,7 @@ export default function ReportPassengerScreen() {
                   key={type}
                   style={[styles.reasonRow, isLast && { borderBottomWidth: 0 }]}
                   onPress={() => setSelectedType(type)}
-                >
+                 accessibilityRole="button">
                   <View style={[styles.dot, isSelected && styles.dotActive]} />
                   <Text
                     variant="bodyMedium"
@@ -279,7 +279,7 @@ export default function ReportPassengerScreen() {
               {details.length}/{DETAILS_MAX}
             </Text>
           </View>
-          <TextInput
+          <TextInput maxFontSizeMultiplier={1.4}
             style={styles.detailsInput}
             value={details}
             onChangeText={(t) => setDetails(t.slice(0, DETAILS_MAX))}

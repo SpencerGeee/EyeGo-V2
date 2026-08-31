@@ -531,7 +531,7 @@ export default function HomeScreen() {
                 alignItems: 'center', justifyContent: 'center',
                 borderWidth: 1, borderColor: showHeatmap ? colors.primary : colors.outline,
               }}
-            >
+             accessibilityRole="button" accessibilityLabel="Show where demand is high">
               <Ionicons name="flame-outline" size={16} color={showHeatmap ? colors.primary : colors.onSurfaceVariant} />
             </Pressable>
           )}

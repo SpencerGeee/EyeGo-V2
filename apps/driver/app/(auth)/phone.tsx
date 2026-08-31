@@ -109,13 +109,13 @@ export default function DriverPhoneScreen() {
             <Pressable
               style={styles.phoneContainer}
               onPress={() => inputRef.current?.focus()}
-            >
+             accessibilityRole="button">
               <View style={styles.countryCode}>
                 <Text style={styles.flag}>🇬🇭</Text>
                 <Text style={styles.code}>+233</Text>
               </View>
               <View style={styles.divider} />
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 ref={inputRef}
                 style={styles.phoneInput}
                 value={phone}

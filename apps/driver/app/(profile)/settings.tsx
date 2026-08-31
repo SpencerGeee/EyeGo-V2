@@ -32,7 +32,7 @@ function ExpandSection({ title, body, colors }: { title: string; body: string; c
       <Pressable
         style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.base, gap: spacing.md }}
         onPress={() => setOpen((v) => !v)}
-      >
+       accessibilityRole="button">
         <Text style={{ flex: 1, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
           {title}
         </Text>
@@ -120,7 +120,7 @@ export default function SettingsScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -184,7 +184,7 @@ export default function SettingsScreen() {
                 key={opt.key}
                 style={[styles.settingsRow, i < NAV_OPTIONS.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
                 onPress={() => handleSelectNav(opt.key)}
-              >
+               accessibilityRole="button">
                 <View style={styles.iconBg}>
                   <Ionicons name={opt.icon} size={18} color={navApp === opt.key ? colors.primary : colors.onSurfaceVariant} />
                 </View>
@@ -221,7 +221,7 @@ export default function SettingsScreen() {
             <Pressable
               style={[styles.settingsRow, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
               onPress={() => { logout(); router.replace('/(auth)/phone' as any); }}
-            >
+             accessibilityRole="button">
               <View style={[styles.iconBg, { backgroundColor: `${colors.error}18` }]}>
                 <Ionicons name="log-out-outline" size={18} color={colors.error} />
               </View>
@@ -230,7 +230,7 @@ export default function SettingsScreen() {
             <Pressable
               style={[styles.settingsRow, { borderColor: `${colors.error}30` }]}
               onPress={handleDeleteAccount}
-            >
+             accessibilityRole="button">
               <View style={[styles.iconBg, { backgroundColor: `${colors.error}18` }]}>
                 <Ionicons name="trash-outline" size={18} color={colors.error} />
               </View>

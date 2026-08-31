@@ -120,7 +120,7 @@ export default function PromotionsScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground variant="static" isDark={isDark} />
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Promotions</Text>
@@ -462,7 +462,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: spacing.sm,
     backgroundColor: colors.surfaceContainerHigh,
     paddingHorizontal: spacing.md,
-    height: 48,
+    minHeight: 48,
     borderRadius: radii.lg,
   },
   input: {

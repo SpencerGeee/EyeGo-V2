@@ -175,7 +175,7 @@ export default function DriverOtpScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backButton}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -193,7 +193,7 @@ export default function DriverOtpScreen() {
           <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.subtext}>
             Sent to {maskedPhone}
           </Text>
-          <Pressable onPress={() => goBack()}>
+          <Pressable onPress={() => goBack()} accessibilityRole="button">
             <Text variant="label" color={colors.primary} style={{ marginTop: spacing.xs }}>
               Change number
             </Text>
@@ -267,7 +267,7 @@ export default function DriverOtpScreen() {
               <Text variant="bodySmall" color={colors.primary}>{countdown}s</Text>
             </Text>
           ) : (
-            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending}>
+            <Pressable onPress={() => resendOtp.mutate()} disabled={resendOtp.isPending} accessibilityRole="button">
               <Text variant="label" color={colors.primary}>
                 {resendOtp.isPending ? 'Sending…' : 'Resend code'}
               </Text>
@@ -319,7 +319,7 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
         cellStyle,
       ]}
     >
-      <TextInput
+      <TextInput maxFontSizeMultiplier={1.4}
         ref={inputRef}
         style={styles.cellInput}
         value={value}

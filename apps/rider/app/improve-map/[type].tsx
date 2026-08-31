@@ -414,7 +414,7 @@ export default function MapReportFormScreen() {
                   setSuggestions([]);
                 }}
                 style={[styles.suggestRow, i < suggestions.length - 1 && styles.suggestRowBorder]}
-              >
+               accessibilityRole="button">
                 <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
                 <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1 }} numberOfLines={2}>
                   {s.fullAddress}
@@ -459,7 +459,7 @@ export default function MapReportFormScreen() {
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.label}>
               {type === 'ADD_PLACE' ? "WHAT'S IT CALLED" : 'PLACE NAME'}
             </Text>
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={styles.input}
               placeholder={type === 'ADD_PLACE' ? 'e.g. Melcom Adenta' : 'The name on the map now'}
               placeholderTextColor={colors.onSurfaceVariant}
@@ -516,7 +516,7 @@ export default function MapReportFormScreen() {
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.label}>
                   {(FIELD_LABELS[field] ?? field).toUpperCase()}
                 </Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   placeholderTextColor={colors.onSurfaceVariant}
                   value={String(payload[field] ?? '')}
@@ -531,7 +531,7 @@ export default function MapReportFormScreen() {
         <Text variant="label" color={colors.onSurfaceVariant} style={styles.label}>
           {copy.notePrompt.toUpperCase()}
         </Text>
-        <TextInput
+        <TextInput maxFontSizeMultiplier={1.4}
           style={[styles.input, styles.noteInput]}
           placeholder="Tell us what you saw"
           placeholderTextColor={colors.onSurfaceVariant}

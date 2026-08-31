@@ -119,7 +119,7 @@ export default function ScheduledRideDetailScreen() {
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>
-          <Pressable onPress={() => goBack()} hitSlop={12} style={styles.backBtn}>
+          <Pressable onPress={() => goBack()} hitSlop={12} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <Text style={styles.headerTitle}>Scheduled ride</Text>
@@ -253,7 +253,7 @@ export default function ScheduledRideDetailScreen() {
                     },
                   ])
                 }
-              >
+               accessibilityRole="button">
                 <Text style={styles.cancelText}>
                   {cancel.isPending ? 'Cancelling…' : 'Cancel this ride'}
                 </Text>

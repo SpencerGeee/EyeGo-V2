@@ -81,7 +81,7 @@ export default function SafetyCheckModal({ visible, reason, tripId, onDismiss }:
             />
           </View>
 
-          <Pressable onPress={onDismiss} hitSlop={12} style={styles.dismiss}>
+          <Pressable onPress={onDismiss} hitSlop={12} style={styles.dismiss} accessibilityRole="button" accessibilityLabel="Dismiss this safety check">
             <Ionicons name="close" size={20} color={colors.onSurfaceVariant} />
           </Pressable>
         </MotiView>

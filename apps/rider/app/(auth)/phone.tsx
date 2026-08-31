@@ -95,7 +95,7 @@ export default function PhoneScreen() {
                 <Text style={styles.code}>+233</Text>
               </View>
               <View style={styles.divider} />
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 ref={inputRef}
                 style={styles.phoneInput}
                 value={phone}

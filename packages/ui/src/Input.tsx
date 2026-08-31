@@ -145,7 +145,7 @@ export function Input({
               The spread now goes FIRST so the controlled props below always win;
               `style` gets the same protection (a caller's style is merged rather
               than replacing the input's own). */}
-          <TextInput
+          <TextInput maxFontSizeMultiplier={1.4}
             {...props}
             ref={inputRef}
             style={[styles.input, leftIcon ? { paddingLeft: 0 } : undefined, props.style]}

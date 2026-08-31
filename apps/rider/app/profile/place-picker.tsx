@@ -336,7 +336,7 @@ export default function PlacePickerScreen() {
         <View style={styles.searchWrap} pointerEvents="box-none">
           <View style={styles.searchBar}>
             <Ionicons name="search" size={18} color={colors.onSurfaceVariant} />
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={styles.searchInput}
               value={query}
               onChangeText={handleSearch}
@@ -391,7 +391,7 @@ export default function PlacePickerScreen() {
                 keyExtractor={(item, i) => `${item.placeId}-${item.latitude}-${item.longitude}-${i}`}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => (
-                  <Pressable style={styles.suggestionRow} onPress={() => handleSelectSuggestion(item)}>
+                  <Pressable style={styles.suggestionRow} onPress={() => handleSelectSuggestion(item)} accessibilityRole="button">
                     <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.suggestionText} numberOfLines={1}>{item.name}</Text>

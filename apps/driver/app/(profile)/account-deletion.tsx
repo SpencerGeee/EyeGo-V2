@@ -51,7 +51,7 @@ export default function AccountDeletionScreen() {
           transition={{ type: 'spring', ...springs.standard }}
           style={styles.backRow}
         >
-          <Pressable onPress={() => setStep(1)} hitSlop={12}>
+          <Pressable onPress={() => setStep(1)} hitSlop={12} accessibilityRole="button">
             <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
           </Pressable>
         </MotiView>
@@ -72,7 +72,7 @@ export default function AccountDeletionScreen() {
               <Text variant="bodyMedium" color={colors.onSurface} style={{ marginBottom: spacing.lg }}>
                 To confirm account deletion, type <Text variant="bodyMedium" style={{ fontFamily: fonts.bold, color: colors.error }}>DELETE</Text> in the field below.
               </Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={[styles.textInput, { borderColor: confirmText === 'DELETE' ? colors.error : colors.outline }]}
                 value={confirmText}
                 onChangeText={setConfirmText}
@@ -112,7 +112,7 @@ export default function AccountDeletionScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

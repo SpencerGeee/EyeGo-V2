@@ -304,7 +304,7 @@ export default function RatePassengersScreen() {
                 key={star}
                 onPress={() => handleStarPress(star)}
                 hitSlop={6}
-              >
+               accessibilityRole="button">
                 <Text style={[styles.star, { color: (currentRating >= star ? '#F59E0B' : colors.outlineVariant) }]}>
                   ★
                 </Text>
@@ -330,7 +330,7 @@ export default function RatePassengersScreen() {
                     key={c.label}
                     onPress={() => toggleCompliment(c.label)}
                     style={[styles.chip, active && styles.chipActive]}
-                  >
+                   accessibilityRole="button">
                     <Ionicons
                       name={c.icon as any}
                       size={13}
@@ -350,7 +350,7 @@ export default function RatePassengersScreen() {
         {currentRating > 0 && (
           <Entrance animation="slideDown" delay={80} style={styles.card}>
             <Text style={styles.cardTitle}>Leave a comment (optional)</Text>
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={styles.commentInput}
               value={comment}
               onChangeText={setComment}
@@ -381,7 +381,7 @@ export default function RatePassengersScreen() {
         <Pressable
           onPress={() => router.replace('/(tabs)/home')}
           style={styles.skipLink}
-        >
+         accessibilityRole="button">
           <Text variant="bodySmall" color={colors.onSurfaceVariant}>
             Skip — go to home
           </Text>

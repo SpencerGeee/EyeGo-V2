@@ -123,7 +123,7 @@ function TierCard({ tier, colors, styles }: { tier: TierCard; colors: Colors; st
   return (
     <Animated.View entering={FadeIn.duration(300)} style={styles.glowRoom}>
       <MorphSource id={morphId} borderRadius={radii.xl} backgroundColor={colors.surfaceCard}>
-      <Pressable onPress={handlePress}>
+      <Pressable onPress={handlePress} accessibilityRole="button">
         {/**
          * ── THREE TIERS, THREE COLOURS, THREE INTENSITIES ────────────────────
          *
@@ -220,7 +220,15 @@ function SpecialServiceCard({ service, colors, styles }: { service: SpecialServi
   );
 
   const inner = (
-    <Pressable style={({ pressed }) => pressed && styles.pressed} onPress={handlePress}>
+    /* The card's own name — a screen reader reaching this needs to know WHICH
+       service it is about to open, and the label is the only place that says so
+       (the name lives inside a `row` variable this element never sees). */
+    <Pressable
+      style={({ pressed }) => pressed && styles.pressed}
+      onPress={handlePress}
+      accessibilityRole="button"
+      accessibilityLabel={service.name}
+    >
       {service.glow ? (
         <GradientGlowBorder
           colors={PREMIUM_RING_COLORS}

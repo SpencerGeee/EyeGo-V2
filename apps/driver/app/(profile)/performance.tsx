@@ -66,7 +66,7 @@ export default function PerformanceScreen() {
       <MotiView from={{ opacity: 0, translateX: -6 }} animate={{ opacity: 1, translateX: 0 }}
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}>
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

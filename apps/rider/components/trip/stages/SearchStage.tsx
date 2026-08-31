@@ -1207,7 +1207,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    height: 60,
+    minHeight: 60,
     paddingHorizontal: 14,
   },
   rowPressed: { opacity: 0.65 },

@@ -194,13 +194,13 @@ export default function ScanPayScreen() {
         <Pressable
           style={[styles.tab, mode === 'scan' && styles.tabActive]}
           onPress={() => setMode('scan')}
-        >
+         accessibilityRole="button">
           <Text style={[styles.tabText, mode === 'scan' && { color: colors.primary }]}>Scan a Code</Text>
         </Pressable>
         <Pressable
           style={[styles.tab, mode === 'myCode' && styles.tabActive]}
           onPress={() => setMode('myCode')}
-        >
+         accessibilityRole="button">
           <Text style={[styles.tabText, mode === 'myCode' && { color: colors.primary }]}>My Code</Text>
         </Pressable>
       </View>
@@ -212,7 +212,7 @@ export default function ScanPayScreen() {
             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center', marginTop: spacing.md }}>
               Camera access is needed to scan payment codes.
             </Text>
-            <Pressable style={styles.permBtn} onPress={requestPermission}>
+            <Pressable style={styles.permBtn} onPress={requestPermission} accessibilityRole="button">
               <Text variant="label" color={colors.onPrimary}>Grant Camera Access</Text>
             </Pressable>
           </View>
@@ -297,7 +297,7 @@ export default function ScanPayScreen() {
               */}
               <View style={styles.amountRow}>
                 <Text variant="label" color={colors.onSurfaceVariant}>GH₵</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.amountInput}
                   value={requestAmount}
                   onChangeText={(t) => setRequestAmount(t.replace(/[^\d.]/g, '').slice(0, 10))}
@@ -324,7 +324,7 @@ export default function ScanPayScreen() {
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
                 Couldn't load your payment code.
               </Text>
-              <Pressable style={styles.permBtn} onPress={() => refetchProfile()}>
+              <Pressable style={styles.permBtn} onPress={() => refetchProfile()} accessibilityRole="button">
                 <Text variant="label" color={colors.onPrimary}>Try Again</Text>
               </Pressable>
             </>

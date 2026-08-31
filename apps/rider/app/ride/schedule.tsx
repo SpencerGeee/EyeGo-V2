@@ -222,7 +222,7 @@ export default function ScheduleRideScreen() {
               pickingFieldRef.current = 'pickup';
               goDeeper('/profile/place-picker' as any);
             }}
-          >
+           accessibilityRole="button">
             <Ionicons name="radio-button-on-outline" size={18} color={colors.primary} />
             <Text
               variant="bodyLarge"
@@ -239,7 +239,7 @@ export default function ScheduleRideScreen() {
               pickingFieldRef.current = 'dest';
               goDeeper('/profile/place-picker' as any);
             }}
-          >
+           accessibilityRole="button">
             <Ionicons name="navigate-outline" size={18} color={colors.primary} />
             <Text
               variant="bodyLarge"
@@ -290,7 +290,7 @@ export default function ScheduleRideScreen() {
             setShowPicker(true);
           }}
           style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
-        >
+         accessibilityRole="button">
           <GlassCard style={styles.fieldRow}>
             <Ionicons name="calendar-outline" size={20} color={colors.primary} />
             <Text variant="bodyLarge" style={{ color: colors.onSurface, flex: 1 }}>
@@ -333,11 +333,11 @@ export default function ScheduleRideScreen() {
           <View style={styles.modalOverlay}>
             <View style={[styles.modalSheet, { backgroundColor: colors.surfaceCard ?? colors.surfaceContainer }]}>
               <View style={styles.modalHeader}>
-                <Pressable onPress={() => setShowPicker(false)}>
+                <Pressable onPress={() => setShowPicker(false)} accessibilityRole="button">
                   <Text variant="bodyMedium" style={{ color: colors.statusError }}>Cancel</Text>
                 </Pressable>
                 <Text variant="titleSmall" style={{ color: colors.onSurface }}>Select Date & Time</Text>
-                <Pressable onPress={handleConfirmDate}>
+                <Pressable onPress={handleConfirmDate} accessibilityRole="button">
                   <Text variant="bodyMedium" style={{ color: colors.primary }}>Done</Text>
                 </Pressable>
               </View>

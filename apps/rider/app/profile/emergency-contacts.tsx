@@ -209,7 +209,7 @@ export default function EmergencyContactsScreen() {
                       <Pressable
                         onPress={() => handleDelete(contact.id)}
                         style={styles.deleteBtn}
-                      >
+                       accessibilityRole="button" accessibilityLabel="Remove this emergency contact">
                         <Ionicons name="trash-outline" size={18} color={colors.statusError} />
                       </Pressable>
                     </View>
@@ -225,7 +225,7 @@ export default function EmergencyContactsScreen() {
             >
               <Text variant="labelCaps" style={styles.sectionLabel}>ADD CONTACT</Text>
               <GlassSurface borderRadius={radii.lg} intensity="low" dark style={styles.formCard}>
-                <Pressable onPress={handlePickContact} style={[styles.pickContactBtn, { borderColor: colors.primary }]}>
+                <Pressable onPress={handlePickContact} style={[styles.pickContactBtn, { borderColor: colors.primary }]} accessibilityRole="button">
                   <Ionicons name="people-outline" size={18} color={colors.primary} />
                   <Text variant="bodyMedium" style={{ color: colors.primary }}>Choose from Contacts</Text>
                 </Pressable>
@@ -234,7 +234,7 @@ export default function EmergencyContactsScreen() {
                   <Text variant="caption" style={{ color: colors.onSurfaceVariant }}>or enter manually</Text>
                   <View style={[styles.orLine, { backgroundColor: colors.rimLightSubtle }]} />
                 </View>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   value={newName}
                   onChangeText={setNewName}
                   placeholder="Full name"
@@ -244,7 +244,7 @@ export default function EmergencyContactsScreen() {
                     { color: colors.onSurface, borderColor: colors.rimLight },
                   ]}
                 />
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   value={newPhone}
                   onChangeText={setNewPhone}
                   placeholder="Phone number"

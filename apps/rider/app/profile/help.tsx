@@ -320,7 +320,7 @@ export default function HelpScreen() {
             </Text>
           )}
 
-          <TextInput
+          <TextInput maxFontSizeMultiplier={1.4}
             style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.lg }]}
             placeholder="Add a message…"
             placeholderTextColor={colors.onSurfaceVariant}
@@ -408,7 +408,7 @@ export default function HelpScreen() {
           <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.contactCard}>
             {CONTACT_OPTIONS.map((option, index) => (
               <View key={option.id}>
-                <Pressable onPress={option.onPress} style={styles.contactRow}>
+                <Pressable onPress={option.onPress} style={styles.contactRow} accessibilityRole="button">
                   <View style={[styles.contactIcon, { backgroundColor: option.color + '20' }]}>
                     <Ionicons name={option.icon} size={20} color={option.color} />
                   </View>
@@ -503,7 +503,7 @@ export default function HelpScreen() {
                     styles.categoryChip,
                     ticketCategory === cat && { backgroundColor: colors.primary },
                   ]}
-                >
+                 accessibilityRole="button">
                   <Text
                     style={{
                       fontSize: 12,
@@ -537,7 +537,7 @@ export default function HelpScreen() {
                           styles.tripPill,
                           selectedTripId === b.tripId && { borderColor: colors.primary, backgroundColor: colors.primary + '10' },
                         ]}
-                      >
+                       accessibilityRole="button">
                         <Text style={{ fontSize: 11, fontFamily: fonts.medium, color: colors.onSurface }}>
                           {b.trip?.route?.originName?.split(',')[0]} → {b.trip?.route?.destinationName?.split(',')[0]}
                         </Text>
@@ -566,7 +566,7 @@ export default function HelpScreen() {
                         styles.tripPill,
                         disputeReason === reason && { borderColor: colors.primary, backgroundColor: colors.primary + '10' },
                       ]}
-                    >
+                     accessibilityRole="button">
                       <Text style={{ fontSize: 11, fontFamily: fonts.medium, color: colors.onSurface }}>
                         {reason}
                       </Text>
@@ -579,7 +579,7 @@ export default function HelpScreen() {
             {/* Lost Item specific description */}
             {ticketCategory === 'Lost Item' && (
               <View style={{ marginTop: spacing.md }}>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   placeholder="What item did you lose? (e.g. Black keys, iPhone)"
                   placeholderTextColor={colors.onSurfaceVariant}
@@ -589,7 +589,7 @@ export default function HelpScreen() {
               </View>
             )}
 
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={[styles.input, { marginTop: spacing.sm }]}
               placeholder="Subject / Summary"
               placeholderTextColor={colors.onSurfaceVariant}
@@ -597,7 +597,7 @@ export default function HelpScreen() {
               onChangeText={setTicketSubject}
             />
 
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={[styles.input, { height: 80, textAlignVertical: 'top', marginTop: spacing.sm }]}
               placeholder="Describe your issue in detail..."
               placeholderTextColor={colors.onSurfaceVariant}

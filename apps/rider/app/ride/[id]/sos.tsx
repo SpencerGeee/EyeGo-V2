@@ -461,7 +461,7 @@ export default function SOSScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Safety</Text>
@@ -557,7 +557,7 @@ export default function SOSScreen() {
         {/* Trusted Contacts */}
         <View style={styles.contactsHeader}>
           <Text style={styles.sectionLabel}>Trusted Contacts</Text>
-          <Pressable onPress={() => goDeeper('/profile/emergency-contacts')} hitSlop={8}>
+          <Pressable onPress={() => goDeeper('/profile/emergency-contacts')} hitSlop={8} accessibilityRole="button">
             <Text style={styles.manageLink}>Manage</Text>
           </Pressable>
         </View>
@@ -568,7 +568,7 @@ export default function SOSScreen() {
                 onPress={() => goDeeper('/profile/emergency-contacts')}
                 style={styles.contactClose}
                 hitSlop={8}
-              >
+               accessibilityRole="button" accessibilityLabel="Manage your emergency contacts">
                 <Ionicons name="close" size={14} color={colors.onSurfaceVariant} />
               </Pressable>
               <View style={styles.contactAvatar}>
@@ -588,7 +588,7 @@ export default function SOSScreen() {
             <Pressable
               onPress={() => goDeeper('/profile/emergency-contacts')}
               style={styles.addCard}
-            >
+             accessibilityRole="button">
               <View style={styles.addIcon}>
                 <Ionicons name="person-add-outline" size={22} color={colors.primary} />
               </View>
@@ -665,7 +665,7 @@ export default function SOSScreen() {
           onPress={confirmEmergencyCall}
           disabled={loading}
           style={({ pressed }) => [styles.emergencyButton, pressed && { transform: [{ scale: 0.98 }] }]}
-        >
+         accessibilityRole="button">
           <Ionicons name="call" size={20} color={colors.statusError} />
           <Text style={styles.emergencyButtonText}>
             {alertSent ? 'Call 112' : 'Emergency Call'}

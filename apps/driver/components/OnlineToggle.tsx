@@ -21,7 +21,7 @@ export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
       onPress={onToggle}
       {...press.handlers}
       disabled={loading}
-    >
+     accessibilityRole="button">
       <Animated.View style={[
         styles.pill,
         { backgroundColor: isOnline ? `${driverColors.online}22` : `${driverColors.offline}22` },

@@ -75,7 +75,7 @@ function NotificationCard({
   const typeInfo = getTypeIcons(colors)[item.type] ?? { icon: 'notifications-outline' as const, color: colors.onSurfaceVariant };
 
   return (
-      <Pressable onPress={onPress} style={styles.cardWrapper}>
+      <Pressable onPress={onPress} style={styles.cardWrapper} accessibilityRole="button">
         {/* Glass card — canonical GlassSurface behind each primary card
             (replaces the ad-hoc per-row BlurView; gates on perf tier internally). */}
         <View style={[styles.notifCard, !item.read && styles.notifCardUnread]}>

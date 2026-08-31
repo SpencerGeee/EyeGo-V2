@@ -130,7 +130,7 @@ export default function EditProfileScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -152,7 +152,7 @@ export default function EditProfileScreen() {
             transition={{ type: 'spring', ...springs.standard, delay: 80 }}
             style={styles.avatarWrapper}
           >
-            <Pressable onPress={pickImage} style={styles.avatarTouch}>
+            <Pressable onPress={pickImage} style={styles.avatarTouch} accessibilityRole="button">
               <View style={styles.avatarCircle}>
                 {avatarSource ? (
                   <Image source={avatarSource} style={styles.avatarImage} />
@@ -175,7 +175,7 @@ export default function EditProfileScreen() {
           >
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Full name</Text>
             <View style={[styles.inputBox, !!error && styles.inputBoxError]}>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.input}
                 value={name}
                 onChangeText={(t) => { setName(t); setError(''); }}
@@ -198,7 +198,7 @@ export default function EditProfileScreen() {
           >
             <Text variant="label" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Phone number</Text>
             <View style={[styles.inputBox, styles.inputBoxReadOnly]}>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={[styles.input, { color: colors.onSurfaceVariant }]}
                 value={driver?.phone ?? ''}
                 editable={false}

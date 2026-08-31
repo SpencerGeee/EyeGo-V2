@@ -160,7 +160,7 @@ export default function PrivacyScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Privacy & Settings</Text>
@@ -240,7 +240,7 @@ export default function PrivacyScreen() {
           <Pressable
             onPress={() => goDeeper('/profile/terms' as any)}
             style={styles.tosLink}
-          >
+           accessibilityRole="button">
             <Text variant="bodySmall" color={colors.primary}>
               View Terms of Service →
             </Text>

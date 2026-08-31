@@ -497,7 +497,7 @@ export default function InviteScreen() {
       <SafeAreaView style={styles.safe}>
         <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
-          <Pressable onPress={() => goBack()} hitSlop={12}>
+          <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleMedium">Group Hub</Text>
@@ -515,7 +515,7 @@ export default function InviteScreen() {
       <SafeAreaView style={styles.safe}>
         <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
-          <Pressable onPress={() => goBack()} hitSlop={12}>
+          <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleMedium">Group Hub</Text>
@@ -574,7 +574,7 @@ export default function InviteScreen() {
       <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Group Hub</Text>
@@ -584,7 +584,7 @@ export default function InviteScreen() {
             keepHold();
             router.replace(`/ride/${id}/payment` as Href);
           }}
-        >
+         accessibilityRole="button">
           <Text variant="label" color={colors.primary}>Pay</Text>
         </Pressable>
       </View>
@@ -624,7 +624,7 @@ export default function InviteScreen() {
           )}
 
           {linkState === 'ready' && (
-            <Pressable style={styles.linkBox} onPress={handleCopy}>
+            <Pressable style={styles.linkBox} onPress={handleCopy} accessibilityRole="button">
               <Text
                 variant="bodySmall"
                 color={colors.onSurfaceVariant}
@@ -642,7 +642,7 @@ export default function InviteScreen() {
           )}
 
           {linkState === 'error' && (
-            <Pressable style={[styles.linkBox, { borderColor: colors.error + '50' }]} onPress={handleRetry}>
+            <Pressable style={[styles.linkBox, { borderColor: colors.error + '50' }]} onPress={handleRetry} accessibilityRole="button">
               <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
               <Text
                 variant="bodySmall"
@@ -720,7 +720,7 @@ export default function InviteScreen() {
           <Text variant="titleSmall" style={{ marginBottom: spacing.md }}>Group Settings</Text>
 
           {/* Paying for everyone */}
-          <Pressable style={styles.optionRow} onPress={togglePayForEveryone}>
+          <Pressable style={styles.optionRow} onPress={togglePayForEveryone} accessibilityRole="button">
             <View style={styles.optionLeft}>
               <View style={[styles.optionIconContainer, { backgroundColor: colors.primary + '18' }]}>
                 <Ionicons name="card-outline" size={18} color={colors.primary} />
@@ -738,7 +738,7 @@ export default function InviteScreen() {
           <View style={styles.optionDivider} />
 
           {/* Heavy cargo in group */}
-          <Pressable style={styles.optionRow} onPress={toggleHeavyCargo} disabled={updateHeavyCargo.isPending}>
+          <Pressable style={styles.optionRow} onPress={toggleHeavyCargo} disabled={updateHeavyCargo.isPending} accessibilityRole="button">
             <View style={styles.optionLeft}>
               <View style={[styles.optionIconContainer, { backgroundColor: colors.secondary + '18' }]}>
                 <Ionicons name="briefcase-outline" size={18} color={colors.secondary} />
@@ -758,7 +758,7 @@ export default function InviteScreen() {
           <View style={styles.optionDivider} />
 
           {/* Your own pickup point — for a joiner boarding somewhere other than the trip's pickup */}
-          <Pressable style={styles.optionRow} onPress={handleChangePickup} disabled={applyPickup.isPending}>
+          <Pressable style={styles.optionRow} onPress={handleChangePickup} disabled={applyPickup.isPending} accessibilityRole="button">
             <View style={styles.optionLeft}>
               <View style={[styles.optionIconContainer, { backgroundColor: colors.primary + '18' }]}>
                 <Ionicons name="location-outline" size={18} color={colors.primary} />

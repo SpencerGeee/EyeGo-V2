@@ -57,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <Pressable
               onPress={this.handleRestart}
               style={styles.button}
-            >
+             accessibilityRole="button">
               <Text style={styles.buttonText}>Restart App</Text>
             </Pressable>
           </View>

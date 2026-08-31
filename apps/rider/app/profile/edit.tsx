@@ -207,7 +207,7 @@ export default function EditProfileScreen() {
     <Pressable
       onPress={() => selectContact(item)}
       style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-    >
+     accessibilityRole="button">
       <Text variant="bodyMedium">{item.name}</Text>
       <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
     </Pressable>
@@ -224,7 +224,7 @@ export default function EditProfileScreen() {
       <View style={{ flex: 1 }}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={handleBack} style={styles.backBtn}>
+          <Pressable onPress={handleBack} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall">Edit Profile</Text>
@@ -261,7 +261,7 @@ export default function EditProfileScreen() {
             borderRadius={54}
             style={styles.avatarMorph}
           >
-            <Pressable onPress={pickImage} style={styles.avatarContainer}>
+            <Pressable onPress={pickImage} style={styles.avatarContainer} accessibilityRole="button">
               <GradientGlowBorder
                 colors={PREMIUM_RING_COLORS}
                 locations={PREMIUM_RING_LOCATIONS}
@@ -378,7 +378,7 @@ export default function EditProfileScreen() {
                   autoCapitalize="words"
                   returnKeyType="next"
                 />
-                <Pressable onPress={handlePickContact} style={styles.pickContactBtn}>
+                <Pressable onPress={handlePickContact} style={styles.pickContactBtn} accessibilityRole="button">
                   <Ionicons name="phone-portrait-outline" size={14} color={colors.primary} />
                   <Text variant="caption" color={colors.primary}> Pick from contacts</Text>
                 </Pressable>
@@ -419,7 +419,7 @@ export default function EditProfileScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
             <Text variant="titleMedium">Select Contact</Text>
-            <Pressable onPress={() => setShowContactPicker(false)}>
+            <Pressable onPress={() => setShowContactPicker(false)} accessibilityRole="button" accessibilityLabel="Close the contact picker">
               <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>

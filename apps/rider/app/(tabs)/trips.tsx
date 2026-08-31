@@ -402,13 +402,13 @@ function TripCard({ booking, showCancel, onCancel, showDispute, onDispute }: {
       )}
 
       {showCancel && (
-        <Pressable style={[styles.cancelBtn, { borderColor: colors.error + '50' }]} onPress={onCancel}>
+        <Pressable style={[styles.cancelBtn, { borderColor: colors.error + '50' }]} onPress={onCancel} accessibilityRole="button">
           <Ionicons name="close-circle-outline" size={14} color={colors.error} />
           <Text variant="caption" color={colors.error}>Cancel booking</Text>
         </Pressable>
       )}
       {showDispute && (
-        <Pressable style={[styles.cancelBtn, { borderColor: colors.onSurfaceVariant + '50' }]} onPress={onDispute}>
+        <Pressable style={[styles.cancelBtn, { borderColor: colors.onSurfaceVariant + '50' }]} onPress={onDispute} accessibilityRole="button">
           <Ionicons name="flag-outline" size={14} color={colors.onSurfaceVariant} />
           <Text variant="caption" color={colors.onSurfaceVariant}>Report an issue</Text>
         </Pressable>

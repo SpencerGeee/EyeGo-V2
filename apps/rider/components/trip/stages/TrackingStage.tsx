@@ -362,7 +362,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   chatBadge: {
     position: 'absolute', top: -3, right: -3,
-    minWidth: 16, height: 16, borderRadius: 8,
+    minWidth: 16, minHeight: 16, borderRadius: 8,
     paddingHorizontal: 3,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1.5, borderColor: colors.surfaceContainer,

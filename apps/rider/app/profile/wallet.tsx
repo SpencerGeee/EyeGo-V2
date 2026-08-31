@@ -184,11 +184,11 @@ export default function WalletScreen() {
            * what this button actually does is pass credits to another EyeGo
            * account, and its name is now that. See profile/send-money.tsx.
            */}
-          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/send-money' as any)}>
+          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/send-money' as any)} accessibilityRole="button">
             <Ionicons name="gift-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Send Credits</Text>
           </Pressable>
-          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/scan-pay' as any)}>
+          <Pressable style={styles.quickCard} onPress={() => goDeeper('/profile/scan-pay' as any)} accessibilityRole="button">
             <Ionicons name="qr-code-outline" size={28} color={colors.primary} />
             <Text style={styles.quickLabel}>Scan & Pay</Text>
           </Pressable>
@@ -291,7 +291,7 @@ export default function WalletScreen() {
 
             <View style={styles.inputContainer}>
               <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginBottom: 6 }}>CUSTOM AMOUNT (GHS)</Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.input}
                 value={topUpAmount}
                 onChangeText={setTopUpAmount}

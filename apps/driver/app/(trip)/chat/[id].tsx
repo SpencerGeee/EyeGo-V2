@@ -464,7 +464,7 @@ export default function TripChatScreen() {
         setPrivateRecipientId(item.user?.id ?? '');
         setPrivateRecipientName(item.user?.name ?? 'Passenger');
       }}
-    >
+     accessibilityRole="button">
       <View style={[styles.seatBadge, { backgroundColor: colors.primary + '22' }]}>
         <Text variant="labelSmall" color={colors.primary} style={{ fontWeight: '700' }}>
           #{item.seatNumber ?? '?'}
@@ -503,7 +503,7 @@ export default function TripChatScreen() {
             }
           }}
           style={styles.backBtn}
-        >
+         accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={{ flex: 1 }}>
@@ -532,14 +532,14 @@ export default function TripChatScreen() {
           <Pressable
             style={[styles.tab, chatMode === 'group' && styles.tabActive]}
             onPress={() => { setChatMode('group'); setPrivateRecipientId(null); }}
-          >
+           accessibilityRole="button">
             <Ionicons name="people-outline" size={14} color={chatMode === 'group' ? colors.primary : colors.onSurfaceVariant} />
             <Text style={[styles.tabText, chatMode === 'group' && { color: colors.primary }]}>Group</Text>
           </Pressable>
           <Pressable
             style={[styles.tab, chatMode === 'private' && styles.tabActive]}
             onPress={() => setChatMode('private')}
-          >
+           accessibilityRole="button">
             <Ionicons name="lock-closed-outline" size={14} color={chatMode === 'private' ? colors.primary : colors.onSurfaceVariant} />
             <Text style={[styles.tabText, chatMode === 'private' && { color: colors.primary }]}>Private</Text>
           </Pressable>
@@ -627,7 +627,7 @@ export default function TripChatScreen() {
               { paddingBottom: spacing.md + (keyboardShown ? 0 : insets.bottom) },
             ]}
           >
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={styles.textInput}
               value={text}
               onChangeText={(val) => {
@@ -654,7 +654,7 @@ export default function TripChatScreen() {
               style={[styles.sendBtn, !text.trim() && styles.sendBtnDisabled]}
               onPress={sendMessage}
               disabled={!text.trim()}
-            >
+             accessibilityRole="button" accessibilityLabel="Send message">
               <Ionicons name="send" size={18} color={text.trim() ? '#fff' : colors.onSurfaceVariant} />
             </Pressable>
           </View>

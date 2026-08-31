@@ -626,7 +626,7 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerCenter}>
@@ -667,7 +667,7 @@ export default function ChatScreen() {
             }
           }}
           style={styles.callBtn}
-        >
+         accessibilityRole="button" accessibilityLabel="Call your driver">
           <Ionicons name="call-outline" size={20} color={colors.primary} />
         </Pressable>
       </View>
@@ -677,14 +677,14 @@ export default function ChatScreen() {
         <Pressable
           style={[styles.tab, chatMode === 'group' && styles.tabActive]}
           onPress={() => setChatMode('group')}
-        >
+         accessibilityRole="button">
           <Ionicons name="people-outline" size={14} color={chatMode === 'group' ? colors.primary : colors.onSurfaceVariant} />
           <Text style={[styles.tabText, { color: chatMode === 'group' ? colors.primary : colors.onSurfaceVariant }]}>Group</Text>
         </Pressable>
         <Pressable
           style={[styles.tab, chatMode === 'private' && styles.tabActive]}
           onPress={() => setChatMode('private')}
-        >
+         accessibilityRole="button">
           <Ionicons name="lock-closed-outline" size={14} color={chatMode === 'private' ? colors.primary : colors.onSurfaceVariant} />
           <Text style={[styles.tabText, { color: chatMode === 'private' ? colors.primary : colors.onSurfaceVariant }]}>Private</Text>
         </Pressable>
@@ -798,7 +798,7 @@ export default function ChatScreen() {
               key={reply}
               onPress={() => sendMessage(reply)}
               style={styles.quickReply}
-            >
+             accessibilityRole="button">
               <Text style={{ fontSize: 12, fontFamily: fonts.medium, color: colors.onSurface }}>
                 {reply}
               </Text>
@@ -823,7 +823,7 @@ export default function ChatScreen() {
         >
           <GlassSurface borderRadius={radii.full} intensity="low" dark style={styles.inputFieldWrap}>
             <Ionicons name="chatbubble-outline" size={16} color={colors.outline} style={styles.inputLeadIcon} />
-          <TextInput
+          <TextInput maxFontSizeMultiplier={1.4}
             value={input}
             onChangeText={(text) => {
               setInput(text);
@@ -851,7 +851,7 @@ export default function ChatScreen() {
               onPress={() => sendMessage(input)}
               style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
               disabled={!input.trim()}
-            >
+             accessibilityRole="button" accessibilityLabel="Send message">
               <Ionicons
                 name="send"
                 size={16}

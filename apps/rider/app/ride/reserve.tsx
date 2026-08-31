@@ -165,7 +165,7 @@ export default function ReserveScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall" style={{ color: colors.onSurface }}>Reserve Seat</Text>
@@ -283,7 +283,7 @@ export default function ReserveScreen() {
             (!selectedTime || !canSchedule || isScheduling) && { opacity: 0.5 },
             pressed && { transform: [{ scale: 0.98 }] },
           ]}
-        >
+         accessibilityRole="button">
           <Text style={styles.confirmText}>
             {isScheduling ? 'Reserving…' : 'Confirm Reservation'}
           </Text>

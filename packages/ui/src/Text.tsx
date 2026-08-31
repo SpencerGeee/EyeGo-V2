@@ -184,11 +184,49 @@ interface EyeGoTextProps extends TextProps {
   color?: string;
 }
 
-export function Text({ variant = 'bodyMedium', color, style, ...props }: EyeGoTextProps) {
+/**
+ * ── THE TEXT-SCALING CEILING ────────────────────────────────────────────────
+ *
+ * Neither app had a font-scaling policy of any kind — no `allowFontScaling`, no
+ * `maxFontSizeMultiplier`, anywhere — against 142 hardcoded fixed heights in
+ * the rider app alone. So a user who had turned up their phone's text size got
+ * type scaling without limit inside containers that did not move, and buttons,
+ * rows and chips clipped.
+ *
+ * That population is not small and it is not incidental to this product: large
+ * text is the default accessibility setting for a lot of older users, and
+ * Android's Display Size setting scales type too. Neither the E2E harness nor a
+ * developer running default settings can see any of it.
+ *
+ * ── WHY 1.4 AND NOT MORE, OR LESS ───────────────────────────────────────────
+ * iOS goes to roughly 3.1x at the accessibility sizes. 1.4 is about where a
+ * two-line fare card becomes three lines and still fits its container. Below
+ * 1.3 we would be overriding the user's stated preference hard enough to be
+ * rude; above 1.5 the clipping comes back.
+ *
+ * This is the CEILING, not the fix. It stops the breakage everywhere at once,
+ * including in screens nobody has looked at. The honest half — `height` becoming
+ * `minHeight` on the primitives that actually contain text — is the pass that
+ * follows, and it is what lets 1.4 actually be reached rather than merely
+ * survived.
+ *
+ * A caller can still pass its own `maxFontSizeMultiplier` to opt out: a number
+ * in a fixed-width tabular column sometimes genuinely must not grow.
+ */
+export const MAX_FONT_SCALE = 1.4;
+
+export function Text({
+  variant = 'bodyMedium',
+  color,
+  style,
+  maxFontSizeMultiplier = MAX_FONT_SCALE,
+  ...props
+}: EyeGoTextProps) {
   const colors = useThemedColors();
   const variantStyles = useMemo(() => getVariantStyles(colors), [colors]);
   return (
     <RNText
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
       style={[
         variantStyles[variant],
         color ? { color } : undefined,

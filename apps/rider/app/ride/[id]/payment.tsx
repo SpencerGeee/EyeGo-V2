@@ -574,7 +574,7 @@ export default function PaymentScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.webviewHeader}>
-          <Pressable onPress={() => setCheckoutUrl(null)} hitSlop={12}>
+          <Pressable onPress={() => setCheckoutUrl(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close checkout">
             <Ionicons name="close" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall">Card Payment</Text>
@@ -652,7 +652,7 @@ export default function PaymentScreen() {
       >
           {/* Header */}
           <View style={styles.header}>
-            <Pressable onPress={() => goBack()} hitSlop={12}>
+            <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
               <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
             </Pressable>
             <Text variant="titleMedium">Payment</Text>
@@ -739,7 +739,7 @@ export default function PaymentScreen() {
                 <View style={styles.momoInput}>
                   <Text variant="bodyMedium" style={styles.momoPrefix}>+233</Text>
                   <View style={styles.momoDivider} />
-                  <TextInput
+                  <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.momoTextInput}
                     value={momoPhone}
                     onChangeText={(t) => setMomoPhone(t.replace(/\D/g, '').slice(0, 9))}
@@ -858,7 +858,7 @@ export default function PaymentScreen() {
             <Pressable
               onPress={() => setPromoExpanded(!promoExpanded)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}
-            >
+             accessibilityRole="button">
               <Ionicons name="ticket-outline" size={16} color={colors.primary} />
               <Text variant="bodySmall" color={colors.primary}>
                 {promoExpanded ? 'Hide' : 'Have a promo code?'}
@@ -875,7 +875,7 @@ export default function PaymentScreen() {
                   marginTop: spacing.sm,
                 }}
               >
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={{
                     flex: 1,
                     height: 48,
@@ -913,7 +913,7 @@ export default function PaymentScreen() {
                       setPromoStatus('applied');
                     }
                   }}
-                >
+                 accessibilityRole="button">
                   <Text variant="label" color={colors.backgroundDeep}>Apply</Text>
                 </Pressable>
               </MotiView>
@@ -987,7 +987,7 @@ function PaymentTab({
     <Pressable
       style={[styles.paymentTab, isActive && styles.paymentTabActive]}
       onPress={onPress}
-    >
+     accessibilityRole="button">
       <Ionicons
         name={icon}
         size={18}

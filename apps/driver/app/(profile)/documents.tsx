@@ -75,7 +75,7 @@ function DocumentRow({
             style={[styles(colors).uploadBtn, { opacity: uploading ? 0.5 : 1 }]}
             onPress={() => onUpload(config.type)}
             disabled={uploading}
-          >
+           accessibilityRole="button">
             <Ionicons name="cloud-upload-outline" size={13} color={colors.primary} />
             <Text style={styles(colors).uploadText}>Upload</Text>
           </Pressable>
@@ -173,7 +173,7 @@ export default function DocumentsScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.base }}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>

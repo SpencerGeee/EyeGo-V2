@@ -82,7 +82,7 @@ export default function SafetyScreen() {
     <Pressable
       onPress={() => selectContact(item)}
       style={{ padding: spacing['2xl'], borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}
-    >
+     accessibilityRole="button">
       <Text variant="bodyMedium">{item.name}</Text>
       <Text variant="caption" color={colors.onSurfaceVariant}>{item.phoneNumbers?.[0]?.number ?? ''}</Text>
     </Pressable>
@@ -99,7 +99,7 @@ export default function SafetyScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -157,7 +157,7 @@ export default function SafetyScreen() {
                 },
               ]
             )}
-          >
+           accessibilityRole="button">
             <Text style={styles.sosBtnText}>SOS</Text>
           </Pressable>
         </MotiView>
@@ -169,7 +169,7 @@ export default function SafetyScreen() {
           <View style={styles.cardHeader}>
             <Text style={styles.cardTitle}>Emergency Contact</Text>
             {!editing && existing && (
-              <Pressable onPress={() => setEditing(true)} style={styles.editBtn}>
+              <Pressable onPress={() => setEditing(true)} style={styles.editBtn} accessibilityRole="button">
                 <Ionicons name="create-outline" size={16} color={colors.primary} />
                 <Text style={styles.editBtnText}>Edit</Text>
               </Pressable>
@@ -186,7 +186,7 @@ export default function SafetyScreen() {
                 <Text variant="caption" color={colors.onSurfaceVariant}>{existing.relationship}</Text>
                 <Text variant="caption" color={colors.onSurfaceVariant}>{existing.phone}</Text>
               </View>
-              <Pressable onPress={() => Linking.openURL(`tel:${existing.phone}`)}>
+              <Pressable onPress={() => Linking.openURL(`tel:${existing.phone}`)} accessibilityRole="button" accessibilityLabel="Call this emergency contact">
                 <View style={styles.callBtn}>
                   <Ionicons name="call-outline" size={16} color={colors.primary} />
                 </View>
@@ -197,13 +197,13 @@ export default function SafetyScreen() {
               <Pressable
                 onPress={handlePickContact}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, backgroundColor: colors.primary + '15', borderRadius: radii.md, alignSelf: 'flex-start', marginBottom: spacing.sm }}
-              >
+               accessibilityRole="button">
                 <Ionicons name="people-outline" size={16} color={colors.primary} />
                 <Text variant="label" color={colors.primary}>Pick from Contacts</Text>
               </Pressable>
               <View>
                 <Text variant="caption" color={colors.onSurfaceVariant} style={styles.inputLabel}>Full Name</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   value={name}
                   onChangeText={setName}
@@ -214,7 +214,7 @@ export default function SafetyScreen() {
               </View>
               <View>
                 <Text variant="caption" color={colors.onSurfaceVariant} style={styles.inputLabel}>Phone Number</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   value={phone}
                   onChangeText={setPhone}
@@ -226,7 +226,7 @@ export default function SafetyScreen() {
               </View>
               <View>
                 <Text variant="caption" color={colors.onSurfaceVariant} style={styles.inputLabel}>Relationship</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   value={relationship}
                   onChangeText={setRelationship}
@@ -283,7 +283,7 @@ export default function SafetyScreen() {
           <Pressable
             style={styles.supportRow}
             onPress={() => Linking.openURL('tel:+233302000000')}
-          >
+           accessibilityRole="button">
             <View style={styles.tipIcon}>
               <Ionicons name="headset-outline" size={18} color={colors.primary} />
             </View>
@@ -301,7 +301,7 @@ export default function SafetyScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
             <Text variant="titleMedium">Select Emergency Contact</Text>
-            <Pressable onPress={() => setShowContactPicker(false)}>
+            <Pressable onPress={() => setShowContactPicker(false)} accessibilityRole="button" accessibilityLabel="Close the contact picker">
               <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>

@@ -78,7 +78,7 @@ export default function TermsScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.header}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} hitSlop={12} style={styles.backBtn} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
         <Text variant="titleMedium" style={styles.headerTitle} color={colors.onSurface}>

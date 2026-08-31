@@ -37,7 +37,7 @@ export function TripCard({ trip, onPress }: Props) {
   const fare = trip.farePerSeatPesewas ?? trip.baseFarePesewas ?? 0;
 
   return (
-    <Pressable onPress={onPress}style={styles.wrapper}>
+    <Pressable onPress={onPress}style={styles.wrapper} accessibilityRole="button">
       <View style={[styles.card, { backgroundColor: colors.surfaceContainer, borderColor: colors.outline }]}>
         {/* Status strip */}
         <View style={[styles.statusStrip, { backgroundColor: statusColor }]} />

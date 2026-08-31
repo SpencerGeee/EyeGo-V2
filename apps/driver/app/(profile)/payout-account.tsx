@@ -92,7 +92,7 @@ export default function PayoutAccountScreen() {
     <Pressable
       style={styles.modalItem}
       onPress={() => { setBankName(item); setBankModalVisible(false); }}
-    >
+     accessibilityRole="button">
       <Text variant="bodyMedium" color={colors.onSurface}>{item}</Text>
       {bankName === item && <Ionicons name="checkmark" size={18} color={colors.primary} />}
     </Pressable>
@@ -102,7 +102,7 @@ export default function PayoutAccountScreen() {
     <Pressable
       style={styles.modalItem}
       onPress={() => { setNetwork(item); setNetworkModalVisible(false); }}
-    >
+     accessibilityRole="button">
       <Text variant="bodyMedium" color={colors.onSurface}>{item}</Text>
       {network === item && <Ionicons name="checkmark" size={18} color={colors.primary} />}
     </Pressable>
@@ -125,7 +125,7 @@ export default function PayoutAccountScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -150,7 +150,7 @@ export default function PayoutAccountScreen() {
               <Pressable
                 style={[styles.tab, tab === 'bank' && styles.tabActive]}
                 onPress={() => setTab('bank')}
-              >
+               accessibilityRole="button">
                 <Text
                   variant="bodyMedium"
                   style={{ fontFamily: tab === 'bank' ? fonts.bold : fonts.regular, color: tab === 'bank' ? colors.primary : colors.onSurfaceVariant }}
@@ -161,7 +161,7 @@ export default function PayoutAccountScreen() {
               <Pressable
                 style={[styles.tab, tab === 'momo' && styles.tabActive]}
                 onPress={() => setTab('momo')}
-              >
+               accessibilityRole="button">
                 <Text
                   variant="bodyMedium"
                   style={{ fontFamily: tab === 'momo' ? fonts.bold : fonts.regular, color: tab === 'momo' ? colors.primary : colors.onSurfaceVariant }}
@@ -174,7 +174,7 @@ export default function PayoutAccountScreen() {
             {tab === 'bank' ? (
               <View style={styles.card}>
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Bank</Text>
-                <Pressable style={styles.picker} onPress={() => setBankModalVisible(true)}>
+                <Pressable style={styles.picker} onPress={() => setBankModalVisible(true)} accessibilityRole="button">
                   <Text variant="bodyMedium" color={bankName ? colors.onSurface : colors.onSurfaceVariant}>
                     {bankName || 'Select bank'}
                   </Text>
@@ -182,7 +182,7 @@ export default function PayoutAccountScreen() {
                 </Pressable>
 
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Account Number</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   value={accountNumber}
                   onChangeText={setAccountNumber}
@@ -192,7 +192,7 @@ export default function PayoutAccountScreen() {
                 />
 
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Account Name</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   value={accountName}
                   onChangeText={setAccountName}
@@ -203,7 +203,7 @@ export default function PayoutAccountScreen() {
             ) : (
               <View style={styles.card}>
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Network</Text>
-                <Pressable style={styles.picker} onPress={() => setNetworkModalVisible(true)}>
+                <Pressable style={styles.picker} onPress={() => setNetworkModalVisible(true)} accessibilityRole="button">
                   <Text variant="bodyMedium" color={network ? colors.onSurface : colors.onSurfaceVariant}>
                     {network || 'Select network'}
                   </Text>
@@ -211,7 +211,7 @@ export default function PayoutAccountScreen() {
                 </Pressable>
 
                 <Text variant="labelMedium" color={colors.onSurfaceVariant} style={styles.fieldLabel}>Phone Number</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   value={phone}
                   onChangeText={(t) => setPhone(t.slice(0, 10))}
@@ -230,7 +230,7 @@ export default function PayoutAccountScreen() {
 
       {/* Bank Picker Modal */}
       <Modal visible={bankModalVisible} transparent animationType="slide" onRequestClose={() => setBankModalVisible(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setBankModalVisible(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setBankModalVisible(false)} accessibilityRole="button">
           <View style={styles.modalSheet}>
             <Text variant="titleMedium" color={colors.onSurface} style={styles.modalTitle}>Select Bank</Text>
             <FlatList
@@ -244,7 +244,7 @@ export default function PayoutAccountScreen() {
 
       {/* Network Picker Modal */}
       <Modal visible={networkModalVisible} transparent animationType="slide" onRequestClose={() => setNetworkModalVisible(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setNetworkModalVisible(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setNetworkModalVisible(false)} accessibilityRole="button">
           <View style={styles.modalSheet}>
             <Text variant="titleMedium" color={colors.onSurface} style={styles.modalTitle}>Select Network</Text>
             <FlatList

@@ -269,7 +269,7 @@ export default function AddPassengerScreen() {
                 else setMode('select');
               }}
               style={styles.backBtn}
-            >
+             accessibilityRole="button" accessibilityLabel="Go back">
               <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
             </Pressable>
             <Text style={styles.headerTitle}>Add Passenger</Text>
@@ -316,7 +316,7 @@ export default function AddPassengerScreen() {
                 style={styles.optionCard}
                 onPress={() => setMode('phone')}
         
-              >
+               accessibilityRole="button">
                 <View style={[styles.optionIcon, { backgroundColor: `${colors.primary}22` }]}>
                   <Ionicons name="phone-portrait-outline" size={24} color={colors.primary} />
                 </View>
@@ -333,7 +333,7 @@ export default function AddPassengerScreen() {
                 style={styles.optionCard}
                 onPress={() => setMode('cash')}
         
-              >
+               accessibilityRole="button">
                 <View style={[styles.optionIcon, { backgroundColor: `${colors.online}22` }]}>
                   <Ionicons name="cash-outline" size={24} color={colors.online} />
                 </View>
@@ -361,7 +361,7 @@ export default function AddPassengerScreen() {
                     <Text>🇬🇭</Text>
                     <Text style={styles.countryCode}>+233</Text>
                   </View>
-                  <TextInput
+                  <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.phoneInput}
                     value={phone}
                     onChangeText={(t) => setPhone(t.replace(/\D/g, '').slice(0, 9))}
@@ -391,7 +391,7 @@ export default function AddPassengerScreen() {
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.otpDesc}>
                 Ask the passenger for the 4-digit code sent to their number.
               </Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.otpInput}
                 value={otp}
                 onChangeText={(t) => setOtp(t.replace(/\D/g, '').slice(0, 4))}

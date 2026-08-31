@@ -22,7 +22,7 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleSmall">Settings</Text>
@@ -65,7 +65,7 @@ export default function SettingsScreen() {
             NOTIFICATIONS
           </Text>
           <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.card}>
-            <Pressable style={styles.row} onPress={() => goDeeper('/profile/notification-preferences' as any)}>
+            <Pressable style={styles.row} onPress={() => goDeeper('/profile/notification-preferences' as any)} accessibilityRole="button">
               <View style={styles.rowLeft}>
                 <Ionicons name="notifications-outline" size={20} color={colors.onSurfaceVariant} />
                 <View>

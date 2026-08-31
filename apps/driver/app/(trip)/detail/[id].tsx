@@ -107,7 +107,7 @@ export default function TripDetailScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
-        <Pressable onPress={() => goBack()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <Pressable onPress={() => goBack()} hitSlop={12} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }} accessibilityRole="button">
           <Ionicons name="arrow-back" size={18} color={colors.onSurfaceVariant} />
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Back</Text>
         </Pressable>

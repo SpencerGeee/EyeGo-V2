@@ -55,7 +55,7 @@ export function GlowSearchInput({
       style={[styles.container, containerStyle]}
     >
       {leftIcon && <View style={styles.iconSlot}>{leftIcon}</View>}
-      <TextInput
+      <TextInput maxFontSizeMultiplier={1.4}
         style={[styles.input, { color: colors.onSurface }, style]}
         placeholderTextColor={colors.onSurfaceVariant}
         selectionColor={colors.primary}

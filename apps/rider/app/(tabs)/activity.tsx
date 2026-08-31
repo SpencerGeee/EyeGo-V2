@@ -310,7 +310,7 @@ function LiveRequestCard({ colors, styles }: { colors: Colors; styles: ReturnTyp
           Haptics.selectionAsync();
           goDeeper({ pathname: '/trip', params: { stage: 'request', resumeRequestId: pendingTripRequestId } } as any);
         }}
-      >
+       accessibilityRole="button">
         <View style={styles.liveDotWrap}>
           <View style={styles.liveDot} />
           <Text style={styles.liveLabel}>REQUESTING A TRIP</Text>
@@ -434,7 +434,7 @@ function LiveScheduledCard({
             goDeeper(`/scheduled/${intent.id}` as any);
           }
         }}
-      >
+       accessibilityRole="button">
         <View style={styles.liveDotWrap}>
           <View style={[styles.liveDot, { backgroundColor: matched ? colors.statusSuccess : colors.primary }]} />
           <Text style={styles.liveLabel}>

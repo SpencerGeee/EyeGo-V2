@@ -505,7 +505,7 @@ export default function RideDetailScreen() {
                   ]}
                   onPress={() => !lockedTier && setSelectedTier(t.id)}
                   disabled={!!lockedTier}
-                >
+                 accessibilityRole="button">
                   <Ionicons
                     name={t.icon}
                     size={16}

@@ -120,7 +120,7 @@ export default function DriverRegisterScreen() {
             transition={{ type: 'spring', ...springs.standard, delay: 60 }}
             style={styles.avatarWrapper}
           >
-            <Pressable onPress={pickImage} style={styles.avatarTouch}>
+            <Pressable onPress={pickImage} style={styles.avatarTouch} accessibilityRole="button">
               <View style={styles.avatarCircle}>
                 {initials ? (
                   <Text style={styles.avatarInitials}>{initials}</Text>
@@ -148,7 +148,7 @@ export default function DriverRegisterScreen() {
               Full name
             </Text>
             <View style={[styles.inputContainer, !!nameError && styles.inputError]}>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.input}
                 value={name}
                 onChangeText={(t) => { setName(t); setNameError(''); }}
@@ -181,7 +181,7 @@ export default function DriverRegisterScreen() {
             <Pressable
               style={[styles.inputContainer, !!dobError && styles.inputError]}
               onPress={() => setShowDobPicker(true)}
-            >
+             accessibilityRole="button">
               <Text style={[styles.input, { color: dob ? colors.onSurface : colors.onSurfaceVariant }]}>
                 {dob
                   ? dob.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })
@@ -211,7 +211,7 @@ export default function DriverRegisterScreen() {
               <Pressable
                 onPress={() => setShowDobPicker(false)}
                 style={{ alignSelf: 'flex-end', paddingVertical: spacing.xs }}
-              >
+               accessibilityRole="button">
                 <Text style={{ fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.primary }}>
                   Done
                 </Text>

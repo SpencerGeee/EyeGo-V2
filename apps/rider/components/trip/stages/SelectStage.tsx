@@ -350,7 +350,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
               <Pressable
                 onPress={() => { setDestText(''); setOriginText(''); setTrips([]); setSearched(false); }}
                 hitSlop={8}
-              >
+               accessibilityRole="button" accessibilityLabel="Clear the pickup and destination">
                 <Ionicons name="close-circle" size={16} color={colors.onSurfaceVariant} />
               </Pressable>
             ) : (
@@ -365,7 +365,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             <Pressable
               style={[styles.tierPill, !selectedTier && styles.tierPillAllActive]}
               onPress={() => { setSelectedTier(null); searchTrips.mutate(); }}
-            >
+             accessibilityRole="button">
               <Text style={[styles.tierPillText, !selectedTier && styles.tierPillTextActive]}>ALL TRIPS</Text>
             </Pressable>
             {(Object.keys(TIER_INFO) as TripTier[]).map((tier) => {
@@ -379,7 +379,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     active && { borderColor: info.color, backgroundColor: info.color + '18' },
                   ]}
                   onPress={() => { setSelectedTier(tier); searchTrips.mutate(); }}
-                >
+                 accessibilityRole="button">
                   <Ionicons name={info.icon} size={13} color={active ? info.color : colors.onSurfaceVariant} />
                   <Text style={[styles.tierPillText, active && { color: info.color }]}>{info.label.toUpperCase()}</Text>
                 </Pressable>
@@ -677,7 +677,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                             <Pressable
                               onPress={(e) => { e.stopPropagation?.(); setEnRoutePickerTripId(trip.id ?? null); }}
                               style={[styles.enRouteChip, selectedStop && styles.enRouteChipActive]}
-                            >
+                             accessibilityRole="button">
                               <Ionicons name="location" size={10} color={selectedStop ? colors.onPrimary : colors.primary} />
                               <Text style={[styles.enRouteChipText, selectedStop && { color: colors.onPrimary }]}>
                                 {selectedStop ? selectedStop.name : 'En-route'}
@@ -700,7 +700,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                         onPress={(e) => { e.stopPropagation?.(); setFareModalTrip(trip); }}
                         hitSlop={8}
                         style={styles.fareInfoBtn}
-                      >
+                       accessibilityRole="button">
                         <Ionicons name="information-circle-outline" size={13} color={colors.onSurfaceVariant} />
                         <Text style={styles.fareInfoText}>Fare breakdown</Text>
                       </Pressable>
@@ -715,7 +715,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                       >
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
                           <Text variant="labelLarge">Board at a stop</Text>
-                          <Pressable onPress={() => setEnRoutePickerTripId(null)} hitSlop={8}>
+                          <Pressable onPress={() => setEnRoutePickerTripId(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close the stop picker">
                             <Ionicons name="close" size={18} color={colors.onSurfaceVariant} />
                           </Pressable>
                         </View>
@@ -728,7 +728,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                               setSelectedStopByTrip(updated);
                               setEnRoutePickerTripId(null);
                             }}
-                          >
+                           accessibilityRole="button">
                             <Ionicons name="navigate-circle-outline" size={16} color={colors.onSurfaceVariant} />
                             <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={{ flex: 1 }}>Full route (from origin)</Text>
                             <Text variant="labelLarge">{formatGhs(fullFare)}</Text>
@@ -750,7 +750,7 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                                 setSelectedStopByTrip(prev => ({ ...prev, [trip.id ?? '']: { id: stop.id, name: stop.name, fare: stopFare } }));
                                 setEnRoutePickerTripId(null);
                               }}
-                            >
+                             accessibilityRole="button">
                               <Ionicons name="location-outline" size={16} color={isSelected ? colors.primary : colors.onSurfaceVariant} />
                               <Text variant="bodyMedium" style={{ flex: 1 }} color={isSelected ? colors.primary : colors.onSurface}>
                                 {stop.name}
@@ -780,8 +780,8 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         animationType="slide"
         onRequestClose={() => setFiltersVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setFiltersVisible(false)}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
+        <Pressable style={styles.modalOverlay} onPress={() => setFiltersVisible(false)} accessibilityRole="button">
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}} accessibilityRole="button">
             <View style={styles.modalHandle} />
             <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Sort & Filter</Text>
 
@@ -859,8 +859,8 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         animationType="slide"
         onRequestClose={() => setFareModalTrip(null)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setFareModalTrip(null)}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
+        <Pressable style={styles.modalOverlay} onPress={() => setFareModalTrip(null)} accessibilityRole="button">
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}} accessibilityRole="button">
             <View style={styles.modalHandle} />
             <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Fare Breakdown</Text>
             {fareModalTrip && (() => {

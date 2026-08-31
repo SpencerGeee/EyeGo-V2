@@ -75,7 +75,7 @@ export const OTPInput = forwardRef<OTPInputRef, OTPInputProps>(
             );
           })}
         </Animated.View>
-        <TextInput
+        <TextInput maxFontSizeMultiplier={1.4}
           ref={inputRef}
           value={code}
           onChangeText={handleChangeText}

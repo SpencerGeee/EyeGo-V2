@@ -682,7 +682,7 @@ export default function DriverTrackingScreen() {
       <View style={styles.headerOverlay}>
         <View style={styles.headerRow}>
           <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-          <Pressable onPress={() => goBack()} style={styles.headerBtn}>
+          <Pressable onPress={() => goBack()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <View style={styles.headerRouteInfo}>
@@ -960,7 +960,7 @@ export default function DriverTrackingScreen() {
             <Pressable
               style={styles.secondaryBtn}
               onPress={() => goDeeper(`/(trip)/chat/${id}`)}
-            >
+             accessibilityRole="button">
               <Ionicons name="chatbubble-outline" size={18} color={colors.onSurfaceVariant} />
               <Text style={[styles.secondaryBtnText, { color: colors.onSurfaceVariant }]}>Chat</Text>
               {/* The trace a four-second banner cannot leave. */}
@@ -975,14 +975,14 @@ export default function DriverTrackingScreen() {
             <Pressable
               style={styles.secondaryBtn}
               onPress={handleOpenMaps}
-            >
+             accessibilityRole="button">
               <Ionicons name="navigate-outline" size={18} color={colors.primary} />
               <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Navigate</Text>
             </Pressable>
             <Pressable
               style={styles.secondaryBtn}
               onPress={() => goLateral(`/(trip)/active/${id}`)}
-            >
+             accessibilityRole="button">
               <Ionicons name="grid-outline" size={18} color={colors.primary} />
               <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Manage</Text>
             </Pressable>
@@ -1016,7 +1016,7 @@ export default function DriverTrackingScreen() {
                   ],
                 );
               }}
-            >
+             accessibilityRole="button">
               <Ionicons name="warning" size={18} color={colors.error} />
               <Text style={[styles.secondaryBtnText, { color: colors.error }]}>SOS</Text>
             </Pressable>
@@ -1044,7 +1044,7 @@ export default function DriverTrackingScreen() {
                   );
                 }}
                 disabled={cancelTrip.isPending}
-              >
+               accessibilityRole="button">
                 <Ionicons name="eye-off-outline" size={18} color="#F59E0B" />
                 <Text style={[styles.secondaryBtnText, { color: '#F59E0B' }]}>
                   {cancelTrip.isPending ? '…' : 'No Show'}
@@ -1054,7 +1054,7 @@ export default function DriverTrackingScreen() {
                 style={[styles.cancelBtn, { flex: 1 }]}
                 onPress={handleCancel}
                 disabled={cancelTrip.isPending}
-              >
+               accessibilityRole="button">
                 <Ionicons name="close-circle-outline" size={18} color={colors.error} />
                 <Text style={[styles.secondaryBtnText, { color: colors.error }]}>
                   {cancelTrip.isPending ? 'Cancelling…' : 'Cancel Trip'}

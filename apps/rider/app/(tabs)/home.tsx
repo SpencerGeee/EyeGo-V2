@@ -1074,7 +1074,7 @@ export default function HomeScreen() {
           style={styles.avatarBtn}
           onPress={() => goDeeper('/(tabs)/account' as any)}
           accessibilityLabel="Account"
-        >
+         accessibilityRole="button">
           {user?.avatarUrl ? (
             <Avatar uri={user.avatarUrl} name={firstName} size={AVATAR_SIZE} />
           ) : (
@@ -1186,7 +1186,7 @@ export default function HomeScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               morphTo('home-active-ride', () => goDeeper('/trip?stage=assigned' as any));
             }}
-          >
+           accessibilityRole="button">
           <Animated.View entering={FadeIn.duration(250)} style={styles.activeBentoCard}>
             {/* Small non-interactive map preview area */}
             <View style={styles.activeBentoMapArea}>
@@ -1285,7 +1285,7 @@ export default function HomeScreen() {
                   ),
                 );
               }}
-            >
+             accessibilityRole="button">
               <Animated.View entering={FadeIn.duration(250)} style={styles.statusBentoCard}>
                 <GradientGlowBorder
                   palette="green"
@@ -1323,7 +1323,7 @@ export default function HomeScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               goDeeper(`/scheduled/${nextScheduledIntent.id}` as any);
             }}
-          >
+           accessibilityRole="button">
             {/**
               * THE RIDER'S OWN NEXT DEPARTURE — the one scheduled thing on this
               * screen that is already theirs.

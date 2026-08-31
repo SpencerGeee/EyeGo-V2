@@ -187,7 +187,7 @@ export default function CancelRideScreen() {
       <SafeAreaView style={styles.safe}>
         {/* Header */}
         <View style={styles.header}>
-          <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8}>
+          <Pressable onPress={() => goBack()} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall" style={{ color: colors.onSurface }}>
@@ -398,7 +398,7 @@ export default function CancelRideScreen() {
                       isSelected && styles.reasonCardSelected,
                       pressed && { transform: [{ scale: 0.98 }] },
                     ]}
-                  >
+                   accessibilityRole="button">
                     <View style={[styles.reasonIcon, isSelected && styles.reasonIconSelected]}>
                       <Ionicons
                         name={reason.icon as any}
@@ -433,7 +433,7 @@ export default function CancelRideScreen() {
                   transition={{ type: 'spring', ...springs.standard }}
                   style={styles.noteContainer}
                 >
-                  <TextInput
+                  <TextInput maxFontSizeMultiplier={1.4}
                     value={note}
                     onChangeText={setNote}
                     placeholder="Tell us more (optional)…"
@@ -454,7 +454,7 @@ export default function CancelRideScreen() {
           <Pressable
             style={({ pressed }) => [styles.keepButton, pressed && { transform: [{ scale: 0.98 }] }]}
             onPress={() => goBack()}
-          >
+           accessibilityRole="button">
             <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
             <Text style={styles.keepButtonText}>Keep My Ride</Text>
           </Pressable>

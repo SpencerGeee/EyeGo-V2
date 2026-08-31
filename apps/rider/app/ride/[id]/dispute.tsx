@@ -78,7 +78,7 @@ export default function DisputeScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8}>
+          <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="close" size={22} color={colors.onSurface} />
           </Pressable>
           <Text variant="titleSmall">Report Issue</Text>
@@ -114,7 +114,7 @@ export default function DisputeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8}>
+        <Pressable onPress={() => goBack()} style={styles.iconBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="close" size={22} color={colors.onSurface} />
         </Pressable>
         <View style={{ width: 40 }} />
@@ -173,7 +173,7 @@ export default function DisputeScreen() {
                   key={issue.label}
                   onPress={() => setSelectedType(issue.label)}
                   style={[styles.chip, active && styles.chipActive]}
-                >
+                 accessibilityRole="button">
                   <Ionicons
                     name={issue.icon}
                     size={16}
@@ -202,7 +202,7 @@ export default function DisputeScreen() {
             </Text>
           </View>
           <View style={styles.textAreaWrap}>
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               value={description}
               onChangeText={(t) => setDescription(t.slice(0, MAX_CHARS))}
               placeholder="Describe what happened..."

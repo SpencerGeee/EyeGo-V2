@@ -422,7 +422,7 @@ export default function SavedPlacesScreen() {
 
               <View style={styles.inputContainer}>
                 <Text variant="label" color={colors.onSurfaceVariant} style={styles.inputLabel}>NAME</Text>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   style={styles.input}
                   placeholder="e.g. Cyril's house, Gym, Mum's place"
                   placeholderTextColor={colors.onSurfaceVariant}
@@ -540,7 +540,7 @@ export default function SavedPlacesScreen() {
                         key={s.placeId || i}
                         onPress={() => selectSuggestion(s)}
                         style={[styles.suggestRow, i < suggestions.length - 1 && styles.suggestRowBorder]}
-                      >
+                       accessibilityRole="button">
                         <Ionicons name="location-outline" size={16} color={colors.onSurfaceVariant} />
                         <Text variant="bodySmall" color={colors.onSurface} style={{ flex: 1 }} numberOfLines={2}>{s.fullAddress}</Text>
                       </Pressable>
@@ -600,7 +600,7 @@ export default function SavedPlacesScreen() {
               </View>
             </View>
           ) : (
-            <Pressable style={styles.addBtn} onPress={() => startAdding(null)}>
+            <Pressable style={styles.addBtn} onPress={() => startAdding(null)} accessibilityRole="button">
               <Ionicons name="add-circle-outline" size={24} color={colors.primary} />
               <Text variant="bodyMedium" color={colors.primary}>Add a new place</Text>
             </Pressable>

@@ -326,7 +326,7 @@ export default function CreateTripScreen() {
       <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : goBack())} style={styles.backBtn}>
+        <Pressable onPress={() => (step > 1 ? setStep((s) => s - 1) : goBack())} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Create Trip</Text>
@@ -348,7 +348,7 @@ export default function CreateTripScreen() {
               Where are you starting from, and where's this trip headed?
             </Text>
 
-            <Pressable style={styles.locationRow} onPress={() => openLocationPicker('origin')}>
+            <Pressable style={styles.locationRow} onPress={() => openLocationPicker('origin')} accessibilityRole="button">
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
               <View style={[styles.locationDot, { backgroundColor: colors.onSurfaceVariant }]} />
               <View style={{ flex: 1 }}>
@@ -362,7 +362,7 @@ export default function CreateTripScreen() {
 
             <View style={styles.locationConnector} />
 
-            <Pressable style={styles.locationRow} onPress={() => openLocationPicker('destination')}>
+            <Pressable style={styles.locationRow} onPress={() => openLocationPicker('destination')} accessibilityRole="button">
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
               <View style={[styles.locationDot, { backgroundColor: colors.primary }]} />
               <View style={{ flex: 1 }}>
@@ -427,7 +427,7 @@ export default function CreateTripScreen() {
               onPress={() => {
                 if (Platform.OS === 'android') setShowTimePicker(true);
               }}
-            >
+             accessibilityRole="button">
               <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
               <Ionicons name="time-outline" size={24} color={colors.primary} />
               <View style={{ flex: 1 }}>
@@ -507,7 +507,7 @@ export default function CreateTripScreen() {
                 style={[styles.seatsBtn, seats <= 1 && styles.seatsBtnDisabled]}
                 onPress={() => setSeats((s) => Math.max(1, s - 1))}
                 disabled={seats <= 1}
-              >
+               accessibilityRole="button" accessibilityLabel="One fewer seat">
                 <Ionicons name="remove" size={24} color={seats <= 1 ? colors.onSurfaceVariant : colors.onSurface} />
               </Pressable>
               <View style={styles.seatsValue}>
@@ -518,7 +518,7 @@ export default function CreateTripScreen() {
                 style={[styles.seatsBtn, seats >= seatCap && styles.seatsBtnDisabled]}
                 onPress={() => setSeats((s) => Math.min(seatCap, s + 1))}
                 disabled={seats >= seatCap}
-              >
+               accessibilityRole="button" accessibilityLabel="One more seat">
                 <Ionicons name="add" size={24} color={seats >= seatCap ? colors.onSurfaceVariant : colors.onSurface} />
               </Pressable>
             </View>

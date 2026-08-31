@@ -609,7 +609,7 @@ export function TripStatusListener() {
       style={[styles.container, bannerStyle]}
       pointerEvents="box-none"
     >
-      <Pressable onPress={handleBannerPress} style={styles.pressable}>
+      <Pressable onPress={handleBannerPress} style={styles.pressable} accessibilityRole="button">
         <BlurView intensity={85} tint="dark" style={styles.blurContainer}>
           <View style={[styles.iconCircle, { backgroundColor: colors.primary }]}>
             <Ionicons name={bannerIcon as any} size={16} color="#050508" />

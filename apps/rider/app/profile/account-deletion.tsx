@@ -121,7 +121,7 @@ export default function AccountDeletionScreen() {
               </Text>
 
               <View style={styles.inputWrap}>
-                <TextInput
+                <TextInput maxFontSizeMultiplier={1.4}
                   value={confirmText}
                   onChangeText={setConfirmText}
                   placeholder="Type DELETE to confirm"

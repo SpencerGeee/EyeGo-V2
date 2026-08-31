@@ -90,7 +90,7 @@ export default function GuestSelectionScreen() {
       <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text variant="titleMedium">Who is riding?</Text>
@@ -118,7 +118,7 @@ export default function GuestSelectionScreen() {
                 selection === 'myself' && styles.optionCardSelected,
               ]}
               onPress={() => setSelection('myself')}
-            >
+             accessibilityRole="button">
               <View style={styles.optionIconContainer}>
                 <Ionicons
                   name="person"
@@ -143,7 +143,7 @@ export default function GuestSelectionScreen() {
                 selection === 'guest' && styles.optionCardSelected,
               ]}
               onPress={() => setSelection('guest')}
-            >
+             accessibilityRole="button">
               <View style={styles.optionIconContainer}>
                 <Ionicons
                   name="people"
@@ -181,7 +181,7 @@ export default function GuestSelectionScreen() {
                 </Text>
                 <View style={[styles.inputContainer, !!nameError && { borderColor: '#EF4444' }]}>
                   <Ionicons name="person-outline" size={20} color={colors.onSurfaceVariant} style={styles.inputIcon} />
-                  <TextInput
+                  <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.input}
                     value={name}
                     onChangeText={(t) => { setName(t); if (nameError) setNameError(''); }}
@@ -198,7 +198,7 @@ export default function GuestSelectionScreen() {
                 </Text>
                 <View style={[styles.inputContainer, !!phoneError && { borderColor: '#EF4444' }]}>
                   <Ionicons name="call-outline" size={20} color={colors.onSurfaceVariant} style={styles.inputIcon} />
-                  <TextInput
+                  <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.input}
                     value={phone}
                     onChangeText={(t) => { setPhone(t); if (phoneError) setPhoneError(''); }}

@@ -686,7 +686,7 @@ export default function DispatchScreen() {
               <Text variant="bodyMedium" color={colors.onSurfaceVariant} style={styles.emptyText}>
                 It expired, or another driver took it. You are still online and still in the pool.
               </Text>
-              <Pressable onPress={goHome} style={[styles.emptyBtn, { borderColor: colors.outline }]}>
+              <Pressable onPress={goHome} style={[styles.emptyBtn, { borderColor: colors.outline }]} accessibilityRole="button">
                 <Text style={{ fontFamily: fonts.semiBold, color: colors.accent }}>Back to home</Text>
               </Pressable>
             </>
@@ -734,7 +734,7 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center',
       gap: spacing.sm,
       paddingHorizontal: spacing.base,
-      height: 36,
+      minHeight: 36,
       borderRadius: radii.full,
       overflow: 'hidden',
       borderWidth: StyleSheet.hairlineWidth,

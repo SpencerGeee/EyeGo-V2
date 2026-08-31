@@ -93,7 +93,7 @@ export default function SocialAuthScreen() {
     <SafeAreaView style={styles.safe}>
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => goBack()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
         </Pressable>
       </View>
@@ -112,7 +112,7 @@ export default function SocialAuthScreen() {
           onPress={handleGoogleSignIn}
           disabled={loadingGoogle || loadingApple}
           style={[styles.socialBtn, loadingGoogle && styles.socialBtnDisabled]}
-        >
+         accessibilityRole="button">
           {loadingGoogle ? (
             <Entrance animation="fadeIn" duration={500} style={styles.loadingDots}>
               <Text style={styles.socialBtnText}>Signing in…</Text>
@@ -131,7 +131,7 @@ export default function SocialAuthScreen() {
             onPress={handleAppleSignIn}
             disabled={loadingGoogle || loadingApple}
             style={[styles.socialBtn, styles.appleSocialBtn, loadingApple && styles.socialBtnDisabled]}
-          >
+           accessibilityRole="button">
             {loadingApple ? (
               <Entrance animation="fadeIn" duration={500}>
                 <Text style={[styles.socialBtnText, { color: colors.backgroundDeep }]}>Signing in…</Text>

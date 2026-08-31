@@ -172,7 +172,7 @@ export default function ProfileScreen() {
           <Pressable
             onPress={() => refetchProfile()}
             style={{ paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.primary, borderRadius: 8 }}
-          >
+           accessibilityRole="button">
             <Text style={{ color: colors.onPrimary, fontFamily: fonts.semiBold }}>Retry</Text>
           </Pressable>
         </View>
@@ -278,7 +278,7 @@ export default function ProfileScreen() {
               key={item.label}
               style={[styles.settingsRow, i < settingsItems.length - 1 && styles.settingsBorder]}
               onPress={item.action}
-            >
+             accessibilityRole="button">
               <View style={[
                 styles.settingsIcon,
                 { backgroundColor: item.destructive ? `${colors.error}18` : `${colors.primary}18` },

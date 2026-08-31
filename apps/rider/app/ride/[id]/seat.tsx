@@ -89,7 +89,7 @@ export default function SeatPickerScreen() {
       <SafeAreaView style={styles.safe}>
         <AppBackground variant="static" isDark={isDark} />
         <View style={styles.header}>
-          <Pressable onPress={() => goBack()} hitSlop={12}>
+          <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
             <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
           </Pressable>
           <Text variant="labelCaps">Choose Your Seat</Text>
@@ -112,7 +112,7 @@ export default function SeatPickerScreen() {
       <AppBackground variant="static" isDark={isDark} />
       {/* Header */}
       <View style={styles.header}>
-        <Pressable onPress={() => goBack()} style={styles.headerBackBtn} hitSlop={12}>
+        <Pressable onPress={() => goBack()} style={styles.headerBackBtn} hitSlop={12} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
         <Text variant="labelCaps">Choose Your Seat</Text>
@@ -221,7 +221,7 @@ function SeatButton({
   };
 
   return (
-    <Pressable onPress={handlePress} disabled={isUnavailable}>
+    <Pressable onPress={handlePress} disabled={isUnavailable} accessibilityRole="button">
       <Animated.View
         style={[
           styles.seatButton,

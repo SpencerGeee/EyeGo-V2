@@ -946,7 +946,7 @@ export default function ActiveTripScreen() {
             onPress={() => router.replace('/(tabs)' as any)}
             hitSlop={12}
             style={[styles.backEscapeButton, { top: insets.top + 12 }]}
-          >
+           accessibilityRole="button">
             <Text style={{ color: '#fff', fontFamily: fonts.semiBold, fontSize: 13 }}>← Back to Home</Text>
           </Pressable>
         )}
@@ -1377,7 +1377,7 @@ export default function ActiveTripScreen() {
 
       {/* Glassmorphic top header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable style={styles.headerIconBtn} onPress={() => goBack()}>
+        <Pressable style={styles.headerIconBtn} onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
         </Pressable>
 
@@ -1423,7 +1423,7 @@ export default function ActiveTripScreen() {
               ],
             )
           }
-        >
+         accessibilityRole="button">
           <Text style={styles.sosBtnText}>SOS</Text>
         </Pressable>
       </View>
@@ -2056,7 +2056,7 @@ export default function ActiveTripScreen() {
                   )
                 }
                 disabled={noShowTrip.isPending}
-              >
+               accessibilityRole="button">
                 <Ionicons name="eye-off-outline" size={16} color="#F59E0B" />
                 <Text style={[styles.dangerBtnText, { color: '#F59E0B' }]}>No Show</Text>
               </Pressable>
@@ -2065,7 +2065,7 @@ export default function ActiveTripScreen() {
                 style={[styles.dangerBtn, { borderColor: colors.error + '66' }]}
                 onPress={handleCancel}
                 disabled={noShowTrip.isPending}
-              >
+               accessibilityRole="button">
                 <Ionicons name="close-circle-outline" size={16} color={colors.error} />
                 <Text style={[styles.dangerBtnText, { color: colors.error }]}>Cancel Trip</Text>
               </Pressable>
@@ -2123,7 +2123,7 @@ export default function ActiveTripScreen() {
                 : 'Ask them to read out the 4-digit code on their screen.'}
             </Text>
 
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               value={pinValue}
               onChangeText={(t) => {
                 setPinValue(t.replace(/[^0-9]/g, '').slice(0, 4));
@@ -2194,8 +2194,8 @@ export default function ActiveTripScreen() {
       </Modal>
 
       <Modal visible={showPaymentQr} transparent animationType="fade" onRequestClose={() => setShowPaymentQr(false)}>
-        <Pressable style={styles.qrModalBackdrop} onPress={() => setShowPaymentQr(false)}>
-          <Pressable style={styles.qrModalCard} onPress={(e) => e.stopPropagation()}>
+        <Pressable style={styles.qrModalBackdrop} onPress={() => setShowPaymentQr(false)} accessibilityRole="button">
+          <Pressable style={styles.qrModalCard} onPress={(e) => e.stopPropagation()} accessibilityRole="button">
             <Text style={styles.cardTitle}>Scan to Pay</Text>
             <View style={styles.qrWrap}>
               {/* A real universal-link URL, not the old bare `eyego:trip:<id>`
@@ -2212,7 +2212,7 @@ export default function ActiveTripScreen() {
               Passenger scans this with their phone camera, or taps Scan on the EyeGo
               app's home screen, to pay their fare for this trip.
             </Text>
-            <Pressable style={styles.qrCloseBtn} onPress={() => setShowPaymentQr(false)}>
+            <Pressable style={styles.qrCloseBtn} onPress={() => setShowPaymentQr(false)} accessibilityRole="button">
               <Text variant="label" color={colors.onSurface}>Close</Text>
             </Pressable>
           </Pressable>
@@ -2262,7 +2262,7 @@ function QuickAction({
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={450}
-    >
+     accessibilityRole="button">
       <Ionicons name={icon} size={20} color={color} />
       <Text style={{ fontFamily: fonts.medium, fontSize: 10, lineHeight: 13, color, letterSpacing: 0.2 }}>{label}</Text>
       {badge > 0 && (

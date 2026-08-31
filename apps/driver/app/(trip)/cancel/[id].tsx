@@ -65,7 +65,7 @@ export default function CancelTripScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground isDark={theme !== 'light'} />
       <Entrance animation="slideLeft" style={styles.backRow}>
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </Entrance>
@@ -102,7 +102,7 @@ export default function CancelTripScreen() {
                   key={reason}
                   style={[styles.reasonRow, isLast && { borderBottomWidth: 0 }]}
                   onPress={() => setSelectedReason(reason)}
-                >
+                 accessibilityRole="button">
                   <View style={[styles.dot, isSelected && styles.dotActive]} />
                   <Text
                     variant="bodyMedium"
@@ -124,7 +124,7 @@ export default function CancelTripScreen() {
               <Text variant="labelLarge" color={colors.onSurfaceVariant} style={styles.sectionLabel}>
                 Additional note
               </Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={styles.noteInput}
                 value={note}
                 onChangeText={setNote}

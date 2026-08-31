@@ -285,7 +285,7 @@ function OtpCell({ value, isActive, isSuccess, inputRef, onChange, onKeyPress, o
         cellStyle,
       ]}
     >
-      <TextInput
+      <TextInput maxFontSizeMultiplier={1.4}
         ref={inputRef}
         style={styles.cellInput}
         value={value}

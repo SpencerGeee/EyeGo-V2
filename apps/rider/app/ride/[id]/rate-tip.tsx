@@ -390,7 +390,7 @@ export default function RateTipScreen() {
                     key={i}
                     onPress={() => setSelectedTipIndex(isSelected ? null : i)}
                     style={[styles.tipOption, isSelected && styles.tipOptionActive]}
-                  >
+                   accessibilityRole="button">
                     {isSelected && (
                       <View style={styles.tipCheck}>
                         <Ionicons name="checkmark" size={10} color={colors.onPrimary} />
@@ -413,7 +413,7 @@ export default function RateTipScreen() {
               >
                 <View style={styles.customInputWrap}>
                   <Text style={styles.customInputPrefix}>GHS</Text>
-                  <TextInput
+                  <TextInput maxFontSizeMultiplier={1.4}
                     style={styles.customInput}
                     value={customTip}
                     onChangeText={setCustomTip}
@@ -435,7 +435,7 @@ export default function RateTipScreen() {
             style={styles.card}
           >
             <Text style={styles.cardTitle}>Leave a comment</Text>
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={styles.commentInput}
               value={comment}
               onChangeText={setComment}
@@ -506,6 +506,12 @@ function StarButton({
 
   return (
     <Pressable
+      /* Five identical glyphs need five different labels, and the state matters
+         as much as the position: "3 stars, selected" is the only announcement
+         that tells a screen-reader user what their rating currently is. */
+      accessibilityRole="button"
+      accessibilityLabel={`Rate ${star} star${star === 1 ? '' : 's'}`}
+      accessibilityState={{ selected: isActive }}
       onPress={() => {
         // A star being awarded is one of the few things allowed to bounce —
         // but through `springs.accent` (ζ 0.75, 2.8 % overshoot), not the old

@@ -45,7 +45,7 @@ function FaqItem({ q, a, colors }: { q: string; a: string; colors: DriverColors 
       <Pressable
         style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.base, gap: spacing.md }}
         onPress={() => setOpen((v) => !v)}
-      >
+       accessibilityRole="button">
         <Text style={{ flex: 1, fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}>
           {q}
         </Text>
@@ -142,7 +142,7 @@ export default function HelpScreen() {
         transition={{ type: 'spring', ...springs.standard }}
         style={styles.backRow}
       >
-        <Pressable onPress={() => goBack()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12} accessibilityRole="button">
           <Text variant="bodyMedium" color={colors.onSurfaceVariant}>← Back</Text>
         </Pressable>
       </MotiView>
@@ -264,7 +264,7 @@ export default function HelpScreen() {
           <Pressable
             style={styles.contactBtn}
             onPress={() => Linking.openURL('mailto:support@eyego.app?subject=Driver%20App%20Support')}
-          >
+           accessibilityRole="button">
             <Text style={styles.contactBtnText}>Email Us</Text>
           </Pressable>
         </MotiView>
@@ -275,14 +275,14 @@ export default function HelpScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.backgroundDeep }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing['2xl'] }}>
             <Text variant="titleMedium">Raise a Dispute</Text>
-            <Pressable onPress={() => setShowNewTicket(false)}>
+            <Pressable onPress={() => setShowNewTicket(false)} accessibilityRole="button" accessibilityLabel="Close">
               <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>
           <View style={{ paddingHorizontal: spacing['2xl'], gap: spacing.base }}>
             <View>
               <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.xs }}>Subject</Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={{ height: 48, backgroundColor: colors.surfaceContainerHigh, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.outline, paddingHorizontal: spacing.base, fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, color: colors.onSurface }}
                 value={ticketSubject}
                 onChangeText={setTicketSubject}
@@ -293,7 +293,7 @@ export default function HelpScreen() {
             </View>
             <View>
               <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginBottom: spacing.xs }}>Message</Text>
-              <TextInput
+              <TextInput maxFontSizeMultiplier={1.4}
                 style={{ minHeight: 120, backgroundColor: colors.surfaceContainerHigh, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.outline, paddingHorizontal: spacing.base, paddingVertical: spacing.md, fontFamily: fonts.medium, fontSize: fontSizes.bodyMedium, color: colors.onSurface, textAlignVertical: 'top' }}
                 value={ticketMessage}
                 onChangeText={setTicketMessage}
@@ -332,7 +332,7 @@ export default function HelpScreen() {
                 </Text>
               )}
             </View>
-            <Pressable onPress={() => { setOpenTicket(null); setReplyText(''); }} hitSlop={12}>
+            <Pressable onPress={() => { setOpenTicket(null); setReplyText(''); }} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
               <Ionicons name="close" size={24} color={colors.onSurface} />
             </Pressable>
           </View>
@@ -371,7 +371,7 @@ export default function HelpScreen() {
               </Text>
             )}
 
-            <TextInput
+            <TextInput maxFontSizeMultiplier={1.4}
               style={{
                 minHeight: 96,
                 backgroundColor: colors.surfaceContainerHigh,
