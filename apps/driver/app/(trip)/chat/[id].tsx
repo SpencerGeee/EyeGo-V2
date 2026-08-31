@@ -6,8 +6,7 @@ import {
   TextInput,
   Platform,
   Pressable,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 // The library's avoider, not React Native's. RN's `behavior="height"` has
 // nothing to shrink under edge-to-edge with adjustResize, so on Android it
 // effectively no-ops and the composer stays under the keyboard.
@@ -17,7 +16,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { useQuery } from '@tanstack/react-query';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -362,7 +361,7 @@ export default function TripChatScreen() {
         // it's queued, and say so.
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         setText(trimmed);
-        Alert.alert('Message Not Saved', "You're offline and the message couldn't be queued. It has been restored to the input box — try again.");
+        notify('Message Not Saved', "You're offline and the message couldn't be queued. It has been restored to the input box — try again.");
       }
       return;
     }

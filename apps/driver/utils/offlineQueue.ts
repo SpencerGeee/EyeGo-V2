@@ -126,4 +126,26 @@ export const offlineQueue = {
       this._intervalRef = null;
     }
   },
+
+  /**
+   * HOW MANY WRITES ARE WAITING.
+   *
+   * Added so the offline banner can say "3 actions will send when you are
+   * back" and have that be a fact rather than a reassurance. A queue that
+   * cannot be counted can only be described vaguely, and a vague promise about
+   * the ride you just cancelled is worse than no promise.
+   *
+   * Swallows its own failure and answers 0: the banner must still appear if
+   * storage is unreadable, just without a number.
+   */
+  async count(): Promise<number> {
+    try {
+      const stored = await AsyncStorage.getItem(QUEUE_KEY);
+      if (!stored) return 0;
+      const queue = JSON.parse(stored);
+      return Array.isArray(queue) ? queue.length : 0;
+    } catch {
+      return 0;
+    }
+  },
 };

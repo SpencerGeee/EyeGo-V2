@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, StyleSheet, TextInput, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, TextInput, Image, ActivityIndicator } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -10,7 +10,7 @@ import * as Location from 'expo-location';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { mapReportsApi, type MapReportType } from '@eyego/api';
 import { spacing, radii, fonts, fontSizes, withOpacity } from '@eyego/config';
-import { Text, Pressable, Button, AppBackground, backgroundScrollPauseProps, GlowSearchInput, goDeeper, goBack } from '@eyego/ui';
+import { Text, Pressable, Button, AppBackground, backgroundScrollPauseProps, GlowSearchInput, goDeeper, goBack, notify } from '@eyego/ui';
 
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -285,7 +285,7 @@ export default function MapReportFormScreen() {
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert('Photos are off', 'Allow photo access to attach a picture, or send the report without one.');
+        notify('Photos are off', 'Allow photo access to attach a picture, or send the report without one.');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -340,11 +340,11 @@ export default function MapReportFormScreen() {
     },
     onError: (err: any) => {
       if (err?.message === 'NO_LOCATION') {
-        Alert.alert('Where is it?', 'Pick the spot on the map first.');
+        notify('Where is it?', 'Pick the spot on the map first.', { tone: 'info' });
         return;
       }
       const message = err?.response?.data?.message ?? 'Could not send that. Try again.';
-      Alert.alert('Not sent', message);
+      notify('Not sent', message);
     },
   });
 

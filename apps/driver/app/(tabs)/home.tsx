@@ -4,8 +4,7 @@ import {
   View,
   StyleSheet,
   Pressable,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -13,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassSurface, InlayPanel, GradientGlowBorder, SkeletonValue, AnnouncementBanner, goDeeper , SmoothDefer } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, InlayPanel, GradientGlowBorder, SkeletonValue, AnnouncementBanner, goDeeper, SmoothDefer, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -199,7 +198,7 @@ export default function HomeScreen() {
     const cleanLocationRejected = driverSocketEvents.onLocationRejected((data) => {
       if (warnedLocationRejected) return;
       warnedLocationRejected = true;
-      Alert.alert('Location outside service area', data.message);
+      notify('Location outside service area', data.message);
     });
     const cleanDispatch = driverSocketEvents.onTripAssigned((data) => {
       // BUSY-DRIVER GUARD (client half of services/driver-availability.js). The
@@ -373,7 +372,7 @@ export default function HomeScreen() {
       setOnlineError(null);
       goOnline.mutate();
     },
-    onError: () => Alert.alert('Activation Failed', 'Could not activate account. Is the server running?'),
+    onError: () => notify('Activation Failed', 'Could not activate account. Is the server running?'),
   });
 
   /**
@@ -391,7 +390,7 @@ export default function HomeScreen() {
       qc.invalidateQueries({ queryKey: ['driver'] });
       void beatPresenceNow().catch(() => {});
     },
-    onError: () => Alert.alert('Could not resume', 'Try the switch under Profile → Settings.'),
+    onError: () => notify('Could not resume', 'Try the switch under Profile → Settings.'),
   });
 
   /** What the blocked banner's button should do, per the server's reason code. */
@@ -435,7 +434,7 @@ export default function HomeScreen() {
     // 503 DRIVER_ONLINE_DISABLED (middleware/killSwitch.js) — this only says so
     // before the round trip, and deliberately never blocks going OFFLINE.
     if (!platformConfig.driverOnlineEnabled) {
-      Alert.alert(
+      notify(
         'Temporarily Unavailable',
         'Going online is paused while EyeGo is under maintenance. Please try again shortly.'
       );
@@ -444,7 +443,7 @@ export default function HomeScreen() {
     // Guard: negative wallet balance = account suspended
     const walletBalancePesewas = walletData?.balancePesewas ?? 0;
     if (walletBalancePesewas < 0) {
-      Alert.alert(
+      notify(
         'Account Suspended',
         `Account suspended — ${formatGhs(Math.abs(walletBalancePesewas))} outstanding. Top up your wallet to go back online.`
       );
@@ -454,11 +453,9 @@ export default function HomeScreen() {
     if (!hasPermission) {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
+        notify(
           'Location Required',
-          'EyeGo needs your location to go online and accept trips. Please enable location access in your device settings.',
-          [{ text: 'OK' }]
-        );
+          'EyeGo needs your location to go online and accept trips. Please enable location access in your device settings.');
         return;
       }
     }
@@ -601,33 +598,15 @@ export default function HomeScreen() {
           />
         )}
 
-        {isOffline && (
-          /* STATE, not event — so no clock and no dismiss: hiding "no internet"
-             would not restore the internet. What it gets instead is a verb. */
-          <DriverAlertBanner
-            tone="offline"
-            icon="cloud-offline"
-            title="No internet connection"
-            detail="You are not reachable by dispatch while this is showing. We keep retrying on our own."
-            autoDismissMs={null}
-            pulse
-            action={{
-              label: 'Retry now',
-              onPress: () => {
-                // Force the socket to try immediately rather than waiting out
-                // the backoff — the driver tapping this is new information:
-                // they believe the network is back.
-                reconnectAttemptsRef.current = 0;
-                if (reconnectTimerRef.current) {
-                  clearTimeout(reconnectTimerRef.current);
-                  reconnectTimerRef.current = null;
-                }
-                if (useDriverStore.getState().isOnline) getDriverSocket().connect();
-                qc.invalidateQueries({ queryKey: ['driver'] });
-              },
-            }}
-          />
-        )}
+        {/*
+          THE OFFLINE BANNER MOVED OUT OF THIS SCREEN.
+
+          It was right here, and that was the bug: a driver who lost signal on
+          Earnings, Alerts, Quests or mid-trip was told nothing, because the only
+          surface that could tell them was mounted on Home. `NoticeHost` at the
+          root layout covers every screen in both apps, and `NetworkReporter`
+          feeds it. See packages/ui/src/notify/notice.ts.
+        */}
 
       {/*
         The operator's announcement banner.

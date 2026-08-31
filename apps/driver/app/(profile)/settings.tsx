@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Switch, Pressable, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Switch, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMutation } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
@@ -102,7 +102,7 @@ export default function SettingsScreen() {
 
   const updateNavPref = useMutation({
     mutationFn: (app: NavApp) => driverApi.updatePreferences({ navigationApp: app }),
-    onError: () => Alert.alert('Error', 'Failed to save navigation preference.'),
+    onError: () => notify(null, 'Failed to save navigation preference.'),
   });
 
   const handleSelectNav = (app: NavApp) => {

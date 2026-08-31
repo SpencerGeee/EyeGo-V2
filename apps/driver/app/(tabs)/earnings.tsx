@@ -18,7 +18,7 @@ import { walletApi, driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/ap
 import { describeError } from '@eyego/utils';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, AppBackground, goDeeper } from '@eyego/ui';
+import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, AppBackground, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -143,12 +143,12 @@ export default function EarningsScreen() {
         // Say what actually happened. Claiming "check your phone for the MoMo
         // prompt" when no gateway exists is how a driver ends up waiting for a
         // prompt that is never coming.
-        Alert.alert(
+        notify(
           'Wallet topped up',
           `${formatGhs(added)} has been added to your wallet.\n\nNo payment was taken — the payment gateway is not live yet, so top-ups are credited directly for now.`,
         );
       } else {
-        Alert.alert(
+        notify(
           'Approve on your phone',
           `Approve the ${formatGhs(added)} mobile money prompt to finish topping up. Your balance updates once it clears.`,
         );
@@ -156,18 +156,18 @@ export default function EarningsScreen() {
     },
     onError: (err) => {
       const { title, message } = describeError(err, 'We could not add money to your wallet.');
-      Alert.alert(title, message);
+      notify(title, message);
     },
   });
 
   const handleTopUp = () => {
     const amountPesewas = pesewasFromCedis(parseFloat(topUpAmount));
     if (isNaN(amountPesewas) || amountPesewas < MIN_TOPUP_PESEWAS) {
-      Alert.alert('Enter an amount', `The smallest top-up is ${formatGhs(MIN_TOPUP_PESEWAS)}.`);
+      notify('Enter an amount', `The smallest top-up is ${formatGhs(MIN_TOPUP_PESEWAS)}.`);
       return;
     }
     if (amountPesewas > MAX_TOPUP_PESEWAS) {
-      Alert.alert('Too much at once', `The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`);
+      notify('Too much at once', `The most you can add at once is ${formatGhs(MAX_TOPUP_PESEWAS)}.`);
       return;
     }
     topUp.mutate();
@@ -184,9 +184,9 @@ export default function EarningsScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'wallet'] });
       // Balance is derived from ['driver','me'] (walletBalancePesewas), so refresh that too.
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
-      Alert.alert('Withdrawal Submitted', `${formatGhs(pesewasFromCedis(parseFloat(withdrawAmount)))} is being processed to your mobile money account.`);
+      notify('Withdrawal Submitted', `${formatGhs(pesewasFromCedis(parseFloat(withdrawAmount)))} is being processed to your mobile money account.`);
     },
-    onError: (err) => Alert.alert('Withdrawal Failed', (err as Error).message),
+    onError: (err) => notify('Withdrawal Failed', (err as Error).message),
   });
 
   const handleWithdraw = () => {
@@ -196,15 +196,15 @@ export default function EarningsScreen() {
     // driver "withdraw" GH₵50 against a GH₵0.50 balance.
     const amountPesewas = pesewasFromCedis(parseFloat(withdrawAmount));
     if (isNaN(amountPesewas) || amountPesewas <= 0) {
-      Alert.alert('Invalid Amount', 'Enter a valid amount.');
+      notify('Invalid Amount', 'Enter a valid amount.');
       return;
     }
     if (amountPesewas < MIN_WITHDRAWAL_PESEWAS) {
-      Alert.alert('Minimum Withdrawal', `The minimum withdrawal amount is ${formatGhs(MIN_WITHDRAWAL_PESEWAS)}.`);
+      notify('Minimum Withdrawal', `The minimum withdrawal amount is ${formatGhs(MIN_WITHDRAWAL_PESEWAS)}.`);
       return;
     }
     if (amountPesewas > balance) {
-      Alert.alert('Insufficient Balance', `You only have ${formatGhs(balance)} available.`);
+      notify('Insufficient Balance', `You only have ${formatGhs(balance)} available.`);
       return;
     }
     Alert.alert(

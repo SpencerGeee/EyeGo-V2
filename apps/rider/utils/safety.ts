@@ -1,5 +1,6 @@
-import { Share, Alert } from 'react-native';
+import { Share } from 'react-native';
 import { reverseGeocode } from './geocoding';
+import { notify } from '@eyego/ui';
 
 /**
  * SHARING A TRIP, AND SHARING WHERE YOU ARE.
@@ -99,7 +100,7 @@ export const shareLiveTracking = async (
 ) => {
   try {
     if (!shortId) {
-      Alert.alert('Not ready yet', 'This trip does not have a tracking link yet. Try again in a moment.');
+      notify('Not ready yet', 'This trip does not have a tracking link yet. Try again in a moment.', { tone: 'info' });
       return;
     }
     const url = trackingUrl(shortId);
@@ -111,7 +112,7 @@ export const shareLiveTracking = async (
       title: 'Track my EyeGo Ride',
     });
   } catch (error) {
-    Alert.alert('Error', 'Could not share live tracking link.');
+    notify(null, 'Could not share live tracking link.');
   }
 };
 

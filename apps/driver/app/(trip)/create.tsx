@@ -4,7 +4,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,7 +17,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // that shadowed the shared one — harmless while money was cedis, a 100x
 // misquote to the driver the moment it became pesewas.
 import { formatGhs } from '@eyego/utils';
-import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, AppBackground, getTierTheme, goDeeper, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -298,19 +297,11 @@ export default function CreateTripScreen() {
       const code = axiosErr.response?.data?.code;
       const message = axiosErr.response?.data?.message || (err as Error).message;
       if (code === 'NO_VEHICLE') {
-        Alert.alert(
+        notify(
           'Vehicle Required',
-          'You need to register a vehicle before publishing a trip.\n\nGo to Profile → Documents to add your vehicle details.',
-          [
-            { text: 'OK' },
-            {
-              text: 'Go to Profile',
-              onPress: () => goDeeper('/(profile)/vehicle'),
-            },
-          ]
-        );
+          'You need to register a vehicle before publishing a trip.\n\nGo to Profile → Documents to add your vehicle details.');
       } else {
-        Alert.alert('Error', message);
+        notify('Could not create the trip', message);
       }
     },
   });

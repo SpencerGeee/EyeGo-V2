@@ -8,15 +8,14 @@ import {
   Image,
   Platform,
   Linking,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -662,9 +661,9 @@ export default function ChatScreen() {
               const res = await tripsApi.getContact(id);
               const phone = (res.data as any)?.data?.phone;
               if (phone) Linking.openURL(`tel:${phone}`);
-              else Alert.alert('Unavailable', "Driver's number isn't available right now.");
+              else notify('Unavailable', "Driver's number isn't available right now.");
             } catch {
-              Alert.alert('Unavailable', "Couldn't get the driver's number. Please try again.");
+              notify('Unavailable', "Couldn't get the driver's number. Please try again.");
             }
           }}
           style={styles.callBtn}

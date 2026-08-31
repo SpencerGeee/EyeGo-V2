@@ -18,7 +18,7 @@ import * as Location from 'expo-location';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
-import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm, goLateral, SmoothScreen, goDeeper, goBack } from '@eyego/ui';
+import { Text, Skeleton, Entrance, GlassSurface, GradientGlowBorder, InlayPanel, SwipeToConfirm, goLateral, SmoothScreen, goDeeper, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
@@ -303,7 +303,7 @@ export default function ActiveTripScreen() {
           return;
         }
         setPinPrompt(null);
-        Alert.alert('Error', msg);
+        notify('Could not board that passenger', msg);
       } finally {
         setPinBusy(false);
       }
@@ -368,7 +368,7 @@ export default function ActiveTripScreen() {
     const unsubPayment = driverSocketEvents.onPaymentConfirmed((data) => {
       if (data.tripId === id) {
         addNotification({ type: 'PAYMENT_CONFIRMED', title: 'Payment Confirmed', body: 'A passenger just completed their payment.', tripId: id });
-        Alert.alert('Payment Confirmed', 'A passenger just completed their payment.');
+        notify('Payment Confirmed', 'A passenger just completed their payment.');
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       }
     });
@@ -395,7 +395,7 @@ export default function ActiveTripScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       router.replace('/(tabs)/home');
     },
-    onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? (err as Error).message),
+    onError: (err: any) => notify('Could not update the trip', err?.response?.data?.message ?? (err as Error).message),
   });
 
   /**
@@ -415,10 +415,10 @@ export default function ActiveTripScreen() {
       driverApi.riderNoShow(id, bookingId),
     onSuccess: (_res, vars) => {
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
-      Alert.alert('Marked as no-show', `Seat ${vars.seatNumber} is free again.`);
+      notify('Marked as no-show', `Seat ${vars.seatNumber} is free again.`, { tone: 'success' });
     },
     onError: (err: any) =>
-      Alert.alert(
+      notify(
         'Could not mark no-show',
         err?.response?.data?.message ?? (err as Error).message,
       ),
@@ -713,15 +713,17 @@ export default function ActiveTripScreen() {
        */
       if (status === 409 && (body?.code === 'NOBODY_BOARDED' || body?.code === 'BOARDING_PIN_REQUIRED')) {
         const pinCase = body?.code === 'BOARDING_PIN_REQUIRED';
-        Alert.alert(
+        notify(
           pinCase ? 'Verify your passengers first' : 'Board your passengers first',
           body?.message ??
             (pinCase
               ? 'Ask each rider for their 4-digit code and board them before starting.'
               : 'Mark who is in the vehicle on the seat map — the ride cannot start with an empty car.'),
           // The seat map is already on this screen, under the sheet. Lighting it
-          // is the pointer — see `highlightSeatMap`.
-          [{ text: 'Show me', onPress: () => setSeatMapNudge(true) }],
+          // is the pointer — see `highlightSeatMap`. It survives the move off
+          // `Alert.alert` as the notice's one action: a driver who is told to
+          // board someone and not shown where has been told nothing.
+          { action: { label: 'Show me', onPress: () => setSeatMapNudge(true) } },
         );
         return;
       }
@@ -761,7 +763,7 @@ export default function ActiveTripScreen() {
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
         (err as Error).message ??
         'Please try again.';
-      Alert.alert("Couldn't update the trip", message);
+      notify("Couldn't update the trip", message);
     },
   });
 
@@ -1112,7 +1114,7 @@ export default function ActiveTripScreen() {
       }
       setBoardingRun(null);
       setPinPrompt(null);
-      Alert.alert('Could not board that passenger', msg);
+      notify('Could not board that passenger', msg);
     } finally {
       setPinBusy(false);
     }
@@ -1700,6 +1702,10 @@ export default function ActiveTripScreen() {
                 }
                 actions.push({ text: 'Close', style: 'cancel' });
 
+                // A REAL DECISION — call, board, no-show, close. Its buttons are
+                // assembled in `actions` above, so the sweep's classifier never
+                // saw the `style: 'cancel'` and converted it by mistake. This is
+                // an action sheet and belongs in a blocking modal.
                 Alert.alert(`Seat ${s.seatNumber} · ${name}`, lines.join('\n'), actions);
               }}
             />
@@ -1896,7 +1902,7 @@ export default function ActiveTripScreen() {
                   await driverApi.setRequestsPaused(next);
                 } catch {
                   setRequestsPaused(!next);
-                  Alert.alert(
+                  notify(
                     'Could not change that',
                     "We couldn't reach the server. Your request settings are unchanged.",
                   );

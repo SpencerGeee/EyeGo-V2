@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, Pressable, Alert, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '@eyego/api';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, Toggle, goBack } from '@eyego/ui';
+import { Text, Button, Input, Toggle, goBack, notify } from '@eyego/ui';
 
 export default function BusinessProfileScreen() {
   const colors = useColors();
@@ -48,21 +48,21 @@ export default function BusinessProfileScreen() {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', 'profile'] });
-      Alert.alert('Saved', 'Your business preferences have been updated.');
+      notify('Saved', 'Your business preferences have been updated.', { tone: 'success' });
     },
     onError: (err: any) => {
-      Alert.alert('Save Failed', err?.response?.data?.message ?? err?.message ?? 'Please try again.');
+      notify('Save Failed', err?.response?.data?.message ?? err?.message ?? 'Please try again.');
     },
   });
 
   const handleSave = () => {
     if (isBusinessMode) {
       if (!companyName.trim()) {
-        Alert.alert('Missing Info', 'Please enter your company name.');
+        notify('Missing Info', 'Please enter your company name.');
         return;
       }
       if (!expMail.trim() || !expMail.includes('@')) {
-        Alert.alert('Invalid Email', 'Please enter a valid expense email.');
+        notify('Invalid Email', 'Please enter a valid expense email.');
         return;
       }
     }

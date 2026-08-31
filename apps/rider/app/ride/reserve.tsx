@@ -1,11 +1,11 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, FlatList, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable, goBack } from '@eyego/ui';
+import { MotiView, Pressable, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { tripsApi } from '@eyego/api';
@@ -116,7 +116,7 @@ export default function ReserveScreen() {
     onError: (err) => {
       captureException(err, { screen: 'reserve', action: 'schedule' });
       const msg = (err as any)?.response?.data?.message ?? 'Could not schedule your ride. Please try again.';
-      Alert.alert('Scheduling failed', msg);
+      notify('Scheduling failed', msg);
     },
   });
 
@@ -124,7 +124,7 @@ export default function ReserveScreen() {
     const scheduledDate = buildScheduledDate();
     if (!scheduledDate) return;
     if (scheduledDate.getTime() <= Date.now()) {
-      Alert.alert('Pick a future time', 'The selected time has already passed. Choose a later slot.');
+      notify('Pick a future time', 'The selected time has already passed. Choose a later slot.');
       return;
     }
     const iso = scheduledDate.toISOString();
@@ -132,7 +132,7 @@ export default function ReserveScreen() {
     if (canSchedule) {
       scheduleMutation.mutate(iso);
     } else {
-      Alert.alert('Missing pickup or destination', 'Please set a pickup point and destination before scheduling.');
+      notify('Missing pickup or destination', 'Please set a pickup point and destination before scheduling.');
     }
   };
 

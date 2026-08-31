@@ -7,11 +7,10 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goDeeper } from '@eyego/ui';
+import { MotiView, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button } from '@eyego/ui';
@@ -92,7 +91,7 @@ export default function OnboardingScreen() {
       }),
     onSuccess: () => setStep(2),
     onError: (err: any) =>
-      Alert.alert(
+      notify(
         'Could not save vehicle',
         err?.response?.data?.message ?? err?.message ?? 'Failed to save vehicle info. Please try again.',
       ),
@@ -100,18 +99,18 @@ export default function OnboardingScreen() {
 
   const handleStep1Next = () => {
     if (!make || !model || !year || !colour || !plate || !seats || !tier) {
-      Alert.alert('Missing fields', 'Please fill in all vehicle details, including seats and vehicle class.');
+      notify('Missing fields', 'Please fill in all vehicle details, including seats and vehicle class.');
       return;
     }
     const parsedYear = parseInt(year, 10);
     const thisYear = new Date().getFullYear();
     if (!Number.isFinite(parsedYear) || parsedYear < 1980 || parsedYear > thisYear + 1) {
-      Alert.alert('Check the year', `Enter a year between 1980 and ${thisYear + 1}.`);
+      notify('Check the year', `Enter a year between 1980 and ${thisYear + 1}.`);
       return;
     }
     const parsedSeats = parseInt(seats, 10);
     if (!Number.isFinite(parsedSeats) || parsedSeats < MIN_SEATER_COUNT || parsedSeats > MAX_SEATER_COUNT) {
-      Alert.alert(
+      notify(
         'Check the seat count',
         `Enter how many passenger seats the vehicle has — between ${MIN_SEATER_COUNT} and ${MAX_SEATER_COUNT}.`,
       );
@@ -140,7 +139,7 @@ export default function OnboardingScreen() {
 
   const handleStep2Continue = () => {
     if (!allRequiredDocsUploaded) {
-      Alert.alert('Documents required', 'Please upload all required documents before continuing.');
+      notify('Documents required', 'Please upload all required documents before continuing.');
       return;
     }
     setStep(3);

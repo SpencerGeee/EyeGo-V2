@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
-import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface, Loader, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, AppBackground, GradientGlowBorder, GlassSurface, Loader, goDeeper, goBack, notify } from '@eyego/ui';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { formatGhs } from '@eyego/utils';
 import { useColors, Colors } from '../../utils/useColors';
@@ -95,7 +95,7 @@ export default function ScheduledRideDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] });
       goBack();
     },
-    onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
+    onError: () => notify(null, 'Could not cancel this scheduled ride. Please try again.'),
   });
 
   const status = STATUS_COPY[intent?.status] ?? {

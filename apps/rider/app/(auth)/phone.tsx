@@ -5,12 +5,11 @@ import {
   StyleSheet,
   Platform,
   Pressable,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Entrance, goDeeper } from '@eyego/ui';
+import { Entrance, goDeeper, notify } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -42,7 +41,7 @@ export default function PhoneScreen() {
     onError: (err: any) => {
       // Previously a failed request did nothing at all — the rider tapped
       // Continue and the screen just sat there.
-      Alert.alert(
+      notify(
         'Could not send code',
         err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
       );

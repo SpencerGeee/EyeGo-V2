@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale, goDeeper } from '@eyego/ui';
+import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -54,7 +54,7 @@ export default function TripsScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
     },
-    onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? (err as Error).message ?? 'Failed to cancel trip.'),
+    onError: (err: any) => notify('Could not cancel that trip', err?.response?.data?.message ?? (err as Error).message ?? 'Failed to cancel trip.'),
   });
 
   const confirmCancel = useCallback((tripId: string) => {

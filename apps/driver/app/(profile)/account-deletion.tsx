@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, Loader, goBack } from '@eyego/ui';
+import { MotiView, Loader, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
@@ -35,7 +35,7 @@ export default function AccountDeletionScreen() {
       router.replace('/(auth)/phone' as any);
     },
     onError: (err: any) => {
-      Alert.alert('Error', err?.message ?? 'Failed to delete account. Please try again.');
+      notify('Could not delete your account', err?.message ?? 'Failed to delete account. Please try again.');
     },
   });
 

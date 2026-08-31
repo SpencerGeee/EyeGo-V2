@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground, goBack } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground, goBack, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { driverApi } from '@eyego/api';
@@ -49,13 +49,13 @@ export default function CancelTripScreen() {
       router.replace('/(tabs)/home' as any);
     },
     onError: (err: any) => {
-      Alert.alert('Error', err?.message ?? 'Failed to cancel trip. Please try again.');
+      notify('Could not cancel that trip', err?.message ?? 'Failed to cancel trip. Please try again.');
     },
   });
 
   const handleSubmit = () => {
     if (!selectedReason) {
-      Alert.alert('Select a reason', 'Please select a reason for cancellation.');
+      notify('Select a reason', 'Please select a reason for cancellation.');
       return;
     }
     cancelTrip();

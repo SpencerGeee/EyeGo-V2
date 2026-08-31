@@ -10,7 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, AppBackground, MorphTarget, useMorph, GlassSurface, getTierTheme } from '@eyego/ui';
+import { Text, AppBackground, MorphTarget, useMorph, GlassSurface, getTierTheme, notify } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -360,19 +360,21 @@ export default function DispatchScreen() {
           ],
         );
       } else if (code === 'OFFER_HELD_BY_ANOTHER') {
-        Alert.alert(
+        notify(
           'Being decided',
           err?.response?.data?.message ??
             'Another driver is being asked about this ride right now. If they pass, it comes straight back to your board.',
         );
       } else if (status === 409 || status === 410 || status === 404) {
-        Alert.alert(
+        notify(
           'Gone already',
           'Another driver took this one, or the offer expired. You are still online.',
-          [{ text: 'OK', onPress: goHome }],
+          // The verb has to survive: without it the driver is left looking at a
+          // dead offer with no way off it.
+          { action: { label: 'Back to home', onPress: goHome } },
         );
       } else {
-        Alert.alert(
+        notify(
           'Could not accept',
           err?.response?.data?.message ?? 'Something went wrong. Try again, or pull to refresh on Home.',
         );

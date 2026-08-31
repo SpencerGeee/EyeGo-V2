@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import * as Contacts from 'expo-contacts';
 import { fonts, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, goBack } from '@eyego/ui';
+import { Text, Button, GlassSurface, goBack, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userApi } from '@eyego/api';
@@ -97,7 +97,7 @@ export default function EmergencyContactsScreen() {
 
   const handlePickContact = async () => {
     if (contacts.length >= MAX_CONTACTS) {
-      Alert.alert('Limit Reached', `You can only save up to ${MAX_CONTACTS} emergency contacts.`);
+      notify('Limit Reached', `You can only save up to ${MAX_CONTACTS} emergency contacts.`);
       return;
     }
     try {
@@ -109,13 +109,13 @@ export default function EmergencyContactsScreen() {
       const phone = picked.phoneNumbers?.[0]?.number?.trim();
       const name = picked.name?.trim();
       if (!phone) {
-        Alert.alert('No Phone Number', 'That contact has no phone number saved.');
+        notify('No Phone Number', 'That contact has no phone number saved.');
         return;
       }
       setNewName(name || '');
       setNewPhone(phone);
     } catch (e) {
-      Alert.alert('Error', 'Could not open contacts. You can still enter the details manually below.');
+      notify(null, 'Could not open contacts. You can still enter the details manually below.');
     }
   };
 
@@ -123,11 +123,11 @@ export default function EmergencyContactsScreen() {
     const trimName = newName.trim();
     const trimPhone = newPhone.trim();
     if (!trimName || !trimPhone) {
-      Alert.alert('Missing Info', 'Please enter both a name and phone number.');
+      notify('Missing Info', 'Please enter both a name and phone number.');
       return;
     }
     if (contacts.length >= MAX_CONTACTS) {
-      Alert.alert('Limit Reached', `You can only save up to ${MAX_CONTACTS} emergency contacts.`);
+      notify('Limit Reached', `You can only save up to ${MAX_CONTACTS} emergency contacts.`);
       return;
     }
     setSaving(true);
@@ -141,7 +141,7 @@ export default function EmergencyContactsScreen() {
       setNewName('');
       setNewPhone('');
     } catch {
-      Alert.alert('Error', 'Could not save contact. Please try again.');
+      notify(null, 'Could not save contact. Please try again.');
     } finally {
       setSaving(false);
     }

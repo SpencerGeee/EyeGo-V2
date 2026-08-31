@@ -126,3 +126,19 @@ export {
   TRANSITION_MS,
 } from './motion/smooth';
 export type { SmoothScreenProps, SmoothScreenState, SmoothInProps, SmoothNavigationProviderProps } from './motion/smooth';
+
+/**
+ * THE NOTICE SYSTEM — the in-app replacement for 143 blocking OS modals.
+ * See packages/ui/src/notify/notice.ts for the classification that produced it.
+ */
+export {
+  notify,
+  notifySuccess,
+  notifyInfo,
+  dismissNotice,
+  subscribeNotices,
+  currentNotice,
+  reportNetwork,
+} from './notify/notice';
+export type { Notice, NoticeTone, NotifyOptions } from './notify/notice';
+export { NoticeHost } from './notify/NoticeHost';

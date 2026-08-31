@@ -9,11 +9,10 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { Text, Button, AppBackground } from '@eyego/ui';
@@ -81,11 +80,11 @@ export default function PayoutAccountScreen() {
   const { mutate: save, isPending } = useMutation({
     mutationFn: (payload: object) => apiClient.patch('/driver/wallet/payout-account', payload),
     onSuccess: () => {
-      Alert.alert('Saved successfully');
+      notify('Saved successfully');
       goBack();
     },
     onError: (err: any) => {
-      Alert.alert('Error', err?.message ?? 'Failed to save payout account.');
+      notify('Could not save your payout account', err?.message ?? 'Failed to save payout account.');
     },
   });
 

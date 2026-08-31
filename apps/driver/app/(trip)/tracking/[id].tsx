@@ -18,7 +18,7 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -545,7 +545,7 @@ export default function DriverTrackingScreen() {
         ]);
         return;
       }
-      Alert.alert("Couldn't update the trip", message);
+      notify("Couldn't update the trip", message);
     },
   });
 
@@ -557,7 +557,7 @@ export default function DriverTrackingScreen() {
       qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
       router.replace('/(tabs)/home');
     },
-    onError: (err: any) => Alert.alert('Error', err?.response?.data?.message ?? (err as Error).message),
+    onError: (err: any) => notify('Could not update the trip', err?.response?.data?.message ?? (err as Error).message),
   });
 
   const handleCancel = () => {

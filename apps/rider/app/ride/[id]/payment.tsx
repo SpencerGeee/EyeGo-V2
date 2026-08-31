@@ -10,7 +10,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { MotiView, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
 import { WebView } from 'react-native-webview';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@eyego/api';
@@ -402,11 +402,9 @@ export default function PaymentScreen() {
         if (!isMountedRef.current) return;
         setIsPolling(false);
         setStatus('idle');
-        Alert.alert(
+        notify(
           'Payment Not Confirmed',
-          'We could not confirm your payment. Please approve the prompt on your phone and try again.',
-          [{ text: 'OK' }]
-        );
+          'We could not confirm your payment. Please approve the prompt on your phone and try again.');
       }
     },
     onError: async (err: any) => {
@@ -429,6 +427,10 @@ export default function PaymentScreen() {
        */
       if (err?.response?.data?.code === 'ALREADY_ON_A_RIDE') {
         setStatus('idle');
+        // A REAL DECISION, not a report — two genuine choices, so it keeps the
+        // blocking modal. The alert sweep converted this by mistake: it
+        // classifies on the presence of a `cancel`/`destructive` style, and
+        // this one's two buttons are both plain. See notice.ts.
         Alert.alert(
           "You're already on a ride",
           'You can only be on one ride at a time. Book this seat for someone else, or open the ride you are on.',
@@ -489,7 +491,7 @@ export default function PaymentScreen() {
           // Couldn't verify — fall through and report the failure, but do NOT
           // release the seat below on an unverifiable state.
           setStatus('idle');
-          Alert.alert(
+          notify(
             'Payment Status Unclear',
             "We couldn't confirm whether your booking went through. Check My Trips before paying again.",
           );
@@ -502,7 +504,7 @@ export default function PaymentScreen() {
       // rather than waiting for the seat-hold sweep.
       void releaseHeldSeat();
       const errorMsg = err?.response?.data?.message || err?.message || 'Payment could not be processed. Please try again.';
-      Alert.alert('Payment Failed', errorMsg);
+      notify('Payment Failed', errorMsg);
     },
   });
 
@@ -529,7 +531,7 @@ export default function PaymentScreen() {
       if (!isMountedRef.current) return;
       setIsPolling(false);
       setStatus('idle');
-      Alert.alert(
+      notify(
         'Payment Not Confirmed',
         'Your card payment could not be confirmed — it may have been declined. Please try again.',
       );

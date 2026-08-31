@@ -2,7 +2,7 @@
 import { View, StyleSheet, Pressable, Share, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect, type Href } from 'expo-router';
-import { MotiView, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -357,7 +357,7 @@ export default function InviteScreen() {
       refreshGroupFare();
     },
     onError: (err: any) => {
-      Alert.alert(
+      notify(
         "Couldn't update who's paying",
         err?.response?.data?.message ?? err?.message ?? 'Please try again.',
       );
@@ -382,7 +382,7 @@ export default function InviteScreen() {
       refreshGroupFare();
     },
     onError: (err: any) => {
-      Alert.alert("Couldn't update", err?.response?.data?.message ?? 'Please try again.');
+      notify("Couldn't update", err?.response?.data?.message ?? 'Please try again.');
     },
   });
   const toggleHeavyCargo = () => {
@@ -419,7 +419,7 @@ export default function InviteScreen() {
       refreshGroupFare();
     },
     onError: (err: any) => {
-      Alert.alert(
+      notify(
         "Couldn't update pickup",
         err?.response?.data?.message ?? err?.message ?? 'Please try again.',
       );

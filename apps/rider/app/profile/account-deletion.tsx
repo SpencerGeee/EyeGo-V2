@@ -4,12 +4,11 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
   TextInput,} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
 import { fonts, spacing, radii } from '@eyego/config';
-import { Text, Button, Loader, goBack } from '@eyego/ui';
+import { Text, Button, Loader, goBack, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { useAuthStore } from '../../stores/auth.store';
 import { apiClient } from '@eyego/api';
@@ -42,7 +41,7 @@ export default function AccountDeletionScreen() {
       logout();
       router.replace('/(auth)/phone');
     } catch (err: any) {
-      Alert.alert(
+      notify(
         'Deletion Failed',
         err?.message || 'Something went wrong. Please try again later.',
       );

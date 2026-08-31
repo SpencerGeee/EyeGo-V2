@@ -4,15 +4,14 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, AnimatePresence, Pressable, goBack } from '@eyego/ui';
+import { MotiView, AnimatePresence, Pressable, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Radio, GlassSurface } from '@eyego/ui';
@@ -129,17 +128,15 @@ export default function CancelRideScreen() {
       // above only refresh what the server owns.
       clearRideState();
       if (fee > 0) {
-        Alert.alert(
+        notify(
           'Ride Cancelled',
-          `Your ride has been cancelled. A cancellation fee of ${formatGhs(fee)} has been applied.`,
-          [{ text: 'OK', onPress: () => router.replace('/(tabs)/home') }]
-        );
+          `Your ride has been cancelled. A cancellation fee of ${formatGhs(fee)} has been applied.`);
       } else {
         router.replace('/(tabs)/home');
       }
     },
     onError: (err: any) => {
-      Alert.alert('Cancellation Failed', err?.message || 'Could not cancel the ride. Please try again.');
+      notify('Cancellation Failed', err?.message || 'Could not cancel the ride. Please try again.');
     },
   });
 

@@ -15,7 +15,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in components/trip/stages/SearchStage.tsx.
-import { Text, Pressable, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader, goDeeper } from '@eyego/ui';
+import { Text, Pressable, MorphSource, useMorph, backgroundScrollPauseProps, AnimatedList, Entrance, Button, GradientGlowBorder, usePressScale, bookingStatusLabel, Loader, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { tripsApi } from '@eyego/api';
@@ -180,14 +180,14 @@ function TripItem({ booking, colors, styles }: { booking: any; colors: Colors; s
         };
         const dead = DEAD[booking.status];
         if (dead) {
-          Alert.alert(dead.title, `${origin} → ${destination} — ${dead.body}`);
+          notify(dead.title, `${origin} → ${destination} — ${dead.body}`);
           return;
         }
         // An orphaned booking row with no trip FK is the other way this screen
         // produced "Trip not found": `/ride/undefined` resolves to the detail
         // route and 404s.
         if (!tripId) {
-          Alert.alert('Ride unavailable', 'This ride is no longer available to open.');
+          notify('Ride unavailable', 'This ride is no longer available to open.');
           return;
         }
         // Card expands into the ride detail screen (route animates 'fade' —
@@ -700,7 +700,7 @@ export default function ActivityScreen() {
   const cancelScheduled = useMutation({
     mutationFn: (id: string) => tripsApi.cancelScheduledRide(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trips', 'scheduled'] }),
-    onError: () => Alert.alert('Error', 'Could not cancel this scheduled ride. Please try again.'),
+    onError: () => notify(null, 'Could not cancel this scheduled ride. Please try again.'),
   });
 
   // Nearest still-live ride becomes the hero card; everything else lists

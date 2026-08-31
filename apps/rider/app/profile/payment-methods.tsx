@@ -6,7 +6,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, GlassSurface, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Pressable, GlassSurface, goDeeper, goBack, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { walletApi } from '@eyego/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -28,7 +28,7 @@ export default function PaymentMethodsScreen() {
       queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
     },
     onError: () => {
-      Alert.alert('Error', 'Failed to delete payment method. Please try again.');
+      notify(null, 'Failed to delete payment method. Please try again.');
     },
   });
 

@@ -38,7 +38,7 @@ import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, 
 import { resolveApiUrl } from '../stores/api.store';
 import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { initSentry, captureException, setUser as setSentryUser } from '../lib/sentry';
@@ -49,6 +49,7 @@ import { useOtaUpdates } from '../hooks/useOtaUpdates';
 initSentry();
 import { TripStatusListener } from '../components/TripStatusListener';
 import { GlobalToast } from '../components/GlobalToast';
+import { NetworkReporter } from '../components/NetworkReporter';
 import BoardingPinSheet from '../components/BoardingPinSheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
@@ -919,6 +920,22 @@ export default function RootLayout() {
               the tracking surface, the chat, or anything else. */}
           <BoardingPinSheet />
           {/* Global error / success toast — sits above all other overlays */}
+          {/*
+            THE NOTICE SURFACE, AND THE NETWORK TRUTH THAT FEEDS IT.
+
+            `NoticeHost` draws every `notify()` — the in-app replacement for the
+            74 blocking `Alert.alert` reports this app used as a status line. It
+            is shared with the driver app so the same class of event is told to
+            a rider and a driver in the same visual language.
+
+            `NetworkReporter` finally gives `useNetworkStatus` a consumer: it
+            had none in this app before today. See both files.
+
+            `GlobalToast` stays for now — eight existing callers use
+            `useToastStore` directly, and retiring it is a separate pass.
+          */}
+          <NetworkReporter />
+          <NoticeHost />
           <GlobalToast />
           {/* Global foreground push notification banner */}
           {inAppBanner && (

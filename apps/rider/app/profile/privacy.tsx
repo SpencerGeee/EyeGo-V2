@@ -16,7 +16,7 @@ import { useAuthStore } from '../../stores/auth.store';
 import { useToastStore } from '../../stores/toast.store';
 import { fonts, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, goDeeper, goBack, notify } from '@eyego/ui';
 
 const PRIVACY_KEYS = {
   locationSharing: 'eyego_privacy_location',
@@ -134,7 +134,7 @@ export default function PrivacyScreen() {
     // Deleting an account is the one flow that must never fail silently —
     // previously a failed request left the rider believing they were deleted.
     onError: (err: any) => {
-      Alert.alert(
+      notify(
         'Deletion Failed',
         err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
       );

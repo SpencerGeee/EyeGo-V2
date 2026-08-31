@@ -8,7 +8,7 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { walletApi, queryKeys } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Input, goDeeper, goBack, notify } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis } from "@eyego/utils";
 
 export default function SendMoneyScreen() {
@@ -35,9 +35,7 @@ export default function SendMoneyScreen() {
     mutationFn: () => walletApi.sendMoney({ recipientPhone: phone.trim(), amountPesewas: pesewasFromCedis(parseFloat(amount)) }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
-      Alert.alert('Credits sent', res?.data?.message ?? 'Their next ride is on you.', [
-        { text: 'Done', onPress: () => goBack() },
-      ]);
+      notify('Credits sent', res?.data?.message ?? 'Their next ride is on you.', { tone: 'success' });
     },
     onError: (err: any) => {
       const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;
@@ -46,7 +44,7 @@ export default function SendMoneyScreen() {
         : code === 'INSUFFICIENT_WALLET' ? "You don't have enough credits for that. Top up first."
         : code === 'SELF_TRANSFER' ? 'These are already your credits.'
         : err?.response?.data?.message ?? 'Could not send those credits. Please try again.';
-      Alert.alert("Couldn't send credits", message);
+      notify("Couldn't send credits", message);
     },
   });
 
@@ -54,15 +52,15 @@ export default function SendMoneyScreen() {
     const trimmedPhone = phone.trim();
     const amt = pesewasFromCedis(parseFloat(amount));
     if (trimmedPhone.length < 9) {
-      Alert.alert('Check the number', "Enter the EyeGo phone number of the person you're sending credits to.");
+      notify('Check the number', "Enter the EyeGo phone number of the person you're sending credits to.");
       return;
     }
     if (!amt || amt <= 0) {
-      Alert.alert('Check the amount', 'Enter how many credits to send.');
+      notify('Check the amount', 'Enter how many credits to send.');
       return;
     }
     if (typeof balance === 'number' && amt > balance) {
-      Alert.alert('Not enough credits', `You have ${formatGhs(balance)} in credits. Top up to send more.`);
+      notify('Not enough credits', `You have ${formatGhs(balance)} in credits. Top up to send more.`);
       return;
     }
     /**

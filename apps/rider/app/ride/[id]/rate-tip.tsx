@@ -4,12 +4,11 @@ import {
   StyleSheet,
   Pressable,
   TextInput,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { MotiView } from '@eyego/ui';
+import { MotiView, notify } from '@eyego/ui';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -152,10 +151,9 @@ export default function RateTipScreen() {
       router.replace('/(tabs)/home' as Href);
     },
     onError: (err: any) => {
-      Alert.alert(
+      notify(
         'Submission failed',
         err?.response?.data?.message ?? (err as Error).message ?? 'Something went wrong. Please try again.',
-        [{ text: 'OK' }],
       );
     },
   });

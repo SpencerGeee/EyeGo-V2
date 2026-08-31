@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  Alert,
   Modal,
   Platform,
 } from 'react-native';
@@ -14,7 +13,7 @@ import { spacing, radii, fonts, fontSizes, withOpacity , MAX_SEATS_PER_BOOKING, 
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, GlassCard, Button, Pressable, goDeeper, goBack } from '@eyego/ui';
+import { Text, GlassCard, Button, Pressable, goDeeper, goBack, notify } from '@eyego/ui';
 import { useColors, Colors } from '../../utils/useColors';
 import { tripsApi } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -157,22 +156,22 @@ export default function ScheduleRideScreen() {
       // dedupe check) lives in the response body and was never surfaced, so a
       // 409 looked identical to any other failure and riders assumed nothing
       // had been scheduled when the first attempt may have already succeeded.
-      Alert.alert('Scheduling Failed', err?.response?.data?.message || err?.message || 'Could not schedule your ride. Please try again.');
+      notify('Scheduling Failed', err?.response?.data?.message || err?.message || 'Could not schedule your ride. Please try again.');
     },
   });
 
   const handleSubmit = () => {
     if (!requestPickup) {
-      Alert.alert('Set a Pickup Point', 'Please set where you want to be picked up.');
+      notify('Set a Pickup Point', 'Please set where you want to be picked up.');
       return;
     }
     if (!requestDest) {
-      Alert.alert('Choose a Destination', 'Please pick where you want to go on the map.');
+      notify('Choose a Destination', 'Please pick where you want to go on the map.');
       return;
     }
     const minDate = getMinDate();
     if (selectedDate < minDate) {
-      Alert.alert('Invalid Time', 'Scheduled time must be at least 30 minutes from now.');
+      notify('Invalid Time', 'Scheduled time must be at least 30 minutes from now.');
       return;
     }
     scheduleMutation.mutate();

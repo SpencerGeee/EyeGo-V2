@@ -5,11 +5,10 @@ import {
   ScrollView,
   Linking,
   TextInput,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -165,7 +164,7 @@ export default function HelpScreen() {
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
     },
     onError: (err: any) =>
-      Alert.alert('Could not send', err?.response?.data?.message ?? 'Please try again.'),
+      notify('Could not send', err?.response?.data?.message ?? 'Please try again.'),
   });
 
   const tickets = useMemo(() => {
@@ -188,7 +187,7 @@ export default function HelpScreen() {
       supportTicketsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
-      Alert.alert('Ticket Submitted', "We've received your message and will get back to you soon.");
+      notify('Ticket Submitted', "We've received your message and will get back to you soon.", { tone: 'success' });
       setTicketSubject('');
       setTicketMessage('');
       setLostItemDesc('');
@@ -198,7 +197,7 @@ export default function HelpScreen() {
     onError: (err: any) => {
       // Fields are deliberately NOT cleared here — a failed submit used to wipe
       // the user's typed message with zero feedback, forcing a full retype.
-      Alert.alert('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+      notify('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
     },
   });
 

@@ -16,7 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable, goDeeper, goBack } from '@eyego/ui';
+import { MotiView, Pressable, goDeeper, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as KeepAwake from 'expo-keep-awake';
 import * as Location from 'expo-location';
@@ -310,7 +310,7 @@ export default function SOSScreen() {
         Linking.openURL(`sms:${emergencyContact.phone}?body=${encodeURIComponent(body)}`).catch(() => {});
       }
     } catch (err) {
-      Alert.alert('Error', 'Could not send alert. Please call emergency services directly.');
+      notify(null, 'Could not send alert. Please call emergency services directly.');
     } finally {
       setLoading(false);
     }
@@ -509,7 +509,7 @@ export default function SOSScreen() {
             value={shareTripStatus}
             onValueChange={(v) => {
               if (v && !emergencyContact?.phone) {
-                Alert.alert('No contact saved', 'Add a trusted contact to share your trip status.');
+                notify('No contact saved', 'Add a trusted contact to share your trip status.');
                 return;
               }
               setShareTripStatus(v);

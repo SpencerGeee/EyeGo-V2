@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AnimatedCheckmark, AppBackground, goBack } from '@eyego/ui';
+import { Text, Button, Entrance, AnimatedCheckmark, AppBackground, goBack, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 import { apiClient, driverApi } from '@eyego/api';
@@ -105,7 +105,7 @@ export default function ReportPassengerScreen() {
       setSubmitted(true);
     },
     onError: (err: any) => {
-      Alert.alert(
+      notify(
         'Error',
         err?.response?.data?.message ?? err?.message ?? 'Failed to submit report. Please try again.',
       );
@@ -114,14 +114,14 @@ export default function ReportPassengerScreen() {
 
   const handleSubmit = () => {
     if (!selectedType) {
-      Alert.alert('Select a type', 'Please select a report type.');
+      notify('Select a type', 'Please select a report type.');
       return;
     }
     // Only insist on a passenger when there is genuinely a choice to make. A
     // report filed against the wrong person is worse than one filed against
     // nobody, so this is a hard stop rather than a default-to-first.
     if (!selectedBookingId && passengers.length > 1) {
-      Alert.alert('Select a passenger', 'Choose which passenger this report is about.');
+      notify('Select a passenger', 'Choose which passenger this report is about.');
       return;
     }
     submitReport();

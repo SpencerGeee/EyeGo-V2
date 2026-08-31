@@ -1,5 +1,5 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Platform, ScrollView, Alert, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, Platform, ScrollView, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +10,7 @@ import { useColors, Colors } from '../../utils/useColors';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, Pressable, Skeleton, GlassSurface, GradientGlowBorder, PREMIUM_RING_LOCATIONS, goDeeper, goBack, notify } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis, pesewasToDecimalString } from "@eyego/utils";
 
 // Green-accent variant of the premium ring sweep — two narrow emerald arcs
@@ -74,7 +74,7 @@ export default function WalletScreen() {
       if (!reference) {
         // No reference to verify against — fall back to an honest "in progress" message
         // rather than falsely declaring success.
-        Alert.alert('Top Up Initiated', 'Approve the prompt on your phone to complete the top-up.');
+        notify('Top Up Initiated', 'Approve the prompt on your phone to complete the top-up.', { tone: 'info' });
         return;
       }
 
@@ -86,9 +86,9 @@ export default function WalletScreen() {
         await paymentsApi.pollWalletTopup(reference);
         queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
         queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
-        Alert.alert('Top Up Successful', `${formatGhs(amountPesewas)} has been added to your EyeGo Wallet.`);
+        notify('Top Up Successful', `${formatGhs(amountPesewas)} has been added to your EyeGo Wallet.`, { tone: 'success' });
       } catch {
-        Alert.alert(
+        notify(
           'Top Up Not Confirmed',
           'We could not confirm your payment yet. If you approved the prompt, your balance will update shortly — otherwise please try again.',
         );
@@ -97,13 +97,13 @@ export default function WalletScreen() {
       }
     },
     onError: () => {
-      Alert.alert('Failed', 'Top up could not be processed. Please try again.');
+      notify('Failed', 'Top up could not be processed. Please try again.');
     },
   });
 
   const handleTopUp = (amountPesewas: number) => {
     if (!amountPesewas || amountPesewas <= 0) {
-      Alert.alert('Error', 'Please enter a valid amount');
+      notify(null, 'Please enter a valid amount');
       return;
     }
     topUp.mutate(amountPesewas);

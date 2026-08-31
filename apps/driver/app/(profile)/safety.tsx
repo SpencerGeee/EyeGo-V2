@@ -4,7 +4,7 @@ import * as Contacts from 'expo-contacts';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
@@ -43,7 +43,7 @@ export default function SafetyScreen() {
   const handlePickContact = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow access to contacts in Settings.');
+      notify('Permission required', 'Please allow access to contacts in Settings.');
       return;
     }
     const { data } = await Contacts.getContactsAsync({
@@ -75,7 +75,7 @@ export default function SafetyScreen() {
       setEditing(false);
       qc.invalidateQueries({ queryKey: ['driver', 'me'] });
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message),
+    onError: (err) => notify('Could not save that setting', (err as Error).message),
   });
 
   const renderContactItem = useCallback(({ item }: { item: Contacts.Contact }) => (

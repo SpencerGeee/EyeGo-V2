@@ -3,7 +3,6 @@ import {
   View,
   StyleSheet,
   Pressable,
-  Alert,
   Modal,
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
@@ -19,7 +18,7 @@ import { userApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorph, backgroundScrollPauseProps, goBack } from '@eyego/ui';
+import { Text, Button, Input, GlassSurface, GradientGlowBorder, PREMIUM_RING_COLORS, PREMIUM_RING_LOCATIONS, MorphTarget, useMorph, backgroundScrollPauseProps, goBack, notify } from '@eyego/ui';
 import { getInitials } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -100,7 +99,7 @@ export default function EditProfileScreen() {
   const handlePickContact = async () => {
     const { status } = await Contacts.requestPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission required', 'Please allow access to contacts in Settings.');
+      notify('Permission required', 'Please allow access to contacts in Settings.');
       return;
     }
     const { data } = await Contacts.getContactsAsync({
@@ -191,7 +190,7 @@ export default function EditProfileScreen() {
       handleBack();
     },
     onError: () => {
-      Alert.alert('Save Failed', 'Could not save your profile. Please check your connection and try again.');
+      notify('Save Failed', 'Could not save your profile. Please check your connection and try again.');
     },
   });
 

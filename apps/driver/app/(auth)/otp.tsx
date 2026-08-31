@@ -4,11 +4,10 @@ import {
   TextInput,
   StyleSheet,
   Pressable,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -108,9 +107,9 @@ export default function DriverOtpScreen() {
       const status = err?.response?.status ?? err?.status;
       if (status === 429) {
         setCountdown(RESEND_SECONDS);
-        Alert.alert('Too many attempts', 'Please wait 60 seconds before requesting a new code.');
+        notify('Too many attempts', 'Please wait 60 seconds before requesting a new code.');
       } else {
-        Alert.alert('Failed to Resend', 'Could not resend the code. Please try again.');
+        notify('Failed to Resend', 'Could not resend the code. Please try again.');
       }
     },
   });

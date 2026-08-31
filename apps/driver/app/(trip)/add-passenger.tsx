@@ -7,8 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +15,7 @@ import { driverApi } from '@eyego/api';
 // Seats are counted as PEOPLE, never as booking rows — see `takenSeats`.
 import { bookedSeats, seatsOf } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground, goBack } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -152,7 +151,7 @@ export default function AddPassengerScreen() {
       setPendingBookingId(res.data.data.bookingId);
       setMode('otp');
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message),
+    onError: (err) => notify('Something went wrong', (err as Error).message),
   });
 
   const verifyOtp = useMutation({
@@ -163,7 +162,7 @@ export default function AddPassengerScreen() {
       pendingHoldRef.current = null;
       boardPassenger.mutate();
     },
-    onError: (err) => Alert.alert('Invalid OTP', (err as Error).message),
+    onError: (err) => notify('Invalid OTP', (err as Error).message),
   });
 
   /**
@@ -231,7 +230,7 @@ export default function AddPassengerScreen() {
       await refreshTrip();
       goBack();
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message ?? 'Failed to board passenger. Please try again.'),
+    onError: (err) => notify('Something went wrong', (err as Error).message ?? 'Failed to board passenger. Please try again.'),
   });
 
   const addCash = useMutation({
@@ -240,7 +239,7 @@ export default function AddPassengerScreen() {
       await refreshTrip();
       goBack();
     },
-    onError: (err) => Alert.alert('Error', (err as Error).message),
+    onError: (err) => notify('Something went wrong', (err as Error).message),
   });
 
   return (

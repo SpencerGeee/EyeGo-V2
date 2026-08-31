@@ -11,7 +11,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout } from '@eyego/ui';
+import { NetworkReporter } from '../components/NetworkReporter';
+import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost } from '@eyego/ui';
 import {
   useFonts,
   Geist_300Light,
@@ -738,6 +739,11 @@ export default function RootLayout() {
           />
         </Stack>
         </MorphProvider>
+        {/* The notice surface for every screen in this app, and the network
+            truth that feeds it. Replaces the offline pill that used to be
+            inlined in (tabs)/home.tsx and therefore only existed there. */}
+        <NetworkReporter />
+        <NoticeHost />
         {/* Off-screen parity: app-wide socket banners (chat/dispatch/status) +
             cache invalidation, mirroring the rider TripStatusListener. */}
         {isLoggedIn && <DriverTripStatusListener />}

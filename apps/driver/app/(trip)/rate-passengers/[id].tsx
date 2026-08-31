@@ -5,15 +5,14 @@ import {
   ScrollView,
   Pressable,
   TextInput,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, AppBackground, goBack } from '@eyego/ui';
+import { Text, Button, Entrance, AppBackground, goBack, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { useDriverStore } from '../../../stores/driver.store';
 
@@ -194,7 +193,7 @@ export default function RatePassengersScreen() {
       }
     },
     onError: (err: any) => {
-      Alert.alert('Error', err?.message || 'Failed to submit rating. Please try again.');
+      notify('Could not submit that rating', err?.message || 'Failed to submit rating. Please try again.');
     },
   });
 

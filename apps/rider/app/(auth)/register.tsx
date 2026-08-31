@@ -4,13 +4,12 @@ import {
   StyleSheet,
   Platform,
   Pressable,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Entrance } from '@eyego/ui';
+import { Entrance, notify } from '@eyego/ui';
 import * as ImagePicker from 'expo-image-picker';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -97,7 +96,7 @@ export default function RegisterScreen() {
       router.replace('/(onboarding)');
     },
     onError: (err: any) => {
-      Alert.alert('Couldn\'t save profile', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+      notify('Couldn\'t save profile', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
     },
   });
 

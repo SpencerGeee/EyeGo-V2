@@ -4,12 +4,11 @@ import {
   StyleSheet,
   Pressable,
   TextInput,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, withOpacity, springs } from '@eyego/config';
 import { Text, Button, GlassSurface } from '@eyego/ui';
@@ -57,13 +56,13 @@ export default function DisputeScreen() {
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
     },
     onError: (err: any) => {
-      Alert.alert('Submission Failed', err?.message || 'Could not submit your report. Please try again.');
+      notify('Submission Failed', err?.message || 'Could not submit your report. Please try again.');
     },
   });
 
   const handleSubmit = () => {
     if (!selectedType) {
-      Alert.alert('Select Issue', 'Please select the type of issue before submitting.');
+      notify('Select Issue', 'Please select the type of issue before submitting.');
       return;
     }
     disputeMutation.mutate();

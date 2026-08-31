@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Linking, Modal, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Linking, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
@@ -99,10 +99,10 @@ export default function HelpScreen() {
       // The thread is rendered from the list payload, so close on success —
       // the refreshed list carries the new message when the driver reopens it.
       setOpenTicket(null);
-      Alert.alert('Sent', 'Your message has been added to the ticket.');
+      notify('Sent', 'Your message has been added to the ticket.');
     },
     onError: (err: any) =>
-      Alert.alert('Could not send', err?.response?.data?.message ?? 'Please try again.'),
+      notify('Could not send', err?.response?.data?.message ?? 'Please try again.'),
   });
 
   const createTicketMutation = useMutation({
@@ -113,17 +113,17 @@ export default function HelpScreen() {
       setTicketSubject('');
       setTicketMessage('');
       setShowNewTicket(false);
-      Alert.alert('Submitted', 'Your support ticket has been submitted. We\'ll respond within 2 hours.');
+      notify('Submitted', 'Your support ticket has been submitted. We\'ll respond within 2 hours.');
     },
     onError: (err: any) => {
       // Fields deliberately kept so a failed submit doesn't force a retype.
-      Alert.alert('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+      notify('Submission Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
     },
   });
 
   const handleSubmitTicket = () => {
     if (!ticketSubject.trim() || !ticketMessage.trim()) {
-      Alert.alert('Required', 'Please fill in subject and message.');
+      notify('Required', 'Please fill in subject and message.');
       return;
     }
     createTicketMutation.mutate({

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, Alert, AppState } from 'react-native';
+import { View, StyleSheet, AppState } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -9,7 +9,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See the note in rider SearchStage.tsx.
-import { Text, Pressable, GradientGlowBorder, goDeeper } from '@eyego/ui';
+import { Text, Pressable, GradientGlowBorder, goDeeper, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../utils/useColors';
 import { consumePickedPlace } from '../utils/placePickerResult';
 
@@ -49,7 +49,7 @@ export function DestinationModeCard() {
     },
     onError: (err: any) => {
       const msg = err?.response?.data?.message;
-      Alert.alert('Could not set destination', msg ?? 'Please try again.');
+      notify('Could not set destination', msg ?? 'Please try again.');
     },
   });
 
@@ -62,7 +62,7 @@ export function DestinationModeCard() {
     // snaps back to the truth.
     onError: (err: any) => {
       qc.invalidateQueries({ queryKey: ['driver', 'destination-mode'] });
-      Alert.alert(
+      notify(
         'Could not clear destination',
         err?.response?.data?.message ?? 'Your destination filter is still active. Please try again.',
       );
@@ -117,7 +117,7 @@ export function DestinationModeCard() {
 
   const openPicker = () => {
     if (mode && mode.usesRemaining <= 0) {
-      Alert.alert(
+      notify(
         'No destination trips left today',
         `You get ${mode.maxUsesPerDay} a day, and both are used. It resets tomorrow.`,
       );

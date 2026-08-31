@@ -1,11 +1,11 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 // `Pressable` from @eyego/ui, never react-native — NativeWind's interop runtime
 // drops the `({ pressed }) => style` function form on RN's Pressable, which
 // silently deletes the whole style. See components/trip/stages/SearchStage.tsx.
-import { MotiView, Pressable, goBack } from '@eyego/ui';
+import { MotiView, Pressable, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
@@ -40,18 +40,16 @@ export default function AddCardScreen() {
         const card = (verifyRes.data as any).data.card;
         // Invalidate cached payment methods so the list refreshes
         queryClient.invalidateQueries({ queryKey: ['payment-methods'] });
-        Alert.alert(
+        notify(
           'Card Saved',
-          `${(card.brand as string).toUpperCase()} ending in ${card.last4} has been saved.`,
-          [{ text: 'Done', onPress: () => goBack() }]
-        );
+          `${(card.brand as string).toUpperCase()} ending in ${card.last4} has been saved.`);
       } catch (err: any) {
         const msg = err?.response?.data?.message ?? 'Card could not be verified. Please try again.';
-        Alert.alert('Verification Failed', msg);
+        notify('Verification Failed', msg);
       }
     } catch (err: any) {
       if ((err as any)?.type !== 'cancel') {
-        Alert.alert('Error', err?.response?.data?.message ?? 'Could not open checkout. Please try again.');
+        notify('Could not open checkout', err?.response?.data?.message ?? 'Could not open checkout. Please try again.');
       }
     } finally {
       setIsSaving(false);

@@ -7,11 +7,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  Alert,
-} from 'react-native';
+  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goDeeper } from '@eyego/ui';
+import { MotiView, goDeeper, notify } from '@eyego/ui';
 import { useMutation } from '@tanstack/react-query';
 import { driverAuthApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
@@ -40,7 +39,7 @@ export default function DriverPhoneScreen() {
     // Without this a failed request left the driver stuck on the phone screen
     // with zero feedback — the tap just did nothing.
     onError: (err: any) => {
-      Alert.alert(
+      notify(
         'Could not send code',
         err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.'
       );

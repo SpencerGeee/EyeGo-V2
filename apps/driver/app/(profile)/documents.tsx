@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MotiView, goBack } from '@eyego/ui';
+import { MotiView, goBack, notify } from '@eyego/ui';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import { driverApi } from '@eyego/api';
@@ -131,21 +131,21 @@ export default function DocumentsScreen() {
        */
       const payload = response?.data?.data as { requiresReview?: boolean } | undefined;
       const needsReview = payload?.requiresReview ?? type !== 'PROFILE_PHOTO';
-      Alert.alert(
+      notify(
         needsReview ? 'Submitted for review' : 'Photo updated',
         needsReview
           ? 'Your document has been submitted for review. Verification usually takes 1–2 business days.'
           : 'Your profile photo is live — passengers will see it on your next trip.',
       );
     },
-    onError: (err) => Alert.alert('Upload Failed', (err as Error).message),
+    onError: (err) => notify('Upload Failed', (err as Error).message),
     onSettled: () => setUploadingType(null),
   });
 
   const handleUpload = async (type: DriverDocument['type']) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Please allow access to your photo library to upload documents.');
+      notify('Permission Required', 'Please allow access to your photo library to upload documents.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({

@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { formatGhs } from '@eyego/utils';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { questsApi } from '@eyego/api';
 import type { DriverQuest } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Skeleton, EmptyState, Entrance, AppBackground } from '@eyego/ui';
+import { Text, Skeleton, EmptyState, Entrance, AppBackground, notify } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import QuestCard from '../../components/QuestCard';
@@ -111,7 +111,7 @@ export default function QuestsScreen() {
       queryClient.invalidateQueries({ queryKey: ['driver', 'me'] });
       queryClient.invalidateQueries({ queryKey: ['driver', 'wallet'] });
       const amount = res?.data?.data?.rewardAmountPesewas;
-      Alert.alert('Bonus Claimed!', typeof amount === 'number' ? `${formatGhs(amount)} added to your wallet.` : 'Your bonus has been added to your wallet.');
+      notify('Bonus Claimed!', typeof amount === 'number' ? `${formatGhs(amount)} added to your wallet.` : 'Your bonus has been added to your wallet.');
     },
     onError: (err: any) => {
       const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;
@@ -119,7 +119,7 @@ export default function QuestsScreen() {
         code === 'ALREADY_CLAIMED' ? 'This bonus has already been claimed.'
         : code === 'QUEST_NOT_COMPLETED' ? 'This quest isn\'t completed yet.'
         : err?.response?.data?.message ?? 'Could not claim your bonus. Please try again.';
-      Alert.alert('Claim Failed', message);
+      notify('Claim Failed', message);
     },
     onSettled: () => setClaimingId(null),
   });

@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder, goDeeper, goBack } from '@eyego/ui';
+import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder, goDeeper, goBack, notify } from '@eyego/ui';
 import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingPanel } from '../SearchingPanel';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
@@ -546,7 +546,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       router.dismissTo('/(tabs)/home' as any);
     } catch (err: any) {
       const msg = err?.response?.data?.message;
-      Alert.alert('Could not cancel', msg ?? 'A driver may have already accepted — check your Activity tab.');
+      notify('Could not cancel', msg ?? 'A driver may have already accepted — check your Activity tab.');
     } finally {
       setCancelling(false);
     }

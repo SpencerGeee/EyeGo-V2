@@ -1,8 +1,8 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Alert, Platform, Pressable } from 'react-native';
+import { View, StyleSheet, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Entrance, goBack } from '@eyego/ui';
+import { Entrance, goBack, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '@eyego/api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -46,7 +46,7 @@ export default function SocialAuthScreen() {
       }
     } catch (err: any) {
       if (err?.code !== 'SIGN_IN_CANCELLED') {
-        Alert.alert('Google Sign-In Failed', err?.message ?? 'Something went wrong. Try again.');
+        notify('Google Sign-In Failed', err?.message ?? 'Something went wrong. Try again.');
       }
     } finally {
       setLoadingGoogle(false);
@@ -82,7 +82,7 @@ export default function SocialAuthScreen() {
       }
     } catch (err: any) {
       if (err?.code !== 'ERR_REQUEST_CANCELED') {
-        Alert.alert('Apple Sign-In Failed', err?.message ?? 'Something went wrong. Try again.');
+        notify('Apple Sign-In Failed', err?.message ?? 'Something went wrong. Try again.');
       }
     } finally {
       setLoadingApple(false);

@@ -17,7 +17,7 @@ import { userApi, queryKeys, type SafetySettings } from '@eyego/api';
 import { spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useToastStore } from '../../stores/toast.store';
-import { Text, goDeeper, goBack } from '@eyego/ui';
+import { Text, goDeeper, goBack, notify } from '@eyego/ui';
 
 const CACHE_KEY = 'eyego_safety_settings';
 
@@ -137,7 +137,7 @@ export default function SafetyScreen() {
       queryClient.invalidateQueries({ queryKey: queryKeys.user.profile });
     } catch {
       setPinOverride(!next);
-      Alert.alert(
+      notify(
         "Couldn't save that",
         'We could not reach the server, so your ride verification setting is unchanged.',
       );
@@ -153,10 +153,10 @@ export default function SafetyScreen() {
         return next;
       });
       queryClient.invalidateQueries({ queryKey: queryKeys.user.safetySettings });
-      Alert.alert('Insurance Saved', 'Your insurance card is on file and will only be shared with emergency responders during an active emergency.');
+      notify('Insurance Saved', 'Your insurance card is on file and will only be shared with emergency responders during an active emergency.', { tone: 'success' });
     },
     onError: (err: any) => {
-      Alert.alert('Upload Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
+      notify('Upload Failed', err?.response?.data?.message ?? err?.message ?? 'Please check your connection and try again.');
     },
   });
 

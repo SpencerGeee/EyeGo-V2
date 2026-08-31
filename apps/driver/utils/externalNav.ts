@@ -1,6 +1,7 @@
 import { Alert, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { navigationUrls, hasCoords, type GeoPlace, type NavApp } from '@eyego/utils';
+import { notify } from '@eyego/ui';
 
 /**
  * Hand turn-by-turn navigation off to the driver's own map app.
@@ -117,7 +118,7 @@ export async function openExternalNavigation(
   opts?: { forceChooser?: boolean; origin?: NavTarget | null },
 ): Promise<void> {
   if (!hasCoords(target)) {
-    Alert.alert('No coordinates', 'This stop has no location to navigate to yet.');
+    notify('No coordinates', 'This stop has no location to navigate to yet.');
     return;
   }
   const origin = opts?.origin && hasCoords(opts.origin) ? opts.origin : null;
@@ -126,7 +127,7 @@ export async function openExternalNavigation(
     const pref = await getPreferredNavApp();
     if (pref) {
       const ok = await launch(pref, target, origin);
-      if (!ok) Alert.alert('Could not open', `${LABELS[pref]} could not be opened on this device.`);
+      if (!ok) notify('Could not open', `${LABELS[pref]} could not be opened on this device.`);
       return;
     }
   }
