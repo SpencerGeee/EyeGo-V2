@@ -446,6 +446,17 @@ const deleteMe = async (req, res) => {
 // admin/rider push, and an SMS to the driver's saved emergency contact. Previously
 // the driver app's 3 SOS buttons only did `Linking.openURL('tel:191')` with no
 // backend call at all, despite the UI claiming location would be shared.
+// Versions come from settings, never from the request — see the rider twin in
+// users.controller.js for why a client-named version is worthless as evidence.
+const acceptTerms = async (req, res) => {
+  const settings = require('../../config/settings');
+  const acceptance = await driversService.acceptTerms(req.user.userId, {
+    termsVersion: String(settings.get('TERMS_VERSION') || ''),
+    privacyVersion: String(settings.get('PRIVACY_VERSION') || ''),
+  });
+  ok(res, acceptance, 'Thanks — recorded.');
+};
+
 const emergencyAlert = async (req, res) => {
   const { latitude, longitude, timestamp } = req.body;
   const tripId = req.params.id;
@@ -460,9 +471,12 @@ const emergencyAlert = async (req, res) => {
    * Awaited before the response so a rejection is a 403 and not a cheerful
    * "alert dispatched".
    */
+  // `req.user.userId` on a driver token is the Driver id — Driver is its own
+  // identity with its own phone, NOT a row hanging off User — so this compares
+  // against Trip.driverId directly rather than through a relation.
   const prismaClient = require('../../config/database');
   const assigned = await prismaClient.trip.findFirst({
-    where: { id: tripId, driver: { userId: driverId } },
+    where: { id: tripId, driverId },
     select: { id: true },
   });
 
@@ -635,7 +649,7 @@ module.exports = {
   getEarningsBreakdown, getWalletTransactions, getNotifications,
   createSupportTicket, getSupportTickets, replyToTicket,
   scheduleInspection, getInspections,
-  deleteMe, reportTrip, emergencyAlert,
+  deleteMe, reportTrip, emergencyAlert, acceptTerms,
   getPendingTripRequests, getUpcomingScheduled,
   getDestinationMode, setDestinationMode, clearDestinationMode,
 };

@@ -279,6 +279,16 @@ model Driver {
   dateOfBirth     String?
   status          String @default("PENDING_REVIEW")
   rejectionReason String?
+
+  // Consent, recorded here and not on User because a Driver is NOT a User row —
+  // it carries its own phone and name and has no userId. A driver agreeing to
+  // the terms in the driver app has to leave its record somewhere the driver
+  // token can reach, and this is it. Same version-not-boolean reasoning as the
+  // matching columns on User.
+  acceptedTermsVersion    String?
+  acceptedTermsAt         DateTime?
+  acceptedPrivacyVersion  String?
+  acceptedPrivacyAt       DateTime?
   isOnline        Boolean      @default(false)
 
   /// "Pause requests" — stop back-to-back offers while mid-ride, without

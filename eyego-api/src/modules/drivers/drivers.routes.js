@@ -66,6 +66,7 @@ router.post('/trips/:id/start', requireActiveDriver, controller.startTrip);
 router.post('/trips/:id/arrive-at-pickup', requireActiveDriver, controller.arriveAtPickup);
 router.post('/trips/:id/depart', requireActiveDriver, controller.departTrip);
 router.post('/trips/:id/arrive', requireActiveDriver, controller.arriveTrip);
+router.post('/accept-terms', controller.acceptTerms);
 router.post('/trips/:id/emergency', controller.emergencyAlert);
 router.post('/trips/:id/accept', requireActiveDriver, controller.acceptDispatch);
 // A trip a previous driver bailed on pre-boarding (see drivers.service.js

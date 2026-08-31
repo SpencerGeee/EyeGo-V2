@@ -501,7 +501,34 @@ async function requestRide(userId, body) {
      * this process dies, and `TASK_REQUEST_EXPIRY` guarantees it ends. A rider
      * cannot be stranded by a dispatch that silently never began.
      */
-    setImmediate(() => {
+    /**
+     * App-review accounts get a scripted driver instead of the real cascade.
+     *
+     * Apple reviews from Cupertino and Google from wherever their reviewer is;
+     * neither has an EyeGo driver anywhere near, so a real cascade finds nobody
+     * and the reviewer files that the app's core function does not work. The
+     * script drives the REAL state machine with a seeded driver — see
+     * services/reviewer-dispatch.service.js for why it is not a fake trip.
+     *
+     * Checked here rather than inside `startCascade` so the two paths are
+     * visibly exclusive: a reviewer's request never enters the dispatch pool,
+     * and a real rider's never touches the script.
+     */
+    setImmediate(async () => {
+      const reviewer = require('../../services/reviewer-dispatch.service');
+      try {
+        if (await reviewer.isReviewerTrip(trip.id)) {
+          reviewer.startScriptedDispatch(trip.id);
+          return;
+        }
+      } catch (err) {
+        // Never let the reviewer check block a real rider's dispatch. Falling
+        // through to the cascade is the safe direction: the worst case is that
+        // a reviewer sees the ordinary "no drivers" path, which is what they
+        // would have seen before this existed.
+        logger.warn(`[reviewer] check failed for trip ${trip.id}, using normal dispatch: ${err.message}`);
+      }
+
       cascade.startCascade(trip.id, { kind: 'ON_DEMAND' }).catch(async (err) => {
         logger.error(`Dispatch failed to start for trip ${trip.id}: ${err.message}`);
         // The rider already has a 200 and a trip on screen, so failing has to be

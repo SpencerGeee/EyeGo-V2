@@ -109,8 +109,14 @@ const emergencyAlert = async (req, res) => {
    * Any booking counts, not just a seat-occupying one: someone whose booking
    * was just cancelled mid-trip is exactly the person who might be in danger.
    */
-  const membership = await prisma.booking.findFirst({
-    where: { tripId, userId },
+  const membership = await prisma.trip.findFirst({
+    where: {
+      id: tripId,
+      // Either way of being on this trip counts. A shared-trip passenger holds
+      // a Booking; the rider who hailed an on-demand ride is its requester, and
+      // checking only one of the two would refuse an SOS from half the product.
+      OR: [{ requesterId: userId }, { bookings: { some: { userId } } }],
+    },
     select: { id: true },
   });
 

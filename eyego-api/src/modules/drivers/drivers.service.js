@@ -2798,7 +2798,32 @@ async function getUpcomingScheduledTrips(driverId) {
   }));
 }
 
+/**
+ * Stamp the current terms and privacy versions on the DRIVER row.
+ *
+ * Not on User: a Driver is its own identity with its own phone and no userId,
+ * and driver terms are a different document from rider terms besides — someone
+ * who is both accepts two.
+ */
+const acceptTerms = async (driverId, { termsVersion, privacyVersion }) => {
+  const now = new Date();
+  return prisma.driver.update({
+    where: { id: driverId },
+    data: {
+      acceptedTermsVersion: termsVersion || null,
+      acceptedTermsAt: termsVersion ? now : null,
+      acceptedPrivacyVersion: privacyVersion || null,
+      acceptedPrivacyAt: privacyVersion ? now : null,
+    },
+    select: {
+      acceptedTermsVersion: true, acceptedTermsAt: true,
+      acceptedPrivacyVersion: true, acceptedPrivacyAt: true,
+    },
+  });
+};
+
 module.exports = {
+  acceptTerms,
   getMe, updateProfile, updateFcmToken, completeVerification, addVehicle,
   goOnline, goOffline, getActiveTrip, getTripHistory, getAllTrips, devActivate,
   getNotifications,
