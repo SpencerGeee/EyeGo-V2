@@ -39,11 +39,12 @@ Plan, findings and the ranked backlog:
 
     tsc --noEmit    packages · rider · driver · admin      GREEN
     prisma validate                                        GREEN
-    prisma migrate deploy                                  APPLIED (2 new)
+    prisma migrate deploy                                  APPLIED (3 new)
     prisma generate                                        DONE
     API cold boot                                          /health 200 in ~8s
     apps/admin  next build                                 GREEN (after the fix below)
     jest                                                   4 suites pass, 9 fail (E4)
+    live-DB probes (documents, fraud)                      16/16, rolled back
     scripts/e2e/run-all.mjs                                NOT RUN this session
 
 **`node_modules` was repaired, not just the code.** The admin build failed with a
@@ -61,7 +62,7 @@ removed; both now resolve to one file and the build completes. If a future
 
 Postgres and Redis are up in docker. The API is running on **:5020**, started
 detached by me — logs at
-`…/scratchpad/api2.log`. It was originally under `nodemon`; I stopped that to
+`…/scratchpad/api3.log`. It was originally under `nodemon`; I stopped that to
 release the Prisma engine lock for `generate`. Restart it the normal way when
 convenient:
 
