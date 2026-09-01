@@ -28,6 +28,7 @@
         "aps-environment": "production"
       },
       "infoPlist": {
+        "CADisableMinimumFrameDuration": true,
         "NSLocationWhenInUseUsageDescription": "EyeGo Driver uses your location while the app is open so you can go online, receive trip requests and navigate.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow location while EyeGo Driver is in the background so your passengers can keep seeing where you are during a trip, even with the app closed. This is only used while you are on a trip.",
         "NSCameraUsageDescription": "EyeGo Driver needs camera access to update your profile photo.",

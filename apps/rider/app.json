@@ -31,6 +31,7 @@
         "applinks:eyego.app"
       ],
       "infoPlist": {
+        "CADisableMinimumFrameDuration": true,
         "NSLocationWhenInUseUsageDescription": "EyeGo needs your location to show nearby rides.",
         "NSCameraUsageDescription": "EyeGo needs camera access to update your profile photo and scan Send Money QR codes.",
         "NSPhotoLibraryUsageDescription": "EyeGo needs photo library access to update your profile photo.",
