@@ -10,6 +10,7 @@ import { useRideStore } from '../../stores/ride.store';
 import { useToastStore } from '../../stores/toast.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
+import { pickPhoneContact, normaliseGhPhone } from '../../utils/contacts';
 import { useThemeStore } from '../../stores/theme.store';
 import { Text, Button, Radio, AppBackground } from '@eyego/ui';
 
@@ -42,6 +43,23 @@ export default function GuestSelectionScreen() {
   const [name, setName] = useState(guestInfo?.name ?? '');
   const [phone, setPhone] = useState(guestInfo?.phone ?? '');
   const [nameError, setNameError] = useState('');
+
+  /** Fills name AND number — a guest is a person, not a phone number. */
+  const handlePickContact = async () => {
+    const result = await pickPhoneContact();
+    if (result.status !== 'picked') {
+      if (result.status === 'no-number') {
+        showToast(`${result.name ?? 'That contact'} has no phone number saved.`, 'error');
+      }
+      return;
+    }
+    setPhone(normaliseGhPhone(result.contact.phone));
+    setPhoneError('');
+    if (result.contact.name) {
+      setName(result.contact.name);
+      setNameError('');
+    }
+  };
   const [phoneError, setPhoneError] = useState('');
 
   // RH5: Validate Ghana phone numbers (MTN, Vodafone, AirtelTigo prefixes)
@@ -207,6 +225,17 @@ export default function GuestSelectionScreen() {
                     placeholderTextColor={colors.onSurfaceVariant}
                     keyboardType="phone-pad"
                   />
+                  {/* Both fields at once: a guest is a person in the address
+                      book, and their name is half of what this screen needs. */}
+                  <Pressable
+                    onPress={handlePickContact}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Choose guest from contacts"
+                    style={styles.inputIcon}
+                  >
+                    <Ionicons name="people-outline" size={20} color={colors.primary} />
+                  </Pressable>
                 </View>
                 {!!phoneError && <Text variant="caption" color="#EF4444" style={{ marginTop: 4, marginLeft: 4 }}>{phoneError}</Text>}
               </View>

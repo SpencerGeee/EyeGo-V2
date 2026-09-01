@@ -13,7 +13,7 @@
  *   3. Swap the entrances:         `Animated.View entering={FadeIn.delay(i*60)}`
  *                                  becomes `<SmoothIn index={i}>`.
  *
- * And navigate with `goDeeper` / `goLateral` / `goBack` instead of
+ * And navigate with `goDeeper` / `goLateral` / `goBack` / `goOut` instead of
  * `router.push` / `router.replace` / `router.back`.
  */
 
@@ -28,7 +28,7 @@ export type { SmoothScreenProps, SmoothScreenState } from './SmoothScreen';
 export { SmoothIn, SmoothSection } from './SmoothIn';
 export type { SmoothInProps } from './SmoothIn';
 
-export { goDeeper, goLateral, goInstead, goBack } from './navigation';
+export { goDeeper, goLateral, goInstead, goBack, goOut } from './navigation';
 
 export { enableSmoothNavigation } from './enableSmoothNavigation';
 export { SmoothNavigationProvider } from './SmoothNavigationProvider';

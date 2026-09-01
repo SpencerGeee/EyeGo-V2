@@ -10,6 +10,7 @@ import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { Text, Button, Input, goDeeper, goBack, notify } from '@eyego/ui';
 import { formatGhs, pesewasFromCedis } from "@eyego/utils";
+import { pickPhoneContact, normaliseGhPhone } from '../../utils/contacts';
 
 export default function SendMoneyScreen() {
   const colors = useColors();
@@ -47,6 +48,27 @@ export default function SendMoneyScreen() {
       notify("Couldn't send credits", message);
     },
   });
+
+  /**
+   * The address book stores the same subscriber four different ways, so the
+   * picked number is normalised before it lands in the field: the server
+   * resolves every spelling, but this screen’s own length check does not,
+   * and a number shown back with the contact’s spacing is harder to check.
+   */
+  const handlePickContact = async () => {
+    const result = await pickPhoneContact();
+    if (result.status === 'picked') {
+      setPhone(normaliseGhPhone(result.contact.phone));
+      return;
+    }
+    if (result.status === 'no-number') {
+      notify('No number saved', `${result.name ?? 'That contact'} has no phone number in your contacts.`);
+      return;
+    }
+    if (result.status === 'unavailable') {
+      notify(null, 'Could not open contacts. You can still type the number below.');
+    }
+  };
 
   const handleSend = () => {
     const trimmedPhone = phone.trim();
@@ -144,6 +166,18 @@ export default function SendMoneyScreen() {
             keyboardType="phone-pad"
             placeholder="0XX XXX XXXX"
             leftIcon={<Ionicons name="person-outline" size={20} color={colors.onSurfaceVariant} />}
+            /* Typing ten digits from memory is the slowest thing this screen
+               asks for, and the one most likely to send credits to a stranger. */
+            rightIcon={(
+              <Pressable
+                onPress={handlePickContact}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Choose from contacts"
+              >
+                <Ionicons name="people-outline" size={20} color={colors.primary} />
+              </Pressable>
+            )}
           />
           <Input
             label="How many credits (GHS)"

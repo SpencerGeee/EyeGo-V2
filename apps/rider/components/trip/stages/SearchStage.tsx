@@ -28,7 +28,7 @@ import {
   GlassSurface,
   GradientGlowBorder,
 } from '@eyego/ui';
-import { placeLabel } from '@eyego/utils';
+import { placeLabel, shortAddress } from '@eyego/utils';
 import { reverseGeocode } from '../../../utils/geocoding';
 import { useColors, Colors } from '../../../utils/useColors';
 import { useShallow } from 'zustand/react/shallow';
@@ -469,9 +469,26 @@ function SearchStageImpl() {
     return recents.filter((p) => !at(other, p) && !at(mine, p)).slice(0, 6);
   }, [recents, focusedField, origin, selectedPlace]);
 
+  /**
+   * A SAVED LABEL IS NOT PART OF THE ADDRESS.
+   *
+   * This passed `p.label` as the geocoder `name`, and `placeLabel` duly
+   * composed the two: picking Home put "Home, True Jesus Church, Kotobabi,
+   * Greater Accra Region, Ghana" in the destination field, and sent that
+   * string to the driver. "Home" means nothing to the person driving to it,
+   * and it costs the field the room to show the part that does.
+   *
+   * The label belongs to the ROW the rider tapped, which already shows it.
+   * What travels is the address, trimmed to the place and its neighbourhood.
+   */
   const commitSaved = useCallback(
     (p: SavedPlace) =>
-      commitToFocused({ name: p.label, fullAddress: p.address, latitude: p.lat, longitude: p.lng }),
+      commitToFocused({
+        name: shortAddress(p.address) ?? p.label,
+        fullAddress: p.address,
+        latitude: p.lat,
+        longitude: p.lng,
+      }),
     [commitToFocused],
   );
 

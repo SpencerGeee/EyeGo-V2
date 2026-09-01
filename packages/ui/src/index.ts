@@ -116,6 +116,7 @@ export {
   goLateral,
   goInstead,
   goBack,
+  goOut,
   enableSmoothNavigation,
   SmoothNavigationProvider,
   smoothScreenLayout,

@@ -189,17 +189,59 @@ export function tripCapacity(trip: TripLike | null | undefined): number {
  * Composing them is the fix: the specific part first, the context after it, and
  * no duplication when the geocoder already did that itself.
  */
+/**
+ * THE ADMINISTRATIVE TAIL NOBODY IS ASKING FOR.
+ *
+ * A geocoded address arrives fully qualified — "True Jesus Church, Kotobabi,
+ * Greater Accra Region, Ghana" — and every part after the second is dead
+ * weight in a UI whose reader is standing in Accra. It pushes the half that
+ * identifies the point out of a one-line field, which is the opposite of what
+ * `placeLabel` above exists to guarantee.
+ *
+ * Keeps the leading `maxParts` components and drops a trailing region, country
+ * or postcode. Never returns empty: if every component looks administrative,
+ * the first one is still the best answer available.
+ */
+const ADMIN_TAIL = [
+  /^ghana$/i,
+  /region$/i,
+  /^greater accra$/i,
+  // A bare postcode or plus-code fragment, e.g. "GA-107-8420" or "00233".
+  /^[a-z]{0,2}[-d][dw-]*$/i,
+];
+
+export function shortAddress(
+  value: string | null | undefined,
+  maxParts = 2,
+): string | null {
+  const text = firstText(value);
+  if (!text) return null;
+
+  const parts = text.split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length <= 1) return text;
+
+  // Trim from the RIGHT only. An administrative-looking word in the middle
+  // ("Airport Residential Area") is part of how the place is named.
+  const kept = [...parts];
+  while (kept.length > 1 && ADMIN_TAIL.some((re) => re.test(kept[kept.length - 1]))) {
+    kept.pop();
+  }
+
+  return kept.slice(0, Math.max(1, maxParts)).join(", ");
+}
 export function placeLabel(
   name: string | null | undefined,
   context: string | null | undefined,
 ): string | null {
   const n = firstText(name);
   const c = firstText(context);
-  if (!n) return c;
-  if (!c) return n;
+  if (!n) return shortAddress(c);
+  if (!c) return shortAddress(n);
   // The geocoder already composed it — "Oxford Street, Osu, Accra" contains its
   // own context, and prefixing the name again reads as a stutter.
-  if (c.toLowerCase().startsWith(n.toLowerCase())) return c;
-  if (n.toLowerCase().includes(c.toLowerCase())) return n;
-  return `${n}, ${c}`;
+  if (c.toLowerCase().startsWith(n.toLowerCase())) return shortAddress(c);
+  if (n.toLowerCase().includes(c.toLowerCase())) return shortAddress(n);
+  // Compose first, THEN trim: the trim has to see the whole string to know
+  // which parts are the tail.
+  return shortAddress(`${n}, ${c}`);
 }

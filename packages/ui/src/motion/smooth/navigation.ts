@@ -116,6 +116,35 @@ export function goInstead(href: unknown): void {
 }
 
 /**
+ * OUT. Leave a whole flow and land on a root screen, without unwinding it
+ * one push at a time.
+ *
+ * THE VERB THAT WAS MISSING. `goLateral`/`goDeeper`/`goInstead`/`goBack`
+ * cover moving WITHIN a stack; nothing covered abandoning one. So every
+ * "leave this flow" button in both apps reached past this module for a raw
+ * `router.dismissTo(...)` — which is a correct navigation and a completely
+ * silent one: the clock never arms, so the screen being landed on mounts,
+ * refetches and runs its entrances on the same frames as the dismissal.
+ * That is the "it just takes me to the homepage, no animation" report, and
+ * it is the one transition in the app that had no owner.
+ *
+ * Arms the clock like every other helper, then dismisses. Falls back to a
+ * replace where there is no stack to dismiss (a deep link straight into the
+ * flow), so the destination is reached either way.
+ */
+export function goOut(href: unknown): void {
+  const router = getRouter();
+  if (!router) return;
+  clearPushGuard();
+  beginTransition();
+  const dismissTo = (router as { dismissTo?: (h: never) => void }).dismissTo;
+  if (typeof dismissTo === 'function' && router.canGoBack()) {
+    dismissTo.call(router, href as never);
+    return;
+  }
+  router.replace(href as never);
+}
+/**
  * BACK, with the clock started so the screen being returned TO knows not to
  * re-run its entrances. Falls back to a replace when there is nothing to pop —
  * a deep link into a detail screen has no history behind it, and a back button
