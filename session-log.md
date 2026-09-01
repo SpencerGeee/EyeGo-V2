@@ -384,3 +384,14 @@ Decisions:
 - Kept the destination-filter endpoints against the audit's own advice: destination-mode.service is required by dispatch-cascade, so the rule is live and only its client is missing.
 Rejected: MoMo work (already built end to end — the audit grepped free-text schema values and never reached the code); deleting driver-side "dead" endpoints without checking the service layer; rewriting the working document-review flow instead of adding an expiry table beside it.
 Open: 9 integration suites fail on stale Prisma mocks; e2e harness not re-run; fraud/lost-and-found/telemetry/Zod not started.
+
+## 2026-09-01 14:20 [saved]
+Goal: Fix the dead consent button, then a 10-item pass before the next sideload.
+Decisions:
+- iOS caps every app to 60fps on a ProMotion panel unless `CADisableMinimumFrameDuration` is in Info.plist; neither app set it, so all motion ran at half rate on the 15 Pro Max. The motion stack itself audits clean.
+- One React Query key cannot hold two shapes. Both consent gates ran a private `queryFn` under a key other screens fill with the whole axios response, so `acceptedTermsVersion` read undefined and the gate was permanently required.
+- Driver consent posts to `/driver/accept-terms`; `/user/me/accept-terms` rejects any non-PASSENGER token.
+- `MIN_BOUNDS_SPAN_DEG` (110 m) is a CRASH guard, not a framing rule — added `AREA_BOUNDS_SPAN_DEG` for frames that mean "neighbourhood".
+- `goOut` is the missing navigation verb: every "leave this flow" button used raw `router.dismissTo`, which arms no transition clock.
+Rejected: rebuilding the smoothness system (it is wired to all 4 navigators and correct); adding expo-device for a finer perf tier before a sideload; deleting either colliding back control on the request stage.
+Open: nothing device-verified; MapReport + price-lock migrations must be applied on deploy.
