@@ -248,6 +248,22 @@ async function getMe(driverId) {
         status: true, isOnline: true, walletBalancePesewas: true,
         ghanaCardNumber: true, createdAt: true, preferences: true,
         emergencyContact: true,
+        /**
+         * WHICH TERMS THIS DRIVER HAS ACCEPTED — and the same bug as the two
+         * notes below it.
+         *
+         * `acceptTerms` writes these four columns and nothing read them back,
+         * so the app had no way to answer the only question it asks them: has
+         * this driver accepted the CURRENT version? Without it the consent gate
+         * either re-prompts a driver who already accepted, or — worse — never
+         * prompts after a terms update, and the record says they agreed to a
+         * document they were never shown.
+         *
+         * Compare against `TERMS_VERSION` / `PRIVACY_VERSION` from
+         * /v1/config/public; a mismatch means prompt.
+         */
+        acceptedTermsVersion: true, acceptedTermsAt: true,
+        acceptedPrivacyVersion: true, acceptedPrivacyAt: true,
         vehicles: { where: { isActive: true } },
       },
     }),

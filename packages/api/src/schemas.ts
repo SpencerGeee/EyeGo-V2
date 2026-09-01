@@ -204,10 +204,17 @@ export const FareQuoteSchema = z.looseObject({
   listPricePesewas: OptionalPesewas,
   loyaltyDiscountPesewas: OptionalPesewas,
 
-  // `breakdown` is `Record<string, number | boolean>` on the wire and is
-  // rendered line by line under the price. A string in there renders as a fare
-  // component, so the values are constrained even though the keys are not.
-  breakdown: z.record(z.string(), z.union([z.number(), z.boolean()])).optional(),
+  // Rendered line by line under the price, so the VALUES are constrained even
+  // though the keys are not: a string in there renders as a fare component.
+  //
+  // `null` is allowed, and finding out why is what the e2e harness is for. A
+  // line that does not apply to this quote is written as null rather than
+  // omitted — `doorstepDetourKm` is null on every ride with no detour, which is
+  // most of them. An earlier version of this schema allowed only number and
+  // boolean, and `typeof null === 'object'` meant it would have thrown
+  // MoneyShapeError on essentially EVERY quote: no rider could have seen a
+  // price at all. Static review passed it; the running server did not.
+  breakdown: z.record(z.string(), z.union([z.number(), z.boolean(), z.null()])).optional(),
 
   doorstepPickup: z.boolean().optional(),
   doorstepOffsetMeters: NullableNumber,

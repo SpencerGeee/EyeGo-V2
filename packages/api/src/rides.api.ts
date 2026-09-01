@@ -19,7 +19,15 @@ export interface FareQuote {
   currency: string;
   distanceKm: number;
   surgeMultiplier: number;
-  breakdown: Record<string, number | boolean>;
+  /**
+   * The fare card, line by line.
+   *
+   * `null` is a real value here and not an oversight: a line that does not
+   * apply to this quote is written as null rather than omitted —
+   * `doorstepDetourKm` is null on every ride without a detour. Anything
+   * rendering this must skip nulls; anything validating it must allow them.
+   */
+  breakdown: Record<string, number | boolean | null>;
   /**
    * What the ride would have cost, and what this rider's standing saved them.
    *

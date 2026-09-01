@@ -310,7 +310,10 @@ describe('the schemas the screens depend on', () => {
     const b = {
       totalEarningsPesewas: 0, totalTrips: 0, totalTips: 0,
       totalDeductions: -3000, netEarnings: -3000, averagePerTripPesewas: 0,
-      dailyBreakdown: [{ date: '2026-09-01', amountPesewas: -3000 }],
+      // `earnings` and `trips`, which is what drivers.service.js groups into —
+      // NOT `amountPesewas`, which the client type used to declare and the
+      // server has never sent.
+      dailyBreakdown: [{ date: '2026-09-01', earnings: -3000, trips: 0 }],
     };
     expect(assertShape(EarningsBreakdownSchema, b, 'earnings')).toBe(b);
   });

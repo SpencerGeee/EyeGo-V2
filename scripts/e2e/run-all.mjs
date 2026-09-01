@@ -40,6 +40,7 @@ const SUITES = [
   ['rider-features.mjs', 'saved places, scheduling, invites, disputes, support'],
   ['driver-features.mjs', 'earnings, quests, documents, destination mode'],
   ['rider-settings.mjs', 'profile, preferences, notifications, account'],
+  ['release-surfaces.mjs', 'the release gate, consent, receipts, SOS, payments, the admin door'],
   ['rider-edges.mjs', 'the rider paths that are not the happy one'],
   ['dispatch-payload.mjs', 'the offer contract — every field the driver card reads'],
   ['wallet-commission.mjs', 'the cash float: warned at the offer, charged at boarding'],
