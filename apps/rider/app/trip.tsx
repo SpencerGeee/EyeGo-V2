@@ -14,7 +14,7 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, goBack } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, goBack, goOut } from '@eyego/ui';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
@@ -478,7 +478,7 @@ export default function TripScreen() {
       // home screen and lost the search they were part-way through.
       if (consumeTripSurfaceReturn()) return;
       if (CLIENT_OWNED_STAGES.includes(useTripFlow.getState().stage)) {
-        router.dismissTo('/(tabs)/home' as Href);
+        goOut('/(tabs)/home');
       }
     }, [router]),
   );
@@ -495,7 +495,7 @@ export default function TripScreen() {
    * live-ride card there is what brings the rider back.
    */
   const goHomeKeepingRide = useCallback(() => {
-    router.dismissTo('/(tabs)/home' as Href);
+    goOut('/(tabs)/home');
   }, [router]);
 
   useEffect(() => {
@@ -555,6 +555,8 @@ export default function TripScreen() {
    * incoming panels instead of snapping a frame ahead of them. When the previous
    * stage also drew no map the fade has nothing to do and both ends are 0.
    */
+  /** Stages that draw their own top-left control — see the home pill below. */
+  const stageOwnsTopLeft = stage === 'request';
   const currentStageDrawsMap = MAP_STAGES.includes(rendered.current);
   const previousStageDrawsMap =
     rendered.previous == null ? currentStageDrawsMap : MAP_STAGES.includes(rendered.previous);
@@ -747,7 +749,21 @@ export default function TripScreen() {
       {!surfaceRetired && !CLIENT_OWNED_STAGES.includes(stage) && (
         <Animated.View
           entering={FadeIn.duration(260)}
-          style={[styles.homePillWrap, { top: insets.top + 8 }]}
+          /**
+           * SIDE DEPENDS ON WHETHER THE STAGE ALREADY OWNS THE TOP-LEFT.
+           *
+           * BUGFIX. The note above claims this only appears where no panel has
+           * its own back affordance — but `request` is server-owned AND draws
+           * its own floating arrow, at this exact inset. Two 44 pt controls
+           * sat on top of each other with OPPOSITE meanings: the arrow asks
+           * "stop looking for a driver?" and cancels, this one leaves and
+           * keeps the ride live. Whichever won the z-order, the rider was one
+           * tap from the wrong outcome.
+           */
+          style={[
+            stageOwnsTopLeft ? styles.homePillWrapRight : styles.homePillWrap,
+            { top: insets.top + 8 },
+          ]}
           pointerEvents="box-none"
         >
           <Pressable
@@ -823,6 +839,8 @@ const styles = StyleSheet.create({
    */
   opaqueFloor: StyleSheet.absoluteFillObject,
   homePillWrap: { position: 'absolute', left: spacing.lg, zIndex: 20 },
+  /** Same pill, opposite corner — see the note at the render. */
+  homePillWrapRight: { position: 'absolute', right: spacing.lg, zIndex: 20 },
   homePill: {
     flexDirection: 'row',
     alignItems: 'center',

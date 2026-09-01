@@ -59,6 +59,12 @@ export interface CameraTarget {
   bearing?: number | null;
   /** Everything that must stay on screen in `overview`. */
   fit?: Coord[] | null;
+  /**
+   * Smallest box the fit may collapse to, in degrees. Defaults to the crash
+   * floor; pass `AREA_BOUNDS_SPAN_DEG` when the frame is meant to read as a
+   * neighbourhood rather than a journey.
+   */
+  fitMinSpanDeg?: number | null;
 }
 
 export interface CameraPlan {
@@ -107,6 +113,25 @@ export const RESUME_AFTER_MS = 12_000;
  */
 export const MIN_BOUNDS_SPAN_DEG = 0.001;
 
+/**
+ * The floor for a box that is meant to show a NEIGHBOURHOOD, in degrees
+ * (~2.4 km at Ghana’s latitude).
+ *
+ * BUGFIX ("the map ... zooms into my location but I’m supposed to be seeing
+ * an overview of my area and available cars").
+ *
+ * `MIN_BOUNDS_SPAN_DEG` above is a CRASH guard: 110 m is simply the smallest
+ * box MapLibre will accept without computing an infinite zoom. It was never a
+ * framing decision, but it became one — dispatch frames `[pickup, ...cars]`,
+ * and with no cars yet in the pool that is one point, inflated to 110 m and
+ * fitted, which is street zoom on somebody’s doorstep. The rider gets the
+ * least useful view at exactly the moment they are asking "is there a car
+ * near me?".
+ *
+ * A caller that is framing an AREA rather than a journey passes this instead.
+ */
+export const AREA_BOUNDS_SPAN_DEG = 0.022;
+
 /** A coordinate MapLibre will not choke on. */
 export function isUsableCoord(c: unknown): c is Coord {
   return (
@@ -125,7 +150,10 @@ export function isUsableCoord(c: unknown): c is Coord {
  * Returns null when there is nothing usable to fit — the caller must then do
  * nothing rather than fit an empty box, which is the other half of the SIGABRT.
  */
-export function boundsFor(coords: Coord[]): { ne: Coord; sw: Coord } | null {
+export function boundsFor(
+  coords: Coord[],
+  minSpanDeg: number = MIN_BOUNDS_SPAN_DEG,
+): { ne: Coord; sw: Coord } | null {
   const usable = coords.filter(isUsableCoord);
   if (usable.length === 0) return null;
 
@@ -143,9 +171,9 @@ export function boundsFor(coords: Coord[]): { ne: Coord; sw: Coord } | null {
   // Inflate anything too small to be a real box. One point, or two points a
   // metre apart, both land here.
   const padTo = (min: number, max: number): [number, number] => {
-    if (max - min >= MIN_BOUNDS_SPAN_DEG) return [min, max];
+    if (max - min >= minSpanDeg) return [min, max];
     const mid = (min + max) / 2;
-    return [mid - MIN_BOUNDS_SPAN_DEG / 2, mid + MIN_BOUNDS_SPAN_DEG / 2];
+    return [mid - minSpanDeg / 2, mid + minSpanDeg / 2];
   };
   const [lo0, hi0] = padTo(minLng, maxLng);
   const [lo1, hi1] = padTo(minLat, maxLat);
@@ -225,7 +253,7 @@ export function planCamera(
   }
 
   if (mode === 'overview') {
-    const bounds = boundsFor(target.fit ?? []);
+    const bounds = boundsFor(target.fit ?? [], target.fitMinSpanDeg ?? MIN_BOUNDS_SPAN_DEG);
     if (!bounds) return { kind: 'none', reason: 'nothing usable to frame' };
     return {
       kind: 'fitBounds',

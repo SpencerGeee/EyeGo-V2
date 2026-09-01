@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
-import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder, goDeeper, goBack, notify } from '@eyego/ui';
+import { Text, Button, GlassSurface, MorphTarget, AppBackground, GradientGlowBorder, goDeeper, goBack, notify, goOut } from '@eyego/ui';
 import { useThemeStore } from '../../../stores/theme.store';
 import { SearchingPanel } from '../SearchingPanel';
 import { tripsApi, ridesApi, queryKeys, secondsRemaining } from '@eyego/api';
@@ -38,6 +38,14 @@ import { useTripStore, isTerminal } from '../../../stores/trip.store';
  * app/ride/request.tsx. `mode='route'` keeps the legacy modal behavior for
  * the old /ride/request deep link.
  */
+/**
+ * How often the ambient nearby-car pins are refreshed while a search runs.
+ *
+ * Slow on purpose: these are context, not tracking. The dispatch result
+ * arrives over the socket, so this never gates the outcome of the request.
+ */
+const NEARBY_REFRESH_MS = 12_000;
+
 function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
@@ -208,23 +216,39 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       setPickupCoord([origin.longitude, origin.latitude]);
     }
     let cancelled = false;
-    (async () => {
+
+    /**
+     * Polled, not fetched once.
+     *
+     * These pins are the rider’s only answer to "is anything actually out
+     * there?", and a single shot at mount freezes that answer for the whole
+     * search — cars that come online during it never appear, and the ones
+     * that do appear are pinned wherever they were the second the stage
+     * opened, while the copy underneath says we are still looking.
+     */
+    const load = async () => {
       if (origin?.latitude == null || origin?.longitude == null) return;
       try {
         const res = await tripsApi.getNearbyDrivers(origin.latitude, origin.longitude);
         if (cancelled) return;
         const rows = Array.isArray(res.data?.data) ? res.data.data : [];
-        setNearbyDrivers(
-          rows
-            .filter((d: any) => Number.isFinite(d?.latitude) && Number.isFinite(d?.longitude))
-            .map((d: any) => ({ id: String(d.id), latitude: d.latitude, longitude: d.longitude })),
-        );
+        const pins = rows
+          .filter((d: any) => Number.isFinite(d?.latitude) && Number.isFinite(d?.longitude))
+          .map((d: any) => ({ id: String(d.id), latitude: d.latitude, longitude: d.longitude }));
+        // An empty answer is a real answer here ("nobody nearby"), so it is
+        // published like any other.
+        setNearbyDrivers(pins);
       } catch {
-        // Ambient pins only — a failure here must not disturb the request.
+        // Ambient pins only — a failure here must not disturb the request, and
+        // must not blank the pins we already drew.
       }
-    })();
+    };
+
+    void load();
+    const timer = setInterval(load, NEARBY_REFRESH_MS);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [origin?.latitude, origin?.longitude, setNearbyDrivers, setPickupCoord]);
 
@@ -506,7 +530,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
   const handleCancel = async () => {
     const tripId = tripIdRef.current ?? snapshot?.tripId ?? null;
     if (!tripId) {
-      router.dismissTo('/(tabs)/home' as any);
+      goOut('/(tabs)/home');
       return;
     }
     setCancelling(true);
@@ -544,7 +568,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         old ? { ...old, trip: null, dispatch: null } : old,
       );
       queryClient.invalidateQueries({ queryKey: ['rides', 'active'] });
-      router.dismissTo('/(tabs)/home' as any);
+      goOut('/(tabs)/home');
     } catch (err: any) {
       const msg = err?.response?.data?.message;
       notify('Could not cancel', msg ?? 'A driver may have already accepted — check your Activity tab.');
@@ -579,7 +603,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
       return;
     }
     if (status === 'error' || status === 'timeout') {
-      router.dismissTo('/(tabs)/home' as any);
+      goOut('/(tabs)/home');
       return;
     }
     Alert.alert(
@@ -724,7 +748,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             />
             <Pressable
               style={styles.activityBtn}
-              onPress={() => router.dismissTo('/(tabs)/home' as any)}
+              onPress={() => goOut('/(tabs)/home')}
               accessibilityRole="button"
               accessibilityLabel="Leave without cancelling"
             >
@@ -736,7 +760,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         ) : (
           <Button
             label="Back to home"
-            onPress={() => router.dismissTo('/(tabs)/home' as any)}
+            onPress={() => goOut('/(tabs)/home')}
             style={{ width: '100%', marginTop: spacing.xl }}
           />
         )}
@@ -744,7 +768,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         {variant === 'route' && (
           <Pressable
             style={styles.activityBtn}
-            onPress={() => router.dismissTo('/(tabs)/activity' as any)}
+            onPress={() => goOut('/(tabs)/activity')}
             accessibilityRole="button"
             accessibilityLabel="View in Activity"
           >

@@ -30,6 +30,7 @@ import {
 } from '../puck.ts';
 import {
   boundsFor,
+  AREA_BOUNDS_SPAN_DEG,
   isUsableCoord,
   overviewKey,
   paddingKeyOf,
@@ -229,6 +230,32 @@ describe('bounds — the documented cause of the map SIGABRT', () => {
   test('nothing usable yields null, so the caller does nothing at all', () => {
     assert.equal(boundsFor([]), null);
     assert.equal(boundsFor([[NaN, NaN] as unknown as Coord]), null);
+  });
+
+  /**
+   * The crash floor is 110 m. That keeps MapLibre alive and frames the rider’s
+   * doorstep at street zoom — which is the wrong answer while dispatch is
+   * asking "is there a car near me?". A caller framing an AREA passes its own
+   * floor.
+   */
+  test('an area frame floors the box at a neighbourhood, not 110 m', () => {
+    const b = boundsFor([[-0.19, 5.6]], AREA_BOUNDS_SPAN_DEG)!;
+    gte(b.ne[0] - b.sw[0], AREA_BOUNDS_SPAN_DEG * 0.99);
+    gte(b.ne[1] - b.sw[1], AREA_BOUNDS_SPAN_DEG * 0.99);
+  });
+
+  test('a real spread is never shrunk to the floor', () => {
+    // Two points 0.1 deg apart must keep their own box; the floor only ever
+    // inflates, it does not clamp.
+    const b = boundsFor([[-0.25, 5.55], [-0.15, 5.65]], AREA_BOUNDS_SPAN_DEG)!;
+    gte(b.ne[0] - b.sw[0], 0.099);
+    gte(b.ne[1] - b.sw[1], 0.099);
+  });
+
+  test('the default floor is unchanged, so the crash guard still holds', () => {
+    const b = boundsFor([[-0.19, 5.6]])!;
+    gte(b.ne[0] - b.sw[0], MIN_BOUNDS_SPAN_DEG * 0.99);
+    assert.equal(b.ne[0] - b.sw[0] < AREA_BOUNDS_SPAN_DEG, true);
   });
 });
 

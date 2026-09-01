@@ -34,6 +34,12 @@ export interface UseMapCameraArgs {
   mode: CameraMode;
   /** Coordinates that must stay framed in `overview`. */
   fit?: Coord[] | null;
+  /**
+   * Smallest box `fit` may collapse to, in degrees. Omit for the crash floor
+   * (~110 m); pass `AREA_BOUNDS_SPAN_DEG` to frame a neighbourhood instead of
+   * zooming onto a lone point.
+   */
+  fitMinSpanDeg?: number | null;
   /** Follow target when there is no live puck (e.g. framing a fixed pickup). */
   center?: Coord | null;
   /**
@@ -91,7 +97,7 @@ export interface MapCamera {
 
 export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const {
-    mode, fit, center, padding,
+    mode, fit, center, padding, fitMinSpanDeg,
     publishEveryMs = 400, active = true, fitIncludesPuck = false,
   } = args;
 
@@ -115,6 +121,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
     center: puck ? ([puck.longitude, puck.latitude] as Coord) : center ?? null,
     bearing: puck?.bearing ?? null,
     fit: fit ?? null,
+    fitMinSpanDeg: fitMinSpanDeg ?? null,
   };
   const modeRef = useRef<CameraMode>(mode);
   modeRef.current = mode;

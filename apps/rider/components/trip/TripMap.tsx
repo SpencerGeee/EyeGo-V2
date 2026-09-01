@@ -8,6 +8,7 @@ import MapboxGL from '../../utils/mapbox';
 import mapStyles from '@eyego/map-styles';
 import {
   useMapCamera,
+  AREA_BOUNDS_SPAN_DEG,
   useRouteReveal,
   paddingForSheet,
   paddingForSheetTop,
@@ -490,9 +491,26 @@ function TripMapImpl() {
         });
   }, [sheetMetrics, screenHeight, insets.top, stage]);
 
+  /**
+   * WHILE DISPATCH IS SEARCHING, THE FRAME IS A NEIGHBOURHOOD.
+   *
+   * The fit for these statuses is `[pickup, ...cars]`. Before the pool
+   * answers — and in a quiet area it may never answer — that is a single
+   * point, and a single point fitted at the crash floor is a 110 m box:
+   * street zoom on the rider’s own doorstep, at the exact moment the
+   * question they are asking is "is there a car anywhere near me?".
+   *
+   * Floor the box at ~2.4 km instead. With cars in the pool the fit is
+   * already wider than this and the floor never bites; with none, the rider
+   * still sees their area rather than their roof.
+   */
+  const dispatchIsSearching =
+    status === 'REQUESTED' || status === 'MATCHING' || status === 'REASSIGNING';
+
   const camera = useMapCamera({
     mode,
     fit,
+    fitMinSpanDeg: dispatchIsSearching ? AREA_BOUNDS_SPAN_DEG : null,
     /**
      * The follow target when there is no vehicle puck — the rider themselves.
      *
