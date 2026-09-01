@@ -26,24 +26,24 @@ Plan, findings and the ranked backlog:
 
 | Item | Why |
 |---|---|
-| Telemetry + `/metrics` + Grafana (22) | Not started. The health endpoints and the log are the whole observability story today. |
-| Sentry in admin (11) | Needs `npm i @sentry/nextjs`. Deliberately not added to `package.json` without an install — it would break `next build`. |
+
+| Sentry in admin (11) | `npm install` fails on this machine — the tree is inconsistent with the lockfile after the manual react-dom repair. A clean `npm ci` (which the Docker build does) will work. |
 | E2E suites for the new features (23) | The 340-check harness has NOT been re-run this session. New work is covered by jest and by a live-DB probe, not by the harness. |
-| Zod at the API boundary (24) | 356 `as any` remain. Big, and the right long-term answer. |
+| Zod at the API boundary (24) | Money payloads are guarded at runtime (packages/api/src/money-guards.ts, 22 tests). The other ~350 `as any` remain — zod itself is not installed and could not be added safely. |
 | Driver earnings statement UI (14) | API wrapper added; the screen still derives its own totals. |
 | Destination filter / shifts / inspections UI | Server-side is live — `destination-mode.service` is used by the dispatch cascade — but no client sets them. **Do not delete these endpoints.** |
 | E2 — stored quotes do not pin fees | Real, recorded as `test.todo`. Money code; not worth a rushed fix. |
-| E4 — 9 integration suites | Stale mocks, not product bugs. Need their own pass. |
+| E4 — 7 integration suites, 12 tests | Was 9 suites / 26 tests. Remaining are individually-stale assertions; one suite is skipped because its SQLite premise was invalidated. |
 
 ## Verification, as it actually stands
 
     tsc --noEmit    packages · rider · driver · admin      GREEN
     prisma validate                                        GREEN
-    prisma migrate deploy                                  APPLIED (3 new)
+    prisma migrate deploy                                  APPLIED (5 new)
     prisma generate                                        DONE
     API cold boot                                          /health 200 in ~8s
     apps/admin  next build                                 GREEN (after the fix below)
-    jest                                                   4 suites pass, 9 fail (E4)
+    jest                                                   6 pass, 7 fail, 1 skipped (102 passing)
     live-DB probes (documents, fraud)                      16/16, rolled back
     scripts/e2e/run-all.mjs                                NOT RUN this session
 

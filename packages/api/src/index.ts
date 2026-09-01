@@ -75,3 +75,11 @@ export {
   driverSocketEvents,
 } from './socket';
 export { queryKeys } from './queryKeys';
+
+/**
+ * Runtime checks for the payloads that decide what someone pays. See
+ * packages/api/src/money-guards.ts — a cast is a promise the compiler cannot
+ * keep, and for money a broken one is a plausible wrong number rather than a
+ * blank field.
+ */
+export { MoneyShapeError, pesewas, optionalPesewas, multiplier, distanceKm, assertFareQuote } from './money-guards';

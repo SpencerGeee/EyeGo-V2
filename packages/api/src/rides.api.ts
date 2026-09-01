@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { assertFareQuote } from './money-guards';
 import type { TripSnapshot } from './tripChannel';
 
 /**
@@ -167,7 +168,16 @@ export const ridesApi = {
     pickupLat: number; pickupLng: number;
     dropoffLat: number; dropoffLng: number;
     tier?: string; doorstepPickup?: boolean; heavyLoad?: boolean;
-  }) => apiClient.post('/rides/quote', body).then(unwrap<FareQuote>),
+  }) =>
+    apiClient
+      .post('/rides/quote', body)
+      .then(unwrap<FareQuote>)
+      // Checked, not cast. `unwrap<FareQuote>` is a promise the compiler cannot
+      // keep — the server is free to break it on any deploy, and for money the
+      // consequence is not a blank field but a plausible wrong number:
+      // `undefined * 100` is NaN, and a fare that arrives as "2500" divides
+      // into something that looks like a price. See money-guards.ts.
+      .then((q) => assertFareQuote(q as unknown as Record<string, unknown>) as unknown as FareQuote),
 
   /**
    * Request a ride.
