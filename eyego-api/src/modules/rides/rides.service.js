@@ -15,6 +15,9 @@ const routeGeometry = require('../../services/route-geometry.service');
 const { effectivePickup } = routeGeometry;
 const { haversineMeters } = require('../../utils/geo');
 const { seatOccupyingWhere, livePassengerWhere } = require('../../utils/booking-status');
+// The one party-size ceiling, shared with the route validator and the rider
+// app's picker — see the clamp in `requestRide`.
+const { MAX_SEATS_PER_BOOKING } = require('../../config/booking');
 const env = require('../../config/env');
 // Settlement lives here and only here — see completeTrip below for why this is
 // a delegation rather than a second implementation.
@@ -269,7 +272,22 @@ async function requestRide(userId, body) {
   // Clamped server-side as well as validated at the route: this becomes the
   // trip's capacity, and a bad value would publish a trip claiming seats the
   // vehicle does not have.
-  const partySize = Math.min(Math.max(Math.trunc(Number(seatCount)) || 1, 1), 6);
+  /**
+   * SIX WAS NOT THE NUMBER THE RIDER WAS SHOWN.
+   *
+   * BUGFIX ("on the group ride option, when I choose 8 it books just the 8th
+   * seat and not a party size of 8"). The group picker offers up to
+   * `MAX_SEATS_PER_BOOKING` (8) and this clamp quietly cut it to six, so the
+   * trip was created for a party the rider never chose — and the seat map the
+   * driver saw then disagreed with the number on the rider's own summary.
+   *
+   * Now the same constant as the picker and the route validator. See
+   * config/booking.js.
+   */
+  const requestedPartySize = Math.min(
+    Math.max(Math.trunc(Number(seatCount)) || 1, 1),
+    MAX_SEATS_PER_BOOKING,
+  );
 
   const guestName = typeof passenger?.name === 'string' ? passenger.name.trim() || null : null;
   const guestPhone = typeof passenger?.phone === 'string' ? passenger.phone.trim() || null : null;
@@ -311,6 +329,32 @@ async function requestRide(userId, body) {
     // Redeeming the quote is what makes the quoted price the charged price —
     // and it is single-use, so a replayed quote cannot buy a second ride.
     const quote = await fareQuote.redeemQuote(quoteId, userId);
+
+    /**
+     * ── THE PARTY IN THE PRICE IS THE PARTY THAT TRAVELS ──────────────────
+     *
+     * The party size is now an input to the fare, which makes the number in the
+     * request body a thing worth lying about: quote for two, create for eight,
+     * and a rider would ride a minibus at a saloon's price.
+     *
+     * The quote is HMAC-signed over its own inputs, `seatCount` among them, so
+     * the quote's copy is the only trustworthy one — the body's is a hint that
+     * has to agree with it. Where they differ the quote wins and the request is
+     * refused rather than silently downgraded, because silently giving a rider
+     * a smaller trip than they paid for is the bug this whole item is about.
+     */
+    const quotedPartySize = Math.min(
+      Math.max(Math.trunc(Number(quote.seatCount)) || 1, 1),
+      MAX_SEATS_PER_BOOKING,
+    );
+    if (requestedPartySize !== quotedPartySize) {
+      throw new AppError(
+        'Your party size changed after this price was quoted. Please confirm the new fare.',
+        409,
+        'FARE_EXPIRED',
+      );
+    }
+    const partySize = quotedPartySize;
 
     /**
      * Everything below this line has already spent the quote, and any of it can

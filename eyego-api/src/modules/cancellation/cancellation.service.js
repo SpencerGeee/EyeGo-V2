@@ -96,7 +96,44 @@ async function cancellationTermsFor(trip, totalFarePesewas) {
     };
   }
 
-  // ── the bus product, unchanged ──────────────────────────────────────────
+  /**
+   * ── A TRIP THAT HAS NOT LEFT CANNOT BE A NO-SHOW ──────────────────────────
+   *
+   * BUGFIX ("I chose to cancel the ride and the cancellation policy is telling
+   * me I'll be charged 4.98 because the driver was already on the way — but the
+   * trip was in FILLING status").
+   *
+   * Everything below this point decides the fee from ONE input: how many
+   * minutes remain until `departureTime`. That is a reasonable model for a
+   * scheduled bus and a completely wrong one for a trip that has not departed,
+   * because `departureTime` is a PLAN and `status` is the fact. A group trip
+   * still filling up has, by definition, gone nowhere and cost nobody anything
+   * — and yet the moment its planned departure slipped into the past (which
+   * happens on every trip that waits to fill, which is the entire point of
+   * FILLING) the arithmetic below classed the rider as having missed a bus that
+   * was still parked, and charged the no-show percentage.
+   *
+   * The status is the authority on whether anything has been spent. Before the
+   * wheels turn, cancelling is free; the consequence is the rider's standing,
+   * not their wallet. See `RIDE_CANCEL_FEE_PESEWAS`.
+   */
+  const PRE_DEPARTURE_STATUSES = ['SCHEDULED', 'FILLING', 'CONFIRMED', 'REQUESTED', 'MATCHING', 'REASSIGNING'];
+  if (PRE_DEPARTURE_STATUSES.includes(trip.status)) {
+    return {
+      feePercentage: 0,
+      feeAmountPesewas: 0,
+      feeType: 'FREE',
+      freeCancelMinutes: null,
+      minutesUntilDeparture: Math.round(
+        (new Date(trip.departureTime) - new Date()) / (1000 * 60),
+      ),
+      fareAmountPesewas: totalFarePesewas,
+      /** Why it is free, so the sheet can say the true thing. */
+      freeReason: 'NOT_DEPARTED',
+    };
+  }
+
+  // ── the bus product, once it has actually set off ───────────────────────
   const policy = await prisma.cancellationPolicy.findFirst({
     where: { tier: trip.tier, isActive: true },
     orderBy: { createdAt: 'desc' },

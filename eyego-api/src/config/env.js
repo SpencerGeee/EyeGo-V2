@@ -242,6 +242,26 @@ const envSchema = z.object({
   // come in from the client; this is a placeholder default, not a final figure.
   FREE_DEVIATION_KM: z.coerce.number().default(1.5),
   PLATFORM_COMMISSION: z.coerce.number().default(0.15),
+
+  /**
+   * ── WHAT A PARTY BIGGER THAN A CAR COSTS ─────────────────────────────────
+   *
+   * An on-demand fare prices the VEHICLE, not the head count, so a party of
+   * two and a party of four pay the same — correctly, since they ride in the
+   * same saloon. `RIDE_INCLUDED_SEATS` is where that stops being true: past it
+   * the ride has to come from the minibus pool, which is scarcer and dearer,
+   * and every further seat adds `RIDE_EXTRA_SEAT_RATE` of the metered ride.
+   *
+   * Four and 18% are the starting figures. Four is what a saloon actually
+   * carries; 18% means a full party of eight pays roughly 1.7× a solo hail for
+   * the same road, which is the shape of the gap between a taxi and a minibus
+   * on this market. Both are live settings — see config/settings.js — so the
+   * operator retunes them from the console without a deploy.
+   *
+   * See `partySize` in modules/trips/fare.calculator.js for where they apply.
+   */
+  RIDE_INCLUDED_SEATS: z.coerce.number().int().min(1).max(14).default(4),
+  RIDE_EXTRA_SEAT_RATE: z.coerce.number().min(0).max(1).default(0.18),
   // The ONLY floor under a per-seat fare. A seat costs
   // `(baseFarePesewas + perKmRatePesewas × km) × surge / maxSeats`, so on a 14-seater a short
   // urban hop divides down to a few pesewas — this stops that, and nothing else

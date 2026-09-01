@@ -30,6 +30,7 @@ router.get('/:bookingId', controller.getBooking);
 router.post('/:bookingId/cancel', controller.cancelBooking);
 // DELETE /:bookingId  — kept for backward compat (cancels without reason)
 router.delete('/:bookingId', controller.cancelBooking);
+router.get('/:bookingId/rating', controller.getMyRating);
 router.post('/:bookingId/rating', controller.rateBooking);
 router.post('/:bookingId/tip', controller.tipDriver);
 router.post('/:bookingId/apply-promo', controller.applyPromoCode);

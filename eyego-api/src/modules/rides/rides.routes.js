@@ -8,6 +8,9 @@ const authenticate = require('../../middleware/auth');
 const { requireBookingEnabled } = require('../../middleware/killSwitch');
 const { authenticateDriver } = require('../../middleware/driverAuth');
 const validate = require('../../middleware/validate');
+// One ceiling for the party size, shared with the rider app's picker — see the
+// note on `seatCount` in the create route below for what happened without it.
+const { MAX_SEATS_PER_BOOKING } = require('../../config/booking');
 
 /**
  * On-demand rides. ONE path, for both apps.
@@ -43,11 +46,18 @@ router.post(
     body('dropoffLat').isFloat({ min: -90, max: 90 }),
     body('dropoffLng').isFloat({ min: -180, max: 180 }),
     body('tier').optional().isIn(['ECO', 'COMFORT', 'PREMIUM']),
+    // The party being priced. Optional and defaulted to one, so an ordinary hail
+    // is unaffected; see `partySize` in fare.calculator.js for what it changes.
+    body('seatCount').optional().isInt({ min: 1, max: MAX_SEATS_PER_BOOKING }).toInt(),
   ],
   validate,
   h(async (req, res) => {
     const quote = await rides.quoteRide(actorId(req), {
       tier: req.body.tier ?? 'ECO',
+      // A quote for a party of eight is not the same price as one for a party
+      // of two, and it is signed with this value, so the ride that redeems it
+      // must be for the same party. See createQuote.
+      seatCount: req.body.seatCount ?? 1,
       pickupLat: Number(req.body.pickupLat),
       pickupLng: Number(req.body.pickupLng),
       dropoffLat: Number(req.body.dropoffLat),
@@ -86,11 +96,25 @@ router.post(
     body('dropoffLat').isFloat({ min: -90, max: 90 }),
     body('dropoffLng').isFloat({ min: -180, max: 180 }),
     body('paymentMethod').optional().isIn(['CASH', 'CARD', 'MOMO', 'WALLET']),
-    // Party size. Bounded here rather than trusted: it becomes the trip's
-    // capacity, and an unbounded value would let a client publish a trip
-    // claiming a hundred seats. Does not affect the fare — an on-demand ride is
-    // priced as the whole car.
-    body('seatCount').optional().isInt({ min: 1, max: 6 }).toInt(),
+    /**
+     * Party size. Bounded here rather than trusted: it becomes the trip's
+     * capacity, and an unbounded value would let a client publish a trip
+     * claiming a hundred seats.
+     *
+     * BUGFIX ("on the group ride option, when I get to the party size page and
+     * choose 8, it books just the 8th seat and not a party of 8").
+     *
+     * The ceiling was SIX here and in `requestRide`'s own clamp, while the
+     * group picker on the rider app offers up to `MAX_SEATS_PER_BOOKING` — 8.
+     * So a party of seven or eight was rejected by this validator outright, and
+     * anything that got past it was silently clamped back to six: the rider
+     * chose eight and the trip was created for a different number than the one
+     * they were shown. One constant, shared with the client, is the only way
+     * these two cannot drift again.
+     *
+     * It DOES now affect the fare — see `partySize` in fare.calculator.js.
+     */
+    body('seatCount').optional().isInt({ min: 1, max: MAX_SEATS_PER_BOOKING }).toInt(),
     // "Yes, book a second ride anyway" — see requestRide. The rider has to have
     // been shown the prompt for this to be true, so it is never a default.
     body('allowConcurrent').optional().isBoolean(),

@@ -1003,24 +1003,52 @@ async function rateBooking(userId, bookingId, { rating, comment }) {
     throw new AppError('Stars must be an integer between 1 and 5', 400);
   }
 
-  const driverRating = await prisma.driverRating.upsert({
-    where: {
-      userId_tripId: {
-        userId,
-        tripId: booking.tripId,
-      }
-    },
-    update: {
-      stars,
-      comment: comment ?? undefined,
-    },
-    create: {
+  /**
+   * ── A RATING IS CAST ONCE ───────────────────────────────────────────────
+   *
+   * BUGFIX ("you need to make sure that rating the trip is dynamic and
+   * completely wired on that page, because what if I already rated the trip? It
+   * means I can override the rating there, which is wrong").
+   *
+   * This was an `upsert` whose `update` branch silently replaced the stars and
+   * the comment. Two things wrong with that, and the second is the serious one:
+   *
+   *   1. The client had no way to know a rating existed — there was no read for
+   *      it — so it always drew an empty five-star row and any rider who
+   *      re-opened a completed trip was invited to rate it again from scratch.
+   *      Tapping three stars on a ride they had given five to silently
+   *      rewrote it.
+   *   2. A driver's average is money. A rating that can be quietly changed
+   *      after the fact, from a screen the rider can reach from their history
+   *      at any time, is a rating a driver cannot rely on — and
+   *      `rating-integrity.service` is built on the assumption that each
+   *      (user, trip) pair contributes exactly one considered verdict.
+   *
+   * So the write is now a `create` that refuses a second one, and `getMyRating`
+   * below is how the client knows which state to draw. A rider who genuinely
+   * needs a rating changed goes through support, where it is a deliberate act
+   * with a record, rather than a stray tap on a receipt.
+   */
+  const existing = await prisma.driverRating.findUnique({
+    where: { userId_tripId: { userId, tripId: booking.tripId } },
+    select: { stars: true, comment: true, createdAt: true },
+  });
+  if (existing) {
+    throw new AppError(
+      `You already rated this trip ${existing.stars} out of 5. Contact support if that needs to change.`,
+      409,
+      'ALREADY_RATED',
+    );
+  }
+
+  const driverRating = await prisma.driverRating.create({
+    data: {
       driverId: booking.trip.driverId,
       userId,
       tripId: booking.trip.id,
       stars,
       comment,
-    }
+    },
   });
 
   // ── Push notification to driver ───────────────────────────────────
@@ -1043,6 +1071,31 @@ async function rateBooking(userId, bookingId, { rating, comment }) {
   });
 
   return driverRating;
+}
+
+/**
+ * The rating THIS rider already gave for the trip a booking belongs to.
+ *
+ * The client had no way to ask this, which is why the receipt screen always
+ * offered a blank rating form — see the note in `rateBooking`. Returns `null`
+ * rather than throwing when there is none: "not rated yet" is the ordinary
+ * answer, not an error.
+ *
+ * Scoped to the caller's own booking, so this can never read somebody else's
+ * verdict on a shared trip.
+ */
+async function getMyRating(userId, bookingId) {
+  const booking = await prisma.booking.findFirst({
+    where: { id: bookingId, userId },
+    select: { tripId: true },
+  });
+  if (!booking?.tripId) return null;
+
+  const rating = await prisma.driverRating.findUnique({
+    where: { userId_tripId: { userId, tripId: booking.tripId } },
+    select: { stars: true, comment: true, createdAt: true },
+  });
+  return rating ?? null;
 }
 
 async function applyPromoCode(userId, bookingId, code) {
@@ -1463,4 +1516,4 @@ async function joinGroup(shareToken) {
   return { tripId: group.tripId, trip: group.trip };
 }
 
-module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };
+module.exports = { bookSeat, normalizePaymentMethod, createRideGroup, generateInvite, regenerateInvite, getGroup, joinGroup, cancelBooking, getUserBookings, getBooking, rateBooking, getMyRating, applyPromoCode, getActiveBooking, tipDriver, submitDispute, recomputeBookingAddons, getTripFareForRider, cargoSurchargeFor };

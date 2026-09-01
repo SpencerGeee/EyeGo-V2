@@ -186,6 +186,22 @@ const REGISTRY = [
     min: 0, max: 200_00,
   },
 
+  // ── Party size ────────────────────────────────────────────────
+  // See RIDE_INCLUDED_SEATS in config/env.js for the model. Together these are
+  // what makes a group ride cost more than the same journey for one person.
+  {
+    key: 'RIDE_INCLUDED_SEATS', group: 'pricing_rules', type: TYPES.INT,
+    label: 'Seats included in the base fare', envKey: 'RIDE_INCLUDED_SEATS',
+    help: 'A party up to this size is one ordinary car at the ordinary price. Above it, the ride needs a bigger vehicle and the extra-seat rate applies.',
+    min: 1, max: 14,
+  },
+  {
+    key: 'RIDE_EXTRA_SEAT_RATE', group: 'pricing_rules', type: TYPES.RATIO,
+    label: 'Extra seat rate', envKey: 'RIDE_EXTRA_SEAT_RATE',
+    help: 'Added to the metered ride for EACH seat beyond the included count — the cost of moving to the minibus pool, not a per-head charge.',
+    min: 0, max: 1,
+  },
+
   // ── Door pickup ───────────────────────────────────────────────
   {
     key: 'DOORSTEP_MIN_FEE_PESEWAS', group: 'pricing_doorstep', type: TYPES.MONEY,
@@ -311,10 +327,29 @@ const REGISTRY = [
     help: 'How long after a driver accepts a hailed ride the rider may still cancel for nothing. Cancelling before a driver is found is always free, whatever this says.',
     min: 0, max: 900,
   },
+  /**
+   * DEFAULT ZERO — CANCELLING COSTS STANDING, NOT MONEY.
+   *
+   * Per the operator ("cancellation fees aren't applied — they don't get a
+   * separate fee; the cost of it is that when you cancel you might be waiting a
+   * bit longer, because the drivers might be occupied").
+   *
+   * That is a deliberate product position and it is already implemented, just
+   * not switched on: `services/standing.service.js` counts a rider's cancelled
+   * trips into their reliability, their band and their loyalty discount, and a
+   * poorer band means a smaller discount and a longer search. So the
+   * consequence exists and compounds; charging money on top of it was charging
+   * twice for one act, and it is the fee the rider saw on a trip that had not
+   * left the kerb.
+   *
+   * The knob stays. An operator who decides late cancellations need a real
+   * charge sets it from the console and the whole path — quote, sheet copy,
+   * refund split — already handles a non-zero value.
+   */
   {
     key: 'RIDE_CANCEL_FEE_PESEWAS', group: 'ride_pricing_fees', type: TYPES.MONEY,
-    label: 'Late-cancellation fee', envDefault: 5_00,
-    help: 'Flat amount charged when a rider cancels a hailed ride after the free window, to cover the driver’s trip to the pickup. Never more than the fare itself. Set to 0 to make cancellation always free.',
+    label: 'Late-cancellation fee', envDefault: 0,
+    help: 'Flat amount charged when a rider cancels a hailed ride after the free window. Zero by default: cancelling costs the rider their standing (which decides their loyalty discount and how quickly they are matched), not a charge. Never more than the fare itself.',
     min: 0, max: 50_00,
   },
 

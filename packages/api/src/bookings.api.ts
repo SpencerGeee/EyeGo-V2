@@ -96,6 +96,20 @@ export const bookingsApi = {
   rate: (id: string, data: RatingRequest) =>
     apiClient.post<ApiResponse<Booking>>(`/bookings/${id}/rating`, data),
 
+  /**
+   * The rating this rider already gave for the trip, or null.
+   *
+   * Added because there was no way to ask. The receipt screen therefore always
+   * drew an empty five-star row, so a rider re-opening a completed trip from
+   * their history was invited to rate it again — and the server's `upsert`
+   * quietly accepted the new number over the old one. See `getMyRating` in
+   * bookings.service.js for the full reasoning.
+   */
+  myRating: (id: string) =>
+    apiClient.get<ApiResponse<{ rating: { stars: number; comment: string | null; createdAt: string } | null }>>(
+      `/bookings/${id}/rating`,
+    ),
+
   generateInvite: (id: string) =>
     apiClient.post<ApiResponse<{ inviteToken: string; inviteLink: string }>>(
       `/bookings/${requireId(id, 'generateInvite')}/invite`

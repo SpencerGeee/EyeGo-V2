@@ -196,6 +196,17 @@ export const ridesApi = {
     pickupLat: number; pickupLng: number;
     dropoffLat: number; dropoffLng: number;
     tier?: string; doorstepPickup?: boolean; heavyLoad?: boolean;
+    /**
+     * How many people are travelling. An INPUT TO THE PRICE, not just to
+     * capacity: a party up to `RIDE_INCLUDED_SEATS` is one ordinary car at the
+     * ordinary fare, and every seat past that buys a share of a bigger vehicle.
+     * Omit it for a solo hail. See `partySize` in fare.calculator.js.
+     *
+     * It is inside the quote's signature, so the ride that redeems this quote
+     * must be for the same party — a rider cannot quote for two and travel with
+     * eight.
+     */
+    seatCount?: number;
   }) =>
     apiClient
       .post('/rides/quote', body)
@@ -235,6 +246,8 @@ export const ridesApi = {
        * information for the driver, not a fare input.
        */
       seatCount?: number;
+      // NOTE: `quote` takes this too now — the party size is an input to the
+      // price (see `partySize` in fare.calculator.js), not just to capacity.
     },
     idempotencyKey: string,
   ) =>

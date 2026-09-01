@@ -205,6 +205,16 @@ const getBooking = async (req, res) => {
   ok(res, { booking });
 };
 
+/**
+ * The rating this rider already gave, or null. See bookings.service.getMyRating
+ * — without this read the receipt screen could only ever offer a blank form,
+ * which is how a rider could silently overwrite their own verdict.
+ */
+const getMyRating = async (req, res) => {
+  const rating = await bookingsService.getMyRating(req.user.userId, req.params.bookingId);
+  ok(res, { rating });
+};
+
 const rateBooking = async (req, res) => {
   const rating = await bookingsService.rateBooking(req.user.userId, req.params.bookingId, req.body);
   ok(res, { rating }, 'Rating submitted successfully');
@@ -305,4 +315,5 @@ const joinGroup = async (req, res) => {
   ok(res, result);
 };
 
-module.exports = { bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking, applyPromoCode, validatePromoCode, getActiveBooking, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };
+module.exports = { bookSeat, createGroup, cancelBooking, getUserBookings, getBooking, rateBooking,
+  getMyRating, applyPromoCode, validatePromoCode, getActiveBooking, tipDriver, submitDispute, generateInvite, regenerateInvite, getGroup, joinGroup, updatePickup, updateHeavyCargo };

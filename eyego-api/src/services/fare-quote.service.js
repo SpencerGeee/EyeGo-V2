@@ -307,6 +307,22 @@ async function createQuote({
     doorstepDetourKm,
     heavyLoad,
     surgeMultiplier,
+    /**
+     * THE PARTY IS PART OF THE PRICE.
+     *
+     * BUGFIX ("the group booking has the same price as an on-demand ride, and
+     * it's wrong — if 2 people book it should be priced differently to 8").
+     *
+     * `seatCount` has been a parameter of this function, and part of the signed
+     * quote inputs, since the group flow was built — and it was never handed to
+     * the fare. So the picker moved a number the price could not see, and every
+     * party size from one to eight quoted the same figure.
+     *
+     * Because it is already inside `canonicalInputs`, the signature covers it:
+     * a rider cannot change their party size after quoting and redeem the
+     * cheaper price. See `partySize` in fare.calculator.js for the model.
+     */
+    partySize: seatCount,
   });
 
   // An on-demand ride is priced as one seat = the whole car, so per-person and

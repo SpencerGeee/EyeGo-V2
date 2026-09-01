@@ -354,6 +354,36 @@ function calculateRideFare({
   doorstepDetourKm = null,
   heavyLoad = false,
   surgeMultiplier = 1.0,
+  /**
+   * ── HOW MANY PEOPLE ARE TRAVELLING ───────────────────────────────────────
+   *
+   * BUGFIX ("the group booking has the same price as booking an on-demand
+   * ride, and that's wrong. Since it's a group booking and the number of seats
+   * increases, the amount of money collected should be extra as well. If 2
+   * people book a ride it should be priced differently to 8 people").
+   *
+   * Exactly right, and the reason it was not is written into the old comment on
+   * `farePerPersonPesewas`: "an on-demand ride is one seat". That is true of a
+   * hail — you are buying the car, and whether one or three of you get in makes
+   * no difference to what the car costs. It stopped being true the moment the
+   * group entry point started booking parties of up to eight through this same
+   * path: eight people do not fit in the saloon the ₵30 start fare is priced
+   * against, so the ride has to come out of the minibus pool, and that vehicle
+   * is scarcer, thirstier and worth more to its driver.
+   *
+   * So the model is CAPACITY, not per-head. A party up to
+   * `RIDE_INCLUDED_SEATS` is one ordinary car at the ordinary price — nothing
+   * changes for the overwhelming majority of rides. Every seat past that adds
+   * `RIDE_EXTRA_SEAT_RATE` of the metered ride, because past that point the
+   * rider is buying a bigger vehicle rather than another seat.
+   *
+   * Applied to the METERED ride, before the minimum-fare floor and before the
+   * booking/platform fees, so the whole card scales coherently: a longer group
+   * trip costs proportionally more than a short one, the floor still protects a
+   * two-minute hop, and commission (which is a share of the ride) rises with
+   * the driver's actual work rather than being diluted.
+   */
+  partySize = 1,
   /** See `calculateFare`'s price-lock note. Same fields, same fallback. */
   storedBaseFarePesewas,
   storedPerKmRatePesewas,
@@ -385,7 +415,16 @@ function calculateRideFare({
 
   const metered =
     startPesewas + distanceComponentPesewas + timeComponentPesewas + waitComponentPesewas;
-  const surged = Math.round(metered * surgeMultiplier);
+
+  // The party's share of the vehicle — see the `partySize` note above.
+  const seats = Number.isFinite(partySize) ? Math.max(1, Math.trunc(partySize)) : 1;
+  const includedSeats = Math.max(1, cfg('RIDE_INCLUDED_SEATS') ?? 4);
+  const extraSeatRate = Math.max(0, cfg('RIDE_EXTRA_SEAT_RATE') ?? 0);
+  const extraSeats = Math.max(0, seats - includedSeats);
+  const partySizeMultiplier = 1 + extraSeats * extraSeatRate;
+  const partySizeSurchargePesewas = Math.round(metered * (partySizeMultiplier - 1));
+
+  const surged = Math.round((metered + partySizeSurchargePesewas) * surgeMultiplier);
   const flooredRidePesewas = Math.max(surged, minFarePesewas);
 
   // Same shape as `calculateFare` — a measured detour is priced by the km it
@@ -443,10 +482,20 @@ function calculateRideFare({
     surchargePerSeatPesewas: doorstepSurchargePesewas + heavyLoadSurchargePesewas,
 
     // ── Echoed inputs ──────────────────────────────────────────────────────
+    // The party's vehicle share, itemised so the rider's fare sheet can show
+    // WHY a group ride costs more than the same journey for one. A zero line is
+    // never rendered, so an ordinary hail's breakdown is unchanged.
+    partySizeSurchargePesewas,
+    partySize: seats,
+    includedSeats,
+
     distanceKm: Math.round(distanceKm * 100) / 100,
     durationMin: Math.round(minutes * 10) / 10,
     waitMin: Math.round(waiting * 10) / 10,
-    seatCount: 1,
+    // The whole party rides on one booking and pays one fare, so `seatCount`
+    // here is what the rider is buying, not a divisor: `farePerPersonPesewas`
+    // and `totalTripCostPesewas` remain the same number.
+    seatCount: seats,
     surgeMultiplier,
     commissionRate,
     // Kept so rows written from this result still populate the columns the
