@@ -147,7 +147,20 @@ export default function SettingsScreen() {
               <View style={styles.iconBg}>
                 <Ionicons name={theme === 'dark' ? 'moon-outline' : 'sunny-outline'} size={18} color={colors.primary} />
               </View>
-              <Text style={styles.rowLabel}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</Text>
+              {/*
+                THE TOGGLE SAYS WHICH WAY IT IS MEANT TO BE — same hint as the
+                rider app's settings screen, and for a stronger reason here: a
+                driver reads this phone in a cradle, often at night, and the map
+                styles, the elevation system and the offer surfaces are all
+                designed against a deep ground. Light mode works; dark is the
+                design.
+              */}
+              <View style={styles.rowText}>
+                <Text style={styles.rowLabel}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rowHint}>
+                  EyeGo is designed for dark mode — easier to read at night and in a cradle.
+                </Text>
+              </View>
               <Switch
                 value={theme === 'dark'}
                 onValueChange={(val) => setTheme(val ? 'dark' : 'light')}
@@ -290,5 +303,8 @@ const makeStyles = (colors: DriverColors) =>
       lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
       color: colors.onSurface,
     },
+    /** Label + hint, stacked — only the theme row has one. See the render. */
+    rowText: { flex: 1, gap: 2 },
+    rowHint: { lineHeight: 16 },
     appInfo: { alignItems: 'center', gap: spacing.xs, marginTop: spacing.md },
   });

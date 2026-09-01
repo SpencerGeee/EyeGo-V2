@@ -154,19 +154,54 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
     [router, morphTo],
   );
 
+  /**
+   * ── AN OPEN REQUEST AGES OUT TOO ──────────────────────────────────────────
+   *
+   * BUGFIX ("the dispatch offer of the rider-requested trip only vanishes when
+   * the rider closes it. It would stay open the whole time on the driver app
+   * and nothing expires it").
+   *
+   * An EXCLUSIVE offer carries `expiresAtServerMs` and the filter below has
+   * always honoured it. An OPEN request — a ride on the board that nobody is
+   * holding — carries none, because there is no per-driver hold to expire, and
+   * `expiresAtServerMs == null` was therefore read as "never expires".
+   *
+   * That is only survivable while the five-second poll is running, because the
+   * poll replaces this list wholesale and the server drops dead trips from it.
+   * The moment the poll stops — the driver opens an offer, backgrounds the app,
+   * loses signal — the last list it fetched becomes permanent, and a ride the
+   * rider cancelled ten minutes ago is still sitting there looking takeable.
+   *
+   * `requestedAtMs` is what the row already carries for exactly this. A request
+   * older than the server's own search ceiling cannot still be live: dispatch
+   * has either matched it or given up. Generous rather than tight, because the
+   * server remains the authority and this is only the backstop for when we
+   * cannot hear it — a row wrongly hidden comes straight back on the next poll,
+   * while a row wrongly SHOWN costs a driver a tap into a 409.
+   */
+  const OPEN_REQUEST_MAX_AGE_MS = 6 * 60_000;
+  const notStale = useCallback(
+    (r: { requestedAtMs?: number | null }) =>
+      r.requestedAtMs == null ||
+      Date.now() + clockSkewMs - r.requestedAtMs < OPEN_REQUEST_MAX_AGE_MS,
+    [clockSkewMs],
+  );
+
   const mine = useMemo(
     () =>
       requests.filter(
         (r) =>
           r.offeredToMe &&
-          (r.expiresAtServerMs == null || r.expiresAtServerMs - (Date.now() + clockSkewMs) > 0),
+          (r.expiresAtServerMs != null
+            ? r.expiresAtServerMs - (Date.now() + clockSkewMs) > 0
+            : notStale(r)),
       ),
-    [requests, clockSkewMs],
+    [requests, clockSkewMs, notStale],
   );
   /** Rows nobody is holding — takeable by whoever gets there first. */
   const open_ = useMemo(
-    () => requests.filter((r) => !r.heldByAnother && !mine.includes(r)),
-    [requests, mine],
+    () => requests.filter((r) => !r.heldByAnother && !mine.includes(r) && notStale(r)),
+    [requests, mine, notStale],
   );
 
   const hasWork = requests.length > 0;

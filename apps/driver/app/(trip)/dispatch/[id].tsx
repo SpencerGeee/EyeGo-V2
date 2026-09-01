@@ -239,13 +239,47 @@ export default function DispatchScreen() {
   // same render, so a ref declared below it is still in its temporal dead zone.
   const firstSeenRef = useRef(Date.now());
 
+  /**
+   * ── EVERY OFFER HAS A DEADLINE. IF THE SERVER DID NOT SEND ONE, WE MAKE ONE ─
+   *
+   * BUGFIX, two reports with one cause:
+   *
+   *   "With the countdown of the dispatch page, nothing shows the countdown or
+   *    is inferred, so I can stay on that page for God knows how long and
+   *    nothing would happen."
+   *   "The dispatch offer of the rider-requested trip only vanishes when the
+   *    rider closes it. It would stay open the whole time on the driver app and
+   *    nothing expires it."
+   *
+   * This returned `null` whenever the payload carried no `expiresAtServerMs`,
+   * and everything downstream is gated on it: `secondsLeft` stays null, so the
+   * ring does not render, the draining rail does not render, the escalating
+   * haptics never fire, `expired` is never true and the auto-exit never runs.
+   * The screen becomes a dead end with a swipe control on it.
+   *
+   * And the null case is not exotic — it is most of them. A REASSIGNMENT row
+   * has no deadline, the REST re-read path sets `expiresAtServerMs: null`
+   * outright, and a `pendingRequests` row for an open board ride carries none
+   * either. `DEFAULT_WINDOW_S` was already declared for exactly this and was
+   * only ever consulted for `windowMs` — the length of the bar — never for the
+   * moment it runs out.
+   *
+   * Measured from FIRST SIGHT rather than from mount-time-now, so re-rendering
+   * cannot extend a driver's window, and so the number the ring starts at is
+   * the number they actually get.
+   *
+   * The server's own deadline always wins when there is one: this is a floor
+   * under the UI, not a second opinion about when an offer dies. A client that
+   * gives up early merely stops showing a ride it can no longer win; the server
+   * refuses the claim either way.
+   */
   const expiresAtMs = useMemo(() => {
     if (offer?.expiresAtServerMs) return offer.expiresAtServerMs;
     if (params.expiresAt) {
       const t = new Date(params.expiresAt).getTime();
       if (Number.isFinite(t)) return t;
     }
-    return null;
+    return firstSeenRef.current + DEFAULT_WINDOW_S * 1000;
   }, [offer?.expiresAtServerMs, params.expiresAt]);
 
   const windowMs = useMemo(() => {
@@ -268,6 +302,20 @@ export default function DispatchScreen() {
     const t = setInterval(tick, 500);
     return () => clearInterval(t);
   }, [expiresAtMs, serverNow]);
+
+  /**
+   * The offer as the CARD should see it — with the deadline resolved.
+   *
+   * `DispatchOfferCard` gates the countdown ring and the draining rail on
+   * `offer.expiresAtServerMs` being present, so handing it the raw offer would
+   * leave both hidden even now that this screen knows when the offer runs out.
+   * One place decides what the deadline is (`expiresAtMs`); everything that
+   * draws it reads that decision.
+   */
+  const viewOffer = useMemo(
+    () => (offer ? { ...offer, expiresAtServerMs: expiresAtMs } : null),
+    [offer, expiresAtMs],
+  );
 
   const { morphBack } = useMorph();
 
@@ -301,10 +349,30 @@ export default function DispatchScreen() {
   // ── Accept / decline ────────────────────────────────────────────────────
   const [busy, setBusy] = useState<'accept' | 'decline' | null>(null);
   const [accepted, setAccepted] = useState(false);
+  /**
+   * WHY THE SWIPE DID NOT TAKE — SAID HERE, WHERE THE SWIPE IS.
+   *
+   * BUGFIX ("when I swipe to accept and it doesn't work, put the error on the
+   * dispatch page and not only when I go back to the homepage where the banner
+   * shows the reason").
+   *
+   * Every refusal below went out through `notify()`, which posts to the
+   * app-wide notice host, and to `DriverAlertBanner`, which is drawn by the
+   * HOME screen. Neither is on this screen. So a driver swiped, felt nothing
+   * happen, swiped again, and only learned why after they gave up and left —
+   * by which time the ride they were told about is usually gone.
+   *
+   * The refusal now lands on the offer itself, above the swipe control that
+   * produced it, with the same accent language the rest of the screen uses. The
+   * `notify()` calls stay: they are what carries the news if the driver leaves
+   * before reading this, and the two are the same sentence.
+   */
+  const [refusal, setRefusal] = useState<{ title: string; body: string; tone: 'warn' | 'error' } | null>(null);
 
   const handleAccept = useCallback(async () => {
     if (!id || busy) return;
     setBusy('accept');
+    setRefusal(null);
     try {
       // ONE call. `POST /driver/trips/:id/accept` now resolves which of the
       // three claim paths applies from the trip row itself.
@@ -346,6 +414,13 @@ export default function DispatchScreen() {
        */
       if (code === 'INSUFFICIENT_WALLET_FOR_TRIP' || status === 402) {
         const short = err?.response?.data?.details?.shortfallPesewas;
+        setRefusal({
+          title: 'Top up to take this one',
+          body:
+            err?.response?.data?.message ??
+            'This ride is paid in cash, and the commission comes out of your wallet when you board.',
+          tone: 'warn',
+        });
         Alert.alert(
           'Top up to take this one',
           err?.response?.data?.message ??
@@ -360,24 +435,27 @@ export default function DispatchScreen() {
           ],
         );
       } else if (code === 'OFFER_HELD_BY_ANOTHER') {
-        notify(
-          'Being decided',
+        const body =
           err?.response?.data?.message ??
-            'Another driver is being asked about this ride right now. If they pass, it comes straight back to your board.',
-        );
+          'Another driver is being asked about this ride right now. If they pass, it comes straight back to your board.';
+        setRefusal({ title: 'Being decided', body, tone: 'warn' });
+        notify('Being decided', body);
       } else if (status === 409 || status === 410 || status === 404) {
+        const body = 'Another driver took this one, or the offer expired. You are still online.';
+        setRefusal({ title: 'Gone already', body, tone: 'error' });
         notify(
           'Gone already',
-          'Another driver took this one, or the offer expired. You are still online.',
+          body,
           // The verb has to survive: without it the driver is left looking at a
           // dead offer with no way off it.
           { action: { label: 'Back to home', onPress: goHome } },
         );
       } else {
-        notify(
-          'Could not accept',
-          err?.response?.data?.message ?? 'Something went wrong. Try again, or pull to refresh on Home.',
-        );
+        const body =
+          err?.response?.data?.message ??
+          'Something went wrong. Swipe again, or pull to refresh on Home.';
+        setRefusal({ title: 'Could not accept', body, tone: 'error' });
+        notify('Could not accept', body);
       }
     }
   }, [id, busy, qc, router, setActiveTripId, goHome]);
@@ -518,6 +596,35 @@ export default function DispatchScreen() {
         <AppBackground isDark={theme !== 'light'} />
       )}
 
+      {/*
+        A READING GROUND FOR THE TOP CHROME.
+
+        BUGFIX ("it shows a Held for you pill overlapping the map").
+
+        The pill and the back control are glass, and glass over a live map is
+        whatever the tiles underneath happen to be — a pale junction, a green
+        park, a motorway casing — changing as the driver pans. With nothing
+        behind them the two controls read as stuck ON the map rather than
+        floating over it, which is what "overlapping" describes. The bottom of
+        this screen has had a scrim for exactly this reason since the rebuild;
+        the top never got one.
+
+        A vertical fade, not a filled bar: a constant-alpha rectangle has to
+        stop somewhere and the seam where it stops is its own defect (the rider
+        surface was reported for precisely that). Short, and gone well before it
+        reaches anything the driver needs to see.
+      */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={[
+          withOpacity(colors.backgroundDeep, 0.82),
+          withOpacity(colors.backgroundDeep, 0.34),
+          withOpacity(colors.backgroundDeep, 0),
+        ]}
+        locations={[0, 0.6, 1]}
+        style={[styles.topScrim, { height: insets.top + 96 }]}
+      />
+
       {/* ── Floating chrome ── */}
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
         <Pressable
@@ -648,7 +755,7 @@ export default function DispatchScreen() {
               >
                 <DispatchOfferCard
                   variant="sheet"
-                  offer={offer}
+                  offer={viewOffer!}
                   driverAt={driverAt}
                   nowMs={serverNow()}
                   windowMs={windowMs}
@@ -658,6 +765,35 @@ export default function DispatchScreen() {
                   busy={busy}
                   accepted={accepted}
                 />
+                {/* Why the last swipe was refused — see `refusal`. Sits under
+                    the control that produced it, inside the same scroll view,
+                    so it cannot be missed and cannot cover the swipe. */}
+                {refusal ? (
+                  <Animated.View
+                    entering={FadeIn.duration(160)}
+                    style={[
+                      styles.refusal,
+                      {
+                        borderColor:
+                          refusal.tone === 'error' ? colors.error : colors.statusWarning,
+                        backgroundColor:
+                          (refusal.tone === 'error' ? colors.error : colors.statusWarning) + '14',
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={refusal.tone === 'error' ? 'alert-circle' : 'information-circle'}
+                      size={16}
+                      color={refusal.tone === 'error' ? colors.error : colors.statusWarning}
+                    />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={styles.refusalTitle}>{refusal.title}</Text>
+                      <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ lineHeight: 18 }}>
+                        {refusal.body}
+                      </Text>
+                    </View>
+                  </Animated.View>
+                ) : null}
                 {expired ? (
                   <View style={[styles.expiredNote, { borderColor: colors.outline }]}>
                     <Ionicons name="time-outline" size={15} color={colors.onSurfaceVariant} />
@@ -708,6 +844,9 @@ const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
     // The map is full-bleed underneath everything, so this must not paint.
     safe: { flex: 1, backgroundColor: colors.background },
+
+    /** Keeps the top pills legible over live tiles — see the render. */
+    topScrim: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 3 },
 
     /** Floating chrome over the map — glass pills, not a bar. */
     topBar: {
@@ -790,6 +929,23 @@ const makeStyles = (colors: DriverColors) =>
       paddingVertical: spacing.md,
       borderRadius: radii.full,
       borderWidth: 1,
+    },
+
+    /** The last refusal, under the swipe that caused it — see `refusal`. */
+    refusal: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      padding: spacing.md,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+    },
+    refusalTitle: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
+      color: colors.onSurface,
     },
 
     expiredNote: {
