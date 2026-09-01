@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 
 import { Icon } from '@/components/ui/Icon';
+import { reportClientError } from '@/lib/reportClientError';
 
 /**
  * Segment error boundary. Keeps the shell — sidebar, topbar, SOS badge — alive
@@ -24,6 +25,11 @@ export default function ConsoleError({
   useEffect(() => {
     // Surfaces in the browser console and in Vercel's client logs.
     console.error('[console] render failed', error);
+    // …and off the operator's machine. Until this existed, a page that broke
+    // only for one browser or one role was invisible to everyone else: the
+    // operator saw the message, nobody was told, and the first report came by
+    // word of mouth. Reported through the server so the DSN stays server-side.
+    reportClientError(error, 'segment');
   }, [error]);
 
   return (

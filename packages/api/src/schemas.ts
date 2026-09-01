@@ -367,8 +367,16 @@ export const EarningsBreakdownSchema = z.looseObject({
   totalDeductions: SignedPesewas,
   netEarnings: SignedPesewas,
   averagePerTripPesewas: SignedPesewas,
+  // `earnings` and `trips`, which is what `drivers.service.js` groups into.
+  // The wrapper used to declare `amountPesewas` here and the server has never
+  // sent it, so every bar on the earnings chart read `undefined` — a day with
+  // no work and a day the client cannot read looked identical.
   dailyBreakdown: z.array(
-    z.looseObject({ date: z.string().min(1), amountPesewas: SignedPesewas }),
+    z.looseObject({
+      date: z.string().min(1),
+      earnings: SignedPesewas,
+      trips: z.number().int().nonnegative(),
+    }),
   ),
   recentTrips: z
     .array(

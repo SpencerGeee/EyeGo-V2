@@ -595,8 +595,18 @@ export const driverApi = {
       totalDeductions: number;
       netEarnings: number;
       averagePerTripPesewas: number;
-      dailyBreakdown: { date: string; amountPesewas: number }[];
+      /**
+       * One row per day the driver earned on, newest first.
+       *
+       * `earnings`, not `amountPesewas` — this was typed as the latter and the
+       * server has never sent it (`drivers.service.js` groups into
+       * `{ date, earnings, trips }`). Anything charting off `amountPesewas`
+       * therefore read `undefined` for every bar, which is indistinguishable
+       * from a day with no work.
+       */
+      dailyBreakdown: { date: string; earnings: number; trips: number }[];
       recentTrips: { id: string; shortId: string | null; createdAt: string; baseFarePesewas: number | null }[];
+      period?: string;
     }>>('/driver/earnings/breakdown', { params: { period } }).then((res) => {
       // These are the numbers a driver decides whether to keep driving on, and
       // the ones they will quote back at support. Fatal on a bad shape: an

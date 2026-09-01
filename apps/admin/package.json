@@ -16,7 +16,8 @@
     "recharts": "^2.15.0",
     "maplibre-gl": "^5.1.0",
     "@eyego/map-styles": "*",
-    "jose": "^5.9.6"
+    "jose": "^5.9.6",
+    "@sentry/node": "^10.57.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",

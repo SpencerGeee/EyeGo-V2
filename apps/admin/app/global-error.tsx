@@ -1,5 +1,9 @@
 'use client';
 
+import { useEffect } from 'react';
+
+import { reportClientError } from '@/lib/reportClientError';
+
 /**
  * Last-resort boundary: only reached when the root layout itself throws, which
  * means no shell, no theme script and no globals.css. It therefore carries its
@@ -13,6 +17,14 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // The one failure nobody can be told about in person: the console did not
+  // start, so there is no shell to raise a ticket from. Tagged `global` so it
+  // is distinguishable from a single page throwing — this one means the whole
+  // console is down for everybody, not just this operator.
+  useEffect(() => {
+    reportClientError(error, 'global');
+  }, [error]);
+
   return (
     <html lang="en">
       <body

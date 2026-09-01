@@ -65,6 +65,16 @@ services:
       # Deliberately absent: EYEGO_ADMIN_LEGACY_SECRET. The shared secret makes
       # every admin action unattributable, and apps/admin/lib/api.ts refuses to
       # use it when NODE_ENV=production rather than failing confusingly later.
+      #
+      # Error reporting. Unset means stdout only — the console still runs. Not
+      # NEXT_PUBLIC_: client errors are forwarded through /api/client-error so
+      # the DSN never reaches the browser bundle.
+      SENTRY_DSN: ${ADMIN_SENTRY_DSN:-}
+      SENTRY_ENV: ${SENTRY_ENV:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${ADMIN_SENTRY_TRACES_SAMPLE_RATE:-0}
+      # The deploy's identity in Sentry. Without it every issue is attributed to
+      # "unknown" and "did this start with the last deploy?" is unanswerable.
+      SENTRY_RELEASE: ${GIT_SHA:-}
     depends_on:
       - api
     expose:

@@ -96,6 +96,30 @@ export default function EarningsScreen() {
   // 20 transactions in that window (trivial for a working driver), making
   // older days/weeks in the period under-report or show as flat zero even
   // though real earnings existed. Scale the fetch to the selected period.
+  /**
+   * THE STATEMENT — the server's own arithmetic for the period.
+   *
+   * `GET /driver/earnings/breakdown` existed for a long time with no caller.
+   * The screen re-derived every total on the phone from ONE PAGE of wallet
+   * transactions, which under-reports any period longer than the page by
+   * construction — that is where the flat-zero chart came from, and the fetch
+   * limits below are a workaround for it rather than a fix.
+   *
+   * The server aggregates over the whole period regardless of page size, so
+   * when the two disagree these are the numbers to trust. The transaction list
+   * stays, because a statement is a summary and drivers also want the rows.
+   *
+   * Failure is NOT fatal here: a driver who cannot reach the breakdown still
+   * sees their balance, their transactions and a chart derived the old way.
+   */
+  const { data: statement, isError: statementFailed } = useQuery({
+    queryKey: ['driver', 'earnings', 'breakdown', period],
+    queryFn: () => driverApi.getEarningsBreakdown(period),
+    select: (r) => (r.data as any)?.data ?? null,
+    staleTime: 30_000,
+    retry: 1,
+  });
+
   const TX_LIMIT_FOR_PERIOD: Record<Period, number> = { today: 50, week: 150, month: 500 };
   const { data: txData } = useQuery({
     queryKey: ['driver', 'wallet', 'transactions', period],
@@ -223,7 +247,12 @@ export default function EarningsScreen() {
   // never had — the column is `amountPesewas`. `?? 0` then swallowed it, so the
   // earnings chart rendered a flat zero for every period on every device while
   // looking entirely healthy in code review.
-  const chartData = useMemo((): ChartDataPoint[] => {
+  //
+  // SUPERSEDED for week and month by the server's `dailyBreakdown`, which is
+  // computed over the whole period instead of over whatever fits in one page.
+  // Kept as the fallback, and still the only source for the hourly "today"
+  // view — the server groups by day and has no hour buckets to give.
+  const derivedChartData = useMemo((): ChartDataPoint[] => {
     // D5: guard against non-array transactions before any derivation
     if (!Array.isArray(txData)) return [];
     const txs: any[] = txData;
@@ -280,6 +309,58 @@ export default function EarningsScreen() {
       };
     });
   }, [txData, period]);
+
+  /**
+   * The chart the driver actually sees.
+   *
+   * Server-backed for week and month; the phone-side derivation above is the
+   * fallback for those and remains the only source for the hourly view. The
+   * two must never be mixed within one period — a chart whose Monday came from
+   * the server and whose Tuesday came from a truncated page would be wrong in
+   * a way nobody could see.
+   */
+  const chartData = useMemo((): ChartDataPoint[] => {
+    const days: { date: string; earnings: number }[] = Array.isArray(statement?.dailyBreakdown)
+      ? statement.dailyBreakdown
+      : [];
+    if (period === 'today' || days.length === 0) return derivedChartData;
+
+    // Local YYYY-MM-DD. The server keys these off a UTC ISO date, which is the
+    // same calendar day in Ghana (UTC+0) — spelled out because it stops being
+    // true the moment anyone deploys east or west of here.
+    const key = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const byDate = new Map(days.map((d) => [d.date, d.earnings ?? 0]));
+    const now = new Date();
+
+    if (period === 'week') {
+      const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      return Array.from({ length: 7 }, (_, i) => {
+        const day = new Date(startOfWeek);
+        day.setDate(startOfWeek.getDate() + i);
+        return { label: DAY_LABELS[day.getDay()], value: byDate.get(key(day)) ?? 0 };
+      });
+    }
+
+    // month — the same four week buckets the derivation uses, so switching
+    // sources cannot silently change the shape of the chart.
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return Array.from({ length: 4 }, (_, i) => {
+      const weekStart = new Date(startOfMonth);
+      weekStart.setDate(1 + i * 7);
+      let value = 0;
+      for (let d = 0; d < 7; d++) {
+        const day = new Date(weekStart);
+        day.setDate(weekStart.getDate() + d);
+        if (day.getMonth() !== startOfMonth.getMonth()) break;
+        value += byDate.get(key(day)) ?? 0;
+      }
+      return { label: `W${i + 1}`, value };
+    });
+  }, [statement, derivedChartData, period]);
 
   // Withdrawable balance is the actual wallet balance, not lifetime totalEarned.
   const balance = meData?.walletBalancePesewas != null ? meData.walletBalancePesewas : 0;
@@ -402,6 +483,76 @@ export default function EarningsScreen() {
           <EarningsChart period={period} data={chartData} />
         </GlassCard>
         </Entrance>
+
+        {/*
+          THE STATEMENT.
+
+          What a driver is owed, what was taken, and what is left — the server's
+          arithmetic, not the phone's. Deliberately shows deductions even when
+          they are unwelcome: commission on cash fares is the single most common
+          reason a wallet goes negative and `goOnline` starts refusing, and a
+          screen that reported only income left that unexplained.
+
+          Hidden entirely when the endpoint is unreachable rather than rendered
+          with zeros. "You earned GH₵ 0.00 this week" is a claim, and it is the
+          wrong one to make on a failed request.
+        */}
+        {!statementFailed && statement && (
+          <Entrance animation="slideDown" delay={225} style={styles.statementWrapper}>
+            <GlassCard style={styles.statementCard}>
+              <View style={styles.statementHeader}>
+                <Text style={styles.sectionTitleInline}>Statement</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {PERIODS.find((p) => p.key === period)?.label ?? ''}
+                </Text>
+              </View>
+
+              <View style={styles.statementRow}>
+                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Earned</Text>
+                <Text style={styles.statementValue}>{formatGhs(statement.totalEarningsPesewas ?? 0)}</Text>
+              </View>
+              {(statement.totalTips ?? 0) > 0 && (
+                <View style={styles.statementRow}>
+                  <Text variant="bodyMedium" color={colors.onSurfaceVariant}>Tips</Text>
+                  <Text style={styles.statementValue}>{formatGhs(statement.totalTips)}</Text>
+                </View>
+              )}
+              <View style={styles.statementRow}>
+                <Text variant="bodyMedium" color={colors.onSurfaceVariant}>
+                  Commission &amp; withdrawals
+                </Text>
+                <Text style={[styles.statementValue, { color: colors.error }]}>
+                  −{formatGhs(Math.abs(statement.totalDeductions ?? 0))}
+                </Text>
+              </View>
+
+              <View style={styles.statementDivider} />
+
+              <View style={styles.statementRow}>
+                <Text style={styles.statementNetLabel}>Net</Text>
+                <Text
+                  style={[
+                    styles.statementNetValue,
+                    (statement.netEarnings ?? 0) < 0 && { color: colors.error },
+                  ]}
+                >
+                  {formatGhs(statement.netEarnings ?? 0)}
+                </Text>
+              </View>
+
+              <View style={styles.statementFooter}>
+                <Text variant="caption" color={colors.onSurfaceVariant}>
+                  {statement.totalTrips ?? 0} {(statement.totalTrips ?? 0) === 1 ? 'trip' : 'trips'}
+                </Text>
+                {(statement.totalTrips ?? 0) > 0 && (
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    {formatGhs(statement.averagePerTripPesewas ?? 0)} average
+                  </Text>
+                )}
+              </View>
+            </GlassCard>
+          </Entrance>
+        )}
 
         {/* Transactions */}
         <Entrance animation="slideDown" delay={250}>
@@ -733,6 +884,65 @@ const makeStyles = (colors: DriverColors) =>
     },
     chartCard: {
       padding: spacing.xl,
+    },
+    statementWrapper: {
+      marginHorizontal: spacing['2xl'],
+      marginBottom: spacing.xl,
+    },
+    statementCard: {
+      padding: spacing.xl,
+    },
+    statementHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.md,
+    },
+    sectionTitleInline: {
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
+      color: colors.onSurface,
+    },
+    statementRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.xs,
+      // The label wraps on a small phone at large font scale; the amount never
+      // should, so the row gives it whatever it needs and lets the label give.
+      gap: spacing.md,
+    },
+    statementValue: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodyMedium,
+      lineHeight: Math.round(fontSizes.bodyMedium * 1.3),
+      color: colors.onSurface,
+      // Digits that do not reflow as the numbers change.
+      fontVariant: ['tabular-nums'],
+    },
+    statementDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.outlineVariant ?? colors.outline,
+      marginVertical: spacing.md,
+    },
+    statementNetLabel: {
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.bodyLarge,
+      lineHeight: Math.round(fontSizes.bodyLarge * 1.3),
+      color: colors.onSurface,
+    },
+    statementNetValue: {
+      fontFamily: fonts.displaySemiBold,
+      fontSize: fontSizes.titleSmall,
+      lineHeight: Math.round(fontSizes.titleSmall * 1.3),
+      color: colors.onSurface,
+      fontVariant: ['tabular-nums'],
+    },
+    statementFooter: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: spacing.md,
     },
     sectionTitle: {
       fontFamily: fonts.displaySemiBold,

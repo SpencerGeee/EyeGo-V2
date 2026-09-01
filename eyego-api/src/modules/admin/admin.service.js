@@ -1917,6 +1917,7 @@ async function getAnalyticsOverview({ from, to } = {}) {
     fareAgg,
     cashBookings,
     cardBookings,
+    walletDeficit,
   ] = await Promise.all([
     // Revenue must be read from Booking.paymentStatus (PAID), not
     // PaymentTransaction.status (SUCCESS) — a CASH booking's PaymentTransaction
@@ -1955,6 +1956,25 @@ async function getAnalyticsOverview({ from, to } = {}) {
     prisma.booking.aggregate({ where: seatOccupyingWhere(), _avg: { fareAmountPesewas: true } }),
     prisma.booking.count({ where: { paymentMethod: 'CASH' } }),
     prisma.booking.count({ where: { paymentMethod: 'CARD' } }),
+    /**
+     * UNRECOVERED COMMISSION — cash collected but not yet settled back.
+     *
+     * On a cash fare the driver takes the whole amount at the kerb and the
+     * platform's cut is debited from their wallet instead of received. A driver
+     * wallet below zero is therefore money the platform has EARNED and not been
+     * paid, and it is the only line on this page that is a receivable rather
+     * than revenue.
+     *
+     * The revenue page could already say cash was 80% of bookings; it could not
+     * say what that had cost, and told the operator to open drivers one at a
+     * time and add it up. Aggregated here because "how exposed are we" is a
+     * question about the fleet, not about any one driver.
+     */
+    prisma.driver.aggregate({
+      where: { walletBalancePesewas: { lt: 0 } },
+      _sum: { walletBalancePesewas: true },
+      _count: true,
+    }),
   ]);
 
   // `round2` is for the genuinely fractional things on this dashboard —
@@ -2001,6 +2021,16 @@ async function getAnalyticsOverview({ from, to } = {}) {
     avgFarePesewas: wholePesewas(fareAgg._avg.fareAmountPesewas),
     totalBookings,
     paymentMethodBreakdown: { cash: cashBookings, card: cardBookings },
+    /**
+     * Commission earned on cash fares and not yet recovered, as a POSITIVE
+     * amount owed to the platform, plus how many drivers it is spread across.
+     *
+     * The sum in the database is negative — it is the drivers' balances — and
+     * is flipped here rather than in the browser, so no reader has to decide
+     * which sign a receivable is shown in.
+     */
+    unrecoveredCommissionPesewas: Math.abs(wholePesewas(walletDeficit._sum.walletBalancePesewas)),
+    driversInDeficit: walletDeficit._count ?? 0,
   };
 }
 

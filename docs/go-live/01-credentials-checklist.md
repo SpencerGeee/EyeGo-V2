@@ -158,9 +158,28 @@ SENTRY_DSN, SENTRY_ENV=production, SENTRY_TRACES_SAMPLE_RATE=0.1
 ```
 
 The API and both apps degrade to a no-op without a DSN, so this is safe to add
-late. The admin console has no Sentry yet — it needs
-`npm i @sentry/nextjs`, deliberately not added to `package.json` without an
-install because it would break `next build`.
+late.
+
+**The admin console reports too**, using its own variables:
+
+```
+SENTRY_DSN, SENTRY_ENV=production, SENTRY_TRACES_SAMPLE_RATE=0
+SENTRY_RELEASE=<git sha>       # set this, or every issue reads "unknown"
+SENTRY_DIST=                   # only when rebuilding the same commit
+```
+
+Note what these are NOT: `NEXT_PUBLIC_`. The console's two client error
+boundaries POST to `/api/client-error` and the server forwards the report, so
+the DSN never enters the browser bundle — correct for an internal tool, where a
+public DSN is an open pipe into your quota. Reports are tagged
+`service: admin-console`, so one Sentry project for the whole platform is fine.
+
+It uses `@sentry/node` rather than `@sentry/nextjs`. The latter is a build-time
+integration that rewrites the webpack build, and the console failing to build is
+a worse outcome than the console not reporting. The cost of that choice is one
+thing: **no automatic sourcemap upload.** Production stack traces are minified
+until you add a `sentry-cli sourcemaps upload` step to the deploy pipeline
+against the same `SENTRY_RELEASE`. Worth doing; not required to launch.
 
 ---
 

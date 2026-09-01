@@ -30,6 +30,14 @@ type Overview = {
   totalBookings: number;
   completedTripsCount: number;
   paymentMethodBreakdown: { cash: number; card: number };
+  /**
+   * Commission earned on cash fares and not yet recovered — the sum of every
+   * driver wallet below zero, as a positive receivable. Optional because an API
+   * older than this field simply omits it; the card below hides rather than
+   * claiming the exposure is nil.
+   */
+  unrecoveredCommissionPesewas?: number;
+  driversInDeficit?: number;
   /** What the chart and the all-time figure actually cover. */
   range?: { from: string; to: string; custom: boolean };
 };
@@ -141,11 +149,27 @@ export default async function RevenuePage({
           />
           <CardBody>
             <PaymentMixChart mix={overview.paymentMethodBreakdown} />
+            {overview.unrecoveredCommissionPesewas != null && (
+              <dl className="mt-3">
+                {/*
+                  The receivable, not revenue. This page could already say what
+                  share of bookings was cash; it could not say what that had
+                  cost, and sent the operator to add up driver wallets by hand.
+                */}
+                <Detail label="Unrecovered commission">
+                  {ghs(overview.unrecoveredCommissionPesewas)}
+                </Detail>
+                <Detail label="Drivers in deficit">
+                  {num(overview.driversInDeficit ?? 0)}
+                </Detail>
+              </dl>
+            )}
             <p className="hint mt-3">
               Cash is collected by the driver, so the platform&apos;s commission on
               those trips is recovered from the driver wallet rather than received
-              directly. A driver wallet in deficit is unrecovered commission —
-              check individual drivers from the{' '}
+              directly. A driver wallet in deficit is unrecovered commission, and
+              a driver cannot go back online until they clear it — chase the
+              individual balances from the{' '}
               <Link href="/drivers" className="text-accent hover:underline">
                 fleet list
               </Link>
