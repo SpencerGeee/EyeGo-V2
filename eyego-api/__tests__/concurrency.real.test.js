@@ -1,5 +1,11 @@
 'use strict';
 
+// The one definition of "this booking still occupies a seat" — see
+// utils/booking-status.js. Counting with 'not CANCELLED' here would count
+// EXPIRED, REFUNDED and NO_SHOW rows as occupants and quietly disagree with
+// the code it is checking.
+const { seatOccupyingWhere } = require('../src/utils/booking-status');
+
 /**
  * REAL-DB adversarial concurrency tests — no mocked Prisma.
  *
@@ -128,7 +134,7 @@ describe.skip('REAL concurrency: seat booking race (bookSeat)', () => {
     // The real invariant: no matter how many riders raced for it, only ONE
     // booking for seat #1 may exist in a non-cancelled state.
     const seatOneBookings = await prisma.booking.findMany({
-      where: { tripId: trip.id, seatNumber: 1, status: { not: 'CANCELLED' } },
+      where: { tripId: trip.id, seatNumber: 1, ...seatOccupyingWhere() },
     });
 
     expect(seatOneBookings.length).toBe(1);
@@ -154,7 +160,7 @@ describe.skip('REAL concurrency: seat booking race (bookSeat)', () => {
     );
 
     const activeBookings = await prisma.booking.findMany({
-      where: { tripId: trip.id, status: { not: 'CANCELLED' } },
+      where: { tripId: trip.id, ...seatOccupyingWhere() },
     });
 
     // The hard invariant that protects the driver from overbooking a real vehicle.

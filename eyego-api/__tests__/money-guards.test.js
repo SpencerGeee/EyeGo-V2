@@ -4,9 +4,9 @@
  * The runtime checks on payloads that decide what someone pays.
  *
  * Lives in the API's suite because it is the only jest runner in the repo; the
- * code under test is `packages/api/src/money-guards.ts` and is compiled from
- * TypeScript by the apps. The logic is plain JavaScript, so it is exercised
- * here by reimplementing nothing — the file is read and evaluated as written.
+ * code under test is `packages/api/src/schemas.ts` and the `money-guards.ts`
+ * façade over it, both compiled from TypeScript by the apps. Nothing is
+ * reimplemented here — the files are read and evaluated as written.
  *
  * Why these cases and not others: each one is a way a fare has actually gone
  * wrong somewhere, or would go wrong silently. A missing field multiplies to
@@ -20,19 +20,49 @@ const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 
-const SRC = path.join(__dirname, '../../packages/api/src/money-guards.ts');
+const SRC_DIR = path.join(__dirname, '../../packages/api/src');
 
-// Compile the TypeScript to CommonJS in memory rather than duplicating the
-// logic here. A test that reimplements its subject tests the reimplementation.
-const compiled = ts.transpileModule(fs.readFileSync(SRC, 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-}).outputText;
+/**
+ * Compile the TypeScript to CommonJS in memory rather than duplicating the
+ * logic here. A test that reimplements its subject tests the reimplementation.
+ *
+ * `money-guards.ts` is no longer standalone — it is a façade over `schemas.ts`,
+ * which is zod — so the shim now resolves relative imports through a tiny
+ * registry and everything else through Node, FROM `packages/api`.
+ *
+ * That last part matters and is not incidental. `eyego-api` pins zod 3 for the
+ * server; the apps and `packages/api` resolve zod 4 from the workspace root,
+ * and the two majors disagree about whether `Infinity` is a number. Resolving
+ * from the source directory means this suite exercises the zod the phones will
+ * actually run, not the one that happens to sit next to the test.
+ */
+const cache = new Map();
 
-const moduleShim = { exports: {} };
+function load(name) {
+  if (cache.has(name)) return cache.get(name);
+  const compiled = ts.transpileModule(fs.readFileSync(path.join(SRC_DIR, `${name}.ts`), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
 
-new Function('module', 'exports', compiled)(moduleShim, moduleShim.exports);
-const { pesewas, optionalPesewas, multiplier, distanceKm, assertFareQuote, MoneyShapeError } =
-  moduleShim.exports;
+  const shim = { exports: {} };
+  cache.set(name, shim.exports);
+  const localRequire = (id) =>
+    id.startsWith('./') ? load(id.slice(2)) : require(require.resolve(id, { paths: [SRC_DIR] }));
+  new Function('module', 'exports', 'require', compiled)(shim, shim.exports, localRequire);
+  cache.set(name, shim.exports);
+  return shim.exports;
+}
+
+const {
+  pesewas,
+  optionalPesewas,
+  signedPesewas,
+  multiplier,
+  distanceKm,
+  seatCount,
+  assertFareQuote,
+  MoneyShapeError,
+} = load('money-guards');
 
 describe('pesewas', () => {
   it('accepts a non-negative integer', () => {
@@ -137,5 +167,179 @@ describe('assertFareQuote', () => {
 
   it('allows the optional loyalty fields to be absent', () => {
     expect(() => assertFareQuote(good())).not.toThrow();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The zod boundary itself (§3b item 24).
+//
+// The tests above exercise the named primitives. These exercise the properties
+// that only exist because the checking moved to schemas: that a payload keeps
+// its identity and its unknown fields, that a list degrades instead of
+// vanishing, and that the error names the exact field rather than the payload.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const {
+  assertShape,
+  parseEach,
+  parseOrNull,
+  FareQuoteSchema,
+  ReceiptSchema,
+  CancellationTermsSchema,
+  WalletTransactionSchema,
+  EarningsBreakdownSchema,
+  PendingOfferSchema,
+  DriverWalletBalanceSchema,
+} = load('schemas');
+
+describe('signedPesewas', () => {
+  it('accepts a negative balance — a driver who owes commission on a cash fare', () => {
+    expect(signedPesewas(-4500, 'balance')).toBe(-4500);
+  });
+
+  it('still refuses a numeric string', () => {
+    expect(() => signedPesewas('-4500', 'balance')).toThrow(MoneyShapeError);
+  });
+});
+
+describe('seatCount', () => {
+  it('accepts a real party size', () => {
+    expect(seatCount(4, 'seats')).toBe(4);
+  });
+
+  it('refuses zero — nobody travels on a booking for no seats', () => {
+    expect(() => seatCount(0, 'seats')).toThrow(MoneyShapeError);
+  });
+
+  it('refuses a numeric string, which would repeat rather than multiply', () => {
+    expect(() => seatCount('4', 'seats')).toThrow(MoneyShapeError);
+  });
+
+  it('refuses a bus that does not exist', () => {
+    expect(() => seatCount(500, 'seats')).toThrow(MoneyShapeError);
+  });
+});
+
+describe('assertShape', () => {
+  const terms = () => ({
+    feePercentage: 25,
+    feeAmountPesewas: 500,
+    feeType: 'LATE_CANCELLATION',
+    fareAmountPesewas: 2000,
+    seatCount: 1,
+  });
+
+  it('returns the SAME object, so nothing memoised on identity re-renders', () => {
+    const t = terms();
+    expect(assertShape(CancellationTermsSchema, t, 'terms')).toBe(t);
+  });
+
+  it('keeps a field the server added that no schema mentions', () => {
+    const t = { ...terms(), somethingShippedLastTuesday: 'kept' };
+    expect(assertShape(CancellationTermsSchema, t, 'terms').somethingShippedLastTuesday).toBe('kept');
+  });
+
+  it('names the exact field, not the payload, so the log says where', () => {
+    expect(() => assertShape(CancellationTermsSchema, { ...terms(), feeAmountPesewas: '500' }, 'terms'))
+      .toThrow(/terms\.feeAmountPesewas/);
+  });
+
+  it('reports what actually arrived rather than "missing" for every failure', () => {
+    try {
+      assertShape(CancellationTermsSchema, { ...terms(), feeAmountPesewas: '500' }, 'terms');
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err.received).toBe('500');
+    }
+  });
+
+  it('refuses a nested total that is not money — the receipt case', () => {
+    const receipt = {
+      bookingId: 'b1',
+      fareBreakdown: {
+        baseFarePesewas: 2000, platformFeePesewas: 100, surcharges: 0,
+        discount: 0, tip: 0, total: 21.5,
+      },
+      paymentMethod: 'CASH',
+      receiptNumber: 'R-1',
+    };
+    // 21.5 is what a cedis-vs-pesewas mix-up looks like on the wire, and it is
+    // the exact bug class that has bitten the wallet routes before.
+    expect(() => assertShape(ReceiptSchema, receipt, 'receipt')).toThrow(/fareBreakdown\.total/);
+  });
+});
+
+describe('parseEach', () => {
+  const rows = () => [
+    { id: 'a', type: 'TRIP_EARNING', amountPesewas: 1200, createdAt: '2026-09-01' },
+    { id: 'b', type: 'WITHDRAWAL', amountPesewas: '-500', createdAt: '2026-09-01' },
+    { id: 'c', type: 'WITHDRAWAL', amountPesewas: -500, createdAt: '2026-09-01' },
+  ];
+
+  it('drops only the bad row — a history missing a line beats an empty screen', () => {
+    const kept = parseEach(WalletTransactionSchema, rows());
+    expect(kept.map((r) => r.id)).toEqual(['a', 'c']);
+  });
+
+  it('keeps the negative rows: a withdrawal is written as one', () => {
+    expect(parseEach(WalletTransactionSchema, rows())[1].amountPesewas).toBe(-500);
+  });
+
+  it('answers with an empty list rather than throwing when handed a non-array', () => {
+    expect(parseEach(WalletTransactionSchema, undefined)).toEqual([]);
+  });
+});
+
+describe('parseOrNull', () => {
+  it('answers null instead of throwing', () => {
+    expect(parseOrNull(PendingOfferSchema, { tripId: '' })).toBeNull();
+  });
+});
+
+describe('the schemas the screens depend on', () => {
+  it('lets a driver wallet go negative but not fractional', () => {
+    const owed = { balancePesewas: -4500, currency: 'GHS' };
+    expect(assertShape(DriverWalletBalanceSchema, owed, 'w')).toBe(owed);
+    expect(() => assertShape(DriverWalletBalanceSchema, { balancePesewas: -45.5, currency: 'GHS' }, 'w'))
+      .toThrow(MoneyShapeError);
+  });
+
+  it('accepts an earnings breakdown whose net is negative', () => {
+    // A driver deep in commission debt. Rejecting this would blank the one
+    // screen that explains to them why they cannot go online.
+    const b = {
+      totalEarningsPesewas: 0, totalTrips: 0, totalTips: 0,
+      totalDeductions: -3000, netEarnings: -3000, averagePerTripPesewas: 0,
+      dailyBreakdown: [{ date: '2026-09-01', amountPesewas: -3000 }],
+    };
+    expect(assertShape(EarningsBreakdownSchema, b, 'earnings')).toBe(b);
+  });
+
+  it('refuses an offer whose fare is a string', () => {
+    expect(() =>
+      assertShape(PendingOfferSchema, { tripId: 't1', farePesewas: '2500' }, 'offer'),
+    ).toThrow(/offer\.farePesewas/);
+  });
+
+  it('accepts an offer whose money is null — the fare is not computed yet', () => {
+    const o = { tripId: 't1', farePesewas: null, driverEarningsPesewas: null };
+    expect(assertShape(PendingOfferSchema, o, 'offer')).toBe(o);
+  });
+
+  it('refuses a surge multiplier from a mistyped config', () => {
+    expect(() =>
+      assertShape(FareQuoteSchema, {
+        quoteId: 'q1', amountPesewas: 2500, distanceKm: 4, surgeMultiplier: 1000,
+      }, 'quote'),
+    ).toThrow(/quote\.surgeMultiplier/);
+  });
+
+  it('refuses a breakdown line that is a string', () => {
+    expect(() =>
+      assertShape(FareQuoteSchema, {
+        quoteId: 'q1', amountPesewas: 2500, distanceKm: 4, surgeMultiplier: 1,
+        breakdown: { baseFarePesewas: '2000' },
+      }, 'quote'),
+    ).toThrow(/quote\.breakdown\.baseFarePesewas/);
   });
 });

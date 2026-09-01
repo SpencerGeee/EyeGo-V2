@@ -2,7 +2,7 @@
 
 // Auto-vivifying Prisma mocks: a method the service reaches for that this
 // suite never listed becomes a jest.fn() rather than a TypeError.
-const { modelMock } = require('./helpers/prismaMock');
+const { modelMock, prismaMock } = require('./helpers/prismaMock');
 
 /**
  * Complex concurrency, race-condition, and idempotency tests.
@@ -23,10 +23,13 @@ const mockRideGroup1 = modelMock({
   create: jest.fn(),
 });
 
-const mockPrisma1 = {
-  rideGroup: mockRideGroup1,
-  $transaction: jest.fn(),
-};
+// A whole client. `createRideGroup` reconciles a cover-all host's seats inside
+// the same transaction (`syncCoveredSeatsTx` reaches `tx.trip` and
+// `tx.booking`), so a client listing only `rideGroup` fails on a table this
+// suite never mentions.
+const mockPrisma1 = prismaMock({
+  rideGroup: { findUnique: mockRideGroup1.findUnique, create: mockRideGroup1.create },
+});
 
 jest.mock('../src/config/env', () => ({
   SEAT_HOLD_DURATION_MINUTES: 10,
@@ -34,7 +37,11 @@ jest.mock('../src/config/env', () => ({
   MIN_OCCUPANCY_TO_DEPART: 5,
   PAYSTACK_SECRET_KEY: 'test_secret',
   APP_URL: 'https://eyego.app',
-  DRIVER_MIN_WITHDRAWAL: 20,
+  // Pesewas, like the column and like the argument `withdraw` takes. The old
+  // cedis name is not read by anything any more, so
+  // `env.DRIVER_MIN_WITHDRAWAL_PESEWAS` came back undefined, every amount
+  // compared false against it, and the minimum silently stopped existing here.
+  DRIVER_MIN_WITHDRAWAL_PESEWAS: 2000,
 }));
 
 jest.mock('../src/config/database', () => mockPrisma1);
@@ -110,10 +117,10 @@ describe('TOCTOU race: createRideGroup', () => {
         findUnique.mockResolvedValue(null);
       } else {
         // Subsequent calls: group now exists → return it
-        findUnique.mockResolvedValue({ id: 'rg-1', tripId: 'trip-con', leadPassengerId: 'user-1' });
+        findUnique.mockResolvedValue({ id: 'rg-1', tripId: 'trip-con', leadPassengerId: 'user-1', isCoverAll: false });
       }
 
-      const tx = { rideGroup: { findUnique, create: mockRideGroup1.create } };
+      const tx = prismaMock({ rideGroup: { findUnique, create: mockRideGroup1.create } });
       return cb(tx);
     });
 
@@ -226,7 +233,7 @@ describe('Webhook idempotency (handleWebhook)', () => {
       userId: 'u1',
       paymentStatus: 'SEAT_HELD',
       status: 'SEAT_HELD',
-      fareAmount: 20.0,
+      fareAmountPesewas: 2000,
       paymentMethod: 'MOMO_MTN',
       tripId: 't1',
       trip: {
@@ -340,8 +347,14 @@ describe('Concurrent wallet withdrawal contention', () => {
      * inside the transaction, so exactly 3 succeed and 7 get INSUFFICIENT_WALLET.
      */
 
-    const BALANCE = 100;
-    const WITHDRAW_AMOUNT = 30;
+    // Pesewas throughout: GHS 100 held, GHS 30 at a time. The column is
+    // `walletBalancePesewas` and `withdraw` takes pesewas, so the old cedis
+    // fixture was two orders of magnitude out AND named a field the service no
+    // longer writes. The guard below therefore never matched, every call
+    // returned `{ count: 1 }`, and all ten "succeeded" — the test asserted the
+    // race was prevented while exercising no guard at all.
+    const BALANCE = 10000;
+    const WITHDRAW_AMOUNT = 3000;
     const TOTAL_CALLS = 10;
 
     // Drivers who have passed the balance check (initial findUnique)
@@ -349,7 +362,8 @@ describe('Concurrent wallet withdrawal contention', () => {
     mockDriver3.findUnique.mockImplementation(() => {
       driversWhoPassedCheck++;
       return Promise.resolve({
-        walletBalance: BALANCE,
+        walletBalancePesewas: BALANCE,
+        payoutHold: false,
         name: 'Driver Race',
         phone: '+233240000099',
       });
@@ -359,8 +373,8 @@ describe('Concurrent wallet withdrawal contention', () => {
     let successfulDeductions = 0;
     let remainingBalance = BALANCE;
     mockDriver3.updateMany.mockImplementation(({ where, data }) => {
-      if (data.walletBalance?.decrement) {
-        const amt = data.walletBalance.decrement;
+      if (data.walletBalancePesewas?.decrement) {
+        const amt = data.walletBalancePesewas.decrement;
         if (remainingBalance >= amt) {
           remainingBalance -= amt;
           successfulDeductions++;
@@ -402,8 +416,8 @@ describe('Concurrent wallet withdrawal contention', () => {
     expect(mockWalletTx3.create).toHaveBeenCalledTimes(succeeded);
     // Verify exactly N updateMany calls decremented balance
     expect(successfulDeductions).toBe(3);
-    // Final balance should be 100 - 90 = 10
-    expect(remainingBalance).toBe(10);
+    // Final balance should be 10000 - 9000 = 1000 pesewas
+    expect(remainingBalance).toBe(1000);
   });
 
   it('detects the classic TOCTOU in withdraw: check happens BEFORE deduction', async () => {
@@ -423,7 +437,8 @@ describe('Concurrent wallet withdrawal contention', () => {
 
     mockDriver3.findUnique.mockResolvedValue({
       // Always report sufficient balance — simulating the race window
-      walletBalance: 100,
+      walletBalancePesewas: 10000,
+      payoutHold: false,
       name: 'Driver Race',
       phone: '+233240000099',
     });
@@ -446,9 +461,10 @@ describe('Concurrent wallet withdrawal contention', () => {
     mockPaystack3.initiateTransfer.mockResolvedValue({ success: true });
 
     const results = await Promise.allSettled(
-      Array.from({ length: 8 }, () =>
-        walletService.withdraw('driver-race-2', 30),
-      ),
+      // 3000 pesewas — GHS 30. Anything under the 2000-pesewa floor is
+      // rejected before the transaction opens, so a cedis-denominated 30 never
+      // reached the guard this test exists to exercise.
+      Array.from({ length: 8 }, () => walletService.withdraw('driver-race-2', 3000)),
     );
 
     const succeeded = results.filter((r) => r.status === 'fulfilled').length;

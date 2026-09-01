@@ -1,54 +1,41 @@
 /**
- * PARSE, DON'T CAST — for the payloads that carry money.
+ * PARSE, DON'T CAST — the named primitives.
  *
- * ── THE PROBLEM ─────────────────────────────────────────────────────────────
+ * ── WHAT THIS FILE IS NOW ───────────────────────────────────────────────────
  *
- * There are 356 `as any` casts across the two apps, almost all of them at the
- * API boundary, and the shared `Trip` type was once outright fiction: it
- * required fields that are absent on an unassigned trip and omitted 25 that
- * screens actually read. A cast is a promise the compiler cannot check, and the
- * server is free to break it at any deploy.
+ * A façade. The checking lives in `schemas.ts`, which is zod, and this file is
+ * the small vocabulary the call sites already speak: `pesewas(x, 'fare')` reads
+ * better inline than a schema parse, and dozens of places say it.
  *
- * For most fields the consequence is cosmetic — a name renders as `undefined`.
- * For money it is not. `undefined * 100` is `NaN`, `NaN` formats as "GH₵ NaN",
- * and a fare that arrives as a string rather than a number turns
- * `amount / 100` into something worse than an error: a plausible wrong number.
- * These are the fields where a silent shape change has to become a loud one.
+ * It was originally hand-rolled predicates, for a reason that no longer holds:
+ * `packages/api` did not depend on zod, and adding a dependency that could not
+ * be installed would have broken Metro on a clean checkout — a build failure
+ * traded for a type hole. zod is now a declared dependency of this package and
+ * resolves from the workspace root, so §3b item 24 is done and these functions
+ * delegate rather than duplicate. The assertions they make are unchanged; the
+ * error type, the field names and the messages are unchanged. Nothing that
+ * imported this file has to move.
  *
- * ── WHY NOT ZOD ─────────────────────────────────────────────────────────────
+ * ── WHY IT STILL EXISTS ─────────────────────────────────────────────────────
  *
- * Zod is the right long-term answer for the whole boundary and it is what §3b
- * item 24 asks for. It is not used here because `packages/api` does not depend
- * on it, and adding a dependency that cannot be installed right now would break
- * Metro on a clean checkout — a build failure traded for a type hole.
- *
- * These guards are deliberately narrow: the money fields, and nothing else.
- * When zod does arrive, this file is what it replaces, and the assertions it
- * makes are the ones the schemas should keep making.
+ * Because a schema is the right shape for a payload and the wrong shape for a
+ * single number. `pesewas(offer.farePesewas, 'offer.farePesewas')` at the point
+ * of use is clearer than hoisting a one-field schema, and it keeps the check
+ * next to the arithmetic it protects.
  */
 
-/** Thrown when a payload that decides what someone pays is not what it claims. */
-export class MoneyShapeError extends Error {
-  field: string;
-  received: unknown;
+import {
+  MoneyShapeError,
+  Pesewas,
+  SignedPesewas,
+  Multiplier,
+  DistanceKm,
+  SeatCount as SeatCountSchema,
+  FareQuoteSchema,
+  parseOrThrow,
+} from './schemas';
 
-  constructor(field: string, received: unknown) {
-    super(
-      `The server sent a ${field} this app cannot read (${describe(received)}). ` +
-        'Refusing to show a price rather than showing a wrong one.',
-    );
-    this.name = 'MoneyShapeError';
-    this.field = field;
-    this.received = received;
-  }
-}
-
-function describe(v: unknown): string {
-  if (v === null) return 'null';
-  if (v === undefined) return 'missing';
-  if (typeof v === 'number' && Number.isNaN(v)) return 'NaN';
-  return `${typeof v}: ${String(v).slice(0, 40)}`;
-}
+export { MoneyShapeError };
 
 /**
  * An integer count of pesewas.
@@ -60,18 +47,25 @@ function describe(v: unknown): string {
  * a pesewa is not money.
  */
 export function pesewas(value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new MoneyShapeError(field, value);
-  }
-  if (!Number.isInteger(value)) throw new MoneyShapeError(field, value);
-  if (value < 0) throw new MoneyShapeError(field, value);
-  return value;
+  return parseOrThrow(Pesewas, value, field);
 }
 
 /** Optional pesewas. Absent is fine; present-but-wrong is not. */
 export function optionalPesewas(value: unknown, field: string): number | undefined {
   if (value === undefined || value === null) return undefined;
   return pesewas(value, field);
+}
+
+/**
+ * Pesewas that may legitimately be negative.
+ *
+ * A driver's wallet goes below zero the moment they owe commission on a cash
+ * fare, and every ledger row for a withdrawal or deduction is written as a
+ * negative. Using `pesewas` for those would reject the true state of the
+ * account, so they get their own guard rather than a looser one everywhere.
+ */
+export function signedPesewas(value: unknown, field: string): number {
+  return parseOrThrow(SignedPesewas, value, field);
 }
 
 /**
@@ -82,19 +76,26 @@ export function optionalPesewas(value: unknown, field: string): number | undefin
  * the app would render it without hesitation.
  */
 export function multiplier(value: unknown, field: string, max = 10): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new MoneyShapeError(field, value);
-  }
-  if (value <= 0 || value > max) throw new MoneyShapeError(field, value);
-  return value;
+  // The default ceiling lives in the schema; a caller asking for a different
+  // one gets a schema built for it rather than a second code path.
+  const schema = max === 10 ? Multiplier : Multiplier.max(max);
+  return parseOrThrow(schema, value, field);
 }
 
 /** A non-negative distance in kilometres. Fractional is expected here. */
 export function distanceKm(value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new MoneyShapeError(field, value);
-  }
-  return value;
+  return parseOrThrow(DistanceKm, value, field);
+}
+
+/**
+ * How many people are travelling.
+ *
+ * Guarded because seats MULTIPLY money in every group path: a cover-all host's
+ * total is `perSeat × seatCount`, and a count that arrives as `"4"` makes that
+ * repeat a string rather than multiply a number.
+ */
+export function seatCount(value: unknown, field: string): number {
+  return parseOrThrow(SeatCountSchema, value, field);
 }
 
 /**
@@ -102,25 +103,11 @@ export function distanceKm(value: unknown, field: string): number {
  *
  * Returns the SAME object rather than a copy: this is a check, not a
  * transformation, and returning a rebuilt object would quietly drop any field
- * added to the payload since this was written.
+ * added to the payload since this was written — and would break the identity
+ * memoisation the ride store depends on.
  */
 export function assertFareQuote<T extends Record<string, unknown>>(quote: T, label = 'quote'): T {
   if (!quote || typeof quote !== 'object') throw new MoneyShapeError(label, quote);
-
-  pesewas(quote.amountPesewas, `${label}.amountPesewas`);
-  distanceKm(quote.distanceKm, `${label}.distanceKm`);
-  multiplier(quote.surgeMultiplier, `${label}.surgeMultiplier`);
-
-  // Both are optional in the payload and both are shown to the rider as a
-  // saving, so a broken one misrepresents a discount rather than a price.
-  optionalPesewas(quote.listPricePesewas, `${label}.listPricePesewas`);
-  optionalPesewas(quote.loyaltyDiscountPesewas, `${label}.loyaltyDiscountPesewas`);
-
-  if (typeof quote.quoteId !== 'string' || quote.quoteId.length === 0) {
-    // Without this the booking cannot reference the price it was quoted, and
-    // the rider is charged whatever the server recalculates later.
-    throw new MoneyShapeError(`${label}.quoteId`, quote.quoteId);
-  }
-
+  parseOrThrow(FareQuoteSchema, quote, label);
   return quote;
 }

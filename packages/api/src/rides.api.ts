@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import { assertFareQuote } from './money-guards';
+import { PendingOfferSchema, PendingDispatchSchema, assertShape, parseEach } from './schemas';
 import type { TripSnapshot } from './tripChannel';
 
 /**
@@ -162,6 +163,25 @@ export interface DriverResyncResponse extends DriverStateResponse {
 
 const unwrap = <T>(res: { data: { data: T } }): T => res.data.data;
 
+/**
+ * Check the money on a driver-state payload before the Dispatch tab renders it.
+ *
+ * The offer is FATAL if it is malformed — it is the number a driver accepts a
+ * job on, and `walletRequiredPesewas` decides whether they can afford to take a
+ * cash seat at all. The queue behind it is not: one unparseable row in
+ * `pendingRequests` must not blank the whole tab, so those are filtered. A
+ * driver seeing three of four live searches is degraded; a driver seeing an
+ * empty screen thinks the platform is dead.
+ */
+function checkDriverStateMoney<T extends DriverStateResponse>(state: T): T {
+  if (state?.offer) assertShape(PendingOfferSchema, state.offer, 'offer');
+  if (Array.isArray(state?.pendingRequests)) {
+    const kept = parseEach<PendingDispatch>(PendingDispatchSchema, state.pendingRequests);
+    if (kept.length !== state.pendingRequests.length) state.pendingRequests = kept;
+  }
+  return state;
+}
+
 export const ridesApi = {
   /** Price a ride. The returned quoteId is what makes the shown price binding. */
   quote: (body: {
@@ -233,7 +253,8 @@ export const ridesApi = {
       .then(unwrap<{ tripId: string; status: string; version: number; freeCancel: boolean }>),
 
   // ── driver ────────────────────────────────────────────────────────────────
-  driverState: () => apiClient.get('/rides/driver/state').then(unwrap<DriverStateResponse>),
+  driverState: () =>
+    apiClient.get('/rides/driver/state').then(unwrap<DriverStateResponse>).then(checkDriverStateMoney),
   /**
    * Foreground recovery. `driverState` only reports; this one also pokes the
    * cascade — re-publishing an offer this driver already holds and re-sweeping
@@ -241,7 +262,10 @@ export const ridesApi = {
    * every AppState → active, not `driverState`.
    */
   driverResync: () =>
-    apiClient.post('/rides/driver/resync').then(unwrap<DriverResyncResponse>),
+    apiClient
+      .post('/rides/driver/resync')
+      .then(unwrap<DriverResyncResponse>)
+      .then(checkDriverStateMoney),
   accept: (tripId: string) => apiClient.post(`/rides/${tripId}/accept`).then(unwrap),
   decline: (tripId: string) => apiClient.post(`/rides/${tripId}/decline`).then(unwrap),
   enRoute: (tripId: string) => apiClient.post(`/rides/${tripId}/en-route`).then(unwrap),

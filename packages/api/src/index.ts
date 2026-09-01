@@ -77,9 +77,47 @@ export {
 export { queryKeys } from './queryKeys';
 
 /**
- * Runtime checks for the payloads that decide what someone pays. See
- * packages/api/src/money-guards.ts — a cast is a promise the compiler cannot
- * keep, and for money a broken one is a plausible wrong number rather than a
- * blank field.
+ * Runtime checks for the payloads that decide what someone pays. A cast is a
+ * promise the compiler cannot keep, and for money a broken one is a plausible
+ * wrong number rather than a blank field.
+ *
+ * `schemas.ts` is the zod boundary; `money-guards.ts` is the named-primitive
+ * vocabulary over it (`pesewas(x, 'fare')` reads better inline than a one-field
+ * schema). Both are exported: reach for a schema when checking a payload, a
+ * guard when checking a single number next to the arithmetic it protects.
  */
-export { MoneyShapeError, pesewas, optionalPesewas, multiplier, distanceKm, assertFareQuote } from './money-guards';
+export {
+  MoneyShapeError,
+  pesewas,
+  optionalPesewas,
+  signedPesewas,
+  multiplier,
+  distanceKm,
+  seatCount,
+  assertFareQuote,
+} from './money-guards';
+export {
+  parseOrThrow,
+  assertShape,
+  parseOrNull,
+  parseEach,
+  Pesewas,
+  SignedPesewas,
+  OptionalPesewas,
+  Multiplier,
+  DistanceKm,
+  SeatCount,
+  SeatCountOrZero,
+  FareQuoteSchema,
+  CreateBookingResultSchema,
+  CancellationTermsSchema,
+  CancellationResultSchema,
+  ReceiptSchema,
+  WalletBalanceSchema,
+  WalletTransactionSchema,
+  PendingOfferSchema,
+  PendingDispatchSchema,
+  DriverWalletBalanceSchema,
+  EarningsBreakdownSchema,
+  WalletMovementSchema,
+} from './schemas';

@@ -1,53 +1,19 @@
 'use strict';
 
-// Auto-vivifying Prisma mocks: a method the service reaches for that this
-// suite never listed becomes a jest.fn() rather than a TypeError.
-const { modelMock } = require('./helpers/prismaMock');
+// Auto-vivifying Prisma mocks: a model or method the service reaches for that
+// this suite never listed becomes a jest.fn() rather than a TypeError.
+//
+// A whole client, not a hand-listed set of models. A trip status change no
+// longer writes `trip.update`: it goes through `applyTransitionTx`, which does
+// a compare-and-swap on `trip.updateMany` and appends to `tripEvent` — a table
+// this suite never mentioned and would have died on.
+const { prismaMock } = require('./helpers/prismaMock');
 
-const mockBooking = modelMock({
-  findUnique: jest.fn(),
-  findFirst: jest.fn(),
-  create: jest.fn(),
-  update: jest.fn(),
-  updateMany: jest.fn(),
-  count: jest.fn(),
-});
+const mockPrisma = prismaMock();
 
-const mockRideGroup = modelMock({
-  findUnique: jest.fn(),
-  create: jest.fn(),
-});
-
-const mockTrip = modelMock({
-  findUnique: jest.fn(),
-  update: jest.fn(),
-});
-
-const mockUser = modelMock({
-  findUnique: jest.fn(),
-  update: jest.fn(),
-  updateMany: jest.fn(),
-});
-
-const mockDriver = modelMock({
-  findUnique: jest.fn(),
-  update: jest.fn(),
-});
-
-const mockPaymentTransaction = modelMock({
-  findFirst: jest.fn(),
-  create: jest.fn(),
-});
-
-const mockPrisma = {
-  booking: mockBooking,
-  trip: mockTrip,
-  user: mockUser,
-  driver: mockDriver,
-  paymentTransaction: mockPaymentTransaction,
-  rideGroup: mockRideGroup,
-  $transaction: jest.fn((cb) => cb(mockPrisma)),
-};
+const mockBooking = mockPrisma.booking;
+const mockTrip = mockPrisma.trip;
+const mockUser = mockPrisma.user;
 
 jest.mock('../src/config/database', () => mockPrisma);
 
@@ -67,17 +33,24 @@ describe('E2E Booking Flow Simulation (Rider + Driver)', () => {
     jest.clearAllMocks();
     mockTrip.update.mockResolvedValue({ confirmedSeats: 1, status: 'FILLING' });
     mockBooking.updateMany.mockResolvedValue({ count: 1 });
+    // The compare-and-swap that every status change now runs through. Count 0
+    // means "somebody else moved this trip", which raises VERSION_CONFLICT;
+    // an unstubbed mock answering `undefined` crashed on `.count` instead.
+    mockTrip.updateMany.mockResolvedValue({ count: 1 });
   });
 
   it('runs a complete booking, wallet payment, and driver cancellation sequence', async () => {
     const tripData = {
       id: 'trip-99',
       status: 'SCHEDULED',
+      // The compare-and-swap conditions on this; without it the transition
+      // matches nothing and every status change raises VERSION_CONFLICT.
+      version: 0,
       maxSeats: 10,
       confirmedSeats: 0,
       tier: 'ECO',
-      baseFare: 5.0,
-      perKmRate: 1.5,
+      baseFarePesewas: 500,
+      perKmRatePesewas: 150,
       surgeMultiplier: 1.0,
       doorstepPickup: false,
       heavyLoad: false,
@@ -93,16 +66,22 @@ describe('E2E Booking Flow Simulation (Rider + Driver)', () => {
       tripId: 'trip-99',
       userId: 'rider-99',
       seatNumber: 3,
-      fareAmount: 20.0,
+      fareAmountPesewas: 2000,
       status: 'SEAT_HELD',
     });
 
     const bookResult = await bookingsService.bookSeat('rider-99', 'trip-99', 3);
     expect(bookResult.booking.seatNumber).toBe(3);
     expect(bookResult.booking.status).toBe('SEAT_HELD');
-    expect(mockTrip.update).toHaveBeenCalledWith({
-      where: { id: 'trip-99' },
-      data: { status: 'FILLING' },
+    // The first seat moves the trip SCHEDULED → FILLING, and that move is a
+    // compare-and-swap now, not a blind `update`: it is conditioned on the
+    // status and version that were read, so two riders booking at once resolve
+    // to one winner and the loser raises instead of overwriting. Asserting the
+    // WHERE is the point — a plain `update` would pass a status assertion and
+    // silently lose the concurrency guarantee.
+    expect(mockTrip.updateMany).toHaveBeenCalledWith({
+      where: { id: 'trip-99', status: 'SCHEDULED', version: 0 },
+      data: expect.objectContaining({ status: 'FILLING', version: 1 }),
     });
 
     // 2. Rider initiates WALLET payment
@@ -110,7 +89,7 @@ describe('E2E Booking Flow Simulation (Rider + Driver)', () => {
       id: 'booking-99',
       userId: 'rider-99',
       paymentMethod: 'WALLET',
-      fareAmount: 20.0,
+      fareAmountPesewas: 2000,
       status: 'SEAT_HELD',
       trip: { id: 'trip-99', confirmedSeats: 0, maxSeats: 10, route: { distanceKm: 10 } },
       user: { phone: '+233240000099' },
@@ -121,8 +100,8 @@ describe('E2E Booking Flow Simulation (Rider + Driver)', () => {
     const payResult = await paymentsService.initiatePayment({ userId: 'rider-99', bookingId: 'booking-99' });
     expect(payResult.status).toBe('SUCCESS');
     expect(mockUser.updateMany).toHaveBeenCalledWith({
-      where: { id: 'rider-99', walletBalance: { gte: 20.0 } },
-      data: { walletBalance: { decrement: 20.0 } },
+      where: { id: 'rider-99', walletBalancePesewas: { gte: 2000 } },
+      data: { walletBalancePesewas: { decrement: 2000 } },
     });
     expect(mockBooking.updateMany).toHaveBeenCalledWith({
       where: { id: 'booking-99', paymentStatus: undefined },

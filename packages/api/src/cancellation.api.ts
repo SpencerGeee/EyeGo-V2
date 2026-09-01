@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { CancellationTermsSchema, CancellationResultSchema, assertShape } from './schemas';
 
 /** Peel the `{ success, data }` envelope, as rides.api does. */
 const unwrap = <T>(res: { data: { data: T } }): T => res.data.data;
@@ -52,10 +53,17 @@ export const cancellationApi = {
     apiClient
       .get<{ data: { cancellationFeePesewas: CancellationTerms } }>(`/cancellation/${bookingId}/fee`)
       .then(unwrap<{ cancellationFeePesewas: CancellationTerms }>)
-      .then((d) => d.cancellationFeePesewas),
+      .then((d) => d.cancellationFeePesewas)
+      // This number is shown in a sheet that asks the rider to agree to being
+      // charged it. The whole history of this endpoint is a fee that silently
+      // read as 0 — checking it means the next contract change is loud.
+      .then((terms) => assertShape(CancellationTermsSchema, terms, 'cancellationTerms')),
 
   cancelWithFee: (bookingId: string, data: { reason: string; note?: string }) =>
     apiClient
       .post<{ data: CancellationResult }>(`/cancellation/${bookingId}/cancel`, data)
-      .then(unwrap<CancellationResult>),
+      .then(unwrap<CancellationResult>)
+      // A refund is money leaving the platform; a malformed one is not a
+      // display bug, it is a reconciliation gap the rider will chase.
+      .then((r) => assertShape(CancellationResultSchema, r, 'cancellationResult')),
 };

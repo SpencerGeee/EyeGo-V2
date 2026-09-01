@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { WalletBalanceSchema, WalletTransactionSchema, assertShape, parseEach } from './schemas';
 import type { ApiResponse } from '@eyego/types';
 
 export interface WalletBalance {
@@ -46,10 +47,29 @@ function makeIdempotencyKey(prefix: string): string {
 
 export const walletApi = {
   getBalance: () =>
-    apiClient.get<ApiResponse<WalletBalance>>('/wallet/balance'),
+    apiClient.get<ApiResponse<WalletBalance>>('/wallet/balance').then((res) => {
+      // A balance is what the rider decides whether they can afford a ride on.
+      // Wrong-and-plausible is the failure to prevent here, not missing.
+      assertShape(WalletBalanceSchema, res.data?.data, 'walletBalance');
+      return res;
+    }),
 
   getTransactions: (params?: { page?: number; limit?: number }) =>
-    apiClient.get<ApiResponse<{ transactions: WalletTransaction[]; total: number; page: number; totalPages: number }>>('/wallet/transactions', { params }),
+    apiClient
+      .get<ApiResponse<{ transactions: WalletTransaction[]; total: number; page: number; totalPages: number }>>(
+        '/wallet/transactions',
+        { params },
+      )
+      .then((res) => {
+        // Deliberately NOT fatal. One malformed row must not blank a rider's
+        // whole payment history — a history missing a line is recoverable, an
+        // empty screen over a wallet with money in it is a support ticket.
+        const page = res.data?.data;
+        if (page && Array.isArray(page.transactions)) {
+          page.transactions = parseEach<WalletTransaction>(WalletTransactionSchema, page.transactions);
+        }
+        return res;
+      }),
 
   topUp: (data: TopUpRequest, idempotencyKey?: string) =>
     apiClient.post<ApiResponse<{ reference: string; authorizationUrl?: string }>>(

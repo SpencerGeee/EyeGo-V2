@@ -349,7 +349,16 @@ async function confirmPayment(bookingId, reference, { cashOnBoard = false, isSyn
         })
       : [];
     const bookingsToSettle = [booking, ...siblingBookings];
-    const totalFare = bookingsToSettle.reduce((sum, b) => sum + b.fareAmountPesewas, 0);
+    const totalFare = bookingsToSettle.reduce(
+      // Guarded per row, not on the sum. One booking with a null
+      // `fareAmountPesewas` makes the whole reduce `NaN`, and `NaN` then goes
+      // into `walletBalancePesewas: { gte: NaN }` — a comparison nothing
+      // satisfies — so a cover-all host with a full wallet is told
+      // "Insufficient wallet balance" and has no way to find out why. Naming
+      // the row that is wrong turns that into a real error.
+      (sum, b) => sum + assertPesewas(b.fareAmountPesewas, `booking ${b.id} fare`),
+      0,
+    );
 
     // If paying by wallet, deduct the combined total up front — guard
     // prevents negative balance. Must happen before any status flips so a

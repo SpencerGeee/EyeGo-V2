@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { CreateBookingResultSchema, ReceiptSchema, assertShape } from './schemas';
 import type {
   ApiResponse,
   Booking,
@@ -51,7 +52,14 @@ export const bookingsApi = {
    * again silently.
    */
   create: (data: CreateBookingRequest) =>
-    apiClient.post<ApiResponse<CreateBookingResult>>('/bookings', data),
+    apiClient.post<ApiResponse<CreateBookingResult>>('/bookings', data).then((res) => {
+      // The wrapper above is a type, and a type is a promise the compiler cannot
+      // keep across a deploy. This is the same failure the comment describes,
+      // caught at the boundary instead of three screens later as "validation
+      // failed": no booking id means the payment step has nothing to charge.
+      assertShape(CreateBookingResultSchema, res.data?.data, 'booking');
+      return res;
+    }),
 
   getById: (id: string) =>
     apiClient.get<ApiResponse<Booking>>(`/bookings/${id}`),
@@ -142,6 +150,12 @@ export const bookingsApi = {
       paidAt: string;
       receiptNumber: string;
       trip: any;
-    }>>(`/receipts/${id}`),
+    }>>(`/receipts/${id}`).then((res) => {
+      // A receipt is the one document a rider may forward to a bank or an
+      // employer. A total that disagrees with the ledger is not a rendering
+      // bug — it is a dispute, and one nobody can settle after the fact.
+      assertShape(ReceiptSchema, res.data?.data, 'receipt');
+      return res;
+    }),
 
 };

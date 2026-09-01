@@ -1,5 +1,11 @@
 'use strict';
 
+// The one definition of "this booking still occupies a seat". Asserted through
+// the helper rather than spelled out, because the inline version these tests
+// carried — status not CANCELLED — is the exact bug the helper was written to
+// end: it misses EXPIRED, REFUNDED and NO_SHOW. See utils/booking-status.js.
+const { seatOccupyingWhere } = require('../src/utils/booking-status');
+
 /**
  * Socket authorization tests.
  *
@@ -116,7 +122,7 @@ describe('Passenger socket — chat authorization', () => {
       await readHandler[1]({ tripId: 'trip-999', messageIds: ['msg-1'] });
 
       expect(mockBooking.findFirst).toHaveBeenCalledWith({
-        where: { tripId: 'trip-999', userId: 'passenger-1', status: { not: 'CANCELLED' } },
+        where: { tripId: 'trip-999', userId: 'passenger-1', ...seatOccupyingWhere() },
         select: { id: true },
       });
       expect(socket.emit).toHaveBeenCalledWith('error', {
@@ -388,7 +394,7 @@ describe('Driver socket — chat authorization', () => {
         where: {
           tripId: 'trip-1',
           userId: 'passenger-not-on-trip',
-          status: { not: 'CANCELLED' },
+          ...seatOccupyingWhere(),
         },
         select: { id: true },
       });

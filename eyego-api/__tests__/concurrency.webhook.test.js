@@ -88,7 +88,7 @@ describe('Webhook idempotency — Redis NX lock + DB replay guard', () => {
       userId: 'u1',
       paymentStatus: 'SEAT_HELD',
       status: 'SEAT_HELD',
-      fareAmount: 20.0,
+      fareAmountPesewas: 2000,
       paymentMethod: 'MOMO_MTN',
       tripId: 't-w-1',
       trip: {
@@ -202,7 +202,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
       PLATFORM_COMMISSION: 0.15,
       MIN_OCCUPANCY_TO_DEPART: 5,
       SEAT_HOLD_DURATION_MINUTES: 10,
-      DRIVER_MIN_WITHDRAWAL: 0,
+      DRIVER_MIN_WITHDRAWAL_PESEWAS: 0,
     }));
 
     walletService = require('../src/modules/wallet/wallet.service');
@@ -215,8 +215,8 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
      * the findUnique balance check and overspend. With the guard, exactly 3
      * succeed (3 × 30 = 90 ≤ 100) and 7 fail.
      */
-    const BALANCE = 100;
-    const AMOUNT = 30;
+    const BALANCE = 10000;
+    const AMOUNT = 3000;
     const TOTAL = 10;
 
     mockPrisma.$transaction.mockImplementation((cb) => cb(mockPrisma));
@@ -226,14 +226,15 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
       walletBalancePesewas: BALANCE,
       name: 'Driver Race',
       phone: '+233240000099',
+      payoutHold: false,
     });
 
     // Simulate decrementing balance with atomic guard
     let remaining = BALANCE;
     mockDriver.updateMany.mockImplementation(({ where, data }) => {
-      if (data.walletBalance?.decrement) {
-        if (remaining >= data.walletBalance.decrement) {
-          remaining -= data.walletBalance.decrement;
+      if (data.walletBalancePesewas?.decrement) {
+        if (remaining >= data.walletBalancePesewas.decrement) {
+          remaining -= data.walletBalancePesewas.decrement;
           return Promise.resolve({ count: 1 });
         }
         return Promise.resolve({ count: 0 });
@@ -260,7 +261,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
     // Each success created a wallet transaction
     expect(mockWalletTx.create).toHaveBeenCalledTimes(succeeded);
     // Final balance correctly tracked
-    expect(remaining).toBe(10);
+    expect(remaining).toBe(1000);
   });
 
   it('ensures all failing withdrawals get a clear error message', async () => {
@@ -269,6 +270,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
       walletBalancePesewas: 50,
       name: 'Driver Low',
       phone: '+233240000099',
+      payoutHold: false,
     });
     // All fail
     mockDriver.updateMany.mockResolvedValue({ count: 0 });
@@ -290,6 +292,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
       walletBalancePesewas: 200,
       name: 'Driver Recover',
       phone: '+233240000099',
+      payoutHold: false,
     });
     mockDriver.updateMany.mockResolvedValue({ count: 1 });
     mockWalletTx.create.mockResolvedValue({ id: 'tx-recover' });

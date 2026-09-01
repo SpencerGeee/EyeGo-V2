@@ -75,7 +75,19 @@ function prismaMock(models = {}) {
         if (typeof prop === 'symbol') return undefined;
         if (prop === 'then') return undefined;
         if (prop === '$transaction') {
-          return jest.fn((arg) => (typeof arg === 'function' ? arg(client) : Promise.all(arg)));
+          // Memoised, not minted per access. Returning a fresh `jest.fn()` on
+          // every `get` meant `expect(prisma.$transaction).toHaveBeenCalledWith`
+          // was asserting against a function nobody had ever called — the
+          // assertion could not fail and could not pass. It is also the handle
+          // a suite reaches for to assert the isolation level, so it has to be
+          // the same object the service called.
+          if (!built.has(prop)) {
+            built.set(
+              prop,
+              jest.fn((arg) => (typeof arg === 'function' ? arg(client) : Promise.all(arg))),
+            );
+          }
+          return built.get(prop);
         }
         if (prop === '$queryRaw' || prop === '$executeRaw' || prop === '$disconnect' || prop === '$connect') {
           if (!built.has(prop)) built.set(prop, jest.fn());

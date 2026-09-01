@@ -1,6 +1,6 @@
 'use strict';
 
-const { modelMock } = require('./helpers/prismaMock');
+const { prismaMock } = require('./helpers/prismaMock');
 
 /**
  * TOCTOU race-condition tests for createRideGroup.
@@ -17,15 +17,13 @@ let bookingsService;
 beforeEach(() => {
   jest.resetModules();
 
-  mockRideGroup = {
-    findUnique: jest.fn(),
-    create: jest.fn(),
-  };
-
-  mockPrisma = {
-    rideGroup: mockRideGroup,
-    $transaction: jest.fn(),
-  };
+  // The whole client, not a hand-listed pair of models. `createRideGroup` also
+  // reaches `tx.trip` and `tx.booking` through `syncCoveredSeatsTx` — a cover-all
+  // host's seats have to be reconciled inside the same transaction — and a mock
+  // that lists only `rideGroup` fails with `tx.trip.findUnique is not a function`
+  // from a test about duplicate groups. See helpers/prismaMock.js.
+  mockPrisma = prismaMock();
+  mockRideGroup = mockPrisma.rideGroup;
 
   jest.doMock('../src/config/env', () => ({
     SEAT_HOLD_DURATION_MINUTES: 10,
@@ -119,12 +117,22 @@ describe('createRideGroup — TOCTOU race prevention', () => {
           id: 'rg-con',
           tripId: 'trip-con',
           leadPassengerId: 'user-1',
+          // `isCoverAll` is NOT decoration. The caller here IS the lead, so the
+          // service compares the stored flag against the requested one and
+          // issues an update when they differ. A fixture that omits it makes
+          // `undefined === false` false, so every non-first caller took the
+          // update branch and got back whatever the mock's `update` returned —
+          // `undefined`. The column has a default and is never null in the DB;
+          // the fixture now says so.
+          isCoverAll: false,
         });
       }
 
-      // modelMock so a method the service reaches for that this suite never
-      // listed becomes a jest.fn() rather than a TypeError.
-      const tx = { rideGroup: modelMock({ findUnique, create: mockRideGroup.create }) };
+      // A whole client, with only `rideGroup` pinned to this call's answers.
+      // The service also reconciles covered seats inside the same transaction
+      // (`syncCoveredSeatsTx` reaches `tx.trip` and `tx.booking`), so a tx
+      // carrying one model fails on a table this test never mentions.
+      const tx = prismaMock({ rideGroup: { findUnique, create: mockRideGroup.create } });
       return cb(tx);
     });
 

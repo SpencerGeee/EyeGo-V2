@@ -81,7 +81,9 @@ describe('payments.service logic', () => {
         id: 'b1',
         userId: 'u1',
         paymentMethod: 'CASH',
-        fareAmount: 20.0,
+        // Pesewas. The cedis field the service once read is gone; leaving it here
+        // made every fare arrive as undefined and every total NaN.
+        fareAmountPesewas: 2000,
         status: 'SEAT_HELD',
         trip: { id: 't1', confirmedSeats: 0, maxSeats: 10, route: { distanceKm: 5 } },
         user: { phone: '+233240000000' },
@@ -92,7 +94,12 @@ describe('payments.service logic', () => {
       expect(mockBooking.updateMany).toHaveBeenCalledWith({
         where: { id: 'b1', paymentStatus: undefined },
         data: {
-          paymentStatus: 'CASH_PENDING',
+          // 'PENDING', not a separate 'CASH_PENDING'. Cash is settled by the
+          // driver at boarding, and every other cash path in the codebase —
+          // boarding, earnings, the admin's cash-collected view — reads
+          // 'PENDING' as "cash owed, collect on board". A second value meant
+          // one writer and no readers. See payments.service.js.
+          paymentStatus: 'PENDING',
           status: 'CONFIRMED',
           paystackRef: expect.any(String),
         },
@@ -106,7 +113,7 @@ describe('payments.service logic', () => {
         id: 'b2',
         userId: 'u2',
         paymentMethod: 'WALLET',
-        fareAmount: 15.0,
+        fareAmountPesewas: 1500,
         status: 'SEAT_HELD',
         trip: { id: 't1', confirmedSeats: 0, maxSeats: 10, route: { distanceKm: 5 } },
         user: { phone: '+233240000000' },
@@ -116,8 +123,8 @@ describe('payments.service logic', () => {
       const result = await paymentsService.initiatePayment({ userId: 'u2', bookingId: 'b2' });
 
       expect(mockUser.updateMany).toHaveBeenCalledWith({
-        where: { id: 'u2', walletBalancePesewas: { gte: 15.0 } },
-        data: { walletBalancePesewas: { decrement: 15.0 } },
+        where: { id: 'u2', walletBalancePesewas: { gte: 1500 } },
+        data: { walletBalancePesewas: { decrement: 1500 } },
       });
       expect(mockBooking.updateMany).toHaveBeenCalledWith({
         where: { id: 'b2', paymentStatus: undefined },
@@ -135,7 +142,7 @@ describe('payments.service logic', () => {
         id: 'b3',
         userId: 'u3',
         paymentMethod: 'MOMO',
-        fareAmount: 25.0,
+        fareAmountPesewas: 2500,
         status: 'SEAT_HELD',
         trip: { id: 't1', confirmedSeats: 0, maxSeats: 10, route: { distanceKm: 5 } },
         user: { phone: '+233240000003', email: 'john@gmail.com' },
@@ -175,7 +182,7 @@ describe('payments.service logic', () => {
       mockBooking.findUnique.mockResolvedValue({
         id: 'b4',
         status: 'SEAT_HELD',
-        fareAmount: 10.0,
+        fareAmountPesewas: 1000,
         trip: { id: 't1', confirmedSeats: 0, maxSeats: 5, route: { distanceKm: 5 } },
       });
 

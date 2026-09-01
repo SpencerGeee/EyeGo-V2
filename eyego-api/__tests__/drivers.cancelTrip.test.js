@@ -19,12 +19,13 @@ function buildIoSpy() {
   return { io: { of }, of, to, emit };
 }
 
-function buildReqRes(io) {
+function buildReqRes(io, body = {}) {
   const req = {
     // The auth middleware puts the caller on req.user — for a driver token,
     // req.user.userId IS the Driver id. This said req.driver, which nothing reads.
     user: { userId: 'driver-1' },
     params: { id: 'trip-123' },
+    body,
     app: { get: jest.fn((key) => (key === 'io' ? io : undefined)) },
   };
   const res = {
@@ -40,11 +41,18 @@ describe('drivers.controller.cancelTrip', () => {
   it('emits trip:status_change CANCELLED into the passenger trip room', async () => {
     driversService.cancelTrip.mockResolvedValue({ id: 'trip-123', status: 'CANCELLED' });
     const spy = buildIoSpy();
-    const { req, res } = buildReqRes(spy.io);
+    const { req, res } = buildReqRes(spy.io, { reason: 'VEHICLE_ISSUE', note: 'flat tyre' });
 
     await controller.cancelTrip(req, res);
 
-    expect(driversService.cancelTrip).toHaveBeenCalledWith('driver-1', 'trip-123');
+    // The reason and note ride along as a third argument. They are what the
+    // rider is told and what the driver's cancel-rate is judged on, so a
+    // controller that dropped them would look identical from here — hence the
+    // assertion names them rather than matching the first two arguments.
+    expect(driversService.cancelTrip).toHaveBeenCalledWith('driver-1', 'trip-123', {
+      reason: 'VEHICLE_ISSUE',
+      note: 'flat tyre',
+    });
     expect(spy.of).toHaveBeenCalledWith('/passenger');
     expect(spy.to).toHaveBeenCalledWith('trip:trip-123');
     expect(spy.emit).toHaveBeenCalledWith('trip:status_change', {

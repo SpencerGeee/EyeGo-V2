@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { EarningsBreakdownSchema, DriverWalletBalanceSchema, assertShape } from './schemas';
 import type { ApiResponse } from '@eyego/types';
 import type { TripDriver } from '@eyego/types';
 
@@ -564,9 +565,17 @@ export const driverApi = {
   // walletApi (which targets /wallet/*) made withdraw 404 and earnings read the
   // wrong (rider) ledger.
   getWalletBalance: () =>
-    apiClient.get<ApiResponse<{ balancePesewas: number; currency: string; lastUpdated: string }>>(
-      '/driver/wallet/balance',
-    ),
+    apiClient
+      .get<ApiResponse<{ balancePesewas: number; currency: string; lastUpdated: string }>>(
+        '/driver/wallet/balance',
+      )
+      .then((res) => {
+        // Signed, unlike the rider's: a driver who owes commission on cash
+        // fares is legitimately below zero, and `goOnline` refuses them until
+        // they top up. Rejecting the negative would hide the reason.
+        assertShape(DriverWalletBalanceSchema, res.data?.data, 'driverWalletBalance');
+        return res;
+      }),
 
   /**
    * The server's own earnings arithmetic for a period.
@@ -588,7 +597,14 @@ export const driverApi = {
       averagePerTripPesewas: number;
       dailyBreakdown: { date: string; amountPesewas: number }[];
       recentTrips: { id: string; shortId: string | null; createdAt: string; baseFarePesewas: number | null }[];
-    }>>('/driver/earnings/breakdown', { params: { period } }),
+    }>>('/driver/earnings/breakdown', { params: { period } }).then((res) => {
+      // These are the numbers a driver decides whether to keep driving on, and
+      // the ones they will quote back at support. Fatal on a bad shape: an
+      // earnings screen that renders a wrong total is worse than one that says
+      // it cannot load, because the driver has no way to tell.
+      assertShape(EarningsBreakdownSchema, res.data?.data, 'earnings');
+      return res;
+    }),
 
   getWalletTransactions: (params?: { page?: number; limit?: number }) =>
     apiClient.get<ApiResponse<{ transactions: Array<{ id: string; type: string; amountPesewas: number; description: string; createdAt: string }> }>>(
