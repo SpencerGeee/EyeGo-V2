@@ -39,8 +39,17 @@ Plan, findings and the ranked backlog:
     prisma migrate deploy                                  APPLIED (2 new)
     prisma generate                                        DONE
     API cold boot                                          /health 200 in ~8s
+    apps/admin  next build                                 GREEN (after the fix below)
     jest                                                   4 suites pass, 9 fail (E4)
     scripts/e2e/run-all.mjs                                NOT RUN this session
+
+**`node_modules` was repaired, not just the code.** The admin build failed with a
+null `useRef` during static export — two React copies. Root
+`node_modules/react-dom` was a corrupted partial install (a lone `LICENSE`, no
+`index.js`), so `react` resolved to the root and `react-dom` to a nested copy
+under `apps/admin`. The real package was moved to the root and the nested copy
+removed; both now resolve to one file and the build completes. If a future
+`npm ci` ever reproduces it, that is the symptom and that is the fix.
 
 **`npx` is broken here** — use `node node_modules/typescript/lib/tsc.js` and
 `node node_modules/prisma/build/index.js`.
