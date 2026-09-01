@@ -176,7 +176,7 @@ Goal: Hunt runtime-fatal bug class systematically; make morphs cheap per-frame.
 Decisions:
 - Wrote two throwaway analyzers (scratchpad) instead of eyeballing: a schema-aware Prisma arg-shape linter and a wiring linter (exports, api surface, socket event drift). Both found real bugs; both confirmed the rest is clean.
 - Prisma `select` + `include` at the same level throws — driver earnings GraphQL resolver was dead on every call.
-- Morph smoothness was never a timing problem: the animated style wrote left/top/width/height every frame, forcing a layout pass per frame. Static frame now lives in React state; animated style is transform/opacity/borderRadius only.
+- Morph smoothness was never a timing problem: the animated style wrote left/top/width/height every frame, forcing a layout pass per frame. Static frame now lives in React state; animated style is transform/opacity/borderRadius only. [superseded by 2026-09-01 — the React-state frame CHANGED mid-flight, reintroducing the desync it fixed]
 Rejected: tuning spring constants to fix morph jank — the cost was layout, not easing.
 Open: socket `payment:confirmed` listener added to the API surface but not yet consumed by a screen; nothing device-tested.
 
@@ -395,3 +395,15 @@ Decisions:
 - `goOut` is the missing navigation verb: every "leave this flow" button used raw `router.dismissTo`, which arms no transition clock.
 Rejected: rebuilding the smoothness system (it is wired to all 4 navigators and correct); adding expo-device for a finer perf tier before a sideload; deleting either colliding back control on the request stage.
 Open: nothing device-verified; MapReport + price-lock migrations must be applied on deploy.
+
+## 2026-09-01 20:10 [saved]
+Goal: 21-item sweep — frozen maps, silent expiry, dispatch countdown, group pricing, morph lag.
+Decisions:
+- `MorphTarget` is `pointerEvents="box-none"` by default; a full-screen one was a screen-sized touch target swallowing every map gesture.
+- The morph clone's layout box is a constant SQUARE, never the target rect — React state that changed mid-flight was the remaining pop.
+- On iOS a root sibling of the navigator sits UNDER every native modal; `OverlayPortal` (FullWindowOverlay) is what makes a toast app-wide.
+- Party size is an input to the on-demand fare (4 seats included, then 18%/seat), signed into the quote so it cannot be changed after pricing.
+- Cancelling costs standing, not money: fee default 0, and a pre-departure status can never incur one whatever `departureTime` says.
+- Whoever LEARNS a trip ended raises the RideEnded notice — the socket listener was the only owner, and a backgrounded app never hears it.
+Rejected: fixing the frozen map per screen (the wrapper default is the cause); tuning morph springs again (it was never easing); charging a cancellation fee on top of the standing penalty.
+Open: nothing device-tested; 120 Hz needs a fresh native build (Info.plist key, not OTA-able).

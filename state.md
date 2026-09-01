@@ -1,29 +1,35 @@
 # State — 2026-09-01
 
 ## Current Goal
-Ship the 11-item pre-sideload pass. 8 done, 3 partly (see below).
+21-item sweep across rider, driver and backend. All 21 addressed; nothing device-tested.
+
+## Decisions
+- `MorphTarget` defaults to `pointerEvents="box-none"`. A full-screen morph target was a
+  screen-sized touch target over the map — the frozen request map and the unresponsive
+  ride-picker map were both this.
+- The morph clone's layout box is a CONSTANT SQUARE (`max(winW,winH)`), never the target rect.
+  Zero React commits between takeoff and landing; `targetReady` corrections are pure
+  shared-value writes. Square so circular morphs stay circular.
+- `useMapCamera({ autoResumeMs })`. `null` = the user keeps the camera. Pre-trip maps pass null.
+- `OverlayPortal` (react-native-screens `FullWindowOverlay`) wraps every root-mounted floating
+  surface in both apps. A root sibling of the navigator is UNDER every iOS native modal.
+- Party size is an input to the on-demand fare: free up to `RIDE_INCLUDED_SEATS` (4), then
+  `RIDE_EXTRA_SEAT_RATE` (18%) of the metered ride per extra seat. Signed into the quote.
+- Cancelling costs STANDING, not money: `RIDE_CANCEL_FEE_PESEWAS` default 0, and a trip in a
+  pre-departure status can never incur a fee whatever the clock says.
+- A rating is cast once — `driverRating.create`, 409 `ALREADY_RATED` on a second.
 
 ## Plan Status
-| # | Item | Status |
-|---|---|---|
-| — | Driver "I agree" dead button | DONE — wrong endpoint + query-key shape collision |
-| 1 | Consent screen redesign + exit transition | DONE |
-| 2/10 | Smoothness | DONE — 120Hz cap was the cause; stack audits clean |
-| 3 | Saved-place label in destination | DONE — `shortAddress` in `@eyego/utils` |
-| 4 | Request-stage map frozen / zoomed / back button | DONE |
-| 5 | Bare page transitions | DONE — `goOut` verb, 8 call sites |
-| 6 | Consent gate reappears after cancel | DONE — rider key collision |
-| 7 | improve-map audit | DONE (static) — no defects found |
-| 8 | Scan-to-pay audit | DONE (static) — 1 defect fixed (amount dropped on universal link) |
-| 9 | Wallet audit + contacts picker | DONE — wallet clean; picker added to send-money + guest-selection |
+All 21 items implemented. `npm test` 35/35 green; rider + driver `tsc --noEmit` clean;
+all edited backend files pass `node --check`.
 
 ## Evidence
-- Both apps `tsc --noEmit`: clean.
-- `yarn test:maps` 33/33, `yarn test:invariants` 2/2.
-- Nothing device-verified — no device access from this session.
+- `scripts/invariants.test.mjs` Pressable rule tightened — its two exemptions were hiding
+  four live breakages (driver Pass button, Dispatch-blocked CTA, RideEndedSheet, trip.tsx)
+  plus NoticeHost's action button.
+- `apps/*/app.json` already carry `CADisableMinimumFrameDuration`. It is an Info.plist key:
+  it cannot take effect through OTA, only a fresh native build.
 
 ## Open Issues
-- Needs a NEW native build: `CADisableMinimumFrameDuration` is an Info.plist key, so OTA will not deliver it.
-- On deploy: `prisma migrate deploy` — MapReport and trip fee price-lock migrations.
-- `usePerformanceTier` still classifies iOS as `high` unconditionally (no `expo-device`); deliberately not changed before a sideload.
-- Reviewer consent exemption is dead on the driver side — `isReviewer` is a User column and Driver has none.
+- Nothing device-tested; item 13 (120 Hz) needs a new EAS build to be observable at all.
+- No prisma migration required by this pass (no schema change).
