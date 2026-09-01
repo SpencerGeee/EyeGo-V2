@@ -2,7 +2,7 @@
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge } = require('../trips/fare.calculator');
+const { calculateFare, calculateEnRouteFare, detourKm, calculateDeviationSurcharge, pinnedRatesFor } = require('../trips/fare.calculator');
 const { SeatTakenError, NotFoundError, AppError, ForbiddenError } = require('../../utils/errors');
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere, SEAT_RELEASING_STATUSES } = require('../../utils/booking-status');
@@ -111,8 +111,8 @@ async function recomputeBookingAddons(bookingId, userId, { pickupLat, pickupLng,
         doorstepPickup: trip.doorstepPickup,
         heavyLoad: trip.heavyLoad,
         surgeMultiplier: trip.surgeMultiplier,
-        storedBaseFarePesewas: trip.baseFarePesewas,
-        storedPerKmRatePesewas: trip.perKmRatePesewas,
+        // The WHOLE price lock, fees included — see pinnedRatesFor.
+        ...pinnedRatesFor(trip),
       });
       // Preserve any existing en-route-boarding discount ratio this booking already had.
       const baseFarePerPerson = booking.enRouteRatio != null
@@ -374,8 +374,8 @@ async function bookSeat(userId, tripId, seatNumber, pickupStopId = null, payment
         doorstepPickup: trip.doorstepPickup,
         heavyLoad: trip.heavyLoad,
         surgeMultiplier: trip.surgeMultiplier,
-        storedBaseFarePesewas: trip.baseFarePesewas,
-        storedPerKmRatePesewas: trip.perKmRatePesewas,
+        // The WHOLE price lock, fees included — see pinnedRatesFor.
+        ...pinnedRatesFor(trip),
       });
 
       // En-route boarding: if a virtual stop was selected, apply a distance-
@@ -589,6 +589,11 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
       surgeMultiplier: true,
       baseFarePesewas: true,
       perKmRatePesewas: true,
+      // The fee half of the lock. Omitting these does not fail — it silently
+      // falls back to the live setting, which is the bug the pin exists to end.
+      bookingFeeRate: true,
+      platformFeePesewas: true,
+      commissionRate: true,
       route: { select: { distanceKm: true } },
     },
   });
@@ -649,8 +654,8 @@ async function syncCoveredSeatsTx(tx, tripId, leadUserId, coverAll) {
     doorstepPickup: trip.doorstepPickup,
     heavyLoad: trip.heavyLoad,
     surgeMultiplier: trip.surgeMultiplier,
-    storedBaseFarePesewas: trip.baseFarePesewas,
-    storedPerKmRatePesewas: trip.perKmRatePesewas,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
   });
 
   const lead = await tx.booking.findFirst({

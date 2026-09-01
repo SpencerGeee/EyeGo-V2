@@ -792,7 +792,7 @@ async function getTripDetail(tripId) {
    */
   let pricing = null;
   try {
-    const { calculateFare, haversineKm } = require('../trips/fare.calculator');
+    const { calculateFare, haversineKm, pinnedRatesFor } = require('../trips/fare.calculator');
     const distanceKm = Number.isFinite(trip.route?.distanceKm)
       ? trip.route.distanceKm
       : Number.isFinite(trip.pickupLat) && Number.isFinite(trip.dropoffLat)
@@ -807,8 +807,8 @@ async function getTripDetail(tripId) {
         doorstepPickup: trip.doorstepPickup,
         heavyLoad: trip.heavyLoad,
         surgeMultiplier: trip.surgeMultiplier ?? 1,
-        storedBaseFarePesewas: trip.baseFarePesewas,
-        storedPerKmRatePesewas: trip.perKmRatePesewas,
+        // The WHOLE price lock, fees included — see pinnedRatesFor.
+        ...pinnedRatesFor(trip),
       });
       pricing = {
         farePerSeatPesewas: fare.farePerPersonPesewas,

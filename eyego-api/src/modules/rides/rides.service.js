@@ -363,6 +363,13 @@ async function requestRide(userId, body) {
           perKmRatePesewas: quote.breakdown.perKmRatePesewas,
           surgeMultiplier: quote.surgeMultiplier,
           commissionRate: quote.breakdown.commissionRate,
+          // The rest of the price lock. Without these two the fees were read
+          // live at every later calculation, so an operator adjusting a fee
+          // repriced trips that had already been quoted and accepted — and any
+          // path that RE-derives the fare (receipt, dispute, earnings) then
+          // disagreed with the ledger row that was actually charged.
+          bookingFeeRate: quote.breakdown.bookingFeeRate,
+          platformFeePesewas: quote.breakdown.platformFeePesewas,
           /**
            * Party size, not a pricing input.
            *

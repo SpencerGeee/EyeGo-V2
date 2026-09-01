@@ -409,6 +409,10 @@ async function acceptTripRequest(driverId, tripRequestId) {
         baseFarePesewas: fare.baseFarePesewas,
         perKmRatePesewas: fare.perKmRatePesewas,
         surgeMultiplier: fare.surgeMultiplier,
+        // The fee half of the price lock — see rides.service.js.
+        bookingFeeRate: fare.bookingFeeRate,
+        platformFeePesewas: fare.platformFeePesewas,
+        commissionRate: fare.commissionRate,
         maxSeats,
         // DRIVER_EN_ROUTE, not CONFIRMED. This trip only exists because a rider
         // requested a ride *now* and this driver just accepted it — accepting IS

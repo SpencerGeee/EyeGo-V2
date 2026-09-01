@@ -15,7 +15,7 @@ const { isWithinGhana } = require('../../services/mapbox.service');
 const { generateTripReceipt, refundBookingForDriverCancellation } = require('../cancellation/cancellation.service');
 const redis = require('../../config/redis');
 const logger = require('../../utils/logger');
-const { estimateFare, calculateFare, haversineKm } = require('../trips/fare.calculator');
+const { estimateFare, calculateFare, haversineKm, pinnedRatesFor } = require('../trips/fare.calculator');
 const { haversineMeters } = require('../../utils/geo');
 const ratingIntegrity = require('../../services/rating-integrity.service');
 // The preconditions for IN_PROGRESS — somebody aboard, every asked-for code
@@ -117,8 +117,8 @@ function attachFarePerSeat(trip) {
     doorstepPickup: trip.doorstepPickup ?? false,
     heavyLoad: trip.heavyLoad ?? false,
     surgeMultiplier: trip.surgeMultiplier ?? 1.0,
-    storedBaseFarePesewas: trip.baseFarePesewas,
-    storedPerKmRatePesewas: trip.perKmRatePesewas,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
   });
   return scrubBookingSecrets({
     ...trip,
@@ -1860,8 +1860,8 @@ async function addOfflinePassenger(driverId, tripId, { phone, seatNumber }) {
     tier: trip.tier ?? 'ECO',
     distanceKm: trip.route?.distanceKm ?? 0,
     seatCount: trip.maxSeats,
-    storedBaseFarePesewas: trip.baseFarePesewas,
-    storedPerKmRatePesewas: trip.perKmRatePesewas,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
   });
   const seatFare = fareInfo.farePerPersonPesewas;
   const commissionAmountPesewas = percentOf(seatFare, env.PLATFORM_COMMISSION);
@@ -1939,8 +1939,8 @@ async function addCashNoPhone(driverId, tripId, { seatNumber }) {
     tier: trip.tier ?? 'ECO',
     distanceKm: trip.route?.distanceKm ?? 0,
     seatCount: trip.maxSeats,
-    storedBaseFarePesewas: trip.baseFarePesewas,
-    storedPerKmRatePesewas: trip.perKmRatePesewas,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
   });
   const seatFare = fareInfo.farePerPersonPesewas;
   const commissionAmountPesewas = percentOf(seatFare, env.PLATFORM_COMMISSION);

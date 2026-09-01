@@ -4,7 +4,7 @@ const { formatGhs, percentOf, assertPesewas } = require('../../utils/money');
 
 const prisma = require('../../config/database');
 const env = require('../../config/env');
-const { calculateFare, estimateFare, haversineKm, normalizeTier } = require('./fare.calculator');
+const { calculateFare, estimateFare, haversineKm, normalizeTier, pinnedRatesFor } = require('./fare.calculator');
 const { availableDriverWhere } = require('../../services/driver-availability');
 const { NotFoundError, ConflictError, ForbiddenError, AppError } = require('../../utils/errors');
 const { v4: uuidv4 } = require('uuid');
@@ -236,6 +236,19 @@ async function createTrip(driverId, data) {
         baseFarePesewas,
         perKmRatePesewas,
         surgeMultiplier,
+        /**
+         * The fee half of the price lock, taken at creation.
+         *
+         * The two rates above are the driver's own numbers and were always
+         * pinned; the fees were read live at every later calculation, so an
+         * operator adjusting one repriced buses that riders had already paid to
+         * board. Pinning them here means the seat map, the receipt and the
+         * driver's earnings all rebuild from the same card this trip was
+         * listed under.
+         */
+        bookingFeeRate: settings.get('RIDE_BOOKING_FEE_RATE'),
+        platformFeePesewas: settings.get('RIDE_PLATFORM_FEE_PESEWAS'),
+        commissionRate: settings.get('PLATFORM_COMMISSION'),
         // Validated above, so this is the driver's own number whenever they sent
         // one — no fall-through that changes it behind their back.
         maxSeats: availableSeats != null ? Number(availableSeats) : vehicle.seaterCount,
@@ -255,8 +268,8 @@ async function createTrip(driverId, data) {
     doorstepPickup: trip.doorstepPickup,
     heavyLoad: trip.heavyLoad,
     surgeMultiplier: trip.surgeMultiplier,
-    storedBaseFarePesewas: trip.baseFarePesewas,
-    storedPerKmRatePesewas: trip.perKmRatePesewas,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(trip),
     availableSeats: trip.maxSeats,
   });
   trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
@@ -385,8 +398,8 @@ async function getTrip(id, viewerUserId = null) {
       doorstepPickup: trip.doorstepPickup,
       heavyLoad: trip.heavyLoad,
       surgeMultiplier: trip.surgeMultiplier,
-      storedBaseFarePesewas: trip.baseFarePesewas,
-      storedPerKmRatePesewas: trip.perKmRatePesewas,
+      // The WHOLE price lock, fees included — see pinnedRatesFor.
+      ...pinnedRatesFor(trip),
     });
     trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
     trip.fare = fareInfo.farePerPersonPesewas; // kept for backwards-compat with older clients
@@ -486,8 +499,8 @@ async function getTripByShareToken(shareToken) {
     doorstepPickup: group.trip.doorstepPickup,
     heavyLoad: group.trip.heavyLoad,
     surgeMultiplier: group.trip.surgeMultiplier,
-    storedBaseFarePesewas: group.trip.baseFarePesewas,
-    storedPerKmRatePesewas: group.trip.perKmRatePesewas,
+    // The WHOLE price lock, fees included — see pinnedRatesFor.
+    ...pinnedRatesFor(group.trip),
     availableSeats: group.trip.maxSeats,
   });
 
@@ -750,8 +763,8 @@ async function searchTrips(query) {
       doorstepPickup: trip.doorstepPickup,
       heavyLoad: trip.heavyLoad,
       surgeMultiplier: trip.surgeMultiplier,
-      storedBaseFarePesewas: trip.baseFarePesewas,
-      storedPerKmRatePesewas: trip.perKmRatePesewas,
+      // The WHOLE price lock, fees included — see pinnedRatesFor.
+      ...pinnedRatesFor(trip),
       availableSeats: trip.maxSeats,
     });
     trip.farePerSeatPesewas = fareInfo.farePerPersonPesewas;
@@ -1667,6 +1680,11 @@ async function getScheduledRides(userId) {
           maxSeats: true,
           baseFarePesewas: true,
           perKmRatePesewas: true,
+          // The fee half of the lock. Omitting these does not fail — it silently
+          // falls back to the live setting, which is the bug the pin exists to end.
+          bookingFeeRate: true,
+          platformFeePesewas: true,
+          commissionRate: true,
           surgeMultiplier: true,
           doorstepPickup: true,
           heavyLoad: true,
@@ -1688,8 +1706,8 @@ async function getScheduledRides(userId) {
       doorstepPickup: t.doorstepPickup,
       heavyLoad: t.heavyLoad,
       surgeMultiplier: t.surgeMultiplier,
-      storedBaseFarePesewas: t.baseFarePesewas,
-      storedPerKmRatePesewas: t.perKmRatePesewas,
+      // The WHOLE price lock, fees included — see pinnedRatesFor.
+      ...pinnedRatesFor(t),
     });
     const vehicle = t.driver?.vehicles?.[0];
     return [t.id, {
@@ -1769,8 +1787,8 @@ async function processScheduledRideIntents() {
           tier: candidateTrip.tier,
           distanceKm: intent.route.distanceKm,
           seatCount: candidateTrip.maxSeats,
-          storedBaseFarePesewas: candidateTrip.baseFarePesewas,
-          storedPerKmRatePesewas: candidateTrip.perKmRatePesewas,
+          // The WHOLE price lock, fees included — see pinnedRatesFor.
+          ...pinnedRatesFor(candidateTrip),
           surgeMultiplier: candidateTrip.surgeMultiplier,
         });
 

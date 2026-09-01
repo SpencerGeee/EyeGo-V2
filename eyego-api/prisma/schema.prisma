@@ -499,8 +499,27 @@ model Trip {
   cancelledAt     DateTime?
   cancelledBy     TripEventActor?
   cancellationReason String?
+  // ── THE PRICE LOCK ────────────────────────────────────────────────────────
+  //
+  // Everything a fare is rebuilt from, pinned at the moment the trip was
+  // created. A live trip cannot be repriced by an operator retuning the card
+  // mid-ride, and — the part that was missing — cannot be repriced by one
+  // retuning the FEES either.
+  //
+  // The first two have always been here. The two below them were read live
+  // from PlatformSetting at every calculation, so changing a fee silently
+  // repriced every trip already in flight. The blast radius is bigger than the
+  // trip itself: any path that RE-derives a fare (a receipt, a dispute, an
+  // earnings breakdown) would then disagree with the ledger row that was
+  // actually charged, and neither number is obviously the wrong one.
+  //
+  // Nullable because rows written before this migration have no pin. A null
+  // means "fall back to the live setting", which is exactly what those trips
+  // were already doing — see `pinnedRatesFor` in fare.calculator.js.
   baseFarePesewas  Int
   perKmRatePesewas Int
+  bookingFeeRate       Float?
+  platformFeePesewas   Int?
   // Dimensionless multipliers/ratios stay Float — they are not money and
   // rounding them to the pesewa would be wrong.
   surgeMultiplier Float      @default(1.0)

@@ -168,26 +168,102 @@ describe('fare: the numbers the rider and the driver see must agree', () => {
   });
 
   /**
-   * KNOWN GAP — not a passing test, and deliberately not deleted.
+   * WAS A KNOWN GAP — the half-guarded price lock, now closed.
    *
-   * `storedBaseFarePesewas` and `storedPerKmRatePesewas` are the only two
-   * values a stored quote can pin. `RIDE_BOOKING_FEE_RATE`,
-   * `RIDE_PLATFORM_FEE_PESEWAS` and `PLATFORM_COMMISSION` are all read live
-   * through `cfg()` at calculation time (fare.calculator.js:206-218), so an
-   * operator changing a fee in the console changes the total of a trip that was
-   * already quoted — which is the precise repricing the test above exists to
-   * prevent, left half-guarded.
+   * `storedBaseFarePesewas` and `storedPerKmRatePesewas` used to be the only
+   * two values a trip could pin. `RIDE_BOOKING_FEE_RATE`,
+   * `RIDE_PLATFORM_FEE_PESEWAS` and `PLATFORM_COMMISSION` were read live
+   * through `cfg()` on every calculation, so an operator changing a fee in the
+   * console changed the total of a trip that had already been quoted, booked
+   * and accepted — the precise repricing the test above exists to prevent.
    *
-   * The blast radius today is small: the quote is TTL'd and the fare is written
-   * onto the booking, so the rider is charged what they were shown. It bites on
-   * any path that RE-derives a fare — a receipt, a dispute, a driver's earnings
-   * breakdown — which can then disagree with the ledger.
-   *
-   * The fix is to store the fee rate and the flat fee on the quote alongside
-   * the two rates, which is a schema change plus every recalculation call site.
-   * Sized, not done, and not worth a rushed half-fix in money code.
+   * The blast radius was never the charge itself (the quote is TTL'd and the
+   * fare is written onto the booking). It was every path that RE-derives a
+   * fare — a receipt, a dispute, a driver's earnings breakdown — each of which
+   * would then disagree with the ledger row, with nothing to say which was
+   * right.
    */
-  test.todo('a stored quote should pin the fee rates too, not just base and per-km');
+  test('a pinned trip keeps its fees when the operator retunes them', () => {
+    const pinned = {
+      storedBaseFarePesewas: 100_00,
+      storedPerKmRatePesewas: 10_00,
+      storedBookingFeeRate: 0.05,
+      storedPlatformFeePesewas: 200,
+      storedCommissionRate: 0.15,
+    };
+    const args = { tier: 'ECO', distanceKm: 10, seatCount: 1, ...pinned };
+
+    const fare = calculateFare(args);
+    // Ride is 10000 + 1000×10 = 20000. The fees come from the PIN, not config.
+    expect(fare.bookingFeePesewas).toBe(1000); // 5% of 20000
+    expect(fare.platformFeePesewas).toBe(200);
+    expect(fare.farePerPersonPesewas).toBe(20000 + 1000 + 200);
+    expect(fare.commissionPerSeatPesewas).toBe(3000); // 15% of the ride only
+
+    // Now the operator doubles every fee. The pinned trip must not move.
+    const doubled = calculateFare({
+      ...args,
+      storedBookingFeeRate: 0.05,
+      storedPlatformFeePesewas: 200,
+      storedCommissionRate: 0.15,
+    });
+    expect(doubled.farePerPersonPesewas).toBe(fare.farePerPersonPesewas);
+
+    // And a DIFFERENT pin gives a different total — proving the pin is what is
+    // being read, rather than the config happening to match it.
+    const other = calculateFare({ ...args, storedBookingFeeRate: 0.10, storedPlatformFeePesewas: 500 });
+    expect(other.farePerPersonPesewas).toBe(20000 + 2000 + 500);
+    expect(other.farePerPersonPesewas).not.toBe(fare.farePerPersonPesewas);
+  });
+
+  test('the echoed rates are the ones that were applied, not a second live read', () => {
+    // `commissionRate` is written onto the trip and later used to split the
+    // ledger. If the calculator echoed the live setting while charging the pin,
+    // the two halves would be computed from different rates and the ledger
+    // would stop balancing.
+    const fare = calculateFare({
+      tier: 'ECO', distanceKm: 10, seatCount: 1,
+      storedBaseFarePesewas: 100_00, storedPerKmRatePesewas: 10_00,
+      storedBookingFeeRate: 0.07, storedPlatformFeePesewas: 300, storedCommissionRate: 0.22,
+    });
+    expect(fare.commissionRate).toBe(0.22);
+    expect(fare.bookingFeeRate).toBe(0.07);
+    expect(fare.platformFeePesewas).toBe(300);
+    expect(fare.commissionPerSeatPesewas).toBe(Math.round(20000 * 0.22));
+    expect(fare.commissionPerSeatPesewas + fare.driverEarningsPerSeatPesewas).toBe(20000);
+  });
+
+  test('an unpinned trip still falls back to the live setting', () => {
+    // Every row written before the migration has null pins, and must price
+    // exactly as it did before — a null pin is "no pin", never "fee of zero".
+    const unpinned = calculateFare({ tier: 'ECO', distanceKm: 10, seatCount: 1 });
+    expect(unpinned.platformFeePesewas).toBeGreaterThan(0);
+    expect(unpinned.farePerPersonPesewas).toBe(
+      unpinned.ridePesewas + unpinned.bookingFeePesewas + unpinned.platformFeePesewas,
+    );
+  });
+
+  test('pinnedRatesFor lifts every locked column off a trip row', () => {
+    // The lock is only worth anything if callers apply ALL of it. It is one
+    // function precisely so that adding a pinned rate cannot be forgotten at
+    // one of the thirteen call sites — which is how the fees came to be
+    // missing in the first place.
+    const { pinnedRatesFor } = require('../src/modules/trips/fare.calculator');
+    const trip = {
+      baseFarePesewas: 1, perKmRatePesewas: 2,
+      bookingFeeRate: 0.03, platformFeePesewas: 4, commissionRate: 0.05,
+    };
+    expect(pinnedRatesFor(trip)).toEqual({
+      storedBaseFarePesewas: 1,
+      storedPerKmRatePesewas: 2,
+      storedBookingFeeRate: 0.03,
+      storedPlatformFeePesewas: 4,
+      storedCommissionRate: 0.05,
+    });
+    // A missing trip must not throw — some call sites price before a trip row
+    // exists at all.
+    expect(pinnedRatesFor(null)).toEqual({});
+  });
 
   test('a nonsense distance is refused rather than priced', () => {
     expect(() => calculateFare({ tier: 'ECO', distanceKm: NaN, seatCount: 1 })).toThrow();

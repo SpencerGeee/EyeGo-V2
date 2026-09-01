@@ -131,6 +131,21 @@ function calculateFare({
    */
   storedBaseFarePesewas,
   storedPerKmRatePesewas,
+  /**
+   * …AND THE FEES, which the lock used to leave out.
+   *
+   * The start fare and the per-km rate were pinned; `RIDE_BOOKING_FEE_RATE`,
+   * `RIDE_PLATFORM_FEE_PESEWAS` and `PLATFORM_COMMISSION` were read live on
+   * every call. So an operator adjusting a fee repriced trips that were already
+   * quoted, booked and being driven — the exact repricing the two parameters
+   * above exist to prevent, half-guarded.
+   *
+   * Null means "no pin recorded", which is true of every row written before the
+   * migration, and falls back to the live setting as it always did.
+   */
+  storedBookingFeeRate,
+  storedPlatformFeePesewas,
+  storedCommissionRate,
 }) {
   if (!Number.isFinite(distanceKm) || distanceKm < 0) {
     throw new Error(`distanceKm must be a non-negative number, got ${distanceKm}`);
@@ -203,9 +218,10 @@ function calculateFare({
   // Fees are per BOOKING, exactly as on-demand: each rider is buying their own
   // seat, so each pays the booking percentage on their own share and the flat
   // platform fee once.
-  const bookingFeeRate = cfg('RIDE_BOOKING_FEE_RATE');
+  const bookingFeeRate = storedBookingFeeRate != null ? storedBookingFeeRate : cfg('RIDE_BOOKING_FEE_RATE');
   const bookingFeePesewas = percentOf(ridePerSeatPesewas, bookingFeeRate);
-  const platformFeePesewas = cfg('RIDE_PLATFORM_FEE_PESEWAS');
+  const platformFeePesewas =
+    storedPlatformFeePesewas != null ? storedPlatformFeePesewas : cfg('RIDE_PLATFORM_FEE_PESEWAS');
   assertPesewas(platformFeePesewas, 'platformFeePesewas');
 
   const finalFare = ridePerSeatPesewas + bookingFeePesewas + platformFeePesewas;
@@ -215,7 +231,9 @@ function calculateFare({
   // can leave the two halves failing to add back up, which is precisely how a
   // ledger stops balancing. The fees are the platform's own revenue and are not
   // commissioned again.
-  const commissionPerSeatPesewas = percentOf(ridePerSeatPesewas, cfg('PLATFORM_COMMISSION'));
+  const commissionRate =
+    storedCommissionRate != null ? storedCommissionRate : cfg('PLATFORM_COMMISSION');
+  const commissionPerSeatPesewas = percentOf(ridePerSeatPesewas, commissionRate);
 
   return {
     // Re-derived from the per-seat fare so the total shown to the driver is
@@ -249,8 +267,10 @@ function calculateFare({
     baseFarePesewas: startPesewas,
     perKmRatePesewas: perKmPesewas,
     surgeMultiplier,
-    commissionRate: cfg('PLATFORM_COMMISSION'),
+    commissionRate,
     minFarePerSeatPesewas: groupMinPerSeatPesewas,
+    bookingFeeRate,
+    platformFeePesewas,
     surchargePerSeatPesewas: Math.round((doorstepSurcharge + heavyLoadSurcharge) / seats),
     doorstepSurchargePesewas: doorstepSurcharge,
     doorstepDetourKm: Number.isFinite(doorstepDetourKm) ? doorstepDetourKm : null,
@@ -334,13 +354,19 @@ function calculateRideFare({
   doorstepDetourKm = null,
   heavyLoad = false,
   surgeMultiplier = 1.0,
+  /** See `calculateFare`'s price-lock note. Same fields, same fallback. */
+  storedBaseFarePesewas,
+  storedPerKmRatePesewas,
+  storedBookingFeeRate,
+  storedPlatformFeePesewas,
+  storedCommissionRate,
 }) {
   if (!Number.isFinite(distanceKm) || distanceKm < 0) {
     throw new Error(`distanceKm must be a non-negative number, got ${distanceKm}`);
   }
   const card = RIDE_CARD[normalizeTier(tier)];
-  const startPesewas = cfg(card.start);
-  const perKmPesewas = cfg(card.perKm);
+  const startPesewas = storedBaseFarePesewas != null ? storedBaseFarePesewas : cfg(card.start);
+  const perKmPesewas = storedPerKmRatePesewas != null ? storedPerKmRatePesewas : cfg(card.perKm);
   const perMinPesewas = cfg(card.perMin);
   const waitPerMinPesewas = cfg(card.waitPerMin);
   const minFarePesewas = cfg(card.min);
@@ -377,15 +403,18 @@ function calculateRideFare({
   const ridePesewas =
     flooredRidePesewas + doorstepSurchargePesewas + heavyLoadSurchargePesewas;
 
-  const bookingFeeRate = cfg('RIDE_BOOKING_FEE_RATE');
+  const bookingFeeRate = storedBookingFeeRate != null ? storedBookingFeeRate : cfg('RIDE_BOOKING_FEE_RATE');
   const bookingFeePesewas = percentOf(ridePesewas, bookingFeeRate);
-  const platformFeePesewas = cfg('RIDE_PLATFORM_FEE_PESEWAS');
+  const platformFeePesewas =
+    storedPlatformFeePesewas != null ? storedPlatformFeePesewas : cfg('RIDE_PLATFORM_FEE_PESEWAS');
   assertPesewas(platformFeePesewas, 'platformFeePesewas');
 
   const totalPesewas = ridePesewas + bookingFeePesewas + platformFeePesewas;
 
   // Commission comes off the RIDE only — see the header note.
-  const commissionPesewas = percentOf(ridePesewas, cfg('PLATFORM_COMMISSION'));
+  const commissionRate =
+    storedCommissionRate != null ? storedCommissionRate : cfg('PLATFORM_COMMISSION');
+  const commissionPesewas = percentOf(ridePesewas, commissionRate);
 
   return {
     // ── The two numbers every caller actually uses ──────────────────────────
@@ -419,7 +448,7 @@ function calculateRideFare({
     waitMin: Math.round(waiting * 10) / 10,
     seatCount: 1,
     surgeMultiplier,
-    commissionRate: cfg('PLATFORM_COMMISSION'),
+    commissionRate,
     // Kept so rows written from this result still populate the columns the
     // shared-trip path fills. `perKmRatePesewas` is the on-demand per-km rate,
     // which is what a receipt for THIS ride should quote.
@@ -511,7 +540,38 @@ function calculateDeviationSurcharge({
   return Math.round((extraKm - freeKm) * perKmRatePesewas);
 }
 
+/**
+ * EVERY PINNED RATE ON A TRIP, IN ONE SPREAD.
+ *
+ * The price lock is only worth anything if every caller applies ALL of it, and
+ * before this existed each call site listed the pinned fields by hand. Thirteen
+ * of them listed the two that existed and none listed the fees, which is how a
+ * half-lock survived: adding a field to the lock meant remembering thirteen
+ * places, and nothing failed if you forgot one — the fare just quietly used the
+ * live setting instead.
+ *
+ * So the lock is one function now. Adding a pinned rate means changing this and
+ * the calculator, and every caller gets it.
+ *
+ *   calculateFare({ tier, distanceKm, seatCount, ...pinnedRatesFor(trip) })
+ *
+ * Undefined fields fall through to the live setting, which is the correct
+ * behaviour for a trip row written before the migration and for a quote that
+ * has no trip yet.
+ */
+function pinnedRatesFor(trip) {
+  if (!trip) return {};
+  return {
+    storedBaseFarePesewas: trip.baseFarePesewas,
+    storedPerKmRatePesewas: trip.perKmRatePesewas,
+    storedBookingFeeRate: trip.bookingFeeRate,
+    storedPlatformFeePesewas: trip.platformFeePesewas,
+    storedCommissionRate: trip.commissionRate,
+  };
+}
+
 module.exports = {
+  pinnedRatesFor,
   calculateFare,
   calculateRideFare,
   estimateFare,
