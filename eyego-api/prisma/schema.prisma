@@ -302,6 +302,30 @@ model Driver {
   /// next one. Read by driver-availability.js, which is the ONLY eligibility
   /// source (see the note at the top of that file).
   requestsPaused  Boolean      @default(false)
+
+  // ── FRAUD SIGNALS ─────────────────────────────────────────────────────────
+  //
+  // The driver app has detected mock GPS providers since it was written, and
+  // did nothing with the answer: `isMocked` was local component state, so the
+  // spoofing driver's phone knew and the platform did not. These carry it to
+  // where it can be acted on.
+  //
+  // Not proof of anything on its own. A patched client can simply decline to
+  // report, so this catches the casual case — someone who installed a
+  // location-spoofing app from a store — and gives ops a signal to look at,
+  // rather than being a wall.
+  /// Last time this driver's device reported the OS mock-location provider on.
+  mockLocationAt  DateTime?
+  /// Running count of location updates that arrived flagged as mocked.
+  mockLocationHits Int         @default(0)
+
+  /// Withdrawals refused while set. An operator's hold for a suspected-fraud
+  /// investigation — deliberately separate from `status`, because suspending an
+  /// account stops them earning while a payout hold lets a driver keep working
+  /// while their money is looked at.
+  payoutHold      Boolean      @default(false)
+  payoutHoldReason String?
+
   currentLat      Float?
   currentLng      Float?
   currentHeading  Float?

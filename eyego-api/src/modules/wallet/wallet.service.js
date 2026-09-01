@@ -161,8 +161,33 @@ async function withdraw(driverId, amountPesewas) {
   // inside a DB transaction hold locks and can leave the DB in an inconsistent state
   // if the network call hangs or fails partway through.
   const driver = await prisma.$transaction(async (tx) => {
-    const current = await tx.driver.findUnique({ where: { id: driverId }, select: { walletBalancePesewas: true, name: true, phone: true } });
+    const current = await tx.driver.findUnique({
+      where: { id: driverId },
+      select: { walletBalancePesewas: true, name: true, phone: true, payoutHold: true, payoutHoldReason: true },
+    });
     if (!current) throw new NotFoundError('Driver');
+
+    /**
+     * An operator's hold, checked INSIDE the transaction alongside the balance.
+     *
+     * Outside it, a hold applied between the read and the debit would be
+     * ignored by a withdrawal already in flight — which is precisely the moment
+     * a hold is most likely to be applied.
+     *
+     * Separate from suspending the account on purpose: suspension stops a
+     * driver earning, while this lets them keep working and keep accruing while
+     * the money in question is investigated. The reason is surfaced so they are
+     * not left guessing.
+     */
+    if (current.payoutHold) {
+      throw new AppError(
+        current.payoutHoldReason
+          ? `Withdrawals are paused on your account: ${current.payoutHoldReason}. Contact support.`
+          : 'Withdrawals are paused on your account while we review it. Contact support.',
+        403,
+        'PAYOUT_ON_HOLD',
+      );
+    }
 
     const updated = await tx.driver.updateMany({
       where: { id: driverId, walletBalancePesewas: { gte: safeAmount } },

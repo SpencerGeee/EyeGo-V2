@@ -470,6 +470,29 @@ async function goOnline(driverId, lat, lng) {
      * has run out, and says which. A driver with no dates on file is unaffected.
      */
     await require('../../services/driver-documents.service').assertDocumentsCurrent(driverId);
+
+    /**
+     * A device that has been reporting a mock GPS provider.
+     *
+     * Deliberately a THRESHOLD and not the first sighting. Some Android devices
+     * report a mock provider for benign reasons — a developer build, a
+     * navigation app that registers as one — and refusing on a single frame
+     * would strand honest drivers with an error they cannot act on. A driver
+     * whose device has reported it repeatedly is a different proposition.
+     *
+     * This is the enforcement point rather than the socket handler, for the
+     * same reason document expiry is: going online is the moment the driver is
+     * present and can do something. Silently withholding offers from someone
+     * who believes they are online is the same outcome delivered as a mystery.
+     */
+    const MOCK_LOCATION_LIMIT = 5;
+    if ((driver.mockLocationHits ?? 0) >= MOCK_LOCATION_LIMIT) {
+      throw new AppError(
+        'Your device is reporting a simulated location. Turn off any mock-location or GPS-spoofing app, then try again. If you believe this is wrong, contact support.',
+        403,
+        'MOCK_LOCATION_DETECTED',
+      );
+    }
   }
 
   if (driver.walletBalancePesewas < 0) {

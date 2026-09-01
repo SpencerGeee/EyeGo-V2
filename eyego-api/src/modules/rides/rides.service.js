@@ -707,6 +707,41 @@ async function acceptRide(driverId, tripId) {
   }
 
   /**
+   * NOBODY DRIVES THEMSELVES.
+   *
+   * A driver whose own phone number is also a rider account could request a
+   * ride and accept it, producing a completed trip with a real fare, a real
+   * commission line and a real earnings credit — from nothing. It is the
+   * cheapest fraud available against a ride-hailing platform and it needs no
+   * tooling at all: two apps, one person, one SIM.
+   *
+   * Matched on phone number rather than on an id, because Driver and User are
+   * separate identities here with no foreign key between them — the phone is
+   * the only thing that links the same human across both tables.
+   *
+   * Checked at accept rather than at dispatch so it also catches a self-request
+   * claimed off the open Dispatch board, which never went through an offer.
+   */
+  const [driverRow, trip] = await Promise.all([
+    prisma.driver.findUnique({ where: { id: driverId }, select: { phone: true } }),
+    prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { requester: { select: { phone: true } } },
+    }),
+  ]);
+
+  const driverPhone = driverRow?.phone?.trim();
+  const riderPhone = trip?.requester?.phone?.trim();
+  if (driverPhone && riderPhone && driverPhone === riderPhone) {
+    logger.warn(`[fraud] driver ${driverId} tried to accept their own ride request ${tripId}`);
+    throw new AppError(
+      'You cannot accept a ride you requested yourself.',
+      403,
+      'SELF_RIDE_REFUSED',
+    );
+  }
+
+  /**
    * A RIDE NOBODY IS HOLDING IS TAKEABLE BY ANYONE WHO CAN SEE IT.
    *
    * BUGFIX (item 1: "I'm the only driver available but now it's saying it's in

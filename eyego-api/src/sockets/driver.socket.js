@@ -291,13 +291,39 @@ module.exports = function registerDriverSocket(io, driverNamespace) {
     }
 
     // ── Location update (fires every ~3s from app) ──────────
-    socket.on('driver:location_update', async ({ lat, lng, heading = 0, speed = 0 }) => {
+    socket.on('driver:location_update', async ({ lat, lng, heading = 0, speed = 0, mocked = false }) => {
       if (!lat || !lng) return;
 
       // Per-socket throttle: max one location update per 2s
       const now = Date.now();
       if (socket._lastLocationUpdate && now - socket._lastLocationUpdate < 2000) return;
       socket._lastLocationUpdate = now;
+
+      /**
+       * The device says its OS mock-location provider is on.
+       *
+       * The driver app has detected this since it was written and kept the
+       * answer to itself — `isMocked` was local component state, so the phone
+       * being spoofed knew and the platform did not.
+       *
+       * Recorded, NOT enforced here. Two reasons. A patched client can simply
+       * stop sending the flag, so treating it as proof would be security
+       * theatre; and some Android devices report mock providers for benign
+       * reasons, so auto-suspending on one frame would strand honest drivers.
+       * `goOnline` is where it bites, and an operator sees the count.
+       *
+       * Fire-and-forget: a location frame must never wait on this write.
+       */
+      if (mocked === true) {
+        prisma.driver
+          .update({
+            where: { id: driverId },
+            data: { mockLocationAt: new Date(), mockLocationHits: { increment: 1 } },
+          })
+          .catch((err) =>
+            logger.warn(`[DriverSocket] could not record mock-location flag for ${driverId}: ${err.message}`),
+          );
+      }
 
       // Validate coordinates are in Ghana (controlled by GEO_VALIDATION_ENABLED env var).
       // BUGFIX: Previously used NODE_ENV !== 'development' which meant any staging/preview

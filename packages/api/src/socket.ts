@@ -625,7 +625,15 @@ export function disconnectDriverSocket() {
 }
 
 export const driverSocketEvents = {
-  emitLocation: (data: { lat: number; lng: number; heading?: number; speed?: number }) => {
+  /**
+   * A location frame. `mocked` reports the device's OS mock-location provider.
+   *
+   * The driver app has detected this for a long time and kept the answer to
+   * itself, so a spoofed phone knew and the platform did not. It is a signal,
+   * not proof — a patched client can stop sending it — and the server records
+   * rather than enforces on it.
+   */
+  emitLocation: (data: { lat: number; lng: number; heading?: number; speed?: number; mocked?: boolean }) => {
     getDriverSocket().emit('driver:location_update', data);
   },
 

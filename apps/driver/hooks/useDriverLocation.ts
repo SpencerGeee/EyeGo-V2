@@ -32,6 +32,21 @@ const MAX_LAST_KNOWN_AGE_MS = 5 * 60 * 1000;
 // app for a location update, so this can't live inside the hook body.
 export const DRIVER_LOCATION_TASK = 'EYEGO_DRIVER_LOCATION_TASK';
 
+/**
+ * Does this device have an OS mock-location provider switched on?
+ *
+ * Module scope rather than component state, and that is the point. The app has
+ * detected mock providers for a long time and kept the answer to itself —
+ * `isMocked` was a `useState` inside this hook, so the phone being spoofed knew
+ * and the platform did not. Every location frame now carries it, including the
+ * ones the background task emits from a headless JS instance where no component
+ * state exists.
+ *
+ * A signal, not proof: a patched client can stop sending it. It catches the
+ * casual case and gives an operator something to look at.
+ */
+let mockedProvider = false;
+
 if (!TaskManager.isTaskDefined(DRIVER_LOCATION_TASK)) {
   TaskManager.defineTask(DRIVER_LOCATION_TASK, async ({ data, error }: any) => {
     if (error) {
@@ -51,6 +66,10 @@ if (!TaskManager.isTaskDefined(DRIVER_LOCATION_TASK)) {
       lng: latest.coords.longitude,
       heading: latest.coords.heading ?? 0,
       speed: latest.coords.speed ?? 0,
+      // Module scope, not the component's ref: the OS re-invokes this task from
+      // a headless JS instance where no component state exists. See
+      // `mockedProvider` for why the flag is reported at all.
+      mocked: mockedProvider,
     };
     lastReportedFix = fix;
     try {
@@ -132,7 +151,7 @@ const HEARTBEAT_MS = 25_000;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let heartbeatRefs = 0;
 /** The most recent fix from any instance — what the heartbeat re-sends. */
-let lastReportedFix: { lat: number; lng: number; heading: number; speed: number } | null = null;
+let lastReportedFix: { lat: number; lng: number; heading: number; speed: number; mocked?: boolean } | null = null;
 
 /**
  * THE HTTP HALF OF THE HEARTBEAT.
@@ -344,6 +363,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       lng: pos.coords.longitude,
       heading: reportedHeading,
       speed: pos.coords.speed ?? 0,
+      mocked: mockedProvider,
     };
     // Held for the heartbeat and the socket's reconnect re-emit — see above.
     lastReportedFix = fix;
@@ -469,6 +489,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
         const { areMockProvidersEnabled } = await (Location as any).getMockProviderStatusAsync?.() ?? {};
         if (areMockProvidersEnabled) {
           osMockRef.current = true;
+          mockedProvider = true;
           setIsMocked(true);
           console.warn('[DriverLocation] Mock GPS provider detected');
         }
