@@ -42,13 +42,17 @@ export { paymentsApi } from './payments.api';
 export { getSocket, connectSocket, disconnectSocket, forceDisconnectSocket, socketEvents, configureSocket, refreshSocketAuth, refreshDriverSocketAuth } from './socket';
 export { notificationsApi } from './notifications.api';
 export type { Notification as AppNotification } from './notifications.api';
-// NOT exported: `routesApi` in ./routes.api.
+// DELETED: `routesApi` (./routes.api) and `eyego-api/src/modules/routes/`.
 //
-// It calls `GET /v1/routes`, and `routes.routes.js` is deliberately not mounted
-// (see the note at the top of eyego-api/src/app.js) — the group/on-demand pivot
-// retired fixed, admin-curated routes in favour of ad-hoc `Route` rows created
-// behind a map pin. Every call in that module 404s. It stays on disk because the
-// fixed-route product may come back; exporting it only offers callers a trap.
+// It called `GET /v1/routes`, which was never mounted — the group/on-demand
+// pivot retired fixed, admin-curated routes in favour of ad-hoc `Route` rows
+// created behind a map pin, so every call in it 404'd. It was kept on disk in
+// case the fixed-route product returned, unexported so nobody could reach the
+// trap.
+//
+// Now removed. Unmounted, unexported, unreachable code is not a spare part: it
+// is an untested surface that a future reader has to be warned about, and the
+// warning was longer than the module. `git log` has it if it is ever wanted.
 export { configApi, PLATFORM_CONFIG_FALLBACK, CLIENT_GATE_FALLBACK } from './config.api';
 export type { PlatformConfig, PlatformTier, ClientGate } from './config.api';
 export { driverApi, MOMO_NETWORKS, VEHICLE_TIERS, MIN_SEATER_COUNT, MAX_SEATER_COUNT } from './drivers.api';

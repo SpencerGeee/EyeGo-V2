@@ -22,9 +22,11 @@ const logger = require('./utils/logger');
 const authenticateAdmin = require('./middleware/adminAuth');
 const authRoutes = require('./modules/auth/auth.routes');
 const usersRoutes = require('./modules/users/users.routes');
-// NOTE: client-facing route-discovery API (/v1/routes) removed in the
-// group/on-demand pivot. Routes are now an internal-only concept (trips reuse
-// the Prisma Route model as ad-hoc rows). Do NOT re-mount routes.routes here.
+// NOTE: the client-facing route-discovery API (/v1/routes) was removed in the
+// group/on-demand pivot. Routes are now an internal-only concept — trips reuse
+// the Prisma `Route` model as ad-hoc rows. The unmounted module that used to
+// serve it has been deleted along with its client twin; `git log` has both if
+// the fixed-route product ever returns.
 const tripsRoutes = require('./modules/trips/trips.routes');
 // On-demand rides — the single canonical dispatch path. `trips` remains for
 // the group/bus product; lifecycle for BOTH lives on Trip.status either way.
