@@ -2,13 +2,18 @@
 
 ## Where things stand
 
-The audit is complete and **Groups 1, 2, 5, 6 and 7 are done and committed.**
-Group 3 turned out to be mostly already built; Group 4 is half done. Nothing is
-device-tested — that is the user's next step.
+The audit is complete and **Groups 1, 2, 4, 5, 6 and 7 are done and committed.**
+Group 3 turned out to be mostly already built. What remains is Group 6's two
+large items — telemetry and Zod at the boundary — plus e2e suites for the new
+work. Nothing is device-tested; that is the next step.
 
 Plan, findings and the ranked backlog:
 `docs/superpowers/plans/2026-08-31-production-readiness.md`
 
+    eaaba1d  fix: the lost-item queue that could never receive a lost item
+    6ca158a  feat: the spoofing detector that only told the phone
+    ea95f76  docs: record the admin build blocker, and where the run got to
+    3a0a9c2  test: the suite that was not failing, because it was not running
     f21908a  chore: delete the module whose comment was longer than the code
     67edb27  ops: backups that get restored, TLS that renews itself, go-live pack
     0c0a959  feat: paperwork that expires, and a gate that notices
@@ -21,8 +26,6 @@ Plan, findings and the ranked backlog:
 
 | Item | Why |
 |---|---|
-| Fraud basics (backlog 17) | Mock-location detection already exists in `useDriverLocation`. Self-ride refusal, cancel-abuse cooldowns and payout holds are not built. |
-| Lost & found (18) | Not started. Rides on the existing ticket system; ~1 day. |
 | Telemetry + `/metrics` + Grafana (22) | Not started. The health endpoints and the log are the whole observability story today. |
 | Sentry in admin (11) | Needs `npm i @sentry/nextjs`. Deliberately not added to `package.json` without an install — it would break `next build`. |
 | E2E suites for the new features (23) | The 340-check harness has NOT been re-run this session. New work is covered by jest and by a live-DB probe, not by the harness. |
