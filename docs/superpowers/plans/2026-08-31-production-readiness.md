@@ -353,6 +353,17 @@ everything here ships before handover.
 
 28. All ten documents in `docs/go-live/` (§2.7)
 
+### Batch 4 — found while executing (2026-09-01)
+
+Things the audit did not find, discovered by doing the work.
+
+| id | severity | finding |
+|----|----------|---------|
+| E1 | high | **`npm test` had not run in a long time.** `__tests__/setup.js` never loaded `.env`, so the first suite to reach `config/redis` — which is most of them, transitively — hit `process.exit(1)` and killed the worker before jest printed a summary. The suite did not fail; it *vanished*, which is why nothing noticed. `state.md`'s verification list does not mention jest at all, which is the corroborating evidence. Fixed by loading dotenv in setup. |
+| E2 | medium | **A stored quote does not pin the fees.** `storedBaseFarePesewas` and `storedPerKmRatePesewas` are honoured, but `RIDE_BOOKING_FEE_RATE`, `RIDE_PLATFORM_FEE_PESEWAS` and `PLATFORM_COMMISSION` are read live at calculation time. An operator changing a fee reprices an already-quoted trip — the precise repricing the "a live trip cannot be repriced" test exists to prevent, left half-guarded. Small blast radius today (the quote is TTL'd and the fare is written onto the booking), but any path that RE-derives a fare — receipt, dispute, earnings breakdown — can disagree with the ledger. Recorded as `test.todo`; the fix is a schema change plus every recalculation call site and is not worth a rushed half-fix in money code. |
+| E3 | low | Two fare assertions in `money.pesewas.test.js` predated the booking and platform fees and compared the driver split against the rider's total. Both were correct when written. Corrected to assert the real invariant: commission + earnings = the ride, and ride + bookingFee + platformFee = what the rider pays. |
+| E4 | medium | **Nine integration suites assert stale Prisma call shapes.** `toHaveBeenCalledWith` against exact `select` objects, and mock transaction clients missing methods the code now calls (`tx.walletTransaction.findFirst is not a function` — the mock never learned about the idempotency guard that was added to `creditTopUp`). These are not product bugs: the code got more correct and the hand-written mocks did not follow. They need their own pass. |
+
 ## 4. Done bar
 
 All green, all re-runnable, against a **live local stack** (user brings up

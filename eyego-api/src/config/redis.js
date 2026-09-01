@@ -25,7 +25,9 @@ const logger = require('../utils/logger');
  * traffic without it, so a bad connection is a startup failure, loudly, rather
  * than a correctness failure, quietly.
  *
- * Local dev: `docker compose up -d` in eyego-api/.
+ * Local dev, from the repo root: `docker compose --env-file .env.docker up -d`.
+ * (There used to be a second compose file in eyego-api/ pinning postgres 16
+ * against the root file's 18. It has been deleted — one dev database.)
  */
 
 const REDIS_URL = process.env.REDIS_URL;
@@ -34,7 +36,8 @@ if (!REDIS_URL) {
   logger.error(
     'FATAL: REDIS_URL is not set. Redis holds dispatch state, the driver supply ' +
       'index, the Socket.IO adapter and the payment locks — the API cannot serve ' +
-      'traffic without it. Run `docker compose up -d` (eyego-api/) for local dev.',
+      'traffic without it. For local dev, from the REPO ROOT: ' +
+      '`docker compose --env-file .env.docker up -d`.',
   );
   process.exit(1);
 }

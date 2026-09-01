@@ -373,3 +373,14 @@ Decisions:
 - Mobile money is missing from both pay-in and payout; in Ghana that means most riders can only pay cash.
 Rejected: managed Postgres or AWS af-south-1 (reintroduces the cross-region hop for ~40ms); analytics SDKs in the apps; phase-gated sideloading (user tests once, at the end).
 Open: audit not yet run; no external accounts exist (Apple/Play/Paystack/domain/VPS), client buys last.
+
+## 2026-09-01 00:30 [saved]
+Goal: Execute the production-readiness backlog across rider, driver, admin, backend.
+Decisions:
+- `npm test` had silently not run for a long time: setup.js never loaded .env, so the first suite reaching config/redis called process.exit(1) and killed the worker before jest printed a summary — the suite vanished rather than failed.
+- Fare composition is `farePerPerson = ride + bookingFee + platformFee` with `commission + driverEarnings = ride`; no commission is taken from the fees. Two old assertions compared the driver split against the rider total.
+- A stored quote pins base and per-km only — fee rates and commission are read live, so changing a fee reprices an already-quoted trip. Recorded as test.todo, not half-fixed.
+- Driver is not a User row (own phone, no userId; `req.user.userId` on a driver token IS Driver.id), so consent columns exist on both tables.
+- Kept the destination-filter endpoints against the audit's own advice: destination-mode.service is required by dispatch-cascade, so the rule is live and only its client is missing.
+Rejected: MoMo work (already built end to end — the audit grepped free-text schema values and never reached the code); deleting driver-side "dead" endpoints without checking the service layer; rewriting the working document-review flow instead of adding an expiry table beside it.
+Open: 9 integration suites fail on stale Prisma mocks; e2e harness not re-run; fraud/lost-and-found/telemetry/Zod not started.

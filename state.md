@@ -1,74 +1,77 @@
-# State — production readiness run (2026-08-31)
+# State — production-readiness run (2026-09-01)
 
 ## Where things stand
 
-The previous quality pass is done and pushed (`a4353ca` and below). Nothing is
-device-tested.
+The audit is complete and **Groups 1, 2, 5, 6 and 7 are done and committed.**
+Group 3 turned out to be mostly already built; Group 4 is half done. Nothing is
+device-tested — that is the user's next step.
 
-Thirteen questions resolved the scope; the audit then ran. The contract and all
-findings live at:
+Plan, findings and the ranked backlog:
+`docs/superpowers/plans/2026-08-31-production-readiness.md`
 
-    docs/superpowers/plans/2026-08-31-production-readiness.md
+    f21908a  chore: delete the module whose comment was longer than the code
+    67edb27  ops: backups that get restored, TLS that renews itself, go-live pack
+    0c0a959  feat: paperwork that expires, and a gate that notices
+    49ed6cb  feat: a receipt that leaves the app, and the release gate under test
+    40fb543  feat: a driver for the app reviewer, and consent where drivers live
+    cf80e10  feat: a recall lever for shipped builds, and consent with a record
+    af9eedd  fix: a panic button that could fail silently, two emergency numbers
 
-**Audit complete** — three batches in §3, ranked into 28 items across 7 groups
-in §3b. No fixes applied yet. Next action is Group 1.
+## Not done — say so plainly
 
-## The frame, in one paragraph
+| Item | Why |
+|---|---|
+| Fraud basics (backlog 17) | Mock-location detection already exists in `useDriverLocation`. Self-ride refusal, cancel-abuse cooldowns and payout holds are not built. |
+| Lost & found (18) | Not started. Rides on the existing ticket system; ~1 day. |
+| Telemetry + `/metrics` + Grafana (22) | Not started. The health endpoints and the log are the whole observability story today. |
+| Sentry in admin (11) | Needs `npm i @sentry/nextjs`. Deliberately not added to `package.json` without an install — it would break `next build`. |
+| E2E suites for the new features (23) | The 340-check harness has NOT been re-run this session. New work is covered by jest and by a live-DB probe, not by the harness. |
+| Zod at the API boundary (24) | 356 `as any` remain. Big, and the right long-term answer. |
+| Driver earnings statement UI (14) | API wrapper added; the screen still derives its own totals. |
+| Destination filter / shifts / inspections UI | Server-side is live — `destination-mode.service` is used by the dispatch cascade — but no client sets them. **Do not delete these endpoints.** |
+| E2 — stored quotes do not pin fees | Real, recorded as `test.todo`. Money code; not worth a rushed fix. |
+| E4 — 9 integration suites | Stale mocks, not product bugs. Need their own pass. |
 
-Ship-safe launch, not Bolt parity. One continuous run — the user sideloads once
-at the end, not per phase. Production is a single Docker box with API, Postgres
-and Redis colocated. No external accounts exist yet (Apple, Play, Paystack live,
-domain, Firebase/APNs, VPS) and the client buys them last, so everything must be
-credential-pluggable and documented.
+## Verification, as it actually stands
 
-## Next action
+    tsc --noEmit    packages · rider · driver · admin      GREEN
+    prisma validate                                        GREEN
+    prisma migrate deploy                                  APPLIED (2 new)
+    prisma generate                                        DONE
+    API cold boot                                          /health 200 in ~8s
+    jest                                                   4 suites pass, 9 fail (E4)
+    scripts/e2e/run-all.mjs                                NOT RUN this session
 
-Execute §3b Group 1 (safety and correctness), then Groups 2–7 in order.
+**`npx` is broken here** — use `node node_modules/typescript/lib/tsc.js` and
+`node node_modules/prisma/build/index.js`.
 
-## What the audit concluded
+## The live stack right now
 
-The codebase is **mature, not half-built**. 286 server routes, 266 client call
-sites, and not one client call to a route that does not exist. Money paths hold
-under concurrency. Zero TODO markers. The gaps are things that were never
-started — mobile money, document expiry, reviewer mode, backups, telemetry —
-plus five genuine defects, of which one (A1, swallowed SOS dialer failures) is
-the only high-severity find in the app layer.
+Postgres and Redis are up in docker. The API is running on **:5020**, started
+detached by me — logs at
+`…/scratchpad/api2.log`. It was originally under `nodemon`; I stopped that to
+release the Prisma engine lock for `generate`. Restart it the normal way when
+convenient:
+
+    cd eyego-api && npm run dev
 
 ## ⚠ Before running the harness
 
-`node scripts/e2e/run-all.mjs` **re-seeds** the database. It was purged after
-the last run, so the board is clean.
+`node scripts/e2e/run-all.mjs` **re-seeds** the database. Purge afterwards:
 
-    node scripts/e2e/purge-test-data.mjs            # dry run
     node scripts/e2e/purge-test-data.mjs --confirm
 
-## Verification commands (unchanged)
+## Facts worth carrying forward
 
-- `node node_modules/typescript/lib/tsc.js --noEmit -p tsconfig.json`
-- `... -p apps/rider/tsconfig.json` · `... -p apps/driver/tsconfig.json`
-- `cd apps/admin && next build`
-- `node scripts/e2e/run-all.mjs` — needs the API and docker stack up
-- `node scripts/invariants.test.mjs`
-- **`npx` is broken here — always use the node path above.**
-
-## Facts established today (not in the plan doc)
-
-- `PaymentMethod` is CASH / CARD / WALLET only — no mobile money anywhere.
-- Driver documents are a JSON blob on `Driver.documentReview`: status only, no
-  expiry dates, no insurance, no roadworthiness, no enforcement.
-- Driver app has `lib/sentry.ts` but **no** `ErrorBoundary` component.
-- Admin has no Sentry at all.
-- Neither `app.json` has `ios.privacyManifests`; `eas.json` `submit.production`
-  is empty.
-- Rider dials `tel:112`, driver dials `tel:191` — two different emergency
-  numbers, neither configurable.
-- `apps/admin/lib/api.ts` falls back to an `x-admin-secret` header when
-  `EYEGO_ADMIN_LEGACY_SECRET` is set — a full bypass of the JWT path.
-- SOS is genuinely end-to-end (events, ack/release/resolve, alerting-health,
-  admin device push) — the old "reaches nobody" note is stale.
-- Already built, do not rebuild: idempotency, in-app receipts, cancellation
-  fees, promotions, support tickets, trip share links, user anonymisation,
-  driver deactivation, TOTP MFA + RBAC + audit log on admin.
-- Zero TODO/FIXME markers across all four codebases.
-- `eyego-api/docker-compose.yml` (pg16) contradicts the root
-  `docker-compose.yml` (pg18) — the api one is stale dev leftovers.
+- **Mobile money was already built, both directions.** The audit said otherwise
+  and that was the largest item in the agreed scope. Cancelled, not deferred.
+- **The driver app already had an ErrorBoundary** — inline in `_layout.tsx`. The
+  audit looked for a filename.
+- `Driver` is NOT a `User` row: it has its own `phone`/`name` and no `userId`.
+  `req.user.userId` on a driver token IS the `Driver.id`. Consent columns
+  therefore exist on both tables.
+- `Trip` uses `requesterId`, not `riderId`. `Booking` uses `fareAmountPesewas`.
+- Fare composition: `farePerPerson = ride + bookingFee + platformFee`, and
+  `commission + driverEarnings = ride`. No commission is taken from the fees.
+- The go-live pack is at `docs/go-live/` — ten documents, the legal ones marked
+  DRAFT for counsel.

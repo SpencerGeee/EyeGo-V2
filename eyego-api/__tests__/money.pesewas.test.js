@@ -109,10 +109,21 @@ describe('fare: the numbers the rider and the driver see must agree', () => {
       expect(Number.isInteger(f[key])).toBe(true);
     }
 
-    // The platform's cut and the driver's cut must add back to the fare
-    // EXACTLY. Rounding both sides independently is what leaves a ledger
-    // short by a pesewa per ride.
-    expect(f.commissionPerSeatPesewas + f.driverEarningsPerSeatPesewas).toBe(f.farePerPersonPesewas);
+    /**
+     * The platform's cut and the driver's cut must add back EXACTLY — rounding
+     * the two sides independently is what leaves a ledger short by a pesewa per
+     * ride.
+     *
+     * They add back to the RIDE, not to what the rider pays. This assertion used
+     * to compare against `farePerPersonPesewas` and was correct when it was
+     * written; the booking fee and the flat platform fee were added on top of
+     * the ride afterwards, and no commission is taken from either — they are
+     * platform revenue in full (see RIDE_BOOKING_FEE_RATE in config/settings.js).
+     * So the old form was off by exactly those two fees, and would have stayed
+     * red for as long as the fee model is right.
+     */
+    const ridePerSeat = f.commissionPerSeatPesewas + f.driverEarningsPerSeatPesewas;
+    expect(ridePerSeat + f.bookingFeePesewas + f.platformFeePesewas).toBe(f.farePerPersonPesewas);
 
     // What the driver is told the trip is worth is exactly seats × what each
     // rider pays — the two apps quoting different totals for one trip was a
@@ -143,10 +154,40 @@ describe('fare: the numbers the rider and the driver see must agree', () => {
       storedBaseFarePesewas: 100_00,
       storedPerKmRatePesewas: 10_00,
     });
-    // 10000 + 1000×10 = 20000 pesewas = GH₵200
-    expect(withStored.farePerPersonPesewas).toBe(20000);
+    // 10000 + 1000×10 = 20000 pesewas = GH₵200 for the RIDE.
     expect(withStored.baseFarePesewas).toBe(10000);
+    expect(
+      withStored.commissionPerSeatPesewas + withStored.driverEarningsPerSeatPesewas,
+    ).toBe(20000);
+
+    // And the total is that ride plus the two platform fees, which is the whole
+    // of what the rider pays.
+    expect(withStored.farePerPersonPesewas).toBe(
+      20000 + withStored.bookingFeePesewas + withStored.platformFeePesewas,
+    );
   });
+
+  /**
+   * KNOWN GAP — not a passing test, and deliberately not deleted.
+   *
+   * `storedBaseFarePesewas` and `storedPerKmRatePesewas` are the only two
+   * values a stored quote can pin. `RIDE_BOOKING_FEE_RATE`,
+   * `RIDE_PLATFORM_FEE_PESEWAS` and `PLATFORM_COMMISSION` are all read live
+   * through `cfg()` at calculation time (fare.calculator.js:206-218), so an
+   * operator changing a fee in the console changes the total of a trip that was
+   * already quoted — which is the precise repricing the test above exists to
+   * prevent, left half-guarded.
+   *
+   * The blast radius today is small: the quote is TTL'd and the fare is written
+   * onto the booking, so the rider is charged what they were shown. It bites on
+   * any path that RE-derives a fare — a receipt, a dispute, a driver's earnings
+   * breakdown — which can then disagree with the ledger.
+   *
+   * The fix is to store the fee rate and the flat fee on the quote alongside
+   * the two rates, which is a schema change plus every recalculation call site.
+   * Sized, not done, and not worth a rushed half-fix in money code.
+   */
+  test.todo('a stored quote should pin the fee rates too, not just base and per-km');
 
   test('a nonsense distance is refused rather than priced', () => {
     expect(() => calculateFare({ tier: 'ECO', distanceKm: NaN, seatCount: 1 })).toThrow();
