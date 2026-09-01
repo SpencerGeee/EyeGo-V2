@@ -390,7 +390,19 @@ export function shouldReleaseToUser(event: {
   return Boolean(event?.isUserInteraction ?? event?.properties?.isUserInteraction);
 }
 
-/** Should a `free` camera hand control back to the stage yet? */
-export function shouldAutoResume(releasedAt: number | null, now: number): boolean {
-  return releasedAt != null && now - releasedAt >= RESUME_AFTER_MS;
+/**
+ * Should a `free` camera hand control back to the stage yet?
+ *
+ * `afterMs` of `null` means never: the caller has declared that there is
+ * nothing on this map worth pulling the rider back to, so a pan is permanent
+ * until they tap recentre. See `autoResumeMs` in useMapCamera for why that is
+ * the right default on every pre-trip screen.
+ */
+export function shouldAutoResume(
+  releasedAt: number | null,
+  now: number,
+  afterMs: number | null = RESUME_AFTER_MS,
+): boolean {
+  if (afterMs == null) return false;
+  return releasedAt != null && now - releasedAt >= afterMs;
 }

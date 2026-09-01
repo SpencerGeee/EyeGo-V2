@@ -166,10 +166,53 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
 
     const pad = padding ?? { top: 120, bottom: 360, left: 56, right: 56 };
 
+    /**
+     * Where the map opens before anything has framed it. The pickup is the
+     * subject of the offer, so it is the honest single point; the driver's own
+     * position is the fallback for a payload that has not landed yet. See the
+     * note at `<Camera>` for why declaring this at all is the fix.
+     */
+    const initialCenter = useMemo<Coord | null>(() => {
+      if (isUsableCoord(pickup)) return pickup;
+      if (isUsableCoord(driver)) return driver;
+      if (isUsableCoord(dropoff)) return dropoff;
+      return null;
+      // Frozen after the first usable value: this is the OPENING camera, and
+      // re-declaring it later would yank a driver who has panned away.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [!!isUsableCoord(pickup), !!isUsableCoord(driver), !!isUsableCoord(dropoff)]);
+
+    /**
+     * A PROGRAMMATIC MOVE IS NOT A GESTURE.
+     *
+     * BUGFIX ("the Frame the ride pill doesn't seem to go when it appears").
+     *
+     * `frame()` sets `framed` true and then animates the camera. MapLibre
+     * reports that animation through `onRegionIsChanging` like any other
+     * change, and the `userInteraction` flag on those frames is not reliably
+     * false for an eased camera stop — so the map immediately told the screen
+     * "the driver panned", `framed` went back to false, and the control the
+     * driver had just tapped reappeared before their finger left it. From the
+     * outside that is a button that does nothing.
+     *
+     * Filtering on the flag alone cannot fix it, because the flag is the thing
+     * that is wrong. A timestamp can: for as long as a move WE issued is still
+     * running, no region change is allowed to count as a gesture. 700 ms covers
+     * the 550 ms `setCamera`/`fitBounds` ease with room for the settle, and a
+     * driver whose finger really is on the map for that window will release it
+     * on the next frame anyway.
+     */
+    const suppressGestureUntilRef = useRef(0);
+    /** The driver has panned. Stops the framing retries below dead. */
+    const userOwnsCameraRef = useRef(false);
+
     const frame = useCallback(
       (animated = true) => {
         const cam = cameraRef.current;
         if (!cam || points.length === 0) return;
+        suppressGestureUntilRef.current = Date.now() + (animated ? 700 : 250);
+        // Asking to be framed is asking for the camera back.
+        userOwnsCameraRef.current = false;
         if (points.length === 1) {
           cam.setCamera({
             centerCoordinate: points[0],
@@ -211,11 +254,30 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
     const frameKey = points.map((p) => p.join(',')).join('|');
     useEffect(() => {
       if (!frameKey) return;
-      const t = setTimeout(() => {
-        frame(false);
-        setReady(true);
-      }, 140);
-      return () => clearTimeout(t);
+      /**
+       * FRAME MORE THAN ONCE, BECAUSE THE FIRST ATTEMPT CAN LAND ON NOTHING.
+       *
+       * A single 140 ms shot assumes the native map is ready at 140 ms. On a
+       * FIRST visit it usually is, because the offer itself arrives late and
+       * the timer therefore starts late. On a RE-ENTRY the store is already
+       * warm, the coordinates exist on the first render, and the shot is fired
+       * into a map that has not finished loading its style — where it is
+       * silently dropped, leaving the world view the driver reported.
+       *
+       * Three attempts across the first second, each one a no-op if the camera
+       * has already settled where it wants to be. They stop the moment the
+       * driver takes the camera, so this can never fight a pan.
+       */
+      const timers = [140, 500, 1100].map((delay) =>
+        setTimeout(() => {
+          // The driver has taken the camera — the retries are for a map that
+          // never got framed, never for one they have deliberately moved.
+          if (userOwnsCameraRef.current) return;
+          frame(false);
+          setReady(true);
+        }, delay),
+      );
+      return () => timers.forEach(clearTimeout);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [frameKey]);
 
@@ -297,10 +359,45 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
            * framed the ride.
            */
           onUserGesture={() => {
-            if (ready) onFramedChange?.(false);
+            if (!ready) return;
+            // See `suppressGestureUntilRef` — our own camera animations arrive
+            // here too, and taking them for a pan is what made the framing
+            // control immortal.
+            if (Date.now() < suppressGestureUntilRef.current) return;
+            userOwnsCameraRef.current = true;
+            onFramedChange?.(false);
           }}
         >
-          <Camera ref={cameraRef} animationMode="easeTo" />
+          {/*
+            THE CAMERA STARTS ON THE RIDE, NOT ON THE PLANET.
+
+            BUGFIX ("the map shown when you go back to the homepage and back to
+            the dispatch offer page is a whole overview of the region and not
+            the accurate location — the only way it corrects is the Frame the
+            ride button").
+
+            This was `<Camera ref animationMode="easeTo" />` with no centre and
+            no zoom at all, and the adapter is explicit about what that means:
+            `-[MLRNCamera setMap:]` applies no camera of its own, so a Camera
+            that declares nothing sits at MapLibre's zoom-0 world view until
+            something commands it. The only thing that ever did was the framing
+            effect below, on a 140 ms timer — which on a re-entry (the store is
+            already warm, so the coordinates exist on the first render) fires
+            before the native map has finished loading its style and is
+            swallowed. First visit: the offer arrives late, the timer fires
+            late, it lands. Second visit: it does not. Exactly the report.
+
+            Declaring the centre makes the FIRST PAINTED FRAME the right place
+            regardless of how the framing race turns out — the adapter pushes
+            the declared stop itself the moment the camera attaches. The fit
+            still runs and still improves on it; this is the floor under it.
+          */}
+          <Camera
+            ref={cameraRef}
+            animationMode="easeTo"
+            centerCoordinate={initialCenter ?? undefined}
+            zoomLevel={initialCenter ? 13.5 : undefined}
+          />
 
           {/* The approach: dashed and dimmer, because it is the part the driver
               has to drive before the fare starts. Dashes stay ON even once it

@@ -4,6 +4,7 @@ import {
   type CameraPadding,
   type CameraTarget,
   type Coord,
+  RESUME_AFTER_MS,
   overviewKey,
   paddingKeyOf,
   planCamera,
@@ -60,6 +61,31 @@ export interface UseMapCameraArgs {
   /** Set false to stop the frame loop entirely (screen not visible). */
   active?: boolean;
   /**
+   * How long a user pan holds the camera before the stage takes it back.
+   * `null` means NEVER — the user keeps it until they ask for it back.
+   *
+   * BUGFIX ("the map of the book a ride page doesn't seem intuitive at all —
+   * when moving the camera it's not responsive, and when you get to the
+   * location part of the ride it just stops moving until you move in the
+   * opposite direction").
+   *
+   * `RESUME_AFTER_MS` is twelve seconds, and it was applied to every map in
+   * both apps unconditionally. The reason it exists is sound but narrow: a
+   * rider watching a car approach who pans by accident must not be stranded
+   * looking at empty road for the rest of the trip, so the camera drifts back
+   * to the vehicle. On a screen with NOTHING MOVING on it — the ride picker,
+   * the fare comparison, a pre-trip preview — there is no such rescue to
+   * perform, and all the timer does is wait for the rider to study the map for
+   * twelve seconds and then yank it back to the fitted route. Every subsequent
+   * drag away from the route is then undone again, which is exactly "it stops
+   * moving until you move the other way": panning back TOWARDS the fit looks
+   * like it works, panning away looks like the map is refusing.
+   *
+   * So the timer is now the caller's decision, and it belongs to the case it
+   * was written for: a live vehicle to return to.
+   */
+  autoResumeMs?: number | null;
+  /**
    * Add the live interpolated puck to the `overview` fit set.
    *
    * The caller cannot do this itself without a cycle: the puck is produced by
@@ -99,6 +125,7 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const {
     mode, fit, center, padding, fitMinSpanDeg,
     publishEveryMs = 400, active = true, fitIncludesPuck = false,
+    autoResumeMs = RESUME_AFTER_MS,
   } = args;
 
   const cameraRef = useRef<any>(null);
@@ -129,6 +156,9 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   paddingRef.current = padding;
   const fitIncludesPuckRef = useRef(fitIncludesPuck);
   fitIncludesPuckRef.current = fitIncludesPuck;
+  // Read by the frame loop; a ref so changing it never re-arms the loop.
+  const autoResumeMsRef = useRef<number | null>(autoResumeMs);
+  autoResumeMsRef.current = autoResumeMs;
 
   const release = useCallback(() => {
     if (releasedAtRef.current != null) {
@@ -216,8 +246,9 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
     const tick = () => {
       const now = Date.now();
 
-      // Hand the camera back once the user has stopped looking around.
-      if (shouldAutoResume(releasedAtRef.current, now)) {
+      // Hand the camera back once the user has stopped looking around — but
+      // only where there is something worth returning to. See `autoResumeMs`.
+      if (shouldAutoResume(releasedAtRef.current, now, autoResumeMsRef.current)) {
         releasedAtRef.current = null;
         setReleased(false);
       }

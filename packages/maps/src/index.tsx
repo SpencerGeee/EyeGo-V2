@@ -968,10 +968,34 @@ export function AnimatedMarkerView({ coordinate, duration = 3500, children, rota
     const start = Date.now();
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
 
+    /**
+     * PUBLISHED AT A HUMAN RATE, NOT AT THE DISPLAY'S.
+     *
+     * BUGFIX, the 120 Hz half of "the ProMotion thing still feels the same".
+     * `requestAnimationFrame` fires at the panel's refresh rate — so the moment
+     * `CADisableMinimumFrameDuration` actually let the app run at 120 Hz, this
+     * loop DOUBLED, from 60 React re-renders a second to 120, each one
+     * re-rendering a marker and everything under it. A 3.5-second glide is 420
+     * commits. Uncapping the display made this component twice as expensive at
+     * exactly the moment it needed to be cheaper, which is the sort of thing
+     * that makes a faster panel feel no faster.
+     *
+     * The marker is a small icon travelling a few points per frame; ~40 ms
+     * between published positions is already past the point where the movement
+     * reads as continuous, and it costs a third of the renders at 120 Hz. The
+     * final position is always committed exactly, so the glide still lands.
+     */
+    const MIN_PUBLISH_MS = 40;
+    let lastPublish = 0;
+
     const tick = () => {
-      const t = Math.min(1, (Date.now() - start) / duration);
+      const now = Date.now();
+      const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 3);
-      setPos([from[0] + (to[0] - from[0]) * eased, from[1] + (to[1] - from[1]) * eased]);
+      if (t >= 1 || now - lastPublish >= MIN_PUBLISH_MS) {
+        lastPublish = now;
+        setPos([from[0] + (to[0] - from[0]) * eased, from[1] + (to[1] - from[1]) * eased]);
+      }
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick);
       } else {

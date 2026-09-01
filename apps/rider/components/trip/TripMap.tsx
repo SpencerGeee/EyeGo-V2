@@ -165,8 +165,17 @@ function fitFor(
    * at the stop for all practical purposes, and widening the box to include a
    * point already inside it only zooms the map out for nothing.
    */
+  /**
+   * `pickup ?? pickupPin`, not `pickup` alone: before a trip exists there is no
+   * snapshot, so the only pickup that exists is the one the rider chose in the
+   * flow. Reading the snapshot alone is what made this null for the whole of
+   * the booking flow — the stage the rider is complaining about.
+   */
   const riderIfDistant =
-    userPos && pickup && metresBetween(userPos, pickup) >= APPROACH_MIN_METRES ? userPos : null;
+    userPos && (pickup ?? pickupPin) &&
+    metresBetween(userPos, (pickup ?? pickupPin) as Coord) >= APPROACH_MIN_METRES
+      ? userPos
+      : null;
 
   switch (status) {
     case 'DRIVER_ASSIGNED':
@@ -201,8 +210,10 @@ function fitFor(
     case 'MATCHING':
     case 'REASSIGNING':
       // While dispatch is running, the nearby drivers ARE the content — this is
-      // the rider watching the search actually progress.
-      return [pickup, ...driverPins].filter(Boolean).slice(0, 8) as Coord[];
+      // the rider watching the search actually progress. `riderIfDistant` joins
+      // them so a rider waiting somewhere other than the kerb can still see
+      // themselves — the same reason it is in every other live case.
+      return [pickup, riderIfDistant, ...driverPins].filter(Boolean).slice(0, 9) as Coord[];
     default:
       /**
        * NO TRIP YET — SO FRAME THE ROUTE, NOT TWO LOOSE PINS.
@@ -223,9 +234,33 @@ function fitFor(
        * a second is arithmetic nobody sees. Sampling keeps the extremes (the
        * first and last points are always included) so the fit is identical.
        */
-      if (previewCoords && previewCoords.length >= 2) return previewCoords;
+      /**
+       * THE WALK TO THE PICKUP IS PART OF THE JOURNEY, BEFORE THE TRIP EXISTS
+       * TOO.
+       *
+       * BUGFIX ("I made the pickup point about 7 minutes away from where I am,
+       * and at Choose Your Ride the map shows the pickup as where I currently
+       * am and the polyline just starts at the pickup. It should show an
+       * inferred polyline to the pickup so the user knows they have to walk in
+       * that direction. This works once I've booked, but it should show on the
+       * Book Your Ride page too since the map is there as well.")
+       *
+       * The line itself was already conditional on a live status (see
+       * `approachLine` below) and so drew nothing here. Framing has to move with
+       * it: fitting the ROUTE alone puts the rider's own dot — the near end of
+       * that dashed line — off the side of the screen, and a line running off
+       * the viewport reads as a rendering glitch rather than as "walk this way".
+       *
+       * `riderIfDistant` is already gated at 120 m, so a rider standing at their
+       * own kerb does not widen the box for nothing.
+       */
+      if (previewCoords && previewCoords.length >= 2) {
+        return (riderIfDistant ? [riderIfDistant, ...previewCoords] : previewCoords) as Coord[];
+      }
       // A journey with both ends known but no measured route: frame the ends.
-      if (searchPin) return [pickupPin ?? userPos, searchPin].filter(Boolean) as Coord[];
+      if (searchPin) {
+        return [riderIfDistant, pickupPin ?? userPos, searchPin].filter(Boolean) as Coord[];
+      }
       /**
        * NOTHING ENTERED YET — SO FRAME THE RIDER.
        *
@@ -512,6 +547,22 @@ function TripMapImpl() {
     fit,
     fitMinSpanDeg: dispatchIsSearching ? AREA_BOUNDS_SPAN_DEG : null,
     /**
+     * A PAN IS ONLY UNDONE WHEN THERE IS A CAR TO GO BACK TO.
+     *
+     * BUGFIX ("the map of the book a ride page doesn't seem intuitive at all —
+     * when moving the camera it's not responsive, and when you get to the
+     * location part of the ride it just stops moving").
+     *
+     * The twelve-second auto-resume exists so a rider watching a driver
+     * approach cannot strand themselves on empty road. That rescue is only
+     * meaningful while something is moving. On the picker, the fare comparison
+     * and every pre-trip preview there is no vehicle — so all the timer did was
+     * wait for the rider to finish looking and then snap the camera back onto
+     * the fitted route, undoing the pan they had just made. See `autoResumeMs`
+     * for why that reads as a map that refuses to move in one direction.
+     */
+    autoResumeMs: canFollowVehicle ? undefined : null,
+    /**
      * The follow target when there is no vehicle puck — the rider themselves.
      *
      * `useMapCamera` prefers the puck over `center` whenever one exists, so this
@@ -685,10 +736,33 @@ function TripMapImpl() {
    * purposes, and a stub line pointing across a pavement is noise; above it
    * they have somewhere to be.
    */
+  /**
+   * Is the rider standing somewhere other than the pickup?
+   *
+   * The single fact behind two decisions that must never disagree: whether to
+   * draw the walk-to-pickup line, and whether the blue location dot is a second
+   * marker for a place the pickup pin already occupies. See both call sites.
+   *
+   * True once the ride is under way as well — at that point the "pickup" is
+   * behind the vehicle and the rider's dot is genuinely elsewhere.
+   */
+  const riderIsAwayFromPickup =
+    !!userCoords && (!pickup || metresBetween(userCoords, pickup) >= APPROACH_MIN_METRES);
+
   const approachLine = useMemo(() => {
     // Once the ride is under way the rider is IN the vehicle; a line from their
     // GPS to the pickup they have already left is a lie.
+    //
+    // `status == null` is the BOOKING FLOW — no trip exists yet, the rider is
+    // on Choose Your Ride comparing fares for a pickup they may be a walk away
+    // from. That case used to fall outside this list entirely, which is the
+    // whole of "it works once I've booked, but it should show on the Book Your
+    // Ride page too". Item 15.
     const preBoarding =
+      status == null ||
+      status === 'REQUESTED' ||
+      status === 'MATCHING' ||
+      status === 'REASSIGNING' ||
       status === 'SCHEDULED' ||
       status === 'FILLING' ||
       status === 'CONFIRMED' ||
@@ -756,7 +830,31 @@ function TripMapImpl() {
           far the car is, which way it is coming, whether it has passed them.
           Every mapping app in existence keeps it on.
         */}
-        {userCoords && <MapboxGL.UserLocation visible />}
+        {/*
+          ...BUT NOT WHEN IT IS SITTING INSIDE THE PICKUP PIN.
+
+          BUGFIX ("on the rider request page it shows 3 pins on the map — a
+          black circle, a blue one and a car circle. Fix this so it's working
+          and showing as it should.")
+
+          Those three are the pickup pin (a dark ring on a card-coloured
+          bubble), the system location dot, and a nearby-driver puck. The car is
+          real information. The other two are the SAME PLACE drawn twice: for
+          the ordinary case — a rider hailing from where they are standing — the
+          chosen pickup IS the GPS fix, so the app was stacking a marker on a
+          dot within a few pixels of each other and calling one of them a bug.
+
+          The pickup pin wins, because it is the one that means something (this
+          is the kerb the driver is coming to) and it is the one the route line
+          is anchored on. The blue dot comes back the moment the two are
+          genuinely different places — the far-pickup case in item 15, where
+          "where I am" versus "where I have to be" is the whole question, and
+          where the dashed approach line now runs between them.
+
+          Same 120 m threshold as that line, so the two can never disagree about
+          whether the rider is at the stop.
+        */}
+        {userCoords && riderIsAwayFromPickup && <MapboxGL.UserLocation visible />}
 
         {/*
           HOW THE RIDER GETS TO THE PICKUP.
