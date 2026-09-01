@@ -768,6 +768,46 @@ function SearchStageImpl() {
             )}
           </View>
 
+          {/*
+            ── THE SAVED PLACES THAT ARE NOT HOME OR WORK ────────────────────
+
+            BUGFIX ("I created a saved place called Kens Crib and it's shown
+            nowhere in the app apart from the saved-places page. In the Where To
+            page it should be part of the suggestions, since Home is accurately
+            there").
+
+            `otherSaved` has been computed by the memo above the whole time and
+            simply never rendered. Everything that is not Home or Work fell into
+            it and stopped there — which made the saved-places screen a place
+            riders could write to and never read from, and made saving anything
+            beyond the two slots pointless.
+
+            Same `SlotRow` as Home and Work, deliberately: a saved place is the
+            same gesture with a different icon, and the panel has to read as one
+            list rather than three that happen to be stacked.
+          */}
+          {otherSaved.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>Saved places</Text>
+              <View style={styles.sectionCard}>
+                <GlassSurface style={StyleSheet.absoluteFill} borderRadius={20} intensity="high" />
+                {otherSaved.map((p, i) => (
+                  <React.Fragment key={p.id}>
+                    {i > 0 && <View style={styles.rowDivider} />}
+                    <SlotRow
+                      styles={styles}
+                      colors={colors}
+                      icon={savedIcon(p)}
+                      title={p.label}
+                      subtitle={p.address}
+                      onPress={() => commitSaved(p)}
+                    />
+                  </React.Fragment>
+                ))}
+              </View>
+            </>
+          )}
+
           {relevantRecents.length > 0 && (
             <>
               <Text style={styles.sectionLabel}>Recent</Text>

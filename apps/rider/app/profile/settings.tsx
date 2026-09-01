@@ -39,10 +39,31 @@ export default function SettingsScreen() {
             GENERAL
           </Text>
           <GlassSurface borderRadius={radii.xl} intensity="low" dark style={styles.card}>
+            {/*
+              THE TOGGLE NOW SAYS WHICH WAY IT IS MEANT TO BE.
+
+              FEATURE, asked for twice: "add a hint on the settings page where
+              the theme is, and make sure it's stated that EyeGo is best suited
+              for dark mode."
+
+              It is not a preference we are hiding — light mode is fully built
+              and stays switchable. But this app is a dark product: the map
+              styles, the ambient shader and the whole elevation system were
+              designed against a deep ground, and a rider who flips this without
+              being told is choosing the less-finished half of the app. Saying
+              so under the control is what a hint is for.
+            */}
             <View style={styles.row}>
               <View style={styles.rowLeft}>
                 <Ionicons name="moon-outline" size={20} color={colors.onSurfaceVariant} />
-                <Text variant="bodyMedium" color={colors.onSurface}>Dark Mode</Text>
+                <View style={styles.rowText}>
+                  <Text variant="bodyMedium" color={colors.onSurface}>Dark Mode</Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rowHint}>
+                    EyeGo is designed for dark mode — the map, the motion and the
+                    depth are all tuned for it. Light mode works, but this is how
+                    it is meant to look.
+                  </Text>
+                </View>
               </View>
               <Toggle value={isDark} onValueChange={setDark} />
             </View>
@@ -122,10 +143,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   rowLeft: {
     flexDirection: 'row',
-    alignItems: 'center',
+    // `flex-start`, not `center`: the dark-mode row now carries a two-line hint
+    // under its label, and centring would float the icon halfway down it.
+    alignItems: 'flex-start',
     gap: spacing.md,
     flex: 1,
   },
+  /** Label + hint, stacked. `flex: 1` so the hint wraps instead of pushing the
+   *  toggle off the row. */
+  rowText: { flex: 1, gap: 2 },
+  rowHint: { lineHeight: 17 },
   rowRight: {
     flexDirection: 'row',
     alignItems: 'center',

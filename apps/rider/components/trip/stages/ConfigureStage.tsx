@@ -258,6 +258,19 @@ function ConfigureStageImpl() {
       // the kerb before they have been shown there is one to decline.
       doorstepPickup: doorstepPickup ?? undefined,
       heavyLoad,
+      /**
+       * THE PARTY IS PART OF THE PRICE NOW.
+       *
+       * BUGFIX ("the group booking has the same price as an on-demand ride and
+       * that's wrong — if 2 people book it should be priced differently to 8").
+       *
+       * The seat stepper right below these cards moved a number that the quote
+       * never saw, so every party size from one to eight came back with the
+       * same figure. A party up to `RIDE_INCLUDED_SEATS` still prices as one
+       * ordinary car — see fare.calculator.js — so nothing changes for a normal
+       * hail; beyond that the ride needs a bigger vehicle and now says so.
+       */
+      seatCount: seats,
     };
     Promise.all(
       TIER_ORDER.map((id) =>
@@ -329,7 +342,11 @@ function ConfigureStageImpl() {
     return () => {
       cancelled = true;
     };
-  }, [origin, destination, doorstepPickup, heavyLoad]);
+    // `seats` joins the list: the party size is now an INPUT to the price, so a
+    // rider who changes it must be re-quoted. Without it the cards would keep
+    // showing the fare for the party they started with — the same class of
+    // silent staleness the doorstep and heavy-load toggles are here for.
+  }, [origin, destination, doorstepPickup, heavyLoad, seats]);
 
   const fare = fares[rideTier] ?? null;
 

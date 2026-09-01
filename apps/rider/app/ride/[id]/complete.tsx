@@ -295,9 +295,39 @@ export default function TripCompleteScreen() {
    * advance entirely: a rider who is reading their receipt has said what they
    * want, and the Rate button is right there when they are done.
    */
+  /**
+   * ── THE RATING IS A FACT WE READ, NOT A FORM WE ALWAYS OFFER ──────────────
+   *
+   * BUGFIX ("you need to make sure that rating the trip is dynamic and
+   * completely wired on that page — what if I already rated the trip? It means
+   * I can override the rating there, which is wrong").
+   *
+   * There was no read for it anywhere in the client, so this screen could only
+   * ever assume "not rated": the button said Rate your Trip forever, the
+   * eight-second timer pushed every visitor into the star picker, and the
+   * server's `upsert` accepted whatever came back over whatever was there. A
+   * rider glancing at a month-old receipt could rewrite a five into a two by
+   * mistiming a tap.
+   *
+   * `bookingsApi.myRating` is the missing half. Everything below keys off it:
+   * the CTA, the auto-advance, and the summary line under it.
+   */
+  const { data: myRating } = useQuery({
+    queryKey: ['booking', 'my-rating', bookingId],
+    queryFn: () => bookingsApi.myRating(bookingId as string),
+    select: (r: any) => (r?.data?.data?.rating ?? r?.data?.rating ?? null) as
+      | { stars: number; comment: string | null }
+      | null,
+    enabled: !!bookingId,
+    staleTime: 60_000,
+  });
+  const alreadyRated = (myRating?.stars ?? 0) > 0;
+
   const [autoAdvance, setAutoAdvance] = useState(true);
   useEffect(() => {
-    if (!id || isViewOnly || !autoAdvance) return;
+    // Never funnel a rider into rating something they have already rated — the
+    // picker would open on their own verdict with no way to act on it.
+    if (!id || isViewOnly || !autoAdvance || alreadyRated) return;
     const timer = setTimeout(() => {
       if (!navigated.current) {
         navigated.current = true;
@@ -305,7 +335,7 @@ export default function TripCompleteScreen() {
       }
     }, 8000);
     return () => clearTimeout(timer);
-  }, [id, bookingId, router, isViewOnly, autoAdvance]);
+  }, [id, bookingId, router, isViewOnly, autoAdvance, alreadyRated]);
 
   const handleRateAndTip = useCallback(() => {
     navigated.current = true;
@@ -623,11 +653,79 @@ export default function TripCompleteScreen() {
           transition={{ type: 'spring', ...springs.standard, delay: 400 }}
           style={styles.ctaSection}
         >
-          <Pressable style={styles.primaryBtn} onPress={handleRateAndTip} accessibilityRole="button" accessibilityLabel="Rate your driver">
-            <Text style={styles.primaryBtnText}>Rate your Trip</Text>
+          {/*
+            RATE, OR SHOW WHAT WAS ALREADY SAID — never both, never a blank form
+            over an existing verdict. See `myRating` above.
+          */}
+          {alreadyRated ? (
+            <View style={styles.ratedRow} accessibilityRole="text">
+              <View style={styles.ratedStars}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Ionicons
+                    key={n}
+                    name={n <= (myRating?.stars ?? 0) ? 'star' : 'star-outline'}
+                    size={16}
+                    color={n <= (myRating?.stars ?? 0) ? colors.primary : colors.onSurfaceVariant}
+                  />
+                ))}
+              </View>
+              <Text style={styles.ratedText}>
+                You rated this trip {myRating?.stars} out of 5
+              </Text>
+            </View>
+          ) : (
+            <Pressable style={styles.primaryBtn} onPress={handleRateAndTip} accessibilityRole="button" accessibilityLabel="Rate your driver">
+              <Text style={styles.primaryBtnText}>Rate your Trip</Text>
+            </Pressable>
+          )}
+
+          {/*
+            SOMETHING WENT WRONG, OR SOMETHING WAS LEFT BEHIND.
+
+            FEATURE (item 7: "there should be an option to be able to alert if
+            they left something in the car or want to report something about the
+            trip").
+
+            The report screen existed at `/ride/[id]/dispute` and this — the one
+            screen a rider lands on after every completed trip, and the one they
+            open from their history when something is wrong — had no route to it
+            at all. A rider who left a phone in a car had to know the feature was
+            there and go looking for it.
+          */}
+          <Pressable
+            style={styles.reportBtn}
+            onPress={() => goDeeper(`/ride/${id}/dispute` as Href)}
+            accessibilityRole="button"
+            accessibilityLabel="Report an issue or something left in the car"
+          >
+            <Ionicons name="bag-handle-outline" size={15} color={colors.onSurfaceVariant} />
+            <Text style={styles.reportBtnText}>Left something, or something went wrong?</Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.onSurfaceVariant} />
           </Pressable>
-          <Pressable style={styles.ghostBtn} onPress={() => router.replace('/(tabs)/home' as Href)} accessibilityRole="button" accessibilityLabel="Back to home">
-            <Text style={styles.ghostBtnText}>Back to Home</Text>
+
+          {/*
+            LEAVING GOES BACK WHERE THEY CAME FROM.
+
+            BUGFIX ("it shouldn't only allow me to go back home — what if I'm on
+            the trips page looking for a particular trip? It means I have to go
+            to the homepage then back to the trips page to check another one").
+            Exactly: this was a hard `replace` to Home for every visitor,
+            including the one who arrived from a list they were part-way
+            through reading, and a replace destroys the stack that would have
+            taken them back to it.
+
+            `viewOnly` is already the discriminator for "opened from history
+            rather than just finished" — it is what suppresses the rating funnel
+            — so it decides this too. A rider who just finished a ride still
+            goes Home, because there is no list behind them.
+          */}
+          <Pressable
+            style={styles.ghostBtn}
+            onPress={() => (isViewOnly ? goBack() : router.replace('/(tabs)/home' as Href))}
+            accessibilityRole="button"
+            accessibilityLabel={isViewOnly ? 'Back to your trips' : 'Back to home'}
+          >
+            <Text style={styles.ghostBtnText}>{isViewOnly ? 'Back to Trips' : 'Back to Home'}</Text>
           </Pressable>
         </MotiView>
       </ScrollView>
@@ -893,6 +991,41 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     lineHeight: fontSizes.bodyLarge * 1.3,
     color: colors.onPrimary,
     letterSpacing: 0.2,
+  },
+  /** The rating already given — a statement, not a control. See the render. */
+  ratedRow: {
+    height: 56,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: withOpacity(colors.primary, 0.35),
+    backgroundColor: withOpacity(colors.primary, 0.08),
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+  },
+  ratedStars: { flexDirection: 'row', gap: 2 },
+  ratedText: {
+    fontFamily: fonts.semiBold,
+    fontSize: fontSizes.bodyMedium,
+    color: colors.onSurface,
+  },
+  /** Quieter than the CTAs above it: needed rarely, findable always. */
+  reportBtn: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.base,
+    borderRadius: radii.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.rimLight,
+  },
+  reportBtnText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSizes.bodySmall,
+    color: colors.onSurfaceVariant,
   },
   ghostBtn: {
     height: 56,

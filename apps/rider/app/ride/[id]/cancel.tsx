@@ -21,6 +21,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
+// The live snapshot — the only source that knows what THIS ride actually is.
+// See the note on `pickup`/`dropoff` below for what reading `selectedTrip`
+// alone was doing to every on-demand cancellation.
+import { useTripStore } from '../../../stores/trip.store';
 import { formatGhs } from '@eyego/utils';
 
 const REASONS = [
@@ -128,13 +132,41 @@ export default function CancelRideScreen() {
       // the server. Clearing the store is the actual fix; the invalidations
       // above only refresh what the server owns.
       clearRideState();
+      /**
+       * ── THE TRIP SURFACE HAS TO LET GO TOO ────────────────────────────────
+       *
+       * BUGFIX ("I cancelled the ride but the map and the trip weren't
+       * dismissed at all, and I don't know if it's the same ride or a different
+       * one").
+       *
+       * `clearRideState()` clears the RIDE store. The live surface does not
+       * read that store — it reads `useTripStore`, which holds the versioned
+       * snapshot and an open socket subscription to this trip. Neither was
+       * touched, so `/trip` stayed mounted with the cancelled ride's snapshot,
+       * its map still drawn, its channel still subscribed; the home screen's
+       * live card kept pointing at it; and the next ride's snapshot arrived
+       * into a store that still had the last one in it — which is exactly why
+       * the rider could not tell which ride they were looking at.
+       *
+       * `unwatch()` is the one call that does all of it: it releases the socket
+       * reference and resets the snapshot, seq, dispatch, path and ETA together.
+       */
+      useTripStore.getState().unwatch();
+
+      /**
+       * AND IT ALWAYS LEAVES.
+       *
+       * The fee branch below used to `notify()` and stop, so a rider who was
+       * charged anything was left sitting on the cancellation screen of a ride
+       * that no longer existed, with a "Cancel Ride" button on it. The notice
+       * is the news; leaving is not optional either way.
+       */
       if (fee > 0) {
         notify(
           'Ride Cancelled',
           `Your ride has been cancelled. A cancellation fee of ${formatGhs(fee)} has been applied.`);
-      } else {
-        router.replace('/(tabs)/home');
       }
+      router.replace('/(tabs)/home');
     },
     onError: (err: any) => {
       notify('Cancellation Failed', err?.message || 'Could not cancel the ride. Please try again.');
@@ -174,9 +206,51 @@ export default function CancelRideScreen() {
     cancelMutation.mutate();
   }, [selectedReason, cancelMutation, nudgeReasons]);
 
+  /**
+   * ── THE RIDE BEING CANCELLED, NOT A PLACEHOLDER OF ONE ────────────────────
+   *
+   * BUGFIX ("when I try to cancel the trip again, it shows the pickup and
+   * drop-off as the placeholder texts only, and the van is a shared van —
+   * doesn't specify").
+   *
+   * Every fact on this card came from `selectedTrip`, and `selectedTrip` is a
+   * ride-store slice that ONLY the group flow's trip picker ever writes. An
+   * on-demand rider never picks a trip — they name a destination and a car is
+   * dispatched — so the slice is null for the primary product and all three
+   * fields fell straight through to their defaults: "Your pickup point", "Your
+   * destination", "Shared Van". A rider was being asked to confirm cancelling a
+   * ride the screen could not name. It is the same defect the receipt screen
+   * had, and the same fix: read the SNAPSHOT, which every path produces.
+   *
+   * The live trip store is preferred (it is already open and current); the
+   * store slice survives as the instant-paint fallback for the group flow that
+   * genuinely has it.
+   */
+  const snapshot = useTripStore((s) => s.snapshot);
   const trip = selectedTrip as any;
-  const pickup = trip?.pickupLocation?.name ?? trip?.route?.name ?? 'Your pickup point';
-  const dropoff = trip?.dropoffLocation?.name ?? trip?.route?.destinationName ?? 'Your destination';
+  const pickup =
+    snapshot?.pickup?.address ??
+    trip?.pickupLocation?.name ??
+    trip?.route?.name ??
+    'Your pickup point';
+  const dropoff =
+    snapshot?.dropoff?.address ??
+    trip?.dropoffLocation?.name ??
+    trip?.route?.destinationName ??
+    'Your destination';
+  /**
+   * The vehicle, named. "Shared Van" was a hard-coded guess about a product the
+   * rider may not even be on — an on-demand hail is a car, and calling it a
+   * shared van is worse than saying nothing. The snapshot's driver block is the
+   * only source that knows.
+   */
+  const vehicleLabel =
+    [(snapshot as any)?.driver?.vehicleMake, (snapshot as any)?.driver?.vehicleModel]
+      .filter(Boolean)
+      .join(' ') ||
+    (snapshot as any)?.driver?.vehicle ||
+    selectedTrip?.vehicle?.model ||
+    'Your ride';
 
   return (
     <View style={styles.container}>
@@ -241,7 +315,7 @@ export default function CancelRideScreen() {
                 <View style={styles.cardHeaderLeft}>
                   <Ionicons name="car-outline" size={18} color={colors.onSurfaceVariant} />
                   <Text style={styles.cardHeaderLabel}>
-                    {selectedTrip?.vehicle?.model ?? 'Shared Van'}
+                    {vehicleLabel}
                   </Text>
                 </View>
                 <View style={styles.etaPill}>
@@ -313,9 +387,25 @@ export default function CancelRideScreen() {
                     ? `A cancellation fee of ${formatGhs(cancellationFeePesewas)} applies to this ride.`
                     : "You won't be charged a cancellation fee for this ride."}
                 </Text>
+                {/*
+                  THE REAL COST, NAMED.
+
+                  Per the operator: "cancellation fees aren't applied — they
+                  don't get a separate fee. The cost of it is that when you
+                  cancel you might be waiting a bit longer, because the drivers
+                  might be occupied."
+
+                  That consequence is real and already implemented — a cancelled
+                  trip counts against the rider's standing in
+                  standing.service.js, and standing decides their loyalty
+                  discount and how far dispatch will search for them. It was
+                  simply never said, so the sheet's only content was a fee that
+                  should not have been there in the first place.
+                */}
                 {!isFeeLoading && !isFeeError && !hasFee ? (
                   <Text style={styles.policyText}>
-                    Finding another ride afterwards may take a little longer, especially at busy times.
+                    Cancelling often does affect how quickly we can match you next time —
+                    drivers nearby may already be on another ride.
                   </Text>
                 ) : null}
                 {/**

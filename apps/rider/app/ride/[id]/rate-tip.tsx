@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useCallback, useRef } from 'react';
+﻿import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -102,6 +102,36 @@ export default function RateTipScreen() {
 
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
+
+  /**
+   * ── A TRIP ALREADY RATED IS SHOWN, NOT RE-ASKED ────────────────────────────
+   *
+   * BUGFIX ("make sure that rating the trip is dynamic and completely wired —
+   * what if I already rated the trip? It means I can override the rating there,
+   * which is wrong").
+   *
+   * The receipt screen no longer funnels a rider here once a rating exists, but
+   * this screen is reachable directly (a push, a deep link, the back stack), so
+   * it has to hold the same rule rather than rely on its caller. The stars are
+   * seeded from the server's answer and locked; the TIP stays open, because a
+   * tip is a separate act and one is not spent by the other.
+   *
+   * The server refuses a second rating outright (409 `ALREADY_RATED`) — this is
+   * the UI agreeing with it, not the enforcement.
+   */
+  const { data: existingRating } = useQuery({
+    queryKey: ['booking', 'my-rating', resolvedBookingId],
+    queryFn: () => bookingsApi.myRating(resolvedBookingId as string),
+    select: (r: any) => (r?.data?.data?.rating ?? r?.data?.rating ?? null) as
+      | { stars: number; comment: string | null }
+      | null,
+    enabled: !!resolvedBookingId,
+    staleTime: 60_000,
+  });
+  const alreadyRated = (existingRating?.stars ?? 0) > 0;
+  useEffect(() => {
+    if (alreadyRated) setRating(existingRating!.stars);
+  }, [alreadyRated, existingRating]);
   const [selectedCompliments, setSelectedCompliments] = useState<string[]>([]);
   const [selectedTipIndex, setSelectedTipIndex] = useState<number | null>(null);
   const [customTip, setCustomTip] = useState('');
@@ -137,7 +167,9 @@ export default function RateTipScreen() {
         .filter(Boolean)
         .join(' — ');
 
-      if (rating > 0) {
+      // Never re-post a rating that already exists: the server answers 409 and
+      // the rider would be shown a failure for having done nothing wrong.
+      if (rating > 0 && !alreadyRated) {
         await bookingsApi.rate(resolvedBookingId, { rating, comment: commentText });
       }
       if (finalTipPesewas > 0) {
@@ -308,8 +340,10 @@ export default function RateTipScreen() {
                   key={star}
                   star={star}
                   isActive={displayRating >= star}
-                  onPress={() => setRating(star)}
-                  onHover={() => setHoveredRating(star)}
+                  // Locked once a rating exists — see `alreadyRated`. The stars
+                  // are showing the rider what they said, not asking again.
+                  onPress={() => { if (!alreadyRated) setRating(star); }}
+                  onHover={() => { if (!alreadyRated) setHoveredRating(star); }}
                   onHoverOut={() => setHoveredRating(0)}
                   colors={colors}
                 />

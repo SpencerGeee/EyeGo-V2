@@ -18,7 +18,21 @@ import { useRideStore } from '../../../stores/ride.store';
 import { apiClient } from '@eyego/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
+/**
+ * "I LEFT SOMETHING IN THE CAR" IS THE MOST COMMON POST-TRIP CONTACT THERE IS,
+ * AND IT WAS NOT ON THIS LIST.
+ *
+ * FEATURE (item 7: "if I open a completed trip and it shows me the arrived
+ * safely page, there should be an option to alert if they left something in the
+ * car or want to report something about the trip").
+ *
+ * It went first deliberately. Every other row here is a complaint that can wait
+ * until the rider has calmed down; a lost phone or wallet is time-critical —
+ * the driver is still nearby and the next passenger has not sat on it yet — so
+ * it is the row a rider must find without reading the others.
+ */
 const ISSUE_TYPES: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { label: 'Left something in the car', icon: 'bag-handle-outline' },
   { label: 'Incorrect fare', icon: 'card-outline' },
   { label: 'Wrong route', icon: 'git-branch-outline' },
   { label: 'Unsafe driving', icon: 'warning-outline' },
@@ -33,11 +47,18 @@ export default function DisputeScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, issue } = useLocalSearchParams<{ id: string; issue?: string }>();
   const { selectedTrip } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip })));
   const queryClient = useQueryClient();
 
-  const [selectedType, setSelectedType] = useState('');
+  /**
+   * Pre-selected when the rider arrived here having already said what the
+   * problem is — the receipt's "I left something in the car" row hands the
+   * category over rather than making them pick it twice.
+   */
+  const [selectedType, setSelectedType] = useState(
+    issue && ISSUE_TYPES.some((t) => t.label === issue) ? issue : '',
+  );
   const [description, setDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
 

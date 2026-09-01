@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Pressable, Text as RNText, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
+import { StyleSheet, AppState, View, Text as RNText, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import Animated, {
   FadeIn,
   interpolate,
@@ -14,7 +15,8 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, goBack, goOut } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut } from '@eyego/ui';
+import { useRideEnded } from '../stores/rideEnded.store';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
@@ -106,6 +108,15 @@ const CONTAINER_TRANSFORM_INTO: Partial<Record<TripStage, readonly TripStage[]>>
  * time and make the exit feel clipped.
  */
 const FADE_THROUGH_PIVOT = 0.35;
+
+/**
+ * Where a control has to sit to clear TripMap's recentre chip.
+ *
+ * That chip is `top: insets.top + 12` and 40 pt tall (`styles.recenter` in
+ * TripMap.tsx). 12 + 40 + 10 of breathing room. Named rather than inlined
+ * because the two files have to agree and the failure is silent overlap.
+ */
+const RECENTER_CHIP_CLEARANCE = 62;
 
 /**
  * WHY THERE IS NO SCALE HERE, WHICH A CONTAINER TRANSFORM NORMALLY HAS.
@@ -248,6 +259,41 @@ export default function TripScreen() {
   const hydrate = useTripStore((s) => s.hydrate);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  /**
+   * ── A COVERED SURFACE PAINTS NOTHING ───────────────────────────────────────
+   *
+   * BUGFIX ("I chose to decline the trip I just joined and when I came back to
+   * the homepage, the homepage seemed to be on top of the map — the Skia
+   * background obviously isn't showing since the map is at the back. All the
+   * other pages like Services and Activity are behind the map too. Fix this at
+   * the core so I don't have to fix it again.")
+   *
+   * Exactly right, and it is structural. This route is a `transparentModal`
+   * over `(tabs)`, and `(tabs)`' own scenes are transparent so the ROOT
+   * `AppBackground` shader can show through every tab. That arrangement has one
+   * hard rule attached to it, which nothing was enforcing: a transparent stack
+   * only works if every screen in it that paints something opaque is the one on
+   * top. This surface paints three opaque things — an opaque floor, its own
+   * shader, and a full-screen MapLibre view — and any navigation that leaves it
+   * MOUNTED underneath a newly-pushed screen (declining out of a joined trip,
+   * a deep link, a push notification, anything that pushes rather than
+   * dismisses) turns those three into the background of whatever landed on top.
+   *
+   * Chasing the navigation calls one at a time is what produced the previous
+   * partial fixes — `surfaceRetired` handles exactly one of the paths (a trip
+   * reaching a terminal status) and nothing else. The rule belongs here, on the
+   * screen that owns the pixels: if this surface is not the one being looked
+   * at, it draws nothing. `useIsFocused` is false for a screen that is still
+   * mounted but covered, which is precisely the condition, and it is the same
+   * flag TripMap already uses to park its camera loop.
+   *
+   * Hidden rather than unmounted: the map must survive being covered for the
+   * length of a ride (the rider opens their wallet and comes back), and tearing
+   * a MapLibre view down and rebuilding it is the expensive, crash-prone thing
+   * this whole surface exists to avoid.
+   */
+  const isFocused = useIsFocused();
 
   // Seed the stage machine once per surface open, from route params.
   useEffect(() => {
@@ -434,11 +480,85 @@ export default function TripScreen() {
         `/ride/${snapshot.tripId}/complete${bid ? `?bookingId=${bid}` : ''}` as Href,
       );
     } else {
-      // Cancelled, expired, no-show, no drivers found: nothing to receipt.
-      // TripStatusListener owns the explanatory banner, so this only navigates.
+      /**
+       * ── SAY WHY. ALWAYS. ───────────────────────────────────────────────────
+       *
+       * BUGFIX, two reports with one cause:
+       *
+       *   "I requested a trip and had a call, about 7 mins, and when I came
+       *    back I was on the homepage with nothing showing I was even
+       *    requesting a trip."
+       *   "I waited to see what happens when it expires and nothing happens —
+       *    it just redirects me to the homepage. Nothing tells me the ride
+       *    expired or no one picked."
+       *
+       * The explanation existed and had exactly ONE owner: `TripStatusListener`,
+       * which raises the RideEndedSheet notice from a LIVE `trip:status` socket
+       * frame. That is the wrong (and only) place for it, because the socket is
+       * precisely what a rider does not have during a seven-minute phone call.
+       * iOS suspends the app, the frame is published to nobody, and the client
+       * learns the trip is dead the other way — the channel's replay, or the
+       * REST snapshot on foreground — neither of which passes through that
+       * listener. So the surface tore itself down and dropped the rider on Home
+       * with no notice raised, which is a silent redirect.
+       *
+       * The rule now: whoever LEARNS the trip ended raises the notice, and the
+       * store's `raise` is last-one-wins so a socket frame and a replayed
+       * snapshot describing the same ending are one piece of news, not two.
+       *
+       * Read off the snapshot rather than a socket payload, because a snapshot
+       * is the one thing every path produces.
+       */
+      const fare = (snapshot as any)?.fare ?? null;
+      const prepaid =
+        ['MOMO', 'CARD', 'WALLET'].includes(String(fare?.paymentMethod ?? '')) &&
+        String(fare?.paymentStatus ?? '') === 'PAID';
+      const cancelledBy = String((snapshot as any)?.cancelledBy ?? '');
+      useRideEnded.getState().raise({
+        reason:
+          tripStatus === 'NO_DRIVERS_FOUND'
+            ? 'NO_DRIVERS'
+            : tripStatus === 'EXPIRED'
+              ? 'EXPIRED'
+              : tripStatus === 'NO_SHOW' || cancelledBy === 'DRIVER'
+                ? cancelledBy === 'DRIVER' && tripStatus !== 'NO_SHOW'
+                  ? 'DRIVER_CANCELLED'
+                  : 'DRIVER_NO_SHOW'
+                : cancelledBy === 'RIDER'
+                  ? 'RIDER_CANCELLED'
+                  : 'DRIVER_CANCELLED',
+        refunded: prepaid,
+        destinationLabel:
+          (snapshot as any)?.dropoffAddress ??
+          useRideStore.getState().destination?.address ??
+          null,
+      });
       router.replace('/(tabs)/home' as Href);
     }
   }, [tripStatus, snapshot, unwatch, router]);
+
+  /**
+   * CATCH UP THE MOMENT THE APP COMES BACK.
+   *
+   * The other half of the seven-minute phone call. The trip channel replays
+   * from `lastSeq` on reconnect, but a socket that was killed while the process
+   * was suspended can take seconds to notice — and if the trip was retired
+   * server-side while we were away there may be nothing left in the room to
+   * replay. `hydrate()` is one REST call that settles the whole question, and
+   * it is the same call the cold-start path already trusts.
+   *
+   * Only while a trip is actually being followed: on the search sheet there is
+   * nothing to catch up on and this would be a request per app switch.
+   */
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      if (handedOff.current) return;
+      if (!useTripStore.getState().snapshot) return;
+      void hydrate();
+    });
+    return () => sub.remove();
+  }, [hydrate]);
 
   /**
    * WHERE-TO IS AN ENTRANCE, NOT A DESTINATION.
@@ -537,6 +657,14 @@ export default function TripScreen() {
    * afford to share. Deferring it until the animation queue drains costs the
    * map a few frames of head start and costs the transition nothing.
    */
+  /** See the note at `<AppBackground>` — the shader waits for the morph. */
+  const [backgroundMounted, setBackgroundMounted] = useState(false);
+  useEffect(() => {
+    if (backgroundMounted) return;
+    const task = InteractionManager.runAfterInteractions(() => setBackgroundMounted(true));
+    return () => task.cancel();
+  }, [backgroundMounted]);
+
   const mapNeededNow =
     MAP_STAGES.includes(rendered.current) ||
     (rendered.previous != null && MAP_STAGES.includes(rendered.previous)) ||
@@ -647,7 +775,13 @@ export default function TripScreen() {
     // time so it reads as the background settling in behind the morph instead
     // of racing it. The card itself is no longer part of this story — its
     // reveal is driven by morph progress in MorphTarget.
-    <Animated.View style={styles.root} entering={FadeIn.duration(420)}>
+    <Animated.View
+      style={[styles.root, !isFocused && styles.covered]}
+      // Covered means covered: no touch of ours may reach past the screen that
+      // is on top of us. See `isFocused` above.
+      pointerEvents={isFocused ? 'box-none' : 'none'}
+      entering={FadeIn.duration(420)}
+    >
       <SheetMetricsProvider value={sheetMetrics}>
       {/*
         THE FLOOR OF THIS SCREEN — AND WHY IT IS NOT SIMPLY TRANSPARENT.
@@ -674,7 +808,28 @@ export default function TripScreen() {
         style={[styles.opaqueFloor, { backgroundColor: colors.backgroundDeep }]}
         pointerEvents="none"
       />
-      <AppBackground isDark={isDark} />
+      {/*
+        THE SHADER MOUNTS AFTER THE MORPH HAS LANDED, NOT DURING IT.
+        (Item 12: "the morphing animation is still as laggy as ever, especially
+        the where-to field… you need to change the approach at the root.")
+
+        The morph primitive itself was the other half of that fix — see the
+        rewrite in MorphProvider. This is the half that lives here. A morph into
+        this surface arms its spring from the destination's FIRST layout pass,
+        which means the flight's opening frames run concurrently with this
+        screen's mount. Creating a Skia canvas is main-thread native work, and
+        on the new architecture the main thread is the thread Reanimated drives
+        the spring on — so the shader's construction was being paid for out of
+        the first ~100 ms of every entrance animation into the booking flow.
+        That is felt, precisely, as the morph stuttering at the start.
+
+        Deferring it costs nothing visually: `opaqueFloor` directly above is
+        already painting `backgroundDeep`, which is the shader's own ground
+        colour, so the handful of frames before it arrives are the right colour
+        with no ambient movement in them. Same instrument, same reasoning as the
+        map's deferred mount below.
+      */}
+      {backgroundMounted && <AppBackground isDark={isDark} />}
 
       {/* The map, from the first stage that draws one until the trip ends. See
           MAP_STAGES for why it is not mounted before that, and `surfaceRetired`
@@ -760,9 +915,27 @@ export default function TripScreen() {
            * keeps the ride live. Whichever won the z-order, the rider was one
            * tap from the wrong outcome.
            */
+          /**
+           * ...AND THEN IT COLLIDED WITH THE MAP'S OWN CONTROL.
+           *
+           * BUGFIX ("the home button is overlapping the recenter button on the
+           * top right so it's not properly done").
+           *
+           * Moving this pill out of the request stage's back arrow put it in the
+           * one other place on this screen that is already spoken for: TripMap
+           * draws its recentre chip at `right: 16, top: insets.top + 12`. Two
+           * floating controls, same corner, same inset — the second fix
+           * recreated the first bug in the opposite corner.
+           *
+           * Corners are the wrong unit. The top-right belongs to the MAP (that
+           * is where every hailing app puts locate/recentre and where a thumb
+           * expects it); navigation chrome stacks BELOW it. `RECENTER_CHIP` is
+           * that control's height plus its inset, so this clears it exactly
+           * rather than by a guessed margin.
+           */
           style={[
             stageOwnsTopLeft ? styles.homePillWrapRight : styles.homePillWrap,
-            { top: insets.top + 8 },
+            { top: insets.top + (stageOwnsTopLeft ? RECENTER_CHIP_CLEARANCE : 8) },
           ]}
           pointerEvents="box-none"
         >
@@ -831,6 +1004,13 @@ export default function TripScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'transparent' },
+  /**
+   * Covered by another screen — see `isFocused`. Opacity rather than
+   * `display: 'none'`: collapsing the layout would report a zero size to the
+   * native map, and a MapLibre camera attached to a zero-size map is the
+   * documented `-[MLRNCamera _setInitialCamera]` SIGABRT.
+   */
+  covered: { opacity: 0 },
   /**
    * Ends the home screen. `/trip` sits over `(tabs)` as a transparentModal and
    * `(tabs)` is itself transparent, so without this the layer directly behind

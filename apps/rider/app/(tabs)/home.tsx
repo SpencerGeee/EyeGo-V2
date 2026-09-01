@@ -1530,9 +1530,20 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* One door to everything, always — a rider who wants the whole board
-            should not have to find a rail with an overflow to get there. */}
-        {!tripsLoading && rawTrips.length > 0 && (
+        {/*
+          A MAP OF ONE THING IS NOT A MAP.
+
+          BUGFIX ("the only time Browse all rides on a map should show is when
+          it's 2 or more rides. If it's just one, leave it and show just the one
+          card of the trip on the homepage like it previously does").
+
+          Exactly right. "Browse all 1 rides on a map" is bad copy AND a bad
+          offer: the rail above is already showing that single ride as a card
+          with its route, its time and its price, and sending the rider to a map
+          view to look at one pin is strictly less information for an extra
+          screen. The row earns its place when there is a board to survey.
+        */}
+        {!tripsLoading && rawTrips.length > 1 && (
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

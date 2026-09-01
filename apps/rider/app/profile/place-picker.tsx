@@ -10,6 +10,8 @@ import { haptic } from '../../utils/haptics';
 import MapboxGL, { type CameraRef } from '../../utils/mapbox';
 import { eyegoDarkStyle, eyegoLightStyle } from '@eyego/map-styles';
 import { useThemeStore } from '../../stores/theme.store';
+import { useQuery } from '@tanstack/react-query';
+import { userApi, queryKeys } from '@eyego/api';
 import { reverseGeocode, searchPlaces, type GeocodeResult } from '../../utils/geocoding';
 import { setPickedPlace } from '../../utils/placePickerResult';
 
@@ -83,6 +85,19 @@ export default function PlacePickerScreen() {
   const cameraRef = useRef<CameraRef>(null);
   /** Where the rider actually is, for the recentre button and the "you" dot. */
   const [myCoords, setMyCoords] = useState<[number, number] | null>(null);
+
+  /**
+   * The rider's own saved places — offered as shortcuts before they start
+   * typing. See the list in the render for why this screen needed them.
+   *
+   * Same query key as the where-to sheet and the saved-places screen, so a
+   * place saved anywhere is in this list on the next open with no refetch.
+   */
+  const { data: savedPlaces = [] } = useQuery({
+    queryKey: queryKeys.user.savedPlaces,
+    queryFn: async () => (await userApi.getSavedPlaces()).data?.data?.places ?? [],
+    staleTime: 5 * 60_000,
+  });
 
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
@@ -382,6 +397,59 @@ export default function PlacePickerScreen() {
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.primary} />
               </Pressable>
+            </View>
+          )}
+          {/*
+            ── SAVED PLACES, WHERE THE RIDER IS PICKING A PLACE ──────────────
+
+            BUGFIX ("if I save a place, it's not persisted into the map picker
+            page, so it's not convenient").
+
+            Exactly. This screen's only shortcuts were a live geocoder search
+            and the pin under your thumb — so a rider who had already told the
+            app where Kens Crib is had to type it out again, and hope the
+            geocoder agreed with them about a place they had hand-pinned
+            precisely because it did not.
+
+            Offered only before a search has started: once the rider is typing,
+            the results they asked for own the list. Tapping one is the same act
+            as tapping a geocoder result, so it goes through the same handler
+            and the picker closes on the answer.
+          */}
+          {suggestions.length === 0 && searchedFor === null && savedPlaces.length > 0 && (
+            <View style={styles.suggestionsBox}>
+              <FlatList
+                data={savedPlaces}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={styles.suggestionRow}
+                    onPress={() =>
+                      handleSelectSuggestion({
+                        // `placeId` is a Nominatim id and is only ever used as a
+                        // list key; a saved place has no provider id, and the
+                        // key below is the saved row's own id anyway.
+                        placeId: 0,
+                        name: item.label,
+                        fullAddress: item.address,
+                        latitude: item.lat,
+                        longitude: item.lng,
+                      })
+                    }
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use saved place ${item.label}`}
+                  >
+                    <Ionicons name="bookmark" size={16} color={colors.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionText} numberOfLines={1}>{item.label}</Text>
+                      {item.address !== item.label && (
+                        <Text style={styles.suggestionSub} numberOfLines={1}>{item.address}</Text>
+                      )}
+                    </View>
+                  </Pressable>
+                )}
+              />
             </View>
           )}
           {suggestions.length > 0 && (
