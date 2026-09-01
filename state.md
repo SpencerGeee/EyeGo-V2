@@ -2,71 +2,69 @@
 
 ## Where things stand
 
-The audit is complete and **Groups 1, 2, 4, 5, 6 and 7 are done and committed.**
-Group 3 turned out to be mostly already built. What remains is Group 6's two
-large items — telemetry and Zod at the boundary — plus e2e suites for the new
-work. Nothing is device-tested; that is the next step.
+**The backlog is closed.** Every item in
+`docs/superpowers/plans/2026-08-31-production-readiness.md` §3b is done,
+including the four the previous session had to leave open. Nothing is
+device-tested; that is the next step and the only thing left.
 
-Plan, findings and the ranked backlog:
-`docs/superpowers/plans/2026-08-31-production-readiness.md`
+    415c1e7  fix: the other half of the price lock — a trip pins its fees too
+    470ff04  test: the release surfaces, and the schema that would have refused every fare
+    dd0ba9f  feat: the driver's statement, the platform's receivable, and errors that leave the console
+    bf324bb  feat: zod at the API boundary, and the suite that was asserting nothing
 
-    eaaba1d  fix: the lost-item queue that could never receive a lost item
-    6ca158a  feat: the spoofing detector that only told the phone
-    ea95f76  docs: record the admin build blocker, and where the run got to
-    3a0a9c2  test: the suite that was not failing, because it was not running
-    f21908a  chore: delete the module whose comment was longer than the code
-    67edb27  ops: backups that get restored, TLS that renews itself, go-live pack
-    0c0a959  feat: paperwork that expires, and a gate that notices
-    49ed6cb  feat: a receipt that leaves the app, and the release gate under test
-    40fb543  feat: a driver for the app reviewer, and consent where drivers live
-    cf80e10  feat: a recall lever for shipped builds, and consent with a record
-    af9eedd  fix: a panic button that could fail silently, two emergency numbers
+## What was open, and what closed it
 
-## Not done — say so plainly
-
-| Item | Why |
+| Item | Outcome |
 |---|---|
-
-| Sentry in admin (11) | `npm install` fails on this machine — the tree is inconsistent with the lockfile after the manual react-dom repair. A clean `npm ci` (which the Docker build does) will work. |
-| E2E suites for the new features (23) | The 340-check harness has NOT been re-run this session. New work is covered by jest and by a live-DB probe, not by the harness. |
-| Zod at the API boundary (24) | Money payloads are guarded at runtime (packages/api/src/money-guards.ts, 22 tests). The other ~350 `as any` remain — zod itself is not installed and could not be added safely. |
-| Driver earnings statement UI (14) | API wrapper added; the screen still derives its own totals. |
-| Destination filter / shifts / inspections UI | Server-side is live — `destination-mode.service` is used by the dispatch cascade — but no client sets them. **Do not delete these endpoints.** |
-| E2 — stored quotes do not pin fees | Real, recorded as `test.todo`. Money code; not worth a rushed fix. |
-| E4 — 7 integration suites, 12 tests | Was 9 suites / 26 tests. Remaining are individually-stale assertions; one suite is skipped because its SQLite premise was invalidated. |
+| **24 — Zod at the boundary** | Done. `packages/api/src/schemas.ts` is the boundary; `money-guards.ts` is now a façade over it with the same names, error type and messages. The blocker recorded last session — "zod is not installed" — was not true: zod 4 resolves from the workspace root and is now declared in `packages/api/package.json`. |
+| **11 — Sentry in admin** | Done, on `@sentry/node` rather than `@sentry/nextjs`. The latter rewrites the webpack build, which is exactly why it was deferred; `@sentry/node` was already in the tree. Client errors POST to `/api/client-error` so the DSN never enters the browser bundle. `next build` verified green. |
+| **14 — Driver earnings statement** | Done. The screen now reads `GET /driver/earnings/breakdown` instead of re-deriving totals from one page of transactions. Admin half done too: unrecovered commission is aggregated on the revenue page instead of telling the operator to add up driver wallets by hand. |
+| **23 — E2E for the new work** | Done. `scripts/e2e/release-surfaces.mjs`, 28 checks: release gate, consent, receipts, SOS, payments, documents, reviewer mode, admin door. Registered in `run-all.mjs`. |
+| **E2 — stored quotes did not pin fees** | Done, properly. Two nullable columns on `Trip`, a `pinnedRatesFor(trip)` helper applied at all 13 call sites, migration `20260901110000_trip_fee_price_lock`. The `test.todo` is now four passing tests. |
+| **E4 — 7 failing jest suites** | Done. 12 failures were stale fixtures, not product bugs — cedis amounts naming columns the services stopped writing, `status not CANCELLED` where `seatOccupyingWhere()` belongs, a mock client missing the models a transaction now touches. |
 
 ## Verification, as it actually stands
 
     tsc --noEmit    packages · rider · driver · admin      GREEN
     prisma validate                                        GREEN
-    prisma migrate deploy                                  APPLIED (5 new)
+    prisma migrate deploy                                  APPLIED (17 total)
     prisma generate                                        DONE
-    API cold boot                                          /health 200 in ~8s
-    apps/admin  next build                                 GREEN (after the fix below)
-    jest                                                   6 pass, 7 fail, 1 skipped (102 passing)
-    live-DB probes (documents, fraud)                      16/16, rolled back
-    scripts/e2e/run-all.mjs                                NOT RUN this session
+    jest                                                   139 passing, 0 failing, 0 todo
+    scripts/e2e/run-all.mjs                                368/368 · 12/12 suites
+    apps/admin  next build                                 GREEN, every route renders
+    purge-test-data.mjs (dry run)                          database clean
 
-**`node_modules` was repaired, not just the code.** The admin build failed with a
-null `useRef` during static export — two React copies. Root
-`node_modules/react-dom` was a corrupted partial install (a lone `LICENSE`, no
-`index.js`), so `react` resolved to the root and `react-dom` to a nested copy
-under `apps/admin`. The real package was moved to the root and the nested copy
-removed; both now resolve to one file and the build completes. If a future
-`npm ci` ever reproduces it, that is the symptom and that is the fix.
+## Three things found by running it that static review had passed
 
-**`npx` is broken here** — use `node node_modules/typescript/lib/tsc.js` and
-`node node_modules/prisma/build/index.js`.
+1. **The zod schema would have refused every fare.** It constrained breakdown
+   values to `number | boolean`; `doorstepDetourKm` is `null` on any ride
+   without a detour and `typeof null === 'object'`. No rider could have seen a
+   price. Caught by the new e2e suite within minutes of it existing.
+2. **`getMe` never selected the driver's consent columns.** `acceptTerms`
+   wrote four fields and nothing read them back, so the app could not tell
+   whether to re-prompt — it would either nag someone who had agreed or, worse,
+   never prompt after a terms update and record consent to a document the
+   driver was never shown.
+3. **`confirmPayment` summed sibling fares with no guard.** One null row made
+   the total `NaN`, and `walletBalancePesewas: { gte: NaN }` matches nothing —
+   a cover-all host with a full wallet was told "insufficient balance" with no
+   way to find out why.
 
-## The live stack right now
+## The live stack
 
-Postgres and Redis are up in docker. The API is running on **:5020**, started
-detached by me — logs at
-`…/scratchpad/api3.log`. It was originally under `nodemon`; I stopped that to
-release the Prisma engine lock for `generate`. Restart it the normal way when
-convenient:
+Postgres and Redis are up in docker; the API runs on **:5020**, started
+detached. Restart it the normal way when convenient:
 
     cd eyego-api && npm run dev
+
+`npx` is broken here — use `node node_modules/typescript/lib/tsc.js` and
+`node node_modules/prisma/build/index.js`.
+
+`npm install` still fails on this machine (`Cannot read properties of null
+(reading 'location')`) — the tree is inconsistent with the lockfile after the
+manual react-dom repair. A clean `npm ci`, which the Docker build does, works.
+Nothing added this session needed an install: both zod and `@sentry/node`
+already resolved from the workspace root and are now declared.
 
 ## ⚠ Before running the harness
 
@@ -74,17 +72,28 @@ convenient:
 
     node scripts/e2e/purge-test-data.mjs --confirm
 
+A suite must never leave a driver online. There is ONE shared Redis supply
+index across suites, so a leftover online driver is offered every later suite's
+ride — `release-surfaces.mjs` failed two other suites exactly this way before
+it was fixed.
+
 ## Facts worth carrying forward
 
-- **Mobile money was already built, both directions.** The audit said otherwise
-  and that was the largest item in the agreed scope. Cancelled, not deferred.
-- **The driver app already had an ErrorBoundary** — inline in `_layout.tsx`. The
-  audit looked for a filename.
-- `Driver` is NOT a `User` row: it has its own `phone`/`name` and no `userId`.
-  `req.user.userId` on a driver token IS the `Driver.id`. Consent columns
-  therefore exist on both tables.
+- **Mobile money was already built, both directions.** Cancelled, not deferred.
+- The driver app already had an `ErrorBoundary`, inline in `_layout.tsx`.
+- `Driver` is NOT a `User` row: own `phone`/`name`, no `userId`.
+  `req.user.userId` on a driver token IS the `Driver.id`.
 - `Trip` uses `requesterId`, not `riderId`. `Booking` uses `fareAmountPesewas`.
 - Fare composition: `farePerPerson = ride + bookingFee + platformFee`, and
-  `commission + driverEarnings = ride`. No commission is taken from the fees.
-- The go-live pack is at `docs/go-live/` — ten documents, the legal ones marked
-  DRAFT for counsel.
+  `commission + driverEarnings = ride`. No commission on the fees.
+- Cash bookings are `paymentStatus: 'PENDING'` — there is no `CASH_PENDING`.
+- `dailyBreakdown` rows are `{ date, earnings, trips }`, never `amountPesewas`.
+- The go-live pack is at `docs/go-live/` — ten documents, legal ones DRAFT.
+
+## Still not done
+
+- **Nothing is device-tested.** Sideload is the next step.
+- Sourcemap upload for the admin console. `@sentry/node` does not do it; a
+  `sentry-cli sourcemaps upload` step against the same `SENTRY_RELEASE` is
+  written up in `docs/go-live/01-credentials-checklist.md`.
+- `concurrency.real.test.js` is skipped — it needs a live DB and its own run.

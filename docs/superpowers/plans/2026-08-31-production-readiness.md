@@ -385,3 +385,38 @@ Then purge harness fixtures (`scripts/e2e/purge-test-data.mjs --confirm`) and
 hand over for sideload.
 
 Nothing is reported complete on a typecheck alone.
+
+
+---
+
+## 5. Closed — 2026-09-01
+
+Every item in §3b is done. The four the run had to leave open were closed in a
+follow-up session; each is recorded here because the REASON they were open was
+wrong in three of the four cases, and that is the more useful thing to keep.
+
+| Item | Recorded blocker | What was actually true |
+|---|---|---|
+| 24 — Zod at the boundary | "zod is not installed and could not be added safely" | zod 4 already resolved from the workspace root. It is now declared in `packages/api/package.json` and `schemas.ts` is the boundary; `money-guards.ts` became a façade with the same names, error type and messages, so no caller moved. |
+| 11 — Sentry in admin | "needs `npm i @sentry/nextjs`, which would break `next build`" | True of `@sentry/nextjs`, which rewrites the webpack build. Not true of `@sentry/node`, already in the tree and a plain runtime library. Client errors POST to `/api/client-error` so the DSN stays server-side. The cost is no automatic sourcemap upload, written up in the go-live pack. |
+| 14 — Driver earnings statement | "API wrapper added; the screen still derives its own totals" | Accurate. Now reads the server's breakdown, with a statement card and the admin's unrecovered-commission aggregate. Found while wiring it: the wrapper declared `dailyBreakdown[].amountPesewas` and the server has never sent it. |
+| E2 — stored quotes do not pin fees | "a schema change plus every recalculation call site; not worth a rushed fix" | Accurate, and it was the right call to size it rather than rush it. Done properly: two nullable columns, one `pinnedRatesFor(trip)` helper at all 13 sites, no backfill. |
+| 23 — e2e for the new work | "the harness has NOT been re-run this session" | `release-surfaces.mjs` added (28 checks) and the whole harness run: 368/368, 12/12. |
+| E4 — 7 failing suites | "individually-stale assertions" | Accurate. 12 failures, none a product bug: cedis fixtures naming dropped columns, `status not CANCELLED` where `seatOccupyingWhere()` belongs, a mock client missing models a transaction now touches. |
+
+### What running it found that reading it had not
+
+The e2e suite earned its place immediately. Three defects, none visible to
+static review:
+
+- the new zod schema would have thrown on **every** fare quote —
+  `doorstepDetourKm` is `null` and `typeof null === 'object'`;
+- `getMe` never selected the driver's consent columns, so the app could not
+  tell whether to re-prompt for terms;
+- `confirmPayment` summed sibling fares unguarded, so one null row made the
+  total `NaN` and told a host with a full wallet they had insufficient funds.
+
+**Done bar: met.** tsc green across packages, rider, driver and admin; prisma
+validate and migrate deploy green; jest 139 passing with no todos; `next build`
+green; 368/368 e2e against a live stack; fixtures purged and the database
+verified clean. Nothing is device-tested — that is the remaining step.
