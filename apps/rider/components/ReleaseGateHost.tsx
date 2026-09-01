@@ -25,9 +25,26 @@ export function ReleaseGateHost() {
 
   // Only asked of a signed-in user: there is nobody to record consent against
   // otherwise, and the signup flow shows the same links inline.
+  /**
+   * ONE KEY CANNOT HOLD TWO SHAPES.
+   *
+   * BUGFIX ("I cancelled a trip I requested and it brought me back to the
+   * agree-terms page — it should only show once").
+   *
+   * This ran `(await getProfile()).data.data` while `profile/safety.tsx`
+   * fills the SAME key with the whole axios response and unwraps in its own
+   * `select`. Whichever query fetched last decided what the cache held, so
+   * after any visit to Safety — or any invalidation of this key — the host
+   * was reading `acceptedTermsVersion` off an AxiosResponse. It came back
+   * undefined, `consentRequired` became `undefined !== TERMS_VERSION`, and
+   * a rider who had already consented was walled again.
+   *
+   * Cache the response, unwrap in `select`, exactly as the other reader does.
+   */
   const { data: me } = useQuery({
     queryKey: queryKeys.user.profile,
-    queryFn: async () => (await userApi.getProfile()).data.data,
+    queryFn: () => userApi.getProfile(),
+    select: (r: any) => r?.data?.data ?? r?.data ?? null,
     enabled: isAuthenticated,
     staleTime: 60_000,
   });
@@ -77,7 +94,17 @@ export function ReleaseGateHost() {
         onAccept={() => accept.mutate()}
         backgroundColor={colors.background}
         accentColor={colors.primary}
+        onSurfaceColor={colors.onSurface}
+        // A gate with no way out must be able to say why it will not open.
+        errorText={accept.isError ? acceptErrorText(accept.error) : null}
       />
     </>
   );
+}
+
+/** The server’s own words where it gave any, a plain sentence otherwise. */
+function acceptErrorText(err: unknown): string {
+  const fromServer = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
+  const fromClient = (err as { message?: string })?.message;
+  return fromServer || fromClient || 'Please check your connection and try again.';
 }

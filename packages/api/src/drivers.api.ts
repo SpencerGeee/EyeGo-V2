@@ -261,6 +261,23 @@ export const driverApi = {
     apiClient.patch<ApiResponse<DriverProfile>>('/driver/me', data),
 
   /**
+   * Record consent against the DRIVER row.
+   *
+   * Not `userApi.acceptTerms()`: that posts to /user/me/accept-terms, whose
+   * middleware accepts a PASSENGER token only, so a driver calling it came
+   * back 401 'Invalid token role' and the consent gate never lifted. A
+   * driver is its own identity — not a row hanging off User — so consent is
+   * written on Driver, and getMe() reads these same four columns back.
+   */
+  acceptTerms: () =>
+    apiClient.post<ApiResponse<{
+      acceptedTermsVersion: string | null;
+      acceptedTermsAt: string | null;
+      acceptedPrivacyVersion: string | null;
+      acceptedPrivacyAt: string | null;
+    }>>('/driver/accept-terms'),
+
+  /**
    * Submit the vehicle (and optionally the name / Ghana Card number) the account
    * is verified against.
    *
