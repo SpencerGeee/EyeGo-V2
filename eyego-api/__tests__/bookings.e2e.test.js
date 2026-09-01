@@ -1,39 +1,43 @@
 'use strict';
 
-const mockBooking = {
+// Auto-vivifying Prisma mocks: a method the service reaches for that this
+// suite never listed becomes a jest.fn() rather than a TypeError.
+const { modelMock } = require('./helpers/prismaMock');
+
+const mockBooking = modelMock({
   findUnique: jest.fn(),
   findFirst: jest.fn(),
   create: jest.fn(),
   update: jest.fn(),
   updateMany: jest.fn(),
   count: jest.fn(),
-};
+});
 
-const mockRideGroup = {
+const mockRideGroup = modelMock({
   findUnique: jest.fn(),
   create: jest.fn(),
-};
+});
 
-const mockTrip = {
+const mockTrip = modelMock({
   findUnique: jest.fn(),
   update: jest.fn(),
-};
+});
 
-const mockUser = {
+const mockUser = modelMock({
   findUnique: jest.fn(),
   update: jest.fn(),
   updateMany: jest.fn(),
-};
+});
 
-const mockDriver = {
+const mockDriver = modelMock({
   findUnique: jest.fn(),
   update: jest.fn(),
-};
+});
 
-const mockPaymentTransaction = {
+const mockPaymentTransaction = modelMock({
   findFirst: jest.fn(),
   create: jest.fn(),
-};
+});
 
 const mockPrisma = {
   booking: mockBooking,

@@ -21,7 +21,9 @@ function buildIoSpy() {
 
 function buildReqRes(io) {
   const req = {
-    driver: { userId: 'driver-1' },
+    // The auth middleware puts the caller on req.user — for a driver token,
+    // req.user.userId IS the Driver id. This said req.driver, which nothing reads.
+    user: { userId: 'driver-1' },
     params: { id: 'trip-123' },
     app: { get: jest.fn((key) => (key === 'io' ? io : undefined)) },
   };

@@ -13,6 +13,29 @@
  *
  * Only the external Paystack network call is stubbed (we are not testing
  * a third-party payment gateway); every DB interaction is real.
+ *
+ * ── ⚠ THIS SUITE'S PREMISE HAS BEEN INVALIDATED ─────────────────────────────
+ *
+ * It points at SQLite (`file:./test.db`), and the platform moved to
+ * Postgres-only — deliberately, and for exactly the reason this file exists.
+ * The note that accompanied that move: SQLite has no enums, no jsonb, no
+ * `SELECT ... FOR UPDATE SKIP LOCKED`, and it SERIALISES WRITES. A database
+ * that serialises writes cannot exhibit a write race, so a suite asserting that
+ * concurrent writers do not corrupt state passes on SQLite whether the
+ * application logic is right or wrong.
+ *
+ * So this does not merely fail to run — if it were made to run as written, it
+ * would be reassuring and worthless, which is worse.
+ *
+ * What it should become: the same scenarios against the real Postgres, in a
+ * dedicated test database created and dropped by the suite, so `FOR UPDATE SKIP
+ * LOCKED` and the transaction isolation the services actually depend on are
+ * what is being tested. That is a real piece of work and is NOT done here —
+ * doing it against the dev database would seed and delete rows underneath
+ * whatever else is running.
+ *
+ * Until then this suite is skipped rather than deleted: the scenarios in it are
+ * the right ones, and they are worth keeping in front of whoever picks this up.
  */
 
 process.env.DATABASE_URL = 'file:./test.db';
@@ -86,7 +109,7 @@ async function makeUser() {
   return prisma.user.create({ data: { phone, name: 'Test Rider' } });
 }
 
-describe('REAL concurrency: seat booking race (bookSeat)', () => {
+describe.skip('REAL concurrency: seat booking race (bookSeat)', () => {
   it('exactly one of N simultaneous requests for the SAME seat wins — no overbooking', async () => {
     const route = await makeRoute();
     const driver = await makeDriver();
@@ -141,7 +164,7 @@ describe('REAL concurrency: seat booking race (bookSeat)', () => {
   });
 });
 
-describe('REAL concurrency: wallet withdrawal race (walletService.withdraw)', () => {
+describe.skip('REAL concurrency: wallet withdrawal race (walletService.withdraw)', () => {
   it('concurrent withdrawals never let the driver overdraw their balance', async () => {
     const driver = await makeDriver();
     await prisma.driver.update({ where: { id: driver.id }, data: { walletBalance: 100 } });
@@ -163,7 +186,7 @@ describe('REAL concurrency: wallet withdrawal race (walletService.withdraw)', ()
   });
 });
 
-describe('REAL concurrency: arriveTrip double-credit idempotency', () => {
+describe.skip('REAL concurrency: arriveTrip double-credit idempotency', () => {
   it('calling arriveTrip twice concurrently for the same trip credits earnings only ONCE', async () => {
     const route = await makeRoute();
     const driver = await makeDriver();
@@ -233,7 +256,7 @@ describe('REAL concurrency: arriveTrip double-credit idempotency', () => {
   });
 });
 
-describe('REAL concurrency: quest claim double-credit race', () => {
+describe.skip('REAL concurrency: quest claim double-credit race', () => {
   it('double-tapping Claim Bonus concurrently only credits the reward ONCE', async () => {
     const driver = await makeDriver();
     await prisma.driver.update({ where: { id: driver.id }, data: { walletBalance: 0 } });

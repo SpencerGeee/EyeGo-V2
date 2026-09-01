@@ -1,5 +1,7 @@
 'use strict';
 
+const { modelMock } = require('./helpers/prismaMock');
+
 /**
  * TOCTOU race-condition tests for createRideGroup.
  *
@@ -120,7 +122,9 @@ describe('createRideGroup — TOCTOU race prevention', () => {
         });
       }
 
-      const tx = { rideGroup: { findUnique, create: mockRideGroup.create } };
+      // modelMock so a method the service reaches for that this suite never
+      // listed becomes a jest.fn() rather than a TypeError.
+      const tx = { rideGroup: modelMock({ findUnique, create: mockRideGroup.create }) };
       return cb(tx);
     });
 

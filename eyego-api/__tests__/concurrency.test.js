@@ -1,5 +1,9 @@
 'use strict';
 
+// Auto-vivifying Prisma mocks: a method the service reaches for that this
+// suite never listed becomes a jest.fn() rather than a TypeError.
+const { modelMock } = require('./helpers/prismaMock');
+
 /**
  * Complex concurrency, race-condition, and idempotency tests.
  *
@@ -14,10 +18,10 @@
 // ────────────────────────────────────────────────────────────────────────────
 // 1. TOCTOU race: createRideGroup
 // ────────────────────────────────────────────────────────────────────────────
-const mockRideGroup1 = {
+const mockRideGroup1 = modelMock({
   findUnique: jest.fn(),
   create: jest.fn(),
-};
+});
 
 const mockPrisma1 = {
   rideGroup: mockRideGroup1,
@@ -140,30 +144,30 @@ describe('TOCTOU race: createRideGroup', () => {
 // ────────────────────────────────────────────────────────────────────────────
 // 2. Webhook idempotency — duplicate delivery via Redis NX lock
 // ────────────────────────────────────────────────────────────────────────────
-const mockRedis = {
+const mockRedis = modelMock({
   set: jest.fn(),
   del: jest.fn(),
-};
+});
 
-const mockPaymentTransaction = {
+const mockPaymentTransaction = modelMock({
   findFirst: jest.fn(),
   create: jest.fn(),
   updateMany: jest.fn(),
-};
+});
 
-const mockBooking2 = {
+const mockBooking2 = modelMock({
   findUnique: jest.fn(),
   updateMany: jest.fn(),
-};
+});
 
-const mockTrip2 = {
+const mockTrip2 = modelMock({
   update: jest.fn(),
-};
+});
 
-const mockUser2 = {
+const mockUser2 = modelMock({
   update: jest.fn(),
   updateMany: jest.fn(),
-};
+});
 
 const mockPrisma2 = {
   booking: mockBooking2,

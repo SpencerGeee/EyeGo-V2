@@ -223,7 +223,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
 
     // findUnique always shows sufficient balance — simulating the race window
     mockDriver.findUnique.mockResolvedValue({
-      walletBalance: BALANCE,
+      walletBalancePesewas: BALANCE,
       name: 'Driver Race',
       phone: '+233240000099',
     });
@@ -266,7 +266,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
   it('ensures all failing withdrawals get a clear error message', async () => {
     mockPrisma.$transaction.mockImplementation((cb) => cb(mockPrisma));
     mockDriver.findUnique.mockResolvedValue({
-      walletBalance: 50,
+      walletBalancePesewas: 50,
       name: 'Driver Low',
       phone: '+233240000099',
     });
@@ -287,7 +287,7 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
   it('recovers from a Paystack failure with a compensating reversal', async () => {
     mockPrisma.$transaction.mockImplementation((cb) => cb(mockPrisma));
     mockDriver.findUnique.mockResolvedValue({
-      walletBalance: 200,
+      walletBalancePesewas: 200,
       name: 'Driver Recover',
       phone: '+233240000099',
     });
@@ -308,14 +308,14 @@ describe('Concurrent wallet withdrawal — resource contention', () => {
     expect(mockDriver.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ id: 'driver-recover' }),
-        data: expect.objectContaining({ walletBalance: { decrement: 50 } }),
+        data: expect.objectContaining({ walletBalancePesewas: { decrement: 50 } }),
       }),
     );
     // Credit: increment (compensating)
     expect(mockDriver.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'driver-recover' },
-        data: { walletBalance: { increment: 50 } },
+        data: { walletBalancePesewas: { increment: 50 } },
       }),
     );
     // Two wallet transactions: WITHDRAWAL + WITHDRAWAL_REVERSAL

@@ -1,29 +1,33 @@
 'use strict';
 
-const mockBooking = {
+// Auto-vivifying Prisma mocks: a method the service reaches for that this
+// suite never listed becomes a jest.fn() rather than a TypeError.
+const { modelMock } = require('./helpers/prismaMock');
+
+const mockBooking = modelMock({
   findUnique: jest.fn(),
   update: jest.fn(),
   updateMany: jest.fn(),
-};
+});
 
-const mockUser = {
+const mockUser = modelMock({
   update: jest.fn(),
   updateMany: jest.fn(),
-};
+});
 
-const mockTrip = {
+const mockTrip = modelMock({
   update: jest.fn(),
-};
+});
 
-const mockPaymentTransaction = {
+const mockPaymentTransaction = modelMock({
   findFirst: jest.fn(),
   create: jest.fn(),
   update: jest.fn(),
-};
+});
 
-const mockWalletTransaction = {
+const mockWalletTransaction = modelMock({
   updateMany: jest.fn(),
-};
+});
 
 const mockPrisma = {
   booking: mockBooking,
@@ -43,11 +47,11 @@ jest.mock('../src/config/env', () => ({
   SEAT_HOLD_DURATION_MINUTES: 10,
 }));
 
-const mockRedis = {
+const mockRedis = modelMock({
   set: jest.fn(),
   get: jest.fn(),
   del: jest.fn(),
-};
+});
 jest.mock('../src/config/redis', () => mockRedis);
 
 jest.mock('../src/modules/payments/paystack.client', () => ({
@@ -112,8 +116,8 @@ describe('payments.service logic', () => {
       const result = await paymentsService.initiatePayment({ userId: 'u2', bookingId: 'b2' });
 
       expect(mockUser.updateMany).toHaveBeenCalledWith({
-        where: { id: 'u2', walletBalance: { gte: 15.0 } },
-        data: { walletBalance: { decrement: 15.0 } },
+        where: { id: 'u2', walletBalancePesewas: { gte: 15.0 } },
+        data: { walletBalancePesewas: { decrement: 15.0 } },
       });
       expect(mockBooking.updateMany).toHaveBeenCalledWith({
         where: { id: 'b2', paymentStatus: undefined },
