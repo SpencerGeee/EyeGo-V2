@@ -224,10 +224,25 @@ export default function HelpScreen() {
       subjectLine = `Dispute (${disputeReason}): ${ticketSubject.trim()}`;
     }
 
+    /**
+     * Send the canonical category, not the label on the chip.
+     *
+     * This used to send `ticketCategory` straight through — "Lost Item", the
+     * string a human reads off a button. The server stores `category` as a
+     * free-form column and allow-lists the values it knows, so a display label
+     * would land as GENERAL and the lost-item queue would stay permanently
+     * empty. A label is for the person looking at it; the wire wants the value.
+     */
+    const CATEGORY_FOR_CHIP = {
+      'General Support': 'GENERAL',
+      Dispute: 'TRIP',
+      'Lost Item': 'LOST_ITEM',
+    } as const;
+
     createTicketMutation.mutate({
       subject: subjectLine,
       message: ticketMessage.trim(),
-      category: ticketCategory,
+      category: CATEGORY_FOR_CHIP[ticketCategory],
       relatedBookingId: selectedTripId ?? undefined,
     });
   };

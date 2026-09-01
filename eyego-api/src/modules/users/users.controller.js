@@ -75,8 +75,20 @@ const getPromotions = async (req, res) => {
 };
 
 const createSupportTicket = async (req, res) => {
-  const { subject, message } = req.body;
-  const ticket = await usersService.createSupportTicket(req.user.userId, subject, message);
+  /**
+   * `category` and `relatedBookingId` were being thrown away.
+   *
+   * The client has always sent all four fields — see supportTicketsApi.create —
+   * and this destructured two of them, so every ticket landed as GENERAL
+   * whatever the rider picked, and the booking it was about was lost. The
+   * support queue could not be filtered by kind, and an agent opening a ticket
+   * about a specific trip had no link to that trip.
+   */
+  const { subject, message, category, relatedBookingId } = req.body;
+  const ticket = await usersService.createSupportTicket(req.user.userId, subject, message, {
+    category,
+    relatedBookingId,
+  });
   ok(res, { ticket }, 'Support ticket created');
 };
 

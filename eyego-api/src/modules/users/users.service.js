@@ -407,15 +407,69 @@ async function getPromotions(userId) {
   };
 }
 
-async function createSupportTicket(userId, subject, message) {
+/**
+ * Categories a rider's ticket may carry.
+ *
+ * Allow-listed rather than trusted: `SupportTicket.category` is a free-form
+ * String column, so an unchecked value from the client would put rows in the
+ * queue that no filter can find again — which is the same outcome as the bug
+ * this replaces, reached by a different route.
+ *
+ * LOST_ITEM is the lost-and-found entry point. It carries the booking so an
+ * agent can see the trip, and `driverId` so they can reach the driver through
+ * the existing contact relay rather than handing out a phone number.
+ */
+const TICKET_CATEGORIES = ['GENERAL', 'PAYMENT', 'TRIP', 'ACCOUNT', 'TECHNICAL', 'LOST_ITEM'];
+
+async function createSupportTicket(userId, subject, message, opts = {}) {
+  const category = TICKET_CATEGORIES.includes(opts.category) ? opts.category : 'GENERAL';
+
+  /**
+   * Resolve the driver from the booking, when one is named.
+   *
+   * Scoped to `userId` on purpose: a booking id is guessable, and without this
+   * a rider could open a ticket attached to somebody else's trip and learn
+   * which driver drove it.
+   */
+  let driverId = null;
+  let bookingLine = '';
+  if (opts.relatedBookingId) {
+    const booking = await prisma.booking.findFirst({
+      where: { id: String(opts.relatedBookingId), userId },
+      select: {
+        id: true,
+        trip: {
+          select: {
+            id: true,
+            driverId: true,
+            route: { select: { destinationName: true } },
+          },
+        },
+      },
+    });
+    if (booking?.trip) {
+      driverId = booking.trip.driverId ?? null;
+      const where = booking.trip.route?.destinationName;
+      bookingLine =
+        `\n\nTrip: ${String(booking.trip.id).slice(0, 8).toUpperCase()}` +
+        (where ? ` to ${where}` : '');
+    }
+  }
+
   return prisma.supportTicket.create({
     data: {
       userId,
       subject,
+      category,
+      driverId,
+      // LOST_ITEM is time-sensitive in a way a general query is not — the item
+      // is in a car that is still being driven, and every hour makes it harder
+      // to find.
+      priority: category === 'LOST_ITEM' ? 'HIGH' : 'MEDIUM',
       messages: {
         create: {
           senderId: userId,
-          text: message
+          text: `${message}${bookingLine}`
         }
       }
     },
@@ -806,4 +860,5 @@ async function deleteSavedPlace(userId, placeId) {
 }
 
 module.exports = {
+  TICKET_CATEGORIES,
   getPreferences, updatePreferences, getMe, getAccountChecklist, updateMe, updateProfilePhoto, updateFcmToken, deactivateAccount, getWalletAndPromos, getPromotions, createSupportTicket, getSupportTickets, getSupportTicket, addTicketMessage, updateNotificationPreferences, getNotificationPreferences, getEmergencyContacts, syncEmergencyContacts, getSafetySettings, updateSafetySettings, updateInsuranceCard, getPrivacySettings, updatePrivacySettings, acceptTerms, getSavedPlaces, createSavedPlace, updateSavedPlace, deleteSavedPlace };
