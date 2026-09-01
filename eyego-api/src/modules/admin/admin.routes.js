@@ -82,6 +82,8 @@ router.get('/metrics', controller.getMetrics);
 
 // ── Analytics dashboards ────────────────────────────────────────
 router.get('/analytics/overview', controller.getAnalyticsOverview);
+// Request-to-match rates. See analytics.service.js for why Trip cannot answer this.
+router.get('/analytics/funnel', controller.getFunnel);
 router.get('/analytics/drivers', controller.getAnalyticsDrivers);
 router.get('/analytics/safety', controller.getAnalyticsSafety);
 router.get('/analytics/scheduled', controller.getAnalyticsScheduled);

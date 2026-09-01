@@ -334,6 +334,26 @@ async function start() {
     setInterval(runDocumentExpiryWarnings, 60 * 60 * 1000);
 
     /**
+     * Prune analytics events past the retention window.
+     *
+     * `AnalyticsEvent` is the fastest-growing table here — a row per funnel step
+     * per trip — and the funnel is a rate over a recent window, so a row from
+     * four months ago contributes to no question anyone asks. It is also the
+     * honest answer to "how long do you keep behavioural data", which the
+     * privacy policy has to state.
+     *
+     * Daily is enough; this deletes by an indexed date and nothing waits on it.
+     */
+    const runAnalyticsPrune = async () => {
+      try {
+        await require('./services/analytics.service').pruneOlderThan(90);
+      } catch (err) {
+        logger.warn('Analytics prune failed (non-blocking):', err.message);
+      }
+    };
+    setInterval(runAnalyticsPrune, 24 * 60 * 60 * 1000);
+
+    /**
      * SAFETY PRE-FLIGHT — loud, but not fatal.
      *
      * An empty `SOS_ONCALL_PHONES` means a panic alert raises a support ticket

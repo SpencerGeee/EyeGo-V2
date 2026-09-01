@@ -605,6 +605,21 @@ function publishCommitted(result) {
         `trip notify failed for ${result.trip.id} (state IS committed): ${err.message}`,
       );
     }
+
+    /**
+     * The funnel, recorded from the same single point and for the same reason.
+     *
+     * Anything hooked into individual service functions records some code paths
+     * and not others, and a funnel with holes is worse than no funnel because
+     * it still looks like data. `recordTransition` never throws and is never
+     * awaited — an analytics insert must not be able to fail a trip, or to sit
+     * between a driver's tap and their response.
+     */
+    try {
+      require('./analytics.service').recordTransition(result.trip, result.event);
+    } catch (err) {
+      logger.warn(`analytics failed for ${result.trip.id} (state IS committed): ${err.message}`);
+    }
   });
 }
 

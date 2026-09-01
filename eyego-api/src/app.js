@@ -135,7 +135,30 @@ app.use(require('./utils/publicUrl').rememberPublicOrigin);
 // ── Rate limiting ────────────────────────────────────────────────
 app.use(defaultLimiter);
 
+// Count every response by method, route FAMILY and status class. The family
+// collapses ids, so a per-trip path cannot create a time series per trip —
+// which is the standard way to bring a Prometheus instance down.
+app.use(require('./services/metrics.service').httpMetrics);
+
 // ── Health check ─────────────────────────────────────────────────
+/**
+ * Prometheus exposition. See services/metrics.service.js for why it emits the
+ * text format directly rather than pulling in prom-client.
+ *
+ * NOT on the public internet: the Caddyfile only publishes /v1 and the health
+ * endpoints, so this is reachable from the box and the compose network. It
+ * carries no personal data — counts and rates only — but a live picture of
+ * supply and demand is commercially interesting to exactly the wrong people.
+ */
+app.get('/metrics', async (_req, res) => {
+  try {
+    res.set('content-type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(await require('./services/metrics.service').render());
+  } catch (err) {
+    res.status(503).type('text/plain').send(`# metrics unavailable: ${err.message}\n`);
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',

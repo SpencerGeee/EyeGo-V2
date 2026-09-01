@@ -1048,6 +1048,63 @@ model DriverDestinationPreference {
 }
 
 // ─────────────────────────────────────────
+// ANALYTICS
+// ─────────────────────────────────────────
+
+/// One row per thing that happened, for the funnel.
+///
+/// WHY THIS AND NOT AN SDK. Every event worth counting already crosses this
+/// API, so the choice was between recording it here or shipping a third-party
+/// analytics SDK in both apps. The SDK would have to be declared as data
+/// sharing on the Play Data Safety form and Apple's privacy labels, would add
+/// weight to the bundle, and would upload events over Ghanaian mobile data that
+/// the rider is paying for. Recording server-side costs a row.
+///
+/// WHAT IT IS FOR. Not "how many rides today" — `Trip` already answers that.
+/// It is for the questions whose answer is a RATE over time and which no table
+/// can reconstruct after the fact: what share of requests found a driver, how
+/// long matching took, who cancelled and why, and how the promised pickup ETA
+/// compared with the real one. A trip that was never matched leaves almost no
+/// trace in `Trip`; it leaves a row here.
+///
+/// DELIBERATELY THIN. No user agent, no IP, no device fingerprint. The columns
+/// are the ones a funnel query groups by, and `meta` carries the rest as JSON
+/// so adding a dimension is not a migration.
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+
+  /// RIDE_REQUESTED | RIDE_MATCHED | RIDE_ACCEPTED | RIDE_CANCELLED |
+  /// RIDE_COMPLETED | RIDE_NO_DRIVERS | DRIVER_ONLINE | DRIVER_OFFLINE
+  /// Free-form String, matching this schema's convention. The allow-list lives
+  /// in services/analytics.service.js.
+  type      String
+
+  tripId    String?
+  userId    String?
+  driverId  String?
+
+  /// Why, when the type alone is not enough — a cancellation reason, the
+  /// transition that produced it. Kept out of `meta` because it is the column
+  /// a "cancelled by whom" query groups by.
+  reason    String?
+
+  /// Milliseconds from the request to this event. Null where meaningless.
+  /// This is what makes "p50 time to match" answerable without joining back to
+  /// the trip and recomputing it per row.
+  elapsedMs Int?
+
+  /// JSON. Anything that is not worth a column yet.
+  meta      String?
+
+  at        DateTime @default(now())
+
+  /// The funnel reads by type over a window; the dashboard groups by day.
+  @@index([type, at])
+  @@index([tripId])
+  @@index([at])
+}
+
+// ─────────────────────────────────────────
 // DRIVER DOCUMENTS
 // ─────────────────────────────────────────
 

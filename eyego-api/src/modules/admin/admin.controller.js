@@ -313,6 +313,23 @@ const getAnalyticsOverview = async (req, res) => {
   ok(res, overview);
 };
 
+/**
+ * The funnel: what share of ride requests found a driver.
+ *
+ * Distinct from the analytics endpoints beside it, which count what HAPPENED —
+ * trips, revenue, drivers. This counts what did not: a request nobody accepted
+ * leaves almost no trace in Trip, so a match rate collapsing from 90% to 40% is
+ * invisible in every other view on this console.
+ */
+const getFunnel = async (req, res) => {
+  const analytics = require('../../services/analytics.service');
+  const [summary, byDay] = await Promise.all([
+    analytics.funnel({ since: req.query.from, until: req.query.to }),
+    analytics.daily({ days: Math.min(Number(req.query.days) || 14, 90) }),
+  ]);
+  ok(res, { ...summary, byDay });
+};
+
 const getAnalyticsDrivers = async (req, res) => {
   const analytics = await adminService.getAnalyticsDrivers();
   ok(res, analytics);
@@ -615,7 +632,7 @@ module.exports = {
   getLiveDrivers, assignDriver, getUnassignedTrips,
   getSosEvents, resolveSosEvent,
   getOtaOverview, publishOta, getOtaRuns,
-  getAnalyticsOverview, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
+  getAnalyticsOverview, getFunnel, getAnalyticsDrivers, getAnalyticsSafety, getAnalyticsScheduled,
   getLiveDriversMap,
   getDispatchHealth,
   getPlatformSettings,
