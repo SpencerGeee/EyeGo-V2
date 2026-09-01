@@ -209,7 +209,10 @@ export function DriverAlertBanner({
                 {title}
               </Text>
               {!!detail && (
-                <Text style={styles.detail} numberOfLines={3}>
+                // Two lines, not three — see the note on `inner`. A banner that
+                // needs a third line is a banner whose copy is too long, and the
+                // CTA underneath is where the driver is going anyway.
+                <Text style={styles.detail} numberOfLines={2}>
                   {detail}
                 </Text>
               )}
@@ -296,11 +299,28 @@ const makeStyles = (colors: DriverColors) =>
       elevation: 12,
     },
     toneRail: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
+    /**
+     * BUGFIX ("even with the banner you did, it doesn't look properly made — it
+     * looks big and no padding top, it's not aesthetically pleasing").
+     *
+     * Two things, and they are the same thing. The card carried an icon, a
+     * two-line title, a THREE-line detail, a full-width 46 pt button and a
+     * drain rail — roughly 190 pt for what is usually one sentence, which is
+     * what "big" is describing. And its top padding was `spacing.md` while the
+     * leading rail runs the full height beside it, so the icon sat tight
+     * against the top edge with no breathing room above it while the bottom had
+     * two points more than the top — an asymmetry the eye reads as "the top
+     * padding is missing" even though there was some.
+     *
+     * `spacing.base` at the top, matched at the bottom, and the detail is
+     * capped at two lines (see the render) — which takes about 40 pt off the
+     * card and squares up its optical centre.
+     */
     inner: {
       paddingLeft: spacing.base + 4,
       paddingRight: spacing.md,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.md + 2,
+      paddingTop: spacing.base,
+      paddingBottom: spacing.base,
       gap: spacing.md,
     },
     topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },

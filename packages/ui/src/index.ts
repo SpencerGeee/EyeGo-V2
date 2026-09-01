@@ -143,6 +143,12 @@ export {
 } from './notify/notice';
 export type { Notice, NoticeTone, NotifyOptions } from './notify/notice';
 export { NoticeHost } from './notify/NoticeHost';
+/**
+ * Wrap ANY root-mounted floating surface in this. On iOS a root sibling of the
+ * navigator is underneath every native modal — see the header for the whole
+ * story. This is why the driver's toast "only showed on the homepage".
+ */
+export { OverlayPortal } from './notify/OverlayPortal';
 
 /**
  * Dialling and texting that cannot fail silently. Use these instead of

@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Pressable } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -17,7 +17,27 @@ import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { formatGhs } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, SwipeToConfirm, GradientGlowBorder, getTierTheme } from '@eyego/ui';
+/**
+ * `Pressable` FROM @eyego/ui, NEVER FROM react-native.
+ *
+ * BUGFIX ("the Pass button on the dispatch offer page does nothing and it's
+ * not styled correctly").
+ *
+ * Both halves, one import. This file wrote the button in the idiomatic RN form
+ * — `style={({ pressed }) => [...]}` — against React Native's own Pressable,
+ * and NativeWind's css-interop (registered app-wide) re-registers that
+ * component and drops a FUNCTION style on the floor. A function inside a style
+ * array is not a style, so the control lost every declaration it owned:
+ * `minHeight: 46`, `minWidth: 176`, `alignSelf`, the border, the radius. What
+ * was left was a bare text node with a transparent border — invisible as a
+ * button, and roughly 16 pt tall, so most taps aimed at it missed. "Does
+ * nothing and isn't styled" is one bug, and this is it.
+ *
+ * The UI package's Pressable resolves the function against its own pressed
+ * state before handing an object to Reanimated, which is why it is the only
+ * one in this codebase that may be used with a function style.
+ */
+import { Text, GlassSurface, SwipeToConfirm, GradientGlowBorder, getTierTheme, Pressable } from '@eyego/ui';
 import type { Coord } from '@eyego/maps';
 
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -663,6 +683,10 @@ export function DispatchOfferCard({
               onDecline();
             }}
             disabled={!!busy || accepted}
+            // The handler fires its own Warning/Heavy notification, and the two
+            // stages of a pass have to feel different. A third generic tick
+            // underneath them would flatten that distinction.
+            haptic="none"
             accessibilityRole="button"
             accessibilityLabel={declineArmed ? 'Confirm pass on this trip' : 'Pass on this trip'}
             style={({ pressed }) => [
@@ -982,7 +1006,11 @@ const makeStyles = (colors: DriverColors) =>
       justifyContent: 'center',
       borderRadius: radii.full,
       borderWidth: 1,
-      borderColor: 'transparent',
+      // A TRANSPARENT border is not a quiet button, it is an invisible one.
+      // The resting state has to read as a control the driver can hit without
+      // looking — the armed state below is what escalates. Part of "the Pass
+      // button… is not styled correctly".
+      borderColor: colors.outline,
       minWidth: 176,
       alignItems: 'center',
     },

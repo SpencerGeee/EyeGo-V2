@@ -27,6 +27,12 @@ interface MorphTargetProps {
   /** Corner radius the clone should land on (this element's radius). */
   borderRadius?: number;
   style?: ViewStyle | ViewStyle[];
+  /**
+   * Escape hatch. See the `box-none` note on the render — the default is
+   * deliberately NOT `auto`, and a target that genuinely wants to swallow
+   * touches has to say so.
+   */
+  pointerEvents?: 'auto' | 'box-none' | 'none' | 'box-only';
   children: React.ReactNode;
 }
 
@@ -61,7 +67,13 @@ const styles = StyleSheet.create({
  * so the full destination screen was visible underneath from frame one while
  * the small clone was still visibly ballooning open on top of it.
  */
-export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTargetProps) {
+export function MorphTarget({
+  id,
+  borderRadius = 0,
+  style,
+  pointerEvents = 'box-none',
+  children,
+}: MorphTargetProps) {
   const morph = useMorphOptional();
   const ref = useRef<View>(null);
   const reported = useRef(false);
@@ -249,7 +261,33 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
   );
 
   return (
-    <View ref={ref} collapsable={false} onLayout={onLayout} style={style}>
+    /**
+     * A MORPH TARGET IS A MEASURING TAPE, NOT A TOUCH TARGET.
+     *
+     * BUGFIX ("on the request a trip page the map is showing a frozen map";
+     * "the map of the book a ride page… when moving the camera it's not
+     * responsive").
+     *
+     * Both are this default. A stage that wraps itself in `<MorphTarget
+     * style={{flex:1}}>` — which the request stage and every full-screen
+     * landing target does — put a screen-sized `pointerEvents: 'auto'` View
+     * directly over the persistent MapLibre view. Every pan, pinch and drag
+     * landed on the wrapper and stopped there, so the map was frozen while the
+     * panel inside the very same wrapper stayed perfectly interactive. That is
+     * precisely the split trip.tsx already fixed for its stage layer, and the
+     * fix is the same: this view declines touches, its real children keep
+     * receiving them normally.
+     *
+     * `box-none` and not `none`: `none` would make the CHILDREN inert too,
+     * which would kill every button on every morph destination.
+     */
+    <View
+      ref={ref}
+      collapsable={false}
+      onLayout={onLayout}
+      style={style}
+      pointerEvents={pointerEvents}
+    >
       {/* BUGFIX ("the map is pure black on the tracking page"): this wrapper
           carried ONLY the animated opacity, so it had no flex — a full-screen
           target like <MorphTarget style={{ flex: 1 }}> stretched the OUTER view
@@ -261,7 +299,11 @@ export function MorphTarget({ id, borderRadius = 0, style, children }: MorphTarg
           panel. `flex: 1` here is inert for content-sized targets (Yoga only
           distributes free space, of which an auto-height parent has none) and
           restores the full height for screen-sized ones. */}
-      <Animated.View style={[styles.fill, animatedStyle]}>{children}</Animated.View>
+      {/* Same reasoning as the wrapper above — this layer is the same size and
+          would re-introduce the swallowed pan on its own. */}
+      <Animated.View style={[styles.fill, animatedStyle]} pointerEvents={pointerEvents}>
+        {children}
+      </Animated.View>
     </View>
   );
 }

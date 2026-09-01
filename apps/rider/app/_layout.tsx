@@ -38,7 +38,7 @@ import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, 
 import { resolveApiUrl } from '../stores/api.store';
 import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ReleaseGateHost } from '../components/ReleaseGateHost';
@@ -914,6 +914,16 @@ export default function RootLayout() {
               </View>
             </View>
           </Animated.View>
+          {/*
+            AFTER THE STACK IS NOT THE SAME AS ABOVE THE STACK — see
+            OverlayPortal. On iOS a native `presentation: 'modal'` screen (this
+            app has seven) is presented in its own view controller above the
+            whole React root view, so every one of these floating surfaces was
+            invisible on exactly the screens where they matter: the boarding-PIN
+            sheet could not appear over the payment sheet, and a `notify()`
+            fired from inside a modal drew itself where nobody could see it.
+          */}
+          <OverlayPortal>
           {/* Global trip-status banner — rendered AFTER Stack so it layers above all screens */}
           <TripStatusListener />
           {/* "Verify My Ride" — the rider's boarding code, raised when the
@@ -940,6 +950,7 @@ export default function RootLayout() {
           {/* Covers the app when the operator retires this build or turns on maintenance. */}
           <ReleaseGateHost />
           <GlobalToast />
+          </OverlayPortal>
           {/* Global foreground push notification banner */}
           {inAppBanner && (
             <View

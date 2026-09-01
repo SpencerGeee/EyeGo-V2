@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { View, StyleSheet, Pressable, Modal } from 'react-native';
+import { View, StyleSheet, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +17,11 @@ import Animated, {
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { fonts, fontSizes, radii, spacing, springs, withOpacity } from '@eyego/config';
-import { Text, goDeeper } from '@eyego/ui';
+// Pressable from @eyego/ui, never react-native: NativeWind's css-interop
+// registers RN's and DROPS a function style, taking the whole declaration with
+// it. This sheet is what tells a rider their ride died and offers them another
+// car — its buttons rendering unstyled is not a cosmetic problem.
+import { Text, goDeeper, Pressable } from '@eyego/ui';
 
 import { useColors, type Colors } from '../utils/useColors';
 import { useRideEnded, shouldAnnounce, type RideEndedReason } from '../stores/rideEnded.store';

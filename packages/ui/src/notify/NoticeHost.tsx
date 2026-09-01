@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -17,6 +17,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, radii, spacing, springs, withOpacity, type ColorTokens } from '@eyego/config';
 
 import { Text } from '../Text';
+/**
+ * OUR Pressable, NOT React Native's.
+ *
+ * The notice's action button was written `style={({ pressed }) => [...]}`
+ * against RN's Pressable, and NativeWind's css-interop — registered app-wide in
+ * both apps — silently discards a FUNCTION style. So `styles.action` never
+ * applied: no pill, no border, no tint, no 36 pt target. The one verb on the
+ * most important surface in either app rendered as a bare word floating beside
+ * the message. This is the same defect that made the driver's Pass button and
+ * the Dispatch-blocked CTA look unstyled; it is fixed the same way, and the
+ * rule is absolute — a function style is only ever safe on this Pressable.
+ */
+import { Pressable } from '../Pressable';
 import { useThemedColors } from '../ColorsContext';
 import {
   dismissNotice,
@@ -212,7 +225,7 @@ export function NoticeHost() {
                 }}
                 accessibilityRole="button"
                 accessibilityLabel={notice.action.label}
-                style={({ pressed }) => [
+                style={({ pressed }: { pressed: boolean }) => [
                   styles.action,
                   { borderColor: withOpacity(accent, 0.55), backgroundColor: withOpacity(accent, 0.14) },
                   pressed && { opacity: 0.75 },

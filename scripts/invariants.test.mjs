@@ -68,29 +68,44 @@ const report = (hits) =>
  * of a rule nobody was actually breaking.
  *
  * What breaks is the FUNCTION form specifically, and only when it is attached to
- * React Native's Pressable. A grep cannot tell which JSX element a style belongs
- * to, so this checks the one case where there is no ambiguity: a file that
- * imports RN's Pressable and imports NOTHING from `@eyego/ui`. Any function
- * style in such a file is on the broken one by elimination.
+ * React Native's Pressable.
  *
- * Files importing both are outside this check by construction. Migrating them —
- * and the plain-object cases — is a cleanup tracked in the triage doc.
+ * ── WHY THIS RULE HAD TO BE TIGHTENED ───────────────────────────────────────
+ *
+ * The first version of this test carried two exemptions, and BOTH of them were
+ * hiding live instances of the exact bug it exists to prevent:
+ *
+ *   1. It skipped any file that also imported from `@eyego/ui`, on the grounds
+ *      that a grep cannot attribute a style to an element when both Pressables
+ *      are in scope. True, and it exempted almost every screen in the app —
+ *      because almost every screen imports `Text` from the UI package. Four
+ *      real breakages sat inside that exemption for months: the driver's Pass
+ *      button and Dispatch-blocked CTA (both reported as "does nothing / is not
+ *      styled"), the rider's ride-ended sheet, and the trip surface's Home pill.
+ *   2. It skipped `packages/ui/` wholesale so the wrapper could import the
+ *      primitive it wraps. That exempted `NoticeHost`, the one surface both
+ *      apps use for every `notify()`, whose action button was unstyled for the
+ *      same reason.
+ *
+ * The ambiguity that motivated exemption 1 is real but avoidable: it only
+ * exists if a file imports RN's Pressable at all. So the rule is now the
+ * unambiguous one — a file that uses a function style must not import Pressable
+ * from react-native, full stop. That is checkable by text with no guessing, and
+ * the whole repo already satisfies it.
+ *
+ * Only `packages/ui/src/Pressable.tsx`, which IS the wrapper, is exempt.
  */
 test('React Native Pressable is never used with a function style', () => {
   const hits = [];
   for (const file of files(['.tsx'])) {
     const rel = relative(ROOT, file).replace(/\\/g, '/');
-    // The shared library is where the wrapper itself lives, so it is allowed to
-    // import the primitive it wraps.
-    if (rel.startsWith('packages/ui/')) continue;
+    // The wrapper itself — and only it — may import the primitive it wraps.
+    if (rel === 'packages/ui/src/Pressable.tsx') continue;
     const src = readFileSync(file, 'utf8');
     if (!src.includes('Pressable')) continue;
 
     const importsRnPressable = /import\s*\{[^}]*\bPressable\b[^}]*\}\s*from\s*['"]react-native['"]/.test(src);
     if (!importsRnPressable) continue;
-    // Both imported: cannot attribute a style to an element by text. Skipped
-    // deliberately rather than guessed at.
-    if (/from\s*['"]@eyego\/ui['"]/.test(src)) continue;
 
     src.split('\n').forEach((text, i) => {
       // `style={({ pressed }) => ...}` or `style={(state) => ...}` — the arrow is

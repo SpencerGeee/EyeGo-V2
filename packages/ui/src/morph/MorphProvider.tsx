@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -165,22 +165,66 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const [cloneBg, setCloneBg] = useState<string | undefined>(undefined);
 
   /**
-   * The clone's FIXED layout frame, held in React state rather than re-derived
-   * inside the animated style.
+   * ── THE CLONE'S LAYOUT BOX IS THE SCREEN, AND IT NEVER MOVES ───────────────
    *
-   * SMOOTHNESS FIX: the animated style used to assign `left`, `top`, `width`
-   * and `height` on every single frame. Those are layout properties — even when
-   * the value written is identical frame to frame, Reanimated pushes the whole
-   * style object through the native layout path, so each of the ~60 frames of a
-   * morph dirtied the layout of a full-screen view and its subtree. That is a
-   * measure/layout pass per frame on top of the transform, and it is what kept
-   * the morph from ever feeling buttery no matter how the timing was tuned.
+   * SMOOTHNESS FIX, the seventh report of "the morph is still laggy — change
+   * the approach at the root". This is that change.
    *
-   * These values only change twice per flight (when the clone mounts, and when
-   * the target reports its frame), so they belong in state. The animated style
-   * is now transform + opacity + borderRadius only — all compositor-side.
+   * The previous two rounds got half of it right. Round one stopped writing
+   * `left/top/width/height` from the animated style, because assigning layout
+   * props on the UI thread dirties a native layout pass every frame. Round two
+   * moved them into React state — but into state that CHANGES DURING THE
+   * FLIGHT, which reintroduced the same defect in a form that is harder to see:
+   *
+   *   1. `targetReady` set the shared values AND called `setFrame` in one
+   *      synchronous block, then armed the spring immediately. Shared values
+   *      land on the UI thread this instant; `setFrame` lands one React commit
+   *      later. So the first frames of every forward morph were computed with
+   *      `sx = w / targetW` against a container still laid out at the SOURCE
+   *      rect. Every morph in both apps began with a one-frame pop.
+   *   2. MorphTarget re-reports at +16 ms and +140 ms to correct for late
+   *      insets. Each correction repeated the desync MID-flight — a second and
+   *      third pop, at exactly the moment the eye is tracking the card.
+   *
+   * The root cause is that the container's LAYOUT and the container's TRANSFORM
+   * were both functions of the target rect, updated through two systems that do
+   * not commit together. So the fix is to make the layout a function of nothing:
+   * the clone is laid out at the full window, once, for every flight, and 100 %
+   * of the position and size lives in the transform.
+   *
+   * Consequences, all good: `setFrame` is gone, so a flight now costs ZERO
+   * React commits between takeoff and landing; a `targetReady` correction is a
+   * pure shared-value write, which is atomic and free; and there is no longer
+   * any ordering relationship between the commit that mounts the clone and the
+   * spring that flies it.
    */
-  const [frame, setFrame] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const { width: rawWinW, height: rawWinH } = useWindowDimensions();
+  /**
+   * ── AND THE FIXED BOX IS SQUARE ────────────────────────────────────────────
+   *
+   * The base has to be constant (above), and it also has to be SQUARE, for a
+   * reason that only shows up on circular morphs.
+   *
+   * `borderRadius` is written in the container's own coordinate space and then
+   * put through the transform, so a corner is rendered at `r × scaleX`
+   * horizontally and `r × scaleY` vertically. While the base was the TARGET
+   * rect that was harmless for the case that matters: an avatar→avatar morph
+   * has a square target, `scaleX === scaleY`, and a circle stayed a circle. A
+   * base of `winW × winH` would break exactly that — a 40 pt avatar would scale
+   * 0.093 across and 0.043 down, and its 20 pt corner would render as a 20 × 9
+   * ellipse. The profile morph would go back to the "rounded square" this
+   * codebase has already been reported for once.
+   *
+   * A square base keeps `scaleX === scaleY` for every square-to-square flight,
+   * which is precisely the family that has a circle to preserve. Card-shaped
+   * morphs have unequal scales either way — they must, because the box really
+   * does change aspect — and that approximation is unchanged from before.
+   *
+   * `max` rather than `min`: the box must cover the screen in both directions,
+   * since a full-screen target is one of the shapes it has to be able to reach.
+   */
+  const winW = Math.max(rawWinW, rawWinH);
+  const winH = winW;
 
   /**
    * The SOURCE element's size — the layout size the cloned content is rendered
@@ -265,7 +309,6 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     setCloneNode(null);
     setActiveId(null);
     setPhase('idle');
-    setFrame(null);
     setContentSize(null);
   }, []);
 
@@ -354,9 +397,8 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           }, TARGET_TIMEOUT_MS),
         };
 
-        // Clone starts pinned to the source frame; targetReady re-pins it to
-        // the target frame and the transform carries the delta from there.
-        setFrame({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+        // No frame to pin — the clone's layout box is the window and nothing
+        // in the flight changes it. See the note on `winW`/`winH`.
         setContentSize({ width: rect.width, height: rect.height });
         setCloneBg(entry.backgroundColor);
         setCloneNode(entry.getClone());
@@ -413,9 +455,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       const isCorrection = f.targetRect != null;
       f.targetRect = rect;
       f.targetRadius = borderRadius;
-      // Re-pin the clone's static frame to the target. Everything from here on
-      // is pure transform, so the flight itself costs no layout work.
-      setFrame({ x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+      // NOTHING to re-pin. The clone's layout box is the window for the whole
+      // flight, so a correction is five shared-value writes and no React commit
+      // — which is what removed the mid-flight pop at +140 ms. See `winW`.
 
       // Only ARM the spring once. A correction has to leave the running spring
       // alone: restarting it would reset its velocity mid-flight, which reads as
@@ -631,8 +673,17 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
     const x = interpolate(morphProgress.value, [0, 1], [sourceX.value, targetX.value]);
     const y = interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]);
-    const baseW = targetW.value || 1;
-    const baseH = targetH.value || 1;
+    /**
+     * The base is the WINDOW, not the target rect.
+     *
+     * This is the line the whole rewrite turns on. `baseW`/`baseH` have to be
+     * the container's real laid-out size, because the scale is what maps one
+     * onto the other — and the container is laid out at the window, always. Read
+     * from the target rect (as it was) the two disagreed for a frame after every
+     * `targetReady`, which is the pop described on `winW` above.
+     */
+    const baseW = winW || 1;
+    const baseH = winH || 1;
     const sx = w / baseW;
     const sy = h / baseH;
     /**
@@ -669,32 +720,38 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       borderRadius: rFrame,
       opacity: cloneOpacity.value,
       transform: [
-        { translateX: x + w / 2 - (targetX.value + baseW / 2) },
-        { translateY: y + h / 2 - (targetY.value + baseH / 2) },
+        // The container's own centre is the window's centre (it is laid out at
+        // 0,0 → winW,winH), so the delta is measured from there.
+        { translateX: x + w / 2 - baseW / 2 },
+        { translateY: y + h / 2 - baseH / 2 },
         { scaleX: sx },
         { scaleY: sy },
       ] as const,
     };
-  });
+  }, [winW, winH]);
 
-  /** The non-animated half of the clone's style — written twice per flight, not 60 times a second. */
+  /**
+   * The non-animated half of the clone's style. Constant for the life of the
+   * provider now — it changes only on a real window resize (rotation), never
+   * during a flight. See the note on `winW`.
+   */
   const overlayFrameStyle = useMemo(
     () => ({
       position: 'absolute' as const,
-      left: frame?.x ?? 0,
-      top: frame?.y ?? 0,
-      width: frame?.width ?? 1,
-      height: frame?.height ?? 1,
+      left: 0,
+      top: 0,
+      width: winW,
+      height: winH,
       overflow: 'hidden' as const,
       // The cloned content is laid out at the SOURCE size while the container is
-      // pinned to the TARGET size, so the two boxes no longer coincide. React
-      // Native scales about a view's centre, so the only placement that keeps the
+      // laid out at the fixed square, so the two boxes never coincide. React Native
+      // scales about a view's centre, so the only placement that keeps the
       // container's scale and the content's inverse scale agreeing is centre-on-
       // centre; anchoring top-left would make the content drift across the flight.
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
     }),
-    [frame],
+    [winW, winH],
   );
 
   const contentFrameStyle = useMemo(
@@ -719,8 +776,10 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const contentStyle = useAnimatedStyle(() => {
     const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
     const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
-    const baseW = targetW.value || 1;
-    const baseH = targetH.value || 1;
+    // Must be the SAME base the container scaled by, or the two do not cancel
+    // and the cloned content stretches across the flight. See `overlayStyle`.
+    const baseW = winW || 1;
+    const baseH = winH || 1;
     // width/height live in contentFrameStyle — same layout-thrash reason as the
     // overlay above.
     return {
@@ -735,7 +794,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         { scaleY: baseH / (h || 1) },
       ] as const,
     };
-  });
+  }, [winW, winH]);
 
   // phaseRef for reading phase inside callbacks
   const phaseRef = useRef<MorphPhase>('idle');

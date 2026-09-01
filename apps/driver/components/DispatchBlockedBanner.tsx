@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react';
-import { StyleSheet, View, Pressable } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
@@ -11,7 +11,21 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, GradientGlowBorder } from '@eyego/ui';
+/**
+ * `Pressable` FROM @eyego/ui — see the note in DispatchOfferCard for the rule.
+ *
+ * BUGFIX ("the driver homepage banner that says Dispatch cannot see you is
+ * STILL unstyled — the rest of the banners are styled").
+ *
+ * The banner's card was fine; its CTA was not, and the CTA is the whole point
+ * of this banner. It was written `style={({ pressed }) => [styles.cta, {…}]}`
+ * against React Native's Pressable, whose registered css-interop wrapper drops
+ * a function style entirely — taking `styles.cta` AND the `backgroundColor`
+ * with it. What rendered was dark label text and an arrow, unstyled, directly
+ * on the card: no pill, no fill, no 46 pt target. Every previous pass at this
+ * banner tuned the styles that were being thrown away.
+ */
+import { Text, GlassSurface, GradientGlowBorder, Pressable } from '@eyego/ui';
 
 import { useColors, type DriverColors } from '../utils/useColors';
 

@@ -12,7 +12,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NetworkReporter } from '../components/NetworkReporter';
-import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost } from '@eyego/ui';
+import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
 import { ReleaseGateHost } from '../components/ReleaseGateHost';
 import {
   useFonts,
@@ -744,16 +744,38 @@ export default function RootLayout() {
             truth that feeds it. Replaces the offline pill that used to be
             inlined in (tabs)/home.tsx and therefore only existed there. */}
         <NetworkReporter />
-        <NoticeHost />
-        {/* Covers the app when the operator retires this build or turns on maintenance. */}
-        <ReleaseGateHost />
-        {/* Off-screen parity: app-wide socket banners (chat/dispatch/status) +
-            cache invalidation, mirroring the rider TripStatusListener. */}
-        {isLoggedIn && <DriverTripStatusListener />}
-        {/* The dispatch offer's renderer. Root-mounted so an offer interrupts
-            whatever screen the driver is on — the store has been collecting
-            offers since the rewire with nothing on the other end. */}
-        {isLoggedIn && <DispatchOfferSheet />}
+        {/*
+          ── APP-WIDE MEANS ABOVE THE MODALS TOO ───────────────────────────────
+
+          BUGFIX ("the redesigned toast only shows on the homepage, which is
+          wrong — it should be app wide"), and the reason a failed swipe-to-
+          accept only explained itself after the driver went back home.
+
+          These four are mounted here, as siblings of the `<Stack>`, precisely so
+          they cover every screen — and on Android they do. On iOS they did not,
+          and not because of a z-index: `presentation: 'modal'` presents a screen
+          in its OWN UIKit view controller, above the controller that holds the
+          whole React root view. The dispatch offer, the cancel sheet and
+          add-passenger are all presented that way, so the toast, the notice host
+          and the release gate were all underneath the only screens where
+          anything urgent happens.
+
+          `OverlayPortal` puts them in a `FullWindowOverlay` — a sibling UIWindow
+          above the application window, presented controllers included — which is
+          UIKit's own answer to this and the reason it exists. See its header.
+        */}
+        <OverlayPortal>
+          <NoticeHost />
+          {/* Covers the app when the operator retires this build or turns on maintenance. */}
+          <ReleaseGateHost />
+          {/* Off-screen parity: app-wide socket banners (chat/dispatch/status) +
+              cache invalidation, mirroring the rider TripStatusListener. */}
+          {isLoggedIn && <DriverTripStatusListener />}
+          {/* The dispatch offer's renderer. Root-mounted so an offer interrupts
+              whatever screen the driver is on — the store has been collecting
+              offers since the rewire with nothing on the other end. */}
+          {isLoggedIn && <DispatchOfferSheet />}
+        </OverlayPortal>
         {/* Global foreground push notification banner */}
         {inAppBanner && (
           <Animated.View
