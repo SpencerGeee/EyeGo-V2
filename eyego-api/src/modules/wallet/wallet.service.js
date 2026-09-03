@@ -144,11 +144,24 @@ async function confirmTopUp(driverId, reference, amountPesewas) {
 
 async function withdraw(driverId, amountPesewas) {
   const safeAmount = assertPesewas(amountPesewas, 'withdrawal amount', { client: true });
-  if (safeAmount < env.DRIVER_MIN_WITHDRAWAL_PESEWAS) {
+  /**
+   * THE LIVE VALUE, NOT THE ONE BOOT HAPPENED TO SEE.
+   *
+   * `DRIVER_MIN_WITHDRAWAL_PESEWAS` is a console-editable PlatformSetting, and
+   * `publicConfig()` ships the CURRENT value to the driver app as the floor it
+   * displays. Reading `env` here read the snapshot taken from .env at process
+   * start instead, so lowering the minimum in the console changed the number
+   * the app promised while this endpoint went on refusing against the old one —
+   * the driver is rejected for an amount the app just told them was allowed.
+   */
+  const minWithdrawal =
+    require('../../config/settings').get('DRIVER_MIN_WITHDRAWAL_PESEWAS')
+    ?? env.DRIVER_MIN_WITHDRAWAL_PESEWAS;
+  if (safeAmount < minWithdrawal) {
     // Formatted, not raw: the threshold is 2000 pesewas and a driver told
     // "Minimum withdrawal is GHS 2000" would reasonably close the app.
     throw new AppError(
-      `Minimum withdrawal is ${formatGhs(env.DRIVER_MIN_WITHDRAWAL_PESEWAS)}`,
+      `Minimum withdrawal is ${formatGhs(minWithdrawal)}`,
       400,
     );
   }

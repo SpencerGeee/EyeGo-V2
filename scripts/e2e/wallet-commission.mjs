@@ -271,6 +271,34 @@ async function main() {
     return `${status} ${body.code}`;
   });
 
+  /**
+   * THE OTHER ACCEPT. Everything above drives `/driver/trips/:id/accept`, which
+   * routes through `claimTrip` and always had the wallet gate. The offer sheet
+   * the driver actually swipes on posts to `/rides/:id/accept` instead, which
+   * reaches `acceptRide` — a different function that skipped the check
+   * entirely. A suite that only exercises one of the two accept verbs proves
+   * the gate exists, not that it cannot be walked around.
+   */
+  await check('the OTHER accept verb refuses the broke driver too', async () => {
+    if (!ctx.requiredB || ctx.brokeBalance >= ctx.requiredB) return 'skipped — see above';
+    const { status, body } = await req('POST', `/rides/${ctx.tripB}/accept`, {
+      token: ctx.broke.token,
+      raw: true,
+      body: {},
+    });
+    if (status < 400) {
+      throw new Error(
+        'POST /rides/:id/accept let a driver who cannot pay the commission take a cash ride. ' +
+          'This is the verb the swipe-to-accept offer sheet uses, so the gate on the other ' +
+          'accept path protects nobody in the flow drivers actually use.',
+      );
+    }
+    if (body?.code !== 'INSUFFICIENT_WALLET_FOR_TRIP') {
+      throw new Error(`refused with ${status} ${body?.code} — the app branches on INSUFFICIENT_WALLET_FOR_TRIP`);
+    }
+    return `${status} ${body.code}`;
+  });
+
   await check('the refusal carries the numbers the app needs to say how much to add', async () => {
     if (!ctx.requiredB || ctx.brokeBalance >= ctx.requiredB) return 'skipped — see above';
     const { body } = await req('POST', `/driver/trips/${ctx.tripB}/accept`, {

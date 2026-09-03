@@ -519,6 +519,32 @@ async function goOnline(driverId, lat, lng) {
     );
   }
 
+  /**
+   * THE KNOB THAT DID NOTHING.
+   *
+   * `DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS` is registered in the settings
+   * console with the help text "A driver below this cannot go online. Raising
+   * it takes drivers offline the moment they next try", and `publicConfig()`
+   * ships it to the app. Nothing read it. The only balance test here was the
+   * negative-balance one above — a debt check, not a floor — so an operator who
+   * set the floor to GH₵50 got exactly the behaviour they had at GH₵0.
+   *
+   * Enforced from the live setting rather than the boot-time env snapshot, for
+   * the same reason as the withdrawal minimum: the app is told the current
+   * value, so the refusal has to use the current value or the two disagree.
+   */
+  const requiredFloat =
+    require('../../config/settings').get('DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS')
+    ?? env.DRIVER_REQUIRED_WALLET_TO_GO_ONLINE_PESEWAS
+    ?? 0;
+  if (requiredFloat > 0 && driver.walletBalancePesewas < requiredFloat) {
+    throw new AppError(
+      `You need ${formatGhs(requiredFloat)} in your wallet to go online. You have ${formatGhs(driver.walletBalancePesewas)} — top up ${formatGhs(requiredFloat - driver.walletBalancePesewas)} and you are good to go.`,
+      402,
+      'WALLET_BELOW_ONLINE_MINIMUM',
+    );
+  }
+
   // Rating & acceptance-rate enforcement — the driver terms screen warns that a
   // pattern of low ratings/declines "may affect your driver level or trigger a
   // review," but nothing previously enforced it. Mirror the document/wallet gates

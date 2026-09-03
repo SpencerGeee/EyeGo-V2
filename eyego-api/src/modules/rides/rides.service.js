@@ -827,6 +827,32 @@ async function acceptRide(driverId, tripId) {
     throw new AppError('No active vehicle registered.', 400, 'NO_VEHICLE');
   }
 
+  /**
+   * THE FOURTH PATH.
+   *
+   * `assertCanAffordTrip` lives in `claimTrip`, whose comment says it sits
+   * there because that is "the ONE verb every accept path routes through
+   * (dispatch, cascade and reassignment), so no fourth path can skip it."
+   *
+   * This is the fourth path. `POST /rides/:id/accept` is what the root-mounted
+   * offer sheet calls — the ordinary swipe-to-accept on a one-rider cascade
+   * offer, which is the accept the average driver performs every day. It
+   * reaches `acceptRide`, not `claimTrip`, and so it never asked whether the
+   * driver could cover the cash commission.
+   *
+   * The consequence is the precise scenario the wallet rules exist to prevent:
+   * the driver swipes, drives to the pickup, and is refused at boarding with
+   * the passenger standing there. The harness did not catch it because
+   * `wallet-commission.mjs` drives `/driver/trips/:id/accept`, the path that
+   * always had the gate.
+   *
+   * Required lazily: drivers.service requires this module back (it does the
+   * same in the other direction at its own call sites), and a top-level
+   * require would close the cycle at load time.
+   */
+  const { assertCanAffordTrip } = require('../drivers/drivers.service');
+  await assertCanAffordTrip(driverId, tripId);
+
   await cascade.stopOfferTimer(tripId);
 
   let result;
