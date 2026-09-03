@@ -637,10 +637,25 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                         <Avatar uri={trip.driver?.avatarUrl} name={trip.driver?.name} size={48} borderColor={colors.rimLight} />
                         <View style={styles.tripCardDriverInfo}>
                           <Text style={styles.tripCardDriverName} numberOfLines={1}>{trip.driver?.name ?? 'Driver'}</Text>
+                          {/*
+                            NO RATING IS NOT 4.80.
+
+                            rating-integrity.service.js returns `null` rather than
+                            a flattering number when a driver has no countable
+                            ratings, and says so in its own comment: "callers
+                            decide how to present 'not rated'". This card decided
+                            to present it as 4.80 — an earned-looking average, on
+                            the exact card a rider taps to choose a driver. Every
+                            brand-new driver shipped with a fabricated score.
+                          */}
                           <View style={styles.tripCardRatingRow}>
-                            <Ionicons name="star" size={12} color={info.color} />
+                            <Ionicons
+                              name={trip.driver?.rating != null ? 'star' : 'sparkles-outline'}
+                              size={12}
+                              color={info.color}
+                            />
                             <Text style={[styles.tripCardRating, { color: info.color }]}>
-                              {(trip.driver?.rating ?? 4.8).toFixed(2)}
+                              {trip.driver?.rating != null ? trip.driver.rating.toFixed(2) : 'New'}
                             </Text>
                             <Text style={styles.tripCardDot}>•</Text>
                             <Text style={styles.tripCardVehicle} numberOfLines={1}>

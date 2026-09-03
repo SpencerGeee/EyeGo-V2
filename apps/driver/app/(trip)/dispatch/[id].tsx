@@ -173,8 +173,17 @@ export default function DispatchScreen() {
         tripId: id,
         pickupAddress: params.origin ?? null,
         dropoffAddress: params.destination ?? null,
+        /**
+         * ALREADY PESEWAS. The only place this param comes from is home.tsx's
+         * `trip:assigned` handler, which sends `String(estimatedEarningsPesewas)`
+         * — the server's pesewas integer, as its own comment there says.
+         * Multiplying by 100 again read it as cedis and showed the driver
+         * GH₵450.00 for a GH₵4.50 ride, on the one screen whose entire job is
+         * the number they decide on. It self-corrected a second later when the
+         * real offer landed, which is exactly why nobody caught it.
+         */
         driverEarningsPesewas: params.estimatedEarnings
-          ? Math.round(parseFloat(params.estimatedEarnings) * 100)
+          ? Math.round(Number(params.estimatedEarnings))
           : null,
         expiresAtServerMs: params.expiresAt ? new Date(params.expiresAt).getTime() : null,
         kind: params.kind ?? 'DISPATCH',
