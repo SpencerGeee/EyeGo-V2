@@ -24,7 +24,10 @@ type Trip = {
   // getAllTrips returns the seat-occupying bookings themselves, already filtered
   // through seatOccupyingWhere() — not a _count. Reading _count here would have
   // silently rendered every seat column as 0.
-  bookings?: { id: string; seatNumber?: number | null }[];
+  // `seats` is how many people the row is for — the API has always sent it
+  // (the query uses `include`), the console's type just never named it, which
+  // is why the seat column was counting rows.
+  bookings?: { id: string; seatNumber?: number | null; seats?: number | null }[];
 };
 
 // getAllTrips returns `trips`, not `data`. Matching the API exactly rather than
@@ -134,7 +137,12 @@ export default async function TripsPage({
                           {t.route?.originName || '—'} → {t.route?.destinationName || '—'}
                         </td>
                         <td className="num">
-                          {num(t.bookings?.length ?? 0)}
+                          {/*
+                            Seats, not rows. One booking row can hold a party of
+                            four, so `.length` printed "1" for a full car — the
+                            same undercount the API's own occupancy figures had.
+                          */}
+                          {num((t.bookings ?? []).reduce((n, b) => n + (b.seats ?? 1), 0))}
                           {t.maxSeats ? <span className="text-text-faint"> / {t.maxSeats}</span> : null}
                         </td>
                         <td className="num hidden lg:table-cell">

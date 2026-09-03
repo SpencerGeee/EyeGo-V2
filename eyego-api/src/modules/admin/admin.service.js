@@ -15,7 +15,7 @@ const logger = require('../../utils/logger');
 // refund and a no-show as a passenger — inflating occupancy on the trip list,
 // the driver detail, the live map and, worst, the capacity check inside
 // assignDriverToTrip. Use the shared predicate, never an inline list.
-const { seatOccupyingWhere } = require('../../utils/booking-status');
+const { seatOccupyingWhere, sumSeats } = require('../../utils/booking-status');
 
 /**
  * Trip statuses that still tie up a driver.
@@ -893,8 +893,11 @@ async function getTripDetail(tripId) {
     geometry,
     occupancy: {
       maxSeats: trip.maxSeats,
-      occupiedSeats: occupied.length,
-      availableSeats: Math.max(0, (trip.maxSeats || 0) - occupied.length),
+      // `occupied.length` is a row count. One booking can hold four seats, so
+      // the trip detail page reported a full car as a quarter full — and its
+      // "available" figure invited an operator to sell seats that do not exist.
+      occupiedSeats: sumSeats(occupied),
+      availableSeats: Math.max(0, (trip.maxSeats || 0) - sumSeats(occupied)),
       seatNumbers: occupied.map((b) => b.seatNumber).filter((n) => n !== null),
     },
     money: {
@@ -1297,7 +1300,19 @@ async function getMetrics() {
 }
 
 async function getActiveTrips() {
-  return prisma.trip.findMany({
+  /**
+   * `_count.bookings` USED TO BE THE SEAT FIGURE, AND IT IS NOT ONE.
+   *
+   * The console prints this as "Seats" on the live board and "Riders" on
+   * dispatch. Since an on-demand ride became one booking row carrying
+   * `seats: partySize`, a row count reports a party of four as one rider — on
+   * the screen an operator uses to decide whether a trip has room.
+   *
+   * The rows are fetched with their seats and the count is replaced by the sum,
+   * so every existing consumer of `_count.bookings` keeps reading the same
+   * field and now gets the number of people.
+   */
+  const trips = await prisma.trip.findMany({
     // BUGFIX: this listed only DRIVER_EN_ROUTE and IN_PROGRESS while the
     // activeTrips KPI right above counted ARRIVED_AT_PICKUP as well. The two
     // disagreed, so a driver waiting at the pickup point was counted in the
@@ -1317,10 +1332,15 @@ async function getActiveTrips() {
     include: {
       driver: { select: { id: true, name: true, currentLat: true, currentLng: true, phone: true } },
       route: { select: { originName: true, destinationName: true } },
-      _count: { select: { bookings: { where: seatOccupyingWhere() } } },
+      bookings: { where: seatOccupyingWhere(), select: { seats: true } },
     },
     orderBy: { createdAt: 'desc' },
   });
+
+  return trips.map(({ bookings, ...t }) => ({
+    ...t,
+    _count: { bookings: sumSeats(bookings) },
+  }));
 }
 
 async function setSurgeMultiplier(zoneId, multiplier) {
@@ -1436,12 +1456,17 @@ async function getLiveDrivers() {
     select: {
       id: true, shortId: true, driverId: true, status: true,
       route: { select: { originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
-      _count: { select: { bookings: { where: seatOccupyingWhere() } } },
+      // Seats, not rows — see the note in getActiveTrips. This one feeds the
+      // live map's driver pins, where the occupancy decides whether an operator
+      // treats a car as having room.
+      bookings: { where: seatOccupyingWhere(), select: { seats: true } },
       maxSeats: true, confirmedSeats: true,
     },
   });
   const tripMap = {};
-  activeTrips.forEach(t => { tripMap[t.driverId] = t; });
+  activeTrips.forEach(({ bookings, ...t }) => {
+    tripMap[t.driverId] = { ...t, _count: { bookings: sumSeats(bookings) } };
+  });
   return drivers.map(d => ({
     id: d.id, name: d.name, phone: d.phone,
     lat: d.currentLat, lng: d.currentLng, heading: d.currentHeading,
@@ -1638,7 +1663,10 @@ const STRANDED_SEARCHING_GRACE_MS = 90 * 1000;
 async function getUnassignedTrips() {
   const searchingSince = new Date(Date.now() - STRANDED_SEARCHING_GRACE_MS);
 
-  return prisma.trip.findMany({
+  // Seats, not rows — see getActiveTrips. The dispatch board prints this as
+  // "N riders already booked" next to a reassignment control, so undercounting
+  // it is how a party of four gets handed to a car with one seat left.
+  const trips = await prisma.trip.findMany({
     where: {
       // BUGFIX: excluding only COMPLETED and CANCELLED left the other three
       // terminals in — NO_DRIVERS_FOUND, EXPIRED and NO_SHOW. Those trips are
@@ -1656,13 +1684,18 @@ async function getUnassignedTrips() {
     include: {
       route: { select: { id: true, name: true, originName: true, destinationName: true, originLat: true, originLng: true, destLat: true, destLng: true } },
       driver: { select: { id: true, name: true, isOnline: true } },
-      _count: { select: { bookings: { where: seatOccupyingWhere() } } },
+      bookings: { where: seatOccupyingWhere(), select: { seats: true } },
     },
     // Longest-waiting first. `departureTime` is null for every on-demand trip,
     // which sorted the urgent ones to whichever end the database felt like.
     orderBy: { updatedAt: 'asc' },
     take: 50,
   });
+
+  return trips.map(({ bookings, ...t }) => ({
+    ...t,
+    _count: { bookings: sumSeats(bookings) },
+  }));
 }
 
 async function unbanUser(userId) {

@@ -95,6 +95,24 @@ const LIVE_PASSENGER_STATUSES = SEAT_OCCUPYING_STATUSES.filter((s) => s !== 'COM
 /** Prisma filter fragment for the set above. Never write the list inline. */
 const livePassengerWhere = () => ({ status: { in: LIVE_PASSENGER_STATUSES } });
 
+/**
+ * HOW MANY PEOPLE, NOT HOW MANY ROWS.
+ *
+ * A booking carries `seats`: an on-demand ride for a party of four is ONE row
+ * with `seats: 4`. Counting rows — `_count.bookings`, `bookings.length` — is
+ * therefore not an occupancy figure, and every place that did it reported a
+ * four-person ride as one passenger.
+ *
+ * The apps already go through `bookedSeats()` in packages/utils, which cannot
+ * be required from here (that package is TypeScript, this service is CommonJS).
+ * This is the same rule for the server side, so the two cannot drift.
+ *
+ * `seats ?? 1` is the floor a legacy row needs: bookings written before the
+ * column existed have `null`, and they were one seat each.
+ */
+const sumSeats = (bookings) =>
+  (bookings ?? []).reduce((n, b) => n + (b?.seats ?? 1), 0);
+
 module.exports = {
   SEAT_OCCUPYING_STATUSES,
   SEAT_RELEASING_STATUSES,
@@ -103,4 +121,5 @@ module.exports = {
   seatOccupyingWhere,
   departureCountedWhere,
   livePassengerWhere,
+  sumSeats,
 };
