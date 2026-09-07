@@ -38,7 +38,7 @@ import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, 
 import { resolveApiUrl } from '../stores/api.store';
 import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ReleaseGateHost } from '../components/ReleaseGateHost';
@@ -954,6 +954,10 @@ export default function RootLayout() {
           {/* Covers the app when the operator retires this build or turns on maintenance. */}
           <ReleaseGateHost />
           <GlobalToast />
+          {/* What the UI thread is ACTUALLY doing. Dev-only, so it costs
+              nothing in a release build. Read p95, not p50 — a stutter lives in
+              the tail. Tap it to re-measure a specific interaction. */}
+          {__DEV__ && <FrameHealthBadge />}
           </OverlayPortal>
           {/* Global foreground push notification banner */}
           {inAppBanner && (

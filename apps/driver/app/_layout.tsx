@@ -12,7 +12,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NetworkReporter } from '../components/NetworkReporter';
-import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
+import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
 import { ReleaseGateHost } from '../components/ReleaseGateHost';
 import {
   useFonts,
@@ -783,6 +783,9 @@ export default function RootLayout() {
               whatever screen the driver is on — the store has been collecting
               offers since the rewire with nothing on the other end. */}
           {isLoggedIn && <DispatchOfferSheet />}
+          {/* What the UI thread is ACTUALLY doing. Dev-only. This is the app
+              that was reported laggy on an iPhone 12 — read p95, not p50. */}
+          {__DEV__ && <FrameHealthBadge />}
         </OverlayPortal>
         {/* Global foreground push notification banner */}
         {inAppBanner && (
