@@ -108,20 +108,33 @@ async function main() {
     return `tripId=${res.tripId}`;
   });
 
-  await check('the trip really carries the party (maxSeats = 3, not 1)', async () => {
+  await check('the trip really carries the party (3 seats, not 1)', async () => {
     if (!ctx.multiSeatTripId) throw new Error('no trip from the previous check');
     const active = await GET('/rides/active', rt);
     const snap = active?.trip ?? active?.snapshot ?? active;
-    const seats =
-      snap?.maxSeats ?? snap?.seatCount ?? snap?.seats ?? snap?.trip?.maxSeats ?? null;
-    if (seats == null) return 'server did not expose a seat count on /rides/active (not a regression)';
-    if (Number(seats) !== 3) {
+    /**
+     * `seats` on a trip snapshot is an OBJECT, not a number:
+     * `{ confirmed, max, occupied, boarded, paid, settled }`. Reading it as a
+     * scalar is how a check like this passes for the wrong reason — or, as it
+     * did on the first run of this suite, fails with "[object Object] seat(s)".
+     */
+    const seats = snap?.seats;
+    if (!seats || typeof seats !== 'object') {
+      throw new Error(`no seats object on the snapshot: ${JSON.stringify(snap?.seats)}`);
+    }
+    /**
+     * `max` is what the driver's screen counts against and is the number that
+     * read "1/1" in the original report; `confirmed` is the party that is
+     * actually holding those seats. Both have to say 3, or somebody at the kerb
+     * is not getting in the car.
+     */
+    if (Number(seats.max) !== 3 || Number(seats.confirmed) !== 3) {
       throw new Error(
-        `the trip says ${seats} seat(s). The driver would be told to expect the wrong number of people — ` +
-          'this is the half of the bug that made it look like a display issue.',
+        `the trip says max=${seats.max}, confirmed=${seats.confirmed}. The driver would be told to expect ` +
+          'the wrong number of people — this is the half of the bug that made it look like a display issue.',
       );
     }
-    return 'maxSeats=3';
+    return `max=${seats.max} confirmed=${seats.confirmed} occupied=${seats.occupied}`;
   });
 
   await check('THE GUARD STILL BITES: quote for 1, request 3 → 409 FARE_EXPIRED', async () => {
@@ -395,10 +408,43 @@ async function main() {
     return 'broadcast, as intended';
   });
 
-  process.exit(summary());
+  return summary();
 }
 
-main().catch((e) => {
-  console.error('\x1b[31mSUITE CRASHED\x1b[0m', e);
-  process.exit(1);
-});
+/**
+ * ── SIGN THE DRIVERS OUT, ALWAYS ────────────────────────────────────────────
+ *
+ * This suite puts two drivers online at the standard Accra pickup — the exact
+ * point `rider-happy-path` requests from. Left in the pool they are candidates
+ * for the NEXT suite's trip, and because dispatch is sequential the cascade
+ * offers to one of them first and holds the ride for its full window. The next
+ * suite's own driver then never receives an offer and its accept comes back
+ * "Another driver is being asked about this ride right now".
+ *
+ * That is precisely how this suite failed `rider-happy-path` on its first full
+ * run (25/35, all ten failures downstream of one missed offer) while passing
+ * 19/19 itself — a suite that breaks its neighbours and reports success. Every
+ * other suite here already signs out in a `finally` for the same reason; see
+ * also `reset-pool.mjs`, which exists to clean up after the days before they
+ * did.
+ *
+ * `finally`, not the end of `main`: a suite that fails half way through leaves
+ * the worst mess and is exactly when this matters most.
+ */
+main()
+  .then((bad) => {
+    // `process.exitCode`, NOT `process.exit()`: the latter terminates the
+    // process immediately and the `finally` below would never run — which
+    // would leave the drivers online and reintroduce the whole problem while
+    // looking like it had been fixed.
+    process.exitCode = bad;
+  })
+  .catch((e) => {
+    console.error('\x1b[31mSUITE CRASHED\x1b[0m', e);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    for (const d of [ctx.near, ctx.far]) {
+      if (d?.token) await POST('/driver/go-offline', {}, { token: d.token }).catch(() => {});
+    }
+  });
