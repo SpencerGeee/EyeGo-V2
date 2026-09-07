@@ -705,6 +705,9 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
              * two minutes away or twenty.
              */
             etaSeconds={dispatch?.etaSeconds ?? null}
+            // The same number the map's search ring is drawn from, so the words
+            // and the picture can never disagree. See `searchRing` in TripMap.
+            radiusKm={dispatch?.radiusKm ?? null}
             offerPending={!!dispatchOffer}
             seats={requestSeatCount}
             scheduledFor={formattedTime}

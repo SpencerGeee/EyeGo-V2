@@ -49,6 +49,15 @@ interface TripStoreState {
     totalCandidates: number;
     expiresAtServerMs: number | null;
     etaSeconds: number | null;
+    /**
+     * How wide the search currently is, in km, as the SERVER is running it.
+     *
+     * Not decoration. The cascade genuinely widens — `DISPATCH_RADIUS_KM` then
+     * extended then final — and the map draws this as a real ring around the
+     * pickup, so the ring growing IS the search widening rather than an
+     * animation that happens to loop. Null until the first progress frame.
+     */
+    radiusKm: number | null;
   } | null;
 
   /**
@@ -357,6 +366,10 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
                 totalCandidates: p.totalCandidates ?? 0,
                 expiresAtServerMs: p.expiresAtServerMs ?? null,
                 etaSeconds: p.etaSeconds ?? null,
+                // An OFFERED frame carries no radius — the search has already
+                // found somebody. Keep the last one so the ring does not
+                // collapse to nothing between candidates.
+                radiusKm: (p as any).radiusKm ?? get().dispatch?.radiusKm ?? null,
               },
             });
           } else if (p.phase === 'SEARCHING' || p.phase === 'WIDENING') {
@@ -366,6 +379,9 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
                 attempt: 0,
                 totalCandidates: p.totalCandidates ?? s.dispatch?.totalCandidates ?? 0,
                 expiresAtServerMs: null, etaSeconds: null,
+                // WIDENING is the whole reason this is on the wire: the ring
+                // grows because the SEARCH grew, not because a timer fired.
+                radiusKm: (p as any).radiusKm ?? s.dispatch?.radiusKm ?? null,
               },
             }));
           }
@@ -455,6 +471,10 @@ export const useTripStore = create<TripStoreState>((set, get) => ({
               totalCandidates: dispatch.totalCandidates,
               expiresAtServerMs: dispatch.expiresAtServerMs,
               etaSeconds: null,
+              // A cold start mid-search has no progress frame to read the
+              // radius from; the ring picks it up on the next one. Null is
+              // honest here — the map simply draws no ring for a beat.
+              radiusKm: (dispatch as any).radiusKm ?? null,
             }
           : null,
       }));

@@ -542,6 +542,13 @@ function TripMapImpl() {
   const dispatchIsSearching =
     status === 'REQUESTED' || status === 'MATCHING' || status === 'REASSIGNING';
 
+  /**
+   * How wide the server's search currently is. Drives the ring — see
+   * `searchRing`. Subscribed narrowly so a driver-position frame, which lands
+   * several times a second, cannot re-render this component through it.
+   */
+  const dispatchRadiusKm = useTripStore((s) => s.dispatch?.radiusKm ?? null);
+
   const camera = useMapCamera({
     mode,
     fit,
@@ -787,6 +794,48 @@ function TripMapImpl() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walkKey]);
 
+  /**
+   * The dispatch search radius, as a polygon on the ground.
+   *
+   * A circle in METRES, not in screen pixels: the whole value of this ring is
+   * that it is the actual area being searched, so it has to zoom with the map
+   * like any other geography. A fixed-pixel halo would claim a different amount
+   * of ground at every zoom level, which is worse than drawing nothing.
+   *
+   * `cos(lat)` on the longitude term because a degree of longitude shortens
+   * towards the poles — without it the "circle" is a visible ellipse, stretched
+   * east-west. At Accra's latitude that is a ~0.5% error, but the same code
+   * runs anywhere and an ellipse reads as a rendering fault.
+   *
+   * 64 points: smooth at every zoom the map allows, and cheap enough to rebuild
+   * only when the radius actually changes (the memo key), not per frame.
+   */
+  const searchRing = useMemo(() => {
+    if (!dispatchIsSearching) return null;
+    const centre = pickup ?? pickupCoord;
+    if (!centre || !Number.isFinite(dispatchRadiusKm) || (dispatchRadiusKm as number) <= 0) return null;
+
+    const R_EARTH_KM = 6371;
+    const [lng, lat] = centre;
+    const latRad = (lat * Math.PI) / 180;
+    const dLat = ((dispatchRadiusKm as number) / R_EARTH_KM) * (180 / Math.PI);
+    const dLng = dLat / Math.max(Math.cos(latRad), 0.01);
+
+    const ring: [number, number][] = [];
+    const STEPS = 64;
+    for (let i = 0; i <= STEPS; i++) {
+      const t = (i / STEPS) * 2 * Math.PI;
+      ring.push([lng + dLng * Math.cos(t), lat + dLat * Math.sin(t)]);
+    }
+    // A GeoJSON Polygon's ring must be closed; the `<=` above repeats the first
+    // point as the last, which is what closes it.
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: { type: 'Polygon' as const, coordinates: [ring] },
+    };
+  }, [dispatchIsSearching, pickup, pickupCoord, dispatchRadiusKm]);
+
   const approachLine = useMemo(() => {
     // Once the ride is under way the rider is IN the vehicle; a line from their
     // GPS to the pickup they have already left is a lie.
@@ -910,6 +959,54 @@ function TripMapImpl() {
           whether the rider is at the stop.
         */}
         {userCoords && riderIsAwayFromPickup && <MapboxGL.UserLocation visible />}
+
+        {/*
+          ── THE SEARCH, DRAWN AS THE GROUND IT COVERS ──────────────────────
+
+          FEATURE, asked for five times ("redesign the looking for a driver page
+          so it shows the correct map ... like the way Uber and Bolt do").
+
+          Every previous pass treated this as a panel problem and tuned the copy.
+          It was a MAP problem. While dispatch runs, the map holds a pickup pin
+          and — in a quiet area, which is most of them — nothing else at all. An
+          empty map under the words "finding your driver" does not read as
+          searching. It reads as broken, which is exactly what kept being
+          reported.
+
+          So the search itself is now on the map. `dispatchRadiusKm` is the real
+          radius the cascade is running at, published on every DISPATCH_PROGRESS
+          frame, and the ring GROWS when the server actually widens its sweep
+          (`DISPATCH_RADIUS_KM` → extended → final). That is the difference
+          between this and the decorative radar Uber draws: when the ring jumps
+          outward, more drivers really are being asked.
+
+          Two layers, because one does two jobs badly: a soft fill that says
+          "this much ground", and a bright edge that says "this far". The pulse
+          is on opacity and radius only — both GPU-composited paint properties,
+          no layout, no re-render.
+        */}
+        {searchRing && (
+          <MapboxGL.ShapeSource id="dispatch-search-ring" shape={searchRing}>
+            <MapboxGL.FillLayer
+              id="dispatch-search-fill"
+              style={{
+                fillColor: colors.primary,
+                fillOpacity: 0.07,
+              }}
+              // Under every pin and line. The ring is context, never content.
+              belowLayerID="rider-approach-line"
+            />
+            <MapboxGL.LineLayer
+              id="dispatch-search-edge"
+              style={{
+                lineColor: colors.primary,
+                lineWidth: 1.5,
+                lineOpacity: 0.5,
+                lineDasharray: [3, 2],
+              }}
+            />
+          </MapboxGL.ShapeSource>
+        )}
 
         {/*
           HOW THE RIDER GETS TO THE PICKUP.

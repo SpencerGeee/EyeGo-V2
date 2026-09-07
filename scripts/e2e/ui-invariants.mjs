@@ -324,6 +324,149 @@ function main() {
     return 'wired';
   });
 
+  section('9 · the morph obeys Apple\'s 2D rule');
+
+  /**
+   * Apple, *Designing Fluid Interfaces*: "Decompose 2D motion into independent
+   * X and Y springs. A single spring on a 2D distance desyncs when X and Y have
+   * different velocities." A morph driven by one progress value is smooth and
+   * still feels like gliding on rails, which is the hardest kind of motion bug
+   * to describe and the easiest to reintroduce.
+   */
+  const morphSrc = read(join(ROOT, 'packages/ui/src/morph/MorphProvider.tsx'));
+
+  check('X and Y have their own springs', () => {
+    if (!/const progressX = useSharedValue/.test(morphSrc) || !/const progressY = useSharedValue/.test(morphSrc)) {
+      throw new Error('the morph is back on a single progress value for both axes');
+    }
+    return 'progressX + progressY';
+  });
+
+  check('the overlay reads the axis springs, not the master', () => {
+    // x/w must come from progressX and y/h from progressY, or the axes are
+    // re-coupled and the decomposition buys nothing.
+    const wants = [
+      /const w = interpolate\(progressX\.value/,
+      /const h = interpolate\(progressY\.value/,
+      /const x = interpolate\(progressX\.value/,
+      /const y = interpolate\(progressY\.value/,
+    ];
+    for (const re of wants) {
+      if (!re.test(morphSrc)) throw new Error(`overlay interpolation is not per-axis: ${re}`);
+    }
+    return 'x,w ← X · y,h ← Y';
+  });
+
+  check('the cloned content is un-scaled by the SAME springs', () => {
+    const content = morphSrc.slice(morphSrc.indexOf('const contentStyle'));
+    if (!/interpolate\(progressX\.value/.test(content) || !/interpolate\(progressY\.value/.test(content)) {
+      throw new Error(
+        'contentStyle reads a different progress than overlayStyle, so the inverse scale no longer cancels ' +
+          'the outer one and the cloned content stretches for most of the flight.',
+      );
+    }
+    return 'cancels exactly';
+  });
+
+  check('the release velocity is handed to the spring', () => {
+    if (!/velocity: vProgress/.test(morphSrc)) {
+      throw new Error(
+        'the back-gesture springs from rest at release. Apple calls the resulting velocity discontinuity a ' +
+          '"brick wall" — the flick has to keep going at the speed it was thrown.',
+      );
+    }
+    return 'velocity carried through';
+  });
+
+  check('a gesture drives every axis 1:1', () => {
+    // Anchored on the HANDLER's signature, not on `onActive:` — that also
+    // matches the interface declaration hundreds of lines earlier, and slicing
+    // between the two type declarations reads the type instead of the code.
+    const from = morphSrc.indexOf('onActive: (translationY: number) => {');
+    const to = morphSrc.indexOf('onEnd: (velocityY: number) => {');
+    if (from < 0 || to < 0 || to < from) throw new Error('could not locate the gesture handlers');
+    const active = morphSrc.slice(from, to);
+    if (!/progressX\.value = p/.test(active) || !/progressY\.value = p/.test(active)) {
+      throw new Error(
+        'an axis is left on a spring while the finger drags. "Touch and content should move together" — a ' +
+          'spring here lags the touch.',
+      );
+    }
+    if (/withSpring/.test(active)) throw new Error('onActive springs instead of tracking the finger');
+    return '1:1 on both axes';
+  });
+
+  check('springForAxis is sized by distance and stays critically damped', () => {
+    const motion = read(join(ROOT, 'packages/config/src/motion.ts'));
+    if (!/export function springForAxis/.test(motion)) throw new Error('springForAxis is gone');
+    // Reproduce the function rather than trusting the comment.
+    const f = (d) => {
+      const response = Math.min(0.45, 0.28 + (Math.abs(d) / 900) * 0.17);
+      const stiffness = (2 * Math.PI / response) ** 2;
+      return { stiffness: Math.round(stiffness), damping: Math.round(2 * Math.sqrt(stiffness)) };
+    };
+    const long = f(900);
+    // The longest axis of a full-screen morph must still land on the token that
+    // was tuned for exactly that motion.
+    if (Math.abs(long.stiffness - 195) > 2 || Math.abs(long.damping - 28) > 1) {
+      throw new Error(`a full-screen axis gives ${JSON.stringify(long)}, not springs.morph (195/28)`);
+    }
+    if (f(20).stiffness <= f(500).stiffness) throw new Error('a short axis is not snappier than a long one');
+    for (const d of [0, 20, 300, 900, 4000]) {
+      const s = f(d);
+      const zeta = s.damping / (2 * Math.sqrt(s.stiffness));
+      if (Math.abs(zeta - 1) > 0.03) throw new Error(`d=${d} gives ζ=${zeta.toFixed(3)} — a morph must not overshoot`);
+    }
+    return 'ζ≈1.0 throughout, 195/28 at full screen';
+  });
+
+  section('10 · the search is drawn on the map');
+
+  check('the map draws the real search radius', () => {
+    const src = read(join(ROOT, 'apps/rider/components/trip/TripMap.tsx'));
+    if (!/const searchRing = useMemo/.test(src)) {
+      throw new Error(
+        'no search ring. While dispatch runs, a quiet area leaves the map holding a pickup pin and nothing ' +
+          'else — which reads as broken, not as searching. This was reported five times.',
+      );
+    }
+    if (!/dispatchRadiusKm/.test(src)) {
+      throw new Error('the ring is not driven by the server radius, so it is decoration rather than the search');
+    }
+    // A ground circle, not a screen-space disc: it must zoom with the map.
+    if (!/Math\.cos\(latRad\)/.test(src)) {
+      throw new Error(
+        'the ring does not correct longitude for latitude, so the "circle" renders as an east-west ellipse.',
+      );
+    }
+    return 'ground circle from the server radius';
+  });
+
+  check('the radius is on the wire from the FIRST search frame', () => {
+    const cascade = read(join(ROOT, 'eyego-api/src/services/dispatch-cascade.service.js'));
+    // The whole emit call, not a fixed character window — the field sits below
+    // a comment explaining why it is there, and a 400-char window read the
+    // comment and stopped short of the code.
+    const at = cascade.indexOf("phase: 'SEARCHING'");
+    if (at < 0) throw new Error("no SEARCHING frame is emitted at all");
+    const searching = cascade.slice(at, cascade.indexOf('});', at));
+    if (!/radiusKm:/.test(searching)) {
+      throw new Error(
+        'the opening SEARCHING frame carries no radiusKm, so the ring has nothing to draw until the first ' +
+          'widen — which on a successful search never comes.',
+      );
+    }
+    return 'SEARCHING carries radiusKm';
+  });
+
+  check('the panel and the ring quote the same number', () => {
+    const stage = read(join(ROOT, 'apps/rider/components/trip/stages/RequestStage.tsx'));
+    if (!/radiusKm=\{dispatch\?\.radiusKm/.test(stage)) {
+      throw new Error('the panel is not fed the radius, so the words and the map can disagree');
+    }
+    return 'one source';
+  });
+
   process.exit(summary());
 }
 

@@ -108,6 +108,55 @@ export const springs = {
 } as const;
 
 /**
+ * ── ONE SPRING PER AXIS, SIZED BY HOW FAR THAT AXIS TRAVELS ─────────────────
+ *
+ * From Apple's *Designing Fluid Interfaces* (WWDC 2018), stated there as a
+ * rule with no exceptions:
+ *
+ *   "Decompose 2D motion into independent X and Y springs. A single spring on
+ *    a 2D distance desyncs when X and Y have different velocities."
+ *
+ * WHY IT MATTERS HERE. The morph drives X, Y, width and height off ONE 0→1
+ * progress value, so every axis takes exactly the same time regardless of how
+ * far it has to go. A card opening into a full screen typically travels ~20 pt
+ * horizontally and ~500 pt vertically; sharing a spring means the horizontal
+ * motion is stretched to ~790 ms to keep step with the vertical one. Nothing in
+ * the physical world moves like that. It is the difference between a card that
+ * *arrives* and one that *glides on rails* — and "gliding" is the word people
+ * reach for when a morph is technically smooth and still feels wrong.
+ *
+ * Giving each axis its own spring lets the short axis settle early while the
+ * long one keeps going, which is what the eye expects from a real object.
+ *
+ * THE MATHS IS THE FILE'S OWN, so a token and an axis spring stay comparable:
+ *   stiffness = mass · (2π / response)²
+ *   damping   = 2ζ · √(stiffness · mass)
+ * At ζ = 1 and response 0.45 this reproduces `springs.morph` exactly
+ * (195 / 28), which is the point: the longest axis of a full-screen morph still
+ * lands on the token that was tuned for it, and only the shorter axis speeds up.
+ *
+ * @param distancePx how far this one axis travels, in points
+ */
+export function springForAxis(distancePx: number): { stiffness: number; damping: number; mass: number } {
+  const d = Number.isFinite(distancePx) ? Math.abs(distancePx) : 0;
+  /**
+   * 0.28 s for a hair's-breadth move, rising to 0.45 s — `springs.morph`'s own
+   * response — by the time an axis crosses most of a screen. Clamped at both
+   * ends: below ~0.28 s a large surface reads as snapping rather than moving,
+   * and above the morph token it starts to feel slack.
+   */
+  const response = Math.min(0.45, 0.28 + (d / 900) * 0.17);
+  const stiffness = (2 * Math.PI / response) ** 2;
+  return {
+    stiffness: Math.round(stiffness),
+    // ζ = 1.0 — critically damped. A morph is a large surface, and every frame
+    // of overshoot on a surface that big reads as a wobble, not as arrival.
+    damping: Math.round(2 * Math.sqrt(stiffness)),
+    mass: 1,
+  };
+}
+
+/**
  * NAMED MOTION PROFILES — the three roles a spring plays in this product.
  *
  * READ THIS BEFORE SWITCHING A CALL SITE TO ONE OF THESE. A previous pass

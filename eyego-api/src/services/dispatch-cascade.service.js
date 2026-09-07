@@ -1269,6 +1269,16 @@ async function startCascade(tripId, opts = {}) {
   await emitProgress(tripId, 'DISPATCH_PROGRESS', {
     phase: 'SEARCHING',
     totalCandidates: candidates.length,
+    /**
+     * The radius this search actually started at.
+     *
+     * `WIDENING` has always carried one; the opening frame did not, so the
+     * rider's map had nothing to draw until the first widen — which on a
+     * successful search never comes. The search ring is the only thing on that
+     * screen that says "we are looking HERE, over THIS much ground", and with
+     * no cars in the area it is the only thing on the map at all.
+     */
+    radiusKm: dispatchRadiusKm(),
   });
 
   // The head of every dispatch investigation: what the search actually started

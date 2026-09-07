@@ -79,6 +79,15 @@ export interface SearchingPanelProps {
    * provider degraded.
    */
   etaSeconds?: number | null;
+  /**
+   * How wide the server's search currently is, in km.
+   *
+   * The map draws this as a real ring around the pickup. Naming it here is what
+   * makes the quiet case legible: with no cars in the area the map has a ring
+   * and nothing else, and "looking within 5 km" explains that emptiness where
+   * "finding your driver" over a blank map just looks broken.
+   */
+  radiusKm?: number | null;
   seats?: number;
   tierLabel?: string | null;
   scheduledFor?: string | null;
@@ -208,6 +217,7 @@ export function SearchingPanel({
   attempt = { attempt: 0, total: 0 },
   offerPending = false,
   etaSeconds = null,
+  radiusKm = null,
   seats = 1,
   tierLabel,
   scheduledFor,
@@ -258,6 +268,21 @@ export function SearchingPanel({
         : `Asking driver ${attempt.attempt} of ${attempt.total}…`;
     }
     if (attempt.total > 0) return `${attempt.total} driver${attempt.total === 1 ? '' : 's'} nearby — asking them in turn`;
+    /**
+     * NOTHING FOUND YET — SAY HOW MUCH GROUND WE ARE COVERING.
+     *
+     * This is the case the map goes empty in, and an empty map under "finding
+     * your driver" reads as a broken screen rather than a quiet area. The ring
+     * on the map is the same number, so the words and the picture agree, and
+     * the ring GROWS when the server widens — at which point this line grows
+     * with it and the rider can see the search working.
+     */
+    const km = Number.isFinite(radiusKm) ? (radiusKm as number) : null;
+    if (km != null) {
+      return elapsed > 45
+        ? `Still looking — the search is out to ${km} km now.`
+        : `Looking within ${km} km of your pickup.`;
+    }
     if (elapsed > 45) return 'Still looking. We widen the search the longer it takes.';
     if (elapsed > 20) return 'Most riders are matched in under two minutes.';
     return 'We ask the closest driver first, then the next.';

@@ -19,7 +19,7 @@ import Animated, {
   useReducedMotion,
   type SharedValue,
 } from 'react-native-reanimated';
-import { springs, durations } from '@eyego/config';
+import { springs, durations, springForAxis } from '@eyego/config';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from '../effects/usePerformanceTier';
 
@@ -264,7 +264,34 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const targetR = useSharedValue(0);
 
   // Progress: 0 = source position, 1 = target position
+  /**
+   * The master progress. Owns the corner radius, the crossfade and every
+   * completion callback, and is what the back-gesture drives directly.
+   */
   const morphProgress = useSharedValue(0);
+
+  /**
+   * ── ONE SPRING PER AXIS ────────────────────────────────────────────────
+   *
+   * Apple, *Designing Fluid Interfaces*: "Decompose 2D motion into independent
+   * X and Y springs. A single spring on a 2D distance desyncs when X and Y have
+   * different velocities."
+   *
+   * Everything here used to interpolate off `morphProgress` alone, so both axes
+   * took the same time no matter how far each had to travel. A card opening
+   * into a full screen moves ~20 pt sideways and ~500 pt down; sharing one
+   * spring stretches that 20 pt over the same ~790 ms, and the result reads as
+   * gliding on rails rather than as an object arriving. It is the exact reason
+   * a morph can be perfectly smooth and still feel wrong.
+   *
+   * These follow the same 0→1 path with per-axis physics (see `springForAxis`),
+   * so the short axis settles early and the long one keeps going. During a
+   * gesture they are written directly alongside the master, because a finger
+   * that is dragging must get 1:1 tracking on both axes — a spring there would
+   * lag the touch, which is the opposite of the point.
+   */
+  const progressX = useSharedValue(0);
+  const progressY = useSharedValue(0);
   // Clone crossfade opacity (1 while clone is visible, 0 after settling)
   const cloneOpacity = useSharedValue(1);
 
@@ -380,8 +407,12 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         targetH.value = rect.height;
         targetR.value = entry.borderRadius;
 
-        // Reset progress to 0 (clone sits at source position)
+        // Reset progress to 0 (clone sits at source position). All three, or an
+        // axis left at 1 from a previous flight puts the clone's X where the
+        // LAST morph ended while its Y starts correctly — a diagonal jump.
         morphProgress.value = 0;
+        progressX.value = 0;
+        progressY.value = 0;
         cloneOpacity.value = 1;
 
         // Set up flight tracking
@@ -465,12 +496,28 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       // destination, so the spring in progress now travels to the right place.
       if (isCorrection) return;
 
-      // Spring progress from 0 → 1 — the overlay flies from source to target
+      /**
+       * Spring progress from 0 → 1 — the overlay flies from source to target.
+       *
+       * The master carries the callback; the two axis springs carry the motion.
+       * Each axis is sized by how far IT travels — the horizontal distance
+       * includes the width change because a box growing sideways is horizontal
+       * movement of its edges, which is what the eye actually tracks.
+       */
+      const dx = Math.abs(rect.x - sourceX.value) + Math.abs(rect.width - sourceW.value);
+      const dy = Math.abs(rect.y - sourceY.value) + Math.abs(rect.height - sourceH.value);
+
       morphProgress.value = withSpring(1, springs.morph, (finished) => {
         if (finished) runOnJS(settle)();
       });
+      progressX.value = withSpring(1, springForAxis(dx));
+      progressY.value = withSpring(1, springForAxis(dy));
     },
-    [targetX, targetY, targetW, targetH, targetR, morphProgress, settle]
+    [
+      targetX, targetY, targetW, targetH, targetR,
+      sourceX, sourceY, sourceW, sourceH,
+      morphProgress, progressX, progressY, settle,
+    ]
   );
 
   // ─── Gesture-interruptible reverse ─────────────────────────────────────
@@ -490,37 +537,59 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
       const handle: MorphBackGestureHandle = {
         onStart: () => {
-          // Interrupt any running spring — gesture takes over
+          // Interrupt any running spring — gesture takes over. All three, or an
+          // axis spring keeps flying while the finger drags the master, and the
+          // clone tears apart along that axis.
           cancelAnimation(morphProgress);
+          cancelAnimation(progressX);
+          cancelAnimation(progressY);
           setPhase('gesture');
         },
 
         onActive: (translationY: number) => {
           // Map drag Y to progress decrease (Yango: ~280px = full reverse)
           const drag = translationY / GESTURE_FULL_REVERSE_DIST;
-          morphProgress.value = Math.max(0, Math.min(1, 1 - drag));
+          const p = Math.max(0, Math.min(1, 1 - drag));
+          // 1:1 on every axis. Apple: "touch and content should move together"
+          // — a spring on either axis here would lag the finger.
+          morphProgress.value = p;
+          progressX.value = p;
+          progressY.value = p;
         },
 
         onEnd: (velocityY: number) => {
           const p = morphProgress.value;
           const commit = p <= GESTURE_COMMIT_THRESHOLD || velocityY > GESTURE_VELOCITY_THRESHOLD;
 
-          if (commit) {
-            // Snap to 0 (fully reversed) then call the commit callback
-            morphProgress.value = withSpring(0, springs.morph, (finished) => {
-              if (finished) runOnJS(runGestureCommit)();
-            });
-          } else {
-            // Snap back to 1 (cancel gesture, stay on target screen)
-            morphProgress.value = withSpring(1, springs.morph);
-            setPhase('settled');
-          }
+          /**
+           * HAND THE RELEASE VELOCITY TO THE SPRING.
+           *
+           * Apple, *Designing Fluid Interfaces*: a spring that starts from rest
+           * at the moment a moving finger lets go produces a velocity
+           * discontinuity — the "brick wall". The flick has to keep going at the
+           * speed it was thrown.
+           *
+           * The gesture is in points/second and progress is normalised over
+           * `GESTURE_FULL_REVERSE_DIST`, so the conversion is that same divisor.
+           * Negated because dragging DOWN (positive translation) drives progress
+           * DOWN towards 0.
+           */
+          const vProgress = -velocityY / GESTURE_FULL_REVERSE_DIST;
+          const to = commit ? 0 : 1;
+          const cfg = { ...springs.morph, velocity: vProgress };
+
+          morphProgress.value = withSpring(to, cfg, (finished) => {
+            if (finished && commit) runOnJS(runGestureCommit)();
+          });
+          progressX.value = withSpring(to, cfg);
+          progressY.value = withSpring(to, cfg);
+          if (!commit) setPhase('settled');
         },
       };
 
       return handle;
     },
-    [morphProgress, runGestureCommit]
+    [morphProgress, progressX, progressY, runGestureCommit]
   );
 
   // ─── Reverse morph (programmatic back) ─────────────────────────────────
@@ -566,7 +635,10 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       targetH.value = f.targetRect.height;
       targetR.value = f.targetRadius;
 
+      // Both axes start the return trip where the outbound one ended.
       morphProgress.value = 1;
+      progressX.value = 1;
+      progressY.value = 1;
       cloneOpacity.value = 1;
       setCloneNode(entry.getClone());
       setPhase('reverse');
@@ -609,14 +681,24 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
           // The gesture may have taken over (or another morph started) in the
           // two frames we waited. Only drive the flight we still own.
           if (flightRef.current !== f) return;
+          // Same per-axis decomposition as the outbound flight — the return
+          // trip covers the same two distances and must not be the one that
+          // still glides. See `progressX`/`progressY`.
+          const dx = Math.abs(f.targetRect!.x - sourceX.value)
+            + Math.abs(f.targetRect!.width - sourceW.value);
+          const dy = Math.abs(f.targetRect!.y - sourceY.value)
+            + Math.abs(f.targetRect!.height - sourceH.value);
           morphProgress.value = withSpring(0, springs.morph, (finished) => {
             if (finished) runOnJS(finishReverse)();
           });
+          progressX.value = withSpring(0, springForAxis(dx));
+          progressY.value = withSpring(0, springForAxis(dy));
         });
       });
     },
     [skipMorph, cleanup, sourceX, sourceY, sourceW, sourceH, sourceR,
-     targetX, targetY, targetW, targetH, targetR, morphProgress, cloneOpacity]
+     targetX, targetY, targetW, targetH, targetR, morphProgress,
+     progressX, progressY, cloneOpacity]
   );
 
   const finishReverse = useCallback(() => {
@@ -669,10 +751,18 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // Correct mapping of the fixed frame (targetX/Y/W/H) onto the interpolated box
   // (x/y/w/h) is: scale by w/targetW, then translate CENTRE to CENTRE.
   const overlayStyle = useAnimatedStyle(() => {
-    const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
-    const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
-    const x = interpolate(morphProgress.value, [0, 1], [sourceX.value, targetX.value]);
-    const y = interpolate(morphProgress.value, [0, 1], [sourceY.value, targetY.value]);
+    /**
+     * EACH AXIS READS ITS OWN SPRING — see `progressX` / `progressY`.
+     *
+     * Width travels with X and height with Y, because growing a box sideways IS
+     * horizontal movement of its left and right edges; putting width on the
+     * vertical spring would re-couple the two axes through the back door and
+     * undo the whole change.
+     */
+    const w = interpolate(progressX.value, [0, 1], [sourceW.value, targetW.value]);
+    const h = interpolate(progressY.value, [0, 1], [sourceH.value, targetH.value]);
+    const x = interpolate(progressX.value, [0, 1], [sourceX.value, targetX.value]);
+    const y = interpolate(progressY.value, [0, 1], [sourceY.value, targetY.value]);
     /**
      * The base is the WINDOW, not the target rect.
      *
@@ -774,8 +864,12 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // container transform, overlapping the container's own growth instead of
   // queueing behind it.
   const contentStyle = useAnimatedStyle(() => {
-    const w = interpolate(morphProgress.value, [0, 1], [sourceW.value, targetW.value]);
-    const h = interpolate(morphProgress.value, [0, 1], [sourceH.value, targetH.value]);
+    // The SAME springs the container scaled by. If these read `morphProgress`
+    // while the overlay reads the axis springs, the inverse scale no longer
+    // cancels the outer one and the cloned content visibly stretches for the
+    // part of the flight where the two disagree — which is most of it.
+    const w = interpolate(progressX.value, [0, 1], [sourceW.value, targetW.value]);
+    const h = interpolate(progressY.value, [0, 1], [sourceH.value, targetH.value]);
     // Must be the SAME base the container scaled by, or the two do not cancel
     // and the cloned content stretches across the flight. See `overlayStyle`.
     const baseW = winW || 1;
@@ -805,11 +899,13 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     return () => {
       cancelAnimation(morphProgress);
+      cancelAnimation(progressX);
+      cancelAnimation(progressY);
       cancelAnimation(cloneOpacity);
       const f = flightRef.current;
       if (f?.timeout) clearTimeout(f.timeout);
     };
-  }, [morphProgress, cloneOpacity]);
+  }, [morphProgress, progressX, progressY, cloneOpacity]);
 
   // ─── Context value ─────────────────────────────────────────────────────
 

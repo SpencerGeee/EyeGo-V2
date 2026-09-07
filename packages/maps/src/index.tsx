@@ -1076,6 +1076,42 @@ export const LineLayer = ({ id, style, aboveLayerID, belowLayerID, source }: Lin
   />
 );
 
+// ── FillLayer ────────────────────────────────────────────────────────────
+// For filled POLYGONS on the ground — the dispatch search radius, service-area
+// outlines, an H3 cell. Distinct from CircleLayer, which paints screen-space
+// discs at point features and therefore claims a different amount of ground at
+// every zoom level. A fill is real geography and zooms with the map.
+
+export interface FillLayerStyle {
+  fillColor?: string | any[];
+  fillOpacity?: number | any[];
+  fillOutlineColor?: string;
+}
+
+export interface FillLayerProps {
+  id?: string;
+  style?: FillLayerStyle;
+  aboveLayerID?: string;
+  belowLayerID?: string;
+  /** Auto-injected by the parent ShapeSource — don't pass explicitly. */
+  source?: string;
+}
+
+export const FillLayer = ({ id, style, aboveLayerID, belowLayerID, source }: FillLayerProps) => (
+  <NativeLayer
+    id={id ?? 'fill-layer'}
+    type="fill"
+    source={source}
+    afterId={aboveLayerID}
+    beforeId={belowLayerID}
+    paint={{
+      'fill-color': style?.fillColor ?? '#3B82F6',
+      'fill-opacity': style?.fillOpacity ?? 0.1,
+      ...(style?.fillOutlineColor ? { 'fill-outline-color': style.fillOutlineColor } : {}),
+    }}
+  />
+);
+
 // ── CircleLayer ──────────────────────────────────────────────────────────
 // For data-driven point overlays (demand heatmaps, etc). Paint values accept
 // either a static number/string or a MapLibre style-spec expression array
@@ -1143,6 +1179,7 @@ function buildFallback(bgColor: string, fgColor: string) {
     PointAnnotation: NoopOverlay,
     ShapeSource: () => null,
     LineLayer: () => null,
+    FillLayer: () => null,
     CircleLayer: () => null,
     UserLocation: () => null,
   };
@@ -1168,5 +1205,5 @@ export const MapAvailable = !!(NativeMap && NativeCamera && NativeViewAnnotation
 const fallback = MapAvailable ? null : buildFallback('#0A0A0B', '#3B82F6');
 
 export default MapAvailable
-  ? { MapView, Camera, NavCamera, MarkerView, AnimatedMarkerView, PointAnnotation, ShapeSource, LineLayer, CircleLayer, UserLocation }
+  ? { MapView, Camera, NavCamera, MarkerView, AnimatedMarkerView, PointAnnotation, ShapeSource, LineLayer, FillLayer, CircleLayer, UserLocation }
   : fallback!;
