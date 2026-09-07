@@ -104,15 +104,22 @@ Nine items from a real two-device test. Plan: `docs/plans/2026-09-07-completion-
 
 `scripts/e2e` is now 15 suites. Three run with no stack at all:
 
-| suite | needs | last run |
-|---|---|---|
-| `ui-invariants.mjs` | nothing | **19/19 green** |
-| `h3-index.mjs` | nothing | **17/17 green** |
-| `completion-pass.mjs` | live stack | not yet run |
+**FULL RUN 2026-09-07: 424/424 checks, 15/15 suites**, in order, no manual pool
+reset. `ui-invariants` (19) and `h3-index` (17) need no stack and run in ~1s.
 
-The two source-level suites earned their keep immediately — between them they
-caught a second animated `AppBackground` in `apps/rider/app/scheduled/[id].tsx`
-and the H3 ring-sizing bug, neither of which `tsc` or an API test could see.
+The three new suites earned their keep on the first run:
+- `ui-invariants` caught a second animated `AppBackground` in
+  `apps/rider/app/scheduled/[id].tsx`.
+- `h3-index` caught the ring-sizing bug (sweeps under-covered by ~35%).
+- `completion-pass` caught itself: it left two drivers online at the standard
+  Accra pickup, which starved `rider-happy-path`'s driver of its offer and cost
+  that suite 10 checks — while reporting 19/19 itself. Fixed with the `finally`
+  sign-out every other suite already had. **Convention: any suite that calls
+  `goOnline` MUST `/driver/go-offline` in a `finally`, and must set
+  `process.exitCode` rather than calling `process.exit()`, or the `finally`
+  never runs.**
+
+None of the three was visible to `tsc` or to a single-suite run.
 
 ## Evidence
 - On-demand dispatch popup chain verified CORRECT end to end — `offerNext` →
