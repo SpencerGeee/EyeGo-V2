@@ -323,6 +323,28 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         // rider asked for.
         const { rideTier, doorstepPickup, heavyLoad } = useRideStore.getState();
 
+        /**
+         * ONE PARTY SIZE, QUOTED AND REQUESTED.
+         *
+         * BUGFIX ("when I book for multiple seats it tells me couldn't request
+         * ride, but individual goes through").
+         *
+         * The party size is inside the quote's HMAC signature, and
+         * `rides.service` refuses a request whose party differs from the one
+         * that was priced — deliberately, so nobody can quote for two and
+         * travel with eight. This call omitted `seatCount`, so the server
+         * defaulted the QUOTE to a party of one while `ridesApi.request` below
+         * sent the rider's real choice. Every party of two or more therefore
+         * failed its own price check with a 409 `FARE_EXPIRED`, surfaced as
+         * "Couldn't request ride". A solo hail passed because 1 === 1.
+         *
+         * Both calls now read the SAME value — `chosenSeats` — so the two can
+         * never drift again. Note this is `chosenSeatsRef` first for the same
+         * reason `request` uses it: `clearRideState()` resets the store copy to
+         * 1 mid-flight, and a retry must not silently re-quote for one person.
+         */
+        const chosenSeats = chosenSeatsRef.current ?? requestSeatCount;
+
         const quote = await ridesApi.quote({
           pickupLat: origin.latitude,
           pickupLng: origin.longitude,
@@ -334,6 +356,7 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
           // store — `false` means "declined", not "not asked".
           doorstepPickup: doorstepPickup ?? undefined,
           heavyLoad,
+          seatCount: chosenSeats,
         });
 
         const { tripId } = await ridesApi.request(
@@ -350,7 +373,8 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             // store and then never sent — see the note on `seatCount` in
             // rides.api.ts. Whole-car pricing is unaffected; the driver just
             // learns how many people to expect.
-            seatCount: chosenSeatsRef.current ?? requestSeatCount,
+            // THE SAME value the quote above was signed for. See `chosenSeats`.
+            seatCount: chosenSeats,
             ...(opts?.allowConcurrent ? { allowConcurrent: true } : {}),
             ...(opts?.passenger ? { passenger: opts.passenger } : {}),
           } as any,
@@ -665,6 +689,22 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
             originText={origin?.address ?? null}
             destinationText={destination ?? null}
             attempt={dispatchAttempt}
+            /**
+             * HOW FAR AWAY THE DRIVER BEING ASKED ACTUALLY IS.
+             *
+             * BUGFIX ("redesign the page so it accurately shows the map with
+             * the nearest driver, so the user knows if he's getting matched
+             * with someone close or far").
+             *
+             * The map half of this was already built — `TripMap` highlights
+             * the candidate's pin and draws a real road route from the pickup
+             * to them. What was missing was the number. The server has sent
+             * `etaSeconds` on every DISPATCH_PROGRESS frame all along and the
+             * store has kept it; nothing rendered it, so the panel could say
+             * "asking driver 2 of 5" without ever saying whether driver 2 was
+             * two minutes away or twenty.
+             */
+            etaSeconds={dispatch?.etaSeconds ?? null}
             offerPending={!!dispatchOffer}
             seats={requestSeatCount}
             scheduledFor={formattedTime}

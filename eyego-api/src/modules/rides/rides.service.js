@@ -415,18 +415,21 @@ async function requestRide(userId, body) {
           bookingFeeRate: quote.breakdown.bookingFeeRate,
           platformFeePesewas: quote.breakdown.platformFeePesewas,
           /**
-           * Party size, not a pricing input.
+           * Party size — AND a pricing input, which is why the guard above
+           * exists.
            *
            * BUGFIX — this was hardcoded to 1 while the rider's seat stepper
            * happily let them pick up to four, and nothing carried the choice to
            * the server. Three people waited at a kerb for a driver whose app
            * said one passenger.
            *
-           * The FARE is unaffected: an on-demand ride is priced as the whole
-           * car (the quote passes `seatCount: 1` deliberately), and the rider
-           * pays the quoted amount whatever this says. This is what the driver
-           * is shown so they know how many people to expect and whether their
-           * vehicle fits them.
+           * This comment used to claim the fare was unaffected and that the
+           * quote passes `seatCount: 1` deliberately. That has not been true
+           * since the party became an input to the price (`partySize` in
+           * fare.calculator.js), and believing it is what made the rider app
+           * quote for one and request for three — which this function then
+           * correctly refused with 409 `FARE_EXPIRED` on every multi-seat
+           * request. The party is priced, signed, and must agree end to end.
            */
           maxSeats: partySize,
           confirmedSeats: partySize,

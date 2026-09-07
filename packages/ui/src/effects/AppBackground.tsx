@@ -28,11 +28,34 @@ interface BlobConfig {
 interface AppBackgroundProps {
   style?: ViewStyle;
   /**
-   * 'animated' (default) drifts the blobs — reserve it for the single
-   * root-mounted instance. 'static' renders the same ambient field with no
-   * reanimated loops: cheap enough to mount per pushed screen, which lets
-   * opaque detail screens keep the ambient depth without transparency
-   * (transparent pushed screens white-flash on iOS native-stack slides).
+   * 'static' (THE DEFAULT) renders the same ambient field with no reanimated
+   * loops and a frozen shader frame: cheap enough to mount per pushed screen,
+   * which lets opaque detail screens keep the ambient depth without
+   * transparency (transparent pushed screens white-flash on iOS native-stack
+   * slides). 'animated' drives the raymarch clock and is reserved for the
+   * SINGLE root-mounted instance in each app's `app/_layout.tsx`.
+   *
+   * ── WHY ANIMATION IS OPT-IN, NOT OPT-OUT ────────────────────────────────
+   *
+   * BUGFIX ("the driver app was super laggy… on the rider app the Skia
+   * background is shown only on the homepage, but when you move to stages it
+   * doesn't show that, so maybe the driver app doing that is part of the
+   * reason"). It was, and the reporter had the mechanism right.
+   *
+   * This defaulted to 'animated'. The rider app worked around that by writing
+   * `variant="static"` on 14 pushed screens; the driver app never did, so all
+   * 34 of its mounts asked for a live shader. `useShaderSlot` hands the one
+   * Canvas to the MOST RECENTLY FOCUSED background, so on the driver every
+   * push — profile, earnings, notifications, and worst of all the tracking
+   * screen sitting over a live MapView — claimed the slot and started a
+   * full-screen raymarch at 30fps. On the rider the same push claimed the slot
+   * and painted one frozen frame.
+   *
+   * A default that 33 of 34 call sites have to remember to override is a
+   * defect generator, and the rule it was fighting is already written down one
+   * file over: ONE shader canvas in the app, ever (see shaderSlot.ts). So the
+   * default now IS that rule. A screen that wants live ambient motion has to
+   * say so, and only the root layout does.
    */
   variant?: 'animated' | 'static';
   /** Pass the current theme's dark/light state so the shader can tone down
@@ -60,7 +83,7 @@ function withAlpha(hex: string, alpha: number): string {
   return `${hex}${byte}`;
 }
 
-export function AppBackground({ style, variant = 'animated', isDark = true, paused = false }: AppBackgroundProps) {
+export function AppBackground({ style, variant = 'static', isDark = true, paused = false }: AppBackgroundProps) {
   const colors = useThemedColors();
   const tier = usePerformanceTier();
   const ownsShader = useShaderSlot();

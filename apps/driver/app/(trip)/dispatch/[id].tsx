@@ -513,6 +513,46 @@ export default function DispatchScreen() {
   const mapRef = useRef<DispatchLiveMapHandle | null>(null);
 
   /**
+   * ── THE MAP IS THE INFORMATION; THE CHROME IS NOT ───────────────────────────
+   *
+   * BUGFIX ("the dispatch page seems overcrowded with stuff… the page is
+   * crowded with components that should autohide so the user can correctly see
+   * the important things. It would make sense if it shows only when the map is
+   * moved").
+   *
+   * The offer card already owns the bottom half, which leaves a narrow strip of
+   * map to answer the only question the driver has in the ~45 s they have to
+   * answer it: where is this, and is it worth it. The back control, the
+   * "Held for you" pill and the scrim behind them sat over that strip
+   * permanently, so the pickup was competing with chrome that had already said
+   * everything it had to say within a second of the screen opening.
+   *
+   * So the top chrome now behaves like a video player's: present when you
+   * arrive, gone once you have read it, and back the moment you touch the map.
+   * It does NOT auto-hide the offer card or the countdown — those are the
+   * decision itself, and a control that hides the thing you are deciding about
+   * is a different bug.
+   */
+  const CHROME_IDLE_MS = 3200;
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const chromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const wakeChrome = useCallback(() => {
+    setChromeVisible(true);
+    if (chromeTimerRef.current) clearTimeout(chromeTimerRef.current);
+    chromeTimerRef.current = setTimeout(() => setChromeVisible(false), CHROME_IDLE_MS);
+  }, []);
+
+  useEffect(() => {
+    // Arrive visible, then settle. Same timer as a gesture takes, so there is
+    // one rule for how long the chrome stays up rather than two.
+    wakeChrome();
+    return () => {
+      if (chromeTimerRef.current) clearTimeout(chromeTimerRef.current);
+    };
+  }, [wakeChrome]);
+
+  /**
    * The sheet's REAL height, published on layout.
    *
    * Rounded to 8 pt before it is stored: `onLayout` fires on sub-pixel changes
@@ -600,6 +640,7 @@ export default function DispatchScreen() {
             right: 52,
           }}
           onFramedChange={setFramed}
+          onUserInteraction={wakeChrome}
         />
       ) : (
         <AppBackground isDark={theme !== 'light'} />
@@ -623,19 +664,35 @@ export default function DispatchScreen() {
         surface was reported for precisely that). Short, and gone well before it
         reaches anything the driver needs to see.
       */}
-      <LinearGradient
-        pointerEvents="none"
-        colors={[
-          withOpacity(colors.backgroundDeep, 0.82),
-          withOpacity(colors.backgroundDeep, 0.34),
-          withOpacity(colors.backgroundDeep, 0),
-        ]}
-        locations={[0, 0.6, 1]}
-        style={[styles.topScrim, { height: insets.top + 96 }]}
-      />
+      {/* The scrim exists FOR the chrome, so it fades with it — leaving it
+          behind would be a dark band over the map explaining nothing. */}
+      {chromeVisible && (
+        <Animated.View
+          pointerEvents="none"
+          entering={FadeIn.duration(180)}
+          exiting={FadeOut.duration(260)}
+          style={[styles.topScrim, { height: insets.top + 96 }]}
+        >
+          <LinearGradient
+            colors={[
+              withOpacity(colors.backgroundDeep, 0.82),
+              withOpacity(colors.backgroundDeep, 0.34),
+              withOpacity(colors.backgroundDeep, 0),
+            ]}
+            locations={[0, 0.6, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      )}
 
-      {/* ── Floating chrome ── */}
-      <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
+      {/* ── Floating chrome ── Auto-hiding; see `wakeChrome`. */}
+      {chromeVisible && (
+      <Animated.View
+        entering={FadeIn.duration(180)}
+        exiting={FadeOut.duration(260)}
+        style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}
+        pointerEvents="box-none"
+      >
         <Pressable
           onPress={goHome}
           hitSlop={12}
@@ -668,7 +725,8 @@ export default function DispatchScreen() {
           </Text>
         </View>
         <View style={{ width: 36 }} />
-      </View>
+      </Animated.View>
+      )}
 
       {offer ? (
         <>

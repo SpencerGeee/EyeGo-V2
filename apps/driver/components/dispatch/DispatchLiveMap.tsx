@@ -78,6 +78,12 @@ export interface DispatchLiveMapProps {
   padding?: { top: number; bottom: number; left: number; right: number };
   /** Fires false as soon as the driver moves the camera off the framed view. */
   onFramedChange?: (framed: boolean) => void;
+  /**
+   * Fired when the driver actually touches the map — not when the camera moves.
+   * The dispatch screen fades its top chrome out after a few idle seconds so
+   * the map is readable, and uses this to bring it back.
+   */
+  onUserInteraction?: () => void;
 }
 
 /**
@@ -150,7 +156,7 @@ function arcBetween(a: Coord, b: Coord, samples = 28): Coord[] {
 
 export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMapProps>(
   function DispatchLiveMap(
-    { pickup, dropoff, driver, routeGeoJson, accent, padding, onFramedChange },
+    { pickup, dropoff, driver, routeGeoJson, accent, padding, onFramedChange, onUserInteraction },
     ref,
   ) {
     const colors = useColors();
@@ -366,6 +372,10 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
             if (Date.now() < suppressGestureUntilRef.current) return;
             userOwnsCameraRef.current = true;
             onFramedChange?.(false);
+            // Separate from `onFramedChange` on purpose: framing is about where
+            // the camera is, this is about the driver being ACTIVE on the map.
+            // The screen uses it to bring back chrome it has faded out.
+            onUserInteraction?.();
           }}
         >
           {/*

@@ -39,6 +39,7 @@ function isFinitePair(c: [number, number] | null | undefined): c is [number, num
 export async function fetchRoute(
   origin: [number, number] | null | undefined,
   target: [number, number] | null | undefined,
+  opts?: { profile?: 'driving-traffic' | 'walking' },
 ): Promise<RouteResult | null> {
   if (!isFinitePair(origin) || !isFinitePair(target)) return null;
 
@@ -49,6 +50,7 @@ export async function fetchRoute(
         originLat: origin[1],
         destLng: target[0],
         destLat: target[1],
+        ...(opts?.profile ? { profile: opts.profile } : {}),
       },
       timeout: ROUTE_TIMEOUT_MS,
     });
@@ -67,6 +69,26 @@ export async function fetchRoute(
   } catch {
     return null;
   }
+}
+
+/**
+ * The rider's own walk to a pickup they chose away from where they are standing.
+ *
+ * BUGFIX ("when I choose to make the pickup point different from where I am,
+ * the route line shows a straight line and doesn't follow the road").
+ *
+ * The approach line was built in `TripMap` as a literal two-point LineString
+ * between the GPS dot and the pickup pin, so it cut through buildings, over
+ * the Odaw, and across whichever blocks lay between them. It has to be a
+ * WALKING route, not a driving one: a pedestrian is not bound by one-way
+ * systems and can use footbridges and cut-throughs a car cannot, so routing
+ * this leg on `driving-traffic` produces a confidently wrong walk.
+ */
+export async function fetchWalkingRoute(
+  origin: [number, number] | null | undefined,
+  target: [number, number] | null | undefined,
+): Promise<RouteResult | null> {
+  return fetchRoute(origin, target, { profile: 'walking' });
 }
 
 /** Traffic-aware ETA in whole minutes, or null. */

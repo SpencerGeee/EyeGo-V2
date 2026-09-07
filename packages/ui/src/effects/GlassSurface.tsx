@@ -71,8 +71,15 @@ export function GlassSurface({
   const colors = useThemedColors();
   const dark = darkProp ?? !isLightColor(colors.background);
   const tier = usePerformanceTier();
-  const effectiveIntensity = tier === 'low' ? 'low' : intensity;
-  const effectiveChromaticHint = tier === 'low' ? false : chromaticHint;
+  /**
+   * Blur is the most expensive thing on this surface, and a screen rarely has
+   * only one of them — the driver's tracking screen stacks three over a live
+   * MapView. So 'mid' drops the blur radius and the chromatic pass with 'low'
+   * rather than with 'high': the surface still reads as glass, it just stops
+   * asking the GPU to resample the map underneath it at full strength.
+   */
+  const effectiveIntensity = tier === 'high' ? intensity : 'low';
+  const effectiveChromaticHint = tier === 'high' ? chromaticHint : false;
   const blurIntensity = effectiveIntensity === 'high' ? 92 : 60;
 
   /**

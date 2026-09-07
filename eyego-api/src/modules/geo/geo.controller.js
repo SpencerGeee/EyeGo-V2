@@ -33,7 +33,21 @@ async function reverse(req, res) {
   return ok(res, result);
 }
 
-/** GET /v1/geo/route?originLat=&originLng=&destLat=&destLng= */
+/**
+ * The routing profiles a client may ask for.
+ *
+ * A WHITELIST, not a passthrough: this value is interpolated into the upstream
+ * Mapbox URL, so an unchecked query parameter would let a caller redirect the
+ * request at any path on api.mapbox.com using our token.
+ *
+ * `walking` exists for the rider's approach line — the dashed leg from where
+ * they are standing to a pickup point they chose somewhere else. Routing that
+ * on `driving-traffic` would send a pedestrian the wrong way up a one-way
+ * street and refuse to cross a footbridge.
+ */
+const ALLOWED_PROFILES = new Set(['driving-traffic', 'driving', 'walking', 'cycling']);
+
+/** GET /v1/geo/route?originLat=&originLng=&destLat=&destLng=&profile= */
 async function route(req, res) {
   const originLat = num(req.query.originLat);
   const originLng = num(req.query.originLng);
@@ -42,7 +56,20 @@ async function route(req, res) {
   if ([originLat, originLng, destLat, destLng].some((v) => v === undefined)) {
     return error(res, 'originLat, originLng, destLat and destLng are required', 400);
   }
-  const result = await service.getRoute({ originLat, originLng, destLat, destLng });
+  const requested = String(req.query.profile ?? '');
+  if (requested && !ALLOWED_PROFILES.has(requested)) {
+    return error(res, `Unsupported routing profile "${requested}"`, 400);
+  }
+  const result = await service.getRoute({
+    originLat,
+    originLng,
+    destLat,
+    destLng,
+    // `getRoute` has always taken a profile and defaulted it to
+    // `driving-traffic`; nothing forwarded one, so every caller got a driving
+    // route whatever they were actually asking for.
+    ...(requested ? { profile: requested } : {}),
+  });
   if (!result) return error(res, 'Could not compute a route', 422);
   return ok(res, result);
 }

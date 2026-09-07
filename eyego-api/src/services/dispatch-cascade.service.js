@@ -51,6 +51,9 @@ const { formatGhs } = require('../utils/money');
 const { livePassengerWhere } = require('../utils/booking-status');
 const scheduledTasks = require('./scheduled-task.service');
 const matcher = require('./matcher.service');
+const supply = require('./supply-index.service');
+// The board's radius filter — see `listSearchesForDriver`.
+const { haversineKm } = require('../modules/trips/fare.calculator');
 const destinationMode = require('./destination-mode.service');
 const publisher = require('./trip-events.publisher');
 const tripState = require('./trip-state.service');
@@ -996,6 +999,43 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
 
     const held = await getOfferForDriver(driverId).catch(() => null);
 
+    /**
+     * ── THE BOARD MUST ONLY ADVERTISE WORK THIS DRIVER COULD ACTUALLY TAKE ────
+     *
+     * BUGFIX ("the dispatch page doesn't pop up on the driver app when it's
+     * there — it only shows the banner on the homepage, and if they don't see
+     * the banner they miss the offer").
+     *
+     * The reporter read this as a missing popup. It is not: the exclusive-offer
+     * path is whole (`offerNext` → `rememberOffer` → `getOfferForDriver` →
+     * the 2 s `hydrate()` poll → `DispatchOfferSheet`). What was broken is the
+     * OTHER surface, and it was broken in the direction that makes the popup
+     * look absent.
+     *
+     * This query had no geographic filter and no candidacy filter of any kind.
+     * It selected EVERY trip in the world sitting at MATCHING/REASSIGNING
+     * inside the search window and showed all ten of them to every driver who
+     * asked. So a driver in Accra was advertised searches they were never a
+     * candidate for, could never be offered, and — because `offeredToMe` is
+     * false for all of them — would never see a sheet raised for. Banner
+     * without a popup, every time, exactly as reported. Tapping one led to an
+     * accept that 409s or, worse, one that succeeds and sends a driver across
+     * the city.
+     *
+     * The board is now scoped to the widest radius the cascade itself will ever
+     * sweep to (`dispatchFinalRadiusKm`), measured from the driver's live
+     * position in the supply index. A row on the board therefore means "the
+     * cascade can reach you with this", which is the only thing that makes the
+     * banner and the sheet two views of one fact instead of two answers.
+     *
+     * A driver with no position in the pool is not filtered out. They are
+     * usually a driver who has just come online and whose first ping has not
+     * landed yet; hiding every search from them would recreate the blind spot
+     * `trip-request.service` was already fixed for once.
+     */
+    const boardRadiusKm = dispatchFinalRadiusKm();
+    const me = await supply.driverPosition(driverId).catch(() => null);
+
     const out = [];
     for (const trip of trips) {
       /**
@@ -1047,6 +1087,24 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         (state.expiresAtMs == null || state.expiresAtMs > Date.now());
       const holder = holdLive ? state.currentDriverId : null;
 
+      /**
+       * Out of reach — see `boardRadiusKm`. Measured against the same endpoints
+       * the row itself reports, so a route trip (whose pickup lives on the
+       * Route, not the Trip) is judged on the coordinate the driver would
+       * actually be sent to rather than on a null.
+       *
+       * An offer this driver already HOLDS is never filtered out, whatever the
+       * distance says: the cascade has already decided they are the candidate,
+       * and hiding the row while the sheet counts down would be the two
+       * surfaces disagreeing again in the opposite direction.
+       */
+      const pickLat = trip.pickupLat ?? trip.route?.originLat ?? null;
+      const pickLng = trip.pickupLng ?? trip.route?.originLng ?? null;
+      const mine = held?.tripId === trip.id || holder === driverId;
+      if (!mine && me && Number.isFinite(pickLat) && Number.isFinite(pickLng)) {
+        if (haversineKm(me.lat, me.lng, pickLat, pickLng) > boardRadiusKm) continue;
+      }
+
       const grossPesewas = trip.bookings.reduce((n, b) => n + (b.fareAmountPesewas || 0), 0);
       const commissionPesewas = trip.bookings.reduce(
         (n, b) =>
@@ -1073,7 +1131,7 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         /** Wallet balance needed to board this one — see `cashFloatPesewas`. */
         walletRequiredPesewas: cashFloatPesewas(trip),
         /** True when THIS driver is the one the cascade is currently asking. */
-        offeredToMe: held?.tripId === trip.id || holder === driverId,
+        offeredToMe: mine,
         expiresAtServerMs: holder === driverId ? state.expiresAtMs ?? null : null,
         /** Somebody else is holding the exclusive offer this instant. */
         heldByAnother: !!holder && holder !== driverId,

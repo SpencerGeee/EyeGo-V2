@@ -68,6 +68,17 @@ export interface SearchingPanelProps {
   attempt?: { attempt: number; total: number };
   /** An offer is out with a specific driver right now. */
   offerPending?: boolean;
+  /**
+   * Road ETA from the driver currently being asked to the rider's pickup.
+   *
+   * "Asking driver 2 of 5" tells a rider the search is progressing but not
+   * whether it is progressing towards anything good — driver 2 could be three
+   * minutes away or twenty, and that is the difference between waiting and
+   * cancelling. Uber and Bolt both show the distance to whoever is being asked
+   * for exactly this reason. Null while nobody holds an offer, or when the ETA
+   * provider degraded.
+   */
+  etaSeconds?: number | null;
   seats?: number;
   tierLabel?: string | null;
   scheduledFor?: string | null;
@@ -196,6 +207,7 @@ export function SearchingPanel({
   destinationText,
   attempt = { attempt: 0, total: 0 },
   offerPending = false,
+  etaSeconds = null,
   seats = 1,
   tierLabel,
   scheduledFor,
@@ -226,7 +238,25 @@ export function SearchingPanel({
     if (status === 'error') return errorReason ?? 'Please try again in a moment.';
     if (status === 'timeout') return 'Nothing was charged. Try again shortly, or book a scheduled ride.';
     if (status === 'sending') return 'Reaching drivers near your pickup…';
-    if (offerPending && attempt.total > 0) return `Asking driver ${attempt.attempt} of ${attempt.total}…`;
+    /**
+     * The distance is the part a rider can act on.
+     *
+     * "Asking driver 2 of 5" says the search is moving; it does not say whether
+     * it is moving towards anything worth waiting for. Naming the ETA of the
+     * driver currently holding the offer is what turns the position into
+     * information — and it is the number both Uber and Bolt put here.
+     *
+     * Rounded up to a whole minute, floored at 1: "0 min away" reads as a bug,
+     * and a sub-minute ETA is inside the error bar of any routing provider.
+     */
+    if (offerPending && attempt.total > 0) {
+      const mins = etaSeconds != null && Number.isFinite(etaSeconds)
+        ? Math.max(1, Math.round(etaSeconds / 60))
+        : null;
+      return mins != null
+        ? `Asking a driver ${mins} min away · ${attempt.attempt} of ${attempt.total}`
+        : `Asking driver ${attempt.attempt} of ${attempt.total}…`;
+    }
     if (attempt.total > 0) return `${attempt.total} driver${attempt.total === 1 ? '' : 's'} nearby — asking them in turn`;
     if (elapsed > 45) return 'Still looking. We widen the search the longer it takes.';
     if (elapsed > 20) return 'Most riders are matched in under two minutes.';

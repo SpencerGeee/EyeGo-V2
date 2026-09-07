@@ -16,7 +16,6 @@ import Animated, {
   runOnJS,
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { MotiView, goDeeper, goBack, notify, callNumber } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,7 +23,7 @@ import * as KeepAwake from 'expo-keep-awake';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, driverSocketEvents, connectDriverSocket, disconnectDriverSocket } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, springs, durations, TRIP_STATUS_COPY, driverStatusLabel } from '@eyego/config';
-import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground, goLateral, SmoothScreen } from '@eyego/ui';
+import { Text, Button, Entrance, Skeleton, GlassSurface, GradientGlowBorder, InlayPanel, AppBackground, ChromeBlur, goLateral, SmoothScreen } from '@eyego/ui';
 import { useChatUnread } from '../../../stores/chatUnread.store';
 import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
@@ -720,7 +719,10 @@ export default function DriverTrackingScreen() {
       <View style={styles.pillStack} pointerEvents="box-none">
         {etaMinutes != null && (
           <Entrance animation="slideLeft">
-            <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
+            {/* ChromeBlur, not BlurView: this pill sits over a MapView that is
+                being panned by every GPS fix, so a real blur is re-sampled on
+                every frame of the whole trip. See ChromeBlur. */}
+            <ChromeBlur intensity={60} tint="dark" fallbackColor="rgba(8,10,18,0.88)" style={styles.etaPillBlur}>
               <Ionicons name="time-outline" size={14} color={colors.primary} />
               {/* The leg matters as much as the number: while the driver is
                   still collecting, "12 min to destination" is the length of
@@ -731,21 +733,21 @@ export default function DriverTrackingScreen() {
                   ? 'Arriving now'
                   : `${etaMinutes} min ${etaLeg === 'toPickup' ? 'to pickup' : 'to destination'}`}
               </Text>
-            </BlurView>
+            </ChromeBlur>
           </Entrance>
         )}
         <Entrance animation="slideLeft">
-          <BlurView intensity={60} tint="dark" style={styles.etaPillBlur}>
+          <ChromeBlur intensity={60} tint="dark" fallbackColor="rgba(8,10,18,0.88)" style={styles.etaPillBlur}>
             <Ionicons name="people-outline" size={14} color={colors.primary} />
             <Text style={styles.etaPillText}>{boarded}/{passengers} boarded</Text>
-          </BlurView>
+          </ChromeBlur>
         </Entrance>
       </View>
 
       {/* In-app banner */}
       {bannerMsg != null && (
         <Animated.View style={[styles.statusBanner, bannerStyle]}>
-          <BlurView intensity={80} tint="dark" style={styles.statusBannerBlur}>
+          <ChromeBlur intensity={80} tint="dark" fallbackColor="rgba(6,8,14,0.94)" style={styles.statusBannerBlur}>
             <View style={styles.statusBannerIcon}>
               <Ionicons name="notifications" size={16} color="#050508" />
             </View>
@@ -753,7 +755,7 @@ export default function DriverTrackingScreen() {
               <Text style={styles.statusBannerLabel}>TRIP UPDATE</Text>
               <Text style={styles.statusBannerText}>{bannerMsg}</Text>
             </View>
-          </BlurView>
+          </ChromeBlur>
         </Animated.View>
       )}
 

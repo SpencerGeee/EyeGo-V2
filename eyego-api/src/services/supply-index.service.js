@@ -2,6 +2,7 @@
 
 const redis = require('../config/redis');
 const logger = require('../utils/logger');
+const h3 = require('./h3-index.service');
 
 /**
  * The driver supply index — where the free cars are, right now.
@@ -35,6 +36,19 @@ const GEO_KEY = 'supply:drivers:geo';
 const presenceKey = (driverId) => `supply:presence:${driverId}`;
 /** Per-driver tier, so a candidate sweep can filter without hitting Postgres. */
 const metaKey = (driverId) => `supply:meta:${driverId}`;
+/**
+ * Drivers currently inside one H3 cell — see h3-index.service.
+ *
+ * Maintained ALONGSIDE the geo-set, never instead of it. The geo-set stays the
+ * source of coordinates and distances; these sets exist so an area has a name
+ * that surge, the heatmap and a widening candidate sweep can all agree on, and
+ * so a sweep can expand by RING (a fixed step outward in every direction)
+ * rather than by re-running a bigger circle and re-examining everybody it has
+ * already seen.
+ */
+const cellKey = (cell) => `supply:h3:${cell}`;
+/** Which cell we last filed a driver under, so a move can unfile them. */
+const driverCellKey = (driverId) => `supply:h3:of:${driverId}`;
 
 /**
  * How long a position is trusted without a refresh. The driver app pings
@@ -60,6 +74,15 @@ async function upsertDriver(driverId, lat, lng, meta = {}) {
     return { ok: false, rejoined: false };
   }
   try {
+    /**
+     * The cell this ping puts them in. Read BEFORE the pipeline so the previous
+     * cell can be cleaned up in the same round trip — a driver who has moved
+     * must not be left listed in the block they drove out of, which is how a
+     * hex index rots into a set of ghosts.
+     */
+    const cell = h3.cellFor(lat, lng);
+    const prevCell = cell ? await redis.get(driverCellKey(driverId)).catch(() => null) : null;
+
     const pipeline = redis.pipeline();
     pipeline.exists(presenceKey(driverId));
     pipeline.geoadd(GEO_KEY, lng, lat, driverId);
@@ -71,6 +94,15 @@ async function upsertDriver(driverId, lat, lng, meta = {}) {
         'EX',
         PRESENCE_TTL_SECONDS * 4,
       );
+    }
+    if (cell) {
+      if (prevCell && prevCell !== cell) pipeline.srem(cellKey(prevCell), driverId);
+      pipeline.sadd(cellKey(cell), driverId);
+      // Cells expire on the same clock as presence (with slack): a process that
+      // dies mid-shift must not leave a driver filed here forever, and the next
+      // ping re-adds them anyway.
+      pipeline.expire(cellKey(cell), PRESENCE_TTL_SECONDS * 4);
+      pipeline.set(driverCellKey(driverId), cell, 'EX', PRESENCE_TTL_SECONDS * 4);
     }
     const results = await pipeline.exec();
     // ioredis pipeline replies are [err, value] pairs, in command order.
@@ -110,9 +142,99 @@ async function driverPosition(driverId) {
 async function removeDriver(driverId) {
   if (!driverId) return;
   try {
-    await redis.pipeline().zrem(GEO_KEY, driverId).del(presenceKey(driverId)).exec();
+    // The cell membership has to go with them. Leaving it behind is how the hex
+    // index starts reporting supply that went offline an hour ago — and unlike
+    // the geo-set, which `nearbyDrivers` prunes opportunistically against
+    // presence, a stale cell entry is only ever noticed by whatever trusts it.
+    const cell = await redis.get(driverCellKey(driverId)).catch(() => null);
+    const p = redis.pipeline().zrem(GEO_KEY, driverId).del(presenceKey(driverId));
+    if (cell) p.srem(cellKey(cell), driverId);
+    p.del(driverCellKey(driverId));
+    await p.exec();
   } catch (err) {
     logger.warn(`supply-index remove failed for ${driverId}: ${err.message}`);
+  }
+}
+
+/**
+ * Live drivers in a set of H3 cells, as a plain id set.
+ *
+ * The cheap half of a candidate sweep: it answers "who is in this area" with
+ * set reads and no geo maths, and it is exact about the area because the area
+ * has a name. It does NOT return distances — that is `nearbyDrivers`' job, and
+ * ranking is `matcher.service`'s. Presence is still the liveness test, because
+ * a cell set can outlive the driver in it.
+ *
+ * @param {string[]} cells
+ * @returns {Promise<string[]>} driver ids, de-duplicated
+ */
+async function driversInCells(cells) {
+  const list = (cells || []).filter((c) => h3.isCell(c));
+  if (list.length === 0) return [];
+  let ids;
+  try {
+    ids = await redis.sunion(...list.map(cellKey));
+  } catch (err) {
+    logger.warn(`supply-index sunion failed: ${err.message}`);
+    return [];
+  }
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+
+  const presence = await redis
+    .mget(ids.map((id) => presenceKey(id)))
+    .catch(() => ids.map(() => '1'));
+
+  const live = [];
+  const dead = [];
+  ids.forEach((id, i) => (presence[i] ? live.push(id) : dead.push(id)));
+
+  // Opportunistic cleanup, matching what `nearbyDrivers` does for the geo-set.
+  if (dead.length) {
+    Promise.all(
+      dead.map(async (id) => {
+        const cell = await redis.get(driverCellKey(id)).catch(() => null);
+        if (cell) redis.srem(cellKey(cell), id).catch(() => {});
+      }),
+    ).catch(() => {});
+  }
+
+  return live;
+}
+
+/**
+ * How many live drivers sit in each of these cells.
+ *
+ * The supply half of a supply-and-demand picture, keyed by an id the demand
+ * side can use too — which is the whole reason the grid exists. Used by the
+ * heatmap and by surge, which previously each bucketed points their own way and
+ * could not be compared with one another.
+ *
+ * @param {string[]} cells
+ * @returns {Promise<Map<string, number>>} cell id → live driver count
+ */
+async function supplyByCell(cells) {
+  const out = new Map();
+  const list = (cells || []).filter((c) => h3.isCell(c));
+  if (list.length === 0) return out;
+  try {
+    const pipeline = redis.pipeline();
+    list.forEach((c) => pipeline.smembers(cellKey(c)));
+    const res = await pipeline.exec();
+    // One presence read for every driver across every cell, rather than one per
+    // cell: the same driver cannot be in two cells, so the ids are disjoint.
+    const perCell = list.map((c, i) => [c, (res?.[i]?.[1] ?? [])]);
+    const allIds = perCell.flatMap(([, ids]) => ids);
+    if (allIds.length === 0) {
+      list.forEach((c) => out.set(c, 0));
+      return out;
+    }
+    const presence = await redis.mget(allIds.map((id) => presenceKey(id))).catch(() => allIds.map(() => '1'));
+    const livingIds = new Set(allIds.filter((_, i) => presence[i]));
+    perCell.forEach(([c, ids]) => out.set(c, ids.filter((id) => livingIds.has(id)).length));
+    return out;
+  } catch (err) {
+    logger.warn(`supply-index supplyByCell failed: ${err.message}`);
+    return out;
   }
 }
 
@@ -242,6 +364,8 @@ module.exports = {
   driverPosition,
   removeDriver,
   nearbyDrivers,
+  driversInCells,
+  supplyByCell,
   whichArePresent,
   countNearby,
   poolSize,

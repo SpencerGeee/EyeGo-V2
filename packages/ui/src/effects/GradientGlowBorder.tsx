@@ -249,9 +249,17 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
     const radiusAt = (base: number) =>
       Math.min(base * glowIntensity, maxGlowRadius ?? Number.POSITIVE_INFINITY);
     const tier = usePerformanceTier();
-    // Low-tier devices default to a static ring (no continuous rotation)
+    /**
+     * Anything below 'high' defaults to a static ring (no continuous rotation).
+     *
+     * These do not appear alone: the driver's manage-trip screen renders FIVE,
+     * each an independently rotating Animated.View driven every frame. That is
+     * five continuous transform animations competing with a live map and a
+     * shader on a phone that has already told us it is missing frames. The ring
+     * still renders — it just stops spinning.
+     */
     // unless the caller explicitly opts in/out via `disabled`.
-    const isDisabled = disabled ?? tier === 'low';
+    const isDisabled = disabled ?? tier !== 'high';
     const [size, setSize] = useState({ width: 0, height: 0 });
     const ambient = useAmbientRotation();
     const burstOffset = useSharedValue(0);

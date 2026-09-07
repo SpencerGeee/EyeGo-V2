@@ -643,7 +643,15 @@ export default function RootLayout() {
         <StatusBar style={theme === 'light' ? 'dark' : 'light'} backgroundColor={colors.backgroundDeep} />
         {/* Ambient premium background — fade-group screens (transparent
             contentStyle above) show this instead of a flat fill. */}
-        <AppBackground isDark={theme !== 'light'} paused={isOpaqueDetail || overFullBleedMap} />
+        {/* THE app's one animated background. `variant` is opt-in — see the
+            note on AppBackgroundProps. Every other mount in this app is static
+            by default and paints a frozen frame, which is what stops a pushed
+            screen from starting its own raymarch over a live map. */}
+        <AppBackground
+          variant="animated"
+          isDark={theme !== 'light'}
+          paused={isOpaqueDetail || overFullBleedMap}
+        />
         {/* MorphProvider hosts the container-transform overlay for future
             morph transitions (trip-card → active-trip, etc.) — wraps the
             Stack so sources/targets living inside screens can register. */}

@@ -113,9 +113,14 @@ export default function ScheduledRideDetailScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Same animated Skia backdrop the rest of the app uses — this screen is a
-          destination in its own right, not a plain modal. */}
-      <AppBackground variant="animated" isDark={isDark} />
+      {/* Same ambient backdrop the rest of the app uses — this screen is a
+          destination in its own right, not a plain modal.
+          STATIC, not animated: `useShaderSlot` gives the app's one Skia canvas
+          to the most recently FOCUSED background, so an animated instance on a
+          pushed screen does not add a shader, it STEALS the live one and starts
+          raymarching here. Every other pushed screen in both apps is static for
+          this reason — see the note on AppBackgroundProps. */}
+      <AppBackground isDark={isDark} />
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>

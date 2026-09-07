@@ -15,6 +15,31 @@ const GROUP_WINDOW_MINUTES = 60;
 const MAX_DRIVERS_TO_NOTIFY = 12;
 
 /**
+ * How close to its departure time a request has to be before it stops being a
+ * plan and becomes a ride somebody is waiting for.
+ *
+ * Runtime-tunable for the same reason every other dispatch number is: the right
+ * value depends on how far ahead riders actually book, and that is an operations
+ * question, not a code one.
+ */
+const immediateWindowMinutes = () =>
+  require('../../config/settings').get('REQUEST_IMMEDIATE_WINDOW_MINUTES') ?? 15;
+
+/**
+ * Is this request for NOW?
+ *
+ * A request whose departure has arrived (or passed) is indistinguishable from
+ * an on-demand hail: somebody is standing at a kerb. One that is hours or days
+ * out is a different product and must not be dispatched the same way — see
+ * `dispatchRequestToDrivers`.
+ */
+function isImmediate(scheduledTime) {
+  const t = scheduledTime instanceof Date ? scheduledTime.getTime() : Date.parse(scheduledTime);
+  if (!Number.isFinite(t)) return false;
+  return t <= Date.now() + immediateWindowMinutes() * 60_000;
+}
+
+/**
  * Create a trip request for a free-text destination not served by existing routes.
  * Groups similar requests heading to the same area within a 60-min window, then
  * dispatches FCM push notifications to nearby online drivers.
@@ -75,6 +100,75 @@ async function createRequest(userId, { destination, scheduledAt, seatCount = 1, 
   }
 
   // 3. Dispatch to drivers — fire-and-forget so the response is instant
+  /**
+   * ── A RIDE FOR NOW GOES THROUGH THE CASCADE, NOT THE NOTICEBOARD ──────────
+   *
+   * BUGFIX ("for the dispatch page, it doesn't pop up on the driver app… in
+   * Uber and Bolt, once there's a request it pops up on their phone and they
+   * can choose to accept or decline. With ours they have to tap the banner, so
+   * if they don't see it they miss the offer").
+   *
+   * The broadcast below is the right answer for a ride four days out — nobody
+   * sits on a 45-second countdown for that, which is why it exists. It is the
+   * WRONG answer for a ride somebody is waiting for right now, and this
+   * function could not tell the two apart. Every request took the broadcast, so
+   * every request produced a board row and never an exclusive offer — and an
+   * offer is the only thing that raises `DispatchOfferSheet`.
+   *
+   * The important part of the fix is what it does NOT do: it does not teach the
+   * cascade about `TripRequest`s. The cascade is keyed on a real Trip
+   * everywhere — its Redis state, its lock, its published events, its winner
+   * announcement — so a parallel cascade over request rows would be a second
+   * dispatch engine, and this codebase has already paid for one of those.
+   *
+   * Instead the immediate branch mints a server-side quote and hands the whole
+   * thing to `rides.requestRide`: the exact path an on-demand hail takes. That
+   * buys the Trip row, the price lock, the booking, the concurrency guard, the
+   * idempotency wrapper and `startCascade` — all of it already proven, none of
+   * it duplicated here.
+   *
+   * GROUPING STAYS ON THE SCHEDULED PATH. An immediate request dispatches the
+   * requester's own party. Pooling strangers into one vehicle needs a shared
+   * departure time to pool around, which is precisely what a ride leaving now
+   * does not have.
+   */
+  const immediate = isImmediate(scheduledTime);
+  const haveCoords =
+    [tripRequest.pickupLat, tripRequest.pickupLng, tripRequest.destLat, tripRequest.destLng]
+      .every((v) => v != null && Number.isFinite(Number(v)));
+
+  if (immediate && haveCoords) {
+    try {
+      const live = await dispatchImmediately(tripRequest, destNormalized);
+      return {
+        requestId: tripRequest.id,
+        tripId: live.tripId,
+        groupId,
+        groupedCount: 1,
+        message: `Finding you a driver to ${destNormalized}…`,
+      };
+    } catch (err) {
+      /**
+       * Fall through to the broadcast rather than failing the request.
+       *
+       * The rider asked for a ride; a quote that could not be minted, or a
+       * concurrency guard that fired, is not a reason to hand them nothing.
+       * The board is a worse experience than the cascade, but it is a real one.
+       */
+      logger.warn('Immediate dispatch failed — falling back to the board', {
+        tripRequestId: tripRequest.id,
+        error: err.message,
+        code: err.code,
+      });
+    }
+  } else if (immediate && !haveCoords) {
+    // Worth saying out loud: this is the one case where a ride for NOW still
+    // takes the noticeboard, and it is always a geocoding gap upstream.
+    logger.info('Immediate request has no coordinates — using the board', {
+      tripRequestId: tripRequest.id,
+    });
+  }
+
   setImmediate(() =>
     dispatchRequestToDrivers(tripRequest, destNormalized, scheduledTime, groupedCount)
   );
@@ -88,6 +182,101 @@ async function createRequest(userId, { destination, scheduledAt, seatCount = 1, 
         ? `Grouped with ${groupedCount - 1} other rider(s) heading to ${destNormalized}. A driver will be notified.`
         : `Your request to ${destNormalized} has been sent to nearby drivers.`,
   };
+}
+
+/**
+ * Turn a just-created `TripRequest` into a live on-demand ride.
+ *
+ * Everything here is delegation. The quote is minted by the same service that
+ * prices a hail (so the trip carries a real price lock rather than a fare
+ * recomputed later), and the ride is created by the same function the rider app
+ * calls — which is what starts the cascade and therefore what makes the offer
+ * pop up on a driver's phone.
+ *
+ * @returns {Promise<{tripId: string}>}
+ */
+async function dispatchImmediately(tripRequest, destNormalized) {
+  // Lazily required: `rides.service` pulls in the cascade, which pulls in half
+  // the service layer. A top-level require here would close a cycle through
+  // `trips.service`, which already requires this module lazily for the same
+  // reason.
+  const rides = require('../rides/rides.service');
+  const fareQuote = require('../../services/fare-quote.service');
+
+  const pickupLat = Number(tripRequest.pickupLat);
+  const pickupLng = Number(tripRequest.pickupLng);
+  const dropoffLat = Number(tripRequest.destLat);
+  const dropoffLng = Number(tripRequest.destLng);
+  const seatCount = Math.max(1, Number(tripRequest.seatCount) || 1);
+
+  const quote = await fareQuote.createQuote({
+    userId: tripRequest.userId,
+    tier: 'ECO',
+    pickupLat,
+    pickupLng,
+    dropoffLat,
+    dropoffLng,
+    // The party is an input to the price — see `partySize` in fare.calculator.
+    // Quoting for one and creating for three is refused by `requestRide`, and
+    // is exactly the bug the rider app's own request flow was carrying.
+    seatCount,
+  });
+
+  const res = await rides.requestRide(tripRequest.userId, {
+    quoteId: quote.quoteId,
+    pickupLat,
+    pickupLng,
+    pickupAddress: 'Pickup location',
+    dropoffLat,
+    dropoffLng,
+    dropoffAddress: destNormalized,
+    seatCount,
+    /**
+     * The request row IS the idempotency key. A materialising scheduled intent
+     * that gets retried, or a rider who double-taps, must not end up with two
+     * live searches — and `withIdempotency` replays the first answer instead of
+     * creating a second trip.
+     */
+    idempotencyKey: `trip-request:${tripRequest.id}`,
+  });
+
+  const tripId = res?.tripId ?? res?.trip?.id ?? null;
+  if (!tripId) throw new AppError('Ride creation returned no trip', 500, 'NO_TRIP_CREATED');
+
+  /**
+   * Close the request against the trip it became.
+   *
+   * Without this the row stays PENDING/DISPATCHED and the board keeps
+   * advertising it as unclaimed work alongside the cascade that is already
+   * running — the two surfaces disagreeing again, which is the whole family of
+   * bugs this change is in. `getPendingTripRequests` filters on exactly
+   * `['PENDING','DISPATCHED']`, so ACCEPTED is what takes it off the board.
+   *
+   * ACCEPTED and not a new status word: it is what `acceptTripRequest` already
+   * writes when a request becomes a trip, and the rider's own poll
+   * (`getTripRequestStatus`) reads `matchedTripId` to follow the request to the
+   * ride. Inventing a sixth value would make this row invisible to one of them.
+   */
+  await prisma.tripRequest
+    .update({
+      where: { id: tripRequest.id },
+      data: { status: 'ACCEPTED', matchedTripId: tripId },
+    })
+    .catch(async (err) => {
+      // The status still has to move or the row is advertised forever.
+      logger.debug('tripRequest match write fell back to status-only', { error: err.message });
+      await prisma.tripRequest
+        .update({ where: { id: tripRequest.id }, data: { status: 'ACCEPTED' } })
+        .catch(() => {});
+    });
+
+  logger.info('Immediate trip request handed to the dispatch cascade', {
+    tripRequestId: tripRequest.id,
+    tripId,
+    seatCount,
+  });
+
+  return { tripId };
 }
 
 /**

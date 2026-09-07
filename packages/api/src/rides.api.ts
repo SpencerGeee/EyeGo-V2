@@ -241,13 +241,17 @@ export const ridesApi = {
        * flagged as an unused variable), so a rider who chose 3 seats got a
        * one-seat trip and a driver who had no idea three people were waiting.
        *
-       * It does NOT change the price: an on-demand ride is priced as the whole
-       * car, which is why the quote passes `seatCount: 1`. This is capacity
-       * information for the driver, not a fare input.
+       * IT MUST MATCH THE `seatCount` THE QUOTE WAS SIGNED FOR.
+       *
+       * This comment used to say the quote passes `seatCount: 1` deliberately
+       * and that the party is capacity-only. Both stopped being true when the
+       * party became a pricing input (`partySize` in fare.calculator.js): the
+       * value is inside the quote's HMAC signature, and `rides.service` refuses
+       * — 409 `FARE_EXPIRED` — any request whose party differs from the priced
+       * one. A caller that quoted without this field and then sent it here
+       * failed every party of two or more. Send the same number to both calls.
        */
       seatCount?: number;
-      // NOTE: `quote` takes this too now — the party size is an input to the
-      // price (see `partySize` in fare.calculator.js), not just to capacity.
     },
     idempotencyKey: string,
   ) =>

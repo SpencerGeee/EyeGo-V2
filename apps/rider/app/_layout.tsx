@@ -600,7 +600,11 @@ export default function RootLayout() {
           <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={colors.backgroundDeep} />
           {/* Ambient premium background — fade-group screens (transparent
               contentStyle below) show this instead of a flat fill. */}
-          <AppBackground isDark={isDark} paused={isOpaqueDetail} />
+          {/* THE app's one animated background — `variant` is opt-in now, see
+              the note on AppBackgroundProps. The 14 pushed screens that spell
+              out `variant="static"` are saying what is already the default;
+              they are left as documentation, not as load-bearing overrides. */}
+          <AppBackground variant="animated" isDark={isDark} paused={isOpaqueDetail} />
           {/* MorphProvider hosts the container-transform overlay: it must
               wrap the Stack (sources/targets live inside screens) and its
               overlay renders above every screen but below toasts/banners. */}

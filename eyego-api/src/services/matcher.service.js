@@ -3,6 +3,7 @@
 const prisma = require('../config/database');
 const logger = require('../utils/logger');
 const supply = require('./supply-index.service');
+const h3 = require('./h3-index.service');
 const { etaMatrix } = require('./eta.service');
 const { availableDriverWhere, explainIneligible } = require('./driver-availability');
 const { haversineMeters } = require('../utils/geo');
@@ -138,6 +139,64 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
   let nearby = await supply.nearbyDrivers(pickupLat, pickupLng, radiusKm, GEO_FETCH_LIMIT, {
     withCoords: true,
   });
+
+  /**
+   * ── THE HEX SWEEP: A SECOND DOOR INTO THE SAME SUPPLY ─────────────────────
+   *
+   * A GEOSEARCH circle and an H3 k-ring cover almost the same ground, but they
+   * fail differently, and that is the point of running the second one.
+   *
+   * The circle is computed from the geo-set's sorted-set score, so a driver
+   * whose `GEOADD` landed but whose score got clobbered — a partial write, a
+   * failover mid-pipeline, a key evicted under maxmemory — is invisible to it
+   * while still being a perfectly live, pinging driver. The cell sets are
+   * written by the same ping through a different data structure and a different
+   * key, so one of them being wrong does not make the other wrong.
+   *
+   * A UNION, NEVER A REPLACEMENT. Anything the hex sweep finds that the circle
+   * missed is added; nothing the circle found is dropped. Ranking is untouched
+   * — every candidate from either door still gets a real road ETA below, and
+   * the ETA is what decides. Hex distance never orders anybody.
+   *
+   * Cells are also how this search WIDENS: `cellsWithin` returns them innermost
+   * ring first, so extending the sweep is one more ring rather than a bigger
+   * circle re-examining everyone it has already seen.
+   */
+  try {
+    const cells = h3.cellsWithin(pickupLat, pickupLng, radiusKm);
+    if (cells.length) {
+      const seen = new Set(nearby.map((d) => d.driverId));
+      const inCells = await supply.driversInCells(cells);
+      const extra = inCells.filter((id) => !seen.has(id) && id !== excludeDriverId);
+      if (extra.length) {
+        // They arrive as bare ids; dispatch needs a position to rank from, and
+        // the geo-set is still where positions live. A driver the index cannot
+        // place is one this sweep cannot help with, so they are simply skipped.
+        const placed = (
+          await Promise.all(
+            extra.slice(0, GEO_FETCH_LIMIT).map(async (id) => {
+              const pos = await supply.driverPosition(id).catch(() => null);
+              if (!pos) return null;
+              return {
+                driverId: id,
+                lat: pos.lat,
+                lng: pos.lng,
+                distanceKm: haversineMeters(pickupLat, pickupLng, pos.lat, pos.lng) / 1000,
+              };
+            }),
+          )
+        ).filter(Boolean).filter((d) => d.distanceKm <= radiusKm);
+        if (placed.length) {
+          logFunnel('h3_supplement', { cells: cells.length, added: placed.length });
+          nearby = nearby.concat(placed);
+        }
+      }
+    }
+  } catch (err) {
+    // Never fatal. The circle above is the primary door and has already answered.
+    logger.debug(`h3 sweep failed, continuing on the geo circle: ${err.message}`);
+  }
+
   if (nearby.length === 0) {
     // The supply index is what dispatch searches, and an empty answer has two
     // very different causes. `poolSize` separates them: 0 means nothing is

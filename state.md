@@ -1,35 +1,125 @@
-# State — 2026-09-01
+# State — 2026-09-07 completion pass
 
 ## Current Goal
-21-item sweep across rider, driver and backend. All 21 addressed; nothing device-tested.
+Nine items from a real two-device test. Plan: `docs/plans/2026-09-07-completion-pass.md`.
 
-## Decisions
-- `MorphTarget` defaults to `pointerEvents="box-none"`. A full-screen morph target was a
-  screen-sized touch target over the map — the frozen request map and the unresponsive
-  ride-picker map were both this.
-- The morph clone's layout box is a CONSTANT SQUARE (`max(winW,winH)`), never the target rect.
-  Zero React commits between takeoff and landing; `targetReady` corrections are pure
-  shared-value writes. Square so circular morphs stay circular.
-- `useMapCamera({ autoResumeMs })`. `null` = the user keeps the camera. Pre-trip maps pass null.
-- `OverlayPortal` (react-native-screens `FullWindowOverlay`) wraps every root-mounted floating
-  surface in both apps. A root sibling of the navigator is UNDER every iOS native modal.
-- Party size is an input to the on-demand fare: free up to `RIDE_INCLUDED_SEATS` (4), then
-  `RIDE_EXTRA_SEAT_RATE` (18%) of the metered ride per extra seat. Signed into the quote.
-- Cancelling costs STANDING, not money: `RIDE_CANCEL_FEE_PESEWAS` default 0, and a trip in a
-  pre-departure status can never incur a fee whatever the clock says.
-- A rating is cast once — `driverRating.create`, 409 `ALREADY_RATED` on a second.
+## Decisions taken (user-confirmed)
+- Item 4 → build a real scan-to-pay sheet for driver trip codes.
+- Item 2 → route IMMEDIATE trip-requests through the existing cascade; leave
+  genuinely scheduled ones broadcasting. Do NOT build a second dispatch engine.
+- Item 7 → H3 as a spatial index layer (k-ring candidate expansion, cell-keyed
+  surge/heatmap). Keep road-ETA ranking as the matcher.
 
 ## Plan Status
-All 21 items implemented. `npm test` 35/35 green; rider + driver `tsc --noEmit` clean;
-all edited backend files pass `node --check`.
+
+### DONE (both apps `tsc --noEmit` clean)
+- **Item 5 — multi-seat 409.** `RequestStage` re-quoted without `seatCount`, so
+  the quote was signed for a party of 1 while the request sent 3 →
+  `rides.service.js:350` threw 409 `FARE_EXPIRED`. Both calls now read one
+  `chosenSeats`. Stale comments in `rides.api.ts` and `rides.service.js` that
+  claimed the party was capacity-only have been corrected — they were the
+  reason the bug was written.
+- **Item 1 — driver lag.** Three fixes:
+  1. `AppBackground.variant` now defaults to `'static'`; the two root layouts
+     opt in with `variant="animated"`. Was `'animated'`, and the driver app
+     never overrode it — 34 mounts all asking for a live raymarch, incl. over
+     the tracking map. Rider had spelled out `static` on 14 screens.
+  2. `usePerformanceTier` rewritten: adds a real `'mid'` tier and MEASURES the
+     device (rAF p75 probe, once, 4s after launch, latched, downgrade-only).
+     Previously every iPhone was `'high'` — only Android API<31 ever degraded.
+     Consumers taught about `'mid'`: cheap raymarch kernel + 20fps
+     (LightPillarBackground), blur/chroma off (GlassSurface), ring rotation off
+     (GradientGlowBorder).
+  3. New `packages/ui/src/effects/ChromeBlur.tsx` — blur on `'high'` only, flat
+     fill otherwise. Swapped the 3 raw `<BlurView>`s on driver tracking (they
+     sat over a live MapView, so they were re-sampled every GPS frame) and the
+     driver tab bar.
+- **Item 9 — straight approach line.** `geo.controller` now forwards a
+  whitelisted `profile` (`getRoute` always accepted one and nothing passed it);
+  `walking`/`cycling` skip the driving re-timing. Rider gains
+  `fetchWalkingRoute`; `TripMap.approachLine` uses real walking geometry, keyed
+  on rounded endpoints so GPS jitter does not refetch. Straight line kept as
+  the fallback.
+
+- **Item 2 (the reported symptom) — FIXED.** `listSearchesForDriver` had NO
+  radius and NO candidacy filter: it listed every live MATCHING/REASSIGNING
+  trip in the world to every driver. So a driver saw banner rows for rides they
+  were never a candidate for and could never be offered — "banner, but no
+  popup". Now scoped to `dispatchFinalRadiusKm()` from the driver's supply-index
+  position; a held offer is never filtered out. The popup path itself was
+  already correct and was NOT touched.
+- **Item 3 — dispatch screen crowding.** Top chrome (back control, "Held for
+  you" pill, scrim) now auto-hides after 3.2s idle and returns on map
+  interaction, via a new `onUserInteraction` prop on `DispatchLiveMap`. The
+  offer card and countdown never hide. The "Frame the ride" FAB was already
+  correctly gated on `!framed` — left alone.
+- **QA harness.** Two new suites, both registered in `run-all.mjs`:
+  - `scripts/e2e/ui-invariants.mjs` — source-level, no stack, ~1s. 15 checks:
+    one animated background per app, the default is static, the tier has a
+    'mid' rung and is measured + downgrade-only, 'mid' is actually cheaper in
+    all three consumers, no raw `<BlurView>` over a live map, dispatch chrome
+    auto-hides but the offer card does not, RequestStage quotes what it
+    requests. **RUN: 15/15 green.** It immediately caught a real second
+    animated background in `apps/rider/app/scheduled/[id].tsx` (now fixed).
+  - `scripts/e2e/completion-pass.mjs` — API-level, needs a live stack. Covers
+    multi-seat success + the 409 guard still biting, the walking profile
+    (route not ruler, not silently driving, bad profile refused), and the
+    dispatch board radius (far driver excluded, near driver still served).
+    **NOT YET RUN — needs the local stack up.**
+
+- **Item 2 (second half) — DONE.** `createRequest` now splits on
+  `isImmediate(scheduledTime)` (new `REQUEST_IMMEDIATE_WINDOW_MINUTES` setting,
+  default 15). Immediate + has coords → `dispatchImmediately()` mints a
+  server-side quote and delegates to `rides.requestRide`, which is the proven
+  on-demand path: Trip row, price lock, booking, concurrency guard, idempotency
+  (keyed on the request id) and `startCascade`. The request row closes to
+  ACCEPTED + `matchedTripId`. Anything further out still broadcasts — that is
+  correct, not a gap. Falls back to the board if the quote or the ride fails.
+  **Deliberately NOT done:** teaching the cascade about `TripRequest`s. That is
+  a second dispatch engine; the cascade is keyed on a real Trip everywhere.
+- **Item 4 — DONE.** New `apps/rider/app/pay/trip/[id].tsx`: driver, vehicle,
+  one seat, fare, wallet balance, one Pay button. Books + charges via
+  `bookingsApi.create` → `paymentsApi.initialize` (WALLET), disables after the
+  first press, `router.replace` so Back cannot charge twice. Short balance
+  offers a top-up rather than silently reopening the booking screen.
+  `scan-pay.tsx` now routes trip codes here instead of `/ride/[id]`.
+- **Item 6 — DONE (small).** Was ~90% built: `TripMap` already highlights the
+  candidate's pin and draws a real road route to them. The missing piece was
+  the number — the server has sent `etaSeconds` on every DISPATCH_PROGRESS
+  frame all along and the store kept it, but nothing rendered it. Panel now
+  reads "Asking a driver 4 min away · 2 of 5".
+- **Item 7 — DONE.** `h3-js@4.5.0` added. New
+  `eyego-api/src/services/h3-index.service.js` owns the cell vocabulary (res 8).
+  `supply-index` maintains `supply:h3:<cell>` sets alongside the geo-set (and
+  cleans them on move + on removal); `driversInCells` / `supplyByCell` added.
+  `matcher.rankCandidates` runs a hex sweep as a SECOND door and UNIONs it with
+  the geo circle — ranking is still road ETA, untouched. Heatmap now keys
+  buckets by H3 cell so demand and supply share one vocabulary.
+  **Non-obvious:** ring sizing is CALIBRATED at load, not derived. The textbook
+  `edge·√3` (~0.92 km/ring) over-states reach by ~30% because the global average
+  edge is not the local cell size and `gridDistance` counts cells on a distorted
+  grid. Measured value is ~0.66 km/ring. The harness caught this.
+
+## Harness
+
+`scripts/e2e` is now 15 suites. Three run with no stack at all:
+
+| suite | needs | last run |
+|---|---|---|
+| `ui-invariants.mjs` | nothing | **19/19 green** |
+| `h3-index.mjs` | nothing | **17/17 green** |
+| `completion-pass.mjs` | live stack | not yet run |
+
+The two source-level suites earned their keep immediately — between them they
+caught a second animated `AppBackground` in `apps/rider/app/scheduled/[id].tsx`
+and the H3 ring-sizing bug, neither of which `tsc` or an API test could see.
 
 ## Evidence
-- `scripts/invariants.test.mjs` Pressable rule tightened — its two exemptions were hiding
-  four live breakages (driver Pass button, Dispatch-blocked CTA, RideEndedSheet, trip.tsx)
-  plus NoticeHost's action button.
-- `apps/*/app.json` already carry `CADisableMinimumFrameDuration`. It is an Info.plist key:
-  it cannot take effect through OTA, only a fresh native build.
+- On-demand dispatch popup chain verified CORRECT end to end — `offerNext` →
+  `rememberOffer` → `/rides/driver/state` → 2s poll in `app/_layout.tsx` →
+  `DispatchOfferSheet`. Do not "fix" it. The gap is only `trip-request.service`.
+- `apps/rider` and `apps/driver` both `tsc --noEmit` clean as of this entry.
 
 ## Open Issues
-- Nothing device-tested; item 13 (120 Hz) needs a new EAS build to be observable at all.
-- No prisma migration required by this pass (no schema change).
+- Nothing has been run on a device; all verification so far is static + tsc.
+- `npx` is broken here — use `node node_modules/typescript/lib/tsc.js`.

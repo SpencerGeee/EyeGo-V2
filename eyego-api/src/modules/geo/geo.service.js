@@ -712,12 +712,21 @@ async function getRoute({ originLat, originLng, destLat, destLng, profile = 'dri
       const route = data?.routes?.[0];
       if (route && Number.isFinite(route.distance) && Number.isFinite(route.duration)) {
         const distanceKm = route.distance / 1000;
+        const rawMin = route.duration / 60;
         return {
           distanceKm,
           // Even on the traffic profile, Mapbox falls back to posted limits where
           // it has no congestion data — which is most of Ghana. See
           // `realisticDurationMin`: this can only lengthen the answer.
-          durationMin: realisticDurationMin(route.duration / 60, distanceKm),
+          //
+          // Only for the driving profiles, though. `realisticDurationMin` re-times
+          // the distance against an urban DRIVING average; applied to a walk it is
+          // comparing a pedestrian to a car and answering a question nobody asked.
+          // Mapbox's own walking duration is already the right number.
+          durationMin:
+            profile === 'walking' || profile === 'cycling'
+              ? rawMin
+              : realisticDurationMin(rawMin, distanceKm),
           geometry: route.geometry,
           source: profile,
         };

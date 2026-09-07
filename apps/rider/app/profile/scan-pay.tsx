@@ -139,10 +139,23 @@ export default function ScanPayScreen() {
      * back is for.
      */
     if (parsed.kind === 'trip') {
-      // The trip detail screen, not tracking: a rider scanning a driver's code
-      // has not booked yet, and tracking is only readable once they are on the
-      // trip. Detail is where they pick a seat and pay.
-      goDeeper({ pathname: '/ride/[id]', params: { id: parsed.value } } as any);
+      /**
+       * THE PAY SHEET, NOT THE BOOKING SCREEN.
+       *
+       * BUGFIX ("I tried the scan and pay thing and when I scanned, it opened
+       * the ride instead — it opened the ride for the user to book a seat.
+       * That's contradictory to scan and pay").
+       *
+       * This used to push `/ride/[id]`, which is the ordinary trip detail
+       * screen: pick a seat, pick a payment method, confirm, then pay. A
+       * booking flow with a camera in front of it is not a payment, and the
+       * feature is called Scan & Pay.
+       *
+       * `/pay/trip/[id]` states the ride, the seat and the price, and charges
+       * the rider's wallet once. See that screen for what it deliberately does
+       * not ask.
+       */
+      goDeeper({ pathname: '/pay/trip/[id]', params: { id: parsed.value } } as any);
       return;
     }
     goDeeper({

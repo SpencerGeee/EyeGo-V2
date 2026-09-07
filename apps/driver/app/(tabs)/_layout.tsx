@@ -3,11 +3,10 @@ import { View, StyleSheet, Pressable, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated from 'react-native-reanimated';
-import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, spacing } from '@eyego/config';
-import { Text, usePressScale , smoothScreenLayout } from '@eyego/ui';
+import { Text, usePressScale , smoothScreenLayout, ChromeBlurFill } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 
@@ -49,11 +48,18 @@ function GlassLayer({ isDark, colors }: { isDark: boolean; colors: DriverColors 
     return <LiquidGlassView style={StyleSheet.absoluteFill} colorScheme={isDark ? 'dark' : 'light'} />;
   }
   if (Platform.OS === 'ios') {
+    /**
+     * `ChromeBlur`, not `BlurView`: the home tab is a full-bleed map, so this
+     * bar is a full-width blur sampling live map tiles for as long as the
+     * driver is online. On a device that has measured itself as struggling it
+     * falls back to the same flat chrome fill Android already uses. See
+     * ChromeBlur.
+     */
     return (
-      <BlurView
+      <ChromeBlurFill
         intensity={80}
         tint={isDark ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
-        style={StyleSheet.absoluteFill}
+        fallbackColor={isDark ? 'rgba(6, 15, 26, 0.94)' : 'rgba(255, 255, 255, 0.92)'}
       />
     );
   }

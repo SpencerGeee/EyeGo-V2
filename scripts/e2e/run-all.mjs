@@ -34,6 +34,11 @@ const BASE = process.env.E2E_BASE || 'http://127.0.0.1:5020';
  * says what capability is broken, not just which file failed.
  */
 const SUITES = [
+  // First, and deliberately: it reads source, needs no stack, and runs in a
+  // second. If the performance rules have been broken, that is worth knowing
+  // before forty HTTP assertions scroll past.
+  ['ui-invariants.mjs', 'the performance + layout rules no type-check can see'],
+  ['h3-index.mjs', 'the hex grid dispatch searches — pure, exact, no stack needed'],
   ['geo-routing.mjs', 'the polyline, the geocoder and the ETA every map depends on'],
   ['rider-happy-path.mjs', 'request → dispatch → accept → drive → complete → pay'],
   ['driver-happy-path.mjs', 'the driver-created group trip, end to end'],
@@ -46,6 +51,7 @@ const SUITES = [
   ['wallet-commission.mjs', 'the cash float: warned at the offer, charged at boarding'],
   ['lifecycle-edges.mjs', 'cancellations, races, no-shows, terminal states'],
   ['silent-failures.mjs', 'writes that do not write, and 200s that mean nothing'],
+  ['completion-pass.mjs', 'the 2026-09-07 two-device findings: multi-seat, walking route, dispatch board'],
 ];
 
 const filters = process.argv.slice(2).filter((a) => !a.startsWith('-'));

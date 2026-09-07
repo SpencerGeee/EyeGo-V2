@@ -61,6 +61,7 @@ export { LightPillarBackground } from './effects/LightPillarBackground';
 export type { LightPillarBackgroundProps } from './effects/LightPillarBackground';
 export { AmbientRotationProvider, useAmbientRotation } from './effects/useAmbientRotation';
 export { GlassSurface } from './effects/GlassSurface';
+export { ChromeBlur, ChromeBlurFill } from './effects/ChromeBlur';
 export { LensSheen } from './effects/LensSheen';
 export { GlowSearchInput, GlowSearchPressable } from './effects/GlowSearchInput';
 export { usePerformanceTier } from './effects/usePerformanceTier';

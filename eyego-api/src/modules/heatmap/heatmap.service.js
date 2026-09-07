@@ -46,15 +46,39 @@ const { seatOccupyingWhere } = require('../../utils/booking-status');
  * the index service), for both features.
  */
 
-// Bucket step in degrees: ~0.01° ≈ 1.1 km at Ghana's latitude. Used ONLY to
-// group nearby requests together — never as the reported position of a cell.
+const h3 = require('../../services/h3-index.service');
+
+// Bucket step in degrees: ~0.01° ≈ 1.1 km at Ghana's latitude. Retained only as
+// the fallback for a coordinate H3 will not accept — see `bucketKey`.
 const BUCKET_DEG = 0.01;
 
 // How far back to consider booking demand (hours).
 const DEMAND_LOOKBACK_HOURS = 24;
 
-/** Bucket key for a coordinate pair. Grouping only — see the note above. */
+/**
+ * Which piece of ground this point belongs to.
+ *
+ * ── WHY THIS IS AN H3 CELL AND NOT A LAT/LNG BUCKET ─────────────────────────
+ *
+ * A degree bucket is not a shape anybody else can name. It is local to this
+ * file, it is not square (a degree of longitude shrinks with latitude), and its
+ * eight neighbours sit at two different distances, so "the area around here"
+ * means something slightly different depending on which way you look. That made
+ * the heatmap's idea of a zone incomparable with dispatch's radius and with
+ * surge's own bucketing — three subsystems, three answers to "which bit of the
+ * city is this", none of which could be joined to another.
+ *
+ * An H3 cell is a stable id for a fixed piece of ground, and it is now the SAME
+ * id `supply-index.supplyByCell` counts drivers under. Demand and supply can
+ * finally be divided by one another because they are keyed the same way.
+ *
+ * The degree bucket survives underneath as a fallback: H3 declines a
+ * coordinate it cannot index, and a heatmap that drops those points silently is
+ * worse than one that groups them coarsely.
+ */
 function bucketKey(lat, lng) {
+  const cell = h3.cellFor(lat, lng);
+  if (cell) return cell;
   const latKey = Math.round(lat / BUCKET_DEG);
   const lngKey = Math.round(lng / BUCKET_DEG);
   return `${latKey}:${lngKey}`;

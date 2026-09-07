@@ -295,7 +295,10 @@ export function LightPillarBackground({
   const clock = useSharedValue(0);
   const elapsed = useSharedValue(0);
   const sinceEmit = useSharedValue(0);
-  const baseFrameMs = tier === 'high' ? 1000 / 30 : 1000 / 12;
+  // 'mid' is a real device that is merely working hard, not a weak one — 12fps
+  // reads as a stuttering background rather than a cheaper one, which is worse
+  // than either neighbour. 20fps is still smooth for a slow ambient drift.
+  const baseFrameMs = tier === 'high' ? 1000 / 30 : tier === 'mid' ? 1000 / 20 : 1000 / 12;
 
   /**
    * A CONSTANT FRAME RATE, AND THE DUTY CYCLE MOVED TO VISIBILITY.
@@ -332,7 +335,11 @@ export function LightPillarBackground({
     }
   }, isAnimated);
 
-  const EFFECT = tier === 'low' ? EFFECT_LOW : EFFECT_HIGH;
+  // Raymarch cost is LINEAR in MAX_ITER, so the iteration count is the single
+  // biggest lever there is — bigger than resolution, bigger than the clock. A
+  // 'mid' device takes the cheap kernel and keeps everything else, which is the
+  // whole reason the tier exists.
+  const EFFECT = tier === 'high' ? EFFECT_HIGH : EFFECT_LOW;
 
   /**
    * A PIXEL BUDGET, NOT A RESOLUTION FRACTION.

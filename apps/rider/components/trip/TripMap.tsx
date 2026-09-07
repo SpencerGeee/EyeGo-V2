@@ -22,7 +22,7 @@ import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
 import { useTripStore } from '../../stores/trip.store';
 import { useColors, Colors } from '../../utils/useColors';
-import { fetchRoute } from '../../utils/routing';
+import { fetchRoute, fetchWalkingRoute } from '../../utils/routing';
 
 /**
  * The ONE MapView in the rider app.
@@ -749,6 +749,44 @@ function TripMapImpl() {
   const riderIsAwayFromPickup =
     !!userCoords && (!pickup || metresBetween(userCoords, pickup) >= APPROACH_MIN_METRES);
 
+  /**
+   * The walking geometry for the approach leg, or null while it is in flight /
+   * unavailable. See `approachLine` for why this is a walking profile.
+   *
+   * KEYED ON A ROUNDED PAIR, NOT ON THE RAW COORDS. `userCoords` changes with
+   * every GPS fix, and a dependency on the raw value would re-request the walk
+   * several times a second while the rider stands still. Five decimal places is
+   * about a metre — finer than any walking route would differ by, and coarse
+   * enough that GPS jitter does not move it.
+   */
+  const [walkCoords, setWalkCoords] = useState<[number, number][] | null>(null);
+  const walkKey =
+    userCoords && pickup && metresBetween(userCoords, pickup) >= APPROACH_MIN_METRES
+      ? `${userCoords[0].toFixed(4)},${userCoords[1].toFixed(4)}|${pickup[0].toFixed(5)},${pickup[1].toFixed(5)}`
+      : null;
+
+  useEffect(() => {
+    if (!walkKey || !userCoords || !pickup) {
+      setWalkCoords(null);
+      return;
+    }
+    let cancelled = false;
+    // Endpoints captured here, not read from the closure at resolve time: the
+    // rider is by definition walking, so by the time this answers they may
+    // already be somewhere else and a later effect will have superseded it.
+    const from: [number, number] = [userCoords[0], userCoords[1]];
+    const to: [number, number] = [pickup[0], pickup[1]];
+    void fetchWalkingRoute(from, to).then((route) => {
+      if (cancelled) return;
+      setWalkCoords(route && route.coordinates.length >= 2 ? route.coordinates : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // `walkKey` IS the meaningful identity of the two endpoints — see above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walkKey]);
+
   const approachLine = useMemo(() => {
     // Once the ride is under way the rider is IN the vehicle; a line from their
     // GPS to the pickup they have already left is a lie.
@@ -771,12 +809,29 @@ function TripMapImpl() {
       status === 'ARRIVED_AT_PICKUP';
     if (!preBoarding || !userCoords || !pickup) return null;
     if (metresBetween(userCoords, pickup) < APPROACH_MIN_METRES) return null;
+    /**
+     * A WALK IS A ROUTE, NOT A RULER.
+     *
+     * BUGFIX ("when I choose to make the pickup point different from where I
+     * am, the route line shows a straight line and doesn't follow the road").
+     *
+     * This was `coordinates: [userCoords, pickup]` — the two endpoints and
+     * nothing between them, so the dashed leg cut through buildings and across
+     * whatever lay in the way. `walkCoords` is the real walking geometry from
+     * `/v1/geo/route?profile=walking`, fetched by the effect below.
+     *
+     * The straight line stays as the FALLBACK rather than being deleted: it is
+     * fetched asynchronously and can fail, and "roughly that way, over there"
+     * is still true and still useful. It is drawn dashed and in a neutral
+     * colour precisely so it never reads as a routed path — see the layer.
+     */
+    const coordinates = walkCoords && walkCoords.length >= 2 ? walkCoords : [userCoords, pickup];
     return {
       type: 'Feature' as const,
       properties: {},
-      geometry: { type: 'LineString' as const, coordinates: [userCoords, pickup] },
+      geometry: { type: 'LineString' as const, coordinates },
     };
-  }, [status, userCoords, pickup]);
+  }, [status, userCoords, pickup, walkCoords]);
 
   /**
    * The vehicle grows with the zoom, the way it does in Uber and Bolt.
