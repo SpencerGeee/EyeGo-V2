@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 import { useScreenFocus } from './screenFocus';
 
 /**
@@ -32,10 +33,28 @@ import { useScreenFocus } from './screenFocus';
  * can be indefinite. A driver who tabs into the rider app on the same handset
  * should not be paying for the other app's shimmer.
  *
- * @returns true while this screen is focused AND the app is in the foreground.
+ * ── AND REDUCE MOTION MEANS REDUCE MOTION ──────────────────────────────────
+ *
+ * Only 15 of the 58 animated files in this repo checked `useReducedMotion`, so
+ * a rider who has switched it on still got shimmers, sweeps, breathing rings
+ * and a drifting background. Folding it in here fixes every gated loop at once
+ * and matches Apple's rule: under reduce-motion, replace loops and springs with
+ * something static, but KEEP the changes that carry meaning.
+ *
+ * That last clause is why this is a parameter rather than a blanket rule. A
+ * decorative shimmer should simply stop. A *searching* pulse that stops reads
+ * as a screen that has hung — the animation is the message — so those callers
+ * pass `decorative: false` and keep running with motion reduced elsewhere.
+ *
+ * @param opts.decorative default true. False for a loop that carries meaning
+ *        (a live-trip pulse, a search indicator) — it then ignores reduce-motion
+ *        but is still gated on focus and foreground.
+ * @returns true while this loop should be running.
  */
-export function useLoopsActive(): boolean {
+export function useLoopsActive(opts?: { decorative?: boolean }): boolean {
+  const decorative = opts?.decorative ?? true;
   const focused = useScreenFocus();
+  const reducedMotion = useReducedMotion();
   const [foreground, setForeground] = useState(() => AppState.currentState === 'active');
 
   useEffect(() => {
@@ -43,5 +62,6 @@ export function useLoopsActive(): boolean {
     return () => sub.remove();
   }, []);
 
+  if (decorative && reducedMotion) return false;
   return focused && foreground;
 }

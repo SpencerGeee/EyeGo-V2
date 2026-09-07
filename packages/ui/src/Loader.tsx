@@ -59,7 +59,9 @@ export function Loader({ label, size = 56, style, color }: LoaderProps) {
   const colors = useThemedColors();
   const progress = useSharedValue(0);
 
-  const loopsActive = useLoopsActive();
+  // NOT decorative: a loader IS the message. Freezing it under reduce-motion
+  // would turn "loading" into "hung". Still gated on focus and foreground.
+  const loopsActive = useLoopsActive({ decorative: false });
 
   useEffect(() => {
     /**

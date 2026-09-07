@@ -120,7 +120,9 @@ function ProgressSweep({ colors, active }: { colors: Colors; active: boolean }) 
   const reduceMotion = useReducedMotion();
   const t = useSharedValue(0);
 
-  const loopsActive = useLoopsActive();
+  // NOT decorative: the sweep is what says the search is running. This file
+  // already honours reduce-motion explicitly via `reduceMotion` above.
+  const loopsActive = useLoopsActive({ decorative: false });
   useEffect(() => {
     // A search can still be running while the rider looks at something else —
     // the sweep is only worth frames while it is on screen.

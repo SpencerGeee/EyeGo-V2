@@ -97,7 +97,9 @@ export function LiveTripCard({ trip, onPress }: LiveTripCardProps) {
    * carry the whole signal.
    */
   const pulse = useSharedValue(0);
-  const loopsActive = useLoopsActive();
+  // NOT decorative: the pulse is how a LIVE trip is distinguished from a
+  // finished one. `reducedMotion` is already handled explicitly below.
+  const loopsActive = useLoopsActive({ decorative: false });
   useEffect(() => {
     // The live-trip card lives on the driver's home tab, which stays mounted
     // for the whole session behind every other tab. See useLoopsActive.

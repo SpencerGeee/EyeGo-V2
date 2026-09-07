@@ -146,7 +146,9 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
   // A slow breath, on the UI thread. Two seconds is long enough not to nag and
   // short enough that a glance catches it mid-cycle.
   const pulse = useSharedValue(0);
-  const loopsActive = useLoopsActive();
+  // NOT decorative: this banner is telling a driver why they are getting no
+  // work. It must not go silent for the people most likely to miss it.
+  const loopsActive = useLoopsActive({ decorative: false });
   useEffect(() => {
     // This banner lives on the driver's home tab, which stays mounted behind
     // every other tab for the whole shift. See useLoopsActive.

@@ -44,12 +44,36 @@ interface EyeGoPressableProps extends Omit<PressableProps, 'onPressIn' | 'onPres
   onPressOut?: (e: GestureResponderEvent) => void;
 }
 
+/**
+ * ── EVERY TOUCHABLE GETS HIT PADDING, WITHOUT BEING ASKED ──────────────────
+ *
+ * Apple's gesture guidance is explicit: "add ~10px of hysteresis/hit padding
+ * around the target, and allow cancel-by-dragging-away and back."
+ *
+ * Across both apps there are 405 `<Pressable>`s and only 113 `hitSlop`s — 28%.
+ * The other 72% are icon buttons, chips, list-row chevrons and close controls
+ * whose visual size IS their touch size, which is how a control ends up
+ * technically present and practically hard to hit. That is not a bug anyone
+ * files; it is felt as the app being fiddly, and it is worst for exactly the
+ * people with the least steady hands.
+ *
+ * A default fixes all 292 at once, and `hitSlop` is safe to widen: it extends
+ * the touch region OUTWARD without changing layout, so nothing moves and no
+ * screen is re-laid out. 8 points rather than 10 because our rows sit closer
+ * together than a web layout's — enough to catch a near miss, small enough that
+ * two adjacent controls do not fight over the gap between them.
+ *
+ * Any call site that needs more (or none) still wins — see the spread order.
+ */
+const DEFAULT_HIT_SLOP = 8;
+
 export function Pressable({
   onPress,
   onPressIn,
   onPressOut,
   haptic = 'light',
   scaleOnPress = pressScaleToken,
+  hitSlop = DEFAULT_HIT_SLOP,
   style,
   children,
   ...props
@@ -127,6 +151,9 @@ export function Pressable({
       onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      // Destructured with a default above, so a call site that passes its own
+      // still wins and one that passes `undefined` still gets the default.
+      hitSlop={hitSlop}
       style={[animatedStyle, resolvedStyle]}
       {...props}
     >

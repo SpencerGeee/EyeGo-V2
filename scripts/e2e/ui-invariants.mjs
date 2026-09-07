@@ -629,6 +629,68 @@ function main() {
     return `${want.length} screens`;
   });
 
+  section('14 · touch targets and reduce-motion');
+
+  /**
+   * Apple's gesture guidance: "add ~10px of hysteresis/hit padding around the
+   * target". 405 Pressables across both apps had 113 hitSlops between them —
+   * the other 72% were icon buttons and row chevrons whose visual size was
+   * their whole touch size. Nobody files that; it is felt as the app being
+   * fiddly, and worst for the least steady hands.
+   */
+  check('every Pressable gets hit padding by default', () => {
+    const src = read(join(ROOT, 'packages/ui/src/Pressable.tsx'));
+    if (!/DEFAULT_HIT_SLOP/.test(src)) {
+      throw new Error('the shared Pressable has no default hitSlop — 292 controls lose their hit padding');
+    }
+    if (!/hitSlop = DEFAULT_HIT_SLOP/.test(src)) {
+      throw new Error('the default is not applied as a destructured default, so a call site cannot override it');
+    }
+    if (!/hitSlop=\{hitSlop\}/.test(src)) throw new Error('hitSlop is never forwarded to the native Pressable');
+    return 'default 8pt, overridable';
+  });
+
+  check('the primary CTA meets the 44pt minimum target', () => {
+    const src = read(join(ROOT, 'packages/ui/src/Button.tsx'));
+    const mins = [...src.matchAll(/minHeight:\s*(\d+)/g)].map((m) => Number(m[1]));
+    if (mins.length === 0) throw new Error('Button declares no minHeight');
+    const small = mins.filter((h) => h < 44);
+    if (small.length) throw new Error(`Button sizes below the 44pt minimum: ${small.join(', ')}`);
+    return `minHeights ${[...new Set(mins)].sort((a, b) => a - b).join('/')}`;
+  });
+
+  check('reduce-motion stops decorative loops but not meaningful ones', () => {
+    const src = read(join(ROOT, 'packages/ui/src/effects/useLoopsActive.ts'));
+    if (!/useReducedMotion/.test(src)) {
+      throw new Error(
+        'reduce-motion is not folded into the loop gate. Only 15 of 58 animated files checked it on their ' +
+          'own, so a rider who switched it on still got shimmers, sweeps and a drifting background.',
+      );
+    }
+    if (!/decorative/.test(src)) {
+      throw new Error(
+        'no decorative/meaningful distinction. Apple keeps the changes that carry meaning — a searching ' +
+          'pulse that freezes reads as a hung screen.',
+      );
+    }
+    // The loops that ARE the message must opt out, or reduce-motion silences them.
+    const meaningful = [
+      ['packages/ui/src/Loader.tsx', 'a frozen loader reads as hung'],
+      ['packages/ui/src/effects/PulseRing.tsx', 'the radar states "searching"'],
+      ['apps/rider/components/trip/SearchingPanel.tsx', 'the sweep states "searching"'],
+      ['apps/driver/components/LiveTripCard.tsx', 'the pulse marks a LIVE trip'],
+      ['apps/driver/components/DispatchBlockedBanner.tsx', 'it explains why there is no work'],
+      ['apps/driver/components/DriverAlertBanner.tsx', 'an alert that stops breathing stops alerting'],
+    ];
+    const wrong = meaningful.filter(([f]) => !/decorative: false/.test(read(join(ROOT, f))));
+    if (wrong.length) {
+      throw new Error(
+        `silenced by reduce-motion but carries meaning: ${wrong.map(([f, why]) => `${f} (${why})`).join(', ')}`,
+      );
+    }
+    return `${meaningful.length} meaningful loops exempt`;
+  });
+
   process.exit(summary());
 }
 

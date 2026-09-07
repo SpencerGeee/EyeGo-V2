@@ -31,7 +31,8 @@ export interface PulseRingProps {
 function Ring({ size, color, delay, duration }: { size: number; color: string; delay: number; duration: number }) {
   const t = useSharedValue(0);
 
-  const loopsActive = useLoopsActive();
+  // NOT decorative: the radar pulse is how "searching / waiting" is stated.
+  const loopsActive = useLoopsActive({ decorative: false });
 
   useEffect(() => {
     // The radar pulse is the most visible loop in the product and the easiest

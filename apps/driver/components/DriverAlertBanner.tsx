@@ -129,7 +129,9 @@ export function DriverAlertBanner({
     };
   }, [autoDismissMs, onDismiss, life]);
 
-  const loopsActive = useLoopsActive();
+  // NOT decorative: an alert that stops breathing stops being an alert.
+  // `reducedMotion` is already honoured explicitly on the line below.
+  const loopsActive = useLoopsActive({ decorative: false });
   useEffect(() => {
     // A banner can outlive the moment it appeared in — gate the breath on
     // visibility so it is not still breathing three screens away.
