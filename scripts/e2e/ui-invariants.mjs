@@ -573,6 +573,51 @@ function main() {
     return 'retained only while visible';
   });
 
+  /**
+   * A SWEEP, NOT A LIST. The named checks above stop the known offenders coming
+   * back; this stops a NEW one being added, which is how all fifteen got there.
+   *
+   * Every infinite `withRepeat` must be gated on something — visibility
+   * (`useLoopsActive`), a real state flag (`active`, `searching`), or reduced
+   * motion. A loop with no gate at all runs for the life of the app.
+   */
+  check('no NEW ungated infinite loop has appeared', () => {
+    /**
+     * Exempt, with reasons — these are screens that genuinely unmount, so their
+     * loops really are scoped to the time they are on screen:
+     *   splash/onboarding — shown once, then torn down for the app shell.
+     */
+    const EXEMPT = [
+      'apps/rider/components/SplashAnimation.tsx',
+      'apps/rider/app/(onboarding)/index.tsx',
+    ];
+    const offenders = [];
+    for (const app of ['rider', 'driver']) {
+      for (const f of appFiles(app)) {
+        const s = read(f);
+        if (!/withRepeat\(/.test(s)) continue;
+        const r = rel(f);
+        if (EXEMPT.includes(r)) continue;
+        const gated = /useLoopsActive|useScreenFocus|useIsFocused|reducedMotion|reduceMotion|\bactive\b|\bsearching\b|\bvisible\b/.test(s);
+        if (!gated) offenders.push(r);
+      }
+    }
+    // packages/ui primitives are checked by name above; sweep them too.
+    for (const f of walk(join(ROOT, 'packages/ui/src'))) {
+      const s = read(f);
+      if (!/withRepeat\(/.test(s)) continue;
+      const gated = /useLoopsActive|useScreenFocus|consumers|foreground|animated|isDisabled|durationMs > 0/.test(s);
+      if (!gated) offenders.push(rel(f));
+    }
+    if (offenders.length) {
+      throw new Error(
+        `ungated infinite loop(s): ${offenders.join(', ')}. A tab navigator never unmounts a tab, so this ` +
+          'runs for the life of the app. Gate it with useLoopsActive.',
+      );
+    }
+    return 'every loop is gated';
+  });
+
   check("the driver's hot screens gate their loops", () => {
     const want = [
       'apps/driver/components/trip/TripStatusRail.tsx',

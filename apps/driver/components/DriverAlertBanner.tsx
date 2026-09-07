@@ -15,7 +15,7 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { fonts, fontSizes, radii, spacing, springs, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, useLoopsActive } from '@eyego/ui';
 
 import { useColors, type DriverColors } from '../utils/useColors';
 
@@ -129,8 +129,14 @@ export function DriverAlertBanner({
     };
   }, [autoDismissMs, onDismiss, life]);
 
+  const loopsActive = useLoopsActive();
   useEffect(() => {
-    if (!pulse || reducedMotion) return;
+    // A banner can outlive the moment it appeared in — gate the breath on
+    // visibility so it is not still breathing three screens away.
+    if (!pulse || reducedMotion || !loopsActive) {
+      cancelAnimation(breath);
+      return;
+    }
     breath.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.quad) }),
@@ -140,7 +146,7 @@ export function DriverAlertBanner({
       false,
     );
     return () => cancelAnimation(breath);
-  }, [pulse, reducedMotion, breath]);
+  }, [pulse, reducedMotion, breath, loopsActive]);
 
   const cardStyle = useAnimatedStyle(() => ({
     opacity: rise.value,

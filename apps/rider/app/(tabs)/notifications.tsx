@@ -1,7 +1,7 @@
 ﻿import React, { useMemo, useCallback, useState } from 'react';
 import { View, StyleSheet, Pressable, RefreshControl } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing } from 'react-native-reanimated';
-import { AnimatedList, goDeeper } from '@eyego/ui';
+import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing, cancelAnimation } from 'react-native-reanimated';
+import { AnimatedList, goDeeper, useLoopsActive } from '@eyego/ui';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { Entrance } from '@eyego/ui';
@@ -46,9 +46,27 @@ function SkeletonCard() {
   const pulse = useSharedValue(0.4);
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
+  const loopsActive = useLoopsActive();
   React.useEffect(() => {
+    /**
+     * THIS ONE LEAKED OUTRIGHT — it had no cleanup at all.
+     *
+     * A skeleton is unmounted the instant its data arrives, and an infinite
+     * `withRepeat` survives unmount unless it is cancelled. So every visit to
+     * this tab left a 500 ms opacity loop running on the UI thread for the rest
+     * of the session, with no view attached to it. Nothing on screen ever
+     * looked wrong, which is why it survived.
+     *
+     * Gated on visibility as well: Notifications is a TAB, so it stays mounted
+     * behind whatever the rider is actually doing. See useLoopsActive.
+     */
+    if (!loopsActive) {
+      cancelAnimation(pulse);
+      return;
+    }
     pulse.value = withRepeat(withTiming(1, { duration: 500, easing: Easing.inOut(Easing.sin) }), -1, true);
-  }, [pulse]);
+    return () => cancelAnimation(pulse);
+  }, [pulse, loopsActive]);
 
   return (
     <Animated.View style={[styles.skeletonCard, pulseStyle]}>

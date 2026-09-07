@@ -14,7 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, radii, spacing, springs, withOpacity } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, useLoopsActive } from '@eyego/ui';
 
 import { useColors, type Colors } from '../../utils/useColors';
 
@@ -120,8 +120,11 @@ function ProgressSweep({ colors, active }: { colors: Colors; active: boolean }) 
   const reduceMotion = useReducedMotion();
   const t = useSharedValue(0);
 
+  const loopsActive = useLoopsActive();
   useEffect(() => {
-    if (!active || reduceMotion) {
+    // A search can still be running while the rider looks at something else —
+    // the sweep is only worth frames while it is on screen.
+    if (!active || reduceMotion || !loopsActive) {
       t.value = withTiming(0, { duration: 200 });
       return;
     }
@@ -132,7 +135,7 @@ function ProgressSweep({ colors, active }: { colors: Colors; active: boolean }) 
       true,
     );
     return () => cancelAnimation(t);
-  }, [active, reduceMotion, t]);
+  }, [active, reduceMotion, t, loopsActive]);
 
   const style = useAnimatedStyle(() => ({
     left: `${interpolate(t.value, [0, 1], [-38, 100])}%`,

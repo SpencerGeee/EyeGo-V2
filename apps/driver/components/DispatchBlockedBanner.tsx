@@ -25,7 +25,7 @@ import { fonts, fontSizes, spacing, radii } from '@eyego/config';
  * on the card: no pill, no fill, no 46 pt target. Every previous pass at this
  * banner tuned the styles that were being thrown away.
  */
-import { Text, GlassSurface, GradientGlowBorder, Pressable } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, Pressable, useLoopsActive } from '@eyego/ui';
 
 import { useColors, type DriverColors } from '../utils/useColors';
 
@@ -146,7 +146,14 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
   // A slow breath, on the UI thread. Two seconds is long enough not to nag and
   // short enough that a glance catches it mid-cycle.
   const pulse = useSharedValue(0);
+  const loopsActive = useLoopsActive();
   useEffect(() => {
+    // This banner lives on the driver's home tab, which stays mounted behind
+    // every other tab for the whole shift. See useLoopsActive.
+    if (!loopsActive) {
+      cancelAnimation(pulse);
+      return;
+    }
     pulse.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.quad) }),
@@ -156,7 +163,7 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
       false,
     );
     return () => cancelAnimation(pulse);
-  }, [pulse]);
+  }, [pulse, loopsActive]);
 
   const haloStyle = useAnimatedStyle(() => ({
     opacity: 0.18 + pulse.value * 0.42,
