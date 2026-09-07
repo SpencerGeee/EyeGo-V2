@@ -14,6 +14,7 @@ import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
 import { LightPillarBackground } from './LightPillarBackground';
 import { useShaderSlot } from './shaderSlot';
+import { staticLoopingLayerProps } from './hardwareTexture';
 
 interface BlobConfig {
   color: string;
@@ -310,6 +311,10 @@ function Blob({ color, size, top, left, driftX, driftY, durationMs }: BlobConfig
   return (
     <Animated.View
       pointerEvents="none"
+      // A drifting blob is transform + opacity on a fixed radial gradient, for
+      // the whole life of the screen — the exact case a GPU texture exists for.
+      // Without it Android re-rasterises the SVG every frame. See hardwareTexture.
+      {...(durationMs > 0 ? staticLoopingLayerProps : {})}
       style={[{ position: 'absolute', width: size, height: size, top, left }, animStyle]}
     >
       <Svg width={size} height={size}>

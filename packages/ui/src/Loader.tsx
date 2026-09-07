@@ -10,6 +10,8 @@ import Animated, {
   Extrapolation,
   Easing,
 } from 'react-native-reanimated';
+import { staticLoopingLayerProps } from './effects/hardwareTexture';
+import { useLoopsActive } from './effects/useLoopsActive';
 import { fonts, fontSizes } from '@eyego/config';
 import { useThemedColors } from './ColorsContext';
 import { Text } from './Text';
@@ -57,7 +59,18 @@ export function Loader({ label, size = 56, style, color }: LoaderProps) {
   const colors = useThemedColors();
   const progress = useSharedValue(0);
 
+  const loopsActive = useLoopsActive();
+
   useEffect(() => {
+    /**
+     * Not while nobody is looking. A tab navigator never unmounts a tab, so a
+     * loader left spinning behind a skeleton on a screen the user walked away
+     * from runs for the rest of the session — see useLoopsActive.
+     */
+    if (!loopsActive) {
+      cancelAnimation(progress);
+      return;
+    }
     progress.value = withRepeat(
       withTiming(1, { duration: 2500, easing: Easing.linear }),
       -1,
@@ -68,7 +81,7 @@ export function Loader({ label, size = 56, style, color }: LoaderProps) {
     return () => {
       cancelAnimation(progress);
     };
-  }, [progress]);
+  }, [progress, loopsActive]);
 
   /**
    * The eight keyframes, as inset fractions of the box.
@@ -130,8 +143,11 @@ export function Loader({ label, size = 56, style, color }: LoaderProps) {
         accessibilityRole="progressbar"
         accessibilityLabel={label ?? 'Loading'}
       >
-        <Animated.View style={[spanBase, spanA]} />
-        <Animated.View style={[spanBase, spanB]} />
+        {/* Two bars sweeping forever while anything loads — flat colour under a
+            pure transform, and on screen during the exact moment the JS thread
+            is busiest. Cacheable on both platforms. */}
+        <Animated.View {...staticLoopingLayerProps} style={[spanBase, spanA]} />
+        <Animated.View {...staticLoopingLayerProps} style={[spanBase, spanB]} />
       </View>
 
       {!!label && (

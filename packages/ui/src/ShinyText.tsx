@@ -16,6 +16,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import { staticLoopingLayerProps } from './effects/hardwareTexture';
+import { useLoopsActive } from './effects/useLoopsActive';
 import { Text } from './Text';
 import { useThemedColors } from './ColorsContext';
 
@@ -49,7 +51,15 @@ export function ShinyText({
   const [width, setWidth] = useState(0);
   const sweep = useSharedValue(0);
 
+  const loopsActive = useLoopsActive();
+
   useEffect(() => {
+    // A shimmer on a tab the user left is a shimmer nobody sees, running for
+    // the rest of the session — see useLoopsActive.
+    if (!loopsActive) {
+      cancelAnimation(sweep);
+      return;
+    }
     sweep.value = 0;
     sweep.value = withRepeat(
       withTiming(1, { duration: speedMs, easing: Easing.linear }),
@@ -58,7 +68,7 @@ export function ShinyText({
     );
     // An infinite repeat survives unmount unless cancelled — see AppBackground.
     return () => cancelAnimation(sweep);
-  }, [sweep, speedMs]);
+  }, [sweep, speedMs, loopsActive]);
 
   const bandWidth = Math.max(width * 0.6, 60);
 
@@ -77,8 +87,13 @@ export function ShinyText({
         <Text style={[textStyle, { opacity: 0 }]}>{children}</Text>
         <View style={[StyleSheet.absoluteFillObject, styles.clip]}>
           <View style={[StyleSheet.absoluteFillObject, { backgroundColor: base }]} />
+          {/* A gradient band sweeping forever across fixed text — static pixels
+              under a pure transform, so both platforms cache it. */}
           {width > 0 && (
-            <Animated.View style={[styles.band, { width: bandWidth }, sweepStyle]}>
+            <Animated.View
+              {...staticLoopingLayerProps}
+              style={[styles.band, { width: bandWidth }, sweepStyle]}
+            >
               <LinearGradient
                 colors={['transparent', shineColor, 'transparent']}
                 start={{ x: 0, y: 0 }}

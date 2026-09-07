@@ -467,6 +467,123 @@ function main() {
     return 'one source';
   });
 
+  section('11 · production builds ship no console');
+
+  /**
+   * Hermes does not strip `console.*`. Each surviving call crosses the native
+   * logging bridge synchronously AND RETAINS ITS ARGUMENTS, so a log on a GPS
+   * or socket path pins an object graph per frame. That is the mechanism behind
+   * "it gets slower the longer I use it", and no render optimisation touches it.
+   */
+  for (const app of ['rider', 'driver']) {
+    check(`${app}: console is stripped in production, kept in dev`, () => {
+      const src = read(join(ROOT, 'apps', app, 'babel.config.js'));
+      if (!/transform-remove-console/.test(src)) {
+        throw new Error('console calls ship to users — see the note in the babel config');
+      }
+      if (!/isProd \?/.test(src)) {
+        throw new Error('stripping is unconditional; development needs its logs');
+      }
+      if (!/exclude:\s*\['error',\s*'warn'\]/.test(src)) {
+        throw new Error(
+          'error/warn are being stripped too — a release build that throws away its own warnings is one ' +
+            'nobody can diagnose from a crash report.',
+        );
+      }
+      // The Reanimated plugin rewrites worklets and must see the final AST.
+      const plugins = src.slice(src.indexOf('plugins:'));
+      if (plugins.indexOf('reanimated') < plugins.indexOf('transform-remove-console')) {
+        throw new Error('the Reanimated plugin must be LAST in the plugin list');
+      }
+      return 'prod-only, error/warn kept';
+    });
+  }
+
+  section('12 · Android composites animations on the GPU');
+
+  check('a hardware-texture primitive exists and is Android-first', () => {
+    const src = read(join(ROOT, 'packages/ui/src/effects/hardwareTexture.ts'));
+    if (!/renderToHardwareTextureAndroid/.test(src)) throw new Error('no Android texture promotion');
+    if (!/Platform\.OS === 'android'/.test(src)) throw new Error('not platform-gated');
+    // Blanket rasterisation on iOS is a pessimisation — Core Animation already
+    // composites transforms, so a cache that keeps invalidating is slower.
+    if (!/shouldRasterizeIOS/.test(src)) throw new Error('no iOS variant for genuinely static content');
+    return 'loopingLayerProps + staticLoopingLayerProps';
+  });
+
+  check('the looping primitives every page inherits are promoted', () => {
+    const want = [
+      ['packages/ui/src/Loader.tsx', 'the loader on every loading screen'],
+      ['packages/ui/src/ShinyText.tsx', 'the shimmer'],
+      ['packages/ui/src/effects/LensSheen.tsx', 'the sheen'],
+      ['packages/ui/src/effects/PulseRing.tsx', 'the radar pulse'],
+      ['packages/ui/src/effects/GradientGlowBorder.tsx', 'the rotating ring'],
+      ['packages/ui/src/effects/AppBackground.tsx', 'the drifting blob'],
+      ['packages/ui/src/morph/MorphProvider.tsx', 'the morph clone'],
+    ];
+    const missing = want.filter(([f]) => !/LoopingLayerProps|loopingLayerProps/.test(read(join(ROOT, f))));
+    if (missing.length) {
+      throw new Error(
+        `not promoted: ${missing.map(([f, why]) => `${f} (${why})`).join(', ')}. On Android each of these is ` +
+          're-rasterised every frame of its loop.',
+      );
+    }
+    return `${want.length} primitives`;
+  });
+
+  section('13 · no loop runs on a screen nobody is looking at');
+
+  /**
+   * The one a profiler screenshot never shows. A stack unmounts what you leave;
+   * a TAB NAVIGATOR DOES NOT. An ungated `withRepeat(-1)` on a tab is scoped to
+   * the life of the app, not to the time the tab is visible — so opening three
+   * tabs once leaves three screens' worth of loops running forever, two of them
+   * invisible. Every component involved reads as correct on its own.
+   */
+  check('useLoopsActive gates on focus AND foreground', () => {
+    const src = read(join(ROOT, 'packages/ui/src/effects/useLoopsActive.ts'));
+    if (!/useScreenFocus/.test(src)) throw new Error('not focus-gated — a tab is never unmounted');
+    if (!/AppState/.test(src)) throw new Error('not foreground-gated — a backgrounded app must animate nothing');
+    return 'focus && foreground';
+  });
+
+  check('the shared primitives cancel their loops when hidden', () => {
+    const want = [
+      'packages/ui/src/Loader.tsx',
+      'packages/ui/src/ShinyText.tsx',
+      'packages/ui/src/effects/LensSheen.tsx',
+      'packages/ui/src/effects/PulseRing.tsx',
+    ];
+    const bad = want.filter((f) => {
+      const s = read(join(ROOT, f));
+      return !/useLoopsActive/.test(s) || !/if \(!loopsActive\)/.test(s);
+    });
+    if (bad.length) throw new Error(`ungated loops in: ${bad.join(', ')}`);
+    return `${want.length} primitives gated`;
+  });
+
+  check('the shared glow clock is released by hidden rings', () => {
+    const src = read(join(ROOT, 'packages/ui/src/effects/useAmbientRotation.tsx'));
+    if (!/useLoopsActive/.test(src)) {
+      throw new Error(
+        'a ring on a mounted-but-unfocused tab still retains the shared rotation clock, so the clock never ' +
+          'stops and every mounted ring keeps recompositing its gradient.',
+      );
+    }
+    return 'retained only while visible';
+  });
+
+  check("the driver's hot screens gate their loops", () => {
+    const want = [
+      'apps/driver/components/trip/TripStatusRail.tsx',
+      'apps/driver/components/LiveTripCard.tsx',
+      'apps/driver/components/dispatch/DispatchLiveMap.tsx',
+    ];
+    const bad = want.filter((f) => !/useLoopsActive/.test(read(join(ROOT, f))));
+    if (bad.length) throw new Error(`ungated on a reported-laggy screen: ${bad.join(', ')}`);
+    return `${want.length} screens`;
+  });
+
   process.exit(summary());
 }
 

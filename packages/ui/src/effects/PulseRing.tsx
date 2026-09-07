@@ -9,6 +9,8 @@ import Animated, {
   Easing,
   cancelAnimation,
 } from 'react-native-reanimated';
+import { staticLoopingLayerProps } from './hardwareTexture';
+import { useLoopsActive } from './useLoopsActive';
 
 /**
  * Radar pulse — 2-3 staggered rings expanding and fading from a center
@@ -29,10 +31,19 @@ export interface PulseRingProps {
 function Ring({ size, color, delay, duration }: { size: number; color: string; delay: number; duration: number }) {
   const t = useSharedValue(0);
 
+  const loopsActive = useLoopsActive();
+
   useEffect(() => {
+    // The radar pulse is the most visible loop in the product and the easiest
+    // to leave running behind a screen the rider navigated away from. See
+    // useLoopsActive.
+    if (!loopsActive) {
+      cancelAnimation(t);
+      return;
+    }
     t.value = withDelay(delay, withRepeat(withTiming(1, { duration, easing: Easing.out(Easing.quad) }), -1, false));
     return () => cancelAnimation(t);
-  }, [t, delay, duration]);
+  }, [t, delay, duration, loopsActive]);
 
   const style = useAnimatedStyle(() => ({
     opacity: (1 - t.value) * 0.55,
@@ -42,6 +53,9 @@ function Ring({ size, color, delay, duration }: { size: number; color: string; d
   return (
     <Animated.View
       pointerEvents="none"
+      // A ring of fixed colours expanding forever — content never changes, so
+      // both platforms can cache it. See hardwareTexture.
+      {...staticLoopingLayerProps}
       style={[
         styles.ring,
         { width: size, height: size, borderRadius: size / 2, borderColor: color, backgroundColor: color + '14' },

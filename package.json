@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "babel-plugin-transform-remove-console": "^6.9.4",
     "patch-package": "^8.0.1",
     "react-doctor": "^0.2.16",
     "typescript": "^5.3.3"

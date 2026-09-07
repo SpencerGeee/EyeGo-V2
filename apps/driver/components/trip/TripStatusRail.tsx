@@ -17,7 +17,7 @@ import Animated, {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, spacing, springs } from '@eyego/config';
-import { Text } from '@eyego/ui';
+import { Text, useLoopsActive } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 
 export interface RailStep {
@@ -100,14 +100,21 @@ export function TripStatusRail({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   }, [safeIndex, progress, beat]);
 
+  const loopsActive = useLoopsActive();
   useEffect(() => {
+    // The rail sits on the tracking screen, which a driver leaves and comes
+    // back to all shift. Ungated, its halo breathes for the whole shift.
+    if (!loopsActive) {
+      cancelAnimation(halo);
+      return;
+    }
     halo.value = withRepeat(
       withTiming(1, { duration: 1800, easing: Easing.inOut(Easing.sin) }),
       -1,
       true,
     );
     return () => cancelAnimation(halo);
-  }, [halo]);
+  }, [halo, loopsActive]);
 
   const segments = Math.max(1, steps.length - 1);
 

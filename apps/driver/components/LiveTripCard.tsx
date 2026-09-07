@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { formatGhs, originShort, destinationShort, seatsOf } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, GlassSurface, GradientGlowBorder, Pressable } from '@eyego/ui';
+import { Text, GlassSurface, GradientGlowBorder, Pressable, useLoopsActive } from '@eyego/ui';
 
 import { useColors, type DriverColors } from '../utils/useColors';
 
@@ -97,8 +97,11 @@ export function LiveTripCard({ trip, onPress }: LiveTripCardProps) {
    * carry the whole signal.
    */
   const pulse = useSharedValue(0);
+  const loopsActive = useLoopsActive();
   useEffect(() => {
-    if (reducedMotion) {
+    // The live-trip card lives on the driver's home tab, which stays mounted
+    // for the whole session behind every other tab. See useLoopsActive.
+    if (reducedMotion || !loopsActive) {
       cancelAnimation(pulse);
       pulse.value = 1;
       return;

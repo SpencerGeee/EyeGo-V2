@@ -12,6 +12,7 @@ import {
   type CameraRef,
 } from '@eyego/maps';
 import { eyegoDriverDarkStyle } from '@eyego/map-styles';
+import { useLoopsActive } from '@eyego/ui';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -294,8 +295,11 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
      * Opacity and scale only, so it stays on the compositor thread.
      */
     const halo = useSharedValue(0);
+    const loopsActive = useLoopsActive();
     useEffect(() => {
-      if (reducedMotion) {
+      // A 45-second offer screen, but the driver can leave it mounted behind a
+      // navigation and the halo would breathe on regardless.
+      if (reducedMotion || !loopsActive) {
         cancelAnimation(halo);
         halo.value = 0.5;
         return;

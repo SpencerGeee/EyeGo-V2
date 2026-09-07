@@ -7,6 +7,7 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import { staticLoopingLayerProps } from './hardwareTexture';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAmbientRotation } from './useAmbientRotation';
 import { usePerformanceTier } from './usePerformanceTier';
@@ -441,6 +442,17 @@ export const GradientGlowBorder = forwardRef<GradientGlowBorderHandle, GradientG
           <>
             <Animated.View
               pointerEvents="none"
+              /**
+               * The heaviest loop in the system, and the one that appears most:
+               * a full linear gradient rotating forever, several to a screen on
+               * the driver's manage-trip page. The gradient's PIXELS never
+               * change — only the matrix — so a texture is exactly right, and
+               * without one Android redraws the gradient every frame per ring.
+               *
+               * Only when it is actually spinning. A disabled ring is a still
+               * image and must not hold a texture for the life of the screen.
+               */
+              {...(isDisabled ? {} : staticLoopingLayerProps)}
               style={[sweepStyle, isDisabled ? undefined : rotatingStyle]}
             >
               <LinearGradient

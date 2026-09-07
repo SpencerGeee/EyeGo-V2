@@ -20,6 +20,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { springs, durations, springForAxis } from '@eyego/config';
+import { loopingLayerProps } from '../effects/hardwareTexture';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from '../effects/usePerformanceTier';
 
@@ -935,6 +936,19 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         {cloneNode != null && (
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
             <Animated.View
+              /**
+               * The clone is a snapshot: its pixels are fixed for the whole
+               * flight and only its transform moves. That is precisely what a
+               * hardware texture is for, and on Android the alternative is
+               * re-rasterising an entire cloned CARD — or a whole cloned SCREEN
+               * — every frame of every navigation in both apps.
+               *
+               * It exists only while `cloneNode` does, so the texture is
+               * allocated for the ~400 ms of the flight and released with it.
+               * No always-on cost, which is why this is safe here and would not
+               * be on a persistent surface.
+               */
+              {...loopingLayerProps}
               style={[
                 overlayFrameStyle,
                 { backgroundColor: cloneBg ?? colors.backgroundDeep },

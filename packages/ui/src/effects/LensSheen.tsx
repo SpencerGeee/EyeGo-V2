@@ -8,6 +8,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import { staticLoopingLayerProps } from './hardwareTexture';
+import { useLoopsActive } from './useLoopsActive';
 import { LinearGradient } from 'expo-linear-gradient';
 
 interface LensSheenProps {
@@ -25,7 +27,15 @@ interface LensSheenProps {
 export function LensSheen({ style, bandWidth = 70, durationMs = 4200 }: LensSheenProps) {
   const progress = useSharedValue(0);
 
+  const loopsActive = useLoopsActive();
+
   useEffect(() => {
+    // See useLoopsActive — a tab is never unmounted, so an ungated loop is
+    // scoped to the session rather than to the time it is on screen.
+    if (!loopsActive) {
+      cancelAnimation(progress);
+      return;
+    }
     progress.value = withRepeat(
       withTiming(1, { duration: durationMs, easing: Easing.linear }),
       -1,
@@ -33,7 +43,7 @@ export function LensSheen({ style, bandWidth = 70, durationMs = 4200 }: LensShee
     );
     // An infinite repeat survives unmount unless cancelled — see AppBackground.
     return () => cancelAnimation(progress);
-  }, [progress, durationMs]);
+  }, [progress, durationMs, loopsActive]);
 
   const sweepStyle = useAnimatedStyle(() => ({
     transform: [
@@ -44,7 +54,11 @@ export function LensSheen({ style, bandWidth = 70, durationMs = 4200 }: LensShee
 
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, styles.clip, style]}>
-      <Animated.View style={[styles.band, { width: bandWidth }, sweepStyle]}>
+      {/* Looping sweep over fixed pixels — cacheable on both platforms. */}
+      <Animated.View
+        {...staticLoopingLayerProps}
+        style={[styles.band, { width: bandWidth }, sweepStyle]}
+      >
         <LinearGradient
           colors={['transparent', 'rgba(255,255,255,0.16)', 'transparent']}
           start={{ x: 0, y: 0 }}

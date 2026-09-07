@@ -8,6 +8,7 @@ import {
   Easing,
   type SharedValue,
 } from 'react-native-reanimated';
+import { useLoopsActive } from './useLoopsActive';
 
 /**
  * One shared rotation clock (0-360, linear, infinite) that every
@@ -121,12 +122,33 @@ export function AmbientRotationProvider({ children }: { children: React.ReactNod
 export function useAmbientRotation(): SharedValue<number> {
   const ctx = useContext(AmbientRotationContext);
   const fallback = useSharedValue(0);
+  /**
+   * ── THE THIRD GATE: A RING ON AN UNFOCUSED TAB IS NOT A CONSUMER ──────────
+   *
+   * The reference count and the AppState gate above are both correct and both
+   * miss the same case, because a TAB NAVIGATOR NEVER UNMOUNTS A TAB. A glow
+   * ring on a screen the user visited once stays mounted for the rest of the
+   * session, so it keeps retaining the clock, so the clock keeps spinning —
+   * and every mounted ring keeps recompositing a gradient sized to 2.2× its
+   * card's diagonal, forever, on screens nobody is looking at.
+   *
+   * "Runs only while at least one ring is subscribed" was the right rule; this
+   * makes "subscribed" mean what it was always meant to mean — VISIBLE.
+   */
+  const active = useLoopsActive();
 
   useEffect(() => {
+    if (!active) {
+      // Not retained at all while hidden. If this was the last visible ring the
+      // shared clock stops; the angle is kept on the shared value, so coming
+      // back resumes from exactly where it left off with no jump.
+      if (!ctx) cancelAnimation(fallback);
+      return;
+    }
     if (ctx) return ctx.retain();
     spin(fallback);
     return () => cancelAnimation(fallback);
-  }, [ctx, fallback]);
+  }, [ctx, fallback, active]);
 
   return useMemo(() => ctx?.value ?? fallback, [ctx, fallback]);
 }
