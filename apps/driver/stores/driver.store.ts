@@ -15,6 +15,16 @@ interface DriverState {
   activeTripId: string | null;
   theme: 'dark' | 'light';
   /**
+   * Whether a new-ride offer makes a noise.
+   *
+   * FEATURE ("add a sound implementation for new rides so the driver is
+   * instantly notified"). On by default, because a missed offer costs the
+   * driver a fare and the rider a car; off is a real preference for anyone who
+   * drives with a passenger already in the vehicle. See
+   * utils/dispatchAlert.ts for what it gates.
+   */
+  offerAlertsEnabled: boolean;
+  /**
    * WHY THIS DRIVER IS (OR IS NOT) BEING OFFERED WORK.
    *
    * The server has always known — `explainIneligible` names the exact reason a
@@ -38,6 +48,7 @@ interface DriverState {
   setOnline: (online: boolean) => void;
   setActiveTripId: (id: string | null) => void;
   setTheme: (theme: 'dark' | 'light') => void;
+  setOfferAlertsEnabled: (enabled: boolean) => void;
   logout: () => Promise<void>;
   loadFromStorage: () => Promise<void>;
 }
@@ -49,6 +60,7 @@ const KEYS = {
   isOnline: 'eyego_driver_is_online',
   activeTripId: 'eyego_driver_active_trip_id',
   theme: 'eyego_driver_theme',
+  offerAlerts: 'eyego_driver_offer_alerts',
 };
 
 export const useDriverStore = create<DriverState>((set, get) => ({
@@ -60,6 +72,7 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   isOnline: false,
   activeTripId: null,
   theme: 'dark',
+  offerAlertsEnabled: true,
   dispatchStatus: null,
 
   setDispatchStatus: ({ dispatchable, reason }) =>
@@ -129,6 +142,13 @@ export const useDriverStore = create<DriverState>((set, get) => ({
     set({ isOnline: online });
   },
 
+  setOfferAlertsEnabled: (enabled) => {
+    set({ offerAlertsEnabled: enabled });
+    AsyncStorage.setItem(KEYS.offerAlerts, enabled ? '1' : '0').catch((e) =>
+      console.error('[DriverStore] Failed to persist offer alerts:', e),
+    );
+  },
+
   setTheme: (theme) => {
     AsyncStorage.setItem(KEYS.theme, theme).catch(e =>
       console.error('[DriverStore] Failed to persist theme:', e)
@@ -177,17 +197,20 @@ export const useDriverStore = create<DriverState>((set, get) => ({
 
   loadFromStorage: async () => {
     try {
-      const [accessToken, refreshToken, driverJson, isOnlineStr, activeTripId, themeStr] = await Promise.all([
+      const [accessToken, refreshToken, driverJson, isOnlineStr, activeTripId, themeStr, offerAlertsStr] = await Promise.all([
         SecureStore.getItemAsync(KEYS.accessToken),
         SecureStore.getItemAsync(KEYS.refreshToken),
         SecureStore.getItemAsync(KEYS.driver),
         AsyncStorage.getItem(KEYS.isOnline),
         AsyncStorage.getItem(KEYS.activeTripId),
         AsyncStorage.getItem(KEYS.theme),
+        AsyncStorage.getItem(KEYS.offerAlerts),
       ]);
 
       const theme = (themeStr === 'light' || themeStr === 'dark') ? themeStr : 'dark';
-      set({ theme }); // apply theme immediately even if not logged in
+      // Absent means never set, and the default is ON — a driver who has not
+      // expressed a preference should hear the offer that pays them.
+      set({ theme, offerAlertsEnabled: offerAlertsStr !== '0' });
 
       if (accessToken && refreshToken) {
         set({

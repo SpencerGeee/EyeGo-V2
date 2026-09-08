@@ -409,6 +409,37 @@ export function TripStatusListener() {
             useRideStore.getState().destination?.address ??
             (data as any)?.snapshot?.dropoffAddress ??
             null,
+          /**
+           * Read BEFORE `clearRideState()` below wipes it — see `journey` in
+           * rideEnded.store.ts. This is what lets "Find another driver" put a
+           * new request straight into dispatch instead of dropping the rider
+           * back on the where-to form for a journey they already chose.
+           */
+          journey: (() => {
+            const s = useRideStore.getState();
+            const snap = (data as any)?.snapshot ?? {};
+            const origin =
+              s.origin ??
+              (Number.isFinite(snap?.pickup?.lat) && Number.isFinite(snap?.pickup?.lng)
+                ? {
+                    latitude: snap.pickup.lat,
+                    longitude: snap.pickup.lng,
+                    address: snap.pickup.address ?? 'Pickup',
+                  }
+                : null);
+            const destination =
+              s.destination ??
+              (Number.isFinite(snap?.dropoff?.lat) && Number.isFinite(snap?.dropoff?.lng)
+                ? {
+                    latitude: snap.dropoff.lat,
+                    longitude: snap.dropoff.lng,
+                    address: snap.dropoff.address ?? 'Destination',
+                  }
+                : null);
+            return origin && destination
+              ? { origin, destination, seatCount: s.requestSeatCount || 1 }
+              : null;
+          })(),
         });
         endTripLiveNotification();
         endTripLiveActivity('CANCELLED');
@@ -456,6 +487,27 @@ export function TripStatusListener() {
         // If on the trip surface: trip.tsx's terminal hand-off owns unwatch +
         // navigation to the receipt, and does it from the versioned snapshot
         // rather than from whatever this socket payload happened to carry.
+
+        /**
+         * AND LET GO OF THE SEAT.
+         *
+         * BUGFIX ("I ended the ride on the rider app; on the driver app I
+         * created a trip that's live, but on the rider app when I open that
+         * trip it tells me I'm already on a ride").
+         *
+         * The CANCELLED branch above calls `clearRideState()`; this one never
+         * did. `activeBooking` is PERSISTED, so a completed ride left a row in
+         * AsyncStorage reading `BOARDED` with no expiry and nothing that would
+         * ever rewrite it — and every surface that asks "is this rider in a
+         * car" read it and said yes, for the rest of the install.
+         *
+         * Deliberately not `clearRideState()`: that also wipes origin,
+         * destination and the tier, and a rider who has just finished a ride
+         * very often books the same journey back. Only the thing that is
+         * actually over is cleared. `isLiveBooking` in ride.store.ts is the
+         * second line of defence for rows written before this existed.
+         */
+        useRideStore.getState().setActiveBooking(null);
       }
     });
 

@@ -374,7 +374,16 @@ export default function ActiveTripScreen() {
     const unsubPayment = driverSocketEvents.onPaymentConfirmed((data) => {
       if (data.tripId === id) {
         addNotification({ type: 'PAYMENT_CONFIRMED', title: 'Payment Confirmed', body: 'A passenger just completed their payment.', tripId: id });
-        notify('Payment Confirmed', 'A passenger just completed their payment.');
+        /**
+         * BUGFIX ("when a passenger completes a payment it shouldn't be shown
+         * as red — it looks like an error").
+         *
+         * `notify()` defaults to `tone: 'error'`, because its dominant caller
+         * is an `onError` handler. That default is right for the API and wrong
+         * for every announcement that is good news, and this is the best news
+         * a driver gets: money arrived, in red, with an error haptic.
+         */
+        notify('Payment confirmed', 'A passenger just completed their payment.', { tone: 'success' });
         qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       }
     });

@@ -18,7 +18,7 @@ import { walletApi, driverApi, MOMO_NETWORKS, type MomoNetwork } from '@eyego/ap
 import { describeError } from '@eyego/utils';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, AppBackground, goDeeper, notify } from '@eyego/ui';
+import { Text, Button, Entrance, GlassCard, GlassSurface, AnimatedFareText, PanelSheet, GradientGlowBorder, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -373,7 +373,6 @@ export default function EarningsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}

@@ -1186,7 +1186,9 @@ async function completeTrip(tripId) {
   // not a precise financial figure.
   for (const { token, fareAmountPesewas, notificationPrefs, bookingId } of completedRiderTokens) {
     pushService.notifications
-      .rideComplete(token, fareAmountPesewas, notificationPrefs, bookingId)
+      // `tripId` is the route key for the rider's receipt screen — see the note
+      // on `rideComplete` in push.service.js.
+      .rideComplete(token, fareAmountPesewas, notificationPrefs, bookingId, tripId)
       .catch(() => {});
   }
 

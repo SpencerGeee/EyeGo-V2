@@ -29,7 +29,9 @@ import { applyDriverTripStatus } from '../../../stores/trip.store';
 import { useColors, type DriverColors } from '../../../utils/useColors';
 import { usePlatformConfig } from '../../../hooks/usePlatformConfig';
 import { openExternalNavigation } from '../../../utils/externalNav';
-import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
+import { StopTimelineSurface } from '../../../components/trip/StopTimelineSurface';
+import { StopTimeline, CabinStrip } from '../../../components/trip/StopTimeline';
+import { useTripStops } from '../../../components/trip/useTripStops';
 import { useDriverStore } from '../../../stores/driver.store';
 import { useNotificationsStore } from '../../../stores/notifications.store';
 // Driver app uses the blue-highway dark variant, not rider's brand-green default export.
@@ -641,6 +643,14 @@ export default function DriverTrackingScreen() {
     0,
   );
 
+  /**
+   * The trip as a list of places, which is what the redesigned surface renders.
+   * Derivation lives in one hook so this screen and the manage screen cannot
+   * form two different opinions of the same route — see useTripStops.ts.
+   */
+  const { stops } = useTripStops(trip);
+  const statusLabel = TRIP_STATUS_CONFIG[trip?.status]?.label ?? statusInfo.label ?? '';
+
   // ── Render ──
   if (isLoading) {
     return (
@@ -657,422 +667,162 @@ export default function DriverTrackingScreen() {
   if (!trip) return null;
 
   return (
-    <View style={styles.container}>
-      {/*
-        THE SKIA BACKGROUND IS GONE FROM THIS SCREEN — deliberately, and it is
-        also free performance. It was mounted directly beneath a full-screen
-        opaque map, so not one of its pixels was ever visible; the phone was
-        running a full-screen raymarch, forever, underneath something that
-        completely covered it. On the screen a driver keeps open for an entire
-        trip, that was the single most expensive thing on it and the least
-        visible. The map is the background here.
-      */}
-      {/* The map. One surface, one camera state machine, shared with the
-          sibling active-trip screen and — through packages/maps — with the
-          rider app. Everything that used to live inline here (a MapView, a
-          hand-rolled Camera, the puck, the pins, the line, the Re-center FAB)
-          is inside DriverTripMap. */}
-      <DriverTripMap
-        tripId={id}
-        status={trip?.status}
-        pickup={pickupCoord}
-        dropoff={destCoord}
-        location={driverLocation}
-        puckColor={colors.primary}
-        sheetFraction={0.42}
-        active={isActiveTrip}
-        onEta={handleEta}
-      />
-      {/* Floating header */}
-      <View style={styles.headerOverlay}>
-        <View style={styles.headerRow}>
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-          <Pressable onPress={() => goBack()} style={styles.headerBtn} accessibilityRole="button" accessibilityLabel="Go back">
-            <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-          </Pressable>
-          <View style={styles.headerRouteInfo}>
-            <Text style={styles.headerRoute} numberOfLines={1}>
-              {originLabel(trip) ?? 'Pickup'} → {destinationLabel(trip) ?? 'Destination'}
+    /**
+     * ── TRACKING, AS A STOP TIMELINE ─────────────────────────────────────────
+     *
+     * REDESIGN ("you need to completely redesign the manage trip page and the
+     * tracking page of the driver app… I don't want to see the same design
+     * you've made of those two pages — take a whole different approach").
+     *
+     * This screen was a full-bleed map with a draggable sheet over it, which is
+     * the RIDER's surface wearing the driver's colours. That arrangement is
+     * right for a passenger — one journey, no decisions, the map is the story —
+     * and wrong for a driver, who has several stops, several people, and a
+     * decision at each of them. The old layout forced the two to fight for the
+     * screen, which is the reported symptom on the sibling dispatch page: "the
+     * map is shown just a little at the top and the texts cover all the space".
+     *
+     * The new shape inverts it. The map is a PANE with a real, draggable share
+     * of the screen; under it the trip is a vertical timeline of stops with the
+     * people who board or alight at each one nested beneath; one action is
+     * pinned at the bottom and never scrolls away. See
+     * components/trip/StopTimelineSurface.tsx and StopTimeline.tsx.
+     *
+     * WHAT DID NOT CHANGE: every mutation, socket handler, query key and
+     * transition above this line. This is the presentation layer only — the
+     * long tail of "I tapped arrived on tracking and manage disagreed" was
+     * fixed by giving manage sole ownership of transitions, and that stays.
+     */
+    <StopTimelineSurface
+      onBack={() => goBack()}
+      title={`${originLabel(trip) ?? 'Pickup'} → ${destinationLabel(trip) ?? 'Destination'}`}
+      subtitle={statusLabel}
+      map={
+        <DriverTripMap
+          tripId={id}
+          status={trip?.status}
+          pickup={pickupCoord}
+          dropoff={destCoord}
+          location={driverLocation}
+          puckColor={colors.primary}
+          /**
+           * The map is no longer under a sheet, so it has its whole pane. 0
+           * tells the camera to frame against the full surface instead of
+           * reserving room for a panel that is not there any more.
+           */
+          sheetFraction={0}
+          active={isActiveTrip}
+          onEta={handleEta}
+        />
+      }
+      mapOverlay={
+        /**
+         * ONE PILL, NOT THREE.
+         *
+         * The old screen floated a LIVE badge, an ETA pill and a boarded-count
+         * pill over the map, plus a header and a status badge — five chrome
+         * objects on a surface whose entire job is to show a road. The count
+         * moved into the timeline (it is the cabin strip, where the seats are)
+         * and LIVE became the pulsing dot on this pill, so the map keeps one.
+         */
+        etaMinutes != null ? (
+          <View style={styles.etaPill}>
+            <ChromeBlur intensity={60} tint="dark" fallbackColor="rgba(8,10,18,0.9)" style={StyleSheet.absoluteFill} />
+            <MotiView
+              from={{ opacity: 0.45 }}
+              animate={{ opacity: 1 }}
+              transition={{ type: 'timing', duration: 900, loop: true }}
+              style={styles.liveDot}
+            />
+            <Text style={styles.etaPillText} numberOfLines={1}>
+              {etaMinutes < 2
+                ? 'Arriving now'
+                : `${etaMinutes} min ${etaLeg === 'toPickup' ? 'to pickup' : 'to destination'}`}
             </Text>
           </View>
-          <TripStatusBadge status={trip.status} colors={colors} />
-        </View>
-      </View>
-
-      {/* LIVE badge */}
-      <View style={styles.liveBadge}>
-        <MotiView
-          from={{ opacity: 0.5 }}
-          animate={{ opacity: 1 }}
-          transition={{ type: 'timing', duration: 500, loop: true }}
-          style={styles.liveDot}
-        />
-        <Text style={styles.liveText}>LIVE</Text>
-      </View>
-
-      {/* ETA and passenger pills, stacked on the LEFT.
-          The passenger pill used to sit top-right, directly on top of the map's
-          re-center button — "the icon to reset the camera view seems to be at
-          the back of the number of seats boarded". The map renders first, so
-          the pill always won. Stacking both pills on the left gives the button
-          the corner to itself instead of fighting over it with a z-index. */}
-      <View style={styles.pillStack} pointerEvents="box-none">
-        {etaMinutes != null && (
-          <Entrance animation="slideLeft">
-            {/* ChromeBlur, not BlurView: this pill sits over a MapView that is
-                being panned by every GPS fix, so a real blur is re-sampled on
-                every frame of the whole trip. See ChromeBlur. */}
-            <ChromeBlur intensity={60} tint="dark" fallbackColor="rgba(8,10,18,0.88)" style={styles.etaPillBlur}>
-              <Ionicons name="time-outline" size={14} color={colors.primary} />
-              {/* The leg matters as much as the number: while the driver is
-                  still collecting, "12 min to destination" is the length of
-                  the ride, not the time to the rider — and it was what made
-                  this pill disagree with the rider's own ETA. */}
-              <Text style={styles.etaPillText} numberOfLines={1}>
-                {etaMinutes < 2
-                  ? 'Arriving now'
-                  : `${etaMinutes} min ${etaLeg === 'toPickup' ? 'to pickup' : 'to destination'}`}
-              </Text>
-            </ChromeBlur>
-          </Entrance>
-        )}
-        <Entrance animation="slideLeft">
-          <ChromeBlur intensity={60} tint="dark" fallbackColor="rgba(8,10,18,0.88)" style={styles.etaPillBlur}>
-            <Ionicons name="people-outline" size={14} color={colors.primary} />
-            <Text style={styles.etaPillText}>{boarded}/{passengers} boarded</Text>
-          </ChromeBlur>
-        </Entrance>
-      </View>
-
-      {/* In-app banner */}
+        ) : null
+      }
+      action={
+        /**
+         * TRACKING DOES NOT DRIVE THE TRIP — it says what happens next and
+         * takes the driver to where it happens. Manage owns every transition;
+         * see the note that used to sit on this button.
+         */
+        statusInfo.next ? (
+          <Button
+            label={`${statusInfo.action} — open Manage`}
+            onPress={() => goLateral(`/(trip)/active/${id}`)}
+          />
+        ) : (
+          <Button label="Open Manage" onPress={() => goLateral(`/(trip)/active/${id}`)} />
+        )
+      }
+    >
+      {/* In-app banner, inside the scroller so it never covers the map. */}
       {bannerMsg != null && (
-        <Animated.View style={[styles.statusBanner, bannerStyle]}>
-          <ChromeBlur intensity={80} tint="dark" fallbackColor="rgba(6,8,14,0.94)" style={styles.statusBannerBlur}>
-            <View style={styles.statusBannerIcon}>
-              <Ionicons name="notifications" size={16} color="#050508" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.statusBannerLabel}>TRIP UPDATE</Text>
-              <Text style={styles.statusBannerText}>{bannerMsg}</Text>
-            </View>
-          </ChromeBlur>
+        <Animated.View style={[styles.inlineBanner, bannerStyle]}>
+          <Ionicons name="notifications" size={15} color={colors.primary} />
+          <Text style={styles.inlineBannerText} numberOfLines={2}>
+            {bannerMsg}
+          </Text>
         </Animated.View>
       )}
 
-      {/*
-        Bottom sheet, now the shared shell — see components/trip/TripSurfaceShell.
-        This screen and the manage screen each built their own panel with their
-        own snap points, padding and (absent) connection chip, which is why
-        moving between them mid-trip felt like two different apps. The geometry
-        below is the rider tracking screen's, which is the one that reads right.
-      */}
-      <TripSurfaceShell snapPointsPct={[0.38, 0.72]} status={trip?.status}>
-        {/* No inner padding wrapper: the shell's own sheet body owns the
-            horizontal inset, the top gap that keeps a card's glow off the
-            sheet edge, and the vertical rhythm between cards. Keeping a second
-            padded container here is how the two screens drifted apart before. */}
-        <View style={styles.sheetInner}>
-          {/* ETA + Status — the screen's hero data gets the driver-blue premium ring */}
-          <Entrance animation="slideDown">
-            <GradientGlowBorder
-              palette="driver"
-              fillColor={colors.surfaceContainer}
-              borderRadius={radii.xl}
-              /**
-               * NEITHER A BLOOM NOR A HEAVY BLUR ON THE ONE CARD THAT TICKS.
-               *
-               * This card's minutes change every second, and it used to carry
-               * both an iOS shadow bloom (re-rasterised on every one of those
-               * changes) and a HIGH-intensity BlurView, which on iOS resamples
-               * whatever is behind it — here, a live MapboxGL surface — every
-               * frame. That combination, inside a draggable panel, is why the
-               * driver's tracking screen stuttered where the rider's is smooth.
-               *
-               * The ring stays: it is a single masked gradient and costs
-               * nothing next to either of those.
-               */
-              style={styles.etaSection}
-            >
-              <GlassSurface borderRadius={radii.xl - 3} intensity="low" dark style={styles.glassInset} />
-              <View style={styles.etaLeft}>
-                <Text style={styles.etaValue}>
-                  {etaMinutes != null ? `${etaMinutes} min` : '...'}
-                </Text>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  {/* Was the hardcoded string 'to destination', which said the
-                      same thing while the driver was still collecting the
-                      rider as it did once they were aboard. */}
-                  {/*
-                    "Calculating ETA…" IS ONLY TRUE WHILE SOMETHING IS BEING
-                    CALCULATED.
+      <StopTimeline
+        stops={stops}
+        onNavigate={handleOpenMaps}
+        // Tapping a passenger goes to Manage, which owns per-passenger actions
+        // (board, PIN, no-show). Two screens owning one mutation is exactly the
+        // class of bug this screen was cured of.
+        onPassenger={() => goLateral(`/(trip)/active/${id}`)}
+        currentStopAccessory={
+          <CabinStrip
+            seatsTotal={total}
+            seatsTaken={passengers}
+            boarded={boarded}
+            onPress={() => goLateral(`/(trip)/active/${id}`)}
+          />
+        }
+      />
 
-                    It was the sole fallback, so any state that produces no ETA
-                    at all — sitting at the pickup with a zero-length leg, a
-                    router that could not answer, a socket that never delivered
-                    a frame — showed a message promising a number that was never
-                    coming. The phase already says something true; say that
-                    instead, and keep the calculating copy for the one case
-                    where it is honest: still driving, no answer yet.
-                  */}
-                  {/* Standing on the pickup with the trip not yet started beats
-                      any ETA: "0 min to pickup" is a number, not information.
-                      Checked BEFORE `etaMinutes` for that reason — it used to
-                      sit in the fallback chain and could therefore never win. */}
-                  {atPickupNow && !statusSaysPickupDone
-                    ? "You're at the pickup point"
-                    : etaMinutes != null
-                    ? (effectiveLeg === 'toPickup' ? 'to pickup' : 'to destination')
-                    : trip?.status === 'ARRIVED_AT_PICKUP'
-                      ? 'At the pickup point'
-                      : trip?.status === 'IN_PROGRESS'
-                        ? 'On the way to the destination'
-                        // Already standing on the pickup with the trip not yet
-                        // started: there is no pickup leg left to calculate, so
-                        // say so instead of promising a number that is not coming.
-                        : atPickupNow
-                          ? "You're at the pickup point"
-                          : 'Calculating ETA...'}
-                </Text>
-              </View>
-              <View style={styles.etaDivider} />
-              <View style={styles.etaRight}>
-                <Text style={styles.etaStatus}>{etaMessage ?? driverStatusLabel(trip?.status)}</Text>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  {etaDistanceKm != null ? `${etaDistanceKm} km` : `${passengers} passenger${passengers !== 1 ? 's' : ''}`}
-                </Text>
-              </View>
-            </GradientGlowBorder>
-          </Entrance>
-
-          {/* Passengers. Same ring as the ETA card above it, at lower
-              intensity — the two read as one family of live surfaces rather
-              than a lit hero card sitting on a flat grey one, which is the
-              inconsistency the rider redesign fixed on its side. */}
-          <Entrance animation="slideDown" delay={40}>
-            <GradientGlowBorder
-              palette="driver"
-              fillColor={colors.surfaceContainer}
-              borderRadius={radii.xl}
-              thickness="thin"
-              /* Ring only — see the ETA card above. */
-              style={styles.passengerListCard}
-            >
-            <View style={styles.passengerListHeader}>
-              <Text style={styles.passengerListTitle}>Passengers</Text>
-              <Text variant="caption" color={colors.onSurfaceVariant}>{passengers}/{total}</Text>
-            </View>
-            {activeBookings.length === 0 ? (
-              <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ paddingVertical: spacing.sm }}>
-                No passengers yet. Trip is open for boarding.
+      {/* Secondary actions — a row, under the timeline, out of the way. */}
+      <View style={styles.secondaryActions}>
+        <Pressable
+          style={styles.secondaryBtn}
+          onPress={() => goDeeper(`/(trip)/chat/${id}`)}
+          accessibilityRole="button"
+          accessibilityLabel="Open chat"
+        >
+          <Ionicons name="chatbubble-outline" size={18} color={colors.onSurfaceVariant} />
+          <Text style={[styles.secondaryBtnText, { color: colors.onSurfaceVariant }]}>Chat</Text>
+          {unreadChats > 0 && (
+            <View style={[styles.chatBadge, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.chatBadgeText, { color: colors.onPrimary ?? '#0A0D14' }]}>
+                {unreadChats > 9 ? '9+' : unreadChats}
               </Text>
-            ) : (
-              activeBookings.slice(0, 6).map((b: any, i: number) => {
-                const party = seatsOf(b);
-                const aboard = b.status === 'BOARDED' || b.status === 'COMPLETED';
-                const needsPin = !!b.requiresBoardingPin && !aboard;
-                return (
-                  /**
-                   * A WAITING ROW IS A BUTTON, BECAUSE BOARDING IS NOW REQUIRED.
-                   *
-                   * The ride cannot reach IN_PROGRESS with an empty car (see
-                   * services/boarding-pin.service.js), so "who is not aboard
-                   * yet" stopped being a read-only fact the moment that gate
-                   * went in. Tapping goes to the manage screen, which owns the
-                   * seat map AND the Verify My Ride keypad — one implementation
-                   * of boarding, not two that drift.
-                   */
-                  <Pressable
-                    key={b.id ?? i}
-                    style={styles.passengerRow}
-                    disabled={aboard}
-                    onPress={() => goLateral(`/(trip)/active/${id}`)}
-                    accessibilityRole={aboard ? undefined : 'button'}
-                    accessibilityLabel={
-                      aboard
-                        ? `${b.guestName ?? b.user?.name ?? 'Passenger'} is on board`
-                        : `Board ${b.guestName ?? b.user?.name ?? 'this passenger'}`
-                    }
-                  >
-                    <View style={[styles.passengerAvatar, !b.user?.name && { backgroundColor: colors.surfaceContainerHighest }]}>
-                      <Text style={styles.passengerInitial}>
-                        {(b.user?.name?.[0] ?? b.seatNumber ?? '?').toString().toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.passengerName}>
-                        {b.guestName ?? b.user?.name ?? `Seat ${b.seatNumber ?? '—'}`}
-                      </Text>
-                      <Text variant="caption" color={colors.onSurfaceVariant}>
-                        {/* A party of three is one row, so say so — "Seat 1" for
-                            three people travelling together reads as a mistake. */}
-                        {party > 1 ? `${party} seats` : `Seat ${b.seatNumber ?? '—'}`} · {
-                          b.paymentStatus === 'PAID' ? 'Paid'
-                          : b.paymentStatus === 'FAILED' ? 'Payment failed'
-                          : b.paymentMethod === 'CASH' ? 'Cash'
-                          : b.paymentStatus === 'PENDING' ? 'Pending payment'
-                          : b.status
-                        }{needsPin ? ' · code needed' : ''}
-                      </Text>
-                    </View>
-                    <View style={[
-                      styles.boardedBadge,
-                      { backgroundColor: aboard ? `${colors.online}22` : `${colors.accent}1F` },
-                    ]}>
-                      <Text style={[
-                        styles.boardedText,
-                        { color: aboard ? colors.online : colors.accent },
-                      ]}>
-                        {aboard ? 'On board' : 'Board'}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })
-            )}
-            </GradientGlowBorder>
-          </Entrance>
-
-          {/*
-            ONE PLACE MOVES THE TRIP FORWARD, AND IT IS NOT THIS SCREEN.
-
-            Requested directly: "when the driver goes to the tracking page
-            instead of the manage page, the button that moves the statuses —
-            start trip, mark arrived and all that — should be replaced with
-            something that redirects them to the manage page, so that page is
-            the sole page for changing status".
-
-            It is also the right call independently. Two screens owning the same
-            transition is what produced the long tail of "I tapped I've arrived
-            on the tracking page, went to manage, and it still said heading to
-            pickup": two query caches, two success handlers, two optimistic
-            writes, and only one of them ever invalidated the other's key. The
-            fix for that (applyDriverTripStatus, in stores/trip.store.ts) made
-            the two agree; removing the second entry point removes the class of
-            bug. Tracking is the live map — where am I, who is aboard, how long.
-            Manage is where the trip is driven.
-
-            The label still names the pending action, so nothing is hidden: the
-            driver reads what happens next and gets taken to where they do it.
-          */}
-          {statusInfo.next && (
-            <Entrance animation="slideDown" delay={80}>
-              <Button
-                label={`${statusInfo.action} — open Manage`}
-                onPress={() => goLateral(`/(trip)/active/${id}`)}
-              />
-            </Entrance>
+            </View>
           )}
-
-          {/* Secondary actions row */}
-          <Entrance animation="slideDown" delay={100} style={styles.secondaryActions}>
-            <Pressable
-              style={styles.secondaryBtn}
-              onPress={() => goDeeper(`/(trip)/chat/${id}`)}
-             accessibilityRole="button">
-              <Ionicons name="chatbubble-outline" size={18} color={colors.onSurfaceVariant} />
-              <Text style={[styles.secondaryBtnText, { color: colors.onSurfaceVariant }]}>Chat</Text>
-              {/* The trace a four-second banner cannot leave. */}
-              {unreadChats > 0 && (
-                <View style={[styles.chatBadge, { backgroundColor: colors.primary }]}>
-                  <Text style={[styles.chatBadgeText, { color: colors.onPrimary ?? '#0A0D14' }]}>
-                    {unreadChats > 9 ? '9+' : unreadChats}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-            <Pressable
-              style={styles.secondaryBtn}
-              onPress={handleOpenMaps}
-             accessibilityRole="button">
-              <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-              <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Navigate</Text>
-            </Pressable>
-            <Pressable
-              style={styles.secondaryBtn}
-              onPress={() => goLateral(`/(trip)/active/${id}`)}
-             accessibilityRole="button">
-              <Ionicons name="grid-outline" size={18} color={colors.primary} />
-              <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Manage</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.secondaryBtn, { borderColor: colors.error + '55' }]}
-              onPress={() => {
-                Alert.alert(
-                  'Emergency SOS',
-                  `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: `Call ${emergencyNumber}`,
-                      style: 'destructive',
-                      onPress: async () => {
-                        const payload = {
-                          latitude: driverLocation?.latitude,
-                          longitude: driverLocation?.longitude,
-                          timestamp: new Date().toISOString(),
-                        };
-                        try {
-                          await driverApi.emergencyAlert(id, payload);
-                        } catch {
-                          // Never block the actual emergency call — but the alert
-                          // must still reach dispatch, so queue it for retry.
-                          offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
-                        }
-                        void callNumber(emergencyNumber, { label: 'the emergency services' });
-                      },
-                    },
-                  ],
-                );
-              }}
-             accessibilityRole="button">
-              <Ionicons name="warning" size={18} color={colors.error} />
-              <Text style={[styles.secondaryBtnText, { color: colors.error }]}>SOS</Text>
-            </Pressable>
-          </Entrance>
-
-          {/* No Show + Cancel actions */}
-          {!['COMPLETED', 'CANCELLED'].includes(trip.status) && (
-            <Entrance animation="slideDown" delay={120} style={styles.cancelRow}>
-              <Pressable
-                style={[styles.cancelBtn, { flex: 1, borderColor: '#F59E0B55' }]}
-                onPress={() => {
-                  Alert.alert(
-                    'Mark as No Show',
-                    'Mark this trip as a no-show? This will cancel all bookings and may affect your cancellation rate.',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Mark No Show', style: 'destructive', onPress: () => {
-                          if (['CANCELLED', 'COMPLETED'].includes(trip?.status ?? '')) {
-                            Alert.alert('Already resolved', 'This trip has already been cancelled or completed.');
-                            return;
-                          }
-                          cancelTrip.mutate();
-                        }},
-                    ],
-                  );
-                }}
-                disabled={cancelTrip.isPending}
-               accessibilityRole="button">
-                <Ionicons name="eye-off-outline" size={18} color="#F59E0B" />
-                <Text style={[styles.secondaryBtnText, { color: '#F59E0B' }]}>
-                  {cancelTrip.isPending ? '…' : 'No Show'}
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[styles.cancelBtn, { flex: 1 }]}
-                onPress={handleCancel}
-                disabled={cancelTrip.isPending}
-               accessibilityRole="button">
-                <Ionicons name="close-circle-outline" size={18} color={colors.error} />
-                <Text style={[styles.secondaryBtnText, { color: colors.error }]}>
-                  {cancelTrip.isPending ? 'Cancelling…' : 'Cancel Trip'}
-                </Text>
-              </Pressable>
-            </Entrance>
-          )}
-        </View>
-      </TripSurfaceShell>
-    </View>
+        </Pressable>
+        <Pressable
+          style={styles.secondaryBtn}
+          onPress={handleOpenMaps}
+          accessibilityRole="button"
+          accessibilityLabel="Navigate"
+        >
+          <Ionicons name="navigate-outline" size={18} color={colors.primary} />
+          <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Navigate</Text>
+        </Pressable>
+        <Pressable
+          style={styles.secondaryBtn}
+          onPress={() => goLateral(`/(trip)/active/${id}`)}
+          accessibilityRole="button"
+          accessibilityLabel="Manage the trip"
+        >
+          <Ionicons name="grid-outline" size={18} color={colors.primary} />
+          <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Manage</Text>
+        </Pressable>
+      </View>
+    </StopTimelineSurface>
   );
 }
 
@@ -1125,6 +875,52 @@ function TripStatusBadge({ status, colors }: { status: string; colors: DriverCol
 // ── Styles ──
 const makeStyles = (colors: DriverColors) =>
   StyleSheet.create({
+    /** The one chrome object on the map — see `mapOverlay` in the render. */
+    etaPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      alignSelf: 'flex-start',
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.rimLightSubtle,
+      overflow: 'hidden',
+      minHeight: 36,
+    },
+    etaPillText: {
+      fontFamily: fonts.semiBold,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurface,
+      fontVariant: ['tabular-nums'],
+    },
+    /**
+     * The trip-update banner, INSIDE the scroller.
+     *
+     * It used to be absolutely positioned over the map, which on a surface
+     * whose map is now a fixed pane meant it covered the road exactly when
+     * something had changed about the road. In the list it pushes the timeline
+     * down for a moment and is gone, which is what a transient notice should do.
+     */
+    inlineBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      padding: spacing.md,
+      marginBottom: spacing.base,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: `${colors.primary}44`,
+    },
+    inlineBannerText: {
+      flex: 1,
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.bodySmall,
+      color: colors.onSurface,
+      lineHeight: 18,
+    },
     container: { flex: 1, backgroundColor: 'transparent' },
     loadingContainer: { padding: spacing['2xl'], gap: spacing.lg },
     skeleton: { height: 20, borderRadius: 10, backgroundColor: colors.surfaceContainerHigh },
@@ -1223,12 +1019,6 @@ const makeStyles = (colors: DriverColors) =>
       overflow: 'hidden',
       borderWidth: 1,
       borderColor: colors.primary + '30',
-    },
-    etaPillText: {
-      fontFamily: fonts.semiBold,
-      fontSize: fontSizes.bodySmall,
-      lineHeight: Math.round(fontSizes.bodySmall * 1.3),
-      color: colors.primary,
     },
     statusBanner: {
       position: 'absolute',

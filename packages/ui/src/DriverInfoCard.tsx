@@ -113,15 +113,36 @@ export function DriverInfoCard({ driver, vehicle, showActions = false, onCall, o
        * 32pt corridor), so the radius can go back to something that actually
        * reads as a glow. 24 still leaves 8pt of clearance.
        */
+      /**
+       * ── THE RING STAYS. THE BLOOM GOES. ──────────────────────────────────
+       *
+       * BUGFIX ("on the rider tracking page, when I get marked as 'driver is
+       * here', the whole page gets frozen — the map freezes and the whole card
+       * pane stays down").
+       *
+       * Not a deadlock and not a blocked touch layer: a frame-budget collapse,
+       * and this card is what tips it over. `premium` turns on at exactly
+       * ARRIVED_AT_PICKUP, and at that instant three continuous effects mount
+       * ON TOP of a live MapView, a Skia ambient field and the sheet's aurora —
+       * a rotating conic ring, a sweeping sheen, and `glow`, which on iOS is a
+       * real `shadow*` on a view whose contents are CHANGING (the ETA ticks
+       * inside it). A shadow over changing content cannot be cached: the
+       * compositor re-rasterises the blurred silhouette every time the number
+       * under it moves. Everything else on screen then misses vsync, which is
+       * indistinguishable from a freeze — the map stops repainting and the
+       * sheet stops answering the drag.
+       *
+       * This is the same trap already fixed on the driver's live-map screens,
+       * and the same resolution: keep the ring (it is the whole premium read,
+       * it is a self-contained rotation, and it is already tier-gated), drop
+       * the bloom. Both call sites of `premium` are live-trip surfaces sitting
+       * over a map, so there is no case here that wants the shadow back.
+       */
       <GradientGlowBorder
         colors={PREMIUM_RING_COLORS}
         locations={PREMIUM_RING_LOCATIONS}
         fillColor={colors.surfaceCard}
         borderRadius={radii.xl}
-        glow
-        maxGlowRadius={24}
-        glowColor={colors.premiumBlue}
-        glowColorSecondary={colors.premiumOrange}
         style={styles.cardShell}
       >
         <LensSheen />

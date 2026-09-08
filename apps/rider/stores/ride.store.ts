@@ -9,6 +9,39 @@ interface Location {
   address: string;
 }
 
+/** Booking rows that still occupy the rider. Anything else is history. */
+const TERMINAL_BOOKING_STATUSES = ['CANCELLED', 'EXPIRED', 'COMPLETED', 'NO_SHOW', 'REFUNDED'];
+/** Trips that are over, whatever their bookings still say. */
+const TERMINAL_TRIP_STATUSES = ['COMPLETED', 'CANCELLED', 'NO_DRIVERS_FOUND', 'EXPIRED', 'NO_SHOW'];
+
+/**
+ * "IS THIS RIDER ACTUALLY IN A CAR RIGHT NOW?"
+ *
+ * ONE derivation, because there were two and they disagreed. The home screen
+ * asked both halves of the question — is the BOOKING live, and is its TRIP
+ * live — while the trip-detail screen asked only the first, and a booking
+ * status is not a trip status. A trip that ends leaves its booking row reading
+ * `BOARDED`/`PAID`, so the second reader concluded the rider was still aboard a
+ * ride that finished, and showed "You're already on a ride" on a trip they were
+ * trying to book. The server's own guard has always joined the trip for exactly
+ * this reason (see `bookSeat` in bookings.service.js).
+ *
+ * Deliberately conservative in the safe direction: a booking with no trip
+ * attached is treated as NOT live, because the only thing this gates is whether
+ * to offer the rider a normal booking flow. The server re-checks and refuses
+ * for real if it is wrong.
+ */
+export function isLiveBooking(booking: Booking | null | undefined): boolean {
+  const b = booking as any;
+  if (!b?.id || !b?.tripId) return false;
+  if (TERMINAL_BOOKING_STATUSES.includes(String(b.status ?? '').toUpperCase())) return false;
+  const tripStatus = String(b.trip?.status ?? '').toUpperCase();
+  // No trip on the row: it was stored before the join existed. Trust the
+  // booking's own status rather than inventing a trip state for it.
+  if (!tripStatus) return true;
+  return !TERMINAL_TRIP_STATUSES.includes(tripStatus);
+}
+
 interface RideState {
   // Search inputs
   origin: Location | null;
@@ -150,6 +183,27 @@ export const useRideStore = create<RideState>()(
     {
       name: 'eyego_ride_storage',
       storage: createJSONStorage(() => AsyncStorage),
+      /**
+       * A PERSISTED BOOKING OUTLIVES THE RIDE IT BELONGS TO.
+       *
+       * `activeBooking` is written when a seat is taken and, until now, was
+       * cleared only by an explicit `setActiveBooking(null)` or a full
+       * `clearRideState()`. Neither runs when a trip simply ENDS — the driver
+       * completes it, the rider's own surfaces correctly show nothing, and this
+       * row sits in AsyncStorage saying `BOARDED` for the rest of the install.
+       *
+       * That is the whole of "I ended the ride, the driver created a live trip,
+       * and when I open it the app tells me I'm already on a ride": the banner
+       * on the trip screen is derived from this value. See `isLiveBooking`.
+       *
+       * Rehydration is the one place that sees the value before any screen
+       * does, so it is where a dead one gets dropped.
+       */
+      onRehydrateStorage: () => (state) => {
+        if (state && state.activeBooking && !isLiveBooking(state.activeBooking)) {
+          state.activeBooking = null;
+        }
+      },
       // BUGFIX: Added selectedSeat and driverLocation to persisted state.
       // Previously, if the app was killed mid-booking, on restart the user saw an
       // active booking but no idea which seat was chosen. driverLocation is useful

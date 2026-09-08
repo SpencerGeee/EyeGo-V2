@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
 import { LightPillarBackground } from './LightPillarBackground';
-import { useShaderSlot } from './shaderSlot';
+import { useShaderSlot, SHADER_PRIORITY_ANIMATED, SHADER_PRIORITY_STATIC } from './shaderSlot';
 import { staticLoopingLayerProps } from './hardwareTexture';
 
 interface BlobConfig {
@@ -87,10 +87,18 @@ function withAlpha(hex: string, alpha: number): string {
 export function AppBackground({ style, variant = 'static', isDark = true, paused = false }: AppBackgroundProps) {
   const colors = useThemedColors();
   const tier = usePerformanceTier();
-  const ownsShader = useShaderSlot();
   const { width, height } = Dimensions.get('window');
 
   const animated = variant === 'animated' && tier !== 'low' && !paused;
+
+  /**
+   * A background that is about to paint a LIVE frame outranks every one that is
+   * about to paint a frozen one — see the note in shaderSlot.ts. `animated`
+   * rather than `variant` deliberately: a paused animated background has
+   * nothing live to show, so it should hand the canvas to whatever opaque
+   * screen paused it, and take it back the moment that screen goes away.
+   */
+  const ownsShader = useShaderSlot(animated ? SHADER_PRIORITY_ANIMATED : SHADER_PRIORITY_STATIC);
 
   /**
    * THE WAVE HAS TO BE A WAVE IN BOTH THEMES.

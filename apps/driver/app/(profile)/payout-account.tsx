@@ -80,7 +80,7 @@ export default function PayoutAccountScreen() {
   const { mutate: save, isPending } = useMutation({
     mutationFn: (payload: object) => apiClient.patch('/driver/wallet/payout-account', payload),
     onSuccess: () => {
-      notify('Saved successfully');
+      notify('Saved successfully', undefined, { tone: 'success' });
       goBack();
     },
     onError: (err: any) => {

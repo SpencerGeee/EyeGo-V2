@@ -31,6 +31,7 @@ import { RequestStage } from '../components/trip/stages/RequestStage';
 import { AssignedStage } from '../components/trip/stages/AssignedStage';
 import { TrackingStage } from '../components/trip/stages/TrackingStage';
 import { TripSheetHost } from '../components/trip/TripSheetHost';
+import { BoardedCelebration } from '../components/BoardedCelebration';
 
 /**
  * ONE SPRING, NOT A DURATION.
@@ -997,6 +998,16 @@ export default function TripScreen() {
         previous={rendered.previous}
         retired={surfaceRetired}
       />
+
+      {/*
+        "You're on board" — one shot, above the sheet, eats no touches.
+
+        Mounted on the surface rather than inside a stage because boarding can
+        land while the rider is on `assigned` OR `tracking`, and a component
+        that unmounts with its stage would miss the transition it exists to
+        announce. See components/BoardedCelebration.tsx.
+      */}
+      <BoardedCelebration />
       </SheetMetricsProvider>
     </Animated.View>
   );

@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Entrance, GlassSurface, AnimatedList, AppBackground, goDeeper } from '@eyego/ui';
+import { Text, Entrance, GlassSurface, AnimatedList, goDeeper } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { useNotificationsStore, type DriverNotification, type NotificationType } from '../../stores/notifications.store';
@@ -149,7 +149,6 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <Entrance animation="slideUp" style={styles.header}>
         <Text variant="headlineMedium">Alerts</Text>

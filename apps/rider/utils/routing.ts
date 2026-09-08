@@ -21,7 +21,7 @@ export type RouteResult = {
   durationMin: number;
   /** GeoJSON LineString coordinates, [lng, lat] pairs — ready for a polyline. */
   coordinates: [number, number][];
-  /** Which provider answered: 'driving-traffic' | 'osrm' | 'estimate'. */
+  /** Which provider answered: 'driving-traffic' | 'walking' | 'osrm' | 'estimate'. */
   source: string;
 };
 
@@ -57,7 +57,27 @@ export async function fetchRoute(
     const r = data?.data;
     if (!r || !Number.isFinite(r.durationMin) || !Number.isFinite(r.distanceKm)) return null;
 
-    const coords = Array.isArray(r.geometry?.coordinates) ? r.geometry.coordinates : [];
+    /**
+     * A STRAIGHT LINE FROM THE SERVER IS STILL A STRAIGHT LINE.
+     *
+     * BUGFIX ("the route polyline for me walking to the pickup point is showing
+     * as a straight line and doesn't conform to the road").
+     *
+     * When every routing provider is unavailable the proxy answers with a
+     * haversine estimate whose `geometry` is the two endpoints — a well-formed
+     * LineString that passes every check below and draws as exactly the line
+     * this whole function exists to replace. Callers here draw polylines; they
+     * must be able to tell a route from a ruler, and `geometryIsRoute` is the
+     * server saying which it sent. Anything not affirmatively a route yields no
+     * coordinates, so the caller falls back to its own DASHED hint line, which
+     * at least looks like the estimate it is.
+     *
+     * The distance and duration are still returned — those are honest.
+     */
+    const coords =
+      r.geometryIsRoute !== false && Array.isArray(r.geometry?.coordinates)
+        ? r.geometry.coordinates
+        : [];
     return {
       distanceKm: r.distanceKm,
       durationMin: r.durationMin,

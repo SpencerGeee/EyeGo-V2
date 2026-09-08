@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, queryKeys } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
-import { useRideStore } from '../../stores/ride.store';
+import { useRideStore, isLiveBooking } from '../../stores/ride.store';
 import { useAuthStore } from '../../stores/auth.store';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fonts, fontSizes, spacing, radii, shadows, withOpacity, springs, routeLine } from '@eyego/config';
@@ -181,10 +181,20 @@ export default function RideDetailScreen() {
    */
   const bookingWhileOnAnotherRide = useMemo(() => {
     const b = activeBooking as any;
-    if (!b?.id || !b?.tripId) return false;
-    if (b.tripId === id) return false;
-    if (b.guestName) return false;
-    return !['CANCELLED', 'EXPIRED', 'COMPLETED'].includes(b.status ?? '');
+    if (b?.tripId === id) return false;
+    if (b?.guestName) return false;
+    /**
+     * BUGFIX ("I ended the ride on the rider app, and on the driver app I
+     * created a trip that's live — but on the rider app when I open that trip
+     * it tells me I'm already on a ride").
+     *
+     * This used to test the BOOKING's own status and nothing else. A trip that
+     * ends does not rewrite its bookings, so the persisted row still reads
+     * `BOARDED` long after the ride is over, and this screen kept insisting the
+     * rider was in a car. `isLiveBooking` asks the same two-part question the
+     * home screen and the server's own guard ask — see ride.store.ts.
+     */
+    return isLiveBooking(activeBooking);
   }, [activeBooking, id]);
 
   const isAlreadyBooked = useMemo(() => {
@@ -749,7 +759,28 @@ export default function RideDetailScreen() {
                     { borderColor: guestInfo ? colors.primary : colors.outlineVariant },
                     guestInfo && { backgroundColor: withOpacity(colors.primary, 0.08) },
                   ]}
-                  onPress={() => goDeeper('/ride/guest-selection' as Href)}
+                  /**
+                   * BUGFIX ("if I put the guest name and the number there, I
+                   * shouldn't be brought back to 'book this seat' — it should
+                   * send me straight to the seat selection page to select the
+                   * seat and pay. That's more convenient").
+                   *
+                   * `guest-selection` has always taken a `next` and carried
+                   * straight on to it; this one call site omitted it, so it
+                   * fell through to `goBack()` and returned the rider to the
+                   * screen they started on with a changed label and nothing
+                   * else. The two CTAs directly above already pass one — this
+                   * was the odd one out, not a missing feature.
+                   *
+                   * Naming a guest is only ever a step towards taking a seat
+                   * FOR them, so the next step is the seat map.
+                   */
+                  onPress={() =>
+                    goDeeper({
+                      pathname: '/ride/guest-selection',
+                      params: { next: `/ride/${id}/seat` },
+                    } as Href)
+                  }
                   accessibilityRole="button"
                   accessibilityLabel={guestInfo ? `Booking for ${guestInfo.name}. Change passenger` : 'Book for someone else'}
                 >

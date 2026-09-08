@@ -693,10 +693,27 @@ async function getRoute({ originLat, originLng, destLat, destLng, profile = 'dri
   const coords = [originLat, originLng, destLat, destLng];
   if (!coords.every(Number.isFinite)) return null;
 
-  if (hasMapbox()) {
+  /**
+   * A WALK THAT MAPBOX CANNOT ANSWER IS STILL BETTER OFF ON A ROAD.
+   *
+   * BUGFIX ("the route polyline for me walking to the pickup point is showing
+   * as a straight line and doesn't conform to the road", reported twice).
+   *
+   * The walking profile is the only one with no second opinion: if Mapbox
+   * declines it (no token, a rate limit, a pair it cannot route on foot) the
+   * next tier down used to be the haversine estimate, which is a straight line.
+   * A driving route between the same two points is not a pedestrian's path, but
+   * it does follow roads — and "roughly along the streets" is far closer to the
+   * truth than a line drawn through the buildings between them. So a walk gets
+   * a driving retry before it is allowed to fall through to a ruler.
+   */
+  const profileChain =
+    profile === 'walking' || profile === 'cycling' ? [profile, 'driving'] : [profile];
+
+  for (const attempt of hasMapbox() ? profileChain : []) {
     try {
       const url =
-        `https://api.mapbox.com/directions/v5/mapbox/${profile}/` +
+        `https://api.mapbox.com/directions/v5/mapbox/${attempt}/` +
         `${originLng},${originLat};${destLng},${destLat}`;
       const { data } = await axios.get(url, {
         params: {
@@ -724,15 +741,17 @@ async function getRoute({ originLat, originLng, destLat, destLng, profile = 'dri
           // comparing a pedestrian to a car and answering a question nobody asked.
           // Mapbox's own walking duration is already the right number.
           durationMin:
-            profile === 'walking' || profile === 'cycling'
+            attempt === 'walking' || attempt === 'cycling'
               ? rawMin
               : realisticDurationMin(rawMin, distanceKm),
           geometry: route.geometry,
-          source: profile,
+          source: attempt,
+          /** Drawn from a real road graph — safe to render as a polyline. */
+          geometryIsRoute: true,
         };
       }
     } catch (err) {
-      logger.warn(`Mapbox directions failed: ${err.message}`);
+      logger.warn(`Mapbox directions (${attempt}) failed: ${err.message}`);
     }
   }
 
@@ -755,12 +774,30 @@ async function getRoute({ originLat, originLng, destLat, destLng, profile = 'dri
         durationMin: Math.max(route.duration / 60, congested),
         geometry: route.geometry,
         source: 'osrm',
+        geometryIsRoute: true,
       };
     }
   } catch (err) {
     logger.warn(`OSRM directions failed: ${err.message}`);
   }
 
+  /**
+   * ── A RULER IS NOT A ROUTE, AND IT MUST NOT LOOK LIKE ONE ────────────────
+   *
+   * This tier answers "how far, roughly" when every routing provider is gone.
+   * It has always returned a two-point LineString to go with the number, and
+   * that is the whole reason the walking-route fix appeared to do nothing: a
+   * client asking for a walk got back a perfectly well-formed `geometry` with
+   * two coordinates in it, indistinguishable from a real answer, and drew the
+   * exact straight line the fix was supposed to remove. The fallback was
+   * impersonating the thing it was falling back from.
+   *
+   * The geometry stays — several callers legitimately want an as-the-crow-flies
+   * shape when there is nothing better — but it is now LABELLED. Clients that
+   * draw polylines check `geometryIsRoute` and use their own honest fallback
+   * (a dashed hint line, in a neutral colour) rather than presenting a ruler as
+   * a routed path. Distance and duration are unaffected.
+   */
   const straight = haversineKm(originLat, originLng, destLat, destLng);
   const distanceKm = straight * CIRCUITY_FACTOR;
   return {
@@ -774,6 +811,7 @@ async function getRoute({ originLat, originLng, destLat, destLng, profile = 'dri
       ],
     },
     source: 'estimate',
+    geometryIsRoute: false,
   };
 }
 

@@ -32,20 +32,70 @@ export type RideEndedReason =
   | 'NO_DRIVERS'
   | 'EXPIRED';
 
+/** Enough of a journey to re-request it without asking anything again. */
+export interface RideEndedJourney {
+  origin: { latitude: number; longitude: number; address: string } | null;
+  destination: { latitude: number; longitude: number; address: string } | null;
+  seatCount: number;
+}
+
 export interface RideEndedNotice {
   reason: RideEndedReason;
   /** Whether money is coming back. Drives the copy — never guess this. */
   refunded: boolean;
   /** Where they were going, so "try again" can go straight there. */
   destinationLabel: string | null;
+  /**
+   * THE JOURNEY, CARRIED OUT OF A STORE THAT IS ABOUT TO BE WIPED.
+   *
+   * BUGFIX ("on the rider app, when the ride was marked as no-show there was an
+   * option that said find another rider — but when I clicked on it, it brought
+   * me to the search stage").
+   *
+   * "Find another driver" went to `?stage=search`, which is the WHERE-TO step:
+   * the rider is asked to type in the destination they had already chosen and
+   * were already being driven to. It went there because it had to — the
+   * terminal branch of `TripStatusListener` calls `clearRideState()`, so by the
+   * time this sheet is on screen the origin and destination are gone and
+   * `?stage=request` would have had nothing to request.
+   *
+   * The fix is to take a copy BEFORE the wipe rather than to send the rider
+   * back through a form. The notice is raised in the same tick, from the same
+   * store, one statement earlier.
+   */
+  journey: RideEndedJourney | null;
   /** Set when raised, so a notice cannot outlive the session that made it. */
   atMs: number;
 }
 
 interface RideEndedState {
   notice: RideEndedNotice | null;
-  raise: (n: Omit<RideEndedNotice, 'atMs'>) => void;
+  raise: (n: Omit<RideEndedNotice, 'atMs' | 'journey'> & { journey?: RideEndedJourney | null }) => void;
   clear: () => void;
+}
+
+/**
+ * The journey, snapshotted here rather than at each call site.
+ *
+ * There are three `raise()` callers and the window between them and
+ * `clearRideState()` is a couple of statements wide, so "remember to pass the
+ * journey" is a rule that will be broken. Reading it inside `raise` makes the
+ * capture unforgettable — a caller with a better source (the terminal
+ * snapshot's own pickup/dropoff) can still pass one explicitly.
+ */
+function captureJourney(): RideEndedJourney | null {
+  try {
+    // Required lazily: this store is imported by the trip surface, and a
+    // top-level import back into the ride store would be a cycle waiting to
+    // happen the first time ride.store needs to raise a notice itself.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useRideStore } = require('./ride.store');
+    const s = useRideStore.getState();
+    if (!s?.origin || !s?.destination) return null;
+    return { origin: s.origin, destination: s.destination, seatCount: s.requestSeatCount || 1 };
+  } catch {
+    return null;
+  }
 }
 
 export const useRideEnded = create<RideEndedState>((set) => ({
@@ -55,7 +105,14 @@ export const useRideEnded = create<RideEndedState>((set) => ({
    * followed by the REFUNDED that settles it) are one piece of news, and the
    * later frame carries the better answer about the money.
    */
-  raise: (n) => set({ notice: { ...n, atMs: Date.now() } }),
+  raise: (n) =>
+    set({
+      notice: {
+        ...n,
+        journey: n.journey !== undefined ? n.journey : captureJourney(),
+        atMs: Date.now(),
+      },
+    }),
   clear: () => set({ notice: null }),
 }));
 

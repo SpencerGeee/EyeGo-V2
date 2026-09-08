@@ -241,9 +241,13 @@ async function requestRide(userId, body) {
     dropoffAddress,
     paymentMethod = 'CASH',
     doorstepPickup = false,
-    /** How many people are travelling. Capacity information for the driver —
-     *  see the note where it is written to the trip. Clamped, never trusted. */
-    seatCount = 1,
+    /**
+     * How many people are travelling — a CROSS-CHECK against the signed quote,
+     * not the source of truth. Deliberately un-defaulted: see
+     * `requestedPartySize` below for why `undefined` and `1` must stay
+     * distinguishable here.
+     */
+    seatCount,
     idempotencyKey = null,
     /**
      * The rider has SEEN the "you already have a ride" prompt and chosen to
@@ -284,10 +288,33 @@ async function requestRide(userId, body) {
    * Now the same constant as the picker and the route validator. See
    * config/booking.js.
    */
-  const requestedPartySize = Math.min(
-    Math.max(Math.trunc(Number(seatCount)) || 1, 1),
-    MAX_SEATS_PER_BOOKING,
-  );
+  /**
+   * ABSENT IS NOT THE SAME AS DISAGREEING.
+   *
+   * BUGFIX ("I tried booking a ride for 4 seats and the request page says: we
+   * couldn't send that — your party size changed after this price was quoted").
+   *
+   * `seatCount` defaulted to 1 at the destructure, so an absent field and an
+   * explicit `1` were indistinguishable by the time the comparison below ran.
+   * Every client path that loses the field — axios dropping an `undefined`, a
+   * retry rebuilt from a partial body, a caller that quotes with the party and
+   * requests without it — therefore did not fall back to the priced party. It
+   * asserted a party of ONE against a quote signed for four and was refused,
+   * with a message about a change the rider never made and a "confirm the new
+   * fare" instruction that leads nowhere, because re-quoting produces the same
+   * disagreement again.
+   *
+   * The quote is the only party size anybody signed, so it is the authority.
+   * The body's copy is a cross-check, and a cross-check that was never sent
+   * cannot fail. Note this gives up nothing: the trip is built from
+   * `quotedPartySize` either way, so a rider still cannot quote for two and
+   * travel with eight — that path sends an explicit, different number and is
+   * still refused below.
+   */
+  const requestedPartySize =
+    seatCount === undefined || seatCount === null || seatCount === ''
+      ? null
+      : Math.min(Math.max(Math.trunc(Number(seatCount)) || 1, 1), MAX_SEATS_PER_BOOKING);
 
   const guestName = typeof passenger?.name === 'string' ? passenger.name.trim() || null : null;
   const guestPhone = typeof passenger?.phone === 'string' ? passenger.phone.trim() || null : null;
@@ -347,11 +374,22 @@ async function requestRide(userId, body) {
       Math.max(Math.trunc(Number(quote.seatCount)) || 1, 1),
       MAX_SEATS_PER_BOOKING,
     );
-    if (requestedPartySize !== quotedPartySize) {
+    /**
+     * Only an EXPLICIT disagreement is refused — see `requestedPartySize`.
+     *
+     * And it is refused with its own code. `FARE_EXPIRED` sends the client into
+     * its automatic re-quote-and-retry, which re-prices for the same party and
+     * fails in exactly the same way: two round trips to reach the same dead
+     * end, with a message about an expired price that never expired. A party
+     * mismatch is not a stale price, it is a client bug, so it says so and says
+     * which two numbers disagreed.
+     */
+    if (requestedPartySize !== null && requestedPartySize !== quotedPartySize) {
       throw new AppError(
-        'Your party size changed after this price was quoted. Please confirm the new fare.',
+        `This price was quoted for ${quotedPartySize} ${quotedPartySize === 1 ? 'person' : 'people'}, ` +
+          `but the request is for ${requestedPartySize}. Please confirm the fare again.`,
         409,
-        'FARE_EXPIRED',
+        'PARTY_SIZE_MISMATCH',
       );
     }
     const partySize = quotedPartySize;

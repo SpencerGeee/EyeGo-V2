@@ -25,6 +25,8 @@ import { Text, goDeeper, Pressable } from '@eyego/ui';
 
 import { useColors, type Colors } from '../utils/useColors';
 import { useRideEnded, shouldAnnounce, type RideEndedReason } from '../stores/rideEnded.store';
+// Re-seeded before handing the rider back to the request stage — see `rebook`.
+import { useRideStore } from '../stores/ride.store';
 
 /**
  * WHAT THE RIDER SEES WHEN THEIR RIDE IS TAKEN AWAY FROM THEM.
@@ -175,10 +177,40 @@ export function RideEndedSheet() {
 
   const rebook = () => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    const journey = notice.journey;
     clear();
-    // Straight back into the flow at the search step. The rider's destination
-    // is already in the ride store when there is one, so this is one tap from
-    // "my ride vanished" to "somebody is coming".
+
+    /**
+     * "FIND ANOTHER DRIVER" MUST FIND ANOTHER DRIVER.
+     *
+     * BUGFIX ("when the ride was marked as no-show there was an option that
+     * said find another rider — but when I clicked on it, it brought me to the
+     * search stage").
+     *
+     * It went to `?stage=search`, which is the WHERE-TO step: a rider whose
+     * driver just cancelled was asked to type in the destination they had
+     * already chosen and were already being driven towards. The button's label
+     * promised a car and delivered a form.
+     *
+     * With the journey carried out of the terminal event (see `journey` in
+     * rideEnded.store.ts) there is nothing left to ask, so this re-seeds the
+     * ride store and drops the rider straight on `request`, which prices and
+     * dispatches on mount. That IS the "one tap from 'my ride vanished' to
+     * 'somebody is coming'" the old comment claimed.
+     *
+     * `search` stays as the honest fallback for the one case that genuinely
+     * needs it: a notice raised before a destination was ever chosen (an
+     * EXPIRED request from a cold start, say), where there is no journey to
+     * repeat and asking is the only correct thing to do.
+     */
+    if (journey?.origin && journey?.destination) {
+      const ride = useRideStore.getState();
+      ride.setOrigin(journey.origin);
+      ride.setDestination(journey.destination);
+      if (journey.seatCount > 1) ride.setRequestSeats(journey.seatCount, ride.requestCoverAll);
+      goDeeper('/trip?stage=request' as never);
+      return;
+    }
     goDeeper('/trip?stage=search' as never);
   };
 

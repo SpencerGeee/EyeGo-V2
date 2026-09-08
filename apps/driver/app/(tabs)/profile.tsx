@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Avatar, Skeleton, Entrance, GlassSurface, GradientGlowBorder, AppBackground, goDeeper } from '@eyego/ui';
+import { Text, Avatar, Skeleton, Entrance, GlassSurface, GradientGlowBorder, goDeeper } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -134,7 +134,6 @@ export default function ProfileScreen() {
   if (profileLoading && !driver) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground isDark={theme !== 'light'} />
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           {/* Skeleton header */}
           <View style={{ paddingHorizontal: spacing['2xl'], paddingTop: spacing.xl, paddingBottom: spacing.md }}>
@@ -166,7 +165,6 @@ export default function ProfileScreen() {
   if (profileError && !driver && !meData) {
     return (
       <SafeAreaView style={styles.safe}>
-        <AppBackground isDark={theme !== 'light'} />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32, gap: 16 }}>
           <Text variant="bodyMedium" color={colors.error}>Failed to load profile.</Text>
           <Pressable
@@ -182,7 +180,6 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Entrance animation="slideUp" delay={50} style={styles.header}>

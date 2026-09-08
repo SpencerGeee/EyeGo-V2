@@ -57,7 +57,7 @@ export default function SettingsScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
-  const { theme, setTheme, logout } = useDriverStore();
+  const { theme, setTheme, logout, offerAlertsEnabled, setOfferAlertsEnabled } = useDriverStore();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [navApp, setNavApp] = useState<NavApp>('google_maps');
 
@@ -177,6 +177,34 @@ export default function SettingsScreen() {
               <Switch
                 value={notificationsEnabled}
                 onValueChange={toggleNotifications}
+                trackColor={{ false: colors.outline, true: colors.primary }}
+                thumbColor={colors.onPrimary}
+              />
+            </View>
+
+            {/*
+              THE ONE ALERT THAT COSTS MONEY TO MISS.
+
+              Separate from Push Notifications on purpose: this is not a push,
+              it is the in-app alarm that fires while the app is open and the
+              phone is in a cradle. A driver who turns pushes off to stop
+              marketing must not also silence the offer that pays them, and a
+              driver carrying a passenger must be able to silence THIS without
+              losing everything else. See utils/dispatchAlert.ts.
+            */}
+            <View style={styles.settingsRow}>
+              <View style={styles.iconBg}>
+                <Ionicons name="volume-high-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowLabel}>New ride alert</Text>
+                <Text variant="caption" color={colors.onSurfaceVariant} style={styles.rowHint}>
+                  Chime and vibrate while a ride is being offered to you, until you answer it.
+                </Text>
+              </View>
+              <Switch
+                value={offerAlertsEnabled}
+                onValueChange={setOfferAlertsEnabled}
                 trackColor={{ false: colors.outline, true: colors.primary }}
                 thumbColor={colors.onPrimary}
               />

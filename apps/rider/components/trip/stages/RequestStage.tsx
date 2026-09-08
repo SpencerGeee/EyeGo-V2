@@ -343,7 +343,20 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
          * reason `request` uses it: `clearRideState()` resets the store copy to
          * 1 mid-flight, and a retry must not silently re-quote for one person.
          */
-        const chosenSeats = chosenSeatsRef.current ?? requestSeatCount;
+        /**
+         * READ AT CALL TIME, NOT CLOSURE TIME.
+         *
+         * `sendRequest` is a `useCallback` whose dependency list deliberately
+         * omits the store fields (see the eslint-disable at its foot), so the
+         * `requestSeatCount` visible inside it is the value from whichever
+         * render minted this callback — which is not necessarily the render
+         * after the rider moved the stepper. `getState()` is the live store, so
+         * the fallback is the rider's actual answer rather than a snapshot of
+         * it, and the ref still wins so a mid-flight `clearRideState()` cannot
+         * reset the party to one between the quote and the request.
+         */
+        const chosenSeats =
+          chosenSeatsRef.current ?? useRideStore.getState().requestSeatCount ?? requestSeatCount;
 
         const quote = await ridesApi.quote({
           pickupLat: origin.latitude,
@@ -414,7 +427,18 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
          * Once only, and with a new idempotency key so the retry is not answered
          * out of the cache with the failure it is trying to escape.
          */
-        if ((code === 'FARE_EXPIRED' || code === 'FARE_ALREADY_USED') && !opts?.refreshedFare) {
+        /**
+         * `PARTY_SIZE_MISMATCH` joins the list for the same reason and with the
+         * same one-shot guard: the re-entry prices from scratch, and both calls
+         * on that attempt read one `chosenSeats`, so a party that had drifted
+         * between the two is corrected by the retry rather than reported to a
+         * rider who cannot do anything about it. If it fails twice the message
+         * below names both numbers, which is a bug report rather than a riddle.
+         */
+        if (
+          (code === 'FARE_EXPIRED' || code === 'FARE_ALREADY_USED' || code === 'PARTY_SIZE_MISMATCH') &&
+          !opts?.refreshedFare
+        ) {
           idempotencyKeyRef.current = `ride-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
           await sendRequestRef.current?.({ ...opts, refreshedFare: true });
           return;
@@ -652,18 +676,33 @@ function RequestStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
 
   const body = (variant: 'route' | 'stage') => (
     <>
-      {/* Back. Stage mode floats its own over the map — see the render. */}
-      <View style={styles.header} pointerEvents={variant === 'stage' ? 'none' : 'auto'}>
-        <Pressable
-          onPress={handleBack}
-          style={styles.backBtn}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-      </View>
+      {/*
+        Back — ROUTE MODE ONLY.
+
+        BUGFIX ("remove the back button that is seen on top of the text that
+        says we couldn't send that, because there's already a back button at
+        the top so it makes that redundant").
+
+        This used to render in both modes and merely turn `pointerEvents` off
+        for the stage, which is the worst of the three options: the arrow was
+        still drawn, directly above the headline, so the rider saw two back
+        arrows on one screen and the nearer one did nothing at all. An
+        affordance that is visible and inert is worse than no affordance.
+        Stage mode floats its own over the map — see the render.
+      */}
+      {variant === 'route' && (
+        <View style={styles.header}>
+          <Pressable
+            onPress={handleBack}
+            style={styles.backBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
+          </Pressable>
+        </View>
+      )}
 
       <View style={variant === 'stage' ? styles.panelBody : styles.body}>
         {/*

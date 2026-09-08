@@ -99,7 +99,7 @@ export default function HelpScreen() {
       // The thread is rendered from the list payload, so close on success —
       // the refreshed list carries the new message when the driver reopens it.
       setOpenTicket(null);
-      notify('Sent', 'Your message has been added to the ticket.');
+      notify('Sent', 'Your message has been added to the ticket.', { tone: 'success' });
     },
     onError: (err: any) =>
       notify('Could not send', err?.response?.data?.message ?? 'Please try again.'),

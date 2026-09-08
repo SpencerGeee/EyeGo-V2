@@ -43,12 +43,23 @@ export type TripEventType =
   // The driver has asked this rider to show their "Verify My Ride" code. Not a
   // status either: nothing about the trip has moved, the driver is simply at
   // the point of boarding. See services/trip-events.publisher.js.
-  | 'BOARDING_PIN_REQUESTED';
+  | 'BOARDING_PIN_REQUESTED'
+  /**
+   * One PASSENGER's seat changed hands — they got in, or they never showed.
+   *
+   * Emphatically NOT trip statuses (hence the `Exclude` below): a trip with
+   * four seats stays FILLING while one of them boards. They were missing from
+   * this union entirely, which is why the rider's app had no way to react to
+   * being marked aboard — see `applyBookingScopedEvent`. The server has been
+   * recording both for some time (`announceBoarding`, `riderNoShow`).
+   */
+  | 'PASSENGER_BOARDED' | 'PASSENGER_NO_SHOW';
 
 export type TripStatus = Exclude<
   TripEventType,
   | 'SNAPSHOT' | 'DISPATCH_PROGRESS' | 'DRIVER_LOCATION' | 'ETA' | 'OFFER' | 'OFFER_REVOKED'
   | 'DRIVER_LINK_LOST' | 'DRIVER_LINK_RESTORED' | 'BOARDING_PIN_REQUESTED'
+  | 'PASSENGER_BOARDED' | 'PASSENGER_NO_SHOW'
 >;
 
 /** Which journey a route line describes. Never conflate the two. */
@@ -212,7 +223,7 @@ export function reduceTripEvent(state: TripChannelState, event: TripEvent): Trip
 
   return {
     ...state,
-    snapshot: mergeSnapshot(state.snapshot, event.snapshot),
+    snapshot: mergeSnapshot(state.snapshot, event.snapshot, event),
     lastSeq: event.seq != null ? Math.max(state.lastSeq, event.seq) : state.lastSeq,
     // Every payload is a free clock reading. Timers rendered against
     // (serverNowMs + elapsed) cannot drift with a mis-set device clock — which
@@ -245,15 +256,63 @@ export function reduceTripEvent(state: TripChannelState, event: TripEvent): Trip
 function mergeSnapshot(
   prev: TripSnapshot | null,
   next: TripSnapshot | null | undefined,
+  event?: TripEvent,
 ): TripSnapshot | null {
   if (!next) return prev;
   if (!prev) return next;
   // Different trip entirely — nothing to carry over.
   if (prev.tripId !== next.tripId) return next;
   if (next.booking == null && prev.booking != null) {
-    return { ...next, booking: prev.booking };
+    return { ...next, booking: applyBookingScopedEvent(prev.booking, event) };
   }
   return next;
+}
+
+/**
+ * ── …BUT A CARRIED-OVER FIELD MUST NOT BE A FROZEN ONE ───────────────────────
+ *
+ * BUGFIX ("on the driver app the status was 'filling up', and on the rider app
+ * I chose 'mark as boarded' and boarded — nothing changed on the rider app").
+ *
+ * The rule above is right and incomplete. Preserving `booking` across an
+ * impersonal frame stops the rider's seat and PIN from being deleted — but it
+ * also means `booking` is only ever written by a snapshot built FOR this rider,
+ * and after the first one there may never be another. So the field does not go
+ * missing, it goes STALE: `booking.status` sits at `PAID` for the rest of the
+ * ride, and boarding — which is not a Trip transition, so it changes nothing
+ * else in the snapshot — is invisible to every screen that reads it. The server
+ * does its part (`announceBoarding` records a real `PASSENGER_BOARDED` event);
+ * the fact simply had nowhere to land on this side.
+ *
+ * The event itself is the missing carrier. A booking-scoped event names the
+ * booking it is about in its own payload, so it can be matched against the
+ * booking we are holding without needing a personalised snapshot at all — which
+ * is the only way a room broadcast can ever update a personal field.
+ *
+ * Deliberately narrow: it patches ONE field, only when the ids match, and only
+ * for events whose whole meaning is that field. Anything richer belongs in a
+ * snapshot the server built for this user.
+ */
+function applyBookingScopedEvent(
+  booking: NonNullable<TripSnapshot['booking']>,
+  event?: TripEvent,
+): NonNullable<TripSnapshot['booking']> {
+  if (!event) return booking;
+  const targetId = (event.payload as any)?.bookingId;
+  if (!targetId || targetId !== (booking as any).id) return booking;
+
+  switch (event.type) {
+    case 'PASSENGER_BOARDED':
+      return (booking as any).status === 'BOARDED'
+        ? booking
+        : ({ ...booking, status: 'BOARDED' } as typeof booking);
+    case 'PASSENGER_NO_SHOW':
+      return (booking as any).status === 'NO_SHOW'
+        ? booking
+        : ({ ...booking, status: 'NO_SHOW' } as typeof booking);
+    default:
+      return booking;
+  }
 }
 
 /** True when `event` proves we missed something between it and `lastSeq`. */

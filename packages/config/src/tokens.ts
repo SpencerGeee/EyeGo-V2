@@ -172,17 +172,37 @@ export type DriverColorTokens = ColorTokens & {
   glowAccent: string;
 };
 
+/**
+ * DRIVER ONYX — THE GROUND IS BLACK, THE BLUE IS THE LIGHT ON IT.
+ *
+ * BUGFIX ("the rider tracking page uses deep black for the background even
+ * though the green and the glows are shown… the driver app seems stocked and
+ * basic/outdated").
+ *
+ * The old ramp started at `#030C18` — a saturated navy — and every surface
+ * above it carried the same hue at a higher lightness. That is a BLUE app, not
+ * a black app with blue in it, and it costs three things at once: the blue
+ * glows have nothing dark to bloom against, the neutral greys used for
+ * secondary text sit on a coloured ground and read muddy, and the whole thing
+ * looks like a default Material dark-blue theme rather than a designed one.
+ *
+ * The rider's Onyx ramp is 06 → 0A → 16 → 1A → 22 → 2C → 33 in pure neutral.
+ * The driver's is now the same lightness ladder with a cool cast that only
+ * becomes legible as the surfaces rise — the ground is effectively black, and
+ * the identity lives in `primary`, the glows, and the elevated containers,
+ * which is where it was always supposed to live.
+ */
 export const driverColors: DriverColorTokens = {
-  backgroundDeep: '#030C18',
-  background: '#060F1A',
-  surfaceDim: '#060F1A',
-  surfaceCard: '#0B1826',
-  surfaceContainer: '#0D1B2A',
-  surfaceContainerHigh: '#112240',
-  surfaceContainerHighest: '#162B4F',
-  surfaceVariant: '#162B4F',
-  surfaceBright: '#1B3A66',
-  surfaceInput: '#04101F',
+  backgroundDeep: '#050507',
+  background: '#090A0D',
+  surfaceDim: '#090A0D',
+  surfaceCard: '#14161C',
+  surfaceContainer: '#181B23',
+  surfaceContainerHigh: '#20242F',
+  surfaceContainerHighest: '#2A2F3D',
+  surfaceVariant: '#2A2F3D',
+  surfaceBright: '#323847',
+  surfaceInput: '#0C0D11',
 
   rimLight: 'rgba(255, 255, 255, 0.10)',
   rimLightSubtle: 'rgba(255, 255, 255, 0.06)',
@@ -213,11 +233,11 @@ export const driverColors: DriverColorTokens = {
   onBackground: '#E2E8F0',
   onSurface: '#E2E8F0',
   onSurfaceVariant: '#94A3B8',
-  inverseOnSurface: '#0D1B2A',
+  inverseOnSurface: '#181B23',
   inverseSurface: '#E2E8F0',
 
-  outline: '#1E3A5F',
-  outlineVariant: '#0F2239',
+  outline: '#242A38',
+  outlineVariant: '#171B25',
   surfaceTint: '#2563EB',
   scrim: '#000000',
 
@@ -241,7 +261,7 @@ export const driverColors: DriverColorTokens = {
   glowAccent: 'rgba(96, 165, 250, 0.25)',
   glowError: 'rgba(248, 113, 113, 0.4)',
 
-  premiumRingDark: '#050C16',
+  premiumRingDark: '#050609',
   // Dark theme — the ring gaps stay the black the palettes were authored against.
   ringGap: '#0A0A0C',
   premiumBlue: '#3D7EFF',

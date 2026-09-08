@@ -19,6 +19,7 @@ import { useColors, type DriverColors } from '../utils/useColors';
 import { useDriverStore } from '../stores/driver.store';
 import { useDriverTripStore } from '../stores/trip.store';
 import { lastKnownReportedFix } from '../hooks/useDriverLocation';
+import { startDispatchAlert, stopDispatchAlert } from '../utils/dispatchAlert';
 import { DispatchOfferCard, type DispatchOfferView } from './dispatch/DispatchOfferCard';
 import { goDeeper } from '@eyego/ui';
 
@@ -47,6 +48,8 @@ export default function DispatchOfferSheet() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const setActiveTripId = useDriverStore((s) => s.setActiveTripId);
+  /** Driver-controlled — see Settings, and utils/dispatchAlert.ts. */
+  const alertsEnabled = useDriverStore((s) => s.offerAlertsEnabled);
 
   const offer = useDriverTripStore((s) => s.offer);
   const clearOffer = useDriverTripStore((s) => s.clearOffer);
@@ -92,6 +95,31 @@ export default function DispatchOfferSheet() {
     windowMsRef.current = Math.max(1000, offer.expiresAtServerMs - serverNow());
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   }, [offer, serverNow]);
+
+  /**
+   * ── AND KEEP ANNOUNCING IT ────────────────────────────────────────────────
+   *
+   * FEATURE ("it needs to pop up so if the driver isn't looking, he sees it…
+   * add a sound implementation for new rides so the driver is instantly
+   * notified").
+   *
+   * The single haptic above fires at the instant the offer lands, which is
+   * precisely the instant a driver at a junction is not holding the phone. The
+   * alert repeats for as long as the offer is claimable and stops the moment it
+   * is answered, expires, or the sheet goes away — see utils/dispatchAlert.ts.
+   *
+   * Keyed on `tripId` so a re-publish of the SAME offer does not restart the
+   * alert from zero, and cleaned up in the effect's teardown so no path out of
+   * this screen can leave a phone buzzing at a driver who already accepted.
+   */
+  useEffect(() => {
+    if (!offer || accepted || busy) {
+      stopDispatchAlert();
+      return;
+    }
+    startDispatchAlert(offer.tripId, { enabled: alertsEnabled });
+    return () => stopDispatchAlert();
+  }, [offer, accepted, busy, alertsEnabled]);
 
   // Expired. The server has already moved on to the next candidate; holding a
   // dead card on screen only invites a tap that 409s.

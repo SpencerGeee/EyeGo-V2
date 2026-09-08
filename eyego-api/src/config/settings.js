@@ -315,6 +315,22 @@ const REGISTRY = [
     help: 'How close to departure a driver’s own scheduled trip starts blocking new dispatch.',
     min: 0, max: 240,
   },
+  {
+    /**
+     * How nearly-finished a driver has to be before the next ride is offered
+     * to them. See `midRideAvailableDriverIds` in services/driver-availability.js.
+     *
+     * The trade-off is entirely about the WAITING rider: a bigger number finds
+     * a driver sooner and makes that rider wait longer for one who is still
+     * dropping somebody off. 0 turns the behaviour off completely, which is the
+     * right setting if the fleet is large enough that genuinely free drivers
+     * are always available.
+     */
+    key: 'MIDRIDE_OFFER_ETA_MINUTES', group: 'dispatch', type: TYPES.INT,
+    label: 'Mid-ride offer window', envDefault: 5, unit: 'minutes',
+    help: 'Offer the next ride to a driver whose current trip is this close to its final drop-off. 0 disables it.',
+    min: 0, max: 20,
+  },
 
   // ── Cancelling a hailed ride ──────────────────────────────────
   //

@@ -177,9 +177,23 @@ const notifications = {
   // that already said "GHS", so the moment one of them started passing a
   // formatted value the copy read "GHS GH₵15.00". One place decides how money
   // looks.
-  rideComplete: (token, savedAmountPesewas, notificationPrefs, bookingId) =>
+  /**
+   * `tripId` IS NOT OPTIONAL HERE — IT IS THE ROUTE KEY.
+   *
+   * BUGFIX ("when I end the trip on the driver app, the rider app shows the
+   * ride-complete page but with placeholders instead of the actual details").
+   *
+   * This was the only ride notification that carried a booking id and no trip
+   * id, so the app — whose receipt screen is `/ride/<tripId>/complete` — had
+   * nothing to build the route from and used the booking id instead. The screen
+   * then asked the server for a trip with a booking's id, got nothing, and
+   * rendered its loading placeholders as though they were the answer.
+   *
+   * Every sibling wrapper above already sends both. This one now matches.
+   */
+  rideComplete: (token, savedAmountPesewas, notificationPrefs, bookingId, tripId) =>
     prefAllows(notificationPrefs, 'tripCompleted')
-      ? sendPush(token, 'Ride complete', `Rate your trip. You saved ${formatGhs(savedAmountPesewas)} vs a private ride.`, { type: 'RIDE_COMPLETE', bookingId: bookingId || '' })
+      ? sendPush(token, 'Ride complete', `Rate your trip. You saved ${formatGhs(savedAmountPesewas)} vs a private ride.`, { type: 'RIDE_COMPLETE', bookingId: bookingId || '', tripId: tripId || '' })
       : optedOut(),
 
   passengerJoined: (token, passengerName, seatNumber, tripId) =>

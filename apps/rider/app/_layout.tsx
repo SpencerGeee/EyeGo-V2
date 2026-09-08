@@ -457,8 +457,11 @@ export default function RootLayout() {
         // NOTE: the backend's actual push types are RIDE_CONFIRMED / RIDE_COMPLETE
         // (see eyego-api/src/services/push.service.js `notifications` wrappers) —
         // not TRIP_CONFIRMED / TRIP_COMPLETED. Keep these in sync with that file.
-        if (type === 'RIDE_CONFIRMED' && bookingId) {
-          router.push(`/ride/${bookingId}` as Href);
+        if (type === 'RIDE_CONFIRMED' && (tripId || bookingId)) {
+          // `/ride/[id]` is the TRIP detail screen — same slot, same rule as
+          // `/ride/[id]/complete` below. The payload has carried both ids all
+          // along; this was reading the wrong one.
+          router.push(`/ride/${tripId || bookingId}` as Href);
         } else if ((type === 'DRIVER_EN_ROUTE' || type === 'ARRIVED_AT_PICKUP' || type === 'DRIVER_ARRIVED') && (bookingId || tripId)) {
           // The persistent surface, not the retired tracking route. It carries
           // no id because it rehydrates from the server's active trip — which
@@ -467,8 +470,35 @@ export default function RootLayout() {
           router.push('/trip?stage=assigned' as Href);
         } else if ((type === 'CHAT_MESSAGE' || type === 'PRIVATE_CHAT') && tripId) {
           router.push(`/ride/${tripId}/chat` as Href);
-        } else if (type === 'RIDE_COMPLETE' && bookingId) {
-          router.push(`/ride/${bookingId}/complete` as Href);
+        } else if (type === 'RIDE_COMPLETE' && (tripId || bookingId)) {
+          /**
+           * THE `[id]` IN `/ride/[id]/complete` IS A TRIP ID.
+           *
+           * BUGFIX ("when I end the trip on the driver app, the rider app shows
+           * the ride-complete page but with placeholders instead of the actual
+           * details, and even the driver name is shown as 'Your Driver'").
+           *
+           * This pushed the BOOKING id into that slot. Every other caller —
+           * trip.tsx, TripStatusListener, the Activity tab — passes the trip id,
+           * because the screen's first act is `ridesApi.events(id, 0)`, which
+           * looks up a TRIP. Handed a booking id it finds nothing, `snapshot`
+           * stays null, and every field on the receipt falls through to the
+           * placeholder it was given for the loading state: "Your pickup point",
+           * "Your destination", an em-dash for the distance, and `driver` null,
+           * which is what renders as "Your Driver".
+           *
+           * So the page was never broken — it was being asked about a trip that
+           * does not exist. `bookingId` stays, but as the query param the page
+           * actually wants it for (the receipt), not as the route key.
+           */
+          router.push(
+            (tripId
+              ? `/ride/${tripId}/complete${bookingId ? `?bookingId=${bookingId}` : ''}`
+              : // No trip id in the payload: the surface can still resolve the
+                // ride it just finished from the server. Better a correct screen
+                // one hop later than a receipt full of placeholders.
+                '/(tabs)/trips') as Href,
+          );
         } else if (type === 'TRIP_CANCELLED_NO_SHOW') {
           router.push('/(tabs)/trips' as Href);
         } else if (tripId) {

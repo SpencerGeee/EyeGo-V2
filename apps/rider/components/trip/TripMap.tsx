@@ -21,6 +21,8 @@ import { socketEvents, type TripSnapshot, type TripStatus } from '@eyego/api';
 import { useThemeStore } from '../../stores/theme.store';
 import { useTripFlow } from '../../stores/tripFlow.store';
 import { useTripStore } from '../../stores/trip.store';
+// The rider's chosen pickup lives here, not in the flow store — see `pickupCoord`.
+import { useRideStore } from '../../stores/ride.store';
 import { useColors, Colors } from '../../utils/useColors';
 import { fetchRoute, fetchWalkingRoute } from '../../utils/routing';
 
@@ -324,7 +326,32 @@ function TripMapImpl() {
   const searchPlace = useTripFlow((s) => s.searchPlace);
   const nearbyDrivers = useTripFlow((s) => s.nearbyDrivers);
   const dispatchOffer = useTripFlow((s) => s.dispatchOffer);
-  const pickupCoord = useTripFlow((s) => s.pickupCoord);
+  /**
+   * THE PICKUP THE RIDER CHOSE — READ FROM WHERE IT IS ACTUALLY WRITTEN.
+   *
+   * BUGFIX ("on the book a ride page the map at the top doesn't have a pickup
+   * pin but there's a destination pin").
+   *
+   * `tripFlow.pickupCoord` has a field, an initial value, a reset and a setter,
+   * and `setPickupCoord` is called from NOWHERE IN THE APP. So it was null for
+   * the entire life of every session, and everything downstream of it silently
+   * degraded: no pickup pin (the report), `fitFor` framed on the destination
+   * alone, and the dispatch search ring had to fall back for its centre. The
+   * destination pin worked because it reads `searchPlace`, which the where-to
+   * screen does write.
+   *
+   * The pickup is not missing — it is in the RIDE store as `origin`, which is
+   * what every other consumer reads and what the request itself is built from.
+   * Reading it here removes the synchronisation step rather than adding a
+   * second call to remember: one value, one owner, and a flow-store override
+   * kept for anything that wants to move the pin without touching the booking.
+   */
+  const flowPickupCoord = useTripFlow((s) => s.pickupCoord);
+  const rideOrigin = useRideStore((s) => s.origin);
+  const pickupCoord = useMemo<Coord | null>(
+    () => flowPickupCoord ?? coord(rideOrigin?.longitude, rideOrigin?.latitude),
+    [flowPickupCoord, rideOrigin?.longitude, rideOrigin?.latitude],
+  );
   // The pre-trip route — see tripFlow.store. Null once a trip exists, because
   // `path` below is then the authoritative line.
   const previewPath = useTripFlow((s) => s.previewPath);
@@ -460,8 +487,30 @@ function TripMapImpl() {
    * own fix is what `follow` with no puck does, and it is available whenever
    * there is a GPS fix at all rather than only during a trip.
    */
+  /**
+   * …EXCEPT WHERE THE RIDER IS STANDING IS NOT WHAT THEY ARE LOOKING AT.
+   *
+   * BUGFIX ("the centre camera button on the map should reset the map to the
+   * full default view showing the pickup and destination in the same viewport.
+   * At the moment it brings the camera to the current position I'm in, and it
+   * doesn't recentre for the ride, which is what's appropriate here").
+   *
+   * The fix above is right for a map with ONE point of interest — the where-to
+   * screen, where the only question is where you are. It is wrong the moment a
+   * journey exists. On Choose Your Ride the rider is comparing fares for a
+   * specific pickup and a specific drop-off; the camera's whole job is to hold
+   * both, and locking onto the rider's own dot throws away the destination and
+   * often the pickup with it — which is a strictly worse frame than the one
+   * they just replaced, and unrecoverable without panning by hand.
+   *
+   * So "centre on me" is offered only when there is nothing else worth framing.
+   * With a journey on screen the control keeps its other, more useful meaning:
+   * clear the manual pan and re-fit the whole thing. See the button.
+   */
+  const hasJourneyToFrame = !!pickupCoord && !!searchPlace;
+
   const [followMe, setFollowMe] = useState(false);
-  const canFollowMe = !canFollowVehicle && !!userCoords;
+  const canFollowMe = !canFollowVehicle && !hasJourneyToFrame && !!userCoords;
   useEffect(() => {
     if (followMe && !canFollowMe) setFollowMe(false);
   }, [canFollowMe, followMe]);
@@ -1219,13 +1268,16 @@ function TripMapImpl() {
         not panned but whose camera was framed on a stale pickup had no control
         at all; that is the other half of item 12.
       */}
-      {(camera.released || followVehicle || followMe || canFollowMe) && (
+      {(camera.released || followVehicle || followMe || canFollowMe || hasJourneyToFrame) && (
         <Pressable
           onPress={() => {
             if (canFollowVehicle) setFollowVehicle((f) => !f);
             else if (canFollowMe) setFollowMe((f) => !f);
             // Always: clear any manual pan, so one tap does the obvious thing
-            // even when neither follow mode applies.
+            // even when neither follow mode applies. On the booking flow this
+            // IS the whole action — `recenter()` drops back to the stage's own
+            // `overview`, which is fitted to the pickup, the drop-off and the
+            // previewed road between them. See `hasJourneyToFrame`.
             camera.recenter();
           }}
           style={[styles.recenter, { top: insets.top + 12 }]}
@@ -1236,11 +1288,16 @@ function TripMapImpl() {
               ? followVehicle ? 'Show the whole route' : 'Follow the vehicle'
               : canFollowMe
                 ? followMe ? 'Show the whole route' : 'Centre on my location'
-                : 'Recentre the map'
+                : 'Show the whole route'
           }
         >
           <Ionicons
-            name={followVehicle || followMe ? 'scan-outline' : 'locate'}
+            /**
+             * The icon has to promise what the tap does. `locate` (a crosshair)
+             * means "take me to me", and on the booking flow the tap re-frames
+             * the JOURNEY — so there it shows the fit-to-bounds glyph instead.
+             */
+            name={followVehicle || followMe || (!canFollowMe && !canFollowVehicle) ? 'scan-outline' : 'locate'}
             size={18}
             color={followVehicle || followMe ? colors.primary : colors.onSurface}
           />

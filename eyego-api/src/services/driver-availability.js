@@ -138,17 +138,116 @@ function availableDriverWhere({ ids = null, excludeId = null } = {}) {
 }
 
 /**
+ * ── ALMOST FREE IS FREE ENOUGH ───────────────────────────────────────────────
+ *
+ * FEATURE ("the popup should also pop up even in mid ride so they can choose to
+ * accept that ride and fulfil it after their ride is done. This should only
+ * come when the driver's trip is almost done, so the rider that requested the
+ * second ride doesn't wait that long").
+ *
+ * `busyTripFilter` is a Prisma relation filter and can therefore only reason
+ * about columns — a status and a timestamp. "How long until this driver is
+ * free" is an ETA, which lives in a service, so it cannot be expressed in the
+ * where-clause at all. That is why this is a SECOND pass rather than a change
+ * to the filter: the query still returns the genuinely-free drivers, and this
+ * adds back the ones whose current trip is within a few minutes of its last
+ * drop-off.
+ *
+ * Three rules keep it honest:
+ *   1. The trip must be IN_PROGRESS. A driver who has not collected their
+ *      current passenger yet is not "almost done", whatever the ETA says.
+ *   2. The ETA is to the FINAL drop, from the driver's live position — the same
+ *      number the rider on board is being shown, so the two cannot disagree.
+ *   3. The threshold is a PlatformSetting, so it is tunable without a deploy
+ *      (this codebase's convention for every dispatch knob).
+ *
+ * A driver added here is offered the ride as a QUEUED one; they are still
+ * finishing the trip they are on, and the offer surface says so.
+ */
+const MIDRIDE_ELIGIBLE_STATUSES = Object.freeze(['IN_PROGRESS']);
+const midRideOfferEtaMinutes = () => settings.get('MIDRIDE_OFFER_ETA_MINUTES') ?? 5;
+
+/**
+ * Of `driverIds`, which are busy but within the mid-ride window?
+ *
+ * NEVER THROWS. An ETA provider that is slow or down must not be able to shrink
+ * the candidate pool — this only ever ADDS drivers, so failing closed costs an
+ * optimisation and failing open would cost a rider a car.
+ *
+ * @returns {Promise<string[]>} driver ids that may be offered a queued ride.
+ */
+async function midRideAvailableDriverIds(prisma, driverIds) {
+  if (!Array.isArray(driverIds) || driverIds.length === 0) return [];
+  const windowMin = midRideOfferEtaMinutes();
+  if (!(windowMin > 0)) return [];
+
+  try {
+    const trips = await prisma.trip.findMany({
+      where: {
+        driverId: { in: driverIds },
+        status: { in: [...MIDRIDE_ELIGIBLE_STATUSES] },
+        // Same abandonment bound the busy filter uses — a trip nothing has
+        // reported on for hours has no meaningful ETA to be near the end of.
+        updatedAt: { gte: new Date(Date.now() - IN_FLIGHT_IDLE_HOURS * 60 * 60 * 1000) },
+      },
+      select: {
+        id: true,
+        driverId: true,
+        dropoffLat: true,
+        dropoffLng: true,
+        route: { select: { destinationLat: true, destinationLng: true } },
+        driver: { select: { currentLat: true, currentLng: true } },
+      },
+    });
+    if (trips.length === 0) return [];
+
+    const eta = require('./eta.service');
+    const results = await Promise.all(
+      trips.map(async (t) => {
+        const destLat = t.dropoffLat ?? t.route?.destinationLat;
+        const destLng = t.dropoffLng ?? t.route?.destinationLng;
+        const fromLat = t.driver?.currentLat;
+        const fromLng = t.driver?.currentLng;
+        if (![destLat, destLng, fromLat, fromLng].every(Number.isFinite)) return null;
+        try {
+          const minutes = await eta.etaMinutes(
+            { lat: fromLat, lng: fromLng },
+            { lat: destLat, lng: destLng },
+          );
+          return Number.isFinite(minutes) && minutes <= windowMin ? t.driverId : null;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return results.filter(Boolean);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[driver-availability] mid-ride check failed: ${err.message}`);
+    return [];
+  }
+}
+
+/**
  * Imperative form of the same rule, for code paths that already hold a driver
  * id and just need a yes/no (the REST poll, socket handlers). Returns true when
  * the driver may be shown a dispatch offer.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.includeMidRide] also say yes to a driver who is
+ *   finishing a trip that is within the mid-ride window. Off by default: most
+ *   callers are asking "may I hand this driver the wheel right now".
  */
-async function isDriverAvailable(prisma, driverId) {
+async function isDriverAvailable(prisma, driverId, opts = {}) {
   if (!driverId) return false;
   const driver = await prisma.driver.findFirst({
     where: { id: driverId, ...availableDriverWhere() },
     select: { id: true },
   });
-  return !!driver;
+  if (driver) return true;
+  if (!opts.includeMidRide) return false;
+  const nearlyFree = await midRideAvailableDriverIds(prisma, [driverId]);
+  return nearlyFree.length > 0;
 }
 
 /**
@@ -221,5 +320,7 @@ module.exports = {
   busyTripFilter,
   availableDriverWhere,
   isDriverAvailable,
+  midRideAvailableDriverIds,
+  midRideOfferEtaMinutes,
   explainIneligible,
 };

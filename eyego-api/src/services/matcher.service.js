@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 const supply = require('./supply-index.service');
 const h3 = require('./h3-index.service');
 const { etaMatrix } = require('./eta.service');
-const { availableDriverWhere, explainIneligible } = require('./driver-availability');
+const { availableDriverWhere, explainIneligible, midRideAvailableDriverIds } = require('./driver-availability');
 const { haversineMeters } = require('../utils/geo');
 const destinationMode = require('./destination-mode.service');
 const { normalizeTier } = require('../modules/trips/fare.calculator');
@@ -270,19 +270,65 @@ async function rankCandidates({ tripId = null, pickupLat, pickupLng, radiusKm, e
   // 2. Postgres decides. `availableDriverWhere` is the single eligibility
   //    source (approved + online + not busy) and stays that way — this is a
   //    filter over ids, never a new hand-rolled where clause.
+  const DRIVER_SELECT = {
+    id: true,
+    fcmToken: true,
+    currentLat: true,
+    currentLng: true,
+    destinationLat: true,
+    destinationLng: true,
+    destinationExpiresAt: true,
+    vehicles: { where: { isActive: true, isVerified: true }, select: { id: true, tier: true, seaterCount: true } },
+  };
+
   const eligible = await prisma.driver.findMany({
     where: availableDriverWhere({ ids, excludeId: [...excluded] }),
-    select: {
-      id: true,
-      fcmToken: true,
-      currentLat: true,
-      currentLng: true,
-      destinationLat: true,
-      destinationLng: true,
-      destinationExpiresAt: true,
-      vehicles: { where: { isActive: true, isVerified: true }, select: { id: true, tier: true, seaterCount: true } },
-    },
+    select: DRIVER_SELECT,
   });
+
+  /**
+   * ── …AND THE ONES WHO ARE ABOUT TO BE FREE ────────────────────────────────
+   *
+   * FEATURE ("the popup should also pop up even in mid ride… this should only
+   * come when the driver's trip is almost done").
+   *
+   * Deliberately additive and deliberately second. `availableDriverWhere` stays
+   * the single eligibility source for "free right now" — nothing above this
+   * line changed — and these are drivers it correctly rejected as busy, added
+   * back because their current trip is minutes from its last drop-off. Ranking
+   * below then treats them like any other candidate, so a genuinely free driver
+   * who is closer still wins.
+   *
+   * Costs one query and a handful of ETA lookups, and only for ids the geo
+   * index already produced. `midRideAvailableDriverIds` never throws and
+   * returns `[]` on any failure, so this cannot shrink the pool.
+   */
+  const busyIds = ids.filter((id) => !eligible.some((d) => d.id === id));
+  if (busyIds.length > 0) {
+    const nearlyFree = await midRideAvailableDriverIds(prisma, busyIds).catch(() => []);
+    if (nearlyFree.length > 0) {
+      const extra = await prisma.driver.findMany({
+        where: {
+          id: { in: nearlyFree },
+          // The mid-ride pass only checks the TRIP. Everything else the
+          // eligibility rule cares about still has to hold: a driver who has
+          // paused requests or gone offline is not offered work because they
+          // happen to be nearly at a drop-off.
+          status: 'ACTIVE',
+          isOnline: true,
+          requestsPaused: false,
+        },
+        select: DRIVER_SELECT,
+      });
+      if (extra.length > 0) {
+        logger.info('Dispatch including nearly-free drivers', {
+          tripId,
+          drivers: extra.map((d) => d.id),
+        });
+        eligible.push(...extra);
+      }
+    }
+  }
 
   // Anything the geo index offered that Postgres rejected, with the reason. This
   // is the query that answers "there is a driver online right on top of me, why

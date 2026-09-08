@@ -237,13 +237,14 @@ export default function RootLayout() {
    * removing it would trade a frame cost for a black flash. Pausing stops the
    * frame callback, which is the entire cost; the last frame stays on screen.
    */
-  const segPath = segments.join('/');
-  const overFullBleedMap =
-    segPath.includes('home') ||
-    segPath.includes('active') ||
-    segPath.includes('tracking') ||
-    segPath.includes('dispatch') ||
-    segPath.includes('location-picker');
+  /**
+   * Segment equality, not substring. `includes()` on the joined path matched
+   * anything that merely CONTAINED one of these words, so the set of paused
+   * routes was unknowable by reading it — and one accidental match pauses the
+   * app's only animated background with nothing on screen to explain it.
+   */
+  const FULL_BLEED_MAP_SEGMENTS = ['home', 'active', 'tracking', 'dispatch', 'location-picker'];
+  const overFullBleedMap = segments.some((s) => FULL_BLEED_MAP_SEGMENTS.includes(s));
 
   const [splashDone, setSplashDone] = useState(false);
   const [inAppBanner, setInAppBanner] = React.useState<{ title: string; body: string } | null>(null);

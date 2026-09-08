@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi } from '@eyego/api';
 import { originLabel, destinationLabel } from '@eyego/utils';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, EmptyState, Entrance, AnimatedList, Skeleton, AppBackground, usePressScale, goDeeper, notify } from '@eyego/ui';
+import { Text, EmptyState, Entrance, AnimatedList, Skeleton, usePressScale, goDeeper, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
@@ -139,7 +139,6 @@ export default function TripsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <AppBackground isDark={theme !== 'light'} />
       {/* Header */}
       <Entrance animation="slideUp" delay={50} style={styles.header}>
         <Text variant="headlineMedium" style={styles.title}>My Trips</Text>
