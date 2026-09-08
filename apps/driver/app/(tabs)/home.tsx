@@ -4,7 +4,8 @@ import {
   View,
   StyleSheet,
   Pressable,
-  } from 'react-native';
+  useWindowDimensions,
+} from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -20,7 +21,7 @@ import { useDriverStore } from '../../stores/driver.store';
 import { useDriverTripStore } from '../../stores/trip.store';
 import { useNotificationsStore } from '../../stores/notifications.store';
 import { useDriverLocation, beatPresenceNow } from '../../hooks/useDriverLocation';
-import { DispatchBlockedBanner, describeDispatchBlock } from '../../components/DispatchBlockedBanner';
+import { DispatchBlockedBanner, describeDispatchBlock, dispatchBlockTripId } from '../../components/DispatchBlockedBanner';
 import { DriverAlertBanner } from '../../components/DriverAlertBanner';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { usePlatformConfig } from '../../hooks/usePlatformConfig';
@@ -40,6 +41,8 @@ export default function HomeScreen() {
   // blue for both apps, so it's shared unchanged.
   const mapStyle = theme === 'light' ? mapStyles.eyegoLightStyle : mapStyles.eyegoDriverDarkStyle;
   const insets = useSafeAreaInsets();
+  // The map camera is padded by the panel that covers it — see `mapPadding`.
+  const { height: windowHeight } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
   const qc = useQueryClient();
@@ -155,7 +158,17 @@ export default function HomeScreen() {
     queryFn: () => heatmapApi.getDemand(location!.latitude, location!.longitude, 5),
     select: (r) => r.data.data?.cells ?? [],
     refetchInterval: showHeatmap ? 60000 : false, // ~60s poll
-    enabled: showHeatmap && isOnline && !!location,
+    /**
+     * NOT gated on `isOnline`.
+     *
+     * "Where is the work right now" is the question a driver asks BEFORE
+     * deciding to go online. Requiring them to be online first meant an offline
+     * driver tapped the flame and nothing happened — no cells, no error, no
+     * explanation — which is indistinguishable from a broken feature and is
+     * half of "the heatmap is half baked". The endpoint only needs a driver
+     * token, not a driver in the pool.
+     */
+    enabled: showHeatmap && !!location,
   });
 
   const { data: activeTripData } = useQuery({
@@ -403,14 +416,30 @@ export default function HomeScreen() {
         return { label: 'Re-register me now', onPress: () => goOnline.mutate() };
       case 'RESUME':
         return { label: 'Resume requests', onPress: () => resumeRequests.mutate() };
-      case 'ACTIVE_TRIP':
-        return activeTripId
+      case 'ACTIVE_TRIP': {
+        /**
+         * THE TRIP THE SERVER NAMED, NOT THE ONE THIS PHONE REMEMBERS.
+         *
+         * BUGFIX ("when I mark as no-show, the toast shows as unfinished ride,
+         * and when I open it, it shows the blank manage trip page with the
+         * cancelled thing"). This read `activeTripId` — a persisted local value
+         * that survives the trip it points at — so the button under a
+         * server-generated reason opened whatever this install last wrote,
+         * which after a no-show is the trip that was just killed.
+         *
+         * The reason string carries the id; see `dispatchBlockTripId`. Falling
+         * back to `activeTripId` would reintroduce exactly the bug, so an
+         * unparseable reason offers a refresh instead of a guess.
+         */
+        const blockingTripId = dispatchBlockTripId(dispatchStatus.reason);
+        return blockingTripId
           ? {
               label: 'Open my trip',
               onPress: () =>
-                goDeeper({ pathname: '/(trip)/active/[id]', params: { id: activeTripId } } as Href),
+                goDeeper({ pathname: '/(trip)/active/[id]', params: { id: blockingTripId } } as Href),
             }
           : { label: 'Refresh', onPress: () => void beatPresenceNow().catch(() => {}) };
+      }
       case 'SIGN_OUT':
         return { label: 'Sign out', onPress: () => goDeeper('/(profile)/settings' as Href) };
       default:
@@ -468,6 +497,65 @@ export default function HomeScreen() {
   );
   const initialZoom = location ? 14 : 13;
 
+  /**
+   * CENTRE ON THE VISIBLE MAP, NOT ON THE MAP.
+   *
+   * BUGFIX ("the driver's current location defaults to sitting UNDER the home
+   * card — the only way to see it is to manually adjust the map").
+   *
+   * The camera had no `padding`, so `centerCoordinate` put the driver in the
+   * middle of the MapView — and the MapView is full-bleed while the bottom 56%
+   * of it is covered by the panel below (`snapPointsPct[0]`). The puck was
+   * therefore centred inside the panel, every launch, with nothing on screen to
+   * explain why the driver could not find themselves.
+   *
+   * The camera's padding is what tells it which part of the surface is actually
+   * being looked at. Derived from the SAME constant the panel rests on, so the
+   * two cannot drift; the tab bar is already inside that fraction.
+   *
+   * Note the key shape: a declarative `<Camera padding>` takes
+   * `paddingTop/paddingBottom/…`, NOT the `top/right/bottom/left` that
+   * `fitBounds` takes. Mixing them silently drops all padding.
+   */
+  const PANEL_REST_FRACTION = 0.56;
+  const mapPadding = useMemo(
+    () => ({
+      paddingTop: insets.top + 8,
+      paddingBottom: Math.round(windowHeight * PANEL_REST_FRACTION),
+      paddingLeft: 0,
+      paddingRight: 0,
+    }),
+    [insets.top, windowHeight],
+  );
+
+  const cameraRef = useRef<any>(null);
+  /**
+   * Re-frame once the driver's real position arrives.
+   *
+   * Keyed on a ROUNDED fix, not the raw one: `useDriverLocation` emits on every
+   * GPS sample, and re-issuing `setCamera` several times a second would fight
+   * the driver's own panning for the whole session. Five decimals is about a
+   * metre — far finer than this frame needs, and coarse enough that standing
+   * still does not move the camera.
+   *
+   * `animationDuration: 0` on the first frame so the map opens already correct
+   * rather than visibly sliding into place; later corrections ease.
+   */
+  const framedKey = location ? `${location.latitude.toFixed(5)},${location.longitude.toFixed(5)}` : null;
+  const hasFramedRef = useRef(false);
+  useEffect(() => {
+    if (!framedKey || !location) return;
+    cameraRef.current?.setCamera({
+      centerCoordinate: [location.longitude, location.latitude],
+      zoomLevel: 14,
+      padding: mapPadding,
+      animationDuration: hasFramedRef.current ? 400 : 0,
+    });
+    hasFramedRef.current = true;
+    // `framedKey` IS the meaningful identity of the fix — see above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [framedKey, mapPadding]);
+
   return (
     <View style={styles.container}>
       {/* MAP — full-bleed, mirrors the rider app's map screens (ride/[id].tsx,
@@ -490,7 +578,19 @@ export default function HomeScreen() {
         attributionEnabled={false}
         compassEnabled={false}
       >
-        <MapboxGL.Camera centerCoordinate={initialCenter} zoomLevel={initialZoom} animationMode="none" />
+        {/*
+          `padding` is NOT a prop on this Camera — it only exists on the
+          imperative `setCamera`, which is why the effect above drives it. The
+          declarative pair here is the first frame (so the map never opens on
+          the middle of the Atlantic); the effect re-frames it against the
+          visible strip the moment a real fix lands.
+        */}
+        <MapboxGL.Camera
+          ref={cameraRef}
+          centerCoordinate={initialCenter}
+          zoomLevel={initialZoom}
+          animationMode="none"
+        />
 
         {location && (
           <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
@@ -500,11 +600,19 @@ export default function HomeScreen() {
           </MapboxGL.MarkerView>
         )}
 
-        {/* Demand heatmap overlay — weighted circles for high-demand areas */}
+        {/*
+          Demand heat map — real ground, not screen-space blobs. See DemandOverlay.
+
+          NOT gated on `isOnline` any more. "Where is the work right now" is the
+          question a driver asks BEFORE deciding to go online, and hiding the
+          answer until they already have is the wrong way round — it made the
+          flame toggle appear broken to an offline driver, which is half of
+          "the heatmap is half baked".
+        */}
         <DemandOverlay
           cells={heatmapData ?? []}
           primaryColor={colors.primary}
-          visible={showHeatmap && isOnline}
+          visible={showHeatmap}
         />
       </MapboxGL.MapView>
       </SmoothDefer>
@@ -521,20 +629,42 @@ export default function HomeScreen() {
           )}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-          {isOnline && (
-            <Pressable
-              onPress={() => setShowHeatmap(!showHeatmap)}
-              style={{
-                width: 36, height: 36,
-                borderRadius: 18,
-                backgroundColor: showHeatmap ? `${colors.primary}22` : 'transparent',
-                alignItems: 'center', justifyContent: 'center',
-                borderWidth: 1, borderColor: showHeatmap ? colors.primary : colors.outline,
-              }}
-             accessibilityRole="button" accessibilityLabel="Show where demand is high">
-              <Ionicons name="flame-outline" size={16} color={showHeatmap ? colors.primary : colors.onSurfaceVariant} />
-            </Pressable>
-          )}
+          {/*
+            THE FLAME IS ALWAYS THERE, AND IT ALWAYS ANSWERS.
+
+            It used to render only while online — see the note on the query's
+            `enabled`; the driver most in need of knowing where the work is, is
+            the one deciding whether to start. And a toggle that silently draws
+            nothing when there is no demand is a toggle the driver concludes is
+            broken, so turning it ON with an empty result says so out loud.
+          */}
+          <Pressable
+            onPress={() => {
+              const next = !showHeatmap;
+              setShowHeatmap(next);
+              void Haptics.selectionAsync().catch(() => {});
+              if (next && (heatmapData?.length ?? 0) === 0) {
+                notify(
+                  'No demand nearby yet',
+                  'Nobody has requested a ride within 5 km in the last day. The map updates every minute.',
+                  { tone: 'info' },
+                );
+              }
+            }}
+            style={{
+              width: 36, height: 36,
+              borderRadius: 18,
+              backgroundColor: showHeatmap ? `${colors.primary}22` : 'transparent',
+              alignItems: 'center', justifyContent: 'center',
+              borderWidth: 1, borderColor: showHeatmap ? colors.primary : colors.outline,
+            }}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityState={{ selected: showHeatmap }}
+            accessibilityLabel="Show where demand is high"
+          >
+            <Ionicons name={showHeatmap ? 'flame' : 'flame-outline'} size={16} color={showHeatmap ? colors.primary : colors.onSurfaceVariant} />
+          </Pressable>
           <OnlineToggle
             isOnline={isOnline}
             loading={goOnline.isPending || goOffline.isPending}

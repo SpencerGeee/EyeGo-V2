@@ -131,6 +131,36 @@ export function DriverTripStatusListener() {
 
   const dismissToast = useCallback(() => setToast(null), []);
 
+  /**
+   * A TRIP THAT ENDED IS NOT THE DRIVER'S ACTIVE TRIP ANY MORE.
+   *
+   * BUGFIX ("when I mark as no-show, the toast shows as unfinished ride, and
+   * when I open it, it shows the blank manage trip page with the cancelled
+   * thing — this is a huge misdirection").
+   *
+   * `driverStore.activeTripId` is PERSISTED, and only the screens that end a
+   * trip on purpose cleared it. Every other way a trip can end — the rider
+   * cancels, the server expires it, another device finishes it, a no-show
+   * arrives as a socket frame while the driver is on the home tab — left the id
+   * in storage pointing at a dead row, for the rest of the install. Every
+   * surface that reads it then offers to open a trip that has nothing to show:
+   * a blank manage screen with a CANCELLED chip.
+   *
+   * This is the exact mirror of the rider's persisted `activeBooking`, fixed in
+   * the same pass.
+   *
+   * Guarded on the id so a terminal frame for somebody ELSE's trip — a rider
+   * cancelling one seat on a bus the driver is still running — cannot clear the
+   * live one out from under them.
+   */
+  const releaseTripIfMine = useCallback((endedTripId: string | null | undefined) => {
+    if (!endedTripId) return;
+    const store = useDriverStore.getState();
+    if (store.activeTripId && store.activeTripId === endedTripId) {
+      store.setActiveTripId(null);
+    }
+  }, []);
+
   // ── Socket connection: connect as soon as the driver is logged in ──
   // Ref-counted (connectDriverSocket) so the socket stays alive as long as any
   // other component (home/active/tracking/chat) also holds a reference.
@@ -204,6 +234,7 @@ export function DriverTripStatusListener() {
         showBanner('A passenger cancelled their booking', 'close-circle');
         queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
         queryClient.invalidateQueries({ queryKey: ['driver', 'me'] });
+        releaseTripIfMine(tId);
       } else if (status === 'COMPLETED') {
         // Trip wrapped up off-screen — refresh earnings/wallet/quests/trip lists.
         queryClient.invalidateQueries({ queryKey: ['driver', 'trips'] });
@@ -211,6 +242,7 @@ export function DriverTripStatusListener() {
         queryClient.invalidateQueries({ queryKey: ['driver', 'me'] });
         queryClient.invalidateQueries({ queryKey: ['driver', 'quests'] });
         if (!onTripScreen) showBanner('Trip completed — earnings updated', 'checkmark-circle');
+        releaseTripIfMine(tId);
       }
     });
 

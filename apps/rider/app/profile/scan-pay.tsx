@@ -37,9 +37,38 @@ const TRIP_PATH = '/ride/';
  * already be printed or screenshotted, and dropping them would silently break
  * them with a "not an EyeGo code" error.
  */
+/**
+ * ── TWO TRIP CODES, AND THEY MEAN OPPOSITE THINGS ───────────────────────────
+ *
+ * BUGFIX ("when I scan the QR from the driver's scan-to-pay page using the
+ * rider app's scan option, it opens the 'book this ride' thing… if I'm already
+ * in the trip and I want to scan to pay, I should be able to scan to pay
+ * directly without booking again").
+ *
+ * The driver used to render ONE code for both buttons, and it pointed at
+ * `/ride/<tripId>` — the trip DETAIL screen, whose primary action is "Book This
+ * Seat". So the scanner could not tell the two apart and had to pick one for
+ * everybody, and whichever it picked was wrong for half the riders: a passenger
+ * already aboard was offered a second seat, or a stranger at the kerb was sent
+ * to a payment screen for a ride they had not booked.
+ *
+ * The driver now emits two different URLs (see the QR sheet in the driver's
+ * manage screen), so the ambiguity is gone at the source and this can simply
+ * read which one it is:
+ *
+ *   /pay/trip/<tripId>  → pay my fare on a trip I am already on
+ *   /ride/<tripId>      → take a seat on this trip
+ *
+ * Order matters below: `/pay/trip/` is a prefix of neither, but `/pay/` IS a
+ * prefix of `/pay/trip/`, so the more specific one has to be tested first or a
+ * trip payment parses as a phone-number payment whose "phone" is the word
+ * "trip".
+ */
+const PAY_TRIP_PATH = '/pay/trip/';
+
 function parseScannedCode(
   raw: string,
-): { kind: 'pay' | 'trip'; value: string; amountCedis?: string } | null {
+): { kind: 'pay' | 'trip' | 'payTrip'; value: string; amountCedis?: string } | null {
   const text = (raw ?? '').trim();
   if (!text) return null;
 
@@ -67,6 +96,16 @@ function parseScannedCode(
     if (!/^\d{1,7}(\.\d{1,2})?$/.test(value)) return undefined;
     return Number(value) > 0 ? value : undefined;
   };
+
+  // FIRST — `/pay/` is a prefix of `/pay/trip/`, so the specific one wins or a
+  // trip payment is read as a payment to a person called "trip".
+  const payTrip = after([
+    `${WEB_ORIGIN}${PAY_TRIP_PATH}`,
+    `http://eyego.app${PAY_TRIP_PATH}`,
+    `eyego:/${PAY_TRIP_PATH}`,
+    'eyego:paytrip:',
+  ]);
+  if (payTrip) return { kind: 'payTrip', value: payTrip.split(/[?#/]/)[0] };
 
   const pay = after([`${WEB_ORIGIN}${PAY_PATH}`, `http://eyego.app${PAY_PATH}`, `eyego:/${PAY_PATH}`, 'eyego:pay:']);
   if (pay) return { kind: 'pay', value: pay.split(/[?#/]/)[0], amountCedis: amountOf(pay) };
@@ -138,24 +177,30 @@ export default function ScanPayScreen() {
      * again. Pushing keeps the scanner behind the destination, which is what
      * back is for.
      */
-    if (parsed.kind === 'trip') {
-      /**
-       * THE PAY SHEET, NOT THE BOOKING SCREEN.
-       *
-       * BUGFIX ("I tried the scan and pay thing and when I scanned, it opened
-       * the ride instead — it opened the ride for the user to book a seat.
-       * That's contradictory to scan and pay").
-       *
-       * This used to push `/ride/[id]`, which is the ordinary trip detail
-       * screen: pick a seat, pick a payment method, confirm, then pay. A
-       * booking flow with a camera in front of it is not a payment, and the
-       * feature is called Scan & Pay.
-       *
-       * `/pay/trip/[id]` states the ride, the seat and the price, and charges
-       * the rider's wallet once. See that screen for what it deliberately does
-       * not ask.
-       */
+    /**
+     * THE CODE SAYS WHICH ONE IT IS. See `parseScannedCode`.
+     *
+     * `payTrip` — a passenger already on this trip settling their fare. Goes
+     * straight to payment; it never asks them to book anything, which is the
+     * whole point of the split.
+     */
+    if (parsed.kind === 'payTrip') {
       goDeeper({ pathname: '/pay/trip/[id]', params: { id: parsed.value } } as any);
+      return;
+    }
+
+    /**
+     * `trip` — a `/ride/<id>` code, which is the BOOKING one: somebody at the
+     * kerb taking a seat on a trip they are not on yet.
+     *
+     * This used to be forced to the payment screen, because until the driver
+     * emitted two distinct codes there was no way to tell the two intents
+     * apart and paying was the likelier one. Now that the ambiguity is gone at
+     * the source, this code can mean what it says. See the QR sheet on the
+     * driver's manage screen.
+     */
+    if (parsed.kind === 'trip') {
+      goDeeper({ pathname: '/ride/[id]', params: { id: parsed.value } } as any);
       return;
     }
     goDeeper({

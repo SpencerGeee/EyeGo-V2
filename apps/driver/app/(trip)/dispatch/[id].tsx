@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Pressable, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -39,8 +39,32 @@ import { morphIdFor } from '../../../components/PendingDispatchList';
  * before the first `onLayout`, which is why it is a floor rather than a guess.
  */
 const SHEET_RESERVE_FALLBACK = 380;
-/** Hard ceiling on the sheet so the map is never fully covered on a small phone. */
-const SHEET_MAX_HEIGHT = 560;
+
+/**
+ * ── THE MAP GETS A GUARANTEED SHARE, IN VIEWPORT UNITS ──────────────────────
+ *
+ * BUGFIX ("on the dispatch page the map is shown just a little at the top and
+ * the texts and all cover all the space, so it makes that page very badly
+ * designed — the driver should be able to see all the relevant details before
+ * swiping to accept").
+ *
+ * The ceiling was a flat 560 pt. A constant is the wrong unit for "how much of
+ * the screen may this cover": 560 pt is 72% of a 780 pt phone and 84% of a
+ * 667 pt one, so the guarantee it was supposed to provide got weaker exactly on
+ * the devices that needed it most, and the map became a strip that could not
+ * answer the one question the driver has — is this pickup near me or not.
+ *
+ * A fraction is the honest unit. 58% for the sheet leaves the map 42%, which is
+ * the SAME share `StopTimelineSurface` gives it on the two trip screens, so the
+ * driver's three map surfaces are proportioned alike. The old constant survives
+ * as an upper bound for tablets, where 58% of the screen is more sheet than any
+ * offer card needs.
+ */
+const SHEET_MAX_FRACTION = 0.58;
+const SHEET_MAX_HEIGHT_CAP = 560;
+function sheetMaxHeight(viewportHeight: number): number {
+  return Math.min(SHEET_MAX_HEIGHT_CAP, Math.round(viewportHeight * SHEET_MAX_FRACTION));
+}
 
 /**
  * Fallback window when the payload carries no deadline (the REASSIGNMENT path).
@@ -98,6 +122,8 @@ export default function DispatchScreen() {
   // The chrome floats over a full-bleed map, so the safe area is applied per
   // element rather than by a SafeAreaView that would inset the map itself.
   const insets = useSafeAreaInsets();
+  // The sheet may cover at most a FRACTION of the screen — see sheetMaxHeight.
+  const { height: windowHeight } = useWindowDimensions();
   const router = useRouter();
   const qc = useQueryClient();
   const setActiveTripId = useDriverStore((s) => s.setActiveTripId);
@@ -815,7 +841,7 @@ export default function DispatchScreen() {
             />
             <MorphTarget id={morphIdFor(id)} borderRadius={radii['3xl']}>
               <ScrollView
-                style={{ maxHeight: SHEET_MAX_HEIGHT }}
+                style={{ maxHeight: sheetMaxHeight(windowHeight) }}
                 contentContainerStyle={{ paddingBottom: insets.bottom + spacing.base }}
                 showsVerticalScrollIndicator={false}
                 bounces={false}

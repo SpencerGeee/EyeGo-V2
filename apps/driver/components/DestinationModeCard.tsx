@@ -127,9 +127,28 @@ export function DestinationModeCard() {
     goDeeper('/(trip)/location-picker' as any);
   };
 
-  if (!mode) return null;
-
-  if (mode.active) {
+  /**
+   * A FEATURE THAT ONLY APPEARS AFTER A SUCCESSFUL GET IS A FEATURE NOBODY HAS.
+   *
+   * BUGFIX ("make sure the set-a-destination functionality is fully implemented
+   * and working as it should — it shouldn't be a dead-ops type thing").
+   *
+   * Every part of destination mode is built and wired: the routes, the
+   * controller, the rationing, the picker handoff on focus, and the matcher
+   * filter that actually drops trips going the wrong way
+   * (`destinationMode.headingTowards` in matcher.service.js). What was missing
+   * was the ENTRY POINT — this returned `null` whenever `mode` was falsy, which
+   * is true on first paint, on every cold start until the query answers, and
+   * permanently whenever `GET /driver/destination` fails or answers a shape
+   * `select` cannot read. A driver in that state has no button at all, so the
+   * feature is indistinguishable from one that was never built.
+   *
+   * The card now renders its call to action regardless, and only the numbers
+   * inside it wait for the server. Tapping while the allowance is unknown is
+   * safe: the POST is the authority and refuses with a real message if the
+   * driver is out of uses.
+   */
+  if (mode?.active) {
     return (
       <GradientGlowBorder
         palette="driver"
@@ -169,7 +188,8 @@ export function DestinationModeCard() {
     );
   }
 
-  const exhausted = mode.usesRemaining <= 0;
+  // Unknown allowance is NOT exhausted — see the note above `mode?.active`.
+  const exhausted = mode != null && mode.usesRemaining <= 0;
 
   return (
     <Pressable
@@ -225,20 +245,25 @@ export function DestinationModeCard() {
             {exhausted ? 'Resets tomorrow' : 'Only get rides heading your way'}
           </Text>
         </View>
-        <View
-          style={[
-            styles.pill,
-            exhausted
-              ? { borderColor: colors.outline }
-              : { borderColor: `${colors.primary}55`, backgroundColor: `${colors.primary}18` },
-          ]}
-        >
-          <Text
-            style={[styles.pillText, { color: exhausted ? colors.onSurfaceVariant : colors.primary }]}
+        {/* The allowance pill is the one thing here that genuinely needs the
+            server. Absent while it is unknown, rather than a guessed number or
+            a reason to hide the whole control. */}
+        {mode != null && (
+          <View
+            style={[
+              styles.pill,
+              exhausted
+                ? { borderColor: colors.outline }
+                : { borderColor: `${colors.primary}55`, backgroundColor: `${colors.primary}18` },
+            ]}
           >
-            {exhausted ? '0 left' : `${mode.usesRemaining} left`}
-          </Text>
-        </View>
+            <Text
+              style={[styles.pillText, { color: exhausted ? colors.onSurfaceVariant : colors.primary }]}
+            >
+              {exhausted ? '0 left' : `${mode.usesRemaining} left`}
+            </Text>
+          </View>
+        )}
         <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
       </GradientGlowBorder>
     </Pressable>

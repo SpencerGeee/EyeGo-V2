@@ -667,7 +667,20 @@ export default function RootLayout() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: colors.background },
-            animation: 'fade_from_bottom',
+            /**
+             * ── THE DEFAULT IS A PUSH, NOT A FADE ─────────────────────────
+             *
+             * See the twin note in the rider's root layout. `fade_from_bottom`
+             * was worse than the rider's plain fade on both counts: it has a
+             * direction, and the direction is WRONG — upward motion means a
+             * modal being presented, so every ordinary push down the hierarchy
+             * read as a sheet, and the back gesture then contradicted it.
+             *
+             * `detailPush` is the platform's own push: UINavigationController on
+             * iOS (parallax, edge shadow, interactive pop), an explicit slide on
+             * Android. The fade group below keeps its fade.
+             */
+            ...detailPush,
             /**
              * A BLURRED SCREEN STOPS THINKING.
              *
@@ -680,7 +693,9 @@ export default function RootLayout() {
             freezeOnBlur: true,
           }}
         >
-          <Stack.Screen name="index" options={{ contentStyle: TRANSPARENT_CONTENT }} />
+          {/* Spelled out now that the navigator's default is a push — this
+              screen is transparent, and a slide would expose the window. */}
+          <Stack.Screen name="index" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
           <Stack.Screen name="(auth)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
           <Stack.Screen name="(tabs)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
           <Stack.Screen

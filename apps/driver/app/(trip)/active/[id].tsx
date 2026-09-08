@@ -30,7 +30,10 @@ import { useDriverSocket } from '../../../hooks/useDriverSocket';
 import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import * as Haptics from 'expo-haptics';
 import { SeatMap } from '../../../components/SeatMap';
-import { TripSurfaceShell } from '../../../components/trip/TripSurfaceShell';
+import { StopTimelineSurface } from '../../../components/trip/StopTimelineSurface';
+import { StopTimeline, CabinStrip } from '../../../components/trip/StopTimeline';
+import { useTripStops } from '../../../components/trip/useTripStops';
+import { PassengerSheet, type PassengerSheetData } from '../../../components/trip/PassengerSheet';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { openExternalNavigation } from '../../../utils/externalNav';
 import type { GeoPlace } from '@eyego/utils';
@@ -201,7 +204,16 @@ export default function ActiveTripScreen() {
   const qc = useQueryClient();
   const { setActiveTripId } = useDriverStore();
   const { addNotification } = useNotificationsStore();
-  const [showPaymentQr, setShowPaymentQr] = useState(false);
+  /**
+   * WHICH CODE IS ON SCREEN — pay, book, or none.
+   *
+   * BUGFIX ("for scan-to-pay the QR should be different and for scan-to-book
+   * the QR should be different"). It was one boolean and one URL, and that URL
+   * was the BOOKING one, so the button labelled "Scan to Pay" handed a
+   * passenger the code for buying another seat. They are two different asks
+   * pointed at two different routes, so they are two different codes.
+   */
+  const [qrMode, setQrMode] = useState<'pay' | 'book' | null>(null);
   /** Local mirror of Driver.requestsPaused — see the toggle's note below for
    *  why this is optimistic rather than read back from the server. */
   const [requestsPaused, setRequestsPaused] = useState(false);
@@ -317,6 +329,15 @@ export default function ActiveTripScreen() {
     [id, qc],
   );
   const unreadChats = useChatUnread((s) => (id ? s.counts[id] ?? 0 : 0));
+
+  /**
+   * The passenger whose sheet is open, or null.
+   *
+   * Replaces the `Alert.alert` that tapping a seat used to raise — see
+   * components/trip/PassengerSheet.tsx for why an OS alert was the wrong object
+   * for a passenger record.
+   */
+  const [sheetPassenger, setSheetPassenger] = useState<PassengerSheetData | null>(null);
 
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
@@ -1050,6 +1071,14 @@ export default function ActiveTripScreen() {
   );
 
   /**
+   * The trip as a list of places — the projection this screen is now built on.
+   *
+   * ONE derivation, shared with the tracking screen, so the two cannot form
+   * different opinions of the same route. See components/trip/useTripStops.ts.
+   */
+  const { stops } = useTripStops(trip);
+
+  /**
    * ── THE BOARDING RUN ──────────────────────────────────────────────────────
    * Everyone who has paid and is not yet in the vehicle, in seat order. Unpaid
    * holds are excluded: a hold is a reservation that may still evaporate, and
@@ -1372,722 +1401,331 @@ export default function ActiveTripScreen() {
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <View style={styles.safe}>
-      {/* The map. Same component, same camera state machine and same route
-          line as the sibling tracking screen — this screen used to mount its own
-          MapView with its own NavCamera and its own Directions call, so moving
-          between the two mid-trip tore one map down, built another, and re-framed
-          the ride differently on arrival. */}
-      <DriverTripMap
-        tripId={id!}
-        status={trip.status}
-        pickup={pickupCoord}
-        dropoff={destCoord}
-        location={location}
-        puckColor={statusCfg.color}
-        sheetFraction={0.46}
-        active={isActiveTrip}
-        onEta={handleEta}
-      />
-
-      {/* Glassmorphic top header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable style={styles.headerIconBtn} onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
-        </Pressable>
-
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerRoute} numberOfLines={1}>
-            {originLabel(trip) ?? 'Pickup on the map'} → {destinationLabel(trip) ?? 'Destination on the map'}
-          </Text>
-          <View style={styles.statusBadge}>
-            <View style={[styles.statusDot, { backgroundColor: statusCfg.color }]} />
-            <Text style={[styles.statusLabel, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+    /**
+     * ── MANAGE, AS A STOP TIMELINE ───────────────────────────────────────────
+     *
+     * REDESIGN ("completely redesign the manage trip page of the driver app
+     * where it shows the seat map and all… I don't want to see the same design
+     * you've made of those two pages — take a whole different approach").
+     *
+     * What this replaced was a full-bleed map with a draggable sheet over it,
+     * and inside that sheet: a route card, a status chip row, a six-step rail, a
+     * seat GRID whose only affordance was an OS `Alert`, a quick-action row, a
+     * swipe control, a pause toggle, a no-show button and a cancel button —
+     * stacked vertically, so the single most important control on the screen was
+     * usually below the fold, and the map it all sat on was a strip.
+     *
+     * The deeper problem was the projection. That layout shows the trip's STATE,
+     * and a driver is not asking what state the trip is in — they are asking
+     * where they are going and who gets on or off when they arrive. On a minibus
+     * with four passengers and three drop-offs, a status chip cannot answer
+     * either question and a seat grid answers only half of one.
+     *
+     * So the trip is a list of STOPS, with the people who board or alight at
+     * each one nested beneath it, exactly one action pinned at the bottom, and a
+     * map pane the driver can trade against the list by dragging. The seat grid
+     * becomes a `CabinStrip` inside the current stop — occupancy is context, and
+     * the passengers themselves are already listed where they belong.
+     *
+     * WHAT DID NOT CHANGE: every mutation, socket handler, query key, transition
+     * and guard above this line. This is the presentation layer only. Manage
+     * remains the sole owner of status transitions (tracking defers to it), and
+     * the boarding-PIN run and its keypad are untouched.
+     */
+    <>
+      <StopTimelineSurface
+        onBack={() => goBack()}
+        title={`${originLabel(trip) ?? 'Pickup'} → ${destinationLabel(trip) ?? 'Destination'}`}
+        subtitle={statusCfg.label}
+        map={
+          <DriverTripMap
+            tripId={id!}
+            status={trip.status}
+            pickup={pickupCoord}
+            dropoff={destCoord}
+            location={location}
+            puckColor={statusCfg.color}
+            // The map owns its whole pane now — nothing is docked over it.
+            sheetFraction={0}
+            active={isActiveTrip}
+            onEta={handleEta}
+          />
+        }
+        mapOverlay={
+          /**
+           * SOS is the only thing that has earned a place on the map.
+           *
+           * It used to sit in the header next to the back button, which is where
+           * a thumb goes by accident. On the map, bottom-right, it is reachable
+           * and deliberate — and it is the one control whose value is that it
+           * can be found without reading.
+           */
+          <View style={styles.mapOverlayRow} pointerEvents="box-none">
+            <View style={{ flex: 1 }} />
+            <Pressable
+              style={styles.sosBtn}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Emergency SOS"
+              onPress={() =>
+                Alert.alert(
+                  'Emergency SOS',
+                  `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: `Call ${emergencyNumber}`,
+                      style: 'destructive',
+                      onPress: async () => {
+                        let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
+                        try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
+                        const payload = {
+                          latitude: pos?.coords.latitude,
+                          longitude: pos?.coords.longitude,
+                          timestamp: new Date().toISOString(),
+                        };
+                        try {
+                          await driverApi.emergencyAlert(id, payload);
+                        } catch {
+                          // Never block the actual emergency call — but the alert
+                          // must still reach dispatch, so queue it for retry.
+                          offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
+                        }
+                        void callNumber(emergencyNumber, { label: 'the emergency services' });
+                      },
+                    },
+                  ],
+                )
+              }
+            >
+              <Text style={styles.sosBtnText}>SOS</Text>
+            </Pressable>
           </View>
+        }
+        action={
+          /**
+           * ONE ACTION, PINNED.
+           *
+           * A status transition is legal exactly once and is the reason this
+           * screen exists, so it never scrolls away. The swipe (rather than a
+           * tap) is unchanged and deliberate — see @eyego/ui SwipeToConfirm: a
+           * phone in a cradle on a bad road taps itself.
+           */
+          statusInfo.next ? (
+            <SwipeToConfirm
+              label={
+                startsTheRide && pendingBoarders.length > 0
+                  ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
+                  : `Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`
+              }
+              loadingLabel={
+                boardingRun ? `Boarding ${boardingRun.index + 1} of ${boardingRun.queue.length}…` : `${statusInfo.action}…`
+              }
+              onConfirm={beginPrimaryAction}
+              loading={advanceStatus.isPending || boardingRun != null}
+              confirmed={confirmedLabel != null}
+              confirmedLabel={confirmedLabel ?? undefined}
+              color={colors.primary}
+              onColor={colors.onPrimary ?? '#0A0D14'}
+              trackColor={colors.surfaceContainer}
+              borderColor={colors.outline}
+            />
+          ) : null
+        }
+      >
+        <StopTimeline
+          stops={stops}
+          onNavigate={() => openNavigation(false)}
+          onPassenger={(p) => {
+            void Haptics.selectionAsync().catch(() => {});
+            /**
+             * The seat's own row is the source, so the sheet gets the RICH
+             * record (payment method, held-vs-paid, PIN requirement) rather
+             * than the timeline's summary — the timeline only carries what a
+             * row needs to render.
+             */
+            const seat = seats.find((s: any) => s.bookingId === p.bookingId);
+            setSheetPassenger({
+              bookingId: p.bookingId,
+              name: p.name,
+              bookedBy: p.bookedBy,
+              coveredBy: seat?.coveredBy ?? null,
+              phone: p.phone,
+              photo: null,
+              seatNumber: p.seatNumber,
+              seatsHeld: seat?.seatsHeld ?? 1 + (p.extraSeats?.length ?? 0),
+              farePesewas: p.farePesewas,
+              paymentMethod: seat?.paymentMethod ?? null,
+              paymentStatus: p.paid ? 'PAID' : (seat?.paymentStatus ?? null),
+              boarded: p.boarded,
+              noShow: p.noShow,
+              held: seat?.status === 'HELD',
+              needsPin: seat?.needsPin ?? false,
+            });
+          }}
+          currentStopAccessory={
+            <CabinStrip
+              seatsTotal={total}
+              seatsTaken={passengers}
+              boarded={boardedSeats}
+              onPress={() => setSeatMapNudge(true)}
+            />
+          }
+        />
+
+        {/* ── SECONDARY ACTIONS ── */}
+        <View style={styles.quickRow}>
+          <QuickAction icon="navigate" label="Navigate" color={colors.primary} colors={colors} onPress={() => openNavigation(false)} />
+          {canAddRider && (
+            <QuickAction
+              icon="person-add"
+              label="Add Rider"
+              color={colors.primary} colors={colors}
+              onPress={() => goDeeper({ pathname: '/(trip)/add-passenger', params: { tripId: id } } as Href)}
+            />
+          )}
+          <QuickAction
+            icon="chatbubble"
+            label="Chat"
+            color={colors.primary} colors={colors}
+            badge={unreadChats}
+            onPress={() => goDeeper(`/(trip)/chat/${id}` as Href)}
+          />
+          <QuickAction
+            icon="map"
+            label="Tracking"
+            color={colors.primary} colors={colors}
+            onPress={() => goLateral(`/(trip)/tracking/${id}`)}
+          />
+          <QuickAction
+            icon="qr-code"
+            label="Scan to pay"
+            color={colors.primary} colors={colors}
+            onPress={() => setQrMode('pay')}
+          />
         </View>
 
+        {/*
+          PAUSE REQUESTS — mid-trip, without going offline.
+
+          Kept, and kept HERE, for the reason it was added: the offers that
+          matter arrive while the driver is still carrying someone, and going
+          offline to stop them costs their place in the supply index. Optimistic,
+          because a switch that waits on a round trip reads as broken and this
+          one is tapped in traffic.
+        */}
         <Pressable
-          style={styles.sosBtn}
-          onPress={() =>
-            Alert.alert(
-              'Emergency SOS',
-              `This will call the emergency services on ${emergencyNumber}. Are you in immediate danger?`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: `Call ${emergencyNumber}`,
-                  style: 'destructive',
-                  onPress: async () => {
-                    let pos: Awaited<ReturnType<typeof Location.getLastKnownPositionAsync>> = null;
-                    try { pos = await Location.getLastKnownPositionAsync(); } catch { /* no position — send alert without coords */ }
-                    const payload = {
-                      latitude: pos?.coords.latitude,
-                      longitude: pos?.coords.longitude,
-                      timestamp: new Date().toISOString(),
-                    };
-                    try {
-                      await driverApi.emergencyAlert(id, payload);
-                    } catch {
-                      // Never block the actual emergency call — but the alert
-                      // must still reach dispatch, so queue it for retry.
-                      offlineQueue.enqueue('SOS', `/driver/trips/${id}/emergency`, 'POST', payload);
-                    }
-                    void callNumber(emergencyNumber, { label: 'the emergency services' });
-                  },
-                },
-              ],
-            )
-          }
-         accessibilityRole="button">
-          <Text style={styles.sosBtnText}>SOS</Text>
+          style={styles.pauseRow}
+          onPress={async () => {
+            const next = !requestsPaused;
+            setRequestsPaused(next);
+            try {
+              await driverApi.setRequestsPaused(next);
+            } catch {
+              setRequestsPaused(!next);
+              notify(
+                'Could not change that',
+                "We couldn't reach the server. Your request settings are unchanged.",
+              );
+            }
+          }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: requestsPaused }}
+          accessibilityLabel="Pause incoming trip requests"
+        >
+          <Ionicons
+            name={requestsPaused ? 'pause-circle' : 'play-circle-outline'}
+            size={20}
+            color={requestsPaused ? colors.statusWarning : colors.onSurfaceVariant}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pauseLabel}>
+              {requestsPaused ? 'New requests paused' : 'Accepting new requests'}
+            </Text>
+            <Text style={styles.pauseHint}>
+              {requestsPaused
+                ? "You'll finish this trip without new offers arriving."
+                : 'Offers can arrive while you finish this trip.'}
+            </Text>
+          </View>
         </Pressable>
-      </View>
+
+        {/* ── ENDING THE TRIP BADLY. Last, quiet, and each behind a confirm. ── */}
+        <View style={styles.endRow}>
+          <Pressable
+            style={styles.endBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Mark this trip as a no-show"
+            onPress={() =>
+              Alert.alert(
+                'Nobody showed up?',
+                'This cancels the trip and refunds every passenger. Your cancellation rate is not affected by a genuine no-show.',
+                [
+                  { text: 'Keep waiting', style: 'cancel' },
+                  { text: 'Mark No Show', style: 'destructive', onPress: () => noShowTrip.mutate() },
+                ],
+              )
+            }
+          >
+            <Text style={[styles.endBtnText, { color: colors.onSurfaceVariant }]}>No-show</Text>
+          </Pressable>
+          <Pressable
+            style={styles.endBtn}
+            onPress={handleCancel}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel this trip"
+          >
+            <Text style={[styles.endBtnText, { color: colors.error }]}>Cancel trip</Text>
+          </Pressable>
+        </View>
+      </StopTimelineSurface>
 
       {/*
-        The shared shell — same component the tracking screen renders. These two
-        are the screens a driver moves between mid-trip and they had nothing in
-        common structurally: different snap points, different sheet padding, no
-        connection chip on either. Geometry now descends from the rider's
-        tracking screen in one place.
+        The passenger sheet — what tapping a person opens.
 
-        Slightly taller collapsed snap than tracking, because this sheet has to
-        clear the route card, the status chips AND the swipe action on arrival —
-        tracking only has to clear its ETA card.
+        REDESIGN ("the way the modal that's shown when you tap on the seat is
+        designed, it's very basic"). It was an `Alert.alert` with six newline-
+        joined lines and five stacked OS buttons. See PassengerSheet.
       */}
-      <TripSurfaceShell snapPointsPct={[0.52, 0.85]} status={trip?.status}>
-        <View style={styles.sheetInner}>
-          {/* Route summary — the screen's headline fact, now a lit surface
-              rather than bare text on the sheet. Same ring family as the
-              tracking screen's ETA card and the rider's trip cards, so the two
-              apps read as one product across the same moment of a ride. */}
-          <Entrance animation="slideDown">
-            <GradientGlowBorder
-              palette="driver"
-              fillColor={colors.surfaceContainer}
-              borderRadius={radii.xl}
-              thickness="thin"
-              /**
-               * RING, NO BLOOM — the driver-app lag fix.
-               *
-               * The ring is one masked gradient. The BLOOM is two full-size
-               * views carrying iOS shadows, and iOS re-rasterises a shadow
-               * whenever the layer under it changes — which on this card is
-               * every second, because the seat counts and the ETA tick. Two
-               * offscreen passes per second per card, over a live GL map, in a
-               * panel the driver is dragging, is "on the driver app it lags a
-               * lot". The rider's tracking screen, which the same report calls
-               * smooth, has no ring and no glass over its map at all.
-               */
-              glowIntensity={0.75}
-              maxGlowRadius={14}
-              style={styles.routeCard}
-            >
-            <View style={styles.routeSummary}>
-              <View style={styles.routeDot} />
-              <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
-                {originLabel(trip) ?? 'Pickup on the map'}
-              </Text>
-            </View>
-            <View style={styles.routeLine} />
-            <View style={styles.routeSummary}>
-              <View style={[styles.routeDot, { backgroundColor: colors.secondary ?? '#7DD8F5', borderRadius: 3 }]} />
-              <Text variant="titleSmall" style={{ flex: 1 }} numberOfLines={1}>
-                {destinationLabel(trip) ?? 'Destination on the map'}
-              </Text>
-              <View style={styles.tripMeta}>
-                {/* Live ETA wins over the scheduled departure time: once the
-                    driver is moving, "07:40" is history and "6 min to pickup"
-                    is the only number that answers what they are asking. */}
-                <Text variant="caption" color={eta ? statusCfg.color : colors.onSurfaceVariant}>
-                  {eta
-                    ?? (trip.departureTime
-                      ? new Date(trip.departureTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : '--:--')}{' '}
-                  · {passengers}/{total} seats
-                </Text>
-              </View>
-            </View>
-            </GradientGlowBorder>
-          </Entrance>
-
-          {/*
-            THE STATUS RAIL — see components/trip/TripStatusRail.
-
-            This was a row of static chips: advancing the ride changed a
-            background tint and nothing else, which is why the request was for
-            "a more dramatic and intuitive way of switching the statuses". The
-            rail fills, the live node breathes, and a real transition lands with
-            a pop and a haptic; the chips could do none of that because nothing
-            about them was animated.
-          */}
-          <Entrance animation="slideDown" delay={40}>
-            <TripStatusRail steps={RAIL_STEPS} currentIndex={currentStepIndex} />
-          </Entrance>
-
-          {/* Seat map. Lights up when a refused departure points at it — see
-              `seatMapNudge`; the ring is the same family as every other lit
-              surface in this app rather than a one-off highlight colour. */}
-          <Entrance
-            animation="slideDown"
-            delay={80}
-            style={[
-              styles.card,
-              seatMapNudge && {
-                borderColor: colors.statusWarning,
-                borderWidth: 1.5,
-                shadowColor: colors.statusWarning,
-                shadowOpacity: 0.5,
-                shadowRadius: 18,
-                shadowOffset: { width: 0, height: 0 },
-                elevation: 10,
+      <PassengerSheet
+        passenger={sheetPassenger}
+        onClose={() => setSheetPassenger(null)}
+        onMessage={(p) => {
+          setSheetPassenger(null);
+          goDeeper({
+            pathname: '/(trip)/chat/[id]',
+            params: {
+              id,
+              seatNumber: String(p.seatNumber ?? ''),
+              recipientId: seats.find((s: any) => s.bookingId === p.bookingId)?.userId ?? '',
+              riderName: encodeURIComponent(p.name),
+            },
+          } as any);
+        }}
+        onBoard={(p) => {
+          setSheetPassenger(null);
+          if (!p.bookingId || p.seatNumber == null) return;
+          void boardWithPin(p.bookingId, p.seatNumber, p.name);
+        }}
+        onNoShow={(p) => {
+          Alert.alert(
+            `Mark ${p.name} as a no-show?`,
+            'Their seat is released back into the map and stops counting toward the minimum to depart. This cannot be undone from here.',
+            [
+              { text: 'Keep the seat', style: 'cancel' },
+              {
+                text: 'Mark no-show',
+                style: 'destructive',
+                onPress: () => {
+                  setSheetPassenger(null);
+                  if (!p.bookingId || p.seatNumber == null) return;
+                  riderNoShow.mutate({ bookingId: p.bookingId, seatNumber: p.seatNumber });
+                },
               },
-            ]}
-          >
-            <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-            {/*
-              WHY THE RIDE WILL NOT START — stated where the fix is, not in a
-              dialogue the driver has already dismissed.
-
-              BUGFIX ("on the manage-trip page of driver-created trips I can't
-              see the hint that says click on the seat to board them. At the
-              moment the rider-requested trip is the only one doing that").
-
-              Exactly so, and the cause was one status name: this was gated on
-              `ARRIVED_AT_PICKUP`, which is a DISPATCHED ride's status. A trip
-              the driver created themselves never passes through it — it sits at
-              SCHEDULED or FILLING right up until Start Ride — so the one line
-              telling the driver how to board a passenger was shown on exactly
-              the product that did not need it and hidden on the one that did.
-
-              The real condition was never the status. It is: passengers are
-              sold, nobody is aboard, and the vehicle has not left. That is what
-              this asks now.
-            */}
-            {BOARDING_STATUSES.includes(String(trip.status)) && boardedSeats === 0 && seats.length > 0 && (
-              <View style={[styles.boardingNotice, { borderColor: `${colors.statusWarning}66`, backgroundColor: `${colors.statusWarning}14` }]}>
-                <Ionicons name="people-outline" size={14} color={colors.statusWarning} />
-                <Text variant="caption" style={{ color: colors.statusWarning, flex: 1 }}>
-                  Tap each seat to board your passengers. The ride cannot start until someone is
-                  aboard.
-                </Text>
-              </View>
-            )}
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Seat Map</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  {passengers}/{total} booked{heldCount > 0 ? ` · ${heldCount} held` : ''}
-                </Text>
-                {/*
-                  THE SEATS ARE TAPPABLE, AND NOTHING SAID SO.
-
-                  BUGFIX ("i never knew you could tap a reserved seat to see the
-                  details and mark as boarded"). Marking a passenger aboard is
-                  the single most-used action on this screen and its only entry
-                  point was an undiscoverable tap on a small square. A hint costs
-                  one line and is the difference between a feature existing and a
-                  feature being used; it is hidden once there is nobody to tap,
-                  so an empty bus does not advertise an action that does nothing.
-                */}
-                <Pressable
-                  onPress={() => setShowPaymentQr(true)}
-                  style={styles.qrBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Show payment QR code"
-                  hitSlop={8}
-                >
-                  <Ionicons name="qr-code-outline" size={16} color={colors.primary} />
-                </Pressable>
-              </View>
-            </View>
-            {/*
-              Its own line, not squeezed into the header row.
-
-              It used to sit between "3/14 booked" and the QR button, where on a
-              trip with held seats the count string alone fills the row — so the
-              hint wrapped to a sliver or was pushed out of the layout entirely.
-              A hint nobody can read is the same as no hint, which is half of
-              what was reported here.
-            */}
-            {seats.length > 0 && (
-              <View style={styles.seatHintRow}>
-                <Ionicons name="hand-left-outline" size={12} color={colors.onSurfaceVariant} />
-                <Text variant="caption" color={colors.onSurfaceVariant} style={{ flex: 1 }}>
-                  Tap a seat to see the passenger and mark them boarded
-                </Text>
-              </View>
-            )}
-            <SeatMap
-              seats={seats}
-              totalSeats={total}
-              onSeatPress={(seat) => {
-                const s = seat as (typeof seats)[number];
-                const name = s.realName ?? s.userName ?? 'Passenger';
-                /**
-                 * THE PASSENGER, NOT JUST THE SEAT NUMBER.
-                 *
-                 * Everything a driver at a kerb needs to decide what to do:
-                 * who this is, how to reach them, whether the seat is paid or
-                 * only held, whether they are already aboard, and — when the
-                 * rider turned ride verification on — that a code will be
-                 * asked for. It reads as a short list rather than a sentence
-                 * because it is read at a glance, through a windscreen.
-                 */
-                const lines = [
-                  // Name the booker when there is one. "Guest passenger
-                  // (booked by someone else)" left the driver holding half the
-                  // fact: they could see it was not the account holder, but not
-                  // who to ask about the ride if the passenger was not there.
-                  s.bookedBy
-                    ? `Travelling as a guest — booked by ${s.bookedBy}`
-                    : s.isGuest
-                      ? 'Guest passenger (booked by someone else)'
-                      : null,
-                  s.coveredBy ? `Seat covered by ${s.coveredBy}` : null,
-                  s.seatsHeld > 1 ? `Travelling with ${s.seatsHeld} seats` : null,
-                  s.phone ? `Phone: ${s.phone}` : 'No phone number on this booking',
-                  s.paymentMethod
-                    ? `Payment: ${s.paymentMethod}${s.paymentStatus ? ` · ${s.paymentStatus}` : ''}`
-                    : null,
-                  `Status: ${s.boarded ? 'Boarded' : s.status === 'HELD' ? 'Seat held, not paid' : 'Booked, not yet aboard'}`,
-                  s.needsPin ? 'Ride verification on — ask for their 4-digit code' : null,
-                ].filter(Boolean);
-
-                const actions: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [];
-                if (s.phone) {
-                  actions.push({
-                    text: 'Call',
-                    onPress: () => { void Linking.openURL(`tel:${s.phone}`); },
-                  });
-                }
-                actions.push({
-                  text: 'Message',
-                  onPress: () =>
-                    goDeeper({
-                      pathname: '/(trip)/chat/[id]',
-                      params: {
-                        id,
-                        seatNumber: String(s.seatNumber),
-                        recipientId: s.userId ?? '',
-                        riderName: encodeURIComponent(name),
-                      },
-                    } as any),
-                });
-                if (!s.boarded) {
-                  actions.push({
-                    text: 'Mark Boarded',
-                    onPress: () => {
-                      if (!s.bookingId) return;
-                      void boardWithPin(s.bookingId, s.seatNumber, name);
-                    },
-                  });
-                  /*
-                    The other half of the boarding decision, and the one the app
-                    was missing. A passenger who never turns up kept their seat
-                    occupied for the whole trip — it stayed out of the seat map
-                    AND kept counting toward the minimum-occupancy check that
-                    decides whether the bus may depart. The driver terms tell a
-                    driver to report exactly this; the endpoint existed and had
-                    no caller.
-
-                    Destructive styling and a second confirm because it is not
-                    reversible from the driver's side, and the server refuses it
-                    once the passenger is aboard.
-                  */
-                  actions.push({
-                    text: 'Mark No-Show',
-                    style: 'destructive',
-                    onPress: () => {
-                      if (!s.bookingId) return;
-                      Alert.alert(
-                        `No-show — seat ${s.seatNumber}`,
-                        `${name} did not board. Their seat is released and no refund is issued. This cannot be undone.`,
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          {
-                            text: 'Mark No-Show',
-                            style: 'destructive',
-                            onPress: () =>
-                              riderNoShow.mutate({ bookingId: s.bookingId!, seatNumber: s.seatNumber }),
-                          },
-                        ],
-                      );
-                    },
-                  });
-                }
-                actions.push({ text: 'Close', style: 'cancel' });
-
-                // A REAL DECISION — call, board, no-show, close. Its buttons are
-                // assembled in `actions` above, so the sweep's classifier never
-                // saw the `style: 'cancel'` and converted it by mistake. This is
-                // an action sheet and belongs in a blocking modal.
-                Alert.alert(`Seat ${s.seatNumber} · ${name}`, lines.join('\n'), actions);
-              }}
-            />
-            {/*
-              "Reserved" is the correct STATE for a seat held against an
-              unverified passenger — including an offline one the driver just
-              added by phone, whose booking stays SEAT_HELD until they read back
-              the SMS code. Reported as "I added an offline passenger and it's
-              showing that seat as reserved instead of boarded — is that right?"
-              It is, but the old one-word label never said what it was waiting
-              for, which is the only reason it read as a bug. (A cash passenger
-              added with no phone has nothing to verify and is written straight
-              to BOARDED — see drivers.service addCashNoPhone.)
-            */}
-            <View style={styles.legend}>
-              {[
-                { color: colors.primary, label: 'Boarded' },
-                { color: `${colors.primary}55`, label: 'Reserved · awaiting code' },
-                { color: colors.surfaceContainerHighest, label: 'Empty' },
-              ].map(({ color, label }) => (
-                <View key={label} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: color }]} />
-                  <Text variant="caption" color={colors.onSurfaceVariant}>{label}</Text>
-                </View>
-              ))}
-            </View>
-          </Entrance>
-
-          {/*
-            WHOSE SEATS THESE ARE.
-
-            BUGFIX ("when a rider chooses to pay for the entire trip, the driver
-            app doesn't show that the seats are mapped to that group or that the
-            whole trip is paid"). The covered seats were always real bookings, but
-            nothing on this screen said they belonged to one party — a van bought
-            by one host looked exactly like a van of strangers, and there was no
-            "this trip is settled" anywhere to read. `group` comes from
-            drivers.service `attachGroupSummary`, which is the same rule the socket
-            snapshot uses, so the two cannot say different things.
-          */}
-          {groupInfo && groupInfo.coverAll && (
-            <Entrance animation="slideDown" delay={110}>
-              <GradientGlowBorder
-                palette="driver"
-                fillColor={colors.surfaceContainer}
-                borderRadius={radii['2xl']}
-                style={styles.earningsCard}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-                  <Ionicons name="people" size={18} color={colors.primary} />
-                  <Text variant="label" style={{ flex: 1 }}>
-                    {groupInfo.leadName ?? 'One passenger'} is paying for the whole trip
-                  </Text>
-                  <View
-                    style={[
-                      styles.groupPaidBadge,
-                      { backgroundColor: groupInfo.settled ? `${colors.online}22` : `${colors.warning}22` },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.groupPaidBadgeText,
-                        { color: groupInfo.settled ? colors.online : colors.warning },
-                      ]}
-                    >
-                      {groupInfo.settled
-                        ? groupInfo.paymentMethod === 'CASH'
-                          ? 'Cash on board'
-                          : 'Paid'
-                        : `${groupInfo.settledSeatCount}/${groupInfo.seatCount} settled`}
-                    </Text>
-                  </View>
-                </View>
-                <Text variant="caption" color={colors.onSurfaceVariant} style={{ marginTop: spacing.xs }}>
-                  {groupInfo.seatCount} seat{groupInfo.seatCount === 1 ? '' : 's'}
-                  {groupInfo.seatNumbers.length > 0 ? ` — #${groupInfo.seatNumbers.join(', #')}` : ''}
-                  {' · '}
-                  {formatGhs(groupInfo.totalPesewas)}
-                </Text>
-              </GradientGlowBorder>
-            </Entrance>
-          )}
-
-          {/* Earnings card — the screen's hero money surface gets the premium ring */}
-          <Entrance animation="slideDown" delay={120}>
-            <GradientGlowBorder
-              palette="driver"
-              fillColor={colors.surfaceContainer}
-              borderRadius={radii['2xl']}
-              /* Ring only. See the seat-map card above. */
-              style={styles.earningsCard}
-            >
-              <Text style={styles.earningsTitle}>Earnings Estimate</Text>
-              <View style={styles.earningsRow}>
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>Gross ({passengers} seats)</Text>
-                <Text variant="bodyMedium">{formatGhs(grossEarnings)}</Text>
-              </View>
-              <View style={styles.earningsRow}>
-                {/* The percentage is READ from the same commissionRate the amount
-                    below is derived from. It was hardcoded to "30%" while the
-                    server has always charged 15% (env.PLATFORM_COMMISSION), so
-                    this screen told drivers they were losing twice what they
-                    actually lose — and disagreed with the create-trip screen and
-                    the trip-complete receipt on the same trip. */}
-                <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                  Platform fee ({Math.round(commissionRate * 100)}%)
-                </Text>
-                <Text variant="bodyMedium" color={colors.error}>− {formatGhs(platformFeePesewas)}</Text>
-              </View>
-              <View style={[styles.earningsRow, styles.earningsNet]}>
-                <Text variant="label">Your earnings</Text>
-                <Text style={styles.earningsNetValue}>{formatGhs(netEarnings)}</Text>
-              </View>
-            </GradientGlowBorder>
-          </Entrance>
-
-          {/* Quick-action row */}
-          <Entrance animation="slideDown" delay={160} style={styles.actionRow}>
-            {/* Hand off to Google/Apple Maps/Waze — the driver's own app, with
-                the choice remembered (long-press to change it). See
-                utils/externalNav.
-                BUGFIX: this always navigated to the DESTINATION, even while the
-                status was DRIVER_EN_ROUTE — i.e. exactly when the driver needs
-                directions to the PICKUP. It also hard-coded Apple Maps on iOS
-                with no way to choose Google, and used `maps://?ll=` (drop a pin)
-                rather than a directions URL, so it didn't start navigation at
-                all. Target now follows the trip phase, same rule as the in-app
-                route line. */}
-            <QuickAction
-              icon="navigate-outline"
-              label="Navigate"
-              color={colors.primary}
-              onPress={() => openNavigation(false)}
-              onLongPress={() => openNavigation(true)}
-              colors={colors}
-            />
-            {/* Only when there is genuinely a seat to sell — see `canAddRider`. */}
-            {canAddRider && (
-              <QuickAction
-                icon="person-add-outline"
-                label="Add Rider"
-                color={colors.primary}
-                onPress={() => goDeeper({ pathname: '/(trip)/add-passenger', params: { tripId: id } })}
-                colors={colors}
-              />
-            )}
-            <QuickAction
-              icon="chatbubble-outline"
-              label="Chat"
-              color={colors.onSurfaceVariant}
-              onPress={() => goDeeper(`/(trip)/chat/${id}`)}
-              colors={colors}
-              badge={unreadChats}
-            />
-            <QuickAction
-              icon="map-outline"
-              label="Tracking"
-              color={colors.onSurfaceVariant}
-              /* SIDEWAYS, not deeper — see goLateral. Manage and tracking are two
-                 views of one trip, and `push` was building a stack seven live
-                 maps deep as the driver toggled between them. */
-              onPress={() => goLateral(`/(trip)/tracking/${id}`)}
-              colors={colors}
-            />
-          </Entrance>
-
-          {/* Primary CTA — SWIPE, not tap.
-              Every action behind this control is irreversible (arriving at the
-              pickup, pulling off with passengers aboard, ending the trip and
-              settling the fares) and the phone lives in a cradle on a rough
-              road, where a single accidental tap is entirely plausible. Uber and
-              Bolt both moved these exact steps to a slide gesture for that
-              reason. See @eyego/ui SwipeToConfirm. */}
-          {/*
-            PAUSE REQUESTS — mid-trip, without going offline.
-
-            Lives on this screen because that is when it is needed: the pings
-            that matter are the back-to-back offers arriving while the driver is
-            still carrying someone. Going offline to stop them costs their place
-            in the supply index, so drivers decline instead and pay for it in
-            acceptance rate. This is the honest version of what they already do.
-
-            Optimistic: the toggle flips immediately and reverts only if the
-            write fails. A switch that waits on a round trip before moving reads
-            as broken, and this one gets tapped in traffic.
-          */}
-          <Entrance animation="slideDown" delay={160}>
-            <Pressable
-              style={styles.pauseRow}
-              onPress={async () => {
-                const next = !requestsPaused;
-                setRequestsPaused(next);
-                try {
-                  await driverApi.setRequestsPaused(next);
-                } catch {
-                  setRequestsPaused(!next);
-                  notify(
-                    'Could not change that',
-                    "We couldn't reach the server. Your request settings are unchanged.",
-                  );
-                }
-              }}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: requestsPaused }}
-              accessibilityLabel="Pause incoming trip requests"
-            >
-              <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii.xl} intensity="low" />
-              <Ionicons
-                name={requestsPaused ? 'pause-circle' : 'notifications-outline'}
-                size={18}
-                color={requestsPaused ? colors.primary : colors.onSurfaceVariant}
-              />
-              <View style={{ flex: 1 }}>
-                <Text variant="bodySmall" style={{ color: colors.onSurface }}>
-                  {requestsPaused ? 'Requests paused' : 'Accepting new requests'}
-                </Text>
-                <Text variant="caption" color={colors.onSurfaceVariant}>
-                  {requestsPaused
-                    ? "You'll stay online and finish this trip — no new offers"
-                    : 'Pause to stop offers arriving while you finish this trip'}
-                </Text>
-              </View>
-              <View style={[styles.pausePill, requestsPaused && { backgroundColor: colors.primary }]}>
-                <View style={[styles.pauseKnob, requestsPaused && { alignSelf: 'flex-end' }]} />
-              </View>
-            </Pressable>
-          </Entrance>
-
-          {/*
-            "I AM HERE." — THE ARRIVAL, MADE UNMISSABLE.
-
-            BUGFIX — "if I board the passenger it's like it overrides everything
-            and even if I swipe to say I've arrived, nothing happens. Maybe
-            that's how it's supposed to be, but at least make it more visible if
-            the driver says he's at the pickup point, just so the user knows the
-            driver updated the status."
-
-            Arriving used to be a word in a progress rail and a chip colour, and
-            both of those are the same size as every other word on the screen.
-            Now the screen changes state: a lit strip that names where the driver
-            is and what the vehicle is waiting for. It is also what replaces the
-            jump to the tracking screen (see the ARRIVED_AT_PICKUP branch) — the
-            consequence of the swipe is visible without leaving.
-          */}
-          {trip.status === 'ARRIVED_AT_PICKUP' && (
-            <Entrance animation="slideDown" delay={170}>
-              <GradientGlowBorder
-                palette="driver"
-                fillColor={colors.surfaceCard}
-                borderRadius={radii.xl}
-                thickness="thin"
-                glow
-                glowIntensity={0.75}
-                maxGlowRadius={18}
-              >
-                <View style={styles.arrivedStrip}>
-                  <View style={[styles.arrivedDot, { backgroundColor: colors.primary }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.arrivedTitle, { color: colors.onSurface }]}>
-                      You're at the pickup point
-                    </Text>
-                    <Text variant="bodySmall" color={colors.onSurfaceVariant}>
-                      {pendingBoarders.length === 0
-                        ? 'Everyone is aboard — swipe to set off.'
-                        : pendingBoarders.length === 1
-                          ? `Waiting on ${pendingBoarders[0].name}. Swipe below to board and go.`
-                          : `Waiting on ${pendingBoarders.length} passengers. Swipe below to board them all and go.`}
-                    </Text>
-                  </View>
-                  <View style={[styles.arrivedCount, { borderColor: colors.primary }]}>
-                    <Text style={[styles.arrivedCountText, { color: colors.primary }]}>
-                      {boardedSeats}/{occupiedSeats}
-                    </Text>
-                  </View>
-                </View>
-              </GradientGlowBorder>
-            </Entrance>
-          )}
-
-          {statusInfo.next && (
-            <Entrance animation="slideDown" delay={200}>
-              {/* Ringed, like the route card above it and the ETA card on the
-                  tracking screen. This is the screen's primary action and it was
-                  the only major surface here wearing no light at all, which is
-                  what made the sheet read as unfinished next to tracking.
-                  The ring drops while the mutation is in flight — a control that
-                  keeps glowing while it is busy invites a second swipe, and a
-                  status transition is legal exactly once. */}
-              <GradientGlowBorder
-                palette="driver"
-                fillColor="transparent"
-                borderRadius={radii.full}
-                thickness="thin"
-                glow={!advanceStatus.isPending && confirmedLabel == null}
-                glowIntensity={0.8}
-                maxGlowRadius={16}
-              >
-                <SwipeToConfirm
-                  label={
-                    startsTheRide && pendingBoarders.length > 0
-                      ? `Swipe to board ${pendingBoarders.length === 1 ? pendingBoarders[0].name.split(' ')[0] : `${pendingBoarders.length} passengers`} & go`
-                      : `Swipe to ${statusInfo.action.replace(/^(I've|Mark)\s+/i, '').toLowerCase()}`
-                  }
-                  loadingLabel={
-                    boardingRun ? `Boarding ${boardingRun.index + 1} of ${boardingRun.queue.length}…` : `${statusInfo.action}…`
-                  }
-                  onConfirm={beginPrimaryAction}
-                  loading={advanceStatus.isPending || boardingRun != null}
-                  confirmed={confirmedLabel != null}
-                  confirmedLabel={confirmedLabel ?? undefined}
-                  color={colors.primary}
-                  onColor={colors.onPrimary ?? '#0A0D14'}
-                  trackColor={colors.surfaceContainer}
-                  borderColor={colors.outline}
-                />
-              </GradientGlowBorder>
-            </Entrance>
-          )}
-
-          {/*
-            No Show / Cancel.
-
-            BUGFIX ("guard the no-show button properly so a driver can't pick a
-            rider up and then no-show en route"). The row was shown for every
-            status that was not already finished, IN_PROGRESS included — so the
-            action was offered at exactly the moment it is illegitimate, and the
-            only thing stopping it was a 400 from the server after the driver
-            had already tapped through a destructive confirm. The server still
-            refuses it (that is where the rule has to live), but an action that
-            cannot be taken should not be on screen: past pickup the honest
-            option is Cancel Trip, which is the sibling button in this row.
-          */}
-          {!['COMPLETED', 'CANCELLED'].includes(trip.status) && (
-            <Entrance animation="slideDown" delay={220} style={styles.dangerRow}>
-              {/* Cancel Trip stays available for the whole ride; only No Show
-                  goes away once the rider is aboard. */}
-              {trip.status !== 'IN_PROGRESS' && (
-              <Pressable
-                style={[styles.dangerBtn, { borderColor: '#F59E0B66' }]}
-                onPress={() =>
-                  Alert.alert(
-                    'Mark as No Show',
-                    'Cancel this trip because you cannot run it? Everyone who booked is told, and anyone who paid by MoMo or card is refunded in full.',
-                    [
-                      { text: 'Keep the trip', style: 'cancel' },
-                      { text: 'Mark No Show', style: 'destructive', onPress: () => noShowTrip.mutate() },
-                    ],
-                  )
-                }
-                disabled={noShowTrip.isPending}
-               accessibilityRole="button">
-                <Ionicons name="eye-off-outline" size={16} color="#F59E0B" />
-                <Text style={[styles.dangerBtnText, { color: '#F59E0B' }]}>No Show</Text>
-              </Pressable>
-              )}
-              <Pressable
-                style={[styles.dangerBtn, { borderColor: colors.error + '66' }]}
-                onPress={handleCancel}
-                disabled={noShowTrip.isPending}
-               accessibilityRole="button">
-                <Ionicons name="close-circle-outline" size={16} color={colors.error} />
-                <Text style={[styles.dangerBtnText, { color: colors.error }]}>Cancel Trip</Text>
-              </Pressable>
-            </Entrance>
-          )}
-        </View>
-      </TripSurfaceShell>
+            ],
+          );
+        }}
+      />
 
       {/* Payment QR — lets a boarding rider scan straight into this trip's payment
           screen instead of the driver having no way to hand off a payable code at all. */}
@@ -2208,32 +1846,78 @@ export default function ActiveTripScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showPaymentQr} transparent animationType="fade" onRequestClose={() => setShowPaymentQr(false)}>
-        <Pressable style={styles.qrModalBackdrop} onPress={() => setShowPaymentQr(false)} accessibilityRole="button">
+      {/*
+        ── TWO CODES, BECAUSE THEY ARE TWO DIFFERENT ASKS ────────────────────
+        See `qrMode`. Paying and booking are opposite ends of a ride and the
+        screen now says which one it is showing.
+      */}
+      <Modal visible={qrMode != null} transparent animationType="fade" onRequestClose={() => setQrMode(null)}>
+        <Pressable style={styles.qrModalBackdrop} onPress={() => setQrMode(null)} accessibilityRole="button">
           <Pressable style={styles.qrModalCard} onPress={(e) => e.stopPropagation()} accessibilityRole="button">
-            <Text style={styles.cardTitle}>Scan to Pay</Text>
-            <View style={styles.qrWrap}>
-              {/* A real universal-link URL, not the old bare `eyego:trip:<id>`
-                  string — a phone's stock camera cannot act on a bare custom
-                  scheme, so that version only worked from inside the rider
-                  app's own scanner. */}
-              <QRCode value={`https://eyego.app/ride/${id}`} size={220} />
+            <Text style={styles.cardTitle}>{qrMode === 'book' ? 'Scan to Board' : 'Scan to Pay'}</Text>
+
+            {/* One toggle, so the driver can flip between them at the kerb
+                without closing the sheet and finding another button. */}
+            <View style={styles.qrToggle}>
+              {(['pay', 'book'] as const).map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => setQrMode(m)}
+                  style={[styles.qrToggleBtn, qrMode === m && { backgroundColor: colors.primary }]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: qrMode === m }}
+                  accessibilityLabel={m === 'pay' ? 'Show the pay code' : 'Show the booking code'}
+                >
+                  <Text
+                    variant="label"
+                    color={qrMode === m ? (colors.onPrimary ?? '#0A0D14') : colors.onSurfaceVariant}
+                  >
+                    {m === 'pay' ? 'Pay fare' : 'Take a seat'}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
+
+            <View style={styles.qrWrap}>
+              {/*
+                A real universal-link URL, not a bare `eyego:` string — a
+                phone's stock camera cannot act on a custom scheme, so that only
+                ever worked from inside the rider app's own scanner.
+
+                BUGFIX ("when I scan the QR from the driver's scan-to-pay page
+                using the rider app's scan option, it opens the 'book this ride'
+                thing… if I'm already in the trip and I want to scan to pay, I
+                should be able to scan to pay directly without booking again").
+                Both codes pointed at `/ride/<id>`, which is the trip DETAIL
+                screen — the one whose primary button is "Book This Seat". A
+                passenger already aboard was being asked to buy a second seat.
+
+                `/pay/trip/<id>` is the payment route and has existed all along;
+                nothing linked to it. `/ride/<id>` stays as the BOOKING code,
+                which is what it was always right for.
+              */}
+              <QRCode
+                value={
+                  qrMode === 'book'
+                    ? `https://eyego.app/ride/${id}`
+                    : `https://eyego.app/pay/trip/${id}`
+                }
+                size={220}
+              />
+            </View>
+
             <Text variant="bodySmall" color={colors.onSurfaceVariant} style={{ textAlign: 'center' }}>
-              {/* "or open the EyeGo app to pay" was an instruction with no
-                  destination — the rider's scanner was real but reachable only
-                  from a profile sub-page nobody would guess at. It is on the
-                  rider's home screen now, so this can name it. */}
-              Passenger scans this with their phone camera, or taps Scan on the EyeGo
-              app's home screen, to pay their fare for this trip.
+              {qrMode === 'book'
+                ? 'Someone at the kerb scans this to take a seat on this trip and pay for it.'
+                : 'A passenger already on this trip scans this to pay their fare — it goes straight to payment, not to booking.'}
             </Text>
-            <Pressable style={styles.qrCloseBtn} onPress={() => setShowPaymentQr(false)} accessibilityRole="button">
+            <Pressable style={styles.qrCloseBtn} onPress={() => setQrMode(null)} accessibilityRole="button">
               <Text variant="label" color={colors.onSurface}>Close</Text>
             </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
-    </View>
+    </>
   );
 }
 
@@ -2408,6 +2092,65 @@ const makeStyles = (colors: DriverColors) =>
     },
     /** Content rhythm only — padding and the top glow gap come from the shared
      *  shell now, so manage and tracking cannot space themselves differently. */
+    /** The pay/book segmented control inside the QR sheet. */
+    qrToggle: {
+      flexDirection: 'row',
+      alignSelf: 'stretch',
+      padding: 3,
+      borderRadius: radii.full,
+      backgroundColor: colors.surfaceContainer,
+      borderWidth: 1,
+      borderColor: colors.outlineVariant,
+    },
+    qrToggleBtn: {
+      flex: 1,
+      minHeight: 38,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radii.full,
+    },
+
+    // ── Stop-timeline surface ──
+    /** Bottom-right of the map pane. SOS only — see the render. */
+    mapOverlayRow: { flexDirection: 'row', alignItems: 'flex-end' },
+    /** The secondary verbs, under the timeline, evenly weighted. */
+    quickRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginTop: spacing.base,
+    },
+    pauseLabel: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodyMedium,
+      color: colors.onSurface,
+    },
+    pauseHint: {
+      fontFamily: fonts.regular,
+      fontSize: fontSizes.caption,
+      color: colors.onSurfaceVariant,
+      marginTop: 1,
+    },
+    /**
+     * The two ways a trip ends badly. Quiet, last, and side by side rather than
+     * stacked as full-width buttons — a destructive action that looks like the
+     * primary one gets tapped by mistake, and both of these are irreversible.
+     */
+    endRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+    endBtn: {
+      flex: 1,
+      minHeight: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.outlineVariant,
+    },
+    endBtnText: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+    },
+
     sheetInner: {
       gap: spacing.lg,
     },

@@ -659,7 +659,39 @@ export default function RootLayout() {
               // iOS native-stack slide transitions expose the window behind
               // them mid-flight (the "white flash / covering lag" bug).
               contentStyle: { backgroundColor: colors.backgroundDeep },
-              animation: 'fade',
+              /**
+               * ── THE DEFAULT IS A PUSH, NOT A FADE ───────────────────────
+               *
+               * BUGFIX ("the fade in and out transitions aren't really aesthetic
+               * and modern — I want a nice Apple-like architecture transition
+               * so it's very sleek").
+               *
+               * A cross-fade is the one transition that says nothing. It has no
+               * direction, so it cannot express that you went DEEPER, and it has
+               * no shared motion, so the two screens are unrelated pictures
+               * swapped in place. That is why a fade reads as cheap: every other
+               * app on the phone tells you where you are going and this one
+               * blinks.
+               *
+               * `animation: 'default'` on a native stack hands the whole
+               * transition to `UINavigationController`, which is where the
+               * things a rider notices without being able to name live: the
+               * incoming screen sliding in over an outgoing one that parallaxes
+               * at a third of the speed, the shadow under the leading edge, the
+               * rubber-banding, and — the one that matters most — the real
+               * INTERACTIVE back-swipe, where the gesture drives the transition
+               * frame by frame and can be reversed mid-flight. None of that can
+               * be approximated; it has to be the platform's own.
+               *
+               * Android has no equivalent primitive, so it keeps the explicit
+               * slide, which is what Material expresses hierarchy with anyway.
+               *
+               * `fade` survives only where it is CORRECT: the root-level swaps
+               * (index / auth / onboarding / tabs), which are lateral moves
+               * between peers rather than steps into a hierarchy, and which are
+               * also the transparent-content screens a slide would break.
+               */
+              ...detailPush,
               /**
                * A BLURRED SCREEN STOPS THINKING.
                *
@@ -674,7 +706,10 @@ export default function RootLayout() {
           >
             {/* Fade-group screens share the root AppBackground through a
                 transparent content view — safe because fades never slide. */}
-            <Stack.Screen name="index" options={{ contentStyle: TRANSPARENT_CONTENT }} />
+            {/* `animation` is spelled out now that the navigator's default is a
+                push: this screen is transparent, and a slide over a transparent
+                content view exposes the window behind it. */}
+            <Stack.Screen name="index" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
             <Stack.Screen name="(auth)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
             <Stack.Screen name="(onboarding)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />
             <Stack.Screen name="(tabs)" options={{ animation: 'fade', contentStyle: TRANSPARENT_CONTENT }} />

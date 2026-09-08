@@ -60,6 +60,33 @@ export type DispatchBlockAction = {
   onPress: () => void;
 };
 
+/**
+ * The trip the SERVER says is blocking this driver.
+ *
+ * BUGFIX ("when I mark as no-show, the toast shows as unfinished ride, and when
+ * I open it, it shows the blank manage trip page with the cancelled thing —
+ * this is a huge misdirection").
+ *
+ * The banner's button used to open `driverStore.activeTripId`, which is a
+ * PERSISTED local value with no relationship to the reason on screen. After a
+ * no-show it can be the id of the trip that was just cancelled, or an older one
+ * entirely, so the driver was sent to a dead trip whose manage screen has
+ * nothing to render — a blank page with a CANCELLED chip.
+ *
+ * The server's own reason string carries the id it is complaining about:
+ *   `BUSY(trip=abc123 status=IN_PROGRESS updated=2026-09-08T…)`
+ * (see `explainIneligible` in services/driver-availability.js). Reading it means
+ * the banner and its button can never point at different trips, which is the
+ * only property that makes the button safe to tap.
+ *
+ * Returns null when the reason names no trip — the caller then offers a refresh
+ * instead of a navigation, which is the honest fallback.
+ */
+export function dispatchBlockTripId(reason: string | null | undefined): string | null {
+  const m = /\btrip=([A-Za-z0-9_-]+)/.exec(reason ?? '');
+  return m?.[1] ?? null;
+}
+
 /** What the reason code means, in the driver's language, plus what to do. */
 export function describeDispatchBlock(reason: string | null | undefined): {
   headline: string;
