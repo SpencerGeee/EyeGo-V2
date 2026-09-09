@@ -162,12 +162,23 @@ const makeStyles = (colors: DriverColors) =>
       fontSize: fontSizes.titleMedium,
       color: colors.onSurface,
     },
+    /**
+     * 44pt MINIMUM, as a real height — not as invisible hit padding.
+     *
+     * `@eyego/ui`'s Pressable adds 8pt of hitSlop by default, so at its original
+     * 33pt this control was technically compliant. That is the wrong standard to
+     * hold a DRIVING control to: the driver is glancing down from a windscreen
+     * at a moving vehicle's dashboard, and a target that is only reachable
+     * because of padding they cannot see is one they will miss. The HIG minimum
+     * is a floor for a seated user with two hands.
+     */
     manage: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'center',
       gap: 6,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 8,
+      minHeight: 44,
+      paddingHorizontal: spacing.lg,
       borderRadius: radii.full,
       backgroundColor: colors.surfaceContainer,
     },
@@ -176,11 +187,13 @@ const makeStyles = (colors: DriverColors) =>
       fontSize: fontSizes.bodySmall,
       color: colors.onSurfaceVariant,
     },
+    /** Same 44pt floor, and for the same reason — see `manage`. Calling a
+     *  passenger is the control most likely to be used at a kerb, one-handed. */
     callRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
-      paddingVertical: 10,
+      minHeight: 44,
       paddingHorizontal: spacing.md,
       borderRadius: radii.lg,
       backgroundColor: `${colors.primary}18`,
