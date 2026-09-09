@@ -102,7 +102,19 @@ export default function RegisterScreen() {
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return;
+    /*
+     * SAY SO. A DENIED PERMISSION IS NOT A REASON TO DO NOTHING.
+     *
+     * This used to `return` in silence, so tapping the avatar did nothing at
+     * all and gave no hint why. iOS only ever asks once — after a denial the
+     * OS returns 'denied' without showing a prompt — so the control was
+     * permanently dead for anyone who declined the first time, with no way to
+     * discover that Settings is where it gets fixed.
+     */
+    if (status !== 'granted') {
+      notify('Permission required', 'Please allow access to your photos in Settings to choose a picture.');
+      return;
+    }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,

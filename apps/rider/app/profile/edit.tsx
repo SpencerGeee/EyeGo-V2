@@ -131,7 +131,16 @@ export default function EditProfileScreen() {
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return;
+    /*
+     * Same as the contacts picker directly above, which has always said so.
+     * This one returned in silence, so the avatar was a dead control for
+     * anyone who had ever declined the photos permission — and iOS does not
+     * re-prompt, so it stayed dead with nothing pointing at Settings.
+     */
+    if (status !== 'granted') {
+      notify('Permission required', 'Please allow access to your photos in Settings to choose a picture.');
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,

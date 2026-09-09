@@ -410,6 +410,42 @@ function scanApp(appDir, table, findings, hits) {
         }
       }
 
+      /**
+       * A TAPPED CONTROL MAY NOT SWALLOW A DENIED PERMISSION.
+       *
+       * `if (status !== 'granted') return;` is fine in an effect — nothing was
+       * asked for, so nothing is owed. In a handler the user just tapped, it is
+       * a dead button: three avatar pickers did exactly this, and because iOS
+       * only ever prompts once, they stayed dead forever for anyone who
+       * declined, with nothing anywhere pointing at Settings.
+       *
+       * The denial branch has to say something. It does not matter what — a
+       * notify, an Alert, a piece of state the screen renders — only that the
+       * branch is not a bare `return`.
+       */
+      if (
+        ts.isIfStatement(n) &&
+        /status\s*!==\s*'granted'/.test(n.expression.getText()) &&
+        !n.elseStatement
+      ) {
+        const body = n.thenStatement.getText().replace(/\s+/g, ' ').trim();
+        const bare = body === 'return;' || body === '{ return; }' || /^\{?\s*return;?\s*\}?$/.test(body);
+        if (bare) {
+          // Only a handler owes an explanation. Walk out to the nearest named
+          // function and see whether a JSX handler prop points at it.
+          let p = n;
+          let owner = null;
+          while (p && !ts.isSourceFile(p)) {
+            if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) { owner = p.name.text; break; }
+            if (ts.isFunctionDeclaration(p) && p.name) { owner = p.name.text; break; }
+            p = p.parent;
+          }
+          if (owner && new RegExp(`on(Press|LongPress|Confirm|Submit)=\\{\\s*${owner}\\s*\\}`).test(text)) {
+            findings.silentDenial.push(`${where(n)} — ${owner} returns silently when the permission is denied`);
+          }
+        }
+      }
+
       if (ts.isCallExpression(n)) {
         const callee = n.expression;
         let isNav = false;
@@ -463,7 +499,7 @@ function scanApp(appDir, table, findings, hits) {
 function main() {
   section('button wiring — navigation, api and handlers');
 
-  const findings = { deadRoute: [], empty: [], placeholder: [] };
+  const findings = { deadRoute: [], empty: [], placeholder: [], silentDenial: [] };
   let controls = 0;
   let resolvedNav = 0;
 
@@ -513,6 +549,16 @@ function main() {
     fail('no control has an empty handler', findings.empty.join('\n    '));
   } else {
     pass('no control has an empty handler', `${controls} control(s) scanned`);
+  }
+
+  if (findings.silentDenial.length) {
+    fail(
+      'a tapped control explains a denied permission',
+      'these do nothing at all when the permission is refused, and iOS never prompts twice:\n    ' +
+        findings.silentDenial.join('\n    '),
+    );
+  } else {
+    pass('a tapped control explains a denied permission', 'no silent denials');
   }
 
   if (findings.placeholder.length) {

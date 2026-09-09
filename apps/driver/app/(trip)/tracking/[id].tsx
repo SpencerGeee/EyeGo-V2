@@ -594,27 +594,22 @@ export default function DriverTrackingScreen() {
     },
   });
 
-  const cancelTrip = useMutation({
-    mutationFn: () => driverApi.cancelTrip(id),
-    onSuccess: () => {
-      setActiveTripId(null);
-      qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
-      qc.invalidateQueries({ queryKey: ['driver', 'trips', 'all'] });
-      router.replace('/(tabs)/home');
-    },
-    onError: (err: any) => notify('Could not update the trip', err?.response?.data?.message ?? (err as Error).message),
-  });
-
-  const handleCancel = () => {
-    Alert.alert(
-      'Cancel Trip',
-      'Are you sure you want to cancel this trip? All passenger bookings will also be cancelled.',
-      [
-        { text: 'Keep Trip', style: 'cancel' },
-        { text: 'Cancel Trip', style: 'destructive', onPress: () => cancelTrip.mutate() },
-      ],
-    );
-  };
+  /*
+   * THERE IS NO CANCEL ON THIS SCREEN, AND THAT IS THE DESIGN.
+   *
+   * A `cancelTrip` mutation and a `handleCancel` confirm used to sit here,
+   * referenced by nothing — no button reached either of them. Dead code is
+   * usually harmless; this was not, because it was a DESTRUCTIVE action left
+   * pre-wired and subtly wrong, waiting for someone to hook a button to it:
+   *
+   *   · it sent no reason, and `cancel/[id].tsx` refuses to submit without one;
+   *   · its confirm said only that passenger bookings would be cancelled, and
+   *     never that cancelling counts against the driver's cancellation rate —
+   *     which the trips-list confirm does say, because it is true.
+   *
+   * Cancelling lives on the manage screen and the reason-picker it owns, the
+   * same way every transition does ("Manage owns every transition", below).
+   */
 
   /**
    * A SECOND hand-rolled maps hand-off, which is how the coordinates bug
