@@ -77,6 +77,23 @@ export interface DriverTripMapProps {
   recenterOffset?: number;
   /** Renders inside the map, above the line — seat overlays, extra pins. */
   children?: React.ReactNode;
+  /**
+   * Frame these coordinates instead of the status-derived target.
+   *
+   * The offer stage has no trip and therefore no status to derive from — only
+   * a driver and a pickup, whose PAIR is the useful frame. Null everywhere
+   * else, which leaves the status behaviour untouched.
+   */
+  fitOverride?: Coord[] | null;
+  /**
+   * Map style. Defaults to the driver's dark highway style.
+   *
+   * A prop because this map is now mounted by HOME as well as the trip screens,
+   * and home honours the driver's light/dark preference. Hardcoding the dark
+   * style here handed every light-mode driver a dark map the moment the map was
+   * hoisted onto the home surface.
+   */
+  styleURL?: any;
 }
 
 export function DriverTripMapImpl({
@@ -91,6 +108,8 @@ export function DriverTripMapImpl({
   onEta,
   recenterOffset = 72,
   children,
+  fitOverride = null,
+  styleURL = eyegoDriverDarkStyle,
 }: DriverTripMapProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -172,9 +191,32 @@ export function DriverTripMapImpl({
       : paddingForSheet({ screenHeight, sheetFraction, safeTop: insets.top });
   }, [sheetMetrics, screenHeight, sheetFraction, insets.top]);
 
+  /**
+   * AN EXPLICIT FRAME, WHEN THE SURFACE KNOWS BETTER THAN THE STATUS DOES.
+   *
+   * `target` above is derived from the trip's status, which is right for every
+   * stage that HAS a status. The offer stage does not: there is no trip yet,
+   * only a pickup the driver is deciding whether to drive to, and the useful
+   * frame is the pair — where I am, and where that is — so the driver can judge
+   * the distance in one look.
+   *
+   * Passed as a fit rather than a centre for the same reason: a centre on the
+   * pickup answers "where is it" but not "how far", and how far is the whole
+   * question a 45-second offer asks. Null on every other stage, which leaves
+   * the status-derived behaviour exactly as it was.
+   */
   const camera = useMapCamera({
-    mode: 'followCourse',
+    /**
+     * `followCourse` is the driving convention — up means ahead — and it is the
+     * right default for every stage where the driver is moving through the map.
+     * An explicit fit is the one case where it is wrong: a driver reading an
+     * offer is stationary and comparing two points, and `fit` is only honoured
+     * in `overview` (see useMapCamera). Switching modes with the frame is what
+     * makes the pair actually get framed instead of silently ignored.
+     */
+    mode: fitOverride && fitOverride.length >= 2 ? 'overview' : 'followCourse',
     center: target,
+    fit: fitOverride ?? null,
     padding: getPadding,
     active: active && isFocused,
   });
@@ -229,7 +271,7 @@ export function DriverTripMapImpl({
     <View style={StyleSheet.absoluteFill}>
       <MapboxGL.MapView
         style={StyleSheet.absoluteFill}
-        styleURL={eyegoDriverDarkStyle}
+        styleURL={styleURL}
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled

@@ -33,6 +33,8 @@ import DemandOverlay from '../../components/DemandOverlay';
 import { DriverSheetHost } from '../../components/surface/DriverSheetHost';
 import { DispatchOfferStage } from '../../components/surface/DispatchOfferStage';
 import { deriveDriverStage, useDriverSurface, type DriverStage } from '../../components/surface/driverStage';
+import { DriverSurfaceMap } from '../../components/surface/DriverSurfaceMap';
+import { TripStages } from '../../components/surface/TripStages';
 import mapStyles from '@eyego/map-styles';
 
 /**
@@ -666,58 +668,33 @@ export default function HomeScreen() {
 
   const cameraRef = useRef<any>(null);
   /**
-   * Re-frame once the driver's real position arrives.
-   *
-   * Keyed on a ROUNDED fix, not the raw one: `useDriverLocation` emits on every
-   * GPS sample, and re-issuing `setCamera` several times a second would fight
-   * the driver's own panning for the whole session. Five decimals is about a
-   * metre — far finer than this frame needs, and coarse enough that standing
-   * still does not move the camera.
-   *
-   * `animationDuration: 0` on the first frame so the map opens already correct
-   * rather than visibly sliding into place; later corrections ease.
-   */
-  const framedKey = location ? `${location.latitude.toFixed(5)},${location.longitude.toFixed(5)}` : null;
-  const hasFramedRef = useRef(false);
-  useEffect(() => {
-    // The offer stage owns the camera while it is up — see the effect below.
-    // Without this guard the follow-me frame would fight it once a second and
-    // drag the driver back off the pickup they just opened.
-    if (surfaceStage === 'offer') return;
-    if (!framedKey || !location) return;
-    cameraRef.current?.setCamera({
-      centerCoordinate: [location.longitude, location.latitude],
-      zoomLevel: 14,
-      padding: mapPadding,
-      animationDuration: hasFramedRef.current ? 400 : 0,
-    });
-    hasFramedRef.current = true;
-    // `framedKey` IS the meaningful identity of the fix — see above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [framedKey, mapPadding, surfaceStage]);
-
-  /**
    * ── THE OFFER FRAMES THE APPROACH, NOT THE RIDE ─────────────────────────
    *
    * BUGFIX ("when the dispatch page appears, the map should be showing heading
    * to the pickup point and not the destination cuz the driver doesn't need to
    * know... all they need to know is how long it is from where they are").
    *
-   * Driver + PICKUP only. The drop-off is deliberately absent from this box —
-   * on a long ride it dominates the frame, shrinking the pickup to a dot and
+   * Driver + PICKUP only. The drop-off is deliberately absent from this frame:
+   * on a long ride it dominates the box, shrinking the pickup to a dot and
    * hiding the one leg the driver is being asked to judge in 45 seconds. It is
-   * also gated for its own sake until the ride starts; the same rule the offer
-   * map enforces, here expressed as a camera rather than a layer. See
-   * `revealDropoff` in DispatchLiveMap.
+   * also gated for its own sake until the ride starts — the same rule
+   * `revealDropoff` enforces on the offer map, here expressed as a camera.
    *
-   * `fitBounds` takes top/right/bottom/left; `setCamera` takes paddingTop/…
-   * Mixing the two silently drops all padding, which is why the sheet's share
-   * is spelled out per edge rather than reusing `mapPadding`.
+   * ── WHY THERE ARE NO CAMERA EFFECTS ON THIS SCREEN ANY MORE ──────────────
+   *
+   * There used to be two: a follow-me `setCamera` keyed on a rounded GPS fix,
+   * and a `fitBounds` for the offer, each with its own padding arithmetic and
+   * a guard so they did not fight each other. Both are gone. `DriverTripMap`
+   * runs the ONE frame loop (`useMapCamera`), it pads itself against the
+   * sheet's live top edge rather than a guessed fraction, and it releases the
+   * camera to `free` when the driver pans — none of which the hand-written
+   * pair did. This screen now only says WHAT to frame, never how.
    */
   const focusedPickup = useMemo(() => {
     if (surfaceStage !== 'offer' || !focusedTripId) return null;
     if (heldOffer?.tripId === focusedTripId) {
-      const { pickupLat: la, pickupLng: ln } = heldOffer as any;
+      const la = (heldOffer as any).pickupLat;
+      const ln = (heldOffer as any).pickupLng;
       return Number.isFinite(la) && Number.isFinite(ln) ? { lat: la as number, lng: ln as number } : null;
     }
     const row = pendingRequests.find((r) => r.tripId === focusedTripId);
@@ -726,55 +703,45 @@ export default function HomeScreen() {
       : null;
   }, [surfaceStage, focusedTripId, heldOffer, pendingRequests]);
 
-  useEffect(() => {
-    if (surfaceStage !== 'offer' || !focusedPickup) return;
-    const cam = cameraRef.current;
-    if (!cam) return;
-    const sheetShare = Math.round(windowHeight * 0.52);
-    if (!location) {
-      cam.setCamera({
-        centerCoordinate: [focusedPickup.lng, focusedPickup.lat],
-        zoomLevel: 14.5,
-        paddingTop: insets.top + 24,
-        paddingBottom: sheetShare,
-        animationDuration: 520,
-      });
-      return;
+  /**
+   * The pair the camera must hold while an offer is open: where the driver is,
+   * and where the pickup is. `useMapCamera` refuses a degenerate box on its own
+   * (a collapsed pair is the MLRNCamera crash, not NaN), so a driver standing
+   * on the pickup needs no special case here.
+   */
+  const approachFit = useMemo(() => {
+    if (surfaceStage !== 'offer' || !focusedPickup) return null;
+    const pickup: [number, number] = [focusedPickup.lng, focusedPickup.lat];
+    if (!location) return [pickup];
+    return [[location.longitude, location.latitude] as [number, number], pickup];
+  }, [surfaceStage, focusedPickup, location]);
+
+  /**
+   * The legs the map draws for the CURRENT stage.
+   *
+   * On `offer` the drop-off is deliberately null — the gate above. Once the
+   * trip is live the real coordinates come from the trip itself, and the map's
+   * own status logic picks which leg to frame.
+   */
+  const stagePickup = useMemo(() => {
+    if (surfaceStage === 'offer' && focusedPickup) {
+      return [focusedPickup.lng, focusedPickup.lat] as [number, number];
     }
-    /**
-     * A degenerate box is the MLRNCamera SIGABRT — not NaN. When the driver is
-     * effectively standing on the pickup the two corners collapse to a point,
-     * so that case takes `setCamera` instead of `fitBounds`.
-     */
-    const dLat = Math.abs(location.latitude - focusedPickup.lat);
-    const dLng = Math.abs(location.longitude - focusedPickup.lng);
-    if (dLat < 1e-5 && dLng < 1e-5) {
-      cam.setCamera({
-        centerCoordinate: [focusedPickup.lng, focusedPickup.lat],
-        zoomLevel: 16,
-        paddingTop: insets.top + 24,
-        paddingBottom: sheetShare,
-        animationDuration: 520,
-      });
-      return;
-    }
-    cam.fitBounds(
-      [
-        Math.max(location.longitude, focusedPickup.lng),
-        Math.max(location.latitude, focusedPickup.lat),
-      ],
-      [
-        Math.min(location.longitude, focusedPickup.lng),
-        Math.min(location.latitude, focusedPickup.lat),
-      ],
-      [insets.top + 24, 48, sheetShare, 48],
-      520,
-    );
-    // Deliberately NOT keyed on `location`: re-fitting on every GPS sample
-    // would re-zoom the map under the driver's fingers while they read the
-    // offer. The frame is struck once, when the stage opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [surfaceStage, focusedPickup?.lat, focusedPickup?.lng, windowHeight, insets.top]);
+    const t: any = activeTripData;
+    const la = t?.pickupLat ?? t?.route?.originLat;
+    const ln = t?.pickupLng ?? t?.route?.originLng;
+    return Number.isFinite(la) && Number.isFinite(ln) ? ([ln, la] as [number, number]) : null;
+  }, [surfaceStage, focusedPickup, activeTripData]);
+
+  const stageDropoff = useMemo(() => {
+    // Never during an offer. See the gate above.
+    if (surfaceStage === 'offer' || surfaceStage === 'idle') return null;
+    const t: any = activeTripData;
+    const la = t?.dropoffLat ?? t?.route?.destLat;
+    const ln = t?.dropoffLng ?? t?.route?.destLng;
+    return Number.isFinite(la) && Number.isFinite(ln) ? ([ln, la] as [number, number]) : null;
+  }, [surfaceStage, activeTripData]);
+
 
   return (
     <View style={styles.container}>
@@ -790,28 +757,29 @@ export default function HomeScreen() {
         delayMs={140}
         placeholder={<View style={[StyleSheet.absoluteFillObject, { backgroundColor: colors.backgroundDeep }]} />}
       >
-      <MapboxGL.MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFillObject}
-        styleURL={mapStyle}
-        logoEnabled={false}
-        attributionEnabled={false}
-        compassEnabled={false}
-      >
-        {/*
-          `padding` is NOT a prop on this Camera — it only exists on the
-          imperative `setCamera`, which is why the effect above drives it. The
-          declarative pair here is the first frame (so the map never opens on
-          the middle of the Atlantic); the effect re-frames it against the
-          visible strip the moment a real fix lands.
-        */}
-        <MapboxGL.Camera
-          ref={cameraRef}
-          centerCoordinate={initialCenter}
-          zoomLevel={initialZoom}
-          animationMode="none"
-        />
+      {/*
+        ── ONE MAP, THE WHOLE SHIFT ──────────────────────────────────────────
+        This was a bare `MapboxGL.MapView` with its own `Camera` and two hand-
+        written framing effects. It is now `DriverSurfaceMap`, which wraps the
+        SAME `DriverTripMap` the trip screens use, so accepting a ride no longer
+        tears a GL surface down and builds another one while the driver is
+        pulling into traffic.
 
+        The camera effects that used to live on this screen are gone with it:
+        `useMapCamera` inside DriverTripMap owns the only frame loop, pads
+        itself against the sheet's published top edge, and releases to `free`
+        when the driver pans. Three things this screen used to get wrong.
+      */}
+      <DriverSurfaceMap
+        stage={surfaceStage}
+        trip={activeTripData ? { id: activeTripData.id, status: activeTripData.status } : null}
+        pickup={stagePickup}
+        dropoff={stageDropoff}
+        location={location}
+        puckColor={isOnline ? colors.online : colors.offline}
+        fitOverride={approachFit}
+        styleURL={mapStyle}
+      >
         {location && (
           <MapboxGL.MarkerView coordinate={[location.longitude, location.latitude]}>
             <View style={[styles.driverMarker, { backgroundColor: isOnline ? colors.online : colors.offline }]}>
@@ -834,7 +802,7 @@ export default function HomeScreen() {
           primaryColor={colors.primary}
           visible={showHeatmap}
         />
-      </MapboxGL.MapView>
+      </DriverSurfaceMap>
       </SmoothDefer>
 
       {/* Header overlay — glass */}
@@ -1166,6 +1134,19 @@ export default function HomeScreen() {
       {/* Publishes the `offer` body into the same slot. Renders nothing itself
           and owns no map — home's map is the map. */}
       <DispatchOfferStage />
+
+      {/* The driving stages — enroute / arrived / intrip — publish into the same
+          sheet. Like the offer, they own no map: the surface map above is the
+          map, and it is never rebuilt between them. */}
+      <TripStages
+        stage={surfaceStage}
+        trip={activeTripData}
+        onManage={() =>
+          activeTripData?.id
+            ? goDeeper({ pathname: '/(trip)/active/[id]', params: { id: activeTripData.id } } as Href)
+            : undefined
+        }
+      />
 
       <DriverSheetHost current={surfaceStage} previous={previousStage} />
     </View>
