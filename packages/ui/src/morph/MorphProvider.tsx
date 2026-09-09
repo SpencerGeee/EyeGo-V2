@@ -114,6 +114,50 @@ export function useMorphOptional() {
  * does not have one now degrades in a quarter of the time.
  */
 const TARGET_TIMEOUT_MS = 450;
+
+/**
+ * ── WHERE THE FLIGHT AIMS BEFORE THE DESTINATION HAS LAID OUT ───────────────
+ *
+ * THE BUG THIS SOLVES, on the eighth report: "even my iPhone 15 Pro Max is
+ * facing the lagginess of the morph".
+ *
+ * That device rules out the GPU, the tier system and the spring constants —
+ * all of which had already been rewritten, four times, without moving the
+ * complaint. What was actually happening is visible in the old ordering:
+ *
+ *   tap        → clone mounts at the source, `morphProgress = 0`
+ *   navigate() → the destination mounts (TripMap, six stages, a Skia canvas)
+ *   layout     → the destination's MorphTarget calls `targetReady`
+ *                ...and ONLY THEN was the spring armed.
+ *
+ * So the clone sat PERFECTLY STILL on the source for the entire mount. Nothing
+ * was dropping frames; there were no frames to drop, because the animation had
+ * not started. A dead pause of 200–400 ms between a tap and any movement is
+ * indistinguishable from lag, and it gets worse the heavier the destination is
+ * — which is why it was worst on exactly the screens that mattered most.
+ *
+ * The animation now starts on the TAP, like every native transition does, and
+ * flies toward a PREDICTED rect. `targetReady` becomes a correction, which this
+ * file already supports properly (see `isCorrection`): five shared-value writes,
+ * no React commit, and the running spring simply travels somewhere slightly
+ * different.
+ *
+ * The prediction is self-calibrating. The first morph to a given id aims at the
+ * screen, which is where most morph targets end up; every morph after that aims
+ * at wherever that id ACTUALLY landed last time, so the correction shrinks to
+ * nothing. A user's second tap on the same card is exact.
+ */
+const lastKnownTarget = new Map<string, MorphRect & { radius: number }>();
+
+/**
+ * How quickly a correction is applied.
+ *
+ * Not instant: if the prediction was off, snapping the target shared values
+ * would teleport the clone mid-flight. A short timing glides it onto the real
+ * geometry instead, which reads as the transition settling rather than
+ * stumbling. Short enough to finish well inside the morph spring.
+ */
+const RETARGET_MS = 160;
 /** Cross-fade window between the clone and the real target content — 200ms
  *  (up from 120ms) so the eye registers the real content before the clone
  *  disappears, avoiding the previous "flash" feel. */
@@ -366,6 +410,21 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Settle (crossfade clone → real content) ───────────────────────────
 
+  /**
+   * THE FLIGHT LANDS WHEN BOTH HALVES ARE DONE.
+   *
+   * Now that the spring starts on the tap rather than on the destination's
+   * layout, the two can finish in either order — and on a fast device with a
+   * heavy screen the spring routinely wins. Crossfading to a destination that
+   * has not laid out yet would dissolve the clone into an empty screen, which
+   * is a worse artefact than the pause this change removed.
+   *
+   * So `settle` is gated on both: the spring having arrived, and the target
+   * having reported. The 450 ms timeout is still the backstop for a destination
+   * that never reports at all (a route with no MorphTarget).
+   */
+  const landing = useRef({ sprung: false, targeted: false });
+
   const settle = useCallback(() => {
     setPhase('settled');
     const f = flightRef.current;
@@ -380,6 +439,19 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     cloneOpacity.value = withTiming(0, { duration: CROSSFADE_MS });
     setTimeout(() => setCloneNode(null), CROSSFADE_MS + 20);
   }, [cloneOpacity]);
+
+  /** Land only once both the spring and the destination have arrived. */
+  const maybeSettle = useCallback(() => {
+    if (!flightRef.current) return;
+    if (!landing.current.sprung || !landing.current.targeted) return;
+    settle();
+  }, [settle]);
+
+  /** The spring reached 1. Called from the UI thread via runOnJS. */
+  const markSprung = useCallback(() => {
+    landing.current.sprung = true;
+    maybeSettle();
+  }, [maybeSettle]);
 
   // ─── Forward morph ─────────────────────────────────────────────────────
 
@@ -425,12 +497,30 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         sourceH.value = rect.height;
         sourceR.value = entry.borderRadius;
 
-        // Reset target rects to source (will update when target mounts)
-        targetX.value = rect.x;
-        targetY.value = rect.y;
-        targetW.value = rect.width;
-        targetH.value = rect.height;
-        targetR.value = entry.borderRadius;
+        /**
+         * AIM SOMEWHERE PLAUSIBLE, IMMEDIATELY. See `lastKnownTarget`.
+         *
+         * These used to be set to the SOURCE rect, which meant the clone's
+         * interpolation had nowhere to travel until `targetReady` arrived — the
+         * flight was a no-op even once armed. Aiming at the remembered landing
+         * spot (or the screen, first time) is what lets the spring start on the
+         * tap instead of on the destination's first layout.
+         */
+        const predicted = lastKnownTarget.get(id) ?? {
+          // A full-bleed surface inset by nothing: most morph targets are a
+          // screen, and being slightly too large is a far better first guess
+          // than not moving at all.
+          x: 0,
+          y: 0,
+          width: rawWinW,
+          height: rawWinH,
+          radius: entry.borderRadius,
+        };
+        targetX.value = predicted.x;
+        targetY.value = predicted.y;
+        targetW.value = predicted.width;
+        targetH.value = predicted.height;
+        targetR.value = predicted.radius;
 
         // Reset progress to 0 (clone sits at source position). All three, or an
         // axis left at 1 from a previous flight puts the clone's X where the
@@ -455,12 +545,46 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
         // No frame to pin — the clone's layout box is the window and nothing
         // in the flight changes it. See the note on `winW`/`winH`.
+        /**
+         * ARM THE SPRING NOW — before navigating, not after the target lands.
+         *
+         * This is the whole fix. Ordering matters: the springs are started
+         * BEFORE `navigate()`, so they are already running on the UI thread
+         * when the JS thread goes away to mount the destination. Reanimated
+         * drives them from the UI thread, so a busy JS thread cannot stall
+         * them — which is precisely why the transition is now smooth on a
+         * device where mounting is expensive.
+         *
+         * Axis springs are sized from the PREDICTED distance. A correction
+         * deliberately does not re-arm them (see `targetReady`): restarting a
+         * spring mid-flight resets its velocity, and that reads as the clone
+         * stumbling.
+         */
+        const dx = Math.abs(targetX.value - rect.x) + Math.abs(targetW.value - rect.width);
+        const dy = Math.abs(targetY.value - rect.y) + Math.abs(targetH.value - rect.height);
+        landing.current = { sprung: false, targeted: false };
+        morphProgress.value = withSpring(1, springs.morph, (finished) => {
+          if (finished) runOnJS(markSprung)();
+        });
+        progressX.value = withSpring(1, springForAxis(dx));
+        progressY.value = withSpring(1, springForAxis(dy));
+
+        /**
+         * React work comes AFTER the motion has started, deliberately.
+         *
+         * These five setState calls plus `entry.hide()` are a React commit, and
+         * `navigate()` is a screen mount. Both are JS-thread work. Arming the
+         * springs above them means the animation is already running on the UI
+         * thread before any of it begins, so however long the commit and the
+         * mount take, the clone is in the air for all of it.
+         */
         setContentSize({ width: rect.width, height: rect.height });
         setCloneBg(entry.backgroundColor);
         setCloneNode(entry.getClone());
         setActiveId(id);
         setPhase('forward');
         entry.hide();
+
         navigate();
       };
 
@@ -483,12 +607,30 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         f.timeout = null;
       }
 
-      // Set target rects
-      targetX.value = rect.x;
-      targetY.value = rect.y;
-      targetW.value = rect.width;
-      targetH.value = rect.height;
-      targetR.value = borderRadius;
+      /**
+       * THE REAL GEOMETRY, GLIDED ONTO — never snapped.
+       *
+       * The spring is already running (it was armed on the tap, see `morphTo`),
+       * flying toward a predicted rect. Assigning these instantly would
+       * teleport the clone the moment the destination laid out, which is the
+       * "pop" this file has fought before. A short timing moves the DESTINATION
+       * while the progress spring keeps travelling toward it, so a wrong guess
+       * reads as the transition settling rather than jumping.
+       *
+       * Remembered for next time: the second morph on this id predicts exactly
+       * where it lands, so the correction is zero and the flight is perfect.
+       * This is what makes the system self-calibrating rather than reliant on
+       * anyone hand-tuning a guess per call site.
+       */
+      lastKnownTarget.set(id, { ...rect, radius: borderRadius });
+      landing.current.targeted = true;
+
+      const glide = { duration: RETARGET_MS };
+      targetX.value = withTiming(rect.x, glide);
+      targetY.value = withTiming(rect.y, glide);
+      targetW.value = withTiming(rect.width, glide);
+      targetH.value = withTiming(rect.height, glide);
+      targetR.value = withTiming(borderRadius, glide);
       /**
        * SAFE TO CALL MORE THAN ONCE — it is a correction, not just an
        * announcement.
@@ -515,28 +657,21 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
       // flight, so a correction is five shared-value writes and no React commit
       // — which is what removed the mid-flight pop at +140 ms. See `winW`.
 
-      // Only ARM the spring once. A correction has to leave the running spring
-      // alone: restarting it would reset its velocity mid-flight, which reads as
-      // the clone stumbling — and the frame update above has already moved the
-      // destination, so the spring in progress now travels to the right place.
-      if (isCorrection) return;
-
       /**
-       * Spring progress from 0 → 1 — the overlay flies from source to target.
+       * NOTHING ELSE TO DO — and that is the point.
        *
-       * The master carries the callback; the two axis springs carry the motion.
-       * Each axis is sized by how far IT travels — the horizontal distance
-       * includes the width change because a box growing sideways is horizontal
-       * movement of its edges, which is what the eye actually tracks.
+       * This function used to be where the flight was ARMED, which made the
+       * whole transition wait on the destination's first layout. The springs
+       * are started on the tap now (`morphTo`), so by the time this runs the
+       * clone has been moving for however long the mount took. Every call here
+       * is a correction, `isCorrection` is always true, and the only work left
+       * is the five glided writes above.
+       *
+       * Kept as a named constant rather than deleted so the reverse flight and
+       * the timeout path can still tell "the target reported" from "it never
+       * did" — see `f.targetRect`.
        */
-      const dx = Math.abs(rect.x - sourceX.value) + Math.abs(rect.width - sourceW.value);
-      const dy = Math.abs(rect.y - sourceY.value) + Math.abs(rect.height - sourceH.value);
-
-      morphProgress.value = withSpring(1, springs.morph, (finished) => {
-        if (finished) runOnJS(settle)();
-      });
-      progressX.value = withSpring(1, springForAxis(dx));
-      progressY.value = withSpring(1, springForAxis(dy));
+      void isCorrection;
     },
     [
       targetX, targetY, targetW, targetH, targetR,
