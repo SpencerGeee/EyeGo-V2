@@ -291,11 +291,144 @@ export function lastKnownReportedFix() {
   return lastReportedFix;
 }
 
+/**
+ * ── ONE FOREGROUND GPS WATCH FOR THE WHOLE APP ──────────────────────────────
+ *
+ * BUGFIX ("make sure the architecture is sound and fully fluid").
+ *
+ * The background task and the presence heartbeat were both ref-counted so that
+ * N consumers share one of each (`bgTrackingRefs`, `heartbeatRefs`). The
+ * FOREGROUND watch was not: it lived in a per-instance `watchRef`, so every
+ * component calling `useDriverLocation()` opened its own
+ * `Location.watchPositionAsync`.
+ *
+ * Three consumers call it — `(tabs)/home`, `(trip)/active/[id]` and
+ * `(trip)/tracking/[id]` — and home is a TAB, so it stays mounted for the whole
+ * session. A driver on a trip therefore had TWO live GPS subscriptions, and
+ * because `applyPosition` also emits to the socket, the device reported its
+ * position to the server TWICE for every fix. Double the GPS wake-ups, double
+ * the socket traffic, and two independent re-render streams on the busiest code
+ * path either app has.
+ *
+ * Now the subscription is acquired and released like the other two shared
+ * resources, and the work is split by who it belongs to:
+ *
+ *   SHARED, once per fix   `lastReportedFix` + the socket emit
+ *   PER CONSUMER           their own `setLocation` / `setIsMocked`
+ *
+ * The hook's return shape is unchanged, so no caller had to be touched.
+ */
+let sharedWatch: Location.LocationSubscription | null = null;
+let watchRefs = 0;
+/** Highest accuracy any current consumer asked for. A trip wins over idle. */
+let watchWantsNavAccuracy = false;
+const fixListeners = new Set<(pos: Location.LocationObject, heading: number) => void>();
+
+/**
+ * HEADING IS A PROPERTY OF THE DEVICE, NOT OF A CONSUMER.
+ *
+ * These were component refs, so each consumer kept its own memory of the last
+ * good course and the last compass reading — two components could therefore
+ * report DIFFERENT headings for the same physical fix, and whichever emitted
+ * last won on the server. Module scope is where a device-level fact belongs,
+ * and it is what lets the shared broadcast resolve the heading once.
+ */
+/** ~5 km/h. Below this a GPS course is noise — it spins on a parked car. */
+const MOVING_MPS = 1.4;
+let lastCourse: number | null = null;
+let compassHeading: number | null = null;
+
+/** GPS course when it is trustworthy, else the compass, else nothing useful. */
+function resolveHeadingShared(pos: Location.LocationObject): number {
+  const course = pos.coords.heading;
+  const speed = pos.coords.speed ?? 0;
+  // Below walking pace a GPS course is noise — it spins on a parked car.
+  if (typeof course === 'number' && course >= 0 && speed >= MOVING_MPS) {
+    lastCourse = course;
+    return course;
+  }
+  if (lastCourse != null) return lastCourse;
+  if (compassHeading != null) return compassHeading;
+  return typeof course === 'number' && course >= 0 ? course : 0;
+}
+
+/** Shared per-fix work, done exactly once however many consumers there are. */
+function reportFix(pos: Location.LocationObject, heading: number) {
+  const fix = {
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude,
+    heading,
+    speed: pos.coords.speed ?? 0,
+    mocked: mockedProvider,
+  };
+  // Held for the heartbeat and the socket's reconnect re-emit — see above.
+  lastReportedFix = fix;
+  try {
+    driverSocketEvents.emitLocation(fix);
+  } catch (e) {
+    console.warn('[DriverLocation] Foreground emitLocation failed:', e);
+  }
+}
+
+function broadcastFix(pos: Location.LocationObject) {
+  // Resolved and reported ONCE, then handed to every consumer, so all of them
+  // agree on the heading and the server hears about the fix a single time.
+  const heading = resolveHeadingShared(pos);
+  reportFix(pos, heading);
+  fixListeners.forEach((fn) => {
+    try {
+      fn(pos, heading);
+    } catch (e) {
+      console.warn('[DriverLocation] fix listener threw:', e);
+    }
+  });
+}
+
+async function startSharedWatch() {
+  if (sharedWatch) return;
+  const accuracy = watchWantsNavAccuracy
+    ? Location.Accuracy.BestForNavigation
+    : Location.Accuracy.Balanced;
+  try {
+    sharedWatch = await Location.watchPositionAsync(
+      { accuracy, timeInterval: 3000, distanceInterval: 10 },
+      broadcastFix,
+    );
+  } catch (err) {
+    console.warn('[DriverLocation] watchPositionAsync failed — retrying in 5s', err);
+    setTimeout(() => {
+      if (watchRefs > 0) void startSharedWatch();
+    }, 5000);
+  }
+}
+
+async function acquireWatch(wantsNavAccuracy: boolean) {
+  watchRefs++;
+  // A consumer that needs navigation accuracy upgrades the shared watch for
+  // everyone; the alternative is two subscriptions again, which is the bug.
+  if (wantsNavAccuracy && !watchWantsNavAccuracy) {
+    watchWantsNavAccuracy = true;
+    sharedWatch?.remove();
+    sharedWatch = null;
+  }
+  await startSharedWatch();
+}
+
+function releaseWatch() {
+  watchRefs = Math.max(0, watchRefs - 1);
+  if (watchRefs === 0) {
+    sharedWatch?.remove();
+    sharedWatch = null;
+    watchWantsNavAccuracy = false;
+  }
+}
+
 export function useDriverLocation({ enabled = true, isOnTrip = false }: Options = {}) {
   const [location, setLocation] = useState<Coords | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
   const [isMocked, setIsMocked] = useState(false);
-  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  /** True while this instance holds a listener + a ref on the shared watch. */
+  const listeningRef = useRef(false);
   const cancelledRef = useRef(false);
   const permissionGranted = useRef(false);
   // Whether THIS hook instance incremented the background-tracking refcount,
@@ -328,9 +461,6 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
   // The compass is deliberately LAST: a handset in a metal cradle reads the
   // cradle as much as the road, which is why it must never outrank real course
   // data (see @eyego/maps useVehicleHeading — the same model, receiving end).
-  const MOVING_MPS = 1.4; // ~5 km/h — below this, GPS course is noise
-  const compassRef = useRef<number | null>(null);
-  const lastCourseRef = useRef<number | null>(null);
 
   useEffect(() => {
     let sub: { remove: () => void } | null = null;
@@ -342,7 +472,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
         sub = await Location.watchHeadingAsync((h) => {
           // trueHeading is -1 until the compass calibrates; magHeading covers it.
           const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
-          if (Number.isFinite(deg)) compassRef.current = deg;
+          if (Number.isFinite(deg)) compassHeading = deg;
         });
         if (cancelled) { sub?.remove(); sub = null; }
       } catch {
@@ -352,19 +482,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
     return () => { cancelled = true; sub?.remove(); };
   }, []);
 
-  const resolveHeading = useCallback((pos: Location.LocationObject): number => {
-    const course = pos.coords.heading;
-    const speed = pos.coords.speed ?? 0;
-    if (typeof course === 'number' && course >= 0 && speed >= MOVING_MPS) {
-      lastCourseRef.current = course;
-      return course;
-    }
-    if (lastCourseRef.current != null) return lastCourseRef.current;
-    if (compassRef.current != null) return compassRef.current;
-    return typeof course === 'number' && course >= 0 ? course : 0;
-  }, []);
-
-  const applyPosition = useCallback((pos: Location.LocationObject) => {
+  const applyPosition = useCallback((pos: Location.LocationObject, sharedHeading: number) => {
     if (cancelledRef.current) return;
     const speedMs = pos.coords.speed ?? 0;
     const speedKmh = speedMs * 3.6;
@@ -376,7 +494,15 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // clear the transient implausible-speed flag so the UI doesn't stay stuck.
       setIsMocked((prev) => (prev ? false : prev));
     }
-    const reportedHeading = resolveHeading(pos);
+    /**
+     * The heading is HANDED IN, resolved once by the broadcaster.
+     *
+     * It used to be computed per consumer from per-consumer refs, so two
+     * mounted screens could disagree about which way the same vehicle was
+     * pointing — and whichever emitted last won on the server. See
+     * `resolveHeadingShared`.
+     */
+    const reportedHeading = sharedHeading;
     setLocation({
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
@@ -394,48 +520,42 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
     // permission at all — the backend's dispatch query already filters to
     // status:'ACTIVE', isOnline:true downstream, so emitting whenever this
     // (already app-open) foreground watch is running is safe.
-    const fix = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-      heading: reportedHeading,
-      speed: pos.coords.speed ?? 0,
-      mocked: mockedProvider,
-    };
-    // Held for the heartbeat and the socket's reconnect re-emit — see above.
-    lastReportedFix = fix;
-    try {
-      driverSocketEvents.emitLocation(fix);
-    } catch (e) {
-      console.warn('[DriverLocation] Foreground emitLocation failed:', e);
-    }
-  }, [resolveHeading]);
+    /**
+     * The SHARED half — `lastReportedFix` and the socket emit — is done once
+     * per fix by the module, not once per consumer. Doing it here is what made
+     * a driver on a trip report their position twice for every fix, because two
+     * components each had their own watch and each ran this function.
+     */
+    reportFix(pos, reportedHeading);
+  }, []);
 
+  /**
+   * Join the ONE shared watch rather than opening another.
+   *
+   * `watchRef` used to hold this instance's own `watchPositionAsync`
+   * subscription, which is how three mounted consumers became three GPS
+   * subscriptions and three socket emits per fix. See the note on
+   * `sharedWatch`. What is left here is registration: add this component's
+   * listener, take a reference on the shared subscription, and let the module
+   * decide whether it needs starting.
+   *
+   * `isOnTrip` still upgrades accuracy — it now upgrades it for everyone, which
+   * is correct: the device either needs navigation-grade fixes or it does not,
+   * and it cannot need both at once.
+   */
   const startWatch = useCallback(async () => {
-    // Remove any existing watch before starting a new one
-    watchRef.current?.remove();
-    watchRef.current = null;
+    if (listeningRef.current) return;
+    listeningRef.current = true;
+    fixListeners.add(applyPosition);
+    await acquireWatch(isOnTrip);
+  }, [applyPosition, isOnTrip]);
 
-    // Use higher accuracy during active trips for reliable navigation;
-    // use Balanced when idle to conserve battery.
-    const watchAccuracy = isOnTrip
-      ? Location.Accuracy.BestForNavigation
-      : Location.Accuracy.Balanced;
-
-    try {
-      watchRef.current = await Location.watchPositionAsync(
-        {
-          accuracy: watchAccuracy,
-          timeInterval: 3000,
-          distanceInterval: 10,
-        },
-        applyPosition,
-      );
-    } catch (err) {
-      console.warn('[DriverLocation] watchPositionAsync failed — retrying in 5s', err);
-      setTimeout(() => {
-        if (!cancelledRef.current && permissionGranted.current) startWatch();
-      }, 5000);
-    }
+  /** Symmetric with `startWatch` — only releases the ref it actually took. */
+  const stopWatch = useCallback(() => {
+    if (!listeningRef.current) return;
+    listeningRef.current = false;
+    fixListeners.delete(applyPosition);
+    releaseWatch();
   }, [applyPosition]);
 
   useEffect(() => {
@@ -536,7 +656,9 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // blocks on a cold GPS fix.
       try {
         const last = await Location.getLastKnownPositionAsync({ maxAge: MAX_LAST_KNOWN_AGE_MS });
-        if (last && !cancelledRef.current) applyPosition(last);
+        // Through the shared broadcaster, so the seed resolves its heading the
+          // same way a watched fix does and reaches every consumer at once.
+          if (last && !cancelledRef.current) broadcastFix(last);
       } catch { /* no cached position — that's fine */ }
 
       // ── 4. Start the continuous watch immediately ────────────────────
@@ -561,7 +683,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       // Runs in parallel with the watch; overwrites the stale seed if the
       // watch is slow to fire its first update.
       Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-        .then((pos) => { if (!cancelledRef.current) applyPosition(pos); })
+        .then((pos) => { if (!cancelledRef.current) broadcastFix(pos); })
         .catch(() => { /* watch will provide a fix soon */ });
     })();
 
@@ -588,8 +710,9 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
       if (status !== 'granted') {
         setHasPermission(false);
         permissionGranted.current = false;
-        watchRef.current?.remove();
-        watchRef.current = null;
+        // Give up this instance's listener and its ref on the shared watch;
+        // other consumers keep theirs. See `sharedWatch`.
+        stopWatch();
         return;
       }
       // Permission still granted — restart the watch if it was running
@@ -602,8 +725,7 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
     return () => {
       cancelledRef.current = true;
       permissionGranted.current = false;
-      watchRef.current?.remove();
-      watchRef.current = null;
+      stopWatch();
       appStateSub.remove();
       releaseHeartbeat();
       // Release this instance's background-tracking ref. Tracking only actually
