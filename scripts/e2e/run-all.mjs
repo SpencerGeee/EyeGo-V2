@@ -41,6 +41,7 @@ const SUITES = [
   ['conditional-hooks.mjs', 'the crash React reports as "rendered more hooks than last render"'],
   ['motion-invariants.mjs', 'loops nobody cancels and sensors opened once per screen'],
   ['ux-invariants.mjs', 'failures that lie, unlabelled controls, text that will not scale'],
+  ['maestro-selectors.mjs', 'every E2E selector is rendered by the app it targets'],
   ['h3-index.mjs', 'the hex grid dispatch searches — pure, exact, no stack needed'],
   ['scheduled-rides.mjs', 'the ride booked for later — the lifecycle nobody can sit through'],
   ['geo-routing.mjs', 'the polyline, the geocoder and the ETA every map depends on'],

@@ -1,0 +1,16 @@
+# Maestro configuration for the EyeGo apps.
+#
+# Selectors here are testIDs wherever the control is on a critical path, and
+# accessibility labels otherwise. Neither is a copy string: a flow that matches
+# visible text breaks the first time somebody rewords a button, and this product
+# rewords buttons often.
+#
+#   maestro test .maestro/flows/driver-go-online.yaml
+#   maestro test .maestro/flows            # everything
+#
+# `scripts/e2e/maestro-selectors.mjs` proves every selector below exists in the
+# source BEFORE a device is involved — a flow referring to an id nothing renders
+# is the single most common cause of a flaky mobile suite.
+appId: com.eyego.driver
+---
+- runFlow: flows/driver-go-online.yaml

@@ -1,0 +1,36 @@
+# Opening a live request from the board.
+#
+# This is the path the morph work rebuilt: on home it is a STAGE CHANGE, not a
+# navigation, so there is no screen to wait for — the sheet swaps in place.
+appId: com.eyego.driver
+name: Driver — open a live request
+---
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "driver-online-toggle"
+    timeout: 20000
+
+# Runs only when the board actually has work. A dispatch board with nothing on
+# it is the normal state, and a flow that fails because no rider happened to be
+# requesting is a flow the team learns to ignore.
+- runFlow:
+    when:
+      visible:
+        id: "driver-request-row"
+    commands:
+      - tapOn:
+          id: "driver-request-row"
+      # The offer sheet carries the one irreversible control on the surface.
+      - extendedWaitUntil:
+          visible: "Pass on this trip"
+          timeout: 10000
+      # Back must close the offer, not leave the app. This is the Android
+      # regression the stage architecture introduced — see the BackHandler note
+      # in (tabs)/home.tsx. On iOS this step is a no-op.
+      - back
+      - extendedWaitUntil:
+          notVisible: "Pass on this trip"
+          timeout: 8000

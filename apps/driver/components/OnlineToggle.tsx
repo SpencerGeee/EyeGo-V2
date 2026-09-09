@@ -18,10 +18,23 @@ export function OnlineToggle({ isOnline, loading, onToggle }: Props) {
 
   return (
     <Pressable
+      /**
+       * The driver's most consequential control, and it carried no
+       * accessibility label at all — a screen reader announced it as "button"
+       * and nothing else. `switch` with a checked state is what it actually is.
+       *
+       * The testID is what lets an E2E flow drive it without depending on copy:
+       * this label changes with state, and a flow matching "Go online" would
+       * break the moment the driver is already online.
+       */
+      testID="driver-online-toggle"
+      accessibilityRole="switch"
+      accessibilityState={{ checked: isOnline, disabled: !!loading }}
+      accessibilityLabel={isOnline ? 'Go offline' : 'Go online'}
       onPress={onToggle}
       {...press.handlers}
       disabled={loading}
-     accessibilityRole="button">
+    >
       <Animated.View style={[
         styles.pill,
         { backgroundColor: isOnline ? `${driverColors.online}22` : `${driverColors.offline}22` },

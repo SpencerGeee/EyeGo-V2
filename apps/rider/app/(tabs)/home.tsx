@@ -107,6 +107,7 @@ function WhereToPressable({
   return (
     <GlowSearchPressable
       onPress={onPress}
+      testID="rider-where-to"
       accessibilityLabel="Open destination search"
       /*
        * BRIGHT, BUT STILL INSIDE THE GAP.

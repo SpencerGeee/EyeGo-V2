@@ -1,0 +1,21 @@
+# The start of every rider booking.
+appId: com.eyego.rider
+name: Rider — open destination search
+---
+- launchApp:
+    clearState: false
+
+- extendedWaitUntil:
+    visible:
+      id: "rider-where-to"
+    timeout: 20000
+
+- tapOn:
+    id: "rider-where-to"
+
+# The where-to surface is reached by a morph, which now starts on the tap rather
+# than on the destination's first layout. If this times out, the flight is
+# waiting on a mount again — the exact regression that was fixed.
+- extendedWaitUntil:
+    visible: "Where to?"
+    timeout: 10000

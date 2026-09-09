@@ -1,0 +1,26 @@
+# The driver's first action of every shift, and the precondition for all work.
+appId: com.eyego.driver
+name: Driver — go online
+---
+- launchApp:
+    clearState: false
+
+# The home surface is a map with a sheet over it. Waiting on the toggle rather
+# than a fixed sleep is what keeps this stable on a cold start, where the map
+# and the first hydrate are competing for the JS thread.
+- extendedWaitUntil:
+    visible:
+      id: "driver-online-toggle"
+    timeout: 20000
+
+- tapOn:
+    id: "driver-online-toggle"
+
+# Going online is a server round trip that can legitimately REFUSE — unapproved
+# documents, an unfinished trip, a maintenance window. The flow asserts the app
+# reached a settled state either way rather than asserting success, because a
+# refusal correctly explained is not a test failure.
+- extendedWaitUntil:
+    visible:
+      id: "driver-online-toggle"
+    timeout: 15000

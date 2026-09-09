@@ -365,6 +365,7 @@ export function PendingDispatchList({ compact = false, onOpenInPlace }: PendingD
                 request={r}
                 clockSkewMs={clockSkewMs}
                 focused={focused === r.tripId}
+                testID="driver-request-row"
                 onPress={() => open(r)}
               />
             ))}
@@ -620,11 +621,14 @@ function DispatchRow({
   clockSkewMs,
   focused,
   onPress,
+  testID,
 }: {
   request: PendingDispatch;
   clockSkewMs: number;
   focused: boolean;
   onPress: () => void;
+  /** Stable handle for E2E flows — copy changes must not break a test. */
+  testID?: string;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -669,6 +673,7 @@ function DispatchRow({
 
   const body = (
     <Pressable
+      testID={testID}
       onPress={onPress}
       style={[styles.row, focused && { borderColor: accent }]}
       accessibilityRole="button"

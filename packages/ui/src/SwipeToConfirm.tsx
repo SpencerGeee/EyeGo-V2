@@ -43,6 +43,8 @@ import { Text } from './Text';
  */
 export interface SwipeToConfirmProps {
   label: string;
+  /** Stable handle for E2E flows; copy changes must not break a test. */
+  testID?: string;
   onConfirm: () => void;
   /** Keeps the track filled and the gesture disabled while an action is in flight. */
   loading?: boolean;
@@ -79,6 +81,7 @@ const THUMB_INSET = 4;
 
 export function SwipeToConfirm({
   label,
+  testID,
   onConfirm,
   loading = false,
   disabled = false,
@@ -241,6 +244,7 @@ export function SwipeToConfirm({
         trackWidth.value = e.nativeEvent.layout.width;
       }}
       accessibilityRole="button"
+      testID={testID}
       accessibilityLabel={label}
       accessibilityHint="Swipe right to confirm"
       accessibilityState={{ disabled: locked }}

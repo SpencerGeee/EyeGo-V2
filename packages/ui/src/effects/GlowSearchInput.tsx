@@ -76,6 +76,8 @@ interface GlowSearchPressableProps {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  /** Stable handle for E2E flows — copy changes must not break a test. */
+  testID?: string;
   /**
    * Ring/glow palette. Defaults to the blue+orange "premium" pair, which is
    * tuned for a near-black surround. Pass `'green'` on anything sitting over
@@ -111,6 +113,7 @@ export function GlowSearchPressable({
   children,
   style,
   accessibilityLabel,
+  testID,
   palette = 'default',
   glowIntensity,
   maxGlowRadius,
@@ -121,6 +124,7 @@ export function GlowSearchPressable({
 
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       onPressIn={() => ringRef.current?.burst()}
       haptic="light"
