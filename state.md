@@ -69,6 +69,36 @@ Grilling COMPLETE (15 decisions, D1–D15, all user-confirmed). Plan written.
   CAMERA loop not the subscription (idle home would have stopped following), and DriverTripMap
   hardcoded the dark style (light-mode drivers would have got a dark map once home mounted it).
 
+### R1 — RIDER MAP UNIFICATION: scoped, NOT started. Read this before attempting it.
+
+**Two facts I got wrong mid-session; both are now verified — do not re-derive them.**
+1. Rider home DOES mount a MapView (`(tabs)/home.tsx:1193`), so a naively-persistent trip
+   surface = TWO resident GL surfaces, not one. I told the user "one"; that was wrong.
+2. But that MapView is a NON-INTERACTIVE THUMBNAIL inside the active-ride bento card
+   (`zoomEnabled/scrollEnabled/rotateEnabled/pitchEnabled` all false), rendered only when there
+   IS an active ride. A whole GL surface spent on a preview. Once the trip surface is persistent
+   this thumbnail is redundant — removing it is part of the unification, not a separate task.
+
+**The plan (user-approved: "unify the rider's maps, like the driver"):**
+1. Extract `apps/rider/app/trip.tsx` (1058 lines) body → `components/trip/TripSurface.tsx`.
+   It already contains everything needed: SheetMetricsProvider, `<TripMap/>`, the gradient, the
+   outgoing/incoming stage crossfade layers, `<TripSheetHost/>`, `<BoardedCelebration/>`.
+2. Mount `<TripSurface/>` persistently in `(tabs)/_layout.tsx`; it renders null unless the flow
+   store says a stage is live.
+3. `app/trip.tsx` becomes a thin DEEP-LINK SETTER: read `useLocalSearchParams`, seed the flow
+   store, `router.replace('/(tabs)/home')`. This keeps all 25 existing `/trip?...` call sites
+   working untouched.
+4. Only the 7 `morphTo(...)` sites change to reveal the surface instead of pushing:
+   home ×3 (`where-to-pill`, `home-active-ride`, `home-pending-request`), services ×2,
+   activity ×1, SelectStage ×1.
+5. Delete home's bento thumbnail MapView (redundant per fact 2) → resident GL surfaces: 1.
+
+**Why it was NOT done in-session:** it is a 1058-line screen hoist plus back / hardware-back /
+deep-link semantics, layered on top of an equally structural DRIVER change (a0232a6) that has
+not yet been tested on a device. Doing both blind makes any device regression unattributable —
+which is the exact reason the user chose a sequenced delivery. The harness (446 checks) and tsc
+do NOT cover rider navigation semantics, so neither would catch a mistake here.
+
 ### REMAINING
 P3 morph (D1 scoped to cold path only by D10), P4 transitions (D7),
 P7 map-first shell (D8–D11, D13 — the big one: lift rider `TripSheetHost`/`sheetSlot` into
