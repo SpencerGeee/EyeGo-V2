@@ -389,6 +389,9 @@ async function pushToDriver(driver, trip, expiresAtMs, offer = {}) {
         tripId: trip.id,
         expiresAt: new Date(expiresAtMs).toISOString(),
       },
+      // The one notification in the product with a hard deadline: it is worth
+      // breaking a driver's Focus mode for, and worthless a minute later.
+      { urgent: true },
     );
   } catch (err) {
     logger.warn(`Dispatch push failed for driver ${driver.id}: ${err.message}`);

@@ -106,6 +106,32 @@ interface DriverTripState {
   offerSecondsLeft: () => number | null;
 }
 
+
+/**
+ * Remove a dispatch offer notification from the system tray.
+ *
+ * Matched on the `tripId` the push carried in its data payload, so it only
+ * ever clears the offer that actually ended. Wrapped because expo-notifications
+ * is a native module and a JS-only OTA landing on an older binary must degrade,
+ * not throw.
+ */
+async function dismissOfferNotification(tripId?: string | null) {
+  if (!tripId) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Notifications = require('expo-notifications');
+    const shown = await Notifications.getPresentedNotificationsAsync?.();
+    for (const n of shown ?? []) {
+      const data = n?.request?.content?.data as Record<string, unknown> | undefined;
+      if (data?.type === 'TRIP_OFFER' && String(data?.tripId ?? '') === String(tripId)) {
+        await Notifications.dismissNotificationAsync?.(n.request.identifier);
+      }
+    }
+  } catch {
+    // No native module, or the OS refused. The card is already down in-app.
+  }
+}
+
 let unsubscribe: (() => void) | null = null;
 let watchedTripId: string | null = null;
 
@@ -460,6 +486,21 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
          * accident, the server only puts a cooldown on it, and a first-claim
          * accept can still win — so the row survives, without a countdown.
          */
+        /**
+         * ── TAKE THE NOTIFICATION OUT OF THE TRAY TOO ─────────────────────────
+         *
+         * The in-app card comes down here, but the PUSH that woke the phone
+         * stays in the notification shade until the driver swipes it away. So a
+         * driver could tap an offer twenty minutes later, cold-start the app for
+         * it, and be told it had expired — an entirely avoidable trip to a dead
+         * end, and the sort of thing that teaches a driver to ignore the
+         * notification that matters most.
+         *
+         * Best-effort and never awaited: failing to tidy the shade must not
+         * interfere with revoking the offer itself.
+         */
+        void dismissOfferNotification(revokedId);
+
         const gone = reason === 'CANCELLED' || reason === 'TAKEN' || reason === 'DECLINED';
         set((s) => ({
           offer: s.offer?.tripId === revokedId ? null : s.offer,

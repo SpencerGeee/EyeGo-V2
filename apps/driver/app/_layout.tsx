@@ -348,7 +348,22 @@ export default function RootLayout() {
 
   // Handle notification taps — navigate to the relevant screen
   useEffect(() => {
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    /**
+     * ── A TAP THAT *LAUNCHED* THE APP HAD NOWHERE TO LAND ──────────────────
+     *
+     * `addNotificationResponseReceivedListener` only fires for taps that
+     * happen while the JS runtime is alive. When the app is KILLED — which is
+     * the normal state of a phone in a pocket, and exactly when a dispatch
+     * push matters most — the OS delivers the response as part of the launch,
+     * before this listener exists. The driver tapped an offer, watched the app
+     * cold-start, and landed on home with no offer in sight.
+     *
+     * `getLastNotificationResponseAsync()` is the launch-time half of the same
+     * event, so the handler is hoisted out of the callback and both paths run
+     * it. Hydrating first matters for the cold path: the offer lives on
+     * `/rides/driver/state`, and on a cold start the store has nothing yet.
+     */
+    const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data as Record<string, any>;
       const { type, tripId } = data ?? {};
       if (type === 'TRIP_OFFER') {
@@ -413,8 +428,17 @@ export default function RootLayout() {
         // rather than silently doing nothing on tap.
         router.push({ pathname: '/(trip)/active/[id]', params: { id: tripId } } as any);
       }
-    });
-    return () => sub.remove();
+    };
+
+    const sub = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+
+    // The launch-time tap. Fires once, for a response that predates the
+    // listener above. `cancelled` guards the async gap on a fast unmount.
+    let cancelled = false;
+    void Notifications.getLastNotificationResponseAsync()
+      .then((last) => { if (last && !cancelled) handleNotificationResponse(last); })
+      .catch(() => {});
+    return () => { cancelled = true; sub.remove(); };
   }, [router]);
 
   // Foreground notification handler — shows in-app banner when push arrives while app is open

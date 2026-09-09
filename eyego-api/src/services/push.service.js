@@ -98,7 +98,12 @@ async function sendPush(fcmToken, title, body, data = {}) {
   }
 }
 
-async function sendMulticastPush(fcmTokens, title, body, data = {}) {
+/**
+ * @param {object=} opts
+ * @param {boolean=} opts.urgent  A notification with a DEADLINE — currently only
+ *   a dispatch offer, which is live for 45 seconds. See the note below.
+ */
+async function sendMulticastPush(fcmTokens, title, body, data = {}, opts = {}) {
   const validTokens = fcmTokens.filter(Boolean);
   if (!validTokens.length || !firebaseReady) return null;
 
@@ -107,8 +112,41 @@ async function sendMulticastPush(fcmTokens, title, body, data = {}) {
       tokens: validTokens,
       notification: { title, body },
       data: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
-      android: { priority: 'high' },
-      apns: { payload: { aps: { sound: 'default' } } },
+      /**
+       * ── THE OFFER PUSH WAS NOT USING THE HIGH-IMPORTANCE CHANNEL ───────────
+       *
+       * `sendPush` names `channelId: 'eyego_default'`; this did not. Android 8+
+       * routes a notification with no channel to the app's default channel, and
+       * only the named one is registered at MAX importance (see the driver's
+       * `setNotificationChannelAsync`). So the single most time-critical
+       * notification the platform sends — the dispatch offer, which goes out
+       * through THIS function — was the one that could arrive without a
+       * heads-up, silently, in the tray.
+       *
+       * Deliberately NOT a full-screen intent: Android 14 restricts
+       * USE_FULL_SCREEN_INTENT to calling and alarm apps and Play reviews it, so
+       * a ride offer asking for it risks the whole release. MAX importance plus
+       * high priority already produces a heads-up over the lock screen.
+       */
+      android: {
+        priority: 'high',
+        notification: { channelId: 'eyego_default', sound: 'default' },
+      },
+      /**
+       * `time-sensitive` breaks through Focus and Do Not Disturb. It needs no
+       * special entitlement (unlike `critical`), and it is precisely what Apple
+       * documents it for: something that is only useful for a short window. A
+       * driver with Focus on — driving is the canonical case — otherwise never
+       * heard the offer at all.
+       */
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            ...(opts.urgent ? { 'interruption-level': 'time-sensitive', 'relevance-score': 1 } : {}),
+          },
+        },
+      },
     });
     logger.info(`Multicast push: ${result.successCount}/${validTokens.length} delivered`);
     return result;
