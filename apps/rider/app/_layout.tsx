@@ -38,7 +38,7 @@ import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, 
 import { resolveApiUrl } from '../stores/api.store';
 import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
-import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
+import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal, OfflineBanner } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { ReleaseGateHost } from '../components/ReleaseGateHost';
@@ -1088,6 +1088,10 @@ export default function RootLayout() {
     </ColorsProvider>
     {/* Above everything, opaque, and lifted only when its own animation is
         done — by which point the tree above has finished mounting. */}
+    {/* One instance, above everything: a persistent CONDITION, not a toast.
+        Pairs with QueryBoundary, which uses the same signal so a failure says
+        "You're offline" instead of blaming the server. */}
+    <OfflineBanner offline={isOffline} />
     {!splashDone && <SplashAnimation onComplete={() => setSplashDone(true)} />}
     </>
   );

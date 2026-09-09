@@ -7,12 +7,13 @@ import { useRouter, type Href } from 'expo-router';
 import { MotiView, goDeeper } from '@eyego/ui';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { bookingsApi, queryKeys } from '@eyego/api';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../stores/ride.store';
 import { spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
-import { Text, Skeleton, EmptyState, StatusBadge, backgroundScrollPauseProps, usePressScale } from '@eyego/ui';
+import { Text, Skeleton, EmptyState, StatusBadge, QueryBoundary, backgroundScrollPauseProps, usePressScale } from '@eyego/ui';
 import { formatGhs, formatTripDate } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import type { Booking } from '@eyego/types';
@@ -33,6 +34,7 @@ export default function TripsScreen() {
   const [segment, setSegment] = useState<Segment>('Upcoming');
   const { activeBooking: storeActiveBooking } = useRideStore(useShallow((s) => ({ activeBooking: s.activeBooking })));
   const queryClient = useQueryClient();
+  const { isOffline } = useNetworkStatus();
 
   // Navigate to the cancel screen (with reason picker) instead of a bare Alert
   const handleCancel = useCallback((bookingId: string) => {
@@ -56,7 +58,7 @@ export default function TripsScreen() {
       ? rawBooking
       : null;
 
-  const { data, isLoading, refetch: refetchBookings } = useQuery({
+  const { data, isLoading, isError, refetch: refetchBookings } = useQuery({
     queryKey: [...queryKeys.bookings.myHistory(), segment],
     queryFn: () =>
       bookingsApi.getHistory(
@@ -182,25 +184,44 @@ export default function TripsScreen() {
         ))}
       </MotiView>
 
-      {/* List */}
-      {isLoading ? (
-        <View style={styles.skeletonContainer}>
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} height={96} borderRadius={radii.xl} style={styles.skeletonItem} />
-          ))}
-        </View>
-      ) : bookings.length === 0 ? (
-        <EmptyState
-          lottieSource={emptyLottie}
-          icon="bus-outline"
-          title={`No ${segment.toLowerCase()} trips`}
-          subtitle={
-            segment === 'Upcoming'
-              ? 'Book your first ride to get started.'
-              : 'Your completed rides will appear here.'
-          }
-        />
-      ) : (
+      {/*
+        A FAILED REQUEST IS NOT AN EMPTY HISTORY.
+
+        This was `isLoading ? skeleton : bookings.length === 0 ? <EmptyState/>`.
+        On failure `isLoading` is false and `bookings` is `[]`, so a rider whose
+        network dropped was told "No upcoming trips" — the app stating, with
+        confidence, that they have never booked a ride.
+
+        `QueryBoundary` checks error BEFORE empty precisely so this ordering
+        cannot be written again, and says "You're offline" rather than blaming
+        the server when the phone has no signal.
+      */}
+      <QueryBoundary
+        loading={isLoading}
+        error={isError}
+        offline={isOffline}
+        empty={bookings.length === 0}
+        onRetry={() => void refetchBookings()}
+        skeleton={
+          <View style={styles.skeletonContainer}>
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} height={96} borderRadius={radii.xl} style={styles.skeletonItem} />
+            ))}
+          </View>
+        }
+        emptyState={
+          <EmptyState
+            lottieSource={emptyLottie}
+            icon="bus-outline"
+            title={`No ${segment.toLowerCase()} trips`}
+            subtitle={
+              segment === 'Upcoming'
+                ? 'Book your first ride to get started.'
+                : 'Your completed rides will appear here.'
+            }
+          />
+        }
+      >
         <FlashList
           {...backgroundScrollPauseProps}
           data={bookings}
@@ -219,7 +240,7 @@ export default function TripsScreen() {
           }
           renderItem={renderTripItem}
         />
-      )}
+      </QueryBoundary>
     </SafeAreaView>
   );
 }

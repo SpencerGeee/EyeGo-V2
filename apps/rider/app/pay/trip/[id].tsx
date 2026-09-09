@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi, bookingsApi, paymentsApi, walletApi, apiClient } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii, withOpacity } from '@eyego/config';
@@ -68,6 +69,7 @@ export default function ScanPayTripScreen() {
   const [paying, setPaying] = useState(false);
   const [paid, setPaid] = useState(false);
 
+  const { isOffline } = useNetworkStatus();
   const tripQ = useQuery({
     queryKey: ['trip', id],
     queryFn: async () => (await tripsApi.getById(String(id))).data?.data,
@@ -172,6 +174,27 @@ export default function ScanPayTripScreen() {
           <View style={styles.centre}>
             <ActivityIndicator color={colors.primary} />
             <Text style={styles.muted}>Reading the code…</Text>
+          </View>
+        ) : tripQ.isError ? (
+          /*
+            "THAT CODE HAS EXPIRED" WAS BEING SAID TO A RIDER WITH A VALID CODE.
+            `!trip` was true on a FAILED request as well as on a genuinely dead
+            trip, so a dropped connection told a rider standing in front of a
+            driver that the driver's code was no good — a specific, confident,
+            wrong accusation, at the one moment they cannot afford it.
+            The request failing and the trip being over are different facts.
+          */
+          <View style={styles.centre}>
+            <EmptyState
+              icon={isOffline ? 'cloud-offline-outline' : 'alert-circle-outline'}
+              title={isOffline ? "You're offline" : "Couldn't read that code"}
+              subtitle={
+                isOffline
+                  ? "The code is probably fine — we just can't reach the server. Try again when you have signal."
+                  : 'Something went wrong on our side. The code is probably fine — try again.'
+              }
+              action={{ label: 'Try again', onPress: () => void tripQ.refetch() }}
+            />
           </View>
         ) : !trip ? (
           <View style={styles.centre}>

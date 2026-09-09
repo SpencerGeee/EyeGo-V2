@@ -12,7 +12,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NetworkReporter } from '../components/NetworkReporter';
-import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal } from '@eyego/ui';
+import { ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal, OfflineBanner } from '@eyego/ui';
 import { ReleaseGateHost } from '../components/ReleaseGateHost';
 import {
   useFonts,
@@ -256,10 +256,20 @@ export default function RootLayout() {
     bannerTimeoutRef.current = setTimeout(() => setInAppBanner(null), 4000);
   }, []);
 
-  // DM2: sync React Query online state with device network connectivity
+  /**
+   * DM2: sync React Query online state with device network connectivity.
+   *
+   * The same subscription now also drives the offline banner. It was already
+   * listening and telling react-query; it just never told the DRIVER, so a lost
+   * signal looked like an app that had stopped working — which on this app
+   * means a driver wondering why no work is coming in.
+   */
+  const [isOffline, setIsOffline] = useState(false);
   useEffect(() => {
     return NetInfo.addEventListener(state => {
-      onlineManager.setOnline(state.isConnected ?? true);
+      const connected = state.isConnected ?? true;
+      onlineManager.setOnline(connected);
+      setIsOffline(!connected);
     });
   }, []);
 
@@ -856,6 +866,10 @@ export default function RootLayout() {
     </ColorsProvider>
     {/* Above everything, opaque, and lifted only when its own animation is
         done — by which point the tree above has finished mounting. */}
+    {/* One instance, above everything: a persistent CONDITION, not a toast.
+        Pairs with QueryBoundary, which uses the same signal so a failure says
+        "You're offline" instead of blaming the server. */}
+    <OfflineBanner offline={isOffline} />
     {!splashDone && <SplashAnimation onComplete={() => setSplashDone(true)} />}
     </>
   );

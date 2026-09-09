@@ -4,6 +4,7 @@ import { View, StyleSheet, FlatList, Alert, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { Ionicons } from '@expo/vector-icons';
 import { tripsApi } from '@eyego/api';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -26,7 +27,8 @@ export default function ScheduledRidesScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, refetch } = useQuery({
+  const { isOffline } = useNetworkStatus();
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['trips', 'scheduled'],
     queryFn: () => tripsApi.getScheduledRides(),
     refetchInterval: 20000, // pending/dispatched rides can flip to MATCHED between visits
@@ -129,7 +131,23 @@ export default function ScheduledRidesScreen() {
              rider is guaranteed to be looking for what to do next, and "No
              scheduled rides yet." answers that with nothing — so it gets the
              shared surface and, more importantly, a verb. */
-          !isLoading ? (
+          /* A FAILED REQUEST IS NOT AN EMPTY SCHEDULE.
+             `!isLoading` alone was true on failure too, so a rider with an
+             airport pickup booked for the morning was told they had none —
+             and offered a button to book the ride they already have. Error is
+             checked first, for the same reason QueryBoundary checks it first. */
+          isError ? (
+            <EmptyState
+              icon={isOffline ? 'cloud-offline-outline' : 'alert-circle-outline'}
+              title={isOffline ? "You're offline" : "Couldn't load your rides"}
+              subtitle={
+                isOffline
+                  ? 'Your scheduled rides are safe — this will fill in as soon as you have signal.'
+                  : 'Something went wrong on our side. Your scheduled rides are unaffected.'
+              }
+              action={{ label: 'Try again', onPress: () => void refetch() }}
+            />
+          ) : !isLoading ? (
             <EmptyState
               icon="calendar-outline"
               title="No scheduled rides yet"
