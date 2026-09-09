@@ -38,6 +38,7 @@ const SUITES = [
   // second. If the performance rules have been broken, that is worth knowing
   // before forty HTTP assertions scroll past.
   ['ui-invariants.mjs', 'the performance + layout rules no type-check can see'],
+  ['conditional-hooks.mjs', 'the crash React reports as "rendered more hooks than last render"'],
   ['h3-index.mjs', 'the hex grid dispatch searches — pure, exact, no stack needed'],
   ['geo-routing.mjs', 'the polyline, the geocoder and the ETA every map depends on'],
   ['rider-happy-path.mjs', 'request → dispatch → accept → drive → complete → pay'],

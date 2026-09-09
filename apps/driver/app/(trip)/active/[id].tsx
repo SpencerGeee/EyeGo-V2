@@ -959,6 +959,41 @@ export default function ActiveTripScreen() {
     [trip, destCoord, pickupCoord, tripPickupPlace, tripDestinationPlace],
   );
 
+  /**
+   * The trip as a list of places — the projection this screen is now built on.
+   *
+   * ONE derivation, shared with the tracking screen, so the two cannot form
+   * different opinions of the same route. See components/trip/useTripStops.ts.
+   *
+   * ── WHY IT IS UP HERE AND NOT BESIDE THE CODE THAT USES IT ───────────────
+   *
+   * BUGFIX ("I tried creating a trip on the driver app and it's telling me
+   * something went wrong and that it rendered more hooks than during the
+   * previous render… opening the new manage trip page and the tracking page
+   * throws that error").
+   *
+   * This call used to sit ~115 lines BELOW the `if (isLoading || !trip)` guard
+   * that returns the skeleton. That is a conditional hook, and it fires on the
+   * single most ordinary path this screen has:
+   *
+   *   render 1  query loading, no trip  → guard returns the skeleton early, so
+   *                                       React records N hooks for this
+   *                                       component;
+   *   render 2  the trip arrives        → the guard no longer fires, execution
+   *                                       reaches `useTripStops`, and React
+   *                                       counts N+1.
+   *
+   * "Rendered more hooks than during the previous render", every single time
+   * the page was opened and the trip loaded. Nothing about it was intermittent;
+   * it only looked that way because a cached trip skips render 1.
+   *
+   * `useTripStops` is null-safe by construction (`trip?.` throughout), so
+   * calling it before the trip exists is free — it returns empty stops for one
+   * frame and then the real ones. The rule it now obeys is the ordinary one:
+   * every hook runs before any early return.
+   */
+  const { stops } = useTripStops(trip);
+
   // ─── Loading skeleton ────────────────────────────────────────────────────
 
   if (isLoading || !trip) {
@@ -1070,13 +1105,7 @@ export default function ActiveTripScreen() {
     0,
   );
 
-  /**
-   * The trip as a list of places — the projection this screen is now built on.
-   *
-   * ONE derivation, shared with the tracking screen, so the two cannot form
-   * different opinions of the same route. See components/trip/useTripStops.ts.
-   */
-  const { stops } = useTripStops(trip);
+  // `stops` is derived ABOVE the loading guard — see the note there.
 
   /**
    * ── THE BOARDING RUN ──────────────────────────────────────────────────────

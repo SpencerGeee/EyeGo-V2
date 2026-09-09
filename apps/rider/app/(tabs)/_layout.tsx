@@ -124,9 +124,22 @@ function TabItem({
     focus.value = withSpring(isFocused ? 1 : 0, springs.micro);
   }, [isFocused, focus]);
 
-  // Guard: route exists in the directory but is not a visible tab
-  if (!icons) return null;
-
+  /**
+   * ── EVERY HOOK BEFORE ANY RETURN ────────────────────────────────────────
+   *
+   * These three used to sit BELOW the `if (!icons) return null` guard, which
+   * made them conditional hooks. It is the same defect that crashed the
+   * driver's manage-trip screen with "rendered more hooks than during the
+   * previous render" (see the note on `useTripStops` in
+   * apps/driver/app/(trip)/active/[id].tsx) — the only reason this one has not
+   * been reported is that `icons` is looked up from a static directory and so
+   * has never actually flipped for a mounted tab.
+   *
+   * That is luck, not a design: it holds only while the tab directory stays
+   * static, and it would break the moment a tab is added, renamed or gated
+   * behind a flag. Three `useAnimatedStyle` calls are cheap, and the guard now
+   * costs nothing but a render that returns null.
+   */
   // Press feedback multiplier
   const innerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -141,6 +154,9 @@ function TabItem({
   const inactiveIconStyle = useAnimatedStyle(() => ({
     opacity: 1 - focus.value,
   }));
+
+  // Guard: route exists in the directory but is not a visible tab
+  if (!icons) return null;
 
   return (
     <Pressable
