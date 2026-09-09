@@ -182,13 +182,46 @@ let lastReportedFix: { lat: number; lng: number; heading: number; speed: number;
  * driver is dispatchable and, if not, why — which is what turns "nothing shows
  * and I don't know why" into a sentence on the home screen.
  */
-async function beatPresenceOverHttp(): Promise<void> {
+/**
+ * Why a beat did not produce a verdict. `null` means it did.
+ *
+ * The 25-second heartbeat ignores this — a dropped beat genuinely is not worth
+ * surfacing when another is seconds away. `beatPresenceNow` does not, because a
+ * driver who just TAPPED something is owed an answer. See PresenceBeatResult.
+ */
+export type PresenceBeatFailure = 'NO_FIX' | 'OFFLINE' | 'NETWORK' | 'BAD_RESPONSE';
+export interface PresenceBeatResult {
+  ok: boolean;
+  failure: PresenceBeatFailure | null;
+  dispatchable: boolean | null;
+}
+
+async function beatPresenceOverHttp(): Promise<PresenceBeatResult> {
   const fix = lastReportedFix;
-  if (!fix) return;
+  /**
+   * NO FIX IS A RESULT, NOT A REASON TO GO QUIET.
+   *
+   * BUGFIX ("when the dispatch cannot see you toast comes on the index page of
+   * the driver app, when you click on check now, nothing happens").
+   *
+   * This was a bare `return`. The banner it backs says, in as many words, that
+   * the usual cause is "a stale GPS fix" — so the single most likely state when
+   * a driver taps Check now is the state in which this function did nothing at
+   * all, told nobody, and left the banner exactly as it was. The button was not
+   * wired to a no-op; it was wired to a function that no-ops precisely when it
+   * is needed.
+   *
+   * It still does not beat without a fix — beating a stale position would put a
+   * wrong location in the pool, which is worse. It now SAYS so, and the caller
+   * decides whether that deserves a sentence.
+   */
+  if (!fix) return { ok: false, failure: 'NO_FIX', dispatchable: null };
   const store = useDriverStore.getState();
   // Offline is a decision, not a network condition — never put a driver who
   // deliberately went offline back into the pool.
-  if (!store.isLoggedIn || !store.isOnline) return;
+  if (!store.isLoggedIn || !store.isOnline) {
+    return { ok: false, failure: 'OFFLINE', dispatchable: null };
+  }
   try {
     const res = await driverApi.presence({
       lat: fix.lat,
@@ -202,10 +235,13 @@ async function beatPresenceOverHttp(): Promise<void> {
         dispatchable: data.dispatchable,
         reason: data.reason ?? null,
       });
+      return { ok: true, failure: null, dispatchable: data.dispatchable };
     }
+    return { ok: false, failure: 'BAD_RESPONSE', dispatchable: null };
   } catch {
-    // A failed beat is not worth surfacing — the next one is 25 s away, and the
-    // socket ping may well have kept the key alive in the meantime.
+    // Still not surfaced HERE — the heartbeat calls this too, and the next one
+    // is 25 s away. The tap path reads the result and speaks for itself.
+    return { ok: false, failure: 'NETWORK', dispatchable: null };
   }
 }
 
@@ -214,7 +250,7 @@ async function beatPresenceOverHttp(): Promise<void> {
  * 25-second cadence is too slow to matter: the driver has just switched back
  * from the rider app on the same phone and a search may be parked on them.
  */
-export function beatPresenceNow(): Promise<void> {
+export function beatPresenceNow(): Promise<PresenceBeatResult> {
   const beat = beatPresenceOverHttp();
   try {
     if (lastReportedFix) driverSocketEvents.emitLocation(lastReportedFix);

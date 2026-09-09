@@ -160,15 +160,58 @@ export interface DispatchBlockedBannerProps {
   top?: number;
   action?: DispatchBlockAction | null;
   busy?: boolean;
+  /**
+   * When the server last gave its verdict (`dispatchStatus.checkedAt`).
+   *
+   * Rendered as "Checked just now" so the primary action has visible feedback
+   * even in its most common outcome — the check ran and the answer is still no.
+   * Without it the driver taps, nothing on screen moves, and the button looks
+   * broken. Omit to render no timestamp at all.
+   */
+  checkedAt?: number | null;
+  /**
+   * Wave this block away. OMIT IT to render an undismissable banner.
+   *
+   * BUGFIX ("you cannot even dismiss that toast"). The caller owns how long the
+   * dismissal lasts and what re-shows it, because "dismissed" is a property of
+   * the driver's session, not of this component — see `dismissedBlock` on the
+   * home screen.
+   */
+  onDismiss?: () => void;
 }
 
-export function DispatchBlockedBanner({ reason, top, action, busy = false }: DispatchBlockedBannerProps) {
+export function DispatchBlockedBanner({
+  reason,
+  top,
+  action,
+  busy = false,
+  checkedAt = null,
+  onDismiss,
+}: DispatchBlockedBannerProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const meaning = useMemo(() => describeDispatchBlock(reason), [reason]);
 
   const isError = meaning.severity === 'error';
   const tint = isError ? '#F87171' : '#F59E0B';
+
+  /**
+   * "Checked just now" / "Checked 2 min ago", or null before the first verdict.
+   *
+   * Coarse on purpose. A live second-by-second counter would make a warning
+   * card twitch in the driver's peripheral vision all day for information that
+   * only matters in the moments right after a tap.
+   */
+  const checkedAgo = useMemo(() => {
+    if (!checkedAt) return null;
+    const ageMs = Date.now() - checkedAt;
+    if (ageMs < 0) return 'Checked just now';
+    if (ageMs < 45_000) return 'Checked just now';
+    const mins = Math.round(ageMs / 60_000);
+    if (mins < 60) return `Checked ${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    return `Checked ${hours} h ago`;
+  }, [checkedAt]);
 
   // A slow breath, on the UI thread. Two seconds is long enough not to nag and
   // short enough that a glance catches it mid-cycle.
@@ -271,7 +314,43 @@ export function DispatchBlockedBanner({ reason, top, action, busy = false }: Dis
         <Text style={[styles.detail, { color: colors.onSurfaceVariant }]} numberOfLines={3}>
           {meaning.detail}
         </Text>
+        {/*
+          PROOF THAT THE BUTTON RAN.
+
+          The most common outcome of "Check now" is that the answer is still no,
+          and in that case nothing else on this card changes. Without this line
+          the driver taps a button and watches an identical screen, which is
+          indistinguishable from a dead control — which is exactly what was
+          reported. `checkedAgo` re-renders because `checkedAt` moves on every
+          beat now, verdict-change or not.
+        */}
+        {checkedAgo ? (
+          <Text style={[styles.checked, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+            {checkedAgo}
+          </Text>
+        ) : null}
       </View>
+
+      {/*
+        DISMISS.
+
+        BUGFIX ("you cannot even dismiss that toast"). Deliberately a small,
+        low-contrast target at the trailing edge rather than a second button
+        competing with the CTA: passing on the fix should be possible, not
+        inviting. Rendered only when the caller supplies `onDismiss`, so a block
+        that genuinely must not be waved away simply omits it.
+      */}
+      {onDismiss ? (
+        <Pressable
+          onPress={onDismiss}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss this warning"
+          style={({ pressed }) => [styles.dismiss, pressed && { opacity: 0.55 }]}
+        >
+          <Ionicons name="close" size={16} color={colors.onSurfaceVariant} />
+        </Pressable>
+      ) : null}
       </View>
 
         {/*
@@ -340,6 +419,24 @@ const makeStyles = (colors: DriverColors) =>
       alignItems: 'center', justifyContent: 'center',
     },
     body: { flex: 1, gap: 3 },
+    /** The "Checked just now" line. Quieter than `detail` on purpose. */
+    checked: {
+      fontFamily: fonts.medium,
+      fontSize: fontSizes.bodySmall,
+      opacity: 0.75,
+      marginTop: 2,
+    },
+    /**
+     * Top-aligned rather than centred: the card grows to three lines of detail
+     * plus a CTA, and a vertically centred close button on a tall card floats
+     * in the middle of the text with nothing to relate to.
+     */
+    dismiss: {
+      alignSelf: 'flex-start',
+      marginTop: -2,
+      marginRight: -4,
+      padding: 4,
+    },
     headline: {
       fontFamily: fonts.bold,
       fontSize: fontSizes.bodyMedium,

@@ -71,6 +71,26 @@ export interface DispatchLiveMapProps {
   /** Tints the ride line and the pickup ring — the screen's urgency colour. */
   accent?: string;
   /**
+   * Draw and frame the DROP-OFF. Default false — the offer shows the approach.
+   *
+   * BUGFIX ("when the dispatch page appears, the map should be showing heading
+   * to the pickup point and not the destination cuz the driver doesn't need to
+   * know... it needs to be gated so the drivers can only see where they are
+   * dropping off riders when they start the ride").
+   *
+   * The map used to fit driver + pickup + dropoff together. On a long ride that
+   * box is mostly the trip itself, so the pickup — the only thing the driver is
+   * being asked to judge in 45 seconds — shrank to a dot, and the leg that
+   * actually matters ("how far do I have to drive to start earning") became
+   * unreadable. Framing the APPROACH answers that question at a useful zoom.
+   *
+   * This gates the MAP only. The drop-off area name and the trip's own
+   * distance/duration stay on the offer card as text, because a driver still
+   * has to be able to decide whether the ride is worth taking — which was an
+   * earlier, and still valid, request. See the note in DispatchOfferCard.
+   */
+  revealDropoff?: boolean;
+  /**
    * Padding for `fitBounds`, in points. The sheet covers the bottom of the
    * screen, so the ride has to be framed into the space ABOVE it or half of it
    * is behind the panel — which looks exactly like a map that will not show you
@@ -157,7 +177,20 @@ function arcBetween(a: Coord, b: Coord, samples = 28): Coord[] {
 
 export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMapProps>(
   function DispatchLiveMap(
-    { pickup, dropoff, driver, routeGeoJson, accent, padding, onFramedChange, onUserInteraction },
+    {
+      pickup,
+      dropoff,
+      driver,
+      routeGeoJson,
+      accent,
+      padding,
+      onFramedChange,
+      onUserInteraction,
+      // Gated by default: the offer screen shows the approach, and only a
+      // started ride opts in. A default of `true` here would mean every new
+      // caller leaks the destination by forgetting a prop.
+      revealDropoff = false,
+    },
     ref,
   ) {
     const colors = useColors();
@@ -166,9 +199,18 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
     const reducedMotion = useReducedMotion();
     const [ready, setReady] = useState(false);
 
+    /**
+     * What the camera has to contain. The drop-off is in this set only once it
+     * has been revealed — see `revealDropoff`. Everything downstream (fitBounds,
+     * the degenerate-box guard, the framing pill) reads this one list, so the
+     * gate cannot be applied in one place and forgotten in another.
+     */
     const points = useMemo(
-      () => [pickup, dropoff, driver].filter((c): c is Coord => isUsableCoord(c)),
-      [pickup, dropoff, driver],
+      () =>
+        [pickup, revealDropoff ? dropoff : null, driver].filter((c): c is Coord =>
+          isUsableCoord(c),
+        ),
+      [pickup, dropoff, driver, revealDropoff],
     );
 
     const pad = padding ?? { top: 120, bottom: 360, left: 56, right: 56 };
@@ -327,7 +369,16 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
      * through a river or a one-way system is not an answer.
      */
     const approachRoad = useRoadLeg(driver, pickup);
-    const rideRoad = useRoadLeg(routeGeoJson ? null : pickup, routeGeoJson ? null : dropoff);
+    /**
+     * Not fetched at all while the drop-off is gated. Hiding the pin but still
+     * drawing the line would show the destination anyway — as a stroke leaving
+     * the frame in its exact direction — and would spend a routing call on
+     * geometry nobody is allowed to see.
+     */
+    const rideRoad = useRoadLeg(
+      routeGeoJson || !revealDropoff ? null : pickup,
+      routeGeoJson || !revealDropoff ? null : dropoff,
+    );
 
     const approach = useMemo(() => {
       if (approachRoad) return approachRoad;
@@ -337,10 +388,13 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
     const approachIsRoad = !!approachRoad;
 
     const ride = useMemo(() => {
+      // The gate, again at the geometry: the bowed placeholder points at the
+      // destination just as plainly as a real road line does.
+      if (!revealDropoff) return null;
       if (routeGeoJson) return null;
       if (rideRoad) return rideRoad;
       return isUsableCoord(pickup) && isUsableCoord(dropoff) ? arcBetween(pickup, dropoff) : null;
-    }, [routeGeoJson, rideRoad, pickup, dropoff]);
+    }, [routeGeoJson, rideRoad, pickup, dropoff, revealDropoff]);
     const rideIsRoad = !!routeGeoJson || !!rideRoad;
 
     return (
@@ -437,7 +491,10 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
           ) : null}
 
           {/* The ride itself: solid, cased, in the accent — the earning leg. */}
-          {routeGeoJson || ride ? (
+          {/* `routeGeoJson` is the WHOLE ride, pickup to drop-off, so it has to
+              obey the same gate as the pin and the arc — otherwise the server's
+              own geometry draws the destination the other two just hid. */}
+          {(revealDropoff && routeGeoJson) || ride ? (
             <ShapeSource
               id="dispatch-live-ride"
               shape={
@@ -489,7 +546,9 @@ export const DispatchLiveMap = forwardRef<DispatchLiveMapHandle, DispatchLiveMap
             </MarkerView>
           ) : null}
 
-          {isUsableCoord(dropoff) ? (
+          {/* Gated with the camera — a pin the driver can pan to is not hidden.
+              See `revealDropoff`. */}
+          {revealDropoff && isUsableCoord(dropoff) ? (
             <MarkerView coordinate={dropoff} anchor="center">
               <View style={[styles.dropoff, { borderColor: line, backgroundColor: colors.background }]}>
                 <View style={[styles.dropoffCore, { backgroundColor: line }]} />

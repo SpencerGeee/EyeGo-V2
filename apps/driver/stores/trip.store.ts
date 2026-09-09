@@ -354,7 +354,23 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
          * ride left at all, and for TIMEOUT the truth is the opposite of what
          * was shown — nobody holds it, and this very driver may claim it.
          */
-        const gone = reason === 'CANCELLED' || reason === 'TAKEN';
+        /**
+         * A PASS TAKES THE ROW AWAY. A TIMEOUT ONLY STOPS THE CLOCK.
+         *
+         * BUGFIX ("if the driver passes, it shouldn't be shown to them again").
+         *
+         * `DECLINED` joined this set when a pass became permanent server-side
+         * (see `noteDecline`'s `deliberate` flag in dispatch-cascade). Before
+         * that, a decline was a cooldown, so keeping the row was right — the
+         * ride could legitimately come back. It cannot any more: the cascade
+         * will never offer this trip to this driver again, so a row that stays
+         * on the board is advertising work that can no longer be taken.
+         *
+         * TIMEOUT is deliberately NOT in this set. Letting an offer lapse is an
+         * accident, the server only puts a cooldown on it, and a first-claim
+         * accept can still win — so the row survives, without a countdown.
+         */
+        const gone = reason === 'CANCELLED' || reason === 'TAKEN' || reason === 'DECLINED';
         set((s) => ({
           offer: s.offer?.tripId === revokedId ? null : s.offer,
           pendingRequests: gone
@@ -365,10 +381,16 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
                       ...r,
                       offeredToMe: false,
                       expiresAtServerMs: null,
-                      // A timeout or a decline hands the ride back to the pool,
-                      // it does not hand it to a named driver. The next poll
-                      // carries the server's own answer either way.
-                      heldByAnother: reason === 'DECLINED' ? r.heldByAnother : false,
+                      /**
+                       * Says WHY the deadline went away, so the offer screen
+                       * cannot mistake "ended" for "never had one" and start a
+                       * fresh 45-second ring on a dead offer.
+                       */
+                      offerExpiredForMe: true,
+                      // A timeout hands the ride back to the pool, it does not
+                      // hand it to a named driver. The next poll carries the
+                      // server's own answer either way.
+                      heldByAnother: false,
                     }
                   : r,
               ),

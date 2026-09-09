@@ -308,14 +308,46 @@ export default function DispatchScreen() {
    * gives up early merely stops showing a ride it can no longer win; the server
    * refuses the claim either way.
    */
+  /**
+   * Has this driver's exclusive window on this ride already run out?
+   *
+   * Read off the BOARD ROW, not off `offer` — a lapsed offer is precisely the
+   * case in which `offer` has been cleared, so asking `offer` can only ever
+   * answer "no". See `offerExpiredForMe` in PendingDispatch for why the flag
+   * exists at all.
+   */
+  const offerExpiredForMe = useMemo(
+    () => pendingRequests.some((r) => r.tripId === id && r.offerExpiredForMe === true),
+    [pendingRequests, id],
+  );
+
   const expiresAtMs = useMemo(() => {
     if (offer?.expiresAtServerMs) return offer.expiresAtServerMs;
+    /**
+     * AN OFFER THAT ALREADY ENDED DOES NOT GET A NEW WINDOW.
+     *
+     * BUGFIX ("if I do and then I tap on the live request card on the homepage
+     * of the driver app, it brings up the request again with a fresh counter
+     * which is wrong cuz its supposed to be expired").
+     *
+     * The fallback below is right for a row that NEVER had a deadline — a
+     * reassignment, a board row nobody has been offered. It is wrong for a row
+     * whose deadline was cleared BECAUSE this driver's window ran out, and both
+     * cases arrived here as a bare `null`. So re-opening a lapsed offer started
+     * the countdown over, and the ring said forty-five seconds on a ride the
+     * server had already passed to somebody else.
+     *
+     * `offerExpiredForMe` is what the revoke frame now leaves behind to tell
+     * the two apart. Returning a past instant makes `expired` true on the first
+     * frame, which is what every downstream gate already reads.
+     */
+    if (offerExpiredForMe) return firstSeenRef.current - 1;
     if (params.expiresAt) {
       const t = new Date(params.expiresAt).getTime();
       if (Number.isFinite(t)) return t;
     }
     return firstSeenRef.current + DEFAULT_WINDOW_S * 1000;
-  }, [offer?.expiresAtServerMs, params.expiresAt]);
+  }, [offer?.expiresAtServerMs, params.expiresAt, offerExpiredForMe]);
 
   const windowMs = useMemo(() => {
     if (!expiresAtMs) return DEFAULT_WINDOW_S * 1000;

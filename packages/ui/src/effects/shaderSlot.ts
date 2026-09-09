@@ -62,8 +62,44 @@ import { useScreenFocus } from './screenFocus';
  */
 
 /** Higher wins. Live raymarch beats a frozen frame. */
+/**
+ * A SCREEN'S OWN BACKGROUND OUTRANKS THE ROOT'S. THAT IS THE WHOLE RULE.
+ *
+ * BUGFIX ("on the create trip page, the background is showing a blue background
+ * (blue black) but its supposed to be showing the skia background").
+ *
+ * These two constants used to be STATIC=0 and ANIMATED=1, with the root layout
+ * claiming ANIMATED and every pushed screen claiming STATIC. That ranking is
+ * backwards, and it produced the blue-black in two separate ways:
+ *
+ *   1. The root's claim is permanent. It is mounted OUTSIDE the navigator, so
+ *      `useScreenFocus()` is true for its entire life and it never relinquishes.
+ *      Holding the highest priority forever meant a pushed screen's STATIC claim
+ *      could never win, so that screen fell through to its flat `backgroundDeep`
+ *      fallback — which IS the blue-black being reported.
+ *
+ *   2. When the root DID drop to STATIC (its `paused` path), `claim()` spliced it
+ *      out and re-pushed it onto the end of the stack. `currentOwner()` breaks
+ *      ties by recency, so the root became the newest STATIC claim and won the
+ *      tie anyway. The yield the pause was written to perform never happened.
+ *
+ * The honest ranking is the physical one: whoever is on top of the screen should
+ * paint it. The root background is the FLOOR — it exists to fill screens that
+ * bring no background of their own. Any screen that mounts one is, by definition,
+ * in front of the root and outranks it. Recency then only ever has to separate
+ * two screen-level claims, and since a blurred screen relinquishes, there is
+ * normally only one.
+ */
+/** The single root-layout background. Loses to any screen that brings its own. */
+export const SHADER_PRIORITY_BASE = -1;
+/** A screen's own background. Outranks the root floor. */
 export const SHADER_PRIORITY_STATIC = 0;
-export const SHADER_PRIORITY_ANIMATED = 1;
+/**
+ * @deprecated Kept so existing call sites keep compiling. It is now an alias for
+ * the BASE floor, because `variant="animated"` is by contract only ever the one
+ * root-layout mount — see the note on AppBackgroundProps.
+ */
+export const SHADER_PRIORITY_ANIMATED = SHADER_PRIORITY_BASE;
 
 interface Claim {
   id: symbol;
@@ -94,9 +130,22 @@ function notifyAll() {
 function claim(id: symbol, priority: number) {
   const i = stack.findIndex((c) => c.id === id);
   if (i !== -1) {
-    // Already on top with the same weight — nothing to recompute.
-    if (i === stack.length - 1 && stack[i].priority === priority) return;
-    stack.splice(i, 1);
+    /**
+     * ALREADY CLAIMED — RE-RANK IN PLACE, NEVER RE-PUSH.
+     *
+     * This used to splice the entry out and push it back onto the end, which
+     * silently re-dated it. `currentOwner()` breaks ties by recency, so a
+     * background that merely changed its OWN priority (the root does exactly
+     * this when `paused` flips) leapfrogged screens that had claimed after it
+     * and stole back a slot it was in the middle of yielding.
+     *
+     * Recency must mean "when did this background appear", not "when did it
+     * last change its mind". Mutating in place preserves that.
+     */
+    if (stack[i].priority === priority) return;
+    stack[i].priority = priority;
+    notifyAll();
+    return;
   }
   stack.push({ id, priority });
   notifyAll();
@@ -116,7 +165,18 @@ function relinquish(id: symbol) {
  * @returns true if this instance owns the shader slot and should render the
  *          Skia canvas; false if it should render the cheap static gradient.
  */
-export function useShaderSlot(priority: number = SHADER_PRIORITY_STATIC): boolean {
+/**
+ * @param enabled Pass `false` to stand down entirely rather than claim at a
+ *   lower rank. A background that is fully covered (the root under an opaque
+ *   pushed screen) cannot be seen, so holding the one Canvas only denies it to
+ *   the screen the user is actually looking at. Standing down is what makes the
+ *   yield real — dropping a rank was not enough, because the root outlives every
+ *   screen and would simply win the next tie.
+ */
+export function useShaderSlot(
+  priority: number = SHADER_PRIORITY_STATIC,
+  enabled: boolean = true,
+): boolean {
   const [id] = useState(() => Symbol('shaderSlot'));
   const focused = useScreenFocus();
   // Optimistically true: a newly mounted background is about to claim the slot,
@@ -132,9 +192,9 @@ export function useShaderSlot(priority: number = SHADER_PRIORITY_STATIC): boolea
   }, [id]);
 
   useEffect(() => {
-    if (focused) claim(id, priority);
+    if (focused && enabled) claim(id, priority);
     else relinquish(id);
-  }, [id, focused, priority]);
+  }, [id, focused, priority, enabled]);
 
   return isOwner;
 }

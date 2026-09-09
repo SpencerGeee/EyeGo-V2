@@ -612,7 +612,12 @@ export function DispatchOfferCard({
             <View style={styles.leg}>
               <Text style={[styles.legLabel, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
               <Text style={styles.legText} numberOfLines={2}>
-                {offer.dropoffAddress ?? 'Destination on the map'}
+                {/* NOT "Destination on the map" any more — the offer map now
+                    frames the approach only, so that fallback pointed at
+                    something the driver can no longer see. See `revealDropoff`
+                    in DispatchLiveMap. This line IS the destination now, which
+                    is why it must not degrade to a signpost. */}
+                {offer.dropoffAddress ?? 'Destination shared when you start the ride'}
               </Text>
             </View>
           </View>

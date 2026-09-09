@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { driverApi, walletApi, heatmapApi, connectDriverSocket, disconnectDriverSocket, getDriverSocket, driverSocketEvents } from '@eyego/api';
 import * as Location from 'expo-location';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { Text, Button, Entrance, GlassSurface, InlayPanel, GradientGlowBorder, SkeletonValue, AnnouncementBanner, goDeeper, SmoothDefer, notify } from '@eyego/ui';
+import { Text, Button, Entrance, GlassSurface, GradientGlowBorder, SkeletonValue, AnnouncementBanner, SheetContent, goDeeper, SmoothDefer, notify } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, type DriverColors } from '../../utils/useColors';
@@ -30,7 +30,22 @@ import { DestinationModeCard } from '../../components/DestinationModeCard';
 import { PendingDispatchList } from '../../components/PendingDispatchList';
 import { LiveTripCard } from '../../components/LiveTripCard';
 import DemandOverlay from '../../components/DemandOverlay';
+import { DriverSheetHost } from '../../components/surface/DriverSheetHost';
+import { DispatchOfferStage } from '../../components/surface/DispatchOfferStage';
+import { deriveDriverStage, useDriverSurface, type DriverStage } from '../../components/surface/driverStage';
 import mapStyles from '@eyego/map-styles';
+
+/**
+ * How long a dismissed dispatch block stays quiet before it speaks up again.
+ *
+ * Ten minutes is the compromise between the two ways this banner fails a
+ * driver: it is undismissable (the reported bug — a permanent red bar over the
+ * board), or it is dismissable forever, which is worse, because the banner is
+ * the ONLY thing that explains why an online driver is being offered nothing.
+ * A driver who waves it away and then sits idle gets told again before the idle
+ * time is expensive.
+ */
+const BLOCK_DISMISS_TTL_MS = 10 * 60 * 1000;
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -75,6 +90,80 @@ export default function HomeScreen() {
   // refreshed by the presence heartbeat. See the banner below.
   const dispatchStatus = useDriverStore((s) => s.dispatchStatus);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  /** In flight for the blocked banner's "Check now". Drives its spinner. */
+  const [checkingDispatch, setCheckingDispatch] = useState(false);
+  /**
+   * The block the driver has waved away, as `reason` + when they did it.
+   *
+   * BUGFIX ("you cannot even dismiss that toast").
+   *
+   * Kept as the REASON rather than a bare boolean so that dismissing "dispatch
+   * cannot see you" cannot also hide a later, different problem — an expired
+   * document or an unfinished trip must still get through. Kept with a
+   * timestamp rather than forever because this banner is the only thing telling
+   * a driver why they are earning nothing; permanently silenceable is how a
+   * driver sits offline all afternoon wondering where the work is.
+   */
+  const [dismissedBlock, setDismissedBlock] = useState<{ reason: string; at: number } | null>(null);
+
+  /**
+   * A dismissal covers THIS problem, for a while — not every problem, forever.
+   *
+   * It lapses after ten minutes so a driver who waved it away and then sat
+   * earning nothing is told again, and it is keyed on the reason so a different
+   * block re-announces itself immediately. `nowTick` is what re-evaluates the
+   * ten minutes without a dedicated timer: the board already ticks once a
+   * second for the offer countdowns.
+   */
+  const blockDismissed =
+    dismissedBlock != null &&
+    dismissedBlock.reason === (dispatchStatus?.reason ?? '') &&
+    Date.now() - dismissedBlock.at < BLOCK_DISMISS_TTL_MS;
+
+  /**
+   * ── THE HOME SURFACE'S STAGE ────────────────────────────────────────────
+   *
+   * DERIVED, never stored — see `deriveDriverStage`. The only stored thing is
+   * which row the driver tapped; whether that counts as an offer is decided by
+   * the trip store, which is the one place that knows about held offers,
+   * revokes and expiry.
+   *
+   * `previousStage` exists only so the sheet host can crossfade the outgoing
+   * body against the incoming one. A ref rather than state: writing it must not
+   * itself cause a render, or the crossfade would re-trigger on its own output.
+   */
+  const focusedTripId = useDriverSurface((s) => s.focusedTripId);
+  const openOffer = useDriverSurface((s) => s.openOffer);
+  const closeOffer = useDriverSurface((s) => s.closeOffer);
+  const heldOffer = useDriverTripStore((s) => s.offer);
+  const pendingRequests = useDriverTripStore((s) => s.pendingRequests);
+
+  /**
+   * Is the focused ride still something to decide on?
+   *
+   * True while it is either the driver's own live exclusive offer, or a row
+   * still on the board. When it stops being both — taken, cancelled, passed —
+   * the stage falls back to idle on its own rather than stranding the driver on
+   * a panel about a ride that no longer exists.
+   */
+  const focusedOfferable = useMemo(() => {
+    if (!focusedTripId) return false;
+    if (heldOffer?.tripId === focusedTripId) return true;
+    return pendingRequests.some((r) => r.tripId === focusedTripId);
+  }, [focusedTripId, heldOffer?.tripId, pendingRequests]);
+
+  const surfaceStage = deriveDriverStage(focusedTripId, focusedOfferable);
+  const stageRef = useRef<DriverStage>(surfaceStage);
+  const previousStage = stageRef.current === surfaceStage ? null : stageRef.current;
+  useEffect(() => {
+    stageRef.current = surfaceStage;
+  }, [surfaceStage]);
+
+  // A selection that outlived its ride is cleared, so the store cannot keep a
+  // dangling id alive across the next offer.
+  useEffect(() => {
+    if (focusedTripId && !focusedOfferable) closeOffer();
+  }, [focusedTripId, focusedOfferable, closeOffer]);
 
   /**
    * IS THERE WORK ON THE BOARD RIGHT NOW?
@@ -443,11 +532,58 @@ export default function HomeScreen() {
       case 'SIGN_OUT':
         return { label: 'Sign out', onPress: () => goDeeper('/(profile)/settings' as Href) };
       default:
+        /**
+         * CHECK NOW HAS TO ANSWER, EVEN WHEN THE ANSWER IS "STILL NO".
+         *
+         * BUGFIX ("when you click on check now, nothing happens").
+         *
+         * The old body fired `beatPresenceNow()` un-awaited, swallowed every
+         * outcome, and invalidated the `['driver']` QUERY — which is not where
+         * this banner reads from. `dispatchStatus` lives in the zustand store,
+         * so the invalidation could not have refreshed it even if the beat had
+         * worked. And the beat frequently could not work: it returns early
+         * without a GPS fix, which is the very condition the banner names.
+         *
+         * Three outcomes, three different things the driver sees:
+         *   cleared  — the banner disappears. That IS the feedback; a dialogue
+         *              on top of it would just be noise.
+         *   still no — the banner stays, but `checkedAt` has moved, so it now
+         *              reads "Checked just now". The driver can tell it ran.
+         *   failed   — a real sentence, because nothing on screen would change
+         *              otherwise and that is the case being reported.
+         */
         return {
           label: 'Check now',
-          onPress: () => {
-            void beatPresenceNow().catch(() => {});
-            qc.invalidateQueries({ queryKey: ['driver'] });
+          onPress: async () => {
+            setCheckingDispatch(true);
+            try {
+              const beat = await beatPresenceNow();
+              qc.invalidateQueries({ queryKey: ['driver'] });
+              if (beat.ok && beat.dispatchable) {
+                void Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Success,
+                ).catch(() => {});
+                return;
+              }
+              void Haptics.notificationAsync(
+                Haptics.NotificationFeedbackType.Warning,
+              ).catch(() => {});
+              if (beat.failure === 'NO_FIX') {
+                notify(
+                  'Still waiting for your location',
+                  'Dispatch needs a GPS fix before it can put you back in the pool. Check that Location is set to Always and that you are not indoors.',
+                );
+              } else if (beat.failure === 'NETWORK' || beat.failure === 'BAD_RESPONSE') {
+                notify(
+                  'Could not reach dispatch',
+                  'Your connection dropped mid-check. Try again in a moment.',
+                );
+              }
+              // `ok && !dispatchable` deliberately says nothing: the banner
+              // itself now shows when it was last checked.
+            } finally {
+              setCheckingDispatch(false);
+            }
           },
         };
     }
@@ -544,6 +680,10 @@ export default function HomeScreen() {
   const framedKey = location ? `${location.latitude.toFixed(5)},${location.longitude.toFixed(5)}` : null;
   const hasFramedRef = useRef(false);
   useEffect(() => {
+    // The offer stage owns the camera while it is up — see the effect below.
+    // Without this guard the follow-me frame would fight it once a second and
+    // drag the driver back off the pickup they just opened.
+    if (surfaceStage === 'offer') return;
     if (!framedKey || !location) return;
     cameraRef.current?.setCamera({
       centerCoordinate: [location.longitude, location.latitude],
@@ -554,7 +694,87 @@ export default function HomeScreen() {
     hasFramedRef.current = true;
     // `framedKey` IS the meaningful identity of the fix — see above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [framedKey, mapPadding]);
+  }, [framedKey, mapPadding, surfaceStage]);
+
+  /**
+   * ── THE OFFER FRAMES THE APPROACH, NOT THE RIDE ─────────────────────────
+   *
+   * BUGFIX ("when the dispatch page appears, the map should be showing heading
+   * to the pickup point and not the destination cuz the driver doesn't need to
+   * know... all they need to know is how long it is from where they are").
+   *
+   * Driver + PICKUP only. The drop-off is deliberately absent from this box —
+   * on a long ride it dominates the frame, shrinking the pickup to a dot and
+   * hiding the one leg the driver is being asked to judge in 45 seconds. It is
+   * also gated for its own sake until the ride starts; the same rule the offer
+   * map enforces, here expressed as a camera rather than a layer. See
+   * `revealDropoff` in DispatchLiveMap.
+   *
+   * `fitBounds` takes top/right/bottom/left; `setCamera` takes paddingTop/…
+   * Mixing the two silently drops all padding, which is why the sheet's share
+   * is spelled out per edge rather than reusing `mapPadding`.
+   */
+  const focusedPickup = useMemo(() => {
+    if (surfaceStage !== 'offer' || !focusedTripId) return null;
+    if (heldOffer?.tripId === focusedTripId) {
+      const { pickupLat: la, pickupLng: ln } = heldOffer as any;
+      return Number.isFinite(la) && Number.isFinite(ln) ? { lat: la as number, lng: ln as number } : null;
+    }
+    const row = pendingRequests.find((r) => r.tripId === focusedTripId);
+    return row && Number.isFinite(row.pickupLat) && Number.isFinite(row.pickupLng)
+      ? { lat: row.pickupLat as number, lng: row.pickupLng as number }
+      : null;
+  }, [surfaceStage, focusedTripId, heldOffer, pendingRequests]);
+
+  useEffect(() => {
+    if (surfaceStage !== 'offer' || !focusedPickup) return;
+    const cam = cameraRef.current;
+    if (!cam) return;
+    const sheetShare = Math.round(windowHeight * 0.52);
+    if (!location) {
+      cam.setCamera({
+        centerCoordinate: [focusedPickup.lng, focusedPickup.lat],
+        zoomLevel: 14.5,
+        paddingTop: insets.top + 24,
+        paddingBottom: sheetShare,
+        animationDuration: 520,
+      });
+      return;
+    }
+    /**
+     * A degenerate box is the MLRNCamera SIGABRT — not NaN. When the driver is
+     * effectively standing on the pickup the two corners collapse to a point,
+     * so that case takes `setCamera` instead of `fitBounds`.
+     */
+    const dLat = Math.abs(location.latitude - focusedPickup.lat);
+    const dLng = Math.abs(location.longitude - focusedPickup.lng);
+    if (dLat < 1e-5 && dLng < 1e-5) {
+      cam.setCamera({
+        centerCoordinate: [focusedPickup.lng, focusedPickup.lat],
+        zoomLevel: 16,
+        paddingTop: insets.top + 24,
+        paddingBottom: sheetShare,
+        animationDuration: 520,
+      });
+      return;
+    }
+    cam.fitBounds(
+      [
+        Math.max(location.longitude, focusedPickup.lng),
+        Math.max(location.latitude, focusedPickup.lat),
+      ],
+      [
+        Math.min(location.longitude, focusedPickup.lng),
+        Math.min(location.latitude, focusedPickup.lat),
+      ],
+      [insets.top + 24, 48, sheetShare, 48],
+      520,
+    );
+    // Deliberately NOT keyed on `location`: re-fitting on every GPS sample
+    // would re-zoom the map under the driver's fingers while they read the
+    // offer. The frame is struck once, when the stage opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surfaceStage, focusedPickup?.lat, focusedPickup?.lng, windowHeight, insets.top]);
 
   return (
     <View style={styles.container}>
@@ -774,14 +994,23 @@ export default function HomeScreen() {
         driver getting no offers is not a fault — and never before the first
         beat has answered, so a cold start does not flash a warning.
       */}
-      {isOnline && dispatchStatus && !dispatchStatus.dispatchable && (
+      {isOnline && dispatchStatus && !dispatchStatus.dispatchable && !blockDismissed && (
         /* No `top`: it is the last child of the column above and layout places
            it. See DispatchBlockedBannerProps for why the hand-summed offset
            had to go. */
         <DispatchBlockedBanner
           reason={dispatchStatus.reason}
           action={dispatchBlockAction}
-          busy={goOnline.isPending || goOffline.isPending || resumeRequests.isPending}
+          checkedAt={dispatchStatus.checkedAt}
+          onDismiss={() =>
+            setDismissedBlock({ reason: dispatchStatus.reason ?? '', at: Date.now() })
+          }
+          busy={
+            goOnline.isPending ||
+            goOffline.isPending ||
+            resumeRequests.isPending ||
+            checkingDispatch
+          }
         />
       )}
       </View>
@@ -800,11 +1029,25 @@ export default function HomeScreen() {
         sitting clear above the tab bar on launch; the upper snap stays for the
         fuller stats view.
       */}
-      <InlayPanel
-        snapPointsPct={[0.56, 0.82]}
-        sheetStyle={styles.sheetBg}
-        grabberColor={colors.outline}
-      >
+      {/*
+        THE SAME SHEET THE RIDER USES.
+
+        This was `<InlayPanel snapPointsPct={[0.56, 0.82]}>` — the original sheet
+        component, resting at 56% of the screen. Two problems, one of which is
+        the whole of "the driver app aesthetic is still using the same thing
+        that was done at the very beginning": the rider moved to MorphSheet a
+        long time ago, so the two apps had different sheet physics, no shared
+        crossfade and no ghost layer, and the driver's felt older because it WAS
+        older. The other is 0.56 — on a map screen that leaves the driver 44% of
+        the display to answer "where is the work", which is the only question
+        home exists to answer.
+
+        `SheetContent` publishes this body into the slot store rather than
+        rendering it here; `DriverSheetHost` below is what draws it. That
+        indirection is what lets the offer stage swap the body without this
+        screen re-rendering — see the note in driverStage.ts.
+      */}
+      <SheetContent stage="idle">
         <View style={styles.sheetContent}>
           {/*
             ── LIVE WORK, FIRST THING ──────────────────────────────────────
@@ -829,7 +1072,11 @@ export default function HomeScreen() {
           */}
           {hasPendingDispatch && (
             <Entrance animation="slideDown" delay={120}>
-              <PendingDispatchList compact />
+              {/* `onOpenInPlace` is what turns a tap into a stage change
+                  instead of a push — see the note in PendingDispatchList.open.
+                  Home is the only caller that can supply it, because home is
+                  the only screen that already has the map and the sheet. */}
+              <PendingDispatchList compact onOpenInPlace={openOffer} />
             </Entrance>
           )}
 
@@ -908,7 +1155,19 @@ export default function HomeScreen() {
             )}
           </Entrance>
         </View>
-      </InlayPanel>
+      </SheetContent>
+
+      {/*
+        The sheet itself — one instance, above every stage, never unmounted.
+        `idle` publishes into it above; `offer` publishes into it from
+        DispatchOfferStage. Swapping between them is a crossfade on a spring,
+        not a navigation, which is the whole point (see driverStage.ts).
+      */}
+      {/* Publishes the `offer` body into the same slot. Renders nothing itself
+          and owns no map — home's map is the map. */}
+      <DispatchOfferStage />
+
+      <DriverSheetHost current={surfaceStage} previous={previousStage} />
     </View>
   );
 }

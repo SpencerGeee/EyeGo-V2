@@ -104,21 +104,38 @@ const RESWEEP_INTERVAL_SECONDS =
   parseInt(process.env.DISPATCH_RESWEEP_SECONDS, 10) || 10;
 
 /**
- * HOW LONG A DECLINE LASTS. It is not forever.
+ * HOW LONG A *TIMED-OUT* OFFER LASTS. A deliberate Pass is not this.
  *
- * BUGFIX ("once it's passed you, it never gets to you again").
+ * ── TWO ACTS THAT WERE BEING TREATED AS ONE ─────────────────────────────────
  *
- * `state.declined` was an append-only list of ids, and `listSearchesForDriver`
- * hid every trip on it. In a city with one driver that makes a single tap on
- * Pass terminal for the ride: the search runs its five minutes finding nobody,
- * and the one car in range cannot even SEE the request it changed its mind
- * about. Uber and Bolt both re-offer a passed ride once the queue behind it is
- * exhausted, for exactly this reason.
+ * This constant was introduced for "once it's passed you, it never gets to you
+ * again", and the fix was to make every decline a cooldown. That over-corrected,
+ * and produced the opposite report: "if I pass an offer... if the driver passes,
+ * it shouldn't be shown to them again."
  *
- * So a decline is a COOLDOWN. It keeps its whole purpose — the cascade will not
- * bounce the same offer straight back at the driver who just refused it, and it
- * still walks every other candidate first — and it stops being a life sentence.
- * Abandoning an ACCEPTED trip is a different act and is still permanent; see
+ * Both reports are correct, because "declined" was covering two different
+ * things:
+ *
+ *   TIMED OUT — the driver never answered. Phone in a pocket, tunnel, or they
+ *               were in the rider app on the same handset. This is an accident,
+ *               and it is the case the original bug was really about: in a city
+ *               with one driver, an accident must not be terminal for the ride.
+ *               Stays a COOLDOWN.
+ *
+ *   PASSED    — the driver looked at the offer and deliberately refused it.
+ *               Bouncing it back at them later is not a second chance, it is
+ *               nagging, and it is what is being reported now. PERMANENT for
+ *               that driver, on that trip.
+ *
+ * Separating them is what lets both complaints be satisfied at once, and it is
+ * also the honest model: a cooldown is a guess about intent, and here we do not
+ * have to guess — the client tells us which act it was.
+ *
+ * The ride does not die when the pool empties out. See `startCascade`: a search
+ * with no remaining candidates keeps running to its window and re-offers to any
+ * driver who comes online, finishes a trip, or drives into range.
+ *
+ * Abandoning an ACCEPTED trip is a third act and is still permanent; see
  * `excludeDriverIds` in `startCascade`.
  */
 const declineCooldownSeconds = () =>
@@ -127,40 +144,60 @@ const declineCooldownSeconds = () =>
   90;
 
 /**
- * The declines still in force, as a Set of driver ids.
+ * The drivers this trip may not currently be offered to, as a Set of ids.
  *
- * Tolerates BOTH shapes on purpose. State written before this change carries
- * `declined: [id, ...]`; state written after carries
- * `declinedAt: { [id]: epochMs }`. A cascade already in Redis across the deploy
- * must not have its declines silently forgotten (that would re-offer a ride to
- * the driver who passed on it one second earlier), so a legacy scalar list is
- * read as "declined, with no timestamp" and treated as still in force.
+ * Two stores, two meanings — see the note on `declineCooldownSeconds`:
+ *
+ *   `state.declined`   — array. PERMANENT. A deliberate Pass. Never expires.
+ *   `state.declinedAt` — { id: epochMs }. A timed-out offer. Expires after the
+ *                        cooldown, so the ride can come back around.
+ *
+ * The two shapes predate this change and are kept exactly as they were, which
+ * is what makes it safe across a deploy: a cascade already sitting in Redis
+ * carries `declined` entries written by the OLD code, where that array also
+ * meant permanent. Old permanent entries stay permanent; nothing has to be
+ * migrated, and no driver silently gets an offer they already refused.
  */
 function activeDeclines(state, now = Date.now()) {
   const out = new Set();
   if (!state) return out;
+  // Permanent: a deliberate Pass. No clock on these.
   if (Array.isArray(state.declined)) for (const id of state.declined) out.add(id);
   const stamps = state.declinedAt;
   if (stamps && typeof stamps === 'object') {
     const ttlMs = declineCooldownSeconds() * 1000;
     for (const [id, at] of Object.entries(stamps)) {
+      // A permanent entry must survive an expired cooldown for the same driver
+      // (they timed out once, then passed): only ADD here, never delete.
       if (typeof at !== 'number' || now - at < ttlMs) out.add(id);
-      else out.delete(id);
     }
   }
   return out;
 }
 
-/** Record a decline with the clock running on it. */
-function noteDecline(state, driverId) {
+/**
+ * Record that this trip must not go to this driver right now.
+ *
+ * @param {boolean} deliberate `true` when the driver actively tapped Pass —
+ *   permanent. `false`/omitted when the offer merely ran out of time — a
+ *   cooldown. Getting this argument wrong is the difference between the two
+ *   bugs this function has now been the subject of, so callers state it
+ *   explicitly rather than relying on a default.
+ */
+function noteDecline(state, driverId, { deliberate = false } = {}) {
   if (!driverId) return;
+  if (deliberate) {
+    state.declined = Array.isArray(state.declined) ? state.declined : [];
+    if (!state.declined.includes(driverId)) state.declined.push(driverId);
+    // Drop any cooldown stamp: the permanent list now covers this driver, and
+    // leaving a stamp behind would imply the exclusion could lapse.
+    if (state.declinedAt && typeof state.declinedAt === 'object') {
+      delete state.declinedAt[driverId];
+    }
+    return;
+  }
   state.declinedAt = state.declinedAt && typeof state.declinedAt === 'object' ? state.declinedAt : {};
   state.declinedAt[driverId] = Date.now();
-  // The legacy list is where `activeDeclines` reads a permanent entry from, so
-  // a fresh decline must NOT be appended to it — that is the life sentence.
-  if (Array.isArray(state.declined)) {
-    state.declined = state.declined.filter((id) => id !== driverId);
-  }
 }
 
 /**
@@ -1150,6 +1187,35 @@ async function finish(tripId, reason) {
     state.done = true;
     await writeState(state);
   }
+  /**
+   * A SEARCH THAT ENDS WITHOUT A WINNER HAS TO TELL THE BOARD.
+   *
+   * BUGFIX ("on the homepage of the driver app, a trip expired but I'm still
+   * seeing that live trip request on the homepage") and ("I chose to try again
+   * ... and now on the driver homepage, it's showing me two live requests").
+   *
+   * `listSearchesForDriver` reads the TRIP table, so the row does disappear —
+   * on the driver's next poll. Nothing PUSHED, so between the search dying and
+   * that poll the board went on advertising a ride that no longer existed. Then
+   * the rider retried, a second search started, and the driver was looking at
+   * the ghost and the real one side by side. Two live requests, one real ride.
+   *
+   * `announceWinner` already does this for the 'accepted' case, and with the
+   * right reason (TAKEN) — so this covers only the reasons that end a search
+   * with nothing to hand out, and says so with a reason the client treats as
+   * "remove the row".
+   */
+  if (reason !== 'accepted') {
+    for (const c of state?.candidates ?? []) {
+      if (!c?.id) continue;
+      try {
+        if (c.id === state.currentDriverId) await forgetOffer(c.id);
+        publisher.publishOfferRevoked(c.id, tripId, 'CANCELLED');
+      } catch (e) {
+        logger.warn(`Revoke on finish failed for ${c.id}/${tripId}: ${e.message}`);
+      }
+    }
+  }
   await scheduledTasks.cancel(TASK_OFFER_TIMEOUT, tripId).catch(() => {});
   // The waiting-for-supply timer is a second armed clock. Leaving it behind
   // would wake a cascade that has already been won or cancelled.
@@ -1313,7 +1379,10 @@ async function startCascade(tripId, opts = {}) {
 async function declineOffer(tripId, driverId) {
   const state = await readState(tripId);
   if (!state || state.done) return false;
-  noteDecline(state, driverId);
+  // THE deliberate act. The driver read the offer and refused it, so this trip
+  // is done with them permanently — "if the driver passes, it shouldn't be
+  // shown to them again". Every other exclusion in this file is a cooldown.
+  noteDecline(state, driverId, { deliberate: true });
   const wasHolder = state.currentDriverId === driverId;
   // Cleared whether or not they were the holder: a decline from a driver whose
   // offer already lapsed still has to leave the state honest.
@@ -1389,7 +1458,14 @@ async function resumeAfterFailedClaim(tripId, driverId) {
   const state = await readState(tripId);
   if (!state) return;
   state.done = false;
-  noteDecline(state, driverId);
+  /**
+   * NOT a pass. This driver TRIED to take the ride and lost the race (or the
+   * claim threw). Excluding them permanently would punish the one thing we want
+   * them to do, so this stays a cooldown — long enough that the cascade walks
+   * the other candidates first, short enough that they can still end up with
+   * the ride if nobody else takes it.
+   */
+  noteDecline(state, driverId, { deliberate: false });
   releaseHold(state);
   await writeState(state);
   await offerNext(tripId);
@@ -1474,6 +1550,28 @@ scheduledTasks.registerHandler(TASK_OFFER_TIMEOUT, async (task) => {
   // Ignore a timeout for an offer that has already moved on.
   if (!state || state.done || state.currentDriverId !== driverId) return;
   logger.info('Dispatch offer timed out', { tripId, driverId });
+  /**
+   * A TIMEOUT HAS TO EXCLUDE THE DRIVER, OR THE CASCADE NEVER MOVES.
+   *
+   * BUGFIX ("if I pass an offer, it doesn't stay forever on the homepage. If I
+   * do and then I tap on the live request card on the homepage of the driver
+   * app, it brings up the request again with a fresh counter which is wrong cuz
+   * it's supposed to be expired") and ("a trip expired but I'm still seeing that
+   * live trip request on the homepage").
+   *
+   * This handler released the hold and went straight to `offerNext` without
+   * recording anything. `offerNext` ranks by proximity, so the driver who had
+   * just let the offer lapse was — still being the nearest car — immediately
+   * re-offered the same ride with a brand new 45-second deadline. The offer
+   * could never expire from that driver's point of view, and the row never left
+   * their board, because nothing in the state said they had already had a turn.
+   *
+   * A cooldown rather than a permanent exclusion: letting an offer lapse is an
+   * accident (pocket, tunnel, in the rider app on the same handset), not a
+   * refusal. See the note on `declineCooldownSeconds` for why the two are now
+   * recorded differently. This is the half that must still be able to come back.
+   */
+  noteDecline(state, driverId, { deliberate: false });
   // Written back BEFORE the revoke frame goes out. The driver's app answers a
   // revoke by re-reading `/rides/driver/state`, and a read that raced the write
   // would hand back the very stale hold this releases — item 1 all over again.

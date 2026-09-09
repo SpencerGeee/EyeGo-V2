@@ -149,6 +149,25 @@ export interface PendingDispatch {
   offeredToMe: boolean;
   expiresAtServerMs: number | null;
   heldByAnother: boolean;
+  /**
+   * This driver's exclusive window on this ride already ran out.
+   *
+   * CLIENT-ONLY — the server never sends it. Set locally when an
+   * `offer:revoked` frame arrives with reason TIMEOUT, and it exists to keep
+   * two very different states apart:
+   *
+   *   no deadline was ever supplied  — the reassignment path. A fresh window is
+   *                                    correct there.
+   *   the deadline was CLEARED       — the offer ended on this driver.
+   *
+   * Both used to leave `expiresAtServerMs` null, and the offer screen answered
+   * null by inventing `firstSeen + 45s`. So re-opening a lapsed offer started a
+   * brand new countdown on a ride that had already moved on — "it brings up the
+   * request again with a fresh counter which is wrong cuz its supposed to be
+   * expired". The row stays on the board because a first-claim-wins accept may
+   * still succeed; what it must not do is pretend the clock restarted.
+   */
+  offerExpiredForMe?: boolean;
 }
 
 export interface DriverStateResponse {

@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
 import { LightPillarBackground } from './LightPillarBackground';
-import { useShaderSlot, SHADER_PRIORITY_ANIMATED, SHADER_PRIORITY_STATIC } from './shaderSlot';
+import { useShaderSlot, SHADER_PRIORITY_BASE, SHADER_PRIORITY_STATIC } from './shaderSlot';
 import { staticLoopingLayerProps } from './hardwareTexture';
 
 interface BlobConfig {
@@ -92,13 +92,29 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
   const animated = variant === 'animated' && tier !== 'low' && !paused;
 
   /**
-   * A background that is about to paint a LIVE frame outranks every one that is
-   * about to paint a frozen one — see the note in shaderSlot.ts. `animated`
-   * rather than `variant` deliberately: a paused animated background has
-   * nothing live to show, so it should hand the canvas to whatever opaque
-   * screen paused it, and take it back the moment that screen goes away.
+   * THE ROOT BACKGROUND IS THE FLOOR, NOT THE CEILING.
+   *
+   * BUGFIX ("on the create trip page, the background is showing a blue
+   * background (blue black) but its supposed to be showing the skia
+   * background"). Full mechanism in the note on SHADER_PRIORITY_BASE.
+   *
+   * `variant === 'animated'` identifies the ONE root-layout mount — that is the
+   * documented contract of the prop, one file up. Being mounted outside the
+   * navigator, it never blurs and so never relinquishes, which is precisely why
+   * it must rank BELOW screens rather than above them: an immortal claim at the
+   * top of the ranking is a permanent denial to everything else. It ranked
+   * highest before, and `create.tsx` — which is only two segments deep, so the
+   * root never even flagged it as an opaque detail and never tried to pause —
+   * could therefore never win the canvas. It painted its flat fallback instead.
+   *
+   * `!paused` stands the root DOWN rather than merely demoting it. A demotion
+   * was the old behaviour and it did not work: the root outlives every screen,
+   * so it just won the next tie.
    */
-  const ownsShader = useShaderSlot(animated ? SHADER_PRIORITY_ANIMATED : SHADER_PRIORITY_STATIC);
+  const ownsShader = useShaderSlot(
+    variant === 'animated' ? SHADER_PRIORITY_BASE : SHADER_PRIORITY_STATIC,
+    !paused,
+  );
 
   /**
    * THE WAVE HAS TO BE A WAVE IN BOTH THEMES.

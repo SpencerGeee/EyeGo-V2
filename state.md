@@ -1,183 +1,113 @@
-# State — 2026-09-08 twenty-item pass
+# State — 2026-09-09 driver premium pass
+
+## Current Goal
+Fix 17 reported items + rebuild the driver shell map-first. Plan + all decisions:
+`docs/superpowers/plans/2026-09-09-driver-premium-pass.md` — **read that first, it is authoritative.**
 
 ## Status
-**All 20 items addressed.** Both apps `tsc --noEmit` clean; all 8 touched server
-files `node --check` clean; `app.json` parses. **Nothing device-verified.**
+Grilling COMPLETE (15 decisions, D1–D15, all user-confirmed). Plan written.
 
-Plan: `docs/plans/2026-09-08-twenty-item-pass.md`.
+### DONE (driver `tsc` green, exit 0, after each)
+- **P1 items 1 + 10** — `(tabs)/_layout.tsx` gained `sceneStyle:{backgroundColor:'transparent'}`.
+  `shaderSlot.ts`: added `SHADER_PRIORITY_BASE=-1`; root background is now the FLOOR, not the
+  ceiling; `claim()` re-ranks in place instead of re-pushing (the re-push silently re-dated the
+  root and let it win recency ties it was meant to lose); `useShaderSlot(priority, enabled)` —
+  `AppBackground` passes `!paused` so a covered root stands down entirely.
+  NOTE: `home.tsx` mounts NO AppBackground — its full-bleed map was hiding the white.
+- **P2 item 2** — three real defects, all fixed: `beatPresenceOverHttp` opened with
+  `if (!fix) return;` so "Check now" was a guaranteed no-op in the exact state it is offered for;
+  it now returns `PresenceBeatResult{ok,failure,dispatchable}`. `setDispatchStatus` no longer
+  short-circuits, so `checkedAt` moves and the banner can render "Checked just now".
+  `DispatchBlockedBanner` gained `checkedAt` + `onDismiss` (X); home holds `dismissedBlock`
+  keyed on reason with a 10-min TTL (`BLOCK_DISMISS_TTL_MS`).
+- **P5 items 5 + 7 + 9** —
+  * `noteDecline(state, driverId, {deliberate})` splits the two acts. `state.declined` = permanent
+    (a Pass), `state.declinedAt` = cooldown (a timeout). This is why the user reported BOTH
+    "it never gets to you again" and "it shouldn't be shown to them again" — one function, two acts.
+  * `declineOffer` → `deliberate:true`. `resumeAfterFailedClaim` → `false` (a LOST ACCEPT RACE
+    must not be punished). TASK_OFFER_TIMEOUT handler now calls `noteDecline(...false)` — it
+    previously recorded NOTHING, so `offerNext` re-offered to the same nearest driver with a
+    fresh 45s deadline. That is item 5's server half.
+  * `finish()` now revokes to every candidate for any non-'accepted' reason; `expireTrip` calls
+    `cascade.cancelCascade` (lazy require). Terminal transitions never PUSHED a revoke, so the
+    board kept a ghost row until the next poll → items 7 and 9.
+  * Client: `PendingDispatch.offerExpiredForMe` (client-only flag); store treats `DECLINED` as
+    `gone`; offer screen no longer invents `firstSeen + 45s` for an offer that ENDED (item 5's
+    "fresh counter").
 
-## Decisions taken (user-confirmed, 2026-09-08)
-- Driver manage-trip + tracking redesign → **Stop Timeline**.
-- QR → **two payloads, one scanner** (`pay` vs `book`) + universal links.
-- Mid-ride dispatch offers → live ETA to final drop ≤ 5 min, as a PlatformSetting.
-- New-ride alert → sound + haptic + full-screen popup, repeating, driver-toggleable.
+- **P6 item 3** — `DispatchLiveMap` gained `revealDropoff` (default **false**, so a new caller
+  cannot leak the destination by forgetting a prop). Gated in FOUR places, because hiding only
+  the pin still shows the destination: the `points` list that feeds fitBounds, the dropoff
+  `MarkerView`, the `ride` arc/road geometry, AND the `routeGeoJson` layer (the server's own
+  whole-ride line). `useRoadLeg` for the ride leg is not even fetched while gated.
+  `DispatchOfferCard` fallback copy changed from "Destination on the map" (now false) to
+  "Destination shared when you start the ride". Dropoff area name stays as TEXT per D5.
+  Only call site is `dispatch/[id].tsx`; the tracking screen uses a different map
+  (`DriverTripMap`), so post-start reveal needs no change there.
 
-## THE ONE THING THAT STILL NEEDS RUNNING
-`expo-audio` is declared in `apps/driver/package.json` but **not installed**.
-`utils/dispatchAlert.ts` resolves it at call time, so the new-ride alert works as
-haptics + vibration today and gains its chime after:
+### REMAINING
+P3 morph (D1 scoped to cold path only by D10), P4 transitions (D7),
+P7 map-first shell (D8–D11, D13 — the big one: lift rider `TripSheetHost`/`sheetSlot` into
+`packages/ui`, then driver home/dispatch/tracking become 6 stages of one never-unmounting map),
+P8 item 11 (see Open Issues — needs runtime, not static).
 
-    cd apps/driver && npx expo install expo-audio
+## Proven root causes (verified in code, do not re-derive)
+- **item 1** white bg — driver `apps/driver/app/(tabs)/_layout.tsx` `screenOptions` is missing
+  `sceneStyle: { backgroundColor: 'transparent' }`. Rider has it at its line 206. quests/earnings/
+  trips/notifications mount no `AppBackground`, so the opaque tab scene shows. `home.tsx` only looks
+  fine because it mounts its own.
+- **item 10** blue-black create-trip — `packages/ui/src/effects/shaderSlot.ts` `currentOwner()` awards
+  the single Canvas to the highest priority. Root layout claims `ANIMATED`(1) and **never
+  relinquishes**, because it sits outside the navigator so `useScreenFocus()` is permanently true.
+  A pushed screen's `STATIC`(0) claim can therefore never win → it paints only its flat
+  `backgroundDeep` fallback. Root is `paused` under a detail (`_layout.tsx:654`) but still *owns*
+  the slot. **Fix: a paused background must relinquish, not just stop drawing.**
+- **item 2** — `DispatchBlockedBanner.tsx` has no dismiss state at all (0 grep hits). `Check now`
+  (`home.tsx:447`) calls `beatPresenceNow()` un-awaited, no feedback, invalidates `['driver']` which
+  may not be the key the banner reads.
+- **item 6** — `rides.service.js:349` guard uses `findActiveTripForUser` + `reconcile.stillLive`.
+  A timed-out ride lands in `NO_DRIVERS_FOUND` (`dispatch-cascade.service.js:662,787`). Confirm
+  that status is terminal in BOTH `findActiveTripForUser` and `stillLive`, not just in
+  `trip-lifecycle.service.js` (whose line 69 notes it was missing there once already).
+- **item 8** morph — fixed 4× at the animation layer and still reported; the cost is the destination
+  mount. D10 removes the destination on the hot path entirely.
 
-then a new native build — it is a native module, not OTA-able.
+## Key facts
+- Only **8 morph call sites** exist app-wide — small blast radius.
+- Rider already owns the target shell: `apps/rider/components/trip/{TripSheetHost,sheetSlot,TripMap}.tsx`
+  + `packages/ui/src/panel/MorphSheet.tsx`. Sheet is custom, **not** `@gorhom/bottom-sheet`.
+- Deps: reanimated 4.1.1, gesture-handler 2.28, maplibre 11.3.2, skia 2.2.12, expo 54, screens 4.16.
+  `react-native-view-shot` NOT installed (not needed — RN rasterization + `effects/hardwareTexture.ts`).
+- `npx` is broken in this sandbox → `node node_modules/typescript/lib/tsc.js`.
 
-## What each item was
-
-### #1 driver Skia frozen — two independent causes
-1. `useShaderSlot` is now PRIORITY-aware. The app's one `variant="animated"`
-   background lives in the root layout, which has no navigation context, so it
-   claimed the slot once at launch and sat at the BOTTOM of a recency stack.
-   Every other mount is `variant="static"` — a deliberately FROZEN frame — so
-   the first one to focus took the canvas and painted a still image with it. On
-   the driver that was five TAB screens, which never unmount. Animated now
-   outranks static; a PAUSED animated instance drops to static priority, which
-   is exactly when a covering screen should take over.
-2. `backgroundActivity`'s busy counter could only ever go up (tap-to-catch a
-   flinging list fires momentum-begin with no momentum-end). One dropped
-   decrement froze the shader for the rest of the session. 6 s watchdog added.
-Also removed the redundant `<AppBackground/>` from 5 driver `(tabs)` screens
-(the group is already `TRANSPARENT_CONTENT`), and `overFullBleedMap` now matches
-segments rather than substrings.
-
-### #2 book-a-ride map
-`tripFlow.setPickupCoord` is called from NOWHERE — `pickupCoord` was permanently
-null, so the pickup pin never rendered and `fitFor` framed on the destination
-alone. `TripMap` derives it from `useRideStore.origin` now. Recenter re-frames
-the whole journey when one exists, and the icon changes to match.
-
-### #3 four-seat 409
-Server defaulted `seatCount` to 1 at the destructure, so ABSENT and an explicit
-1 were indistinguishable — any client path that lost the field asserted a party
-of one against a quote signed for four. The quote is the authority; the body is
-a cross-check that can only fail when explicitly different, and it fails as
-`PARTY_SIZE_MISMATCH` rather than `FARE_EXPIRED` (which sent the client into a
-re-quote that could only fail identically).
-
-### #4 duplicate back control
-The panel drew a second, INERT arrow (`pointerEvents="none"`) directly above
-"We couldn't send that".
-
-### #5 dispatch: alert + mid-ride + proportion
-- `utils/dispatchAlert.ts` — repeating chime + haptic + Android vibration while
-  an offer is live; stops on answer/expiry/unmount; driver-toggleable
-  (`offerAlertsEnabled`, new Settings row). The full-screen takeover already
-  existed and was root-mounted — the missing half was that it was silent.
-- Mid-ride offers: `midRideAvailableDriverIds` + `MIDRIDE_OFFER_ETA_MINUTES`,
-  wired into `matcher.rankCandidates` as an ADDITIVE second pass.
-- Layout: `SHEET_MAX_HEIGHT` was a flat 560 pt — 72% of a 780 pt phone, 84% of a
-  667 pt one, so the guarantee got weaker on the devices that needed it most.
-  Now a fraction (58% sheet / 42% map), matching what `StopTimelineSurface`
-  gives the map, capped at 560 for tablets.
-
-### #6/#15b straight walking line
-`/v1/geo/route`'s last-tier haversine ESTIMATE returns a well-formed two-point
-LineString, indistinguishable from a real route — which is why the earlier
-walking-profile fix appeared to do nothing. Server labels it (`geometryIsRoute`),
-a walk retries on the driving profile before falling through, and the client
-refuses to draw a non-route as a polyline.
-
-### #6/#8 driver redesign — BOTH screens on the Stop Timeline
-New components: `useTripStops` (trip → stops + passengers, tolerant of every
-shape), `StopTimeline` + `CabinStrip`, `StopTimelineSurface` (draggable map pane
-18%/42%, spring with velocity, rubber-band, scrolling body, pinned action).
-`tracking/[id]` and `active/[id]` are both migrated (renders replaced; every
-mutation, socket handler, query key, transition and guard untouched — the
-boarding-PIN run and keypad are unchanged).
-
-### #7 tracking freezes at "driver is here"
-`DriverInfoCard` flips to `premium` at exactly ARRIVED_AT_PICKUP, mounting a
-rotating ring, a sweeping sheen AND an iOS `glow` shadow over a live MapView —
-with a ticking ETA inside it, so the blurred silhouette re-rasterises every
-second. Bloom removed, ring kept.
-
-### #9 driver palette
-Was a saturated navy ramp. Now the rider's Onyx lightness ladder with a cool
-cast that only appears as the surfaces rise.
-
-### #10 receipt placeholders / "Your Driver"
-The RIDE_COMPLETE push handler pushed a BOOKING id into `/ride/[id]/complete`,
-whose `[id]` is a TRIP id. Fixed both ends; same class fixed on RIDE_CONFIRMED.
-
-### #11 transitions
-The navigator default was `fade` (rider) and `fade_from_bottom` (driver). A fade
-has no direction so it cannot express depth; `fade_from_bottom`'s direction was
-actively wrong (upward means modal). Default is now `detailPush` — iOS hands the
-transition to UINavigationController (parallax, edge shadow, real interactive
-pop), Android keeps the slide. `fade` survives only on the root-level peer
-swaps, which are also the transparent-content screens a slide would break.
-
-### #12 set a destination
-Every part was built — routes, controller, rationing, picker handoff on focus,
-matcher filter. What was missing was the ENTRY POINT: the card returned `null`
-whenever `mode` was falsy, which is true on first paint, on every cold start,
-and permanently if the GET fails. The CTA always renders now; only the allowance
-pill waits for the server.
-
-### #13 driver home camera + heatmap
-- The camera had no `padding`, so the driver was centred in the full MapView
-  while the bottom 56% is covered by the panel. `padding` is not a prop on this
-  Camera — it exists only on the imperative `setCamera` — so a ref-driven effect
-  re-frames on a rounded fix.
-- `DemandOverlay` used a SCREEN-PIXEL radius, so a blob claimed different ground
-  at every zoom; its edge is kilometres from its centre when zoomed out, which
-  is the report. Now a real 600 m radius converted at two zoom stops and
-  interpolated exponential base 2. The server was already correct.
-- No longer gated on `isOnline` (that is the question you ask BEFORE going
-  online), and an empty result says so instead of drawing nothing.
-
-### #14 false "already on a ride"
-`activeBooking` is PERSISTED and the COMPLETED branch never cleared it (only
-CANCELLED did). Added `isLiveBooking()` (booking status AND trip status — the
-rule the home screen and the server already use), a rehydrate-time purge, and a
-clear on COMPLETED.
-
-### #15a red payment toast
-`notify()` defaults to `tone: 'error'`; the payment notice passed no tone. Fixed
-that one plus the obviously-positive driver notices. The default is left alone —
-its dominant caller is `onError`.
-
-### #16 boarded never reached the rider
-`mergeSnapshot` preserves the personal `booking` across room frames (correct — a
-room snapshot cannot carry it), which made the field permanently STALE.
-`applyBookingScopedEvent` patches it by matching `payload.bookingId`. New
-`PASSENGER_BOARDED`/`PASSENGER_NO_SHOW` event types (excluded from `TripStatus`).
-New `BoardedCelebration` on the trip surface.
-
-### #17 no-show misdirection
-Two defects. The blocked banner opened `driverStore.activeTripId` — a persisted
-local value unrelated to the server-generated reason on screen — so after a
-no-show it opened the trip that was just killed. It now parses the id out of the
-server's own `BUSY(trip=…)` reason (`dispatchBlockTripId`). And nothing cleared
-`activeTripId` when a trip ended by any route other than the screens that end it
-on purpose; `releaseTripIfMine` does, guarded on the id.
-
-### #18 "find another driver" landed on the search stage
-The terminal branch calls `clearRideState()`, so by then there was no journey
-left to repeat. The notice carries one now (captured inside `raise()`, so no
-call site can forget) and `rebook()` re-seeds the store and goes to
-`?stage=request`.
-
-### #19 QR split + deeplinks
-The driver rendered ONE code for both buttons and it pointed at `/ride/<id>` —
-the trip DETAIL screen, whose primary action is "Book This Seat". Now two codes
-behind a segmented control: `/pay/trip/<id>` and `/ride/<id>`. The rider's parser
-gained `payTrip` (tested BEFORE `/pay/`, which is its prefix), and `/ride/<id>`
-means booking instead of being forced to payment. Android intent filters
-extended to `/track` and `/join`.
-
-### #20a seat modal
-It was `Alert.alert()` with six newline-joined lines and five stacked OS buttons.
-New `components/trip/PassengerSheet.tsx`: identity (avatar, name, guest +
-booker), three state chips (seat / money / aboard), reach-them actions, then the
-decision, then the destructive one behind a rule in the error colour.
-
-### #20b guest booking
-`guest-selection` has always taken a `next`; the "Book for someone else" CTA was
-the one call site that omitted it, so it fell through to `goBack()`.
-
-## Notes for the next session
-- `npx` is broken here — use `node node_modules/typescript/lib/tsc.js`.
-- `python` is not on PATH in the Bash tool; use `sed`/`node`.
-- Backticks mangle through `bash -c node -e` — use Write/Edit for anything
-  containing template literals.
-- The e2e harness (`scripts/e2e`) was NOT run this pass; it needs a live stack.
+## Open Issues
+- **item 11 (create-trip "more hooks than previous render") — NOT located. Negative results below
+  are worth more than the search; do not repeat them.**
+  * `create.tsx` itself is clean: every hook is above the first return (L324), and there are NO
+    hook calls anywhere in its JSX region (L324–800). Its two local components (`FareRow` L794,
+    `SummaryRow` L830) are hook-free.
+  * Scanned `packages/ui/src`, `apps/driver/{components,app,hooks}` with brace-tracking for
+    (a) an early `return` at component-body depth followed by a hook, and (b) hooks in a
+    conditional position (`if(...)`/`&&`/ternary/`||`/`.map`). Matcher covered `function X`,
+    arrow consts, `memo()` and `forwardRef()`. **Zero real hits** — the only 4 were false
+    positives of the form `return useContext(...)` on one line.
+  * `AppBackground`'s early returns (L200/L216) are AFTER all its hooks — safe, and the P1 change
+    does not introduce a hook-order bug there even though it makes `ownsShader` flip more often.
+  * Ruled out as mid-render throwers: `formatGhs` is null-safe (returns 'GH₵—');
+    `distanceKm` is `roadRoute?.distanceKm ?? straightKm` and `straightKm` returns 0 rather than
+    null, so the `.toFixed(1)` at L412/L561 cannot throw.
+  * **Working theory:** "Rendered more hooks" is the SECONDARY error — a first render throws
+    partway through, and React's retry render then has a different hook count. So the real bug is
+    an exception thrown mid-render whose identity is being masked. Next step is to surface the
+    first error (error boundary / dev overlay on device), NOT more static scanning.
+- **item 6 not yet proven.** Static reading did NOT find the cause and the obvious suspects are
+  all clean: `NO_DRIVERS_FOUND`/`EXPIRED` are terminal and excluded from `LIVE_STATUSES`;
+  `findActiveTripForUser` reads the Trip row so a terminal trip cannot block; the
+  `TASK_REQUEST_EXPIRY` handler correctly cancels the cascade AND transitions to EXPIRED, and its
+  status guard `[REQUESTED, MATCHING, REASSIGNING]` does cover every pre-driver live state (there
+  is no SEARCHING/OFFERED status — do not go looking for one again). The P5 fixes plausibly
+  resolve it as a side effect (a ghost row was the thing being retried against). **Prove it in the
+  e2e harness rather than by more static reading.**
+- Pass-permanent needed NO schema change — `declined`/`declinedAt` already exist in the Redis
+  cascade state and the old `declined` array already meant permanent, so the change is
+  deploy-safe with no migration. D15 step 3 may be a no-op; confirm before running it.

@@ -79,7 +79,17 @@ import { beatPresenceNow, lastKnownReportedFix } from '../hooks/useDriverLocatio
  */
 export const morphIdFor = (tripId: string) => `dispatch-offer-${tripId}`;
 
-export function PendingDispatchList({ compact = false }: { compact?: boolean }) {
+export interface PendingDispatchListProps {
+  compact?: boolean;
+  /**
+   * Open the offer WITHOUT navigating, because the caller already owns a map
+   * and a sheet to stage it onto. Only home supplies this; see the note in
+   * `open` for why the pushed screen survives for every other caller.
+   */
+  onOpenInPlace?: (tripId: string) => void;
+}
+
+export function PendingDispatchList({ compact = false, onOpenInPlace }: PendingDispatchListProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const router = useRouter();
@@ -149,9 +159,34 @@ export function PendingDispatchList({ compact = false }: { compact?: boolean }) 
        * Keyed on the trip id, not on a fixed string: several rows can be on the
        * board at once and each has to land on its own offer.
        */
+      /**
+       * ── ON HOME, THIS DOES NOT NAVIGATE AT ALL ──────────────────────────
+       *
+       * BUGFIX ("tapping the live dispatch card, the morphing effect is super
+       * laggy. This is the 7th time I'm talking about this meaning you need to
+       * take a new approach on this").
+       *
+       * The morph above was rewritten four times and never fixed, because the
+       * animation was never the cost — the DESTINATION was. `(trip)/dispatch/
+       * [id]` mounts a native MapView, two road-leg fetches and a Skia canvas,
+       * and no transform holds 60fps while the JS thread builds that.
+       *
+       * So on home the offer is now a STAGE on the surface the driver is
+       * already looking at: the map stays mounted and re-frames, the sheet
+       * crossfades its body. Nothing mounts, so nothing can stutter. The morph
+       * is not "made faster" here, it is made unnecessary.
+       *
+       * `onOpenInPlace` is supplied by home. Everywhere else — the Alerts board,
+       * a cold start — there is no surface to stage onto, so those callers omit
+       * it and keep the pushed screen, with the morph still covering the flight.
+       */
+      if (onOpenInPlace) {
+        onOpenInPlace(r.tripId);
+        return;
+      }
       morphTo(morphIdFor(r.tripId), () => goDeeper(`/(trip)/dispatch/${r.tripId}` as any));
     },
-    [router, morphTo],
+    [router, morphTo, onOpenInPlace],
   );
 
   /**

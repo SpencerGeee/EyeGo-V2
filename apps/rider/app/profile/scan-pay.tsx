@@ -200,7 +200,18 @@ export default function ScanPayScreen() {
      * driver's manage screen.
      */
     if (parsed.kind === 'trip') {
-      goDeeper({ pathname: '/ride/[id]', params: { id: parsed.value } } as any);
+      /**
+       * A SCANNED TRIP CODE IS A BILL, NOT A LISTING.
+       *
+       * This routed to `/ride/[id]`, which is the BOOKING screen — so the
+       * feature called "Scan & Pay" put a camera in front of the ordinary
+       * seat-booking flow and never once offered to pay. A rider standing at
+       * the kerb, phone out, scanning the driver's code to settle a fare they
+       * have already taken, was asked to book the ride again.
+       *
+       * `/pay/trip/[id]` is the pay sheet that was built for exactly this.
+       */
+      goDeeper({ pathname: '/pay/trip/[id]', params: { id: parsed.value } } as any);
       return;
     }
     goDeeper({

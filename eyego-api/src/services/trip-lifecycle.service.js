@@ -170,6 +170,38 @@ async function expireTrip(tripId, reason = 'STALE') {
     // the same versioned event as every other status change — no bespoke
     // sweep-only socket message to keep in sync with the rest.
     tripState.publishCommitted(transition);
+
+    /**
+     * THE SEARCH HAS TO DIE WITH THE TRIP.
+     *
+     * BUGFIX ("on the homepage of the driver app, a trip expired but I'm still
+     * seeing that live trip request on the homepage") and the second half of
+     * ("I chose to try again... and now on the driver homepage, it's showing me
+     * two live requests").
+     *
+     * The Trip row going EXPIRED was never the thing the driver's board was
+     * reading. `listSearchesForDriver` reads the CASCADE STATE in Redis, which
+     * this function did not touch — so expiring a trip left a live search
+     * behind it, and every candidate driver kept the row. When the rider then
+     * retried, a second cascade started and the board showed both: the ghost
+     * and the real one.
+     *
+     * `cancelCascade` is the existing, correct teardown — it revokes to the
+     * holder AND to every candidate the cascade ever built, which is precisely
+     * the set of drivers who can still see this row.
+     *
+     * Required lazily and never awaited: dispatch-cascade pulls in this module's
+     * siblings, and a dead search is not worth failing an expiry over. Same
+     * pattern as trip-state's lazy require of this file.
+     */
+    try {
+      const cascade = require('./dispatch-cascade.service');
+      Promise.resolve(cascade.cancelCascade(tripId)).catch((e) =>
+        logger.warn(`Cascade teardown after expiry failed for ${tripId}: ${e.message}`),
+      );
+    } catch (e) {
+      logger.warn(`Cascade teardown unavailable for ${tripId}: ${e.message}`);
+    }
     return true;
   } catch (err) {
     // A trip that went terminal between the read and the write raises

@@ -171,3 +171,12 @@ export { ReleaseGate } from './gate/ReleaseGate';
 export type { ReleaseGateProps } from './gate/ReleaseGate';
 export { ConsentGate } from './gate/ConsentGate';
 export type { ConsentGateProps } from './gate/ConsentGate';
+
+/**
+ * The map+sheet shell. Lifted out of apps/rider so the driver's surface is the
+ * same object rather than a second implementation — see the note in sheetSlot.
+ */
+export { MapSheetHost } from './shell/MapSheetHost';
+export type { MapSheetHostProps, SheetChrome } from './shell/MapSheetHost';
+export { SheetContent, useSheetSlots } from './shell/sheetSlot';
+export type { SheetContentProps } from './shell/sheetSlot';

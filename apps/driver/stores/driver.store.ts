@@ -75,12 +75,25 @@ export const useDriverStore = create<DriverState>((set, get) => ({
   offerAlertsEnabled: true,
   dispatchStatus: null,
 
+  /**
+   * `checkedAt` MOVES EVEN WHEN THE VERDICT DOES NOT.
+   *
+   * BUGFIX ("when you click on check now, nothing happens").
+   *
+   * This used to return the previous state untouched whenever `dispatchable`
+   * and `reason` matched, to spare the subscribers a re-render. But the only
+   * case that matters for "Check now" is precisely the unchanged one: the
+   * driver taps it, the server is asked, the server says *still* not
+   * dispatchable — and because the verdict matched, `checkedAt` never moved and
+   * not one pixel changed. The button worked and looked broken.
+   *
+   * Subscribers that only care about the verdict should select
+   * `dispatchable`/`reason` rather than the whole object, which is what the
+   * home screen already does — so a 25-second heartbeat still does not
+   * re-render the tree just because a timestamp moved.
+   */
   setDispatchStatus: ({ dispatchable, reason }) =>
-    set((s) =>
-      s.dispatchStatus?.dispatchable === dispatchable && s.dispatchStatus?.reason === reason
-        ? s
-        : { dispatchStatus: { dispatchable, reason, checkedAt: Date.now() } },
-    ),
+    set({ dispatchStatus: { dispatchable, reason, checkedAt: Date.now() } }),
 
   login: async (tokens) => {
     // Clear previous session's state first

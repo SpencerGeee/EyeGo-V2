@@ -162,6 +162,28 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         /**
+         * THE WHITE BACKGROUND ON QUESTS, TRIPS, EARNINGS AND ALERTS.
+         *
+         * BUGFIX ("on the driver app, when I go to the quests page and the other
+         * pages, the background is pure white which is wrong... the skia
+         * background is the core identity of the apps").
+         *
+         * Bottom-tabs v7 renamed `sceneContainerStyle` → `sceneStyle`. The
+         * driver never set either, so every tab scene kept the navigation
+         * theme's default — opaque white — sitting between the screen and the
+         * root <AppBackground />. The rider set this a while back (its tab
+         * layout says so in the same words); the driver was simply never given
+         * the same line, which is why the two apps disagreed on a screen that
+         * is otherwise identical.
+         *
+         * `home.tsx` was the only driver tab that looked right, and it looked
+         * right for the wrong reason: it mounts its own AppBackground, which
+         * painted over the white. The five tabs that trusted the root
+         * background got the white. So this is the fix for all of them, and it
+         * is what lets those screens stop mounting backgrounds of their own.
+         */
+        sceneStyle: { backgroundColor: 'transparent' },
+        /**
          * A TAB YOU ARE NOT LOOKING AT STOPS THINKING.
          *
          * Worst case for the driver: every tab stays mounted for the session,
