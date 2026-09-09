@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RemoteViews supports only a fixed set of layouts and views — LinearLayout,
+  RelativeLayout, FrameLayout, TextView, ImageView and a few others. No
+  ConstraintLayout, no custom views, no ScrollView. Everything below stays
+  inside that set on purpose; a widget that uses an unsupported view does not
+  render at all, it silently shows the launcher's "problem loading widget".
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="16dp">
+
+  <!-- Row 1: the number a driver opens the app to see. -->
+  <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="horizontal"
+      android:gravity="center_vertical">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+      <TextView
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="TODAY"
+          android:textColor="#7C93B4"
+          android:textSize="10sp"
+          android:letterSpacing="0.14"
+          android:textStyle="bold" />
+
+      <!-- Pre-formatted by the app. See the note on `setData`: money formatting
+           lives in JS so the widget and the app cannot disagree. -->
+      <TextView
+          android:id="@+id/widget_earnings"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="—"
+          android:textColor="#FFFFFF"
+          android:textSize="28sp"
+          android:textStyle="bold"
+          android:maxLines="1"
+          android:ellipsize="end"
+          android:paddingTop="2dp" />
+    </LinearLayout>
+
+    <!-- The status pill. Tapping opens the app on the toggle intent rather
+         than flipping state here — going online has server-side preconditions
+         a widget cannot evaluate. -->
+    <LinearLayout
+        android:id="@+id/widget_status_pill"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/widget_pill"
+        android:paddingLeft="12dp"
+        android:paddingRight="14dp"
+        android:paddingTop="9dp"
+        android:paddingBottom="9dp">
+
+      <!-- ImageView, not View. RemoteViews inflates only a fixed set of view
+           types and a bare `View` is not among them — the launcher answers an
+           unsupported view with "problem loading widget" rather than an error
+           anyone can read. -->
+      <ImageView
+          android:id="@+id/widget_status_dot"
+          android:layout_width="8dp"
+          android:layout_height="8dp"
+          android:background="@drawable/widget_dot_offline"
+          android:contentDescription="@null"
+          android:layout_marginRight="7dp" />
+
+      <TextView
+          android:id="@+id/widget_status"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:text="Offline"
+          android:textColor="#E2E8F0"
+          android:textSize="13sp"
+          android:textStyle="bold" />
+    </LinearLayout>
+  </LinearLayout>
+
+  <!-- Row 2: the supporting facts, quiet by comparison. -->
+  <TextView
+      android:id="@+id/widget_trips"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:text="Open the app to sync"
+      android:textColor="#93A9C6"
+      android:textSize="13sp"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:paddingTop="10dp" />
+
+  <TextView
+      android:id="@+id/widget_quest"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:text=""
+      android:textColor="#6B82A0"
+      android:textSize="12sp"
+      android:maxLines="1"
+      android:ellipsize="end"
+      android:paddingTop="3dp" />
+</LinearLayout>

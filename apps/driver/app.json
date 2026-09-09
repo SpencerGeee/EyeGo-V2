@@ -87,7 +87,8 @@
         "android.permission.READ_CONTACTS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ]
     },
     "plugins": [
@@ -97,7 +98,9 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow background location so your passengers can see where you are during a trip even with the app closed. Only used while you are on a trip."
+          "locationAlwaysAndWhenInUsePermission": "Allow background location so your passengers can see where you are during a trip even with the app closed. Only used while you are on a trip.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [

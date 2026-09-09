@@ -1,0 +1,9 @@
+{
+  "name": "eyego-driver-widget",
+  "version": "1.0.0",
+  "description": "Local Expo Module: the EyeGo Driver Android home-screen widget and its data bridge.",
+  "main": "index.ts",
+  "types": "index.ts",
+  "private": true,
+  "license": "UNLICENSED"
+}

@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Pressable,
   useWindowDimensions,
+  BackHandler,
 } from 'react-native';
 import MapboxGL from '../../utils/mapbox';
 import { useRouter, type Href } from 'expo-router';
@@ -36,6 +37,7 @@ import { deriveDriverStage, useDriverSurface, type DriverStage } from '../../com
 import { DriverSurfaceMap } from '../../components/surface/DriverSurfaceMap';
 import { TripStages } from '../../components/surface/TripStages';
 import mapStyles from '@eyego/map-styles';
+import { setDriverWidgetData } from '../../modules/eyego-driver-widget';
 
 /**
  * How long a dismissed dispatch block stays quiet before it speaks up again.
@@ -168,6 +170,39 @@ export default function HomeScreen() {
   }, [focusedTripId, focusedOfferable, closeOffer]);
 
   /**
+   * ── ANDROID'S HARDWARE BACK, WHICH THE STAGES BROKE ────────────────────────
+   *
+   * The offer and the driving stages are NOT routes — that is the whole point
+   * of the surface, and it is why nothing lags when one opens. But the system
+   * back button only knows about routes, so on Android it walked straight past
+   * an open offer to the navigator underneath: the driver pressed back and left
+   * the tab, or the app, with the stage still showing behind them. iOS has no
+   * hardware back, so this was invisible on the device most of this work was
+   * checked against. The rider app has handled its own stages this way for a
+   * long time (see trip.tsx, SearchStage, SelectStage); the driver never needed
+   * to until now.
+   *
+   *   offer    → back closes it and returns to the board, which is what a
+   *              driver means by "not this one".
+   *   driving  → back is SWALLOWED. A trip in progress is not something to
+   *              accidentally exit, and there is nowhere to go: the surface is
+   *              home. Returning true stops the event without doing anything.
+   *   idle     → not handled, so the system does its normal thing (leave the
+   *              app), which is correct on a home tab.
+   */
+  useEffect(() => {
+    if (surfaceStage === 'idle') return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (surfaceStage === 'offer') {
+        closeOffer();
+        return true;
+      }
+      return true;
+    });
+    return () => sub.remove();
+  }, [surfaceStage, closeOffer]);
+
+  /**
    * IS THERE WORK ON THE BOARD RIGHT NOW?
    *
    * Read straight from the trip store, which is the single place every
@@ -239,6 +274,31 @@ export default function HomeScreen() {
     );
     return tripIds.size;
   }, [txData]);
+
+  /**
+   * ── FEED THE HOME-SCREEN WIDGET ─────────────────────────────────────────────
+   *
+   * The widget lives in another process and is woken by the launcher, usually
+   * when this app is not running. It can never ask for anything — it can only
+   * read what the app last left in SharedPreferences. So this pushes the same
+   * numbers the driver is looking at right here, whenever they change.
+   *
+   * Strings, not numbers: `formatGhs` is the one definition of what money looks
+   * like in this product, and re-implementing it in Kotlin is how the widget
+   * and the app come to disagree about a symbol or a rounding rule.
+   *
+   * A no-op on iOS and on any build without the native module — see the guards
+   * in `modules/eyego-driver-widget`. It is a convenience, and it must never be
+   * the reason a driver's home screen fails.
+   */
+  useEffect(() => {
+    setDriverWidgetData({
+      earningsLabel: formatGhs(todayEarnings),
+      tripsLabel: todayTrips === 1 ? '1 trip today' : `${todayTrips} trips today`,
+      questLabel: '',
+      online: isOnline,
+    });
+  }, [todayEarnings, todayTrips, isOnline]);
 
   const { data: heatmapData } = useQuery({
     queryKey: ['driver', 'heatmap', location?.latitude, location?.longitude],

@@ -1,0 +1,26 @@
+// Mirrors the shape of every first-party Expo module in node_modules (see
+// expo-haptics/android/build.gradle). `expo-module-gradle-plugin` is what
+// inherits the app's Kotlin, compileSdk and AGP versions, which is precisely
+// why this cannot drift out of step with the host build.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.eyego.driver'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.eyegodriverwidget"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Deliberately nothing beyond androidx. A RemoteViews widget needs no
+  // Compose runtime — see the note in DriverWidgetProvider for why that
+  // mattered more than the nicer authoring experience Glance would have given.
+  api "androidx.annotation:annotation:1.0.0"
+}

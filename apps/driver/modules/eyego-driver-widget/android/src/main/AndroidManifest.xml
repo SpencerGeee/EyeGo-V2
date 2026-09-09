@@ -1,0 +1,27 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!--
+      Declared HERE, in the module, not injected into the app's manifest by a
+      config plugin. An Expo module is a Gradle library project, so its manifest
+      is merged into the app at build time — which means the widget ships with
+      the module and there is no `withDangerousMod` string-patching to go wrong
+      on the next prebuild.
+
+      `exported="true"` is required: the launcher is a different app and must be
+      able to send APPWIDGET_UPDATE to this receiver.
+    -->
+    <receiver
+      android:name="expo.modules.eyegodriverwidget.DriverWidgetProvider"
+      android:label="EyeGo Driver"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        <!-- Our own redraw signal, sent by the module after it writes data. -->
+        <action android:name="com.eyego.driver.widget.REFRESH" />
+      </intent-filter>
+      <meta-data
+        android:name="android.appwidget.provider"
+        android:resource="@xml/eyego_driver_widget_info" />
+    </receiver>
+  </application>
+</manifest>
