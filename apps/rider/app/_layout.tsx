@@ -599,11 +599,36 @@ export default function RootLayout() {
     return <View style={{ flex: 1, backgroundColor: '#0A0A0B' }} />;
   }
 
-  if (!splashDone) {
-    return <SplashAnimation onComplete={() => setSplashDone(true)} />;
-  }
-
+  /**
+   * ── THE APP BOOTS *BEHIND* THE SPLASH, NOT AFTER IT ────────────────────────
+   *
+   * BUGFIX ("make it such that when the user opens the app, every animation,
+   * effect or transition is butter fluid... opening the app experience is
+   * golden").
+   *
+   * This used to be an early return:
+   *
+   *     if (!splashDone) return <SplashAnimation ... />;
+   *
+   * which meant the entire tree below — every provider, the query client, the
+   * stores, the socket, the first screen — did not exist until the splash had
+   * finished. The two costs ran back to back: ~2 s of splash (T_FADE_OUT), and
+   * only THEN the work of actually starting the app, with the first screen
+   * mounting after that. The user watched an animation and then waited again,
+   * and the second wait is the one that reads as a slow app.
+   *
+   * Rendered as an OVERLAY instead, the boot happens during the seconds the
+   * user is already watching something. The splash is `absoluteFill` with
+   * `zIndex: 9999` over an opaque background, so it covers the mounting tree
+   * completely and nothing half-built is ever visible. By the time it lifts,
+   * the app underneath is warm rather than starting.
+   *
+   * The FONT gate above stays an early return, deliberately: the splash itself
+   * renders the brand face, and mounting before it resolves would flash
+   * fallback glyphs on the very first frame the user sees.
+   */
   return (
+    <>
     <ColorsProvider value={colors}>
     <ThemeProvider value={navTheme}>
     <I18nextProvider i18n={i18n}>
@@ -1061,5 +1086,9 @@ export default function RootLayout() {
     </I18nextProvider>
     </ThemeProvider>
     </ColorsProvider>
+    {/* Above everything, opaque, and lifted only when its own animation is
+        done — by which point the tree above has finished mounting. */}
+    {!splashDone && <SplashAnimation onComplete={() => setSplashDone(true)} />}
+    </>
   );
 }

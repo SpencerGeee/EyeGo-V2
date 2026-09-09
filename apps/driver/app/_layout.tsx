@@ -627,11 +627,27 @@ export default function RootLayout() {
 
   if (!fontsLoaded) return null;
 
-  if (!splashDone) {
-    return <SplashAnimation onComplete={() => setSplashDone(true)} />;
-  }
-
+  /**
+   * ── THE APP BOOTS *BEHIND* THE SPLASH, NOT AFTER IT ────────────────────────
+   *
+   * BUGFIX ("opening the app experience is golden").
+   *
+   * This was an early return, so the whole tree below — providers, query
+   * client, stores, socket, the offer listener and the 2 s safety poll — did
+   * not exist until the splash had finished. Two costs back to back: ~2 s of
+   * splash, and only THEN the app actually starting. The second wait is the one
+   * that reads as a slow app, and on the driver it also delayed the dispatch
+   * listener, so a cold start could miss an offer that arrived during it.
+   *
+   * As an OVERLAY the boot runs during the seconds the driver is already
+   * watching something. The splash is `absoluteFill` with `zIndex: 9999` over
+   * an opaque background, so nothing half-built is ever visible.
+   *
+   * The FONT gate above stays an early return — the splash renders the brand
+   * face, and mounting before it resolves flashes fallback glyphs.
+   */
   return (
+    <>
     <ColorsProvider value={colors}>
     <AppErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
@@ -838,5 +854,9 @@ export default function RootLayout() {
     </GestureHandlerRootView>
     </AppErrorBoundary>
     </ColorsProvider>
+    {/* Above everything, opaque, and lifted only when its own animation is
+        done — by which point the tree above has finished mounting. */}
+    {!splashDone && <SplashAnimation onComplete={() => setSplashDone(true)} />}
+    </>
   );
 }

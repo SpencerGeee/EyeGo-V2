@@ -109,6 +109,61 @@ interface DriverTripState {
 let unsubscribe: (() => void) | null = null;
 let watchedTripId: string | null = null;
 
+/**
+ * How far the measured clock skew must move before it is worth a re-render.
+ *
+ * Skew is a network measurement and jitters on every poll. Everything that
+ * consumes it renders whole seconds (`offerSecondsLeft`, the countdown ring),
+ * so a quarter of a second is far finer than anything downstream can show —
+ * and writing it unconditionally re-rendered every countdown twice a second.
+ */
+const CLOCK_SKEW_EPSILON_MS = 250;
+
+/**
+ * Has the trip actually moved?
+ *
+ * `version` is the server's own change counter for the row, so this is an exact
+ * test rather than a heuristic: same id and same version means the snapshot the
+ * store already holds is the same trip in the same state, whatever the JSON
+ * parser handed back this time. Status is compared too, defensively, for any
+ * path that mutates without bumping the version.
+ */
+function sameSnapshot(a: TripSnapshot | null, b: TripSnapshot | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.tripId === b.tripId && a.version === b.version && a.status === b.status;
+}
+
+/**
+ * Are these the same board rows, in the same state?
+ *
+ * Compares the fields the board and the stage derivations actually branch on.
+ * Deliberately NOT a deep equality: this runs every two seconds, and the point
+ * is to be cheaper than the re-render it prevents.
+ */
+function sameRequests(a: PendingDispatch[], b: PendingDispatch[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.tripId !== y.tripId ||
+      x.status !== y.status ||
+      x.offeredToMe !== y.offeredToMe ||
+      x.heldByAnother !== y.heldByAnother ||
+      x.expiresAtServerMs !== y.expiresAtServerMs ||
+      x.farePesewas !== y.farePesewas ||
+      x.driverEarningsPesewas !== y.driverEarningsPesewas ||
+      x.pickupLat !== y.pickupLat ||
+      x.pickupLng !== y.pickupLng
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export const useDriverTripStore = create<DriverTripState>((set, get) => ({
   snapshot: null,
   lastSeq: 0,
@@ -178,12 +233,47 @@ export const useDriverTripStore = create<DriverTripState>((set, get) => ({
       const { trip, serverNowMs, offer, pendingRequests } = opts?.nudge
         ? await ridesApi.driverResync()
         : await ridesApi.driverState();
+      /**
+       * ── WRITE ONLY WHAT ACTUALLY CHANGED ──────────────────────────────────
+       *
+       * BUGFIX ("make it such that when the user opens the app, every
+       * animation, effect or transition is butter fluid").
+       *
+       * This was an unconditional `set()`, and `_layout` calls it on a 2-second
+       * safety poll for as long as the driver has no live trip — which is most
+       * of a shift. Every one of those writes handed zustand a BRAND NEW
+       * `snapshot` object and a BRAND NEW `pendingRequests` array parsed out of
+       * fresh JSON, so every subscriber re-rendered every two seconds with data
+       * that was structurally identical to what it already had.
+       *
+       * That is a permanent re-render storm on the driver's main screen, and it
+       * got worse when home became the persistent surface: the map wrapper, the
+       * sheet host, the board, the offer stage and every stage-derivation memo
+       * keyed on `pendingRequests` identity all recompute on each tick. No
+       * amount of animation tuning survives the tree being rebuilt underneath
+       * it twice a second.
+       *
+       * `clockSkewMs` deserves its own mention: it is a network measurement, so
+       * it jitters by a few milliseconds on EVERY poll. A component selecting
+       * only the skew — the offer countdowns do — re-rendered every two seconds
+       * for a number whose sub-second precision it cannot use.
+       */
+      const prev = get();
       const skew = serverNowMs - Date.now();
+      const nextRequests = pendingRequests ?? [];
+
       set({
-        snapshot: trip,
+        // Identity is preserved when the trip has not moved. `version` is the
+        // server's own change counter, so this is exact rather than a guess.
+        snapshot: sameSnapshot(prev.snapshot, trip) ? prev.snapshot : trip,
         lastSeq: trip?.version ?? 0,
-        clockSkewMs: skew,
-        pendingRequests: pendingRequests ?? [],
+        // Only when it moved enough to matter to a countdown rendered in whole
+        // seconds. 250 ms is well under the smallest thing skew is used for.
+        clockSkewMs:
+          Math.abs(skew - prev.clockSkewMs) > CLOCK_SKEW_EPSILON_MS ? skew : prev.clockSkewMs,
+        pendingRequests: sameRequests(prev.pendingRequests, nextRequests)
+          ? prev.pendingRequests
+          : nextRequests,
         requestsHydrated: true,
       });
       // THE OFFER SURVIVES A DEAD SOCKET.

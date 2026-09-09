@@ -12,6 +12,7 @@ import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemedColors } from '../ColorsContext';
 import { usePerformanceTier } from './usePerformanceTier';
+import { useLoopsActive } from './useLoopsActive';
 import { LightPillarBackground } from './LightPillarBackground';
 import { useShaderSlot, SHADER_PRIORITY_BASE, SHADER_PRIORITY_STATIC } from './shaderSlot';
 import { staticLoopingLayerProps } from './hardwareTexture';
@@ -89,7 +90,30 @@ export function AppBackground({ style, variant = 'static', isDark = true, paused
   const tier = usePerformanceTier();
   const { width, height } = Dimensions.get('window');
 
-  const animated = variant === 'animated' && tier !== 'low' && !paused;
+  /**
+   * ── DECORATIVE LOOPS STOP WHEN NOBODY IS LOOKING ───────────────────────────
+   *
+   * BUGFIX ("make it such that when the user opens the app, every animation,
+   * effect or transition is butter fluid").
+   *
+   * The drifting blobs are the app's most widely-mounted animation and were the
+   * only looping effect in the codebase NOT gated on `useLoopsActive` — the
+   * project's own rule, written down after the last performance pass, is that
+   * every `withRepeat` is. Being mounted at the ROOT makes it the worst place to
+   * miss it: this background never unmounts, so its three infinite timing loops
+   * ran for the entire session regardless of what was on top of them.
+   *
+   * `useLoopsActive` is the existing answer and it gates on exactly the three
+   * things that matter here: screen focus, app foreground, and reduce-motion.
+   * The last is not a performance concern but a correctness one — drifting
+   * colour fields are decoration by any definition, and a user who has asked
+   * the OS to stop decorative motion was still getting it on every screen.
+   *
+   * `paused` stays as well: it is the orthogonal signal that something opaque is
+   * covering the background, which focus cannot see.
+   */
+  const loopsActive = useLoopsActive();
+  const animated = variant === 'animated' && tier !== 'low' && !paused && loopsActive;
 
   /**
    * THE ROOT BACKGROUND IS THE FLOOR, NOT THE CEILING.
