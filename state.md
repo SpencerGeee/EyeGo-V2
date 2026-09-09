@@ -45,6 +45,30 @@ Grilling COMPLETE (15 decisions, D1–D15, all user-confirmed). Plan written.
   Only call site is `dispatch/[id].tsx`; the tracking screen uses a different map
   (`DriverTripMap`), so post-start reveal needs no change there.
 
+### PUSH 2 — round 2 decisions (all user-confirmed, this session)
+| # | Decision |
+|---|---|
+| R1 | Rider trip surface stays MOUNTED under the tabs — revealed, not pushed. Same root cause as the driver: the morph was flying over a *mounting* tree. |
+| R2 | Driver `enroute/arrived/intrip` become stages on the one never-unmounting surface. **DONE, pushed a0232a6.** |
+| R3 | Seat page: full-screen vehicle as hero + shared sheet for selection/fare/Confirm. |
+| R4 | Degradation: continuity NEVER degrades (morph, detents, crossfade, camera). Decoration does (shader fps, aurora, blur, shimmer). |
+| R5 | D6 (no rider structural rework) is SUPERSEDED for R1 only — entry/back/deep-link change; every stage's layout and content stays untouched. |
+| R6 | Sequence: crash fix first (44e5331), then the rest. |
+
+### DONE THIS ROUND
+- **item 11 SOLVED (44e5331)** — `active/[id].tsx` called `useTripStops(trip)` 115 lines BELOW its
+  `if (isLoading || !trip)` guard. Render 1 (loading) returns early → N hooks; render 2 (trip
+  arrives) runs the hook → N+1 → throw. Not intermittent; a warm cache just skips render 1.
+  Same defect latent in rider `(tabs)/_layout.tsx` TabItem (3 × `useAnimatedStyle` below
+  `if (!icons) return null`). **Regex found NONE of this across three passes** — added
+  `scripts/e2e/conditional-hooks.mjs` (TypeScript AST, refuses to descend into nested functions),
+  self-tested against the pre-fix files from git before wiring in.
+- **driver lifecycle (a0232a6)** — `DriverTripMap` hoisted to home as the ONE map;
+  `DriverSurfaceMap` + `TripStages` + `useTripAdvance` (single definition of "advance").
+  Home's two hand-written camera effects deleted. Two bugs caught while wiring: `active` gates the
+  CAMERA loop not the subscription (idle home would have stopped following), and DriverTripMap
+  hardcoded the dark style (light-mode drivers would have got a dark map once home mounted it).
+
 ### REMAINING
 P3 morph (D1 scoped to cold path only by D10), P4 transitions (D7),
 P7 map-first shell (D8–D11, D13 — the big one: lift rider `TripSheetHost`/`sheetSlot` into

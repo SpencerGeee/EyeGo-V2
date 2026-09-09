@@ -22,7 +22,6 @@ import Animated, {
 import { springs, durations, springForAxis } from '@eyego/config';
 import { loopingLayerProps } from '../effects/hardwareTexture';
 import { useThemedColors } from '../ColorsContext';
-import { usePerformanceTier } from '../effects/usePerformanceTier';
 
 export interface MorphRect {
   x: number;
@@ -155,7 +154,8 @@ export const CONTENT_FADE_IN_END = 0.78;
  */
 export function MorphProvider({ children }: { children: React.ReactNode }) {
   const colors = useThemedColors();
-  const tier = usePerformanceTier();
+  // Tier is deliberately NOT read here any more — see `skipMorph`. The morph is
+  // continuity, not decoration, so it runs at full quality on every device.
   const reducedMotion = useReducedMotion();
 
   const sources = useRef(new Map<string, MorphSourceEntry>());
@@ -324,7 +324,31 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
    */
   const settledRef = useRef<typeof flightRef.current>(null);
 
-  const skipMorph = tier === 'low' || reducedMotion;
+  /**
+   * ── CONTINUITY NEVER DEGRADES. DECORATION DOES. ────────────────────────────
+   *
+   * This was `tier === 'low' || reducedMotion`, so every low-end Android got no
+   * morph at all: the card the rider tapped simply vanished and an unrelated
+   * screen appeared in its place. That is the wrong thing to cut, and it cut it
+   * on exactly the devices with the least context to spare.
+   *
+   * The morph is not decoration. It is the only thing that says WHERE the new
+   * screen came from, and removing it does not make a cheap phone calmer — it
+   * makes it confusing, which is a worse experience than a slightly less
+   * buttery one. The things that genuinely cost a weak GPU are the ambient
+   * ones, and they already degrade by tier on their own: the shader's frame
+   * rate (AppBackground), the glow rotation (GradientGlowBorder), the blur
+   * (GlassSurface, ChromeBlur). Those are what `tier` is for.
+   *
+   * The flight itself is transform-only on the UI thread over a destination
+   * that is already warm, which is cheap on any device that can run the app at
+   * all — see driverStage.ts for why the destination is warm now.
+   *
+   * `reducedMotion` still skips it, and must: that is a person telling the
+   * operating system that motion makes them unwell, not a device telling us it
+   * is slow. The two were being conflated by one `||`.
+   */
+  const skipMorph = reducedMotion;
 
   // ─── Cleanup ───────────────────────────────────────────────────────────
 
