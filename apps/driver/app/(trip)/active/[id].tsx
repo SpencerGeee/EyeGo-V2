@@ -42,6 +42,7 @@ import type { GeoPlace } from '@eyego/utils';
 // imported here any more.
 import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 import { TripStatusRail, type RailStep } from '../../../components/trip/TripStatusRail';
+import { VALID_ADVANCE_STATUSES, nextStatusAfter, advanceRequest } from '../../../components/surface/useTripAdvance';
 import type { TripBooking } from '@eyego/types';
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -487,12 +488,17 @@ export default function ActiveTripScreen() {
     },
     [],
   );
-  // CONFIRMED included: it's the status a trip has immediately after a driver
-  // accepts (acceptDispatch/acceptTripRequest both set status: 'CONFIRMED'),
-  // including on a resumed trip reopened from the home screen's "Resume Trip"
-  // banner. Without it, "Start Trip" on a CONFIRMED trip threw client-side
-  // instead of ever calling the backend.
-  const VALID_ADVANCE_STATUSES = ['CONFIRMED', 'DRIVER_ASSIGNED', 'SCHEDULED', 'FILLING', 'DRIVER_EN_ROUTE', 'ARRIVED_AT_PICKUP', 'IN_PROGRESS'];
+  /*
+   * The list and the successor function both come from `useTripAdvance` now.
+   *
+   * This screen used to keep its own copy of each. They agreed on which
+   * statuses may advance — CONFIRMED included, because that is the status a
+   * trip has immediately after a driver accepts — but NOT on what each one
+   * advances to: the local successor derivation omitted DRIVER_ASSIGNED, so a
+   * trip reaching this screen by admin assignment, reassignment, or a claimed
+   * scheduled ride took the successful path through the mutation and then fell
+   * out of every branch below. See `nextStatusAfter`.
+   */
 
   /**
    * The driver's answer to "you're below minimum occupancy — go anyway?".
@@ -521,27 +527,16 @@ export default function ActiveTripScreen() {
     retry: 0,
     mutationFn: async () => {
       const status = trip?.status;
-      if (!status || !VALID_ADVANCE_STATUSES.includes(status)) throw new Error(`Cannot advance from status: ${status ?? 'unknown'}`);
+      if (!status || !(VALID_ADVANCE_STATUSES as readonly string[]).includes(status)) throw new Error(`Cannot advance from status: ${status ?? 'unknown'}`);
       pendingFromStatus.current = status;
-      if (status === 'CONFIRMED' || status === 'DRIVER_ASSIGNED' || status === 'SCHEDULED' || status === 'FILLING') return driverApi.startTrip(id);
-      if (status === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(id);
-      if (status === 'ARRIVED_AT_PICKUP') {
-        // Spend the acknowledgement, if there is one. Read-and-clear in one go:
-        // a failed departure must not leave a standing permission behind.
-        const ack = departUnderMinAckRef.current;
-        departUnderMinAckRef.current = false;
-        return driverApi.departTrip(id, ack ? { acknowledgeUnderMinimum: true } : undefined);
-      }
-      if (status === 'IN_PROGRESS') return driverApi.arriveTrip(id);
-      throw new Error('Cannot advance from current status');
+      // Spend the acknowledgement, if there is one. Read-and-clear in one go:
+      // a failed departure must not leave a standing permission behind.
+      const ack = departUnderMinAckRef.current;
+      departUnderMinAckRef.current = false;
+      return advanceRequest(status, id, { acknowledgeUnderMinimum: ack });
     },
     onSuccess: (res) => {
-      const fromStatus = pendingFromStatus.current;
-      let toStatus: string | null = null;
-      if (fromStatus === 'CONFIRMED' || fromStatus === 'SCHEDULED' || fromStatus === 'FILLING') toStatus = 'DRIVER_EN_ROUTE';
-      else if (fromStatus === 'DRIVER_EN_ROUTE') toStatus = 'ARRIVED_AT_PICKUP';
-      else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
-      else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
+      const toStatus = nextStatusAfter(pendingFromStatus.current);
 
       /**
        * WRITE THE NEW STATUS STRAIGHT INTO THE CACHE.
@@ -1011,10 +1006,17 @@ export default function ActiveTripScreen() {
         </View>
         {/* Escape hatch — without this, a trip that's no longer in getActiveTrip's
             result set (e.g. mid-transition) leaves the driver stuck on this skeleton
-            with no way back short of force-closing the app. */}
+            with no way back short of force-closing the app.
+
+            It names the screen, not the group. `'/(tabs)'` is a group with no
+            screen of its own, so expo-router has nothing to match and renders
+            "Unmatched Route · eyego-driver:///" — which is worse than the stuck
+            skeleton this button exists to escape. Same defect as the one already
+            fixed on the dispatch screen; this copy of it survived because the
+            `as any` hid it from the compiler. */}
         {!isLoading && !trip && (
           <Pressable
-            onPress={() => router.replace('/(tabs)' as any)}
+            onPress={() => router.replace('/(tabs)/home')}
             hitSlop={12}
             style={[styles.backEscapeButton, { top: insets.top + 12 }]}
            accessibilityRole="button">

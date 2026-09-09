@@ -39,6 +39,7 @@ import { useDriverLocation } from '../../../hooks/useDriverLocation';
 import { offlineQueue } from '../../../utils/offlineQueue';
 import { DriverTripMap } from '../../../components/trip/DriverTripMap';
 import type { TripBooking } from '@eyego/types';
+import { VALID_ADVANCE_STATUSES, nextStatusAfter, advanceRequest } from '../../../components/surface/useTripAdvance';
 
 /**
  * Must cover every status `advanceStatus` below can act on, and must agree with
@@ -393,6 +394,18 @@ export default function DriverTrackingScreen() {
   // ── Trip status management ──
   const pendingFromStatus = useRef<string | null>(null);
 
+  /**
+   * The driver's answer to "you're below minimum occupancy — go anyway?".
+   *
+   * This screen had no such answer, and no way to give one. It called
+   * `departTrip` with no acknowledgement and then swallowed the server's
+   * refusal whole (`if (status === 409) return`), so a group-trip driver at the
+   * kerb below minimum occupancy swiped to depart and the app did NOTHING —
+   * no error, no sheet, no hint — as many times as they cared to swipe. The
+   * manage screen has always asked. See the BELOW_MIN_OCCUPANCY branch below.
+   */
+  const departUnderMinAckRef = useRef(false);
+
   const advanceStatus = useMutation({
     /**
      * THE SAME STEP LIST AS THE MANAGE PAGE. It was not, and that was bug 7.
@@ -418,33 +431,18 @@ export default function DriverTrackingScreen() {
     mutationFn: async () => {
       const status = trip?.status;
       pendingFromStatus.current = status ?? null;
-      if (
-        status === 'CONFIRMED' ||
-        status === 'DRIVER_ASSIGNED' ||
-        status === 'SCHEDULED' ||
-        status === 'FILLING'
-      ) {
-        return driverApi.startTrip(id);
+      if (!status || !(VALID_ADVANCE_STATUSES as readonly string[]).includes(status)) {
+        throw new Error(
+          `This trip is ${driverStatusLabel(status ?? 'UNKNOWN').toLowerCase()} — there's no next step to take from here. Open Manage trip to see what's available.`,
+        );
       }
-      if (status === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(id);
-      if (status === 'ARRIVED_AT_PICKUP') return driverApi.departTrip(id);
-      if (status === 'IN_PROGRESS') return driverApi.arriveTrip(id);
-      throw new Error(
-        `This trip is ${driverStatusLabel(status ?? 'UNKNOWN').toLowerCase()} — there's no next step to take from here. Open Manage trip to see what's available.`,
-      );
+      // Spend the acknowledgement: one permission covers one departure.
+      const ack = departUnderMinAckRef.current;
+      departUnderMinAckRef.current = false;
+      return advanceRequest(status, id, { acknowledgeUnderMinimum: ack });
     },
     onSuccess: (res) => {
-      const fromStatus = pendingFromStatus.current;
-      let toStatus: string | null = null;
-      if (
-        fromStatus === 'CONFIRMED' ||
-        fromStatus === 'DRIVER_ASSIGNED' ||
-        fromStatus === 'SCHEDULED' ||
-        fromStatus === 'FILLING'
-      ) toStatus = 'DRIVER_EN_ROUTE';
-      else if (fromStatus === 'DRIVER_EN_ROUTE') toStatus = 'ARRIVED_AT_PICKUP';
-      else if (fromStatus === 'ARRIVED_AT_PICKUP') toStatus = 'IN_PROGRESS';
-      else if (fromStatus === 'IN_PROGRESS') toStatus = 'COMPLETED';
+      const toStatus = nextStatusAfter(pendingFromStatus.current);
 
       /*
        * These banners are the DRIVER's own feedback and nothing more. The
@@ -521,8 +519,48 @@ export default function DriverTrackingScreen() {
     // handler in `(trip)/active/[id].tsx`. Resync rather than alarm the driver.
     onError: async (err) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const body = (err as any)?.response?.data;
       qc.invalidateQueries({ queryKey: ['driver', 'trip', 'active', id] });
       qc.invalidateQueries({ queryKey: ['driver', 'activeTrip'] });
+
+      /**
+       * DEPARTING UNDER MINIMUM OCCUPANCY — ASK, DON'T SWALLOW.
+       *
+       * Must come BEFORE the blanket 409 below, which returns silently on the
+       * reading that a conflict means "this step already went through". True of
+       * a double swipe; flatly wrong here. The departure did NOT happen, and
+       * saying nothing at all left the driver swiping a control that gave no
+       * response whatsoever — the worst possible answer, because there is
+       * nothing to act on and nothing even to report.
+       *
+       * The group fare divides by `maxSeats`, so departing half-empty means
+       * driving the whole route for a fraction of its fare. The driver may
+       * still want to; it has to be their call, with the server's own numbers
+       * in front of them, which is the entire reason it refuses the first try.
+       */
+      if (status === 409 && body?.code === 'BELOW_MIN_OCCUPANCY') {
+        const seats = body.details?.confirmedSeats ?? 0;
+        const min = body.details?.minOccupancy ?? 0;
+        Alert.alert(
+          'Depart with empty seats?',
+          `${body.message ?? `You have ${seats} of ${min} seats filled.`}\n\n` +
+            'You can wait for more passengers, or depart now and earn less for this trip.',
+          [
+            { text: 'Keep waiting', style: 'cancel' },
+            {
+              text: 'Depart anyway',
+              style: 'destructive',
+              onPress: () => {
+                departUnderMinAckRef.current = true;
+                advanceStatus.mutate();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
       if (status === 409) return;
       const message =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??

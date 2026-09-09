@@ -32,14 +32,94 @@ export const VALID_ADVANCE_STATUSES = [
   'IN_PROGRESS',
 ] as const;
 
+/**
+ * Perform the one legal forward move from `status`.
+ *
+ * The status → endpoint mapping is the dangerous half of this machine: calling
+ * the wrong verb does not fail loudly, it moves the trip to a state neither the
+ * driver nor the rider expected. It lived in two places — here and the manage
+ * screen — and while they happened to agree, nothing made them.
+ *
+ * `onAcknowledgeUnderMinimum` is read-and-cleared by the caller because the
+ * permission is spent by one departure: a failed attempt must not leave a
+ * standing acknowledgement behind for the next one.
+ */
+export function advanceRequest(
+  status: string,
+  tripId: string,
+  opts?: { acknowledgeUnderMinimum?: boolean },
+) {
+  switch (status) {
+    case 'CONFIRMED':
+    case 'DRIVER_ASSIGNED':
+    case 'SCHEDULED':
+    case 'FILLING':
+      return driverApi.startTrip(tripId);
+    case 'DRIVER_EN_ROUTE':
+      return driverApi.arriveAtPickup(tripId);
+    case 'ARRIVED_AT_PICKUP':
+      return driverApi.departTrip(
+        tripId,
+        opts?.acknowledgeUnderMinimum ? { acknowledgeUnderMinimum: true } : undefined,
+      );
+    /** `arriveTrip` means arrived at the DESTINATION — the same event as finishing. */
+    case 'IN_PROGRESS':
+      return driverApi.arriveTrip(tripId);
+    default:
+      throw new Error(`Cannot advance from status: ${status || 'unknown'}`);
+  }
+}
+
+/**
+ * The status a trip lands on after one successful forward step, or `null` if
+ * there is no move from here.
+ *
+ * Exported because the manage screen needs the same answer and used to derive
+ * it inline — and its copy left `DRIVER_ASSIGNED` out. That branch decides
+ * whether the screen writes the new status into the cache, joins the chat room
+ * and navigates, so omitting a status meant a swipe that SUCCEEDED on the
+ * server did nothing whatsoever in the app: no refetch, no redirect, chips
+ * still showing the old state. Indistinguishable from a failure, and the next
+ * swipe 409s. One function now, so the two cannot disagree again.
+ */
+export function nextStatusAfter(from: string | null | undefined): string | null {
+  switch (String(from ?? '').toUpperCase()) {
+    case 'CONFIRMED':
+    case 'SCHEDULED':
+    case 'FILLING':
+    case 'DRIVER_ASSIGNED':
+      return 'DRIVER_EN_ROUTE';
+    case 'DRIVER_EN_ROUTE':
+      return 'ARRIVED_AT_PICKUP';
+    case 'ARRIVED_AT_PICKUP':
+      return 'IN_PROGRESS';
+    case 'IN_PROGRESS':
+      return 'COMPLETED';
+    default:
+      return null;
+  }
+}
+
 /** What the button should say, for a status. `null` when there is no move. */
 export function advanceLabel(status: string | null | undefined): string | null {
   switch (String(status ?? '').toUpperCase()) {
     case 'CONFIRMED':
     case 'SCHEDULED':
     case 'FILLING':
-    case 'DRIVER_ASSIGNED':
       return 'Start trip';
+    /**
+     * Not "Start trip", even though it calls the same endpoint.
+     *
+     * A DRIVER_ASSIGNED trip is one the driver did not start — an admin
+     * assigned it, or it was reassigned, or they claimed a scheduled ride — so
+     * from their side the next thing that happens is a drive to the pickup,
+     * not the beginning of a trip they set up. The manage screen has always
+     * drawn that distinction; this surface said "Start trip" for the same
+     * state, so one trip offered the driver two different promises depending
+     * on which screen they happened to be looking at.
+     */
+    case 'DRIVER_ASSIGNED':
+      return 'Head to pickup';
     case 'DRIVER_EN_ROUTE':
       return "I'm at the pickup";
     case 'ARRIVED_AT_PICKUP':
@@ -80,33 +160,15 @@ export function useTripAdvance({ tripId, status, underMinimumAck, onAdvanced }: 
         throw new Error(`Cannot advance from status: ${s || 'unknown'}`);
       }
       pendingFrom.current = s;
-      if (s === 'CONFIRMED' || s === 'DRIVER_ASSIGNED' || s === 'SCHEDULED' || s === 'FILLING') {
-        return driverApi.startTrip(tripId);
-      }
-      if (s === 'DRIVER_EN_ROUTE') return driverApi.arriveAtPickup(tripId);
-      if (s === 'ARRIVED_AT_PICKUP') {
-        // Read-and-clear in one go: a failed departure must not leave a
-        // standing permission behind for the next attempt.
-        const ack = underMinimumAck?.current ?? false;
-        if (underMinimumAck) underMinimumAck.current = false;
-        return driverApi.departTrip(tripId, ack ? { acknowledgeUnderMinimum: true } : undefined);
-      }
-      if (s === 'IN_PROGRESS') return driverApi.arriveTrip(tripId);
-      throw new Error('Cannot advance from current status');
+      // Read-and-clear in one go: a failed departure must not leave a standing
+      // permission behind for the next attempt.
+      const ack = underMinimumAck?.current ?? false;
+      if (underMinimumAck) underMinimumAck.current = false;
+      return advanceRequest(s, tripId, { acknowledgeUnderMinimum: ack });
     },
     onSuccess: () => {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      const from = pendingFrom.current;
-      const to =
-        from === 'CONFIRMED' || from === 'SCHEDULED' || from === 'FILLING' || from === 'DRIVER_ASSIGNED'
-          ? 'DRIVER_EN_ROUTE'
-          : from === 'DRIVER_EN_ROUTE'
-            ? 'ARRIVED_AT_PICKUP'
-            : from === 'ARRIVED_AT_PICKUP'
-              ? 'IN_PROGRESS'
-              : from === 'IN_PROGRESS'
-                ? 'COMPLETED'
-                : null;
+      const to = nextStatusAfter(pendingFrom.current);
       qc.invalidateQueries({ queryKey: ['driver'] });
       onAdvanced?.(to);
     },

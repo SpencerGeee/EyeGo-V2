@@ -796,8 +796,12 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         animationType="slide"
         onRequestClose={() => setFiltersVisible(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setFiltersVisible(false)} accessibilityRole="button">
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}} accessibilityRole="button">
+        <Pressable style={styles.modalOverlay} onPress={() => setFiltersVisible(false)} accessibilityRole="button" accessibilityLabel="Close sort and filter">
+          {/* The empty handler is deliberate: it swallows the tap so it does not
+              reach the backdrop above and close the sheet the rider is using.
+              It carries no accessibilityRole — as a "button" a screen reader
+              announced the entire sheet as a control that does nothing. */}
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
             <View style={styles.modalHandle} />
             <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Sort & Filter</Text>
 
@@ -875,8 +879,8 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         animationType="slide"
         onRequestClose={() => setFareModalTrip(null)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setFareModalTrip(null)} accessibilityRole="button">
-          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}} accessibilityRole="button">
+        <Pressable style={styles.modalOverlay} onPress={() => setFareModalTrip(null)} accessibilityRole="button" accessibilityLabel="Close fare breakdown">
+          <Pressable style={[styles.modalSheet, { backgroundColor: colors.surfaceContainer }]} onPress={() => {}}>
             <View style={styles.modalHandle} />
             <Text variant="titleMedium" style={{ marginBottom: spacing.lg }}>Fare Breakdown</Text>
             {fareModalTrip && (() => {
