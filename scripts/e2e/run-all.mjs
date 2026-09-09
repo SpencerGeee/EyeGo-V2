@@ -42,6 +42,7 @@ const SUITES = [
   ['motion-invariants.mjs', 'loops nobody cancels and sensors opened once per screen'],
   ['ux-invariants.mjs', 'failures that lie, unlabelled controls, text that will not scale'],
   ['h3-index.mjs', 'the hex grid dispatch searches — pure, exact, no stack needed'],
+  ['scheduled-rides.mjs', 'the ride booked for later — the lifecycle nobody can sit through'],
   ['geo-routing.mjs', 'the polyline, the geocoder and the ETA every map depends on'],
   ['rider-happy-path.mjs', 'request → dispatch → accept → drive → complete → pay'],
   ['driver-happy-path.mjs', 'the driver-created group trip, end to end'],
