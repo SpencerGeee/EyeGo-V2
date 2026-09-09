@@ -10,6 +10,7 @@ const { pushEnd } = require('../../services/live-activity-push.service');
 const tripState = require('../../services/trip-state.service');
 const logger = require('../../utils/logger');
 const reconcile = require('../../services/trip-reconcile.service');
+const riderWallet = require('../../services/rider-wallet.service');
 const { seatOccupyingWhere, livePassengerWhere } = require('../../utils/booking-status');
 
 /**
@@ -333,12 +334,25 @@ async function cancelBookingWithFee(id, userId, { reason, note } = {}) {
         },
       });
 
-      // Credit the refund to the rider's wallet — the PaymentTransaction row above
-      // is just a ledger record and does not itself move money.
+      /**
+       * Credit the refund to the rider's wallet.
+       *
+       * The PaymentTransaction row above records the refund against the
+       * BOOKING and, as its own comment says, does not itself move money. This
+       * used to be a bare `increment` on the balance, which moved the money
+       * without leaving anything in the wallet ledger — so the credit was
+       * invisible in the rider's wallet history and `riderWallet.reconcile()`
+       * could never balance. See the fuller note at
+       * `refundBookingForDriverCancellation`.
+       */
       if (refundAmountPesewas > 0) {
-        await tx.user.update({
-          where: { id: booking.userId },
-          data: { walletBalancePesewas: { increment: refundAmountPesewas } },
+        await riderWallet.record({
+          userId: booking.userId,
+          type: riderWallet.TYPES.REFUND,
+          amountPesewas: refundAmountPesewas,
+          description: 'Refund for a cancelled ride',
+          bookingId: booking.id,
+          tx,
         });
       }
     }
@@ -574,9 +588,33 @@ async function refundBookingForDriverCancellation(tx, booking, reasonLabel = 'Dr
   });
 
   if (booking.userId) {
-    await tx.user.update({
-      where: { id: booking.userId },
-      data: { walletBalancePesewas: { increment: booking.fareAmountPesewas } },
+    /**
+     * THROUGH THE LEDGER, NOT AROUND IT.
+     *
+     * This was a bare `walletBalancePesewas: { increment }`. The
+     * `paymentTransaction` row written above is a record of the REFUND against
+     * the booking — it is not a wallet ledger entry, and the comment at the
+     * other refund site says as much: "does not itself move money".
+     *
+     * So the money moved and the rider's wallet history did not mention it.
+     * Two consequences, both bad and both silent: a rider looking at their
+     * wallet cannot see where the credit came from (or, when they claim they
+     * were never refunded, nobody can prove otherwise), and
+     * `riderWallet.reconcile()` — which sums WalletTransaction against the
+     * balance — is off by the total of every refund ever issued.
+     *
+     * `prisma/schema.prisma` states the invariant outright: "Never write the
+     * balance without writing a row." `riderWallet.record` is the only thing
+     * that upholds it, and it takes `tx` so it joins this transaction rather
+     * than opening a second one.
+     */
+    await riderWallet.record({
+      userId: booking.userId,
+      type: riderWallet.TYPES.REFUND,
+      amountPesewas: booking.fareAmountPesewas,
+      description: reasonLabel,
+      bookingId: booking.id,
+      tx,
     });
   }
 
