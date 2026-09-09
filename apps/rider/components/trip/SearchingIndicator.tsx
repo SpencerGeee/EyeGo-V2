@@ -11,6 +11,7 @@ import Animated, {
   withSpring,
   withTiming,
   useReducedMotion,
+  cancelAnimation,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { springs, withOpacity } from '@eyego/config';
@@ -66,6 +67,14 @@ export function SearchingIndicator({ status }: Props) {
     } else {
       phase.value = withTiming(0, { duration: 200 });
     }
+    /**
+     * The `else` branch stops the loop when searching ENDS, but not when the
+     * component goes away while it is still true — and that is the common case:
+     * a driver is found, the stage swaps, and this unmounts mid-search. Without
+     * a cleanup the radar kept spinning on the UI thread for the rest of the
+     * session, behind every screen the rider visited afterwards.
+     */
+    return () => cancelAnimation(phase);
   }, [searching, reduceMotion, phase]);
 
   useEffect(() => {

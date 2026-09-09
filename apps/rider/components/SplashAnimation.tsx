@@ -10,6 +10,7 @@ import Animated, {
   Easing,
   runOnJS,
   type SharedValue,
+  cancelAnimation,
 } from 'react-native-reanimated';
 import Svg, { Defs, RadialGradient, Stop, Circle } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -84,8 +85,25 @@ export function SplashAnimation({ onComplete }: Props) {
         if (done) runOnJS(onComplete)();
       });
     }, T_FADE_OUT);
-    return () => clearTimeout(t);
-  }, [onComplete]);
+    /**
+     * ── THE AMBIENT LOOPS MUST DIE WITH THE SPLASH ──────────────────────────
+     *
+     * A `-1` repeat is a UI-thread frame callback that Reanimated keeps driving
+     * until it is cancelled; unmounting the component does not stop it. This
+     * cleanup only cleared the exit timer, so glowPulse and ringPulse (and the
+     * Dots/ProgressBar loops below) went on running for the rest of the session,
+     * invisibly, behind the whole app.
+     *
+     * That was always wrong and is now worse: the splash renders as an OVERLAY
+     * above a booting app rather than instead of it, so these orphans no longer
+     * outlive nothing — they outlive into a live app and compete with it.
+     */
+    return () => {
+      clearTimeout(t);
+      cancelAnimation(glowPulse);
+      cancelAnimation(ringPulse);
+    };
+  }, [onComplete, glowPulse, ringPulse]);
 
   const surfaceStyle = useAnimatedStyle(() => ({ opacity: surface.value }));
 
@@ -164,7 +182,9 @@ function Dots() {
   const d = useSharedValue(0);
   useEffect(() => {
     d.value = withRepeat(withTiming(3, { duration: 1200, easing: Easing.linear }), -1, false);
-  }, []);
+    // See the main effect: an uncancelled -1 repeat outlives unmount.
+    return () => cancelAnimation(d);
+  }, [d]);
   return (
     <View style={styles.dotsRow}>
       <Dot index={0} driver={d} />
@@ -186,7 +206,8 @@ function ProgressBar() {
       -1,
       false
     );
-  }, []);
+    return () => cancelAnimation(x);
+  }, [x]);
   const segStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: -SEG_W + x.value * (BAR_W + SEG_W) }],
   }));

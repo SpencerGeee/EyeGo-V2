@@ -22,6 +22,8 @@ import Animated, {
   interpolate,
   Extrapolation,
   type SharedValue,
+  cancelAnimation,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import * as SecureStore from 'expo-secure-store';
@@ -338,7 +340,23 @@ function SlideItem({
 
   // Glowing halo scaling animation (snappy, responsive liquid scale)
   const glowScale = useSharedValue(1);
+  /**
+   * ── AN INFINITE LOOP NEEDS A CLEANUP, OR IT OUTLIVES THE SCREEN ────────────
+   *
+   * A `-1` repeat is a UI-thread frame callback that Reanimated keeps driving
+   * until something cancels it — unmounting the component does NOT. This effect
+   * had no cleanup at all, so the onboarding glow kept pulsing for the entire
+   * session after the user finished onboarding and never saw it again.
+   *
+   * Same defect the `Blob` in AppBackground documents and guards against; this
+   * is one of the two places that never got the same treatment.
+   *
+   * Gated on reduce-motion too: a pulsing glow is decoration by any definition,
+   * and it is the class of motion a user asking the OS to reduce it means.
+   */
+  const reducedMotion = useReducedMotion();
   useEffect(() => {
+    if (reducedMotion) return undefined;
     glowScale.value = withRepeat(
       withSequence(
         withTiming(1.2, { duration: 2000 }),
@@ -347,7 +365,8 @@ function SlideItem({
       -1,
       true
     );
-  }, [glowScale]);
+    return () => cancelAnimation(glowScale);
+  }, [glowScale, reducedMotion]);
 
   const glowStyle = useAnimatedStyle(() => ({
     transform: [{ scale: glowScale.value }],

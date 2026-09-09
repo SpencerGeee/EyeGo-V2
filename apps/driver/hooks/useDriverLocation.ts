@@ -414,6 +414,44 @@ async function acquireWatch(wantsNavAccuracy: boolean) {
   await startSharedWatch();
 }
 
+/**
+ * THE COMPASS, SHARED THE SAME WAY.
+ *
+ * `watchHeadingAsync` reads one magnetometer. Opening it once per mounted
+ * consumer gave three subscriptions to the same sensor, all writing the same
+ * module-level `compassHeading` — pure duplicate wake-ups for a value that can
+ * only ever have one answer.
+ */
+let compassSub: { remove: () => void } | null = null;
+let compassRefs = 0;
+
+async function acquireCompass() {
+  compassRefs++;
+  if (compassSub) return;
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== 'granted' || compassRefs === 0) return;
+    const sub = await Location.watchHeadingAsync((h) => {
+      // trueHeading is -1 until the compass calibrates; magHeading covers it.
+      const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+      if (Number.isFinite(deg)) compassHeading = deg;
+    });
+    // Everyone released while we were awaiting permission.
+    if (compassRefs === 0) { sub.remove(); return; }
+    compassSub = sub;
+  } catch {
+    // No compass / permission denied — headings fall back to GPS course only.
+  }
+}
+
+function releaseCompass() {
+  compassRefs = Math.max(0, compassRefs - 1);
+  if (compassRefs === 0) {
+    compassSub?.remove();
+    compassSub = null;
+  }
+}
+
 function releaseWatch() {
   watchRefs = Math.max(0, watchRefs - 1);
   if (watchRefs === 0) {
@@ -462,24 +500,12 @@ export function useDriverLocation({ enabled = true, isOnTrip = false }: Options 
   // cradle as much as the road, which is why it must never outrank real course
   // data (see @eyego/maps useVehicleHeading — the same model, receiving end).
 
+  // The compass is a DEVICE resource, acquired like the GPS watch — see
+  // `acquireCompass`. It used to be a per-instance effect, so every mounted
+  // consumer opened its own `watchHeadingAsync` on the same magnetometer.
   useEffect(() => {
-    let sub: { remove: () => void } | null = null;
-    let cancelled = false;
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted' || cancelled) return;
-        sub = await Location.watchHeadingAsync((h) => {
-          // trueHeading is -1 until the compass calibrates; magHeading covers it.
-          const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
-          if (Number.isFinite(deg)) compassHeading = deg;
-        });
-        if (cancelled) { sub?.remove(); sub = null; }
-      } catch {
-        // No compass / permission denied — headings fall back to GPS course only.
-      }
-    })();
-    return () => { cancelled = true; sub?.remove(); };
+    void acquireCompass();
+    return releaseCompass;
   }, []);
 
   const applyPosition = useCallback((pos: Location.LocationObject, sharedHeading: number) => {
