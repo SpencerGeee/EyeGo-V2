@@ -386,6 +386,12 @@ const REGISTRY = [
     min: 0, max: 2000,
   },
   {
+    key: 'LOYALTY_MIN_LIFETIME_TRIPS', group: 'standing', type: TYPES.INT,
+    label: 'Rides before loyalty unlocks', envDefault: 1000, unit: 'completed rides',
+    help: 'How many rides a rider must have completed, ever, before the loyalty discount and the "good standing" line appear on their fare. Lifetime total, not the reliability window, so a quiet month never takes it away. Set low and the discount becomes an across-the-board price cut.',
+    min: 0, max: 100000,
+  },
+  {
     key: 'STANDING_RATING_WINDOW_DAYS', group: 'standing', type: TYPES.INT,
     label: 'Rating window', envDefault: 180, unit: 'days',
     help: 'Ratings older than this stop counting towards standing, so a long-ago run of five stars cannot hide recent behaviour.',

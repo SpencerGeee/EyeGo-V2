@@ -101,13 +101,33 @@ function bandFor({ rating, reliability, upheldReports, sampleSize }) {
  * kerb is one that reads as the app being unfair rather than generous. The
  * ceiling is a runtime setting so it can be tuned without a deploy.
  *
- * Only RELIABILITY and RATING earn it. Volume does not: rewarding people simply
- * for spending more is a different product decision and belongs in a rewards
- * tier, not in the base fare.
+ * Only RELIABILITY and RATING earn it. Volume does not SCALE it — but volume is
+ * now the GATE on it, which is a different thing and worth keeping straight:
+ * past the threshold, how much you save still depends only on how you behave,
+ * not on how much you spend.
+ *
+ * ── WHY THERE IS A LIFETIME-TRIP GATE ───────────────────────────────────────
+ *
+ * This used to unlock at three rated rides, which is the same as unlocking for
+ * everybody: three rides is a week. Every rider on the platform was reaching a
+ * standing 7% discount almost immediately, so the "discount" was not rewarding
+ * loyalty at all — it was a quiet across-the-board price cut, paid out of the
+ * operator's margin on essentially every fare.
+ *
+ * `lifetimeTrips` is deliberately a LIFETIME count and not the windowed
+ * `completedTrips` that reliability uses. A windowed gate would switch a loyal
+ * rider's discount off during a quiet month and back on when they returned,
+ * which reads as the app being broken rather than as a policy.
+ *
+ * Pass `lifetimeTrips: null` to skip the gate — driver standing does, because
+ * this discount is a rider fare concession and has never applied to a driver.
  */
-function loyaltyDiscountBps({ band, reliability, rating }) {
+function loyaltyDiscountBps({ band, reliability, rating, lifetimeTrips }) {
   const cap = settings.get('LOYALTY_MAX_DISCOUNT_BPS') ?? 700; // 7%
   if (band === 'NEW' || band === 'RESTRICTED' || band === 'FAIR') return 0;
+
+  const minTrips = settings.get('LOYALTY_MIN_LIFETIME_TRIPS') ?? 1000;
+  if (lifetimeTrips != null && lifetimeTrips < minTrips) return 0;
 
   // Reliability is the headline term — it is the behaviour being rewarded.
   // 0.85 → 0, 1.00 → full. Below the floor there is nothing to earn.
@@ -140,7 +160,7 @@ async function riderStanding(userId) {
   const ratingSince = windowStart(RATING_WINDOW_DAYS());
   const tripSince = windowStart(RELIABILITY_WINDOW_DAYS());
 
-  const [ratings, completedTrips, cancelledTrips, reports] = await Promise.all([
+  const [ratings, completedTrips, lifetimeTrips, cancelledTrips, reports] = await Promise.all([
     prisma.passengerRating.aggregate({
       where: { userId, createdAt: { gte: ratingSince } },
       _sum: { stars: true },
@@ -148,6 +168,15 @@ async function riderStanding(userId) {
     }),
     prisma.booking.count({
       where: { userId, status: { in: COMPLETED_BOOKING }, createdAt: { gte: tripSince } },
+    }),
+    /**
+     * The SAME rows without the window — this one gates the loyalty discount.
+     * Kept as its own count rather than derived from `completedTrips` because
+     * the two answer different questions: reliability asks "how have they
+     * behaved lately", the gate asks "how long have they been with us".
+     */
+    prisma.booking.count({
+      where: { userId, status: { in: COMPLETED_BOOKING } },
     }),
     /**
      * THEIR OWN cancellations, not every cancellation they were caught in.
@@ -181,6 +210,7 @@ async function riderStanding(userId) {
     ratingSum: ratings._sum.stars ?? 0,
     ratingCount: ratings._count.stars ?? 0,
     completedTrips,
+    lifetimeTrips,
     cancelledTrips,
     upheldReports,
     openReports,
@@ -244,7 +274,20 @@ async function driverStanding(driverId) {
   });
 }
 
-function build({ ratingSum, ratingCount, completedTrips, cancelledTrips, upheldReports, openReports }) {
+function build({
+  ratingSum,
+  ratingCount,
+  completedTrips,
+  cancelledTrips,
+  upheldReports,
+  openReports,
+  /**
+   * Every completed ride this account has ever taken, ignoring the reliability
+   * window. Gates the loyalty discount only — see `loyaltyDiscountBps`. Null
+   * means "no gate", which is what driver standing passes.
+   */
+  lifetimeTrips = null,
+}) {
   const denominator = completedTrips + cancelledTrips;
   // No history is perfect reliability, not zero — a new account must not start
   // in the penalty box.
@@ -263,7 +306,8 @@ function build({ ratingSum, ratingCount, completedTrips, cancelledTrips, upheldR
     upheldReports,
     openReports,
     band,
-    loyaltyDiscountBps: loyaltyDiscountBps({ band, reliability, rating }),
+    lifetimeTrips,
+    loyaltyDiscountBps: loyaltyDiscountBps({ band, reliability, rating, lifetimeTrips }),
   };
 }
 
@@ -272,6 +316,7 @@ function neutral() {
     rating: null,
     ratingCount: 0,
     completedTrips: 0,
+    lifetimeTrips: 0,
     cancelledTrips: 0,
     reliability: 1,
     cancellationRate: 0,

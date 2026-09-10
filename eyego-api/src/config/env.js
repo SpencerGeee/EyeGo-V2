@@ -252,15 +252,19 @@ const envSchema = z.object({
    * the ride has to come from the minibus pool, which is scarcer and dearer,
    * and every further seat adds `RIDE_EXTRA_SEAT_RATE` of the metered ride.
    *
-   * Four and 18% are the starting figures. Four is what a saloon actually
-   * carries; 18% means a full party of eight pays roughly 1.7× a solo hail for
-   * the same road, which is the shape of the gap between a taxi and a minibus
-   * on this market. Both are live settings — see config/settings.js — so the
-   * operator retunes them from the console without a deploy.
+   * Three and 18% are the starting figures. A saloon seats four including the
+   * front passenger, but the fourth is the seat that makes the car full — no
+   * luggage room, no comfort margin, and on a busy evening it is the difference
+   * between the ride being worth taking and not. So the base fare carries three
+   * and the fourth begins paying. 18% means a full party of eight pays roughly
+   * 1.9× a solo hail for the same road, which is the shape of the gap between a
+   * taxi and a minibus on this market. Both are live settings — see
+   * config/settings.js — so the operator retunes them from the console without
+   * a deploy.
    *
    * See `partySize` in modules/trips/fare.calculator.js for where they apply.
    */
-  RIDE_INCLUDED_SEATS: z.coerce.number().int().min(1).max(14).default(4),
+  RIDE_INCLUDED_SEATS: z.coerce.number().int().min(1).max(14).default(3),
   RIDE_EXTRA_SEAT_RATE: z.coerce.number().min(0).max(1).default(0.18),
   // The ONLY floor under a per-seat fare. A seat costs
   // `(baseFarePesewas + perKmRatePesewas × km) × surge / maxSeats`, so on a 14-seater a short
