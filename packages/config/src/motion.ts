@@ -104,7 +104,32 @@ export const springs = {
    * large surface changing size, and every frame of overshoot on a surface that
    * big reads as the card wobbling rather than as the card arriving.
    */
-  morph: { stiffness: 195, damping: 28, mass: 1 },
+  /**
+   * ── THE MORPH IS A THING YOU ARE MEANT TO SEE ───────────────────────────
+   *
+   * BUGFIX ("its very fast and all, you dont even appreciate the animation. it
+   * looks like the page goes dim then comes back up. like a fade animation but
+   * its supposed to be a morphing effect scaling bigger and smaller").
+   *
+   * This was `stiffness: 195, damping: 28` — ζ = 1.00, critically damped, and
+   * settled in about 290 ms. A critically damped spring spends most of its
+   * distance in the first third of its time, so what the eye actually got was a
+   * near-instant jump followed by a crossfade, which is a fade. The geometry was
+   * correct and simply not on screen long enough to be read as geometry.
+   *
+   *   ζ  = damping / 2√(stiffness × mass) = 15.7 / 2√91 = 0.82
+   *   ωn = √(stiffness/mass)              = 9.54 rad/s
+   *   settle (2%) ≈ 4/(ζωn)               ≈ 510 ms
+   *
+   * ζ = 0.82 overshoots by about 1%. That is deliberately almost nothing: this
+   * spring drives a surface the size of a screen, and a visible bounce on
+   * something that big reads as rubbery rather than alive. The life comes from
+   * the longer travel and from not dead-stopping, not from overshoot.
+   *
+   * 510 ms sits under the ~600 ms at which a transition starts costing the user
+   * time rather than telling them where they came from.
+   */
+  morph: { stiffness: 91, damping: 15.7, mass: 1 },
 } as const;
 
 /**
@@ -140,18 +165,30 @@ export const springs = {
 export function springForAxis(distancePx: number): { stiffness: number; damping: number; mass: number } {
   const d = Number.isFinite(distancePx) ? Math.abs(distancePx) : 0;
   /**
-   * 0.28 s for a hair's-breadth move, rising to 0.45 s — `springs.morph`'s own
+   * 0.42 s for a hair's-breadth move, rising to 0.66 s — `springs.morph`'s own
    * response — by the time an axis crosses most of a screen. Clamped at both
-   * ends: below ~0.28 s a large surface reads as snapping rather than moving,
+   * ends: below ~0.42 s a large surface reads as snapping rather than moving,
    * and above the morph token it starts to feel slack.
+   *
+   * Raised from 0.28–0.45 with the morph token itself. THESE are the springs
+   * that move the box: `morphProgress` drives opacity and corner radius, but
+   * `progressX`/`progressY` drive x/y/width/height, so leaving these fast while
+   * slowing `springs.morph` would have kept the geometry snapping and only
+   * stretched the crossfade — the exact complaint, made slightly worse.
    */
-  const response = Math.min(0.45, 0.28 + (d / 900) * 0.17);
+  const response = Math.min(0.66, 0.42 + (d / 900) * 0.24);
   const stiffness = (2 * Math.PI / response) ** 2;
   return {
     stiffness: Math.round(stiffness),
-    // ζ = 1.0 — critically damped. A morph is a large surface, and every frame
-    // of overshoot on a surface that big reads as a wobble, not as arrival.
-    damping: Math.round(2 * Math.sqrt(stiffness)),
+    /**
+     * ζ = 0.82, matching `springs.morph` — see the note there. Was 1.0, and the
+     * argument for critical damping (no wobble on a big surface) still holds;
+     * it is just that 0.82 overshoots by ~1%, which is under the threshold of
+     * looking like a wobble and over the threshold of looking like it stopped
+     * dead. A morph that arrives with no settle at all is what made this read
+     * as a cut rather than a movement.
+     */
+    damping: Math.round(2 * 0.82 * Math.sqrt(stiffness) * 10) / 10,
     mass: 1,
   };
 }

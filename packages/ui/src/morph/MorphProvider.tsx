@@ -110,10 +110,17 @@ export function useMorphOptional() {
  * The budget is only ever spent waiting for a target that is coming. Since
  * MorphTarget now reports SYNCHRONOUSLY on its first layout pass (see the note
  * on its `onLayout`), a screen that has one answers within a frame or two of
- * mounting, and 450 ms is still generous for a heavy destination. A screen that
- * does not have one now degrades in a quarter of the time.
+ * mounting, and this is still generous for a heavy destination.
+ *
+ * MUST STAY ABOVE THE FLIGHT DURATION — that is why it is 750 and not 450.
+ * `markSprung` now lands a flight whose destination has no `MorphTarget` at the
+ * moment the spring arrives, which is the fix for the blank-clone hold. With
+ * the morph spring at ~510 ms, a 450 ms timeout would fire FIRST on exactly the
+ * screens that fix is for, tear the clone down with a fade, and the fix would
+ * never run. This is now a genuine backstop for the one case neither the spring
+ * nor the target can report: a destination torn down mid-flight.
  */
-const TARGET_TIMEOUT_MS = 450;
+const TARGET_TIMEOUT_MS = 750;
 
 /**
  * ── WHERE THE FLIGHT AIMS BEFORE THE DESTINATION HAS LAID OUT ───────────────
@@ -174,9 +181,17 @@ const GESTURE_VELOCITY_THRESHOLD = 500;
  * the window over which the real DESTINATION content fades in (MorphTarget
  * reads these too). They overlap deliberately — a hard handover at a single
  * point reads as a cut, and no overlap at all reads as two separate fades.
+ *
+ * Widened from 0.32/0.28 with the slower morph spring. The source content is
+ * the only thing IN the box while it grows, so how long it survives is how much
+ * of the flight reads as "this card is becoming that page" rather than as an
+ * empty rectangle expanding. At 32% it was gone within about 90 ms of the tap,
+ * which on top of the old 290 ms flight left most of the transition being an
+ * empty container. The overlap with the fade-in is preserved (0.34 < 0.40), so
+ * the handover is still a crossfade and not a cut.
  */
-export const CONTENT_FADE_OUT_END = 0.32;
-export const CONTENT_FADE_IN_START = 0.28;
+export const CONTENT_FADE_OUT_END = 0.4;
+export const CONTENT_FADE_IN_START = 0.34;
 export const CONTENT_FADE_IN_END = 0.78;
 
 /**
@@ -450,6 +465,31 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   /** The spring reached 1. Called from the UI thread via runOnJS. */
   const markSprung = useCallback(() => {
     landing.current.sprung = true;
+    /**
+     * A DESTINATION WITH NO `MorphTarget` HAS ALREADY ARRIVED.
+     *
+     * BUGFIX ("it looks like the page goes dim then comes back up") — this is
+     * the other half of it, and the half that is not about timing.
+     *
+     * `settle` waits for BOTH halves: the spring landing, and the destination
+     * reporting its rect. Most screens in the rider app have no `MorphTarget`
+     * — only eight of them do — so on every morph into one of the others the
+     * second half never came. The flight still flew, because the prediction
+     * aims at the screen when the id is unknown; it landed at ~290 ms as a
+     * FULL-SCREEN CLONE whose content had already faded out at 32%. Then it sat
+     * there, empty and opaque, over the real page, until `TARGET_TIMEOUT_MS`
+     * fired at 450 ms and faded it.
+     *
+     * So the user watched a brief scale, then a blank overlay for ~160 ms, then
+     * a fade. Which is a dim and a return, exactly as reported.
+     *
+     * When nothing has reported by the time the spring lands, the prediction WAS
+     * the target — the clone is already sitting exactly where the page is. There
+     * is nothing left to wait for, so land now and let the crossfade start. The
+     * timeout stays as the backstop for the case this cannot see: a spring that
+     * never finishes because the screen was torn down mid-flight.
+     */
+    if (!flightRef.current?.targetRect) landing.current.targeted = true;
     maybeSettle();
   }, [maybeSettle]);
 
