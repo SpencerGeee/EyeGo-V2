@@ -80,7 +80,7 @@ export default function SeatPickerScreen() {
   const colors = useColors();
   const isDark = useThemeStore((s) => s.isDark);
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
   const queryClient = useQueryClient();
   const { setSelectedSeat, selectedTrip } = useRideStore(
     useShallow((s) => ({ setSelectedSeat: s.setSelectedSeat, selectedTrip: s.selectedTrip })),
@@ -144,10 +144,45 @@ export default function SeatPickerScreen() {
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
   const farePesewas = (selectedTrip as any)?.farePerSeatPesewas ?? null;
 
+  /**
+   * ── WHERE DO YOU GET OFF? ───────────────────────────────────────────────
+   *
+   * "it would make sense if someone would like to alight inbetween to which you
+   * have to make sure you correctly and fully implement that functionality so
+   * if someone is on the ride but wouldnt go the full distance, they get charged
+   * less instead of full ... it should be easy to access meaning it should be
+   * seen on the stages of booking the ride."
+   *
+   * So it sits here, in the flow, one step after choosing a seat and before
+   * paying for it — not buried in a menu the rider would have to know to look
+   * for. Every option is a `VirtualStop`, which is a point ON the route the
+   * driver is already driving, so choosing one costs the vehicle no detour and
+   * cannot inconvenience anyone else aboard. Null is "ride to the end", which
+   * is the default and what every booking meant before this existed.
+   */
+  const stops =
+    (selectedTrip as { route?: { virtualStops?: { id: string; name: string }[] } })?.route
+      ?.virtualStops ?? [];
+  const [dropoffStopId, setDropoffStopId] = useState<string | null>(null);
+
   const handleConfirm = () => {
     if (!selectedSeat) return;
     setSelectedSeat(selectedSeat);
-    goDeeper(`/ride/${id}/payment` as Href);
+    /**
+     * Both stop ids travel to payment, which is what actually books the seat.
+     *
+     * `pickupStopId` was being DROPPED here: it arrives from the trip list as a
+     * route param, and this screen read only `id`, so a rider who chose to board
+     * part-way along was silently booked — and charged — from the origin. It is
+     * forwarded now, alongside the drop-off.
+     */
+    const query = [
+      pickupStopId ? `pickupStopId=${pickupStopId}` : '',
+      dropoffStopId ? `dropoffStopId=${dropoffStopId}` : '',
+    ]
+      .filter(Boolean)
+      .join('&');
+    goDeeper(`/ride/${id}/payment${query ? `?${query}` : ''}` as Href);
   };
 
   // Fail loudly: if seats cannot be loaded we show a real error with retry,
@@ -212,6 +247,37 @@ export default function SeatPickerScreen() {
           accent={colors.primary}
           fareLabel={farePesewas != null ? formatGhs(farePesewas) : null}
         />
+
+        {/* Only offered when the route actually has stops on it. A section
+            headed "where do you get off?" with one option is a worse answer
+            than no section at all. */}
+        {stops.length > 0 ? (
+          <View style={styles.alight}>
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              WHERE DO YOU GET OFF?
+            </Text>
+            <View style={styles.alightRow}>
+              <AlightChip
+                colors={colors}
+                label="Ride to the end"
+                selected={dropoffStopId == null}
+                onPress={() => setDropoffStopId(null)}
+              />
+              {stops.map((stop) => (
+                <AlightChip
+                  key={stop.id}
+                  colors={colors}
+                  label={stop.name}
+                  selected={dropoffStopId === stop.id}
+                  onPress={() => setDropoffStopId(stop.id)}
+                />
+              ))}
+            </View>
+            <Text variant="caption" color={colors.onSurfaceVariant}>
+              Getting off early costs less — you pay for the part of the route you ride.
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/*
@@ -241,6 +307,42 @@ export default function SeatPickerScreen() {
         <Button variant="glow" label="Confirm seat" onPress={handleConfirm} disabled={!selectedId} />
       </MorphSheet>
     </SafeAreaView>
+  );
+}
+
+function AlightChip({
+  colors,
+  label,
+  selected,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={{
+        paddingHorizontal: spacing.base,
+        paddingVertical: spacing.sm,
+        borderRadius: radii.full,
+        borderWidth: 1,
+        borderColor: selected ? colors.primary : colors.outlineVariant,
+        backgroundColor: selected ? colors.primary : 'transparent',
+      }}
+    >
+      <Text
+        variant="caption"
+        color={selected ? colors.onPrimary ?? '#0A0D14' : colors.onSurface}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -353,6 +455,8 @@ const makeStyles = (colors: Colors) =>
      * at the bottom; undershooting hides the rider's own seat number behind the
      * button that confirms it.
      */
+    alight: { gap: spacing.sm, marginTop: spacing.lg },
+    alightRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     cabinScroll: { paddingHorizontal: spacing.xl, paddingBottom: 220, gap: spacing.lg },
     cabin: {
       borderRadius: radii['2xl'],

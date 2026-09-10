@@ -70,6 +70,10 @@ export interface DispatchOfferView {
   tripId: string;
   pickupAddress?: string | null;
   dropoffAddress?: string | null;
+  /** Coarse direction of travel, sent when the exact drop-off is withheld. */
+  dropoffBearing?: string | null;
+  /** Straight-line km to the drop-off, rounded to a half km by the server. */
+  dropoffDistanceKm?: number | null;
   pickup?: Coord | null;
   dropoff?: Coord | null;
   /** What the driver nets. The number the decision is actually made on. */
@@ -612,12 +616,19 @@ export function DispatchOfferCard({
             <View style={styles.leg}>
               <Text style={[styles.legLabel, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
               <Text style={styles.legText} numberOfLines={2}>
-                {/* NOT "Destination on the map" any more — the offer map now
-                    frames the approach only, so that fallback pointed at
-                    something the driver can no longer see. See `revealDropoff`
-                    in DispatchLiveMap. This line IS the destination now, which
-                    is why it must not degrade to a signpost. */}
-                {offer.dropoffAddress ?? 'Destination shared when you start the ride'}
+                {/* The address is now withheld by the SERVER until the ride
+                    starts — it is not in the payload at all, so there is
+                    nothing here to reveal accidentally. What the driver gets
+                    instead is the shape of the job: which way it goes and
+                    roughly how far. Enough to decide whether to take it, far
+                    too coarse to cherry-pick a destination with. See
+                    `directionHint` in dispatch-cascade.service. */}
+                {offer.dropoffAddress ??
+                  (offer.dropoffBearing
+                    ? `Heading ${offer.dropoffBearing}${
+                        offer.dropoffDistanceKm ? ` · about ${offer.dropoffDistanceKm} km` : ''
+                      }`
+                    : 'Destination shared when you start the ride')}
               </Text>
             </View>
           </View>
@@ -894,10 +905,21 @@ const makeStyles = (colors: DriverColors) =>
     },
     earnings: {
       fontFamily: fonts.displayBold,
-      // Up from 34: this is the hero and the ring stepped back to make room.
-      fontSize: 40,
-      lineHeight: Math.round(40 * 1.12),
-      letterSpacing: -1.6,
+      /**
+       * BUGFIX ("the texts are big like the price of the ride and all", and
+       * "put all the driver can see on the first glance so they dont have to
+       * swipe up and see the rest of it").
+       *
+       * Those are one problem. 40 was chosen when the fare was the only thing
+       * on this card; it is not any more — the fare, the countdown, both legs
+       * and both actions have to fit without scrolling, because a driver with
+       * forty-five seconds does not scroll. Every point the hero gives back is a
+       * point the rest of the card gets, and 32 is still comfortably the largest
+       * thing on it.
+       */
+      fontSize: 32,
+      lineHeight: Math.round(32 * 1.12),
+      letterSpacing: -1.3,
       fontVariant: ['tabular-nums'],
     },
     chipRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, flexWrap: 'wrap' },
@@ -934,9 +956,11 @@ const makeStyles = (colors: DriverColors) =>
     statDivider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch', opacity: 0.6 },
     timerDigits: {
       fontFamily: fonts.displayBold,
-      fontSize: 30,
-      lineHeight: Math.round(30 * 1.15),
-      letterSpacing: -1.5,
+      // Stepped down with the fare so the two keep their relative weight. The
+      // countdown must not end up the loudest thing on the card.
+      fontSize: 25,
+      lineHeight: Math.round(25 * 1.15),
+      letterSpacing: -1.2,
     },
     openBadge: {
       width: 96, height: 96, borderRadius: 48, borderWidth: 1,

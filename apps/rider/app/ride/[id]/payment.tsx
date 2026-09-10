@@ -31,7 +31,7 @@ type PaymentTab = 'momo' | 'card' | 'cash' | 'wallet';
 export default function PaymentScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { id, pickupStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string }>();
+  const { id, pickupStopId, dropoffStopId } = useLocalSearchParams<{ id: string; pickupStopId?: string; dropoffStopId?: string }>();
   const router = useRouter();
   const { selectedTrip, selectedSeat, activeBooking, computedFare, setActiveBooking, setComputedFare, pendingPromoCode, setPendingPromoCode, guestInfo, setGuestInfo } = useRideStore(useShallow((s) => ({ selectedTrip: s.selectedTrip, selectedSeat: s.selectedSeat, activeBooking: s.activeBooking, computedFare: s.computedFare, setActiveBooking: s.setActiveBooking, setComputedFare: s.setComputedFare, pendingPromoCode: s.pendingPromoCode, setPendingPromoCode: s.setPendingPromoCode, guestInfo: s.guestInfo, setGuestInfo: s.setGuestInfo })));
   const queryClient = useQueryClient();
@@ -253,6 +253,9 @@ export default function PaymentScreen() {
             seatNumber: selectedSeat.number,
             paymentMethod: (activeTab === 'momo' ? 'MOMO' : activeTab === 'cash' ? 'CASH' : activeTab === 'wallet' ? 'WALLET' : 'CARD') as 'MOMO' | 'CARD' | 'WALLET',
             ...(pickupStopId ? { pickupStopId } : {}),
+            // Where they get OFF, when that is not the end of the route. The
+            // server prices the segment between the two — see calculateSegmentFare.
+            ...(dropoffStopId ? { dropoffStopId } : {}),
             ...(guestInfo ? { guestName: guestInfo.name, guestPhone: guestInfo.phone } : {}),
           });
           // ROOT CAUSE of "pay in cash → validation failed / payment
