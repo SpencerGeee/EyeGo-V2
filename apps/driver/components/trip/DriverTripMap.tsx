@@ -183,6 +183,33 @@ export function DriverTripMapImpl({
    */
   const sheetMetrics = useSheetMetrics();
   const getPadding = useCallback(() => {
+    /**
+     * ── A SCREEN WITH NO SHEET MUST NOT READ THE SHEET CHANNEL ────────────
+     *
+     * BUGFIX ("when you get to the manage trip page of the driver app, the
+     * camera position is totally off ... the map seems to be panned down or
+     * something. moving the map feels a bit weird").
+     *
+     * `useSheetMetrics` is a GLOBAL channel, not a per-screen one — whichever
+     * panel published last is what it holds. Manage-trip and tracking both pass
+     * `sheetFraction={0}`, meaning "the map owns its whole pane, nothing is
+     * docked over it", but they were still reading whatever top edge the home
+     * board's panel had published on the way in. `retired` had not been set, the
+     * value was a plausible mid-screen number, so `published` was true and the
+     * camera reserved the bottom ~56% of the screen for a sheet that does not
+     * exist on that screen.
+     *
+     * Everything then framed into the top sliver of the pane, and every re-frame
+     * fought the driver's own panning — which is the "off" camera and the map
+     * that feels wrong to move.
+     *
+     * `sheetFraction === 0` is the caller stating there is no panel. Take them
+     * at their word: the channel is only meaningful to a screen that actually
+     * has an interlocked one.
+     */
+    if (sheetFraction === 0) {
+      return paddingForSheet({ screenHeight, sheetFraction: 0, safeTop: insets.top });
+    }
     const top = sheetMetrics.top.value;
     const published =
       !sheetMetrics.retired.value && Number.isFinite(top) && top > 0 && top < screenHeight;

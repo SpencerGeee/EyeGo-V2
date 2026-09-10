@@ -113,7 +113,21 @@ export function StopTimelineSurface({
     .onUpdate((e) => {
       'worklet';
       const span = OPEN - PEEK;
-      const next = startOpen.value + e.translationY / span;
+      /**
+       * MINUS, NOT PLUS.
+       *
+       * BUGFIX ("on the tracking page, i cant pull down the card to extend the
+       * map and make it more immersive").
+       *
+       * `translationY` is POSITIVE downwards, and this pane grows UPWARDS from
+       * the bottom of the screen — its height is what `open` scales. So a drag
+       * downwards has to REDUCE `open`. Adding it did the opposite: pulling the
+       * card down made it taller and covered more of the map, and pushing up
+       * shrank it. Every gesture on this surface did the reverse of what the
+       * finger asked, which reads as the pane being unpullable rather than
+       * inverted — you pull down, the map gets smaller, so you stop pulling.
+       */
+      const next = startOpen.value - e.translationY / span;
       // Rubber-band rather than a hard stop: a pane that simply refuses to move
       // reads as broken, one that resists reads as at its limit.
       open.value = next < 0 ? next * 0.25 : next > 1 ? 1 + (next - 1) * 0.25 : next;
@@ -124,9 +138,11 @@ export function StopTimelineSurface({
       // Velocity OR distance — a flick is a decision even if it moved 20 pt.
       const flung = Math.abs(e.velocityY) > 600;
       const target = flung
-        ? e.velocityY > 0
-          ? 1
-          : 0
+        ? // Same inversion as `onUpdate`: a downward fling (positive velocity)
+          // is a request to get the pane out of the way, i.e. peek.
+          e.velocityY > 0
+          ? 0
+          : 1
         : open.value > startOpen.value
           ? open.value - startOpen.value > COMMIT_RATIO
             ? 1
