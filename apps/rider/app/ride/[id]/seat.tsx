@@ -16,13 +16,13 @@ import { formatGhs } from '@eyego/utils';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
+import { VehicleCabin, type CabinSeat } from '../../../components/seat/VehicleCabin';
 import { useThemeStore } from '../../../stores/theme.store';
 import {
   Text,
   Button,
   EmptyState,
   AppBackground,
-  GlassSurface,
   MorphSheet,
   goDeeper,
   goBack,
@@ -44,10 +44,20 @@ import type { Seat } from '@eyego/types';
  * which side they would be boarding from. A seat map that does not resemble the
  * vehicle is just a numbered keypad.
  *
- * So the cabin is drawn properly: a 2 + 1 layout either side of a real aisle,
- * the driver at the front where the rider will see them, and the rows running
- * back the way they do in the vehicle. Same seat numbers, same statuses — it is
- * the same data, finally arranged like the thing it describes.
+ * So the cabin is drawn properly, and the drawing now lives in `VehicleCabin`:
+ * a top-down architectural view of the vehicle with a lit body outline, a real
+ * aisle, the driver's wheel marking the front, and a body template chosen from
+ * the vehicle's own `seaterCount` so a saloon is never drawn as a minibus. Same
+ * seat numbers, same statuses — the same data, finally arranged like the thing
+ * it describes.
+ *
+ * It opens with a camera move: a low three-quarter view of the vehicle swinging
+ * up and over to flat top-down. That is a perspective transform on the canvas
+ * rather than a 3D scene, so it costs no dependency and cannot fail on a cheap
+ * handset. See the note in VehicleCabin.
+ *
+ * The price rides in a tooltip above the chosen seat rather than only in the
+ * footer, so the number and what it costs are one object.
  *
  * ── AND THE SHELL ───────────────────────────────────────────────────────────
  *
@@ -64,8 +74,6 @@ import type { Seat } from '@eyego/types';
  * one screen whose entire purpose is a single tap.
  */
 
-/** Seats to the left of the aisle. A 2 + 1 minibus, which is what these are. */
-const LEFT_OF_AISLE = 2;
 const SEATS_PER_ROW = 3;
 
 export default function SeatPickerScreen() {
@@ -121,15 +129,16 @@ export default function SeatPickerScreen() {
     [rawSeats],
   );
 
-  const rows = useMemo(
-    () =>
-      seats.reduce<Seat[][]>((acc, seat) => {
-        if (!acc[seat.row]) acc[seat.row] = [];
-        acc[seat.row].push(seat);
-        return acc;
-      }, []),
-    [seats],
-  );
+  /**
+   * Capacity, which is what picks the body template — a saloon must not be
+   * drawn as a minibus. The vehicle row is authoritative; the seat list is the
+   * fallback for a trip whose vehicle has not loaded yet, and it is the same
+   * number in every case that matters.
+   */
+  const seatCount =
+    (selectedTrip as { vehicle?: { seaterCount?: number } })?.vehicle?.seaterCount ??
+    (selectedTrip as { maxSeats?: number })?.maxSeats ??
+    seats.length;
 
   const selectedSeat = seats.find((s) => s.id === selectedId);
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
@@ -180,50 +189,29 @@ export default function SeatPickerScreen() {
         contentContainerStyle={styles.cabinScroll}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.cabin}>
-          <GlassSurface style={StyleSheet.absoluteFill} borderRadius={radii['2xl']} intensity="low" />
-
-          {/* The front of the vehicle, so the map has an orientation. */}
-          <View style={styles.front}>
-            <View style={styles.wheel}>
-              <Ionicons name="disc-outline" size={18} color={colors.onSurfaceVariant} />
-            </View>
-            <Text variant="caption" color={colors.onSurfaceVariant}>
-              Driver
-            </Text>
-          </View>
-
-          <View style={styles.aisleRule} />
-
-          <View style={styles.grid}>
-            {rows.map((rowSeats, rowIdx) => (
-              <View key={rowIdx} style={styles.row}>
-                {rowSeats.map((seat, i) => (
-                  <React.Fragment key={seat.id}>
-                    <SeatButton
-                      seat={seat}
-                      isSelected={selectedId === seat.id}
-                      onPress={() => {
-                        if (seat.status !== 'AVAILABLE') return;
-                        setSelectedId(selectedId === seat.id ? null : seat.id);
-                      }}
-                    />
-                    {/* The aisle — a gap, not a seat. This is the whole
-                        difference between a cabin and a keypad. */}
-                    {i === LEFT_OF_AISLE - 1 ? <View style={styles.aisle} /> : null}
-                  </React.Fragment>
-                ))}
-              </View>
-            ))}
-          </View>
-        </View>
-
+        {/*
+          The legend goes ABOVE the vehicle, not below it. It is a key, and a key
+          read after the thing it explains is a key nobody read.
+        */}
         <View style={styles.legend}>
           <LegendItem colors={colors} tone="free" label="Free" />
           <LegendItem colors={colors} tone="selected" label="Yours" />
           <LegendItem colors={colors} tone="pending" label="On hold" />
           <LegendItem colors={colors} tone="taken" label="Taken" />
         </View>
+
+        <VehicleCabin
+          seats={seats}
+          seatCount={seatCount}
+          selectedId={selectedId}
+          onSelect={(seat: CabinSeat) => {
+            if (seat.status !== 'AVAILABLE') return;
+            setSelectedId(selectedId === seat.id ? null : seat.id);
+          }}
+          colors={colors as unknown as Record<string, string>}
+          accent={colors.primary}
+          fareLabel={farePesewas != null ? formatGhs(farePesewas) : null}
+        />
       </ScrollView>
 
       {/*
@@ -285,72 +273,6 @@ function Header({
         ) : null}
       </View>
     </View>
-  );
-}
-
-function SeatButton({
-  seat,
-  isSelected,
-  onPress,
-}: {
-  seat: Seat;
-  isSelected: boolean;
-  onPress: () => void;
-}) {
-  const colors = useColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const scale = useSharedValue(1);
-  const isOccupied = seat.status === 'OCCUPIED';
-  const isPending = (seat.status as any) === 'PENDING';
-  const isUnavailable = isOccupied || isPending;
-
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-
-  const handlePress = () => {
-    if (isUnavailable) return;
-    // Selecting a seat is a state change, not a celebration: press down, come
-    // back, done. An underdamped spring here inflates the seat past its own
-    // size on the way back and knocks into its neighbours.
-    scale.value = withSequence(withSpring(0.92, springs.press), withSpring(1, springs.micro));
-    onPress();
-  };
-
-  return (
-    <Pressable
-      onPress={handlePress}
-      disabled={isUnavailable}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: isUnavailable, selected: isSelected }}
-      accessibilityLabel={
-        `Seat ${seat.number}, ` +
-        (isOccupied ? 'taken' : isPending ? 'on hold' : isSelected ? 'selected' : 'free')
-      }
-    >
-      <Animated.View
-        style={[
-          styles.seat,
-          isOccupied && styles.seatTaken,
-          isPending && styles.seatPending,
-          isSelected && styles.seatSelected,
-          animStyle,
-        ]}
-      >
-        <Text
-          style={[
-            styles.seatNumber,
-            {
-              color: isSelected
-                ? colors.onPrimary
-                : isUnavailable
-                  ? colors.onSurfaceVariant
-                  : colors.onSurface,
-            },
-          ]}
-        >
-          {seat.number}
-        </Text>
-      </Animated.View>
-    </Pressable>
   );
 }
 
@@ -417,7 +339,21 @@ const makeStyles = (colors: Colors) =>
       color: colors.onSurface,
     },
 
-    cabinScroll: { paddingHorizontal: spacing.xl, paddingBottom: spacing['4xl'], gap: spacing.lg },
+    /**
+     * BUGFIX ("even the text under the page (where the confirm seat button is)
+     * is being cut off by the button").
+     *
+     * The sheet is an absolutely-positioned sibling, so it takes no space in
+     * this ScrollView's layout — meaning the last thing in the cabin sat
+     * UNDERNEATH it with no way to scroll past. `spacing['4xl']` (48) was not
+     * close: the sheet is a caption, a value row and a full-height Button, which
+     * is around 170pt before its own safe-area inset.
+     *
+     * 220 clears it with room to spare. Overshooting costs a little empty scroll
+     * at the bottom; undershooting hides the rider's own seat number behind the
+     * button that confirms it.
+     */
+    cabinScroll: { paddingHorizontal: spacing.xl, paddingBottom: 220, gap: spacing.lg },
     cabin: {
       borderRadius: radii['2xl'],
       overflow: 'hidden',
