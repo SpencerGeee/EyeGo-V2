@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, Modal, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
@@ -77,8 +77,35 @@ export default function BoardingPinSheet() {
 
   const digits = pin!.split('');
 
+  /**
+   * ── NO `<Modal>` HERE, DELIBERATELY ─────────────────────────────────────
+   *
+   * BUGFIX ("when its on the on the way to you status, the app freezes. even on
+   * the your driver is here status. it only comes back when im on board").
+   *
+   * This component is mounted at the root INSIDE `OverlayPortal`, which on iOS
+   * is a `FullWindowOverlay` — a sibling UIWindow above the whole application
+   * window, presented view controllers included. That is already the highest
+   * layer there is; it is the entire reason the sheet is mounted where it is.
+   *
+   * Wrapping the contents in a native `<Modal>` on top of that asked UIKit to
+   * present a view controller from inside a window that is not a view
+   * controller context, while the trip surface was itself a presented
+   * transparentModal. The presentation never completed and never went away, so
+   * it sat there swallowing every touch in the app — frozen, with nothing
+   * visibly wrong.
+   *
+   * It matched the reported window exactly: the sheet becomes visible when the
+   * driver asks for the code or arrives (DRIVER_EN_ROUTE / ARRIVED_AT_PICKUP)
+   * and unmounts when `verified` flips on boarding, which is why the app "came
+   * back" at exactly the moment the rider got aboard.
+   *
+   * A plain absolutely-filled View is all this needs. The portal is `box-none`,
+   * so this backdrop opting into touches is how a child is meant to become
+   * interactive there.
+   */
   return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={() => setDismissed(true)}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View style={styles.backdrop}>
         <Pressable
           style={StyleSheet.absoluteFill}
@@ -113,7 +140,7 @@ export default function BoardingPinSheet() {
           <Button label="Done" onPress={() => setDismissed(true)} />
         </View>
       </View>
-    </Modal>
+    </View>
   );
 }
 

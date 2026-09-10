@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, Modal, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -214,8 +214,31 @@ export default function DispatchOfferSheet() {
   const fix = lastKnownReportedFix();
   const driverAt = fix ? coordOf(fix.lng, fix.lat) : null;
 
+  /**
+   * ── NO `<Modal>`: THIS IS ALREADY THE TOP LAYER ─────────────────────────
+   *
+   * BUGFIX ("when im on the driver app and i background the app to go to
+   * another app and i come back, nothing shows i got a dispatch offer").
+   *
+   * Mounted at the root inside `OverlayPortal`, which on iOS is a
+   * `FullWindowOverlay` — a sibling UIWindow above the application window and
+   * every presented view controller. Asking UIKit to present a modal from
+   * inside that window is asking for a presentation from something that is not
+   * a view controller context: it does not reliably complete, and when it does
+   * not, this renders nothing at all while still believing it is up.
+   *
+   * That is why the offer could be live, the sound playing and the countdown
+   * running, with no card on screen — and why coming back from another app was
+   * the reliable way to see it happen, since a re-presentation on foreground is
+   * exactly when UIKit is least willing.
+   *
+   * The takeover behaviour the offer needs — above the tabs, above every
+   * screen, back and swipe doing nothing — is what the portal already provides.
+   * `styles.root` fills it and accepts touches, so nothing behind the card can
+   * be reached: a Modal was never what made this uninterruptible.
+   */
   return (
-    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={() => {}}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View style={styles.root}>
         <Animated.View style={[StyleSheet.absoluteFill, scrimStyle]}>
           <LinearGradient
@@ -248,7 +271,7 @@ export default function DispatchOfferSheet() {
           />
         </Animated.View>
       </View>
-    </Modal>
+    </View>
   );
 }
 
