@@ -24,16 +24,54 @@
  */
 let expectingReturn = false;
 
+/**
+ * Has the surface actually lost focus since the expectation was set?
+ *
+ * BUGFIX ("i chose to select the pickup point and when i set it and clicked
+ * confirm, it brought me back to the homepage and i had to go back to the set
+ * your trip page again even though i was just there").
+ *
+ * The expectation used to be consumed by the NEXT focus, whatever it was. But
+ * the trip surface is a transparentModal, and a screen pushed over one of those
+ * does not reliably blur the screen underneath — so the surface can receive a
+ * focus event while its child is still on top, eat the flag, and then have
+ * nothing left to consume when the rider genuinely comes back. The next focus
+ * is the real return, the flag is already false, and the guard does exactly
+ * what it is designed to do to someone who backed in from downstream: sends
+ * them home, mid-search.
+ *
+ * That is why the destination field was reported fixed and the pickup field was
+ * reported broken by the same rider on the same screen — it is a race, not a
+ * missing call, so which field loses depends on timing rather than on code.
+ *
+ * An expectation is now only consumable once the surface has genuinely been
+ * away. A focus with no blur before it cannot spend it.
+ */
+let sawBlur = false;
+
 /** Call immediately before pushing a screen that the trip surface owns. */
 export function expectTripSurfaceReturn(): void {
   expectingReturn = true;
+  sawBlur = false;
 }
 
-/** True exactly once per `expectTripSurfaceReturn()`. */
+/** Called from the trip surface's focus-effect cleanup, i.e. on blur. */
+export function noteTripSurfaceBlur(): void {
+  sawBlur = true;
+}
+
+/**
+ * True exactly once per `expectTripSurfaceReturn()`, and only on a focus that
+ * genuinely follows a blur.
+ */
 export function consumeTripSurfaceReturn(): boolean {
-  const was = expectingReturn;
+  if (!expectingReturn) return false;
+  // Focus without an intervening blur is not the rider coming back — the child
+  // is still up. Keep the expectation for the real return.
+  if (!sawBlur) return true;
   expectingReturn = false;
-  return was;
+  sawBlur = false;
+  return true;
 }
 
 /**

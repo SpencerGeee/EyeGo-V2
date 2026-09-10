@@ -339,7 +339,17 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
         <Entrance animation="slideUp" delay={40}>
           <Pressable
             style={styles.searchBar}
-            onPress={() => (mode === 'route' ? goDeeper('/trip?stage=search' as any) : popStage())}
+            onPress={() => {
+              if (mode !== 'route') {
+                popStage();
+                return;
+              }
+              // The surface opening one of its own stages as a route — declare
+              // the round trip or the focus guard in trip.tsx reads the return
+              // as the rider backing in from downstream and sends them home.
+              expectTripSurfaceReturn();
+              goDeeper('/trip?stage=search' as any);
+            }}
             accessibilityRole="button"
             accessibilityLabel="Change destination"
           >
@@ -486,7 +496,14 @@ function SelectStageImpl({ mode = 'stage' }: { mode?: 'stage' | 'route' }) {
                     style={[styles.noDriversCtaBtn, { backgroundColor: colors.primary }]}
                     onPress={() => {
                       setRequestSeats(requestSeats, requestPayForAll);
-                      mode === 'route' ? goDeeper('/ride/request' as any) : goStage('request');
+                      if (mode !== 'route') {
+                        goStage('request');
+                        return;
+                      }
+                      // Same declaration as every other push out of a
+                      // client-owned stage — see utils/tripSurfaceReturn.
+                      expectTripSurfaceReturn();
+                      goDeeper('/ride/request' as any);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Request a trip from a driver"

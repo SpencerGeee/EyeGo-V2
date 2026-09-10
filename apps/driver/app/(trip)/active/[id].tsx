@@ -340,6 +340,34 @@ export default function ActiveTripScreen() {
    */
   const [sheetPassenger, setSheetPassenger] = useState<PassengerSheetData | null>(null);
 
+  /**
+   * ── NEVER HAND OVER BETWEEN TWO MODALS IN ONE COMMIT ────────────────────
+   *
+   * BUGFIX ("i chose to mark as boarded and the page is frozen").
+   *
+   * `PassengerSheet` is a `<Modal>`, and so is the PIN keypad below. Boarding
+   * from the sheet used to close it and start the boarding call in the same
+   * handler, and when that call answered PIN_REQUIRED the keypad mounted while
+   * the sheet was still unmounting. Presenting a modal on iOS while another is
+   * being dismissed deadlocks UIKit: neither is on screen, and an invisible
+   * presentation context keeps swallowing every touch. The screen is frozen in
+   * exactly the way reported — nothing visibly wrong, nothing responding.
+   *
+   * Whether the two collide comes down to how fast the server answers, which is
+   * why this is intermittent: a slow reply lets the sheet finish dismissing
+   * first and the bug hides.
+   *
+   * Parking the request here and firing it from an effect makes the ordering a
+   * fact rather than a race. Both state writes land in one commit, the effect
+   * runs after that commit has been applied, and by then the sheet is genuinely
+   * unmounted — so the keypad has a clean context to present into.
+   */
+  const [pendingBoard, setPendingBoard] = useState<{
+    bookingId: string;
+    seatNumber: number;
+    name: string;
+  } | null>(null);
+
   const { data: trip, isLoading } = useQuery({
     queryKey: ['driver', 'trip', 'active', id],
     // getTripById(id) — not getActiveTrip(), which is a findFirst that can
@@ -1196,6 +1224,39 @@ export default function ActiveTripScreen() {
   };
 
   /**
+   * Fire a queued single-seat boarding once the passenger sheet is gone.
+   *
+   * Guarded on `sheetPassenger == null` rather than run unconditionally: if the
+   * driver reopened a sheet in the meantime, the keypad would be presenting
+   * into a live modal again and we would be back where we started.
+   */
+  React.useEffect(() => {
+    if (!pendingBoard || sheetPassenger != null) return;
+    const { bookingId, seatNumber, name } = pendingBoard;
+    setPendingBoard(null);
+    void boardWithPin(bookingId, seatNumber, name);
+  }, [pendingBoard, sheetPassenger, boardWithPin]);
+
+  /**
+   * A BOARDING RUN THAT IS NEITHER ASKING NOR WORKING IS OVER.
+   *
+   * The other half of "the page is frozen". The primary swipe reads
+   * `loading={advanceStatus.isPending || boardingRun != null}`, so anything
+   * that leaves `boardingRun` set with no keypad up and no request in flight
+   * pins that control in its loading state permanently — and the swipe is the
+   * only way to depart. `runBoarding` pauses with the run still set (that is
+   * deliberate: the keypad needs to know which index to resume at), so every
+   * path that closes the keypad has to clear it, and one that forgets strands
+   * the driver at the kerb with a control that will not move.
+   *
+   * Rather than audit each exit forever, this states the invariant directly:
+   * no prompt and no work means no run.
+   */
+  React.useEffect(() => {
+    if (boardingRun && pinPrompt == null && !pinBusy) setBoardingRun(null);
+  }, [boardingRun, pinPrompt, pinBusy]);
+
+  /**
    * "NOT HERE" — the seat nobody claimed.
    *
    * Releases it and moves on rather than abandoning the whole run: a bus that
@@ -1736,7 +1797,10 @@ export default function ActiveTripScreen() {
         onBoard={(p) => {
           setSheetPassenger(null);
           if (!p.bookingId || p.seatNumber == null) return;
-          void boardWithPin(p.bookingId, p.seatNumber, p.name);
+          // Queued, not called — the keypad this may open is a second Modal and
+          // must not be presented while this sheet is still dismissing. See
+          // `pendingBoard`.
+          setPendingBoard({ bookingId: p.bookingId, seatNumber: p.seatNumber, name: p.name });
         }}
         onNoShow={(p) => {
           Alert.alert(
@@ -1767,7 +1831,10 @@ export default function ActiveTripScreen() {
         they are asking.
       */}
       <Modal
-        visible={pinPrompt != null}
+        // The `sheetPassenger` half is belt-and-braces for the deadlock
+        // `pendingBoard` prevents: these two modals must never be on screen, or
+        // in transition, at the same time.
+        visible={pinPrompt != null && sheetPassenger == null}
         transparent
         animationType="fade"
         onRequestClose={() => {

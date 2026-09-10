@@ -22,7 +22,7 @@ import { useThemeStore } from '../stores/theme.store';
 import { useTripFlow, CLIENT_OWNED_STAGES, type TripStage } from '../stores/tripFlow.store';
 import { useTripStore, stageForStatus, isTerminal } from '../stores/trip.store';
 import { useRideStore } from '../stores/ride.store';
-import { consumeTripSurfaceReturn } from '../utils/tripSurfaceReturn';
+import { consumeTripSurfaceReturn, noteTripSurfaceBlur } from '../utils/tripSurfaceReturn';
 import { TripMap } from '../components/trip/TripMap';
 import { SearchStage } from '../components/trip/stages/SearchStage';
 import { ConfigureStage } from '../components/trip/stages/ConfigureStage';
@@ -585,9 +585,14 @@ export default function TripScreen() {
   const firstFocus = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      // Blur, returned from EVERY path below. An expectation set before a push
+      // is only spendable once this has run, so a focus event arriving while
+      // the child is still on top cannot eat it — see utils/tripSurfaceReturn.
+      const onBlur = () => noteTripSurfaceBlur();
+
       if (firstFocus.current) {
         firstFocus.current = false;
-        return;
+        return onBlur;
       }
       // ...EXCEPT when the surface opened that screen itself. The Where-To
       // sheet pushes its own children — the place picker, saved places, the
@@ -597,10 +602,11 @@ export default function TripScreen() {
       // and this consumes it once. Without it, choosing a destination (or
       // merely opening the picker and pressing back) threw the rider onto the
       // home screen and lost the search they were part-way through.
-      if (consumeTripSurfaceReturn()) return;
+      if (consumeTripSurfaceReturn()) return onBlur;
       if (CLIENT_OWNED_STAGES.includes(useTripFlow.getState().stage)) {
         goOut('/(tabs)/home');
       }
+      return onBlur;
     }, [router]),
   );
 
