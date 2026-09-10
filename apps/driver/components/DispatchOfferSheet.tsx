@@ -75,24 +75,57 @@ export default function DispatchOfferSheet() {
   // One interval, alive only while an offer is on screen. Reading the deadline
   // from the store each tick (rather than counting down local state) means a
   // re-offer of the same trip cannot leave a stale timer running.
+  /**
+   * The deadline this offer is actually counting down to.
+   *
+   * `offerSecondsLeft()` answers null when the payload carries no
+   * `expiresAtServerMs`, which happens on a board row for a driver who is not
+   * the one currently being asked. Null must not mean "no limit" — that is the
+   * reported bug, an offer that sits on screen forever — so the first time an
+   * offer is seen without a deadline it gets a local one, the same 45s window
+   * the server would have issued.
+   *
+   * Keyed by trip id so a re-publish of the SAME offer (a socket reconnect,
+   * or the geometry follow-up publish) does not restart the clock, while a
+   * genuinely new offer gets a fresh one.
+   */
+  const localDeadline = useRef<{ tripId: string; at: number } | null>(null);
+
   useEffect(() => {
     if (!offer) {
       setSecondsLeft(0);
       setBusy(null);
       setAccepted(false);
+      localDeadline.current = null;
       return;
     }
-    setSecondsLeft(offerSecondsLeft() ?? 0);
-    const t = setInterval(() => setSecondsLeft(offerSecondsLeft() ?? 0), 500);
+
+    if (localDeadline.current?.tripId !== offer.tripId) {
+      localDeadline.current = { tripId: offer.tripId, at: serverNow() + windowMsRef.current };
+    }
+
+    const read = () => {
+      const fromServer = offerSecondsLeft();
+      if (fromServer != null) return fromServer;
+      const at = localDeadline.current?.at ?? serverNow();
+      return Math.max(0, Math.round((at - serverNow()) / 1000));
+    };
+
+    setSecondsLeft(read());
+    const t = setInterval(() => setSecondsLeft(read()), 500);
     return () => clearInterval(t);
-  }, [offer, offerSecondsLeft]);
+  }, [offer, offerSecondsLeft, serverNow]);
 
   // Announce once per trip, not once per render — an offer re-published after a
   // socket reconnect must not buzz the phone a second time.
   useEffect(() => {
     if (!offer || announced.current === offer.tripId) return;
     announced.current = offer.tripId;
-    windowMsRef.current = Math.max(1000, offer.expiresAtServerMs - serverNow());
+    // Guarded: a board row can carry no deadline at all, and `NaN` here used to
+    // propagate into the ring's starting fraction. 45s is the server's own TTL.
+    windowMsRef.current = Number.isFinite(offer.expiresAtServerMs)
+      ? Math.max(1000, offer.expiresAtServerMs - serverNow())
+      : 45_000;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
   }, [offer, serverNow]);
 

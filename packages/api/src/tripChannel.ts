@@ -533,7 +533,33 @@ export function serverNow(clockSkewMs: number): number {
   return Date.now() + clockSkewMs;
 }
 
-/** Seconds left on a server-issued deadline. Clamped at zero, never negative. */
-export function secondsRemaining(expiresAtServerMs: number, clockSkewMs: number): number {
-  return Math.max(0, Math.round((expiresAtServerMs - serverNow(clockSkewMs)) / 1000));
+/**
+ * Seconds left on a server-issued deadline. Clamped at zero, never negative,
+ * and NEVER NaN.
+ *
+ * BUGFIX ("it seems like the offer doesnt have timeout. i can stay on this page
+ * the whole time and nothing happens").
+ *
+ * A dispatch offer can legitimately arrive with no deadline — the pending-board
+ * row sends `expiresAtServerMs: null` for any driver who is not the one
+ * currently being asked. Subtracting from that produced NaN, and NaN is the
+ * worst possible answer here because it is neither null nor a number and so
+ * survives every guard written for either:
+ *
+ *   secondsLeft = offerSecondsLeft() ?? 0   // `??` does not catch NaN
+ *   if (secondsLeft <= 0) clearOffer()      // NaN <= 0 is false
+ *
+ * So the countdown showed nothing, the auto-expire never fired, and the offer
+ * sat on screen for as long as the driver cared to look at it.
+ *
+ * Returning null for "no deadline" makes the absence representable, and every
+ * caller then has to decide what to do about it rather than accidentally
+ * choosing "forever".
+ */
+export function secondsRemaining(
+  expiresAtServerMs: number | null | undefined,
+  clockSkewMs: number,
+): number | null {
+  if (!Number.isFinite(expiresAtServerMs as number)) return null;
+  return Math.max(0, Math.round(((expiresAtServerMs as number) - serverNow(clockSkewMs)) / 1000));
 }

@@ -54,6 +54,8 @@ const matcher = require('./matcher.service');
 const supply = require('./supply-index.service');
 // The board's radius filter — see `listSearchesForDriver`.
 const { haversineKm } = require('../modules/trips/fare.calculator');
+// Road geometry for the approach leg only — see the note where it is called.
+const { getDirections } = require('./mapbox.service');
 const destinationMode = require('./destination-mode.service');
 const publisher = require('./trip-events.publisher');
 const tripState = require('./trip-state.service');
@@ -83,6 +85,57 @@ const settings = require('../config/settings');
  * rider hostage.
  */
 const offerTtlSeconds = () => settings.get('DISPATCH_OFFER_TTL_SECONDS') ?? 45;
+
+/**
+ * ── WHAT A DRIVER MAY KNOW ABOUT THE DESTINATION BEFORE THEY ACCEPT ─────────
+ *
+ * "you need to hide drop off completely since uber, bolt and the rest hide it
+ * till the driver starts the ride."
+ *
+ * They do, and the reason is cherry-picking: a driver who can read the
+ * destination takes the airport run and leaves the short hop, so the riders who
+ * most need a car are the ones who cannot get one. Withholding it is what makes
+ * the queue fair.
+ *
+ * But "hide it" cannot mean "tell them nothing". A driver still has to be able
+ * to judge whether the WORK is worth 45 seconds of their attention, and a ride
+ * that ends 40km outside the city is a genuinely different job from one that
+ * ends two streets away. So they get the shape of the ride and not its
+ * destination: a compass point and a rounded distance. That is enough to plan
+ * around and far too coarse to cherry-pick with — "W, ~18km" is thousands of
+ * possible drop-offs.
+ *
+ * Returned as payload FIELDS rather than filtered out downstream, so the exact
+ * coordinates never enter the object at all. A field that is sent and merely
+ * not rendered is one screenshot or one log line from being read.
+ */
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+function directionHint(trip) {
+  const fromLat = trip.pickupLat ?? trip.route?.originLat;
+  const fromLng = trip.pickupLng ?? trip.route?.originLng;
+  const toLat = trip.dropoffLat ?? trip.route?.destLat;
+  const toLng = trip.dropoffLng ?? trip.route?.destLng;
+
+  if (![fromLat, fromLng, toLat, toLng].every((v) => Number.isFinite(v))) {
+    return { dropoffBearing: null, dropoffDistanceKm: null };
+  }
+
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLng = toRad(toLng - fromLng);
+  const y = Math.sin(dLng) * Math.cos(toRad(toLat));
+  const x =
+    Math.cos(toRad(fromLat)) * Math.sin(toRad(toLat)) -
+    Math.sin(toRad(fromLat)) * Math.cos(toRad(toLat)) * Math.cos(dLng);
+  const deg = (Math.atan2(y, x) * 180) / Math.PI;
+
+  return {
+    dropoffBearing: COMPASS[Math.round(((deg + 360) % 360) / 45) % 8],
+    // Straight-line, and rounded to a half km. The road distance would be a
+    // sharper number than this is allowed to be.
+    dropoffDistanceKm: Math.round(haversineKm(fromLat, fromLng, toLat, toLng) * 2) / 2,
+  };
+}
 /** Nearest-first search radius, then the two wider sweeps used if nobody is close. */
 const dispatchRadiusKm = () => settings.get('DISPATCH_RADIUS_KM') ?? 5;
 const dispatchExtendedRadiusKm = () => settings.get('DISPATCH_EXTENDED_RADIUS_KM') ?? 12;
@@ -543,9 +596,10 @@ async function offerNext(tripId) {
         pickupLat: trip.pickupLat ?? trip.route?.originLat ?? null,
         pickupLng: trip.pickupLng ?? trip.route?.originLng ?? null,
         pickupAddress: trip.pickupAddress ?? trip.route?.originName ?? null,
-        dropoffLat: trip.dropoffLat ?? trip.route?.destLat ?? null,
-        dropoffLng: trip.dropoffLng ?? trip.route?.destLng ?? null,
-        dropoffAddress: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
+        // NO DROP-OFF COORDINATES OR ADDRESS — withheld at the source, not
+        // hidden downstream. See `directionHint` for why, and for what the
+        // driver gets instead. The real drop-off reaches them at IN_PROGRESS.
+        ...directionHint(trip),
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
         commissionPesewas,
@@ -566,11 +620,62 @@ async function offerNext(tripId) {
         totalCandidates: state.candidates.length,
       };
 
+      /**
+       * ── THE ROAD TO THE PICKUP, NOT A LINE ACROSS THE CITY ─────────────
+       *
+       * BUGFIX ("you need to make sure the map follows the polyline for the
+       * pickup point since its showing a straight line right now").
+       *
+       * `DispatchLiveMap` draws `offer.geometry` when it has one and a bowed
+       * arc when it does not — and it never had one, because this payload never
+       * carried a route. The arc is the honest placeholder for "no road data",
+       * but on an offer it is the only line the driver has to judge the
+       * approach by, so it needs to be the real road.
+       *
+       * The leg is DRIVER → PICKUP. It is deliberately not pickup → drop-off:
+       * that route is the thing being withheld, and it would also dominate the
+       * frame on a long ride, shrinking the one leg the driver is being asked
+       * to judge in 45 seconds down to a dot.
+       *
+       * Fetched WITHOUT blocking the offer. The cascade asks one driver at a
+       * time and the clock is already running, so a slow Mapbox reply must not
+       * eat the window: the offer goes out first, and the geometry follows as a
+       * second publish if and when it arrives. A failure is silent and the map
+       * keeps the arc, which is exactly what it does today.
+       */
+      const geometryFor = async () => {
+        const dLat = candidate.currentLat;
+        const dLng = candidate.currentLng;
+        const pLat = offerPayload.pickupLat;
+        const pLng = offerPayload.pickupLng;
+        if (![dLat, dLng, pLat, pLng].every((v) => Number.isFinite(v))) return null;
+        const route = await getDirections(dLng, dLat, pLng, pLat);
+        return route?.geometry ?? null;
+      };
+
       // Park it BEFORE publishing. If the driver's socket is down, the push
       // notification is what wakes the app, and the app's first act on wake is
       // to hydrate — which must already be able to see this.
       await rememberOffer(candidate.id, offerPayload, expiresAtMs);
       publisher.publishOfferToDriver(candidate.id, offerPayload);
+
+      geometryFor()
+        .then((geometry) => {
+          if (!geometry) return;
+          // Re-park so a driver hydrating late gets the road too, then re-publish
+          // for the one already looking at the arc.
+          const withGeometry = { ...offerPayload, geometry };
+          return rememberOffer(candidate.id, withGeometry, expiresAtMs).then(() =>
+            publisher.publishOfferToDriver(candidate.id, withGeometry),
+          );
+        })
+        .catch((err) =>
+          logger.debug?.('[dispatch] pickup geometry unavailable', {
+            tripId,
+            driverId: candidate.id,
+            error: err.message,
+          }),
+        );
       pushToDriver(candidate, trip, expiresAtMs, offerPayload).catch(() => {});
 
       /**
@@ -1162,9 +1267,10 @@ async function listSearchesForDriver(driverId, { limit = 10 } = {}) {
         pickupLat: trip.pickupLat ?? trip.route?.originLat ?? null,
         pickupLng: trip.pickupLng ?? trip.route?.originLng ?? null,
         pickupAddress: trip.pickupAddress ?? trip.route?.originName ?? null,
-        dropoffLat: trip.dropoffLat ?? trip.route?.destLat ?? null,
-        dropoffLng: trip.dropoffLng ?? trip.route?.destLng ?? null,
-        dropoffAddress: trip.dropoffAddress ?? trip.route?.destinationName ?? null,
+        // NO DROP-OFF COORDINATES OR ADDRESS — withheld at the source, not
+        // hidden downstream. See `directionHint` for why, and for what the
+        // driver gets instead. The real drop-off reaches them at IN_PROGRESS.
+        ...directionHint(trip),
         farePesewas: grossPesewas,
         driverEarningsPesewas: Math.max(0, grossPesewas - commissionPesewas),
         commissionPesewas,
