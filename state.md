@@ -46,14 +46,14 @@ Both apps typecheck clean at every commit. NOTHING DEVICE-TESTED.
 
 TWO THINGS DELIBERATELY NOT CHANGED, both from item 13:
 - The "two cards that go to the same page" could not be reproduced from the
-  code.  makes the idle body (LiveTripCard) and TripStages
+  code. `deriveDriverStage` makes the idle body (LiveTripCard) and TripStages
   mutually exclusive for every mapped status, so they cannot both draw. Needs a
-  screenshot or the trip status it happens on before touching either.
-- The blank home map is , whose camera moved into
-   — the leftover / in home.tsx are dead
-  but are NOT the cause. Suspect a style/token env issue; unverified.
+  screenshot, or the trip status it happens on, before touching either.
+- The blank home map is `DriverSurfaceMap`, whose camera moved into
+  `useMapCamera`. The leftover `mapPadding` / `cameraRef` in home.tsx are dead
+  code but are NOT the cause. Suspect a style/token env issue; unverified.
 
-MIGRATION REQUIRED before item 7 works: 
+MIGRATION REQUIRED before item 7 works: `prisma migrate dev`
 (Booking.dropoffStopId + the VirtualStop AlightingStop relation).
 
 ## Evidence
