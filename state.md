@@ -40,44 +40,21 @@ once per visit, no new dependency. Body template picked from `Vehicle.seaterCoun
 
 ## Plan Status
 
-DONE + COMMITTED
-- **1** driver home constriction — `sheetContent` re-declared the gutter that
-  `MapSheetHost` already applies: 32+32 = 64pt per side, a third of a 390pt
-  screen. Removed. (Same trap exists nowhere else in a sheet body — the other
-  `spacing['2xl']` hits are full screens that own their gutter. Checked.)
-- **8** morph (commit 8d7cfd5) — see Decisions. Rider typecheck exit 0.
-- **10** `RIDE_INCLUDED_SEATS` 4→3 (commit 5203f3c). Curve verified.
-- **11** loyalty gate at 1000 lifetime (commit 5203f3c). Thresholds verified.
+ALL 13 ITEMS SHIPPED. Commits 5203f3c, 8d7cfd5, c585279, 6e774ea,
+00ae343, 8d8f2be, 02452d6, 7d558c3, 8e7ccb2, 2879783.
+Both apps typecheck clean at every commit. NOTHING DEVICE-TESTED.
 
-DIAGNOSED, NOT YET FIXED
-- **12** dispatch. Server is fine: 45s TTL + a real `DISPATCH_OFFER_TIMEOUT`
-  task + `expiresAtServerMs` on the socket payload. Two client-side causes:
-  the in-place open path (home board → `openOffer`) builds its offer from the
-  REST re-read, which hard-codes `expiresAtServerMs: null`, so the countdown
-  never arms; and the offer payload carries no `geometry` at all, so
-  `routeGeoJson` is null and the map falls back to a straight line. Needs:
-  geometry on the offer, a non-null deadline on the in-place path, drop-off
-  hidden until IN_PROGRESS, type scale down, one-glance layout.
-- **13** driver home. `initialCenter` / `initialZoom` / `mapPadding` /
-  `cameraRef` are all dead since the `DriverSurfaceMap` refactor — harmless but
-  they are NOT the blank map; the camera moved into `useMapCamera`. The
-  duplicate-card report is the `idle` body's `LiveTripCard` coexisting with a
-  `TripStages` body; confirm `deriveDriverStage` before touching either.
-- **5** driver mark-as-boarded freeze. `PassengerSheet` is `<Modal visible>`
-  and the PIN keypad is a second `<Modal>`. Dismiss-then-present in overlapping
-  ticks deadlocks on iOS. WEAKENED: `boardWithPin` awaits a network round trip
-  before `setPinPrompt`, so the two modals should not overlap — do NOT commit to
-  this theory without checking the `boardingRun` swipe path, which is the other
-  way in and has no await.
-- **9** rider pickup confirm → home. `useTripFlow` is module-scope zustand and
-  is NOT persisted-but-also-not-reset, so stage should survive the round trip.
-  `place-picker.handleConfirm` calls bare `goBack()` with no fallback href.
-  Next step: check whether `trip.tsx` resets stage on mount and whether
-  `where-to.tsx` replaces rather than pushes.
+TWO THINGS DELIBERATELY NOT CHANGED, both from item 13:
+- The "two cards that go to the same page" could not be reproduced from the
+  code.  makes the idle body (LiveTripCard) and TripStages
+  mutually exclusive for every mapped status, so they cannot both draw. Needs a
+  screenshot or the trip status it happens on before touching either.
+- The blank home map is , whose camera moved into
+   — the leftover / in home.tsx are dead
+  but are NOT the cause. Suspect a style/token env issue; unverified.
 
-NOT STARTED
-- **2** manage-trip camera, **3** tracking sheet pull-down, **4** seat page,
-  **6** rider freeze on DRIVER_EN_ROUTE/ARRIVED, **7** alight-early feature.
+MIGRATION REQUIRED before item 7 works: 
+(Booking.dropoffStopId + the VirtualStop AlightingStop relation).
 
 ## Evidence
 - `standing.service.js:81` — `sampleSize < 3` is the current good-standing gate.
