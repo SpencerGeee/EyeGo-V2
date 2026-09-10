@@ -1251,8 +1251,25 @@ const makeStyles = (colors: DriverColors) =>
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
     },
+    /**
+     * NO `paddingHorizontal` HERE — and that is the fix, not an omission.
+     *
+     * BUGFIX ("you made the homepage of the driver app constricted… theres
+     * visible paddings on the left and right… extend it width to width").
+     *
+     * This body is published into the sheet slot and drawn by `DriverSheetHost`
+     * → `MapSheetHost`, whose `body` style ALREADY applies the design gutter of
+     * `spacing['2xl']`. Setting it again here stacked a second one: 32 + 32 =
+     * 64pt of dead margin per side, which on a 390pt handset is a third of the
+     * screen. Every card on the board was being laid out at 262pt instead of
+     * 326pt, which is exactly the "constricted" look.
+     *
+     * The gutter belongs to the host because the host is what knows how wide
+     * the sheet is. A screen that wants to go wider than the gutter should say
+     * so with a negative margin on that one child, not by re-declaring the
+     * gutter for everything.
+     */
     sheetContent: {
-      paddingHorizontal: spacing['2xl'],
       paddingTop: spacing.md,
       paddingBottom: 120,
       gap: spacing.xl,

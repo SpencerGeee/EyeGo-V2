@@ -1,75 +1,96 @@
-# State — EyeGo V2
+# State — 2026-09-10
 
-## Where things stand
-Long multi-round session. Everything below is PUSHED to `main` and verified
-(both apps `tsc` clean; harness **451/451 across 18/18 suites** against a local stack).
+## Current Goal
+Ship the 13-item driver/rider pass from the 2026-09-10 device test.
 
-The one thing NOT started is the driver widget work — see the bottom.
+## Decisions (locked via /grill-me, 2026-09-10)
 
-## Harness (`node scripts/e2e/run-all.mjs`)
-Needs the local stack: `docker compose --env-file .env.docker up -d postgres redis`,
-then `node eyego-api/src/server.js` (port 5020). `npx` is broken here — run tsc as
-`node node_modules/typescript/lib/tsc.js --noEmit -p apps/<app>/tsconfig.json`.
+**7 — Alight early.** Rider picks from 3-6 *suggested stops that lie on the route
+polyline*, never a free pin — zero detour by construction, no tolerance knob.
+Stops are auto-derived at route creation (sample polyline, reverse-geocode, drop
+any within ~2km of origin/dest) and PERSISTED as real `VirtualStop` rows, so
+booking / `enRouteRatio` / driver stop list / admin all keep working unchanged.
+Curated stops on fixed routes still win. Fare = (board→alight) ÷ route km,
+mirroring `calculateEnRouteFare`, which already does the late-boarding half.
 
-Three **source-reading** suites were added this session. They need no stack and each
-was self-tested against pre-fix files from git before being wired in — a rule that
-cannot fail is worthless:
-- `conditional-hooks.mjs` — the "rendered more hooks" crash. TypeScript AST.
-- `motion-invariants.mjs` — uncancelled infinite loops; per-component device sensors.
-- `ux-invariants.mjs` — failure rendered as emptiness; unlabelled icon controls;
-  `allowFontScaling={false}`.
+**10 — Included seats 4 → 3.** Runtime setting only (`RIDE_INCLUDED_SEATS`).
+Rider on-demand already prices `partySize` correctly; 4 seats showing no change
+was correct behaviour under the old value, not a bug.
 
-## The recurring lesson of this session
-**Regex reported the codebase clean three separate times and was wrong every time.**
-The AST found each defect in one pass. If a question is about SCOPE — is this hook
-before the return, is this loop cancelled, is this `return` the component's or a
-callback's — use the TypeScript AST, not a pattern.
+**11 — Good standing gates at 1000 LIFETIME completed trips.** Below it: band
+NEW, no badge, 0 bps. Lifetime not windowed — a windowed count switches the
+discount off during a quiet month and reads as a bug.
 
-## Defect shapes now gated (do not reintroduce)
-1. **A hook below a guard** — `useTripStops` sat 115 lines under `if (isLoading || !trip) return`.
-2. **A fallback that lied** — failure rendered as "you have no trips" / "that code has expired".
-3. **Work that never stops** — `withRepeat(-1)` with no `cancelAnimation`; a sensor
-   subscribed per component; a 2s poll writing new object identities into a store.
-4. **Balance moved without a ledger row** — see Money below.
+**12 — Drop-off hidden until IN_PROGRESS (Start Trip).** Offer and en-route show
+pickup + a neutral direction hint only ("heading W, ~18km").
 
-## Decisions in force
-- Driver trip = **stages on one never-unmounting map** (`components/surface/`).
-  `active/[id]` and `tracking/[id]` still exist; the sheet carries the flow, the
-  screens carry roster/PIN work.
-- Morph springs are armed **on the tap**, before `navigate()`, flying at a
-  self-calibrating predicted rect; `targetReady` is a correction. Never re-arm mid-flight.
-- **Continuity never degrades by tier** (morph, detents, crossfade, camera).
-  Decoration does (shader fps, aurora, blur, shimmer). `reducedMotion` still skips morph.
-- Rider: motion/transitions only. **R1 (map unification) deliberately NOT done** — its
-  justification evaporated (morph fix + `TripMap` already deferred behind
-  `InteractionManager`), and `tripFlow.store` has no open/closed lifecycle, so making
-  the surface persistent means inventing one. Plan is in git history if revisited.
-- Push urgency: iOS `time-sensitive`; Android MAX channel + high priority.
-  **No `USE_FULL_SCREEN_INTENT`** — Android 14 restricts it to calling/alarm apps and
-  Play reviews it; asking would risk every release.
+**13 — Dispatch offer is a root-level full-screen takeover.** Above tabs, mounted
+wherever the driver is, back/swipe are no-ops, leaves only on Accept / Pass /
+expiry. Re-presented on foreground while the offer is still live.
 
-## Money — audited this session
-Sound: auth perimeter (9 public routes, all legitimately public), Paystack webhook
-verifies HMAC-SHA512 with `timingSafeEqual`, `/payments/initiate` is idempotency-guarded,
-wallet has a real double-entry ledger.
-Fixed: **two cancellation refunds credited `walletBalancePesewas` with no
-`WalletTransaction` row** — invisible in the rider's history and `riderWallet.reconcile()`
-was off by every refund ever issued. Both now go through `riderWallet.record({ tx })`.
-The invariant is stated in `prisma/schema.prisma`: *never write the balance without
-writing a row.*
+**8 — Morph: slower with life.** ζ≈0.82 (from 1.00), flight ~510ms (from ~290ms),
+clone held until the geometry lands. Root cause of "it's just a fade": clone
+crossfades out at 200ms while the spring is still travelling.
 
-## NOT DONE — driver widgets + live surface (decided, not started)
-User-approved plan, stopped deliberately rather than started at low context:
-1. **Android first** — Ghana's fleet is Android-dominant, and `@bacons/apple-targets`
-   (which the RIDER already uses for `apps/rider/targets/live-activity`) is iOS-only.
-2. **Widget** = slow facts only: today's earnings, online/offline, trips, quest progress,
-   plus an interactive online toggle. A widget **cannot** show a dispatch offer —
-   WidgetKit/Glance refresh on a budget of minutes and a 45s offer would be gone.
-3. **Live surface** = the running trip. On Android this is an UPGRADE to the ongoing
-   foreground-service notification expo-location already posts ("Trip in progress"),
-   not new plumbing. On iOS it is ActivityKit, copying the rider's proven target.
-4. Needs: a config plugin writing Kotlin (Glance), manifest receiver, a data bridge from
-   RN, and **a native build** — none of it OTA-able, none of it verifiable by tsc or the
-   harness.
+**4 — Seat page.** Nose-up in portrait (rotate the reference frame 90°, no
+scrolling, numbers upright). Faked perspective on flat Skia/SVG art — canvas
+animated rotateX/rotateZ/scale from a low 3/4 view to top-down over ~900ms,
+once per visit, no new dependency. Body template picked from `Vehicle.seaterCount`:
+4-5 saloon, 7-9 van, 12-15 sprinter.
 
-Also outstanding and small: FlashList for the two chat screens, expo-image for `Avatar`.
+## Plan Status
+
+DONE + COMMITTED
+- **1** driver home constriction — `sheetContent` re-declared the gutter that
+  `MapSheetHost` already applies: 32+32 = 64pt per side, a third of a 390pt
+  screen. Removed. (Same trap exists nowhere else in a sheet body — the other
+  `spacing['2xl']` hits are full screens that own their gutter. Checked.)
+- **8** morph (commit 8d7cfd5) — see Decisions. Rider typecheck exit 0.
+- **10** `RIDE_INCLUDED_SEATS` 4→3 (commit 5203f3c). Curve verified.
+- **11** loyalty gate at 1000 lifetime (commit 5203f3c). Thresholds verified.
+
+DIAGNOSED, NOT YET FIXED
+- **12** dispatch. Server is fine: 45s TTL + a real `DISPATCH_OFFER_TIMEOUT`
+  task + `expiresAtServerMs` on the socket payload. Two client-side causes:
+  the in-place open path (home board → `openOffer`) builds its offer from the
+  REST re-read, which hard-codes `expiresAtServerMs: null`, so the countdown
+  never arms; and the offer payload carries no `geometry` at all, so
+  `routeGeoJson` is null and the map falls back to a straight line. Needs:
+  geometry on the offer, a non-null deadline on the in-place path, drop-off
+  hidden until IN_PROGRESS, type scale down, one-glance layout.
+- **13** driver home. `initialCenter` / `initialZoom` / `mapPadding` /
+  `cameraRef` are all dead since the `DriverSurfaceMap` refactor — harmless but
+  they are NOT the blank map; the camera moved into `useMapCamera`. The
+  duplicate-card report is the `idle` body's `LiveTripCard` coexisting with a
+  `TripStages` body; confirm `deriveDriverStage` before touching either.
+- **5** driver mark-as-boarded freeze. `PassengerSheet` is `<Modal visible>`
+  and the PIN keypad is a second `<Modal>`. Dismiss-then-present in overlapping
+  ticks deadlocks on iOS. WEAKENED: `boardWithPin` awaits a network round trip
+  before `setPinPrompt`, so the two modals should not overlap — do NOT commit to
+  this theory without checking the `boardingRun` swipe path, which is the other
+  way in and has no await.
+- **9** rider pickup confirm → home. `useTripFlow` is module-scope zustand and
+  is NOT persisted-but-also-not-reset, so stage should survive the round trip.
+  `place-picker.handleConfirm` calls bare `goBack()` with no fallback href.
+  Next step: check whether `trip.tsx` resets stage on mount and whether
+  `where-to.tsx` replaces rather than pushes.
+
+NOT STARTED
+- **2** manage-trip camera, **3** tracking sheet pull-down, **4** seat page,
+  **6** rider freeze on DRIVER_EN_ROUTE/ARRIVED, **7** alight-early feature.
+
+## Evidence
+- `standing.service.js:81` — `sampleSize < 3` is the current good-standing gate.
+- `env.js:263` — `RIDE_INCLUDED_SEATS` default 4, `RIDE_EXTRA_SEAT_RATE` 0.18.
+- `motion.ts:107` — `springs.morph` stiffness 195 damping 28 → ζ≈1.00, ~290ms.
+- `MorphProvider.tsx:164` — `CROSSFADE_MS = 200`, shorter than the flight.
+- Driver home `sheetContent` sets `paddingHorizontal: spacing['2xl']` inside
+  `MapSheetHost` (`:151`) which already applies it → double gutter (items 1/13).
+- `dispatch-cascade.service.js:85` — 45s TTL and a real `DISPATCH_OFFER_TIMEOUT`
+  task exist; the offer payload carries NO `geometry` (straight line), and the
+  in-place open path sets `expiresAtServerMs: null` (countdown never starts).
+- `Booking.enRouteRatio` + `VirtualStop` + `calculateEnRouteFare` already price
+  boarding late — item 7 is the mirror, not a new feature.
+
+## Open Issues
+- Nothing device-tested this session; needs a fresh build for native changes.
