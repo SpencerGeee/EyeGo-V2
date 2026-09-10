@@ -101,11 +101,11 @@ const bookSeat = async (req, res) => {
   if (!seatNumber && req.body.seatId) {
     seatNumber = parseInt(req.body.seatId.toString().replace('seat-', ''), 10);
   }
-  const { pickupStopId, paymentMethod, guestName, guestPhone, pickupLat, pickupLng, pickupAddress } = req.body;
+  const { pickupStopId, dropoffStopId, paymentMethod, guestName, guestPhone, pickupLat, pickupLng, pickupAddress } = req.body;
   // A group-hub joiner's own pickup point (differs from the trip's main pickup) — null
   // when boarding at the trip's own pickup, the common case.
   const joinerPickup = pickupLat != null && pickupLng != null ? { lat: pickupLat, lng: pickupLng, address: pickupAddress ?? null } : null;
-  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null, joinerPickup);
+  const result = await bookingsService.bookSeat(req.user.userId, tripId, seatNumber, pickupStopId ?? null, paymentMethod ?? null, guestName ?? null, guestPhone ?? null, joinerPickup, dropoffStopId ?? null);
 
   // Emit real-time seat update to passengers and driver
   try {

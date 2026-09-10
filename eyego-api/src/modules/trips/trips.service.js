@@ -17,6 +17,7 @@ const ratingIntegrity = require('../../services/rating-integrity.service');
 const tripState = require('../../services/trip-state.service');
 const { seatOccupyingWhere } = require('../../utils/booking-status');
 const routeGeometry = require('../../services/route-geometry.service');
+const { ensureVirtualStops } = require('../../services/virtual-stops.service');
 
 async function createTrip(driverId, data) {
   const {
@@ -258,6 +259,18 @@ async function createTrip(driverId, data) {
     });
   });
 
+  /**
+   * Derive the stops a passenger may board or alight at, for a route that has
+   * none. See services/virtual-stops.service.
+   *
+   * AFTER the transaction and deliberately unawaited: it makes a Directions
+   * call and up to six geocoder lookups, and none of that may sit between a
+   * driver tapping "create" and their trip existing. It is idempotent and
+   * swallows its own failures, so the worst case is a trip whose riders are
+   * only offered "ride to the end" — exactly the behaviour before this existed.
+   */
+  if (trip.routeId) void ensureVirtualStops(trip.routeId);
+
   // Attach farePerSeatPesewas + totalTripCostPesewas immediately so the driver app shows the
   // same per-seat price the rider will see — no waiting for the next refetch.
   // Always use maxSeats as the denominator: that is the capacity the driver
@@ -360,6 +373,16 @@ async function getTrip(id, viewerUserId = null) {
     },
   });
   if (!trip) throw new NotFoundError('Trip');
+
+  /**
+   * Backfill the alight/board stops for a route minted before they were derived
+   * at creation. Unawaited on purpose — this read is on the rider's critical
+   * path and the stops are for the NEXT read, not this one. Idempotent, so the
+   * repeated calls a polling client makes cost one lookup each and nothing more.
+   */
+  if (trip.routeId && trip.route?.virtualStops?.length === 0) {
+    void ensureVirtualStops(trip.routeId);
+  }
 
   // Captured, then removed from the payload again: it is needed for the
   // aggregate below, and nothing on the wire should gain a per-passenger price

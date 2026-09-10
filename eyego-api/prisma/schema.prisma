@@ -447,7 +447,10 @@ model VirtualStop {
   lng             Float
   sequence        Int
   isActive        Boolean   @default(true)
-  enRouteBookings Booking[]
+  /// Bookings that BOARD here, and bookings that ALIGHT here. Two relations
+  /// because one stop is both things to different passengers on the same trip.
+  enRouteBookings   Booking[] @relation("BoardingStop")
+  alightingBookings Booking[] @relation("AlightingStop")
 }
 
 // ─────────────────────────────────────────
@@ -713,7 +716,19 @@ model Booking {
   cancellationReason  String?
   cancellationFeePesewas Int?
   pickupStopId        String?
-  pickupStop          VirtualStop?  @relation(fields: [pickupStopId], references: [id])
+  pickupStop          VirtualStop?  @relation("BoardingStop", fields: [pickupStopId], references: [id])
+  /// WHERE THIS PASSENGER GETS OFF, when that is not the trip's destination.
+  ///
+  /// Null means "rides to the end", which is the common case and what every
+  /// booking meant before this column existed.
+  ///
+  /// The mirror of `pickupStopId`. Together they define the passenger's SEGMENT
+  /// of the route, and `enRouteRatio` is that segment as a proportion of the
+  /// whole — see calculateSegmentFare. A stop is always a point ON the route, so
+  /// alighting early costs the driver no detour and the rider pays strictly
+  /// less; there is no surcharge branch here on purpose.
+  dropoffStopId       String?
+  dropoffStop         VirtualStop?  @relation("AlightingStop", fields: [dropoffStopId], references: [id])
   enRouteRatio        Float?
   // A group-hub joiner's own precise pickup point when it differs from the
   // trip's main pickup (e.g. friends booked via an invite link scattered

@@ -546,6 +546,66 @@ function estimateFare({
  * @param {number} totalRouteKm     - Total route distance in km
  * @returns {{ farePerSeatPesewas: number, ratio: number }}
  */
+/**
+ * ── YOU PAY FOR THE ROAD YOU ACTUALLY RIDE ──────────────────────────────────
+ *
+ * One function for both ends of a shared trip. A passenger's segment is the
+ * distance between where they GET ON and where they GET OFF, and the fare is
+ * that as a proportion of the whole route:
+ *
+ *   board at the origin, alight at the destination  → ratio 1, the full fare
+ *   board halfway, ride to the end                  → ratio 0.5   (boarding late)
+ *   board at the origin, alight halfway             → ratio 0.5   (alighting early)
+ *   board a third in, alight two thirds in          → ratio 0.33  (both)
+ *
+ * Only the first two of those existed. `calculateEnRouteFare` took a boarding
+ * stop and always measured stop → destination, which silently assumed every
+ * passenger rides to the end — so a rider who wanted off halfway had no way to
+ * say so and would have been charged for the whole route if they had.
+ *
+ * Generalising it is the whole feature: nothing about the maths is new, the old
+ * function was this one with `alight` pinned to the destination.
+ *
+ * A FLOOR APPLIES. `MIN_FARE_PER_SEAT` is the only floor under a per-seat fare
+ * anywhere in this file, and it exists because a proportion of a long route can
+ * divide down to a few pesewas — a passenger riding 800m of a 40km trip has
+ * still cost the driver a stop, a door and a place in the vehicle.
+ */
+function calculateSegmentFare({
+  fullFarePerSeatPesewas,
+  /** Where this passenger boards. The trip's origin when they board at the start. */
+  boardLat,
+  boardLng,
+  /** Where this passenger alights. The trip's destination when they ride to the end. */
+  alightLat,
+  alightLng,
+  totalRouteKm,
+}) {
+  assertPesewas(fullFarePerSeatPesewas, 'fullFarePerSeatPesewas');
+  const riddenKm = haversineKm(boardLat, boardLng, alightLat, alightLng);
+  const ratio = totalRouteKm > 0 ? Math.min(riddenKm / totalRouteKm, 1.0) : 1.0;
+  const floorPesewas = cfg('MIN_FARE_PER_SEAT_PESEWAS');
+  return {
+    farePerSeatPesewas: Math.max(
+      Math.round(fullFarePerSeatPesewas * ratio),
+      // Never floor ABOVE the full fare: on a very short trip the whole ride can
+      // already cost less than the floor, and a partial segment of it must not
+      // end up dearer than riding the lot.
+      Math.min(floorPesewas, fullFarePerSeatPesewas),
+    ),
+    // The ratio is stored alongside the fare so a receipt can explain the
+    // discount; it is a proportion, not money, so it keeps its decimals.
+    ratio: Math.round(ratio * 10000) / 10000,
+  };
+}
+
+/**
+ * Boarding part-way along and riding to the end.
+ *
+ * Kept as the named case it has always been, now expressed in terms of
+ * `calculateSegmentFare` so there is one piece of arithmetic rather than two
+ * that can drift.
+ */
 function calculateEnRouteFare({
   fullFarePerSeatPesewas,
   stopLat,
@@ -554,15 +614,14 @@ function calculateEnRouteFare({
   destLng,
   totalRouteKm,
 }) {
-  assertPesewas(fullFarePerSeatPesewas, 'fullFarePerSeatPesewas');
-  const remainingKm = haversineKm(stopLat, stopLng, destLat, destLng);
-  const ratio = totalRouteKm > 0 ? Math.min(remainingKm / totalRouteKm, 1.0) : 1.0;
-  return {
-    farePerSeatPesewas: Math.round(fullFarePerSeatPesewas * ratio),
-    // The ratio is stored alongside the fare so a receipt can explain the
-    // discount; it is a proportion, not money, so it keeps its decimals.
-    ratio: Math.round(ratio * 10000) / 10000,
-  };
+  return calculateSegmentFare({
+    fullFarePerSeatPesewas,
+    boardLat: stopLat,
+    boardLng: stopLng,
+    alightLat: destLat,
+    alightLng: destLng,
+    totalRouteKm,
+  });
 }
 
 // Distance (km) a driver has to add to their route to divert through `viaLat/viaLng`
@@ -625,6 +684,7 @@ module.exports = {
   calculateRideFare,
   estimateFare,
   calculateEnRouteFare,
+  calculateSegmentFare,
   haversineKm,
   detourKm,
   calculateDeviationSurcharge,
