@@ -407,3 +407,13 @@ Decisions:
 - Whoever LEARNS a trip ended raises the RideEnded notice — the socket listener was the only owner, and a backgrounded app never hears it.
 Rejected: fixing the frozen map per screen (the wrapper default is the cause); tuning morph springs again (it was never easing); charging a cancellation fee on top of the standing penalty.
 Open: nothing device-tested; 120 Hz needs a fresh native build (Info.plist key, not OTA-able).
+
+## 2026-09-09 18:05 [saved]
+Goal: 17 reported driver items — backgrounds, dispatch lifecycle, the 7th morph report.
+Decisions:
+- Morph lag was never the animation (4 prior rewrites): the cost is the DESTINATION mount, so on home the offer became a stage on the existing map+sheet instead of a pushed screen.
+- A deliberate Pass is permanent; a lapsed offer is a cooldown. One function covering both acts is why the opposite bug was reported twice.
+- Root AppBackground ranks LOWEST in shaderSlot — an immortal claim at the top permanently denies every pushed screen.
+- Rider's TripSheetHost/sheetSlot lifted to packages/ui; driver renders the same host. Two sheet implementations was what "driver looks like day one" actually meant.
+Rejected: restyling InlayPanel to close the driver/rider gap — the difference was motion, not paint. Re-fixing morph at the animation layer a fifth time.
+Open: item 6 not reproduced; item 11 is NOT a hook-order bug (whole app scanned) — likely a first render throwing.
