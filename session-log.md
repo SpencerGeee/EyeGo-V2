@@ -417,3 +417,14 @@ Decisions:
 - Rider's TripSheetHost/sheetSlot lifted to packages/ui; driver renders the same host. Two sheet implementations was what "driver looks like day one" actually meant.
 Rejected: restyling InlayPanel to close the driver/rider gap — the difference was motion, not paint. Re-fixing morph at the animation layer a fifth time.
 Open: item 6 not reproduced; item 11 is NOT a hook-order bug (whole app scanned) — likely a first render throwing.
+
+## 2026-09-15 14:30 [saved]
+Goal: 12-item device-test pass (driver home, picker, request page, seat page, promos, payout, credits, morph).
+Decisions:
+- Root cause of items 3/5/6/8: Booking.dropoffStopId had no migration; wrote + applied it, server.js now refuses boot on pending migrations.
+- Morph: flight holds the transition clock; trip.tsx defers map/shader via afterTransition, never runAfterInteractions (a spring registers no handle).
+- Driver idle map is `follow` with an Accra first stop; a never-commanded camera is the blank map.
+- Seat page = SVG replica of seat.jpg, nose-up, outline draws in; selected uses the app accent, not the reference red.
+- One promo at a time: swapping a held code asks to forfeit; payment screen shows the pending promo before the charge.
+Rejected: another morph timing/easing change (fifth). Home pill on the request stage in any corner.
+Open: nothing device-tested; item 4 ("trip completed" for unsent trip) unexplained — retest after API restart.
