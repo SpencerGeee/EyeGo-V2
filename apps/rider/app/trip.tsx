@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, AppState, View, Text as RNText, BackHandler, InteractionManager, useWindowDimensions } from 'react-native';
+import { StyleSheet, AppState, View, Text as RNText, BackHandler, useWindowDimensions } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import Animated, {
   FadeIn,
@@ -15,7 +15,7 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition } from '@eyego/ui';
 import { useRideEnded } from '../stores/rideEnded.store';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
@@ -665,11 +665,21 @@ export default function TripScreen() {
    * map a few frames of head start and costs the transition nothing.
    */
   /** See the note at `<AppBackground>` — the shader waits for the morph. */
+  /**
+   * `afterTransition`, NOT `runAfterInteractions`.
+   *
+   * BUGFIX ("the where-to button doesn't morph as smooth as I want it"). The
+   * morph flight is a Reanimated spring, and a spring registers no
+   * InteractionManager handle — so "after interactions" resolved on the very
+   * next frame and MapLibre (a main-thread mount) came up UNDER the flight,
+   * freezing the thread the clone was flying on. The morph now holds the
+   * transition clock until its clone has crossfaded (see MorphProvider), and
+   * `afterTransition` waits for that clock AND the interaction queue.
+   */
   const [backgroundMounted, setBackgroundMounted] = useState(false);
   useEffect(() => {
     if (backgroundMounted) return;
-    const task = InteractionManager.runAfterInteractions(() => setBackgroundMounted(true));
-    return () => task.cancel();
+    return afterTransition(() => setBackgroundMounted(true));
   }, [backgroundMounted]);
 
   const mapNeededNow =
@@ -679,8 +689,7 @@ export default function TripScreen() {
   const [mapMounted, setMapMounted] = useState(false);
   useEffect(() => {
     if (!mapNeededNow || mapMounted) return;
-    const task = InteractionManager.runAfterInteractions(() => setMapMounted(true));
-    return () => task.cancel();
+    return afterTransition(() => setMapMounted(true));
   }, [mapNeededNow, mapMounted]);
 
   /**

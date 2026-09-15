@@ -36,7 +36,12 @@ export default function SendMoneyScreen() {
     mutationFn: () => walletApi.sendMoney({ recipientPhone: phone.trim(), amountPesewas: pesewasFromCedis(parseFloat(amount)) }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
       notify('Credits sent', res?.data?.message ?? 'Their next ride is on you.', { tone: 'success' });
+      // The form stayed filled in behind the toast, one tap from sending the
+      // same amount again. Done means done: back to the wallet it came from.
+      setAmount('');
+      goBack();
     },
     onError: (err: any) => {
       const code = err?.response?.data?.errors?.[0]?.code ?? err?.response?.data?.code;

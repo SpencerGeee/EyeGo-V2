@@ -15,6 +15,9 @@ Generated client selected a column the local DB lacked → every Booking `includ
 - Local API was NOT running when checked; user must restart `npm run dev` in eyego-api.
 
 ## Item plan / status
+COMMITTED 8d0d284: migration+boot guard, items 1 (gutter 20 + camera first stop + idle follow), 2 (picker lists hide on gesture),
+3 (Home pill off request stage; server msg surfaced), 8 (server msg), 9 (payout cache), 10 (forfeit confirm, payment-screen promo row, rounded discount).
+Both apps tsc green. REMAINING: 11 send credits, 12 where-to morph, 7 seat page. NOTE: python file writes → use newline='' (CRLF warnings).
 1. Driver home gutter + blank map — DIAGNOSED, NOT EDITED.
    - Gutter: `MapSheetHost` body = `spacing['2xl']` (32). Rider home uses 20. Fix: `DriverSheetHost`
      pass `bodyStyle={{ paddingHorizontal: spacing.lg }}`; also header `left/right` spacing['2xl']→lg in home.tsx styles.

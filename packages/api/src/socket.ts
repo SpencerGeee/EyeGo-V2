@@ -516,6 +516,12 @@ export const socketEvents = {
     return () => getSocket().off('payment:confirmed', cb);
   },
 
+  /** Someone sent this rider ride credits — emitted by POST /wallet/send. */
+  onWalletCredited: (cb: (data: { amountPesewas: number; fromName: string; reference: string }) => void) => {
+    getSocket().on('wallet:credited', cb);
+    return () => getSocket().off('wallet:credited', cb);
+  },
+
   joinTripRoom: (tripId: string, driverId?: string, lastMessageTimestamp?: string) => {
     getSocket().emit('passenger:join_trip_room', { tripId, driverId, lastMessageTimestamp });
   },

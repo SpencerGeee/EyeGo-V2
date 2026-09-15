@@ -9,6 +9,7 @@ const prisma = require('../../config/database');
 const paystack = require('../payments/provider');
 const { AppError } = require('../../utils/errors');
 const { assertPesewas, formatGhs, fromCedis } = require('../../utils/money');
+const pushService = require('../../services/push.service');
 
 const router = Router();
 
@@ -180,6 +181,35 @@ router.post('/send', idempotency, async (req, res) => {
     return { reference, recipientName: recipient.name };
   });
 
+  /**
+   * THE OTHER HALF OF "END TO END": THE RECIPIENT HEARS ABOUT IT.
+   *
+   * The transfer committed and told nobody but the sender. The recipient's
+   * balance changed under a wallet screen that only re-reads on mount, and
+   * their phone said nothing. A push (pref-gated, best-effort, after commit so a
+   * failed push can never roll money back) and a socket frame to their user
+   * room so an open wallet refreshes without a pull.
+   */
+  const sender = await prisma.user.findUnique({ where: { id: senderId }, select: { name: true } });
+  const fromName = sender?.name || 'Someone';
+  try {
+    const io = req.app.get('io');
+    if (io) {
+      io.of('/passenger').to(`user:${recipient.id}`).emit('wallet:credited', {
+        amountPesewas: safeAmount,
+        fromName,
+        reference: result.reference,
+      });
+    }
+  } catch (_) {}
+  if (recipient.fcmToken && pushService.prefAllows(recipient.notificationPrefs, 'paymentConfirmations')) {
+    pushService
+      .sendPush(recipient.fcmToken, 'Ride credits received', `${fromName} sent you ${formatGhs(safeAmount)} in ride credits.`, {
+        type: 'WALLET_CREDITED',
+        amountPesewas: String(safeAmount),
+      })
+      .catch(() => {});
+  }
   ok(res, result, `${formatGhs(safeAmount)} in ride credits sent to ${result.recipientName}`);
 });
 

@@ -30,6 +30,7 @@ import {
   endTripLiveActivity,
 } from '../utils/liveActivity';
 import { Text, goDeeper } from '@eyego/ui';
+import { formatGhs } from '@eyego/utils';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing, radii, fonts, fontSizes, springs } from '@eyego/config';
 import { useTripStore } from '../stores/trip.store';
@@ -621,7 +622,17 @@ export function TripStatusListener() {
       showBanner(`${msg.senderName ?? 'Driver'}: ${preview}`, 'chatbubble-ellipses');
     });
 
+    // Ride credits arriving from another rider (POST /wallet/send). The wallet
+    // screen only re-reads on mount, so without this the balance was stale
+    // until the recipient backed out and came back in.
+    const unsubWallet = socketEvents.onWalletCredited?.((data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.wallet.balance() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.wallet.transactions() });
+      showBanner(`${data.fromName} sent you ${formatGhs(data.amountPesewas)} in ride credits`, 'wallet');
+    }) ?? (() => {});
+
     return () => {
+      unsubWallet();
       unsubDisconnect?.();
       unsubConnect();
       unsubStatus();

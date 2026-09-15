@@ -22,6 +22,7 @@ import Animated, {
 import { springs, durations, springForAxis } from '@eyego/config';
 import { loopingLayerProps } from '../effects/hardwareTexture';
 import { useThemedColors } from '../ColorsContext';
+import { beginTransition } from '../motion/smooth/transitionClock';
 
 export interface MorphRect {
   x: number;
@@ -411,6 +412,38 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Cleanup ───────────────────────────────────────────────────────────
 
+  /**
+   * THE FLIGHT HOLDS THE TRANSITION CLOCK.
+   *
+   * BUGFIX ("the where-to button doesn't morph as smooth as I want it"), the
+   * eighth report, after four rewrites of the animation itself. The springs
+   * were never the cost — see the note at `begin`: they run on the UI thread
+   * and a busy JS thread cannot stall them. What CAN stall them is native
+   * main-thread work, and the destination's deferred mounts (MapLibre, the
+   * Skia background) were waiting on `runAfterInteractions`, which nobody had
+   * told about the flight. A Reanimated spring registers no interaction
+   * handle, so "after interactions" was the very next frame — the map came up
+   * mid-flight and froze the thread the clone was flying on.
+   *
+   * `goDeeper` opens the clock for the push (~380 ms) but the flight is
+   * longer, so the morph opens its own window and closes it only once the
+   * clone has crossfaded away. Everything scheduled through `afterTransition`
+   * — the map, the shader, every `SmoothScreen` entrance — now lands after the
+   * morph, not under it. 1 s is the backstop for a flight that never settles.
+   */
+  const flightClock = useRef<(() => void) | null>(null);
+  const openFlightClock = useCallback(() => {
+    flightClock.current?.();
+    flightClock.current = beginTransition(1000);
+  }, []);
+  const closeFlightClock = useCallback((afterMs = 0) => {
+    const release = flightClock.current;
+    flightClock.current = null;
+    if (!release) return;
+    if (afterMs > 0) setTimeout(release, afterMs);
+    else release();
+  }, []);
+
   const cleanup = useCallback((restoreSource: boolean) => {
     const f = flightRef.current ?? settledRef.current;
     if (flightRef.current?.timeout) clearTimeout(flightRef.current.timeout);
@@ -421,7 +454,8 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     setActiveId(null);
     setPhase('idle');
     setContentSize(null);
-  }, []);
+    closeFlightClock();
+  }, [closeFlightClock]);
 
   // ─── Settle (crossfade clone → real content) ───────────────────────────
 
@@ -453,7 +487,8 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     flightRef.current = null;
     cloneOpacity.value = withTiming(0, { duration: CROSSFADE_MS });
     setTimeout(() => setCloneNode(null), CROSSFADE_MS + 20);
-  }, [cloneOpacity]);
+    closeFlightClock(CROSSFADE_MS);
+  }, [cloneOpacity, closeFlightClock]);
 
   /** Land only once both the spring and the destination have arrived. */
   const maybeSettle = useCallback(() => {
@@ -625,6 +660,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         setPhase('forward');
         entry.hide();
 
+        openFlightClock();
         navigate();
       };
 
