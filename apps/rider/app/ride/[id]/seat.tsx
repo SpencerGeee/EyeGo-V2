@@ -16,7 +16,7 @@ import { formatGhs } from '@eyego/utils';
 import { useRideStore } from '../../../stores/ride.store';
 import { fonts, fontSizes, spacing, radii, springs } from '@eyego/config';
 import { useColors, Colors } from '../../../utils/useColors';
-import { VehicleCabin, type CabinSeat } from '../../../components/seat/VehicleCabin';
+import { VehicleCabin, layoutFor, type CabinSeat } from '../../../components/seat/VehicleCabin';
 import { useThemeStore } from '../../../stores/theme.store';
 import {
   Text,
@@ -142,7 +142,21 @@ export default function SeatPickerScreen() {
 
   const selectedSeat = seats.find((s) => s.id === selectedId);
   const freeCount = seats.filter((s) => s.status === 'AVAILABLE').length;
+  const heldCount = seats.filter((s) => (s.status as string) === 'PENDING').length;
   const farePesewas = (selectedTrip as any)?.farePerSeatPesewas ?? null;
+  const tierLabel: string =
+    (selectedTrip as any)?.tier?.name ?? (selectedTrip as any)?.tierName ?? 'Standard';
+  // "Accra Express • Sprinter 15-Seater": the route and the body, as the
+  // reference frame captions it.
+  const routeName: string | null =
+    (selectedTrip as any)?.route?.name ??
+    ((selectedTrip as any)?.route?.origin && (selectedTrip as any)?.route?.destination
+      ? `${(selectedTrip as any).route.origin} → ${(selectedTrip as any).route.destination}`
+      : null);
+  const bodyLabel = `${layoutFor(seatCount || seats.length || 4).label} ${seatCount || seats.length}-Seater`;
+  const subtitle = seats.length
+    ? `${routeName ? `${routeName} • ` : ''}${bodyLabel} • ${freeCount} free`
+    : null;
 
   /**
    * ── WHERE DO YOU GET OFF? ───────────────────────────────────────────────
@@ -208,11 +222,7 @@ export default function SeatPickerScreen() {
     <SafeAreaView style={styles.safe}>
       <AppBackground variant="static" isDark={isDark} />
 
-      <Header
-        colors={colors}
-        styles={styles}
-        subtitle={seats.length ? `${freeCount} of ${seats.length} free` : null}
-      />
+      <Header colors={colors} styles={styles} subtitle={subtitle} />
 
       {/*
         THE CABIN.
@@ -229,10 +239,10 @@ export default function SeatPickerScreen() {
           read after the thing it explains is a key nobody read.
         */}
         <View style={styles.legend}>
-          <LegendItem colors={colors} tone="free" label="Free" />
-          <LegendItem colors={colors} tone="selected" label="Yours" />
-          <LegendItem colors={colors} tone="pending" label="On hold" />
-          <LegendItem colors={colors} tone="taken" label="Taken" />
+          <LegendItem colors={colors} tone="free" label="Available" />
+          <LegendItem colors={colors} tone="selected" label="Selected" />
+          {heldCount > 0 ? <LegendItem colors={colors} tone="pending" label="On hold" /> : null}
+          <LegendItem colors={colors} tone="taken" label="Occupied" />
         </View>
 
         <VehicleCabin
@@ -246,6 +256,7 @@ export default function SeatPickerScreen() {
           colors={colors as unknown as Record<string, string>}
           accent={colors.primary}
           fareLabel={farePesewas != null ? formatGhs(farePesewas) : null}
+          tierLabel={tierLabel}
         />
 
         {/* Only offered when the route actually has stops on it. A section
@@ -285,7 +296,18 @@ export default function SeatPickerScreen() {
         Content-sized: this panel is three lines, and a detent would leave it
         floating in the middle of the screen with nothing under it.
       */}
+      {/*
+        BUGFIX ("the 'Your seat / Seat 3' text is being overlapped by the glow
+        button, and the fare section suffers from this too"). `gap` was set on
+        the sheet style — but MorphSheet lifts padding off that style onto its
+        content wrapper and leaves everything else on the SURFACE view, whose
+        only children are the background layers and one wrapper. So the row and
+        the Button were siblings with no gap at all, and a glow Button paints a
+        halo outside its own box. The gap now lives on a wrapper that actually
+        contains both.
+      */}
       <MorphSheet radius={28} grabber={false} style={styles.sheet}>
+        <View style={styles.sheetBody}>
         <View style={styles.sheetRow}>
           <View style={{ flex: 1 }}>
             <Text variant="caption" color={colors.onSurfaceVariant}>
@@ -305,6 +327,7 @@ export default function SeatPickerScreen() {
           ) : null}
         </View>
         <Button variant="glow" label="Confirm seat" onPress={handleConfirm} disabled={!selectedId} />
+        </View>
       </MorphSheet>
     </SafeAreaView>
   );
@@ -367,7 +390,7 @@ function Header({
         <Ionicons name="arrow-back" size={20} color={colors.onSurface} />
       </Pressable>
       <View style={{ flex: 1 }}>
-        <Text style={styles.title}>Pick a seat</Text>
+        <Text style={styles.title}>Select seat</Text>
         {subtitle ? (
           <Text variant="caption" color={colors.onSurfaceVariant}>
             {subtitle}
@@ -387,30 +410,44 @@ function LegendItem({
   tone: 'free' | 'selected' | 'pending' | 'taken';
   label: string;
 }) {
+  // The three tokens of the reference legend: a clean outline, the accent lit
+  // from within (halo and all), and a muted dark square.
   const bg =
     tone === 'selected' ? colors.primary
-    : tone === 'pending' ? colors.statusWarning
-    : tone === 'taken' ? colors.surfaceContainer
-    : colors.surfaceContainerHigh;
+    : tone === 'pending' ? `${colors.statusWarning}22`
+    : tone === 'taken' ? colors.surfaceContainerHigh
+    : 'transparent';
   const border =
     tone === 'selected' ? colors.primary
     : tone === 'pending' ? colors.statusWarning
     : tone === 'taken' ? colors.outlineVariant
-    : colors.outline;
+    : `${colors.onSurface}99`;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-      <View
-        style={{
-          width: 12,
-          height: 12,
-          borderRadius: 4,
-          backgroundColor: bg,
-          borderWidth: 1,
-          borderColor: border,
-          opacity: tone === 'taken' ? 0.6 : 1,
-        }}
-      />
-      <Text variant="caption" color={colors.onSurfaceVariant}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+      <View style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+        {tone === 'selected' ? (
+          <View
+            style={{
+              position: 'absolute',
+              width: 16,
+              height: 16,
+              borderRadius: 8,
+              backgroundColor: `${colors.primary}44`,
+            }}
+          />
+        ) : null}
+        <View
+          style={{
+            width: 11,
+            height: 11,
+            borderRadius: tone === 'selected' ? 5.5 : 3.5,
+            backgroundColor: bg,
+            borderWidth: 1.25,
+            borderColor: border,
+          }}
+        />
+      </View>
+      <Text variant="caption" color={tone === 'selected' ? colors.onSurface : colors.onSurfaceVariant}>
         {label}
       </Text>
     </View>
@@ -457,7 +494,7 @@ const makeStyles = (colors: Colors) =>
      */
     alight: { gap: spacing.sm, marginTop: spacing.lg },
     alightRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    cabinScroll: { paddingHorizontal: spacing.xl, paddingBottom: 220, gap: spacing.lg },
+    cabinScroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: 220, gap: spacing.xl },
     cabin: {
       borderRadius: radii['2xl'],
       overflow: 'hidden',
@@ -505,9 +542,24 @@ const makeStyles = (colors: Colors) =>
     seatSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     seatNumber: { fontFamily: fonts.semiBold, fontSize: fontSizes.bodyMedium },
 
-    legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, paddingHorizontal: 4 },
+    legend: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      alignSelf: 'center',
+      gap: spacing.base,
+      paddingHorizontal: spacing.base,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.full,
+      backgroundColor: `${colors.surfaceContainerHigh}B3`,
+      borderWidth: 1,
+      borderColor: `${colors.onSurface}14`,
+    },
 
-    sheet: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing.md, gap: spacing.md },
+    sheet: { paddingHorizontal: spacing['2xl'], paddingBottom: spacing.md },
+    /* The gap belongs here, on the view that holds both the row and the button
+       — see the note at the MorphSheet. */
+    sheetBody: { gap: spacing.base },
     sheetRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.lg },
     sheetValue: {
       fontFamily: fonts.displaySemiBold,
