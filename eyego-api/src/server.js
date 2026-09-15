@@ -17,6 +17,43 @@ const io = initSocketServer(server);
 app.set('io', io);
 
 /**
+ * THE DATABASE MUST HAVE EVERY MIGRATION THE CLIENT WAS GENERATED FOR.
+ *
+ * database.js already refuses a client generated from a different schema than
+ * the one on disk. This is the other half: a schema change that shipped WITHOUT
+ * its migration file (7d558c3, Booking.dropoffStopId) passed that guard, and
+ * the generated client then selected a column the database did not have. Every
+ * read or write of a Booking row 500'd at once — ride request, active trip,
+ * trip detail, payment init — and each looked like a separate bug on the
+ * phone. Refuse to boot instead, naming the migration to run.
+ */
+async function assertMigrationsApplied() {
+  const fs = require('fs');
+  const path = require('path');
+  const dir = path.join(__dirname, '..', 'prisma', 'migrations');
+  let onDisk;
+  try {
+    onDisk = fs.readdirSync(dir).filter((n) => /^\d{14}_/.test(n));
+  } catch {
+    return;
+  }
+  const rows = await prisma.$queryRaw`SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL`;
+  const applied = new Set(rows.map((r) => r.migration_name));
+  const pending = onDisk.filter((n) => !applied.has(n));
+  if (pending.length === 0) return;
+  const message =
+    `Database is missing ${pending.length} migration(s): ${pending.join(', ')}.\n` +
+    '    The Prisma client expects columns this database does not have; every query touching them is a 500.\n' +
+    '    Fix: run `npx prisma migrate deploy` (see docs/go-live/09-deploy-runbook.md).';
+  if (process.env.PRISMA_ALLOW_PENDING_MIGRATIONS === 'true') {
+    logger.error(`${message}\n    Continuing anyway because PRISMA_ALLOW_PENDING_MIGRATIONS=true.`);
+    return;
+  }
+  logger.error(message);
+  throw new Error('Unapplied migrations — run `npx prisma migrate deploy`.');
+}
+
+/**
  * Connect to Postgres, tolerating a cold start.
  *
  * @param {number} attempts  how many tries before giving up for real
@@ -55,6 +92,8 @@ async function start() {
     // database server", which reads like a wrong host or a firewall and is
     // neither. One retry loop turns a confusing crash into a two-second pause.
     await connectWithRetry();
+    // Outside the retry loop on purpose: a missing migration is not transient.
+    await assertMigrationsApplied();
 
     // Redis is REQUIRED, and this gate runs before the listener binds so the
     // process never advertises readiness on a box that cannot reach it.

@@ -1165,7 +1165,9 @@ async function applyPromoCode(userId, bookingId, code) {
     }
 
     // Calculate discount
-    let discount = (booking.fareAmountPesewas * promo.discountPercent) / 100;
+    // Whole pesewas: 4550 × 15% is 682.5, and `fareAmountPesewas` is an Int
+    // column — the unrounded write threw and the promo never landed.
+    let discount = Math.round((booking.fareAmountPesewas * promo.discountPercent) / 100);
     if (discount > promo.maxDiscountPesewas) {
       discount = promo.maxDiscountPesewas;
     }

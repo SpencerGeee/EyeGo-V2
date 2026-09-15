@@ -908,7 +908,20 @@ export default function TripScreen() {
         Only on server-owned stages. On search/configure/select the panel has
         its own back affordance and this would be a second, contradictory one.
       */}
-      {!surfaceRetired && !CLIENT_OWNED_STAGES.includes(stage) && (
+      {/*
+        NOT ON `request` AT ALL.
+
+        BUGFIX ("the right side is showing the recenter icon and then
+        underneath there's the home button, which doesn't make sense because
+        there's visibly a back button on the left"). Two prior fixes moved this
+        pill from corner to corner to dodge the stage's own arrow and the map's
+        recentre chip; the rider still read it as a second, contradictory back.
+        The keep-the-ride-live exit already exists INSIDE the request panel
+        ("Leave without cancelling — keep searching in the background"), so the
+        pill has nothing to add there. It stays for the stages with no back of
+        their own.
+      */}
+      {!surfaceRetired && !CLIENT_OWNED_STAGES.includes(stage) && !stageOwnsTopLeft && (
         <Animated.View
           entering={FadeIn.duration(260)}
           /**

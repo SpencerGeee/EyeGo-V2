@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Pressable, TextInput, FlatList } from 'react-native';
+import { View, StyleSheet, Pressable, TextInput, FlatList, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -101,6 +101,15 @@ export default function PlacePickerScreen() {
 
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<GeocodeResult[]>([]);
+  /**
+   * THE LIST GETS OUT OF THE WAY THE MOMENT THE MAP IS TOUCHED.
+   *
+   * BUGFIX ("I'm adjusting the map on the pickup point and the suggestions
+   * keep coming in my way"). A finger on the map is the rider choosing the pin
+   * over the list; every list here (results, no-results, saved places) hides
+   * on that gesture and comes back the moment they return to the search box.
+   */
+  const [listHidden, setListHidden] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   /** The last query a search actually completed for — null until one has. Drives
    *  the "no matches" row, which must never show while the rider is still typing. */
@@ -310,6 +319,10 @@ export default function PlacePickerScreen() {
           styleURL={isDark ? eyegoDarkStyle : eyegoLightStyle}
           compassEnabled={false}
           onRegionDidChange={handleRegionChange}
+          onUserGesture={() => {
+            setListHidden(true);
+            Keyboard.dismiss();
+          }}
         >
           <MapboxGL.Camera ref={cameraRef} centerCoordinate={initialCoords} zoomLevel={seeded ? 16 : 15} />
           {/* You. A flat puck, deliberately nothing like the tall centre pin —
@@ -354,7 +367,8 @@ export default function PlacePickerScreen() {
             <TextInput maxFontSizeMultiplier={1.4}
               style={styles.searchInput}
               value={query}
-              onChangeText={handleSearch}
+              onChangeText={(t) => { setListHidden(false); handleSearch(t); }}
+              onFocus={() => setListHidden(false)}
               placeholder="Search a place, business or landmark"
               placeholderTextColor={colors.onSurfaceVariant}
               returnKeyType="search"
@@ -367,7 +381,7 @@ export default function PlacePickerScreen() {
               what to do instead. (`searchPlaces` also retries with the generic
               words stripped before we get here, so this row means every provider
               really has no such place.) */}
-          {!isSearching && searchedFor !== null && suggestions.length === 0 && (
+          {!listHidden && !isSearching && searchedFor !== null && suggestions.length === 0 && (
             <View style={styles.suggestionsBox}>
               <View style={styles.suggestionRow}>
                 <Ionicons name="alert-circle-outline" size={16} color={colors.onSurfaceVariant} />
@@ -416,7 +430,7 @@ export default function PlacePickerScreen() {
             as tapping a geocoder result, so it goes through the same handler
             and the picker closes on the answer.
           */}
-          {suggestions.length === 0 && searchedFor === null && savedPlaces.length > 0 && (
+          {!listHidden && suggestions.length === 0 && searchedFor === null && savedPlaces.length > 0 && (
             <View style={styles.suggestionsBox}>
               <FlatList
                 data={savedPlaces}
@@ -452,7 +466,7 @@ export default function PlacePickerScreen() {
               />
             </View>
           )}
-          {suggestions.length > 0 && (
+          {!listHidden && suggestions.length > 0 && (
             <View style={styles.suggestionsBox}>
               <FlatList
                 data={suggestions}

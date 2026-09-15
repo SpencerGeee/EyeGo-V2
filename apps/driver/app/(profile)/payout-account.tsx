@@ -19,7 +19,7 @@ import { Text, Button, AppBackground } from '@eyego/ui';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
 import { apiClient } from '@eyego/api';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const BANKS = [
   'Ghana Commercial Bank',
@@ -77,9 +77,20 @@ export default function PayoutAccountScreen() {
     }
   }, [data]);
 
+  const queryClient = useQueryClient();
   const { mutate: save, isPending } = useMutation({
     mutationFn: (payload: object) => apiClient.patch('/driver/wallet/payout-account', payload),
-    onSuccess: () => {
+    onSuccess: (_res, payload) => {
+      /**
+       * BUGFIX ("I save the payout account, get a success, go back in and it's
+       * wiped"). The save never touched the `['payout-account']` cache, and the
+       * app's default `staleTime` is five minutes — so reopening the screen
+       * served the pre-save answer (an empty `{}`) without asking the server.
+       * The saved account is the payload we just sent; write it straight in,
+       * and let the next mount confirm against the server.
+       */
+      queryClient.setQueryData(['payout-account'], (old: any) => ({ ...(old ?? {}), data: { data: payload } }));
+      queryClient.invalidateQueries({ queryKey: ['payout-account'] });
       notify('Saved successfully', undefined, { tone: 'success' });
       goBack();
     },

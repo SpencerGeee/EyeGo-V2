@@ -1221,8 +1221,8 @@ const makeStyles = (colors: DriverColors) =>
     container: { flex: 1, backgroundColor: 'transparent' },
     header: {
       position: 'absolute',
-      left: spacing['2xl'],
-      right: spacing['2xl'],
+      left: spacing.lg,
+      right: spacing.lg,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',

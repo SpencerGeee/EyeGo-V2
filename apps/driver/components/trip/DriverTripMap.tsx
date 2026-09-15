@@ -38,6 +38,8 @@ const ROUTE_CASING = '#4A2B00';
 
 /** Phases where the driver is carrying the rider rather than fetching them. */
 const CARRYING = new Set(['IN_PROGRESS', 'COMPLETED']);
+/** Where the map opens before the first GPS fix. */
+const ACCRA: Coord = [-0.187, 5.6037];
 
 export interface DriverTripMapProps {
   tripId: string;
@@ -240,8 +242,17 @@ export function DriverTripMapImpl({
      * offer is stationary and comparing two points, and `fit` is only honoured
      * in `overview` (see useMapCamera). Switching modes with the frame is what
      * makes the pair actually get framed instead of silently ignored.
+     *
+     * IDLE IS `follow`, NOT `followCourse`. BUGFIX ("the map is showing blank
+     * now" on the driver home). With no trip there is no target; `followCourse`
+     * still plans from the live puck, but a driver whose first fix has not
+     * landed — or who denied permission — got `none` every frame, and a camera
+     * that is never commanded sits at MapLibre's zoom-0 world view, which on
+     * the dark style is a blank rectangle. Top-down follow is what the home map
+     * did before it became this component; nav pitch and course-up rotation
+     * only make sense once there is somewhere to drive to.
      */
-    mode: fitOverride && fitOverride.length >= 2 ? 'overview' : 'followCourse',
+    mode: fitOverride && fitOverride.length >= 2 ? 'overview' : target ? 'followCourse' : 'follow',
     center: target,
     fit: fitOverride ?? null,
     padding: getPadding,
@@ -312,7 +323,15 @@ export function DriverTripMapImpl({
         onUserGesture={camera.release}
         onRegionDidChange={camera.onRegionChange}
       >
-        <MapboxGL.Camera ref={camera.cameraRef} />
+        {/* A first stop, so the surface is a city and not the world while the
+            first fix is still on its way (or never comes). The adapter pushes
+            these imperatively once attached — see the maplibre-camera-contract
+            note in packages/maps/src/index.tsx. */}
+        <MapboxGL.Camera
+          ref={camera.cameraRef}
+          centerCoordinate={puckCoord ?? ACCRA}
+          zoomLevel={puckCoord ? 14 : 12}
+        />
 
         {shape && (
           <MapboxGL.ShapeSource id="driver-route" shape={shape}>

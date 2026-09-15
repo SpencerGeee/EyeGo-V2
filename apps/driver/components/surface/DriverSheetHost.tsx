@@ -1,5 +1,6 @@
 import React from 'react';
 import { MapSheetHost } from '@eyego/ui';
+import { spacing } from '@eyego/config';
 import { useColors } from '../../utils/useColors';
 import { DRIVER_SHEET_CHROME, type DriverStage } from './driverStage';
 
@@ -42,6 +43,9 @@ export function DriverSheetHost({ current, previous }: DriverSheetHostProps) {
       auroraColor={colors.primary}
       solidBackground={colors.background}
       grabberColor={colors.outline}
+      /* 20, not the host's 32: the rider home board sits at 20 and the driver's
+         cards read as "constricted to the middle" at 32 on a 390pt handset. */
+      bodyStyle={{ paddingHorizontal: spacing.lg }}
     />
   );
 }

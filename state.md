@@ -1,73 +1,44 @@
-# State — 2026-09-10
+# State — 2026-09-15
 
 ## Current Goal
-Ship the 13-item driver/rider pass from the 2026-09-10 device test.
+Ship the 12-item device-test pass (user list of 2026-09-15). Caveman + ponytail + context-management active.
 
-## Decisions (locked via /grill-me, 2026-09-10)
+## ROOT CAUSE FOUND (drives items 3, 5, 6, 8, likely 4 + 10)
+`Booking.dropoffStopId` was added to schema.prisma in 7d558c3 with NO migration file.
+Generated client selected a column the local DB lacked → every Booking `include`
+(getTripById, getActiveTrip, booking.create in POST /rides, payment init) 500'd.
+`getAllTrips` uses `select` → worked → that is why Trips tab saw the trip but Home did not.
+- DONE: wrote `eyego-api/prisma/migrations/20260914120000_booking_alighting_stop/migration.sql`
+  (verified with `prisma migrate diff` = empty) and APPLIED to local docker DB.
+- DONE: `server.js` `assertMigrationsApplied()` boot guard (refuses boot on pending migrations;
+  `PRISMA_ALLOW_PENDING_MIGRATIONS=true` escape hatch). Called after `connectWithRetry()`.
+- Local API was NOT running when checked; user must restart `npm run dev` in eyego-api.
 
-**7 — Alight early.** Rider picks from 3-6 *suggested stops that lie on the route
-polyline*, never a free pin — zero detour by construction, no tolerance knob.
-Stops are auto-derived at route creation (sample polyline, reverse-geocode, drop
-any within ~2km of origin/dest) and PERSISTED as real `VirtualStop` rows, so
-booking / `enRouteRatio` / driver stop list / admin all keep working unchanged.
-Curated stops on fixed routes still win. Fare = (board→alight) ÷ route km,
-mirroring `calculateEnRouteFare`, which already does the late-boarding half.
+## Item plan / status
+1. Driver home gutter + blank map — DIAGNOSED, NOT EDITED.
+   - Gutter: `MapSheetHost` body = `spacing['2xl']` (32). Rider home uses 20. Fix: `DriverSheetHost`
+     pass `bodyStyle={{ paddingHorizontal: spacing.lg }}`; also header `left/right` spacing['2xl']→lg in home.tsx styles.
+   - Blank map: `DriverTripMap` `<MapboxGL.Camera ref>` has NO first stop (old home had
+     `centerCoordinate=[-0.187,5.6037] zoom 13/14`). Idle = no target → planCamera 'none' → zoom-0 world.
+     Fix in DriverTripMap: Camera `centerCoordinate={location ?? ACCRA}` `zoomLevel={14}`; and mode
+     `target ? 'followCourse' : 'follow'` when idle (no nav pitch/rotation on idle home).
+2. Rider map picker: hide suggestions on map move — TODO (apps/rider/app/profile/place-picker.tsx or where-to / ride pickup picker; find the map-drag handler + suggestions list).
+3. Requesting page: "couldn't send" = migration (fixed). Top-right recenter + home button while a back
+   button exists on the left — TODO: `apps/rider/components/trip/stages/RequestStage.tsx` ~line 683 comment mentions it; also `SearchingPanel`. Remove the home button (top-right), keep back.
+4. Driver "trip completed" for unsent trip — likely fallout of the 500s; re-test after migration. No COMPLETED TripEvent today in DB.
+5/6. Driver create → black page + unfinished trip not on home + blank detail = migration (fixed). Verify `getActiveTrip` on home after restart.
+7. Seat page replica of `screenshots/seat.jpg` — TODO (big). Reference: dark bg, van seen from above nose-LEFT (landscape art; in portrait rotate nose-up), glowing white outline body, legend pill (Available outline / Selected red glow / Occupied muted with icon), seats = rounded-rect glyphs with rotated numbers, price tooltip "GHS 45.00 Standard" above selected seat, driver seat + steering wheel, sliding door with green LED strip. Current file: `apps/rider/app/ride/[id]/seat.tsx` (commit 8e7ccb2 did a top-down car with faked perspective; user says "still looks the same" + "Your seat / Seat 3" text overlapped by glow button + fare section overlapped). Fluid entry animations required. User invited questions.
+8. Payment init failed — migration likely; also verify Paystack keys in eyego-api/.env + payment provider seam (`PAYMENT_PROVIDER`).
+9. Payout account save wiped on reopen — TODO: `apps/driver/app/(profile)/payout-account.tsx` + backend driver payout route; likely saved field names ≠ read field names.
+10. Promo apply not enforced / not shown on booking — TODO: `apps/rider/app/profile/promotions.tsx` + backend promotions; single active promo, forfeit flow, show on fare.
+11. Send ride credits E2E — TODO: `apps/rider/app/profile/send-money.tsx`, `pay/[phone].tsx`, backend wallet transfer.
+12. Where-to morph smoothness — TODO: research packages/ui/src/motion (MorphProvider, springs.morph), memory `project_morph_cost_is_the_mount.md`, `project_motion_stack_is_mature.md`, rider home where-to card → where-to.tsx. Last session: ζ≈0.82, ~510ms, clone held. "Last time we do this" — do extensive research.
 
-**10 — Included seats 4 → 3.** Runtime setting only (`RIDE_INCLUDED_SEATS`).
-Rider on-demand already prices `partySize` correctly; 4 seats showing no change
-was correct behaviour under the old value, not a bug.
-
-**11 — Good standing gates at 1000 LIFETIME completed trips.** Below it: band
-NEW, no badge, 0 bps. Lifetime not windowed — a windowed count switches the
-discount off during a quiet month and reads as a bug.
-
-**12 — Drop-off hidden until IN_PROGRESS (Start Trip).** Offer and en-route show
-pickup + a neutral direction hint only ("heading W, ~18km").
-
-**13 — Dispatch offer is a root-level full-screen takeover.** Above tabs, mounted
-wherever the driver is, back/swipe are no-ops, leaves only on Accept / Pass /
-expiry. Re-presented on foreground while the offer is still live.
-
-**8 — Morph: slower with life.** ζ≈0.82 (from 1.00), flight ~510ms (from ~290ms),
-clone held until the geometry lands. Root cause of "it's just a fade": clone
-crossfades out at 200ms while the spring is still travelling.
-
-**4 — Seat page.** Nose-up in portrait (rotate the reference frame 90°, no
-scrolling, numbers upright). Faked perspective on flat Skia/SVG art — canvas
-animated rotateX/rotateZ/scale from a low 3/4 view to top-down over ~900ms,
-once per visit, no new dependency. Body template picked from `Vehicle.seaterCount`:
-4-5 saloon, 7-9 van, 12-15 sprinter.
-
-## Plan Status
-
-ALL 13 ITEMS SHIPPED. Commits 5203f3c, 8d7cfd5, c585279, 6e774ea,
-00ae343, 8d8f2be, 02452d6, 7d558c3, 8e7ccb2, 2879783.
-Both apps typecheck clean at every commit. NOTHING DEVICE-TESTED.
-
-TWO THINGS DELIBERATELY NOT CHANGED, both from item 13:
-- The "two cards that go to the same page" could not be reproduced from the
-  code. `deriveDriverStage` makes the idle body (LiveTripCard) and TripStages
-  mutually exclusive for every mapped status, so they cannot both draw. Needs a
-  screenshot, or the trip status it happens on, before touching either.
-- The blank home map is `DriverSurfaceMap`, whose camera moved into
-  `useMapCamera`. The leftover `mapPadding` / `cameraRef` in home.tsx are dead
-  code but are NOT the cause. Suspect a style/token env issue; unverified.
-
-MIGRATION REQUIRED before item 7 works: `prisma migrate dev`
-(Booking.dropoffStopId + the VirtualStop AlightingStop relation).
-
-## Evidence
-- `standing.service.js:81` — `sampleSize < 3` is the current good-standing gate.
-- `env.js:263` — `RIDE_INCLUDED_SEATS` default 4, `RIDE_EXTRA_SEAT_RATE` 0.18.
-- `motion.ts:107` — `springs.morph` stiffness 195 damping 28 → ζ≈1.00, ~290ms.
-- `MorphProvider.tsx:164` — `CROSSFADE_MS = 200`, shorter than the flight.
-- Driver home `sheetContent` sets `paddingHorizontal: spacing['2xl']` inside
-  `MapSheetHost` (`:151`) which already applies it → double gutter (items 1/13).
-- `dispatch-cascade.service.js:85` — 45s TTL and a real `DISPATCH_OFFER_TIMEOUT`
-  task exist; the offer payload carries NO `geometry` (straight line), and the
-  in-place open path sets `expiresAtServerMs: null` (countdown never starts).
-- `Booking.enRouteRatio` + `VirtualStop` + `calculateEnRouteFare` already price
-  boarding late — item 7 is the mirror, not a new feature.
+## Env facts
+- API dev target: phone hits Metro host machine :3000 (`packages/api/src/client.ts` resolveBaseUrl). DB = local docker `eyego-postgres` (user from .env), redis local.
+- `node node_modules/prisma/build/index.js <cmd>` works (npx broken).
+- tsc: `node node_modules/typescript/lib/tsc.js -p apps/<app>` per memory.
+- Today's DB: one trip `cmu2o1ct9003j12oiln51z4pj` FILLING (driver-created 12:46), no rider trips.
 
 ## Open Issues
-- Nothing device-tested this session; needs a fresh build for native changes.
+- Nothing device-tested. Need user to restart API, then re-test 3/4/5/6/8.

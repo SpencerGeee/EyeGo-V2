@@ -15,7 +15,7 @@ import { WebView } from 'react-native-webview';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
-import { bookingsApi, paymentsApi, socketEvents, walletApi } from '@eyego/api';
+import { bookingsApi, paymentsApi, socketEvents, walletApi, userApi } from '@eyego/api';
 import * as Haptics from 'expo-haptics';
 import { useShallow } from 'zustand/react/shallow';
 import { useRideStore } from '../../../stores/ride.store';
@@ -173,6 +173,27 @@ export default function PaymentScreen() {
     staleTime: 10_000,
   });
   const groupFare = groupFareData?.data?.data?.fare ?? null;
+  /**
+   * THE PROMO IS VISIBLE BEFORE THE MONEY MOVES.
+   *
+   * BUGFIX ("the promo page said it'd apply to the next booking, I booked, and
+   * nothing shows that the promo is applied"). It WAS applied — inside
+   * `initPayment`, after the booking existed, one line before the charge — so
+   * the whole checkout showed the full fare and the discount only ever
+   * appeared on the receipt. Same query the promo page uses, so the estimate
+   * is the server's own percent/cap; the server still does the real maths.
+   */
+  const { data: promoCatalogue } = useQuery({
+    queryKey: ['user', 'promotions'],
+    queryFn: () => userApi.getPromotions(),
+    select: (r: any) => r?.data?.data ?? null,
+    enabled: !!pendingPromoCode,
+  });
+  const pendingPromo = pendingPromoCode
+    ? (promoCatalogue?.available ?? []).find(
+        (p: any) => p.code?.toUpperCase() === pendingPromoCode.toUpperCase(),
+      ) ?? null
+    : null;
   const groupTotalPesewas = groupFare?.totalPesewas ?? null;
   const fareAmountPesewas =
     groupTotalPesewas != null && groupTotalPesewas > 0 ? groupTotalPesewas : serverPerSeat;
@@ -859,6 +880,46 @@ export default function PaymentScreen() {
             transition={{ type: 'spring', ...springs.standard, delay: 110 }}
             style={{ marginHorizontal: spacing['2xl'] }}
           >
+            {pendingPromoCode ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.sm,
+                  padding: spacing.md,
+                  borderRadius: radii.lg,
+                  borderWidth: 1,
+                  borderColor: `${colors.primary}66`,
+                  backgroundColor: `${colors.primary}12`,
+                }}
+              >
+                <Ionicons name="pricetag" size={16} color={colors.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodySmall" style={{ color: colors.onSurface, fontFamily: fonts.semiBold }}>
+                    {pendingPromoCode} will be applied at checkout
+                  </Text>
+                  <Text variant="caption" color={colors.onSurfaceVariant}>
+                    {pendingPromo
+                      ? `About −${formatGhs(
+                          Math.min(
+                            Math.round((fareAmountPesewas * pendingPromo.discountPercent) / 100),
+                            pendingPromo.maxDiscountPesewas,
+                          ),
+                        )} · ${pendingPromo.discountPercent}% off, up to ${formatGhs(pendingPromo.maxDiscountPesewas)}`
+                      : 'The discount is taken off before you are charged.'}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => { setPendingPromoCode(null); setPromoStatus('idle'); }}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove promo ${pendingPromoCode}`}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color={colors.onSurfaceVariant} />
+                </Pressable>
+              </View>
+            ) : null}
+            {pendingPromoCode ? null : (<>
             <Pressable
               onPress={() => setPromoExpanded(!promoExpanded)}
               style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}
@@ -922,7 +983,8 @@ export default function PaymentScreen() {
                 </Pressable>
               </MotiView>
             )}
-            {promoStatus === 'applied' && (
+            </>)}
+            {promoStatus === 'applied' && !pendingPromoCode && (
               <Text variant="caption" color={colors.primary} style={{ marginTop: spacing.xs }}>
                 Promo code applied! ✓
               </Text>
@@ -966,7 +1028,11 @@ export default function PaymentScreen() {
 
           {initPayment.isError && (
             <Text variant="caption" color={colors.error} style={{ textAlign: 'center' }}>
-              Payment initialisation failed. Please try again.
+              {/* Say what the server said. A fixed line hid a 500 on the booking
+                  insert behind "initialisation failed" for a whole test cycle. */}
+              {(initPayment.error as any)?.response?.data?.message ??
+                (initPayment.error as any)?.message ??
+                'Payment initialisation failed. Please try again.'}
             </Text>
           )}
       </KeyboardAwareScrollView>

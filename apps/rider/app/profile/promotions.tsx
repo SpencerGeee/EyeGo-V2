@@ -4,9 +4,11 @@ import {
   StyleSheet,
   ScrollView,
   Share,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { fonts, fontSizes, spacing, radii } from '@eyego/config';
 import { useColors, Colors } from '../../utils/useColors';
 import { useThemeStore } from '../../stores/theme.store';
@@ -74,9 +76,31 @@ export default function PromotionsScreen() {
    * something and had not. An offer row is a "use this" affordance; it now uses
    * it.
    */
-  const handleApplyPromo = async (codeArg?: string) => {
+  const handleApplyPromo = async (codeArg?: string, opts?: { forfeit?: boolean }) => {
     const raw = (codeArg ?? promoCode).trim();
     if (!raw) return;
+    /**
+     * ONE PROMO, AND YOU GIVE IT UP ON PURPOSE.
+     *
+     * BUGFIX ("I can just tap anyone then change — if I'm on a promo it
+     * shouldn't allow another unless I want to forfeit that"). The rule was
+     * stated in a caption and enforced nowhere: a second tap silently swapped
+     * the held code. Now it asks, names both codes, and only swaps on a yes.
+     * An already-applied promo (money moved on a live booking) is not swappable
+     * at all — its offer row is disabled below.
+     */
+    const held = pendingPromoCode?.toUpperCase() ?? null;
+    if (held && held !== raw.toUpperCase() && !opts?.forfeit) {
+      Alert.alert(
+        `Give up ${held}?`,
+        `You already have ${held} saved for your next ride. Using ${raw.toUpperCase()} instead will drop it.`,
+        [
+          { text: `Keep ${held}`, style: 'cancel' },
+          { text: `Use ${raw.toUpperCase()}`, style: 'destructive', onPress: () => void handleApplyPromo(raw, { forfeit: true }) },
+        ],
+      );
+      return;
+    }
     if (codeArg) setPromoCode(codeArg);
     setIsValidating(true);
     setPromoStatus('idle');
@@ -260,9 +284,9 @@ export default function PromotionsScreen() {
             />
             <Button
               label="Apply"
-              onPress={handleApplyPromo}
+              onPress={() => void handleApplyPromo()}
               loading={isValidating}
-              disabled={!promoCode.trim()}
+              disabled={!promoCode.trim() || (!!applied && !!activeBooking?.id)}
               style={styles.applyBtn}
               fullWidth={false}
             />
@@ -310,8 +334,8 @@ export default function PromotionsScreen() {
               return (
                 <Pressable
                   key={p.id}
-                  onPress={() => { if (!isActive && !busy) void handleApplyPromo(p.code); }}
-                  disabled={isActive || busy}
+                  onPress={() => { if (!isActive && !busy && !applied) void handleApplyPromo(p.code); }}
+                  disabled={isActive || busy || !!applied}
                   style={({ pressed }) => [
                     styles.offerRow,
                     (isActive || isSaved) && { borderColor: `${colors.primary}55` },
