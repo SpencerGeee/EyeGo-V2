@@ -25,19 +25,3 @@ export async function setStoredApiUrl(url: string): Promise<void> {
     console.warn('[ApiStore] Failed to persist API URL');
   }
 }
-
-/**
- * Resolve the effective API URL:
- *   1. Persisted value in SecureStore (user-configured)
- *   2. EXPO_PUBLIC_API_URL env var (compiled at build time)
- *   3. Hard-coded fallback
- */
-export async function resolveApiUrl(): Promise<string> {
-  const stored = await getStoredApiUrl();
-  if (stored) return stored;
-
-  const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl) return envUrl;
-
-  return 'http://localhost:5020/v1';
-}

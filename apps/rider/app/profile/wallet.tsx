@@ -1,5 +1,6 @@
 ﻿import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, Platform, ScrollView, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, Platform, Modal, TextInput } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -120,7 +121,7 @@ export default function WalletScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         {/* Balance Card */}
         <View
           >
@@ -243,7 +244,7 @@ export default function WalletScreen() {
             )}
           </GlassSurface>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Top Up Modal */}
       <Modal

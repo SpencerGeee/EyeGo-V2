@@ -1,11 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  TextInput,
-  } from 'react-native';
+import { View, StyleSheet, Pressable, TextInput } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -263,7 +258,7 @@ export default function RatePassengersScreen() {
         <View style={styles.headerBack} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         {/* Progress indicator */}
         <View style={styles.progressRow}>
           {passengers.map((_, i) => (
@@ -386,7 +381,7 @@ export default function RatePassengersScreen() {
             Skip — go to home
           </Text>
         </Pressable>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

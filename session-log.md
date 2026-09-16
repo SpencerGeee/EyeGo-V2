@@ -428,3 +428,16 @@ Decisions:
 - One promo at a time: swapping a held code asks to forfeit; payment screen shows the pending promo before the charge.
 Rejected: another morph timing/easing change (fifth). Home pill on the request stage in any corner.
 Open: nothing device-tested; item 4 ("trip completed" for unsent trip) unexplained — retest after API restart.
+
+## 2026-09-16 10:50 [saved]
+Goal: 8-item device report — morph-back lag, hooks crash, rider dashes, keyboard, map feel, nav-app pref
+Decisions:
+- morphBack gains `popAfterFlight`: for a transparentModal the pop IS the cost, so fly first, pop after; only SearchStage opts in.
+- Rider only overrides the API base URL with a SecureStore-saved value; the localhost fallback that shadowed @eyego/api's own resolution is gone.
+- useMapCamera dedupes per-frame setCamera via `setCameraKey`; a parked vehicle sends nothing; resume/recenter glide 600ms.
+- PanelSheet lifts by keyboard height through body padding, reusing the contentH→expanded spring; RN Keyboard events, no new dep in packages/ui.
+- Nav-app preference has ONE key and ONE vocabulary (utils/externalNav); settings maps to server names via SERVER_NAV.
+Rejected:
+- Hooking trip.tsx to useMorph() context for the hide flag — re-renders the heaviest screen every phase change.
+- KeyboardAwareScrollView inside native page-sheet Modals — separate window; RN KeyboardAvoidingView there.
+Open: device-test all 8; run `scripts/e2e/conditional-hooks.mjs` before every push (it caught the hooks crash).

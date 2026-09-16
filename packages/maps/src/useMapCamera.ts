@@ -8,6 +8,8 @@ import {
   overviewKey,
   paddingKeyOf,
   planCamera,
+  setCameraKey,
+  RESUME_GLIDE_MS,
   shouldAutoResume,
   shouldReleaseToUser,
 } from './camera';
@@ -135,6 +137,11 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const fitSettlesAtRef = useRef(0);
   /** The sheet padding the last re-frame was issued for. */
   const lastPaddingKeyRef = useRef('');
+  /** Identity of the last `setCamera` actually sent — see `setCameraKey`. */
+  const lastSetKeyRef = useRef('');
+  /** Until this time the resume glide owns the camera; per-frame locking waits. */
+  const glideUntilRef = useRef(0);
+  const lastPuckRef = useRef<PuckState | null>(null);
   const [puck, setPuck] = useState<PuckState | null>(null);
 
   // `released` is the user override. Kept in a ref as well as state because the
@@ -174,6 +181,8 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
   const recenter = useCallback(() => {
     releasedAtRef.current = null;
     setReleased(false);
+    glideUntilRef.current = Date.now() + RESUME_GLIDE_MS;
+    lastSetKeyRef.current = '';
     /**
      * FORGET WHERE WE THINK THE CAMERA IS.
      *
@@ -251,6 +260,10 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
       if (shouldAutoResume(releasedAtRef.current, now, autoResumeMsRef.current)) {
         releasedAtRef.current = null;
         setReleased(false);
+        // Glide back, don't snap: the first plan after a resume animates and
+        // the loop stays out of its way until it lands.
+        glideUntilRef.current = now + RESUME_GLIDE_MS;
+        lastSetKeyRef.current = '';
       }
 
       const state = interpolatorRef.current.at(now);
@@ -260,7 +273,14 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
       // publishing those at 60 Hz is what makes a cheap phone drop frames.
       if (state && now - lastPublish >= publishEveryMs) {
         lastPublish = now;
-        setPuck(state);
+        // A parked vehicle used to republish the same puck every 400ms — a
+        // re-render of every marker on the map for nothing.
+        const prev = lastPuckRef.current;
+        if (!prev || prev.latitude !== state.latitude || prev.longitude !== state.longitude
+          || prev.bearing !== state.bearing || prev.moving !== state.moving) {
+          lastPuckRef.current = state;
+          setPuck(state);
+        }
       }
 
       const effectiveMode: CameraMode =
@@ -288,13 +308,32 @@ export function useMapCamera(args: UseMapCameraArgs): MapCamera {
         // The camera is re-commanded every frame while following, so each move
         // must be near-instant — a 450 ms animation restarted 60 times a second
         // never arrives anywhere and the map crawls.
-        { animationDuration: effectiveMode === 'overview' ? 600 : 0 },
+        {
+          animationDuration: effectiveMode === 'overview' ? 600
+            : glideUntilRef.current > now && lastSetKeyRef.current === '' ? RESUME_GLIDE_MS
+            : 0,
+        },
       );
 
-      applyPlan(
-        cameraRef.current, plan, effectiveMode,
-        lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef,
-      );
+      // Same plan as last frame → nothing to send. See `setCameraKey`. While a
+      // resume glide is in flight, a duration-0 set would cut it short.
+      if (plan.kind === 'setCamera') {
+        const gliding = glideUntilRef.current > now && lastSetKeyRef.current !== '';
+        const key = setCameraKey(plan);
+        if (!gliding && key !== lastSetKeyRef.current) {
+          lastSetKeyRef.current = key;
+          applyPlan(
+            cameraRef.current, plan, effectiveMode,
+            lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef,
+          );
+        }
+      } else {
+        lastSetKeyRef.current = '';
+        applyPlan(
+          cameraRef.current, plan, effectiveMode,
+          lastOverviewKeyRef, fitSettlesAtRef, lastPaddingKeyRef,
+        );
+      }
 
       raf = requestAnimationFrame(tick);
     };

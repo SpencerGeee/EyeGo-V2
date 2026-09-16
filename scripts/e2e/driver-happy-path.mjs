@@ -141,9 +141,11 @@ async function main() {
 
   await check('the offer carries everything the sheet renders, and no rider PII', async () => {
     const o = ctx.offer;
-    const missing = ['pickupLat', 'pickupLng', 'dropoffLat', 'dropoffLng', 'farePesewas', 'driverEarningsPesewas', 'expiresAtServerMs']
+    const missing = ['pickupLat', 'pickupLng', 'dropoffBearing', 'dropoffDistanceKm', 'farePesewas', 'driverEarningsPesewas', 'expiresAtServerMs']
       .filter((k) => o[k] == null);
     if (missing.length) throw new Error(`offer is missing ${missing.join(', ')}`);
+    // The drop-off is withheld until IN_PROGRESS (8d8f2be) — a hint, never the pin.
+    if (o.dropoffLat != null || o.dropoffLng != null || o.dropoffAddress != null) throw new Error('the offer leaks the drop-off before acceptance');
     if (o.driverEarningsPesewas > o.farePesewas) throw new Error('driver earns more than the fare');
     if (JSON.stringify(o).includes(ctx.rider.phone)) throw new Error("the offer carries the rider's phone before acceptance");
     const commission = 1 - o.driverEarningsPesewas / o.farePesewas;

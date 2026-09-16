@@ -1,4 +1,4 @@
-export { MorphProvider, useMorph, useMorphOptional } from './MorphProvider';
+export { MorphProvider, useMorph, useMorphOptional, morphSurfaceHidden } from './MorphProvider';
 export type { MorphRect, MorphBackGestureHandle } from './MorphProvider';
 export { MorphSource } from './MorphSource';
 export type { MorphSourceHandle } from './MorphSource';

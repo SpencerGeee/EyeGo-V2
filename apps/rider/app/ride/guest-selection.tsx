@@ -1,5 +1,6 @@
 ﻿import React, { useState, useMemo, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TextInput, Pressable } from 'react-native';
+import { View, StyleSheet, TextInput, Pressable } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, type Href } from 'expo-router';
 import { MotiView, AnimatePresence, goBack } from '@eyego/ui';
@@ -116,10 +117,11 @@ export default function GuestSelectionScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        bottomOffset={24}
       >
         <MotiView
           from={{ opacity: 0, translateY: 10 }}
@@ -242,7 +244,7 @@ export default function GuestSelectionScreen() {
             </MotiView>
           )}
         </AnimatePresence>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <View style={styles.footer}>
         <Button

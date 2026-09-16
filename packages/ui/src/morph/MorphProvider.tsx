@@ -9,6 +9,7 @@ import React, {
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import Animated, {
   useSharedValue,
+  makeMutable,
   useAnimatedStyle,
   withSpring,
   withTiming,
@@ -55,7 +56,18 @@ type MorphPhase = 'idle' | 'forward' | 'settled' | 'reverse' | 'gesture';
 interface MorphContextValue {
   registerSource: (id: string, entry: MorphSourceEntry) => () => void;
   morphTo: (id: string, navigate: () => void) => void;
-  morphBack: (navigateBack: () => void) => void;
+  /**
+   * `popAfterFlight`: run the reverse flight first and call `navigateBack`
+   * only once the clone has landed. For a screen presented as a
+   * transparentModal over its source (the trip surface over home), the pop is
+   * the expensive part — a MapLibre view and a Skia canvas torn down on the
+   * main thread, the same thread the spring runs on. Popping first, as the
+   * default does, spends the flight's opening frames on that teardown. The
+   * screen hides itself through `surfaceHidden` so home shows underneath
+   * while the clone flies. Only for transparent presentations: a regular card
+   * has nothing visible beneath it until it is popped.
+   */
+  morphBack: (navigateBack: () => void, opts?: { popAfterFlight?: boolean }) => void;
   targetReady: (id: string, rect: MorphRect, borderRadius: number) => void;
   /**
    * Yango-style gesture-interruptible reverse. Call from a PanGestureHandler's
@@ -78,6 +90,14 @@ interface MorphContextValue {
    */
   morphProgress: SharedValue<number>;
 }
+
+/**
+ * 1 while a `popAfterFlight` reverse is in the air; the departing screen reads
+ * it as `opacity: 1 - v`. Module-level, not on the context: the surface that
+ * reads it is the heaviest screen in the app, and subscribing it to the
+ * context would re-render it on every phase change of the forward flight.
+ */
+export const morphSurfaceHidden = makeMutable(0);
 
 export interface MorphBackGestureHandle {
   onStart: () => void;
@@ -358,6 +378,8 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
 
   // Ref for the gesture commit callback (set by startMorphBackGesture)
   const gestureCommitRef = useRef<(() => void) | null>(null);
+  const deferredNavRef = useRef<(() => void) | null>(null);
+  const surfaceHidden = morphSurfaceHidden;
 
   // Track flight data for cleanup
   const flightRef = useRef<{
@@ -533,6 +555,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   const morphTo = useCallback(
     (id: string, navigate: () => void) => {
       const entry = sources.current.get(id);
+      surfaceHidden.value = 0;
       if (!entry || skipMorph) {
         navigate();
         return;
@@ -831,7 +854,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
   // ─── Reverse morph (programmatic back) ─────────────────────────────────
 
   const morphBack = useCallback(
-    (navigateBack: () => void) => {
+    (navigateBack: () => void, opts?: { popAfterFlight?: boolean }) => {
       // Normally the flight has already landed, so its data lives in
       // `settledRef`; `flightRef` only wins if the rider dismissed mid-flight.
       const f = flightRef.current ?? settledRef.current;
@@ -840,6 +863,11 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
         cleanup(true);
         navigateBack();
         return;
+      }
+      const deferPop = !!opts?.popAfterFlight;
+      if (deferPop) {
+        deferredNavRef.current = navigateBack;
+        surfaceHidden.value = 1;
       }
       // Reverse takes ownership of the flight data; keep it in `flightRef` for
       // the duration so a second back-press can't start a competing reverse.
@@ -912,7 +940,7 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
        * as an unresponsive back button.
        */
       requestAnimationFrame(() => {
-        navigateBack();
+        if (!deferPop) navigateBack();
         requestAnimationFrame(() => {
           // The gesture may have taken over (or another morph started) in the
           // two frames we waited. Only drive the flight we still own.
@@ -937,6 +965,15 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
      progressX, progressY, cloneOpacity]
   );
 
+  // The pop a `popAfterFlight` reverse held back. It lands on a settled home
+  // with the clone gone, so the teardown it triggers has nothing to stutter.
+  const afterReverse = useCallback(() => {
+    cleanup(false);
+    const nav = deferredNavRef.current;
+    deferredNavRef.current = null;
+    nav?.();
+  }, [cleanup]);
+
   const finishReverse = useCallback(() => {
     /**
      * Un-hide the real card FIRST, then dissolve the clone on top of it.
@@ -952,9 +989,9 @@ export function MorphProvider({ children }: { children: React.ReactNode }) {
     const f = flightRef.current ?? settledRef.current;
     if (f) sources.current.get(f.id)?.show();
     cloneOpacity.value = withTiming(0, { duration: 80 }, () => {
-      runOnJS(cleanup)(false);
+      runOnJS(afterReverse)();
     });
-  }, [cloneOpacity, cleanup]);
+  }, [cloneOpacity, afterReverse]);
 
   // ─── Overlay style — progress-driven interpolation ─────────────────────
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Switch, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, Switch, Pressable, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView, goDeeper, goBack, notify } from '@eyego/ui';
@@ -11,15 +11,21 @@ import { Text, AppBackground } from '@eyego/ui';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, type DriverColors } from '../../utils/useColors';
 import { useDriverStore } from '../../stores/driver.store';
+import { getPreferredNavApp, setPreferredNavApp, type NavApp } from '../../utils/externalNav';
 
 const NOTIF_KEY = 'eyego_driver_notifications_enabled';
 
-type NavApp = 'google_maps' | 'waze' | 'apple_maps';
+// One vocabulary, one key: the value here is what `openExternalNavigation`
+// reads on the trip page. This screen used to write 'google_maps' under a
+// different AsyncStorage key, so the choice never reached Navigate.
 const NAV_OPTIONS: { key: NavApp; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: 'google_maps', label: 'Google Maps', icon: 'navigate-outline' },
+  { key: 'google', label: 'Google Maps', icon: 'navigate-outline' },
   { key: 'waze', label: 'Waze', icon: 'car-outline' },
-  { key: 'apple_maps', label: 'Apple Maps', icon: 'map-outline' },
+  ...(Platform.OS === 'ios' ? [{ key: 'apple' as const, label: 'Apple Maps', icon: 'map-outline' as const }] : []),
 ];
+const SERVER_NAV: Record<NavApp, 'google_maps' | 'waze' | 'apple_maps'> = {
+  google: 'google_maps', waze: 'waze', apple: 'apple_maps',
+};
 
 const PRIVACY_TEXT = `EyeGo collects your location during active trips to provide real-time tracking for passengers and route optimisation. Your personal data is never sold to third parties. You may request deletion of your account data by contacting support@eyego.app.\n\nFor the full privacy policy, visit eyego.app/privacy.`;
 
@@ -59,16 +65,14 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { theme, setTheme, logout, offerAlertsEnabled, setOfferAlertsEnabled } = useDriverStore();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [navApp, setNavApp] = useState<NavApp>('google_maps');
+  const [navApp, setNavApp] = useState<NavApp | null>(null);
 
   useEffect(() => {
     // Local cache first for instant paint...
     AsyncStorage.getItem(NOTIF_KEY).then((val) => {
       if (val !== null) setNotificationsEnabled(val === 'true');
     });
-    AsyncStorage.getItem('eyego_driver_nav_app').then((val) => {
-      if (val) setNavApp(val as NavApp);
-    });
+    getPreferredNavApp().then((val) => { if (val) setNavApp(val); });
     // ...then the account's saved value wins, so this follows the driver
     // across reinstalls/devices instead of always defaulting to "on".
     // Previously toggling this only wrote to AsyncStorage — nothing was ever
@@ -80,6 +84,10 @@ export default function SettingsScreen() {
         setNotificationsEnabled(remote);
         AsyncStorage.setItem(NOTIF_KEY, String(remote)).catch(() => {});
       }
+      // Same for the maps app: a reinstall gets the account's choice back.
+      const remoteNav = (res.data as any)?.data?.navigationApp;
+      const local = (Object.keys(SERVER_NAV) as NavApp[]).find((k) => SERVER_NAV[k] === remoteNav);
+      if (local) getPreferredNavApp().then((cur) => { if (!cur) { setNavApp(local); void setPreferredNavApp(local); } });
     }).catch(() => {});
   }, []);
 
@@ -101,13 +109,13 @@ export default function SettingsScreen() {
   };
 
   const updateNavPref = useMutation({
-    mutationFn: (app: NavApp) => driverApi.updatePreferences({ navigationApp: app }),
+    mutationFn: (app: NavApp) => driverApi.updatePreferences({ navigationApp: SERVER_NAV[app] }),
     onError: () => notify(null, 'Failed to save navigation preference.'),
   });
 
   const handleSelectNav = (app: NavApp) => {
     setNavApp(app);
-    AsyncStorage.setItem('eyego_driver_nav_app', app);
+    void setPreferredNavApp(app);
     updateNavPref.mutate(app);
   };
 

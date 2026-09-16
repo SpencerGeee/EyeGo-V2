@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Linking, Modal, TextInput } from 'react-native';
+import { View, StyleSheet, ScrollView, Linking, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MotiView, goBack, notify } from '@eyego/ui';
@@ -337,7 +337,11 @@ export default function HelpScreen() {
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={{ paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'] }}>
+          {/* RN's own avoider, not KeyboardAwareScrollView: this is a native
+              page-sheet Modal, a separate window keyboard-controller does not
+              drive. The reply box is the last thing in the scroll. */}
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: spacing['2xl'], paddingBottom: spacing['3xl'] }} keyboardShouldPersistTaps="handled">
             {(openTicket?.messages ?? []).map((m: any) => {
               // Anything the support console wrote is SUPPORT/ADMIN; everything
               // else came from this side of the conversation.
@@ -401,6 +405,7 @@ export default function HelpScreen() {
               style={{ marginTop: spacing.sm }}
             />
           </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>

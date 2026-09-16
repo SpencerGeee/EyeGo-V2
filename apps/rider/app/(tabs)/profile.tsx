@@ -211,7 +211,8 @@ export default function ProfileScreen() {
 
   const avatarStyle = useAnimatedStyle(() => ({
     transform: [
-      // Subtle parallax settle — no overscroll bounce (clamped).
+      // Overscroll pulls the avatar up to 1.08 — the rubber-band the rest of
+      // the app has; this screen used to pin bounces off and felt dead.
       { scale: interpolate(scrollY.value, [-90, 0], [1.08, 1], Extrapolation.CLAMP) },
     ],
   }));
@@ -226,8 +227,6 @@ export default function ProfileScreen() {
         onScroll={onScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        bounces={false}
-        overScrollMode="never"
         {...backgroundScrollPauseProps}
         contentContainerStyle={[
           styles.scroll,

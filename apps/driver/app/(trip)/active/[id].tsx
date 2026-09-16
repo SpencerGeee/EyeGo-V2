@@ -1017,6 +1017,43 @@ export default function ActiveTripScreen() {
    */
   const { stops } = useTripStops(trip);
 
+  // Every hook above the skeleton return. These two used to sit below it, so
+  // the render that finally had `trip` called more hooks than the loading one
+  // did — "Rendered more hooks than during the previous render" on every
+  // publish. `boardWithPin` is the useCallback above, so nothing here is TDZ.
+  /**
+   * Fire a queued single-seat boarding once the passenger sheet is gone.
+   *
+   * Guarded on `sheetPassenger == null` rather than run unconditionally: if the
+   * driver reopened a sheet in the meantime, the keypad would be presenting
+   * into a live modal again and we would be back where we started.
+   */
+  React.useEffect(() => {
+    if (!pendingBoard || sheetPassenger != null) return;
+    const { bookingId, seatNumber, name } = pendingBoard;
+    setPendingBoard(null);
+    void boardWithPin(bookingId, seatNumber, name);
+  }, [pendingBoard, sheetPassenger, boardWithPin]);
+
+  /**
+   * A BOARDING RUN THAT IS NEITHER ASKING NOR WORKING IS OVER.
+   *
+   * The other half of "the page is frozen". The primary swipe reads
+   * `loading={advanceStatus.isPending || boardingRun != null}`, so anything
+   * that leaves `boardingRun` set with no keypad up and no request in flight
+   * pins that control in its loading state permanently — and the swipe is the
+   * only way to depart. `runBoarding` pauses with the run still set (that is
+   * deliberate: the keypad needs to know which index to resume at), so every
+   * path that closes the keypad has to clear it, and one that forgets strands
+   * the driver at the kerb with a control that will not move.
+   *
+   * Rather than audit each exit forever, this states the invariant directly:
+   * no prompt and no work means no run.
+   */
+  React.useEffect(() => {
+    if (boardingRun && pinPrompt == null && !pinBusy) setBoardingRun(null);
+  }, [boardingRun, pinPrompt, pinBusy]);
+
   // ─── Loading skeleton ────────────────────────────────────────────────────
 
   if (isLoading || !trip) {
@@ -1222,39 +1259,6 @@ export default function ActiveTripScreen() {
       setPinBusy(false);
     }
   };
-
-  /**
-   * Fire a queued single-seat boarding once the passenger sheet is gone.
-   *
-   * Guarded on `sheetPassenger == null` rather than run unconditionally: if the
-   * driver reopened a sheet in the meantime, the keypad would be presenting
-   * into a live modal again and we would be back where we started.
-   */
-  React.useEffect(() => {
-    if (!pendingBoard || sheetPassenger != null) return;
-    const { bookingId, seatNumber, name } = pendingBoard;
-    setPendingBoard(null);
-    void boardWithPin(bookingId, seatNumber, name);
-  }, [pendingBoard, sheetPassenger, boardWithPin]);
-
-  /**
-   * A BOARDING RUN THAT IS NEITHER ASKING NOR WORKING IS OVER.
-   *
-   * The other half of "the page is frozen". The primary swipe reads
-   * `loading={advanceStatus.isPending || boardingRun != null}`, so anything
-   * that leaves `boardingRun` set with no keypad up and no request in flight
-   * pins that control in its loading state permanently — and the swipe is the
-   * only way to depart. `runBoarding` pauses with the run still set (that is
-   * deliberate: the keypad needs to know which index to resume at), so every
-   * path that closes the keypad has to clear it, and one that forgets strands
-   * the driver at the kerb with a control that will not move.
-   *
-   * Rather than audit each exit forever, this states the invariant directly:
-   * no prompt and no work means no run.
-   */
-  React.useEffect(() => {
-    if (boardingRun && pinPrompt == null && !pinBusy) setBoardingRun(null);
-  }, [boardingRun, pinPrompt, pinBusy]);
 
   /**
    * "NOT HERE" — the seat nobody claimed.

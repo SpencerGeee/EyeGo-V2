@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, TextInput, Alert, Linking, Modal, FlatList } from 'react-native';
+import { View, StyleSheet, Pressable, TextInput, Alert, Linking, Modal, FlatList } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import * as Contacts from 'expo-contacts';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -109,7 +110,7 @@ export default function SafetyScreen() {
         </Pressable>
       </MotiView>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>
         <MotiView from={{ opacity: 0, translateY: -6 }} animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'spring', ...springs.standard, delay: 40 }}>
           <Text variant="headlineLarge" style={styles.headline}>Safety</Text>
@@ -299,7 +300,7 @@ export default function SafetyScreen() {
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
         </MotiView>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Contact Picker Modal */}
       <Modal visible={showContactPicker} animationType="slide" presentationStyle="pageSheet">

@@ -78,7 +78,7 @@ export type { PerformanceTier } from './effects/usePerformanceTier';
 export { AppBackground } from './effects/AppBackground';
 export { setBackgroundBusy, subscribeBackgroundBusy, backgroundScrollPauseProps } from './effects/backgroundActivity';
 export { useShaderSlot, shaderSlotWaiters } from './effects/shaderSlot';
-export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional } from './morph';
+export { MorphProvider, MorphSource, MorphTarget, MorphBackSwipeDetector, useMorph, useMorphOptional, morphSurfaceHidden } from './morph';
 export type { MorphRect, MorphSourceHandle } from './morph';
 export { PulseRing } from './effects/PulseRing';
 

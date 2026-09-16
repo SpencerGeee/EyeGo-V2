@@ -15,7 +15,7 @@ import { bookingsApi } from '@eyego/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { withOpacity, springs, fonts, fontSizes, spacing, radii } from '@eyego/config';
-import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition } from '@eyego/ui';
+import { SheetMetricsProvider, useCreateSheetMetrics, AppBackground, Pressable, goBack, goOut, afterTransition, morphSurfaceHidden } from '@eyego/ui';
 import { useRideEnded } from '../stores/rideEnded.store';
 import { useColors } from '../utils/useColors';
 import { useThemeStore } from '../stores/theme.store';
@@ -783,6 +783,19 @@ export default function TripScreen() {
     [colors],
   );
 
+  // GOING HOME: THE FLIGHT FIRST, THE POP AFTER.
+  //
+  // This screen is a transparentModal over home, so home is already painted
+  // beneath it. `SearchStage` closes with `morphBack(…, { popAfterFlight })`:
+  // the provider raises `morphSurfaceHidden`, this whole surface goes
+  // transparent on the UI thread — no React commit — and the clone flies back
+  // over a live home. Only when it has landed does the pop run, so the
+  // MapLibre + Skia teardown that used to eat the reverse flight's opening
+  // frames happens behind a settled screen. Reset on mount: a value left at 1
+  // by the last departure must not blank a fresh deep-link entry.
+  useEffect(() => { morphSurfaceHidden.value = 0; }, []);
+  const departedStyle = useAnimatedStyle(() => ({ opacity: 1 - morphSurfaceHidden.value }));
+
   return (
     // The 250ms fade used to be the loudest thing on screen: it faded the map,
     // the header AND the card in together, well before the morph clone had
@@ -792,7 +805,7 @@ export default function TripScreen() {
     // of racing it. The card itself is no longer part of this story — its
     // reveal is driven by morph progress in MorphTarget.
     <Animated.View
-      style={[styles.root, !isFocused && styles.covered]}
+      style={[styles.root, !isFocused && styles.covered, departedStyle]}
       // Covered means covered: no touch of ours may reach past the screen that
       // is on top of us. See `isFocused` above.
       pointerEvents={isFocused ? 'box-none' : 'none'}

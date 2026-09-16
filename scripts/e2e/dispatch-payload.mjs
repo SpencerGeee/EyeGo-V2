@@ -41,10 +41,11 @@ const OFFER_CONTRACT = [
   ['tripId', 'string', 'accept posts to /driver/trips/<tripId>/accept — without it nothing is claimable'],
   ['pickupLat', 'number', 'the pickup pin and the map framing'],
   ['pickupLng', 'number', 'the pickup pin and the map framing'],
-  ['dropoffLat', 'number', 'the drop-off pin, and the ride line the driver decides on'],
-  ['dropoffLng', 'number', 'the drop-off pin, and the ride line the driver decides on'],
   ['pickupAddress', 'string', 'the "PICK-UP" row on the card — em-dash without it'],
-  ['dropoffAddress', 'string', 'the "DROP-OFF" row on the card — em-dash without it'],
+  // The drop-off itself is WITHHELD until IN_PROGRESS (8d8f2be: "hide drop off
+  // completely … till the driver starts the ride"). The card gets its shape:
+  ['dropoffBearing', 'string', 'the compass point the ride heads in — the only destination hint before accepting'],
+  ['dropoffDistanceKm', 'number', 'the half-km-rounded straight-line length of the ride'],
   ['farePesewas', 'number', 'the gross fare'],
   ['driverEarningsPesewas', 'number', 'what the driver nets — the number the decision is made on'],
   ['walletRequiredPesewas', 'number', 'the float a CASH ride will demand at boarding'],
@@ -61,6 +62,11 @@ function checkContract(payload, label, { require = OFFER_CONTRACT } = {}) {
     }
     // eslint-disable-next-line valid-typeof
     if (typeof v !== type) missing.push(`${key} is ${typeof v}, expected ${type}`);
+  }
+  // Withheld at the source, not hidden by the app — a field that is sent and
+  // merely not rendered is one screenshot from being read.
+  for (const key of ['dropoffLat', 'dropoffLng', 'dropoffAddress']) {
+    if (payload?.[key] != null) missing.push(`${key} is present — the drop-off must be withheld until IN_PROGRESS`);
   }
   if (missing.length) throw new Error(`${label} is missing: ${missing.join(' · ')}`);
   return `${require.length} fields present`;

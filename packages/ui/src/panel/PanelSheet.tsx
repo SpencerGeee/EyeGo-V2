@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   useWindowDimensions,
@@ -66,6 +67,21 @@ export function PanelSheet({
   // contentHeight is measured inline so expanded snap-point is
   // accurate BEFORE usePanelMotion initialises the spring engine.
   const [contentH, setContentH] = useState(0);
+
+  // A focused input in the sheet must sit above the keyboard. The keyboard's
+  // height goes into the body's bottom padding, so the measured contentH grows
+  // by exactly that much and the existing expanded-snap spring carries the
+  // sheet up; nothing else has to know the keyboard exists. Native RN events,
+  // not keyboard-controller: this package does not depend on it, and a
+  // translucent Modal on Android ignores adjustResize anyway.
+  const [kb, setKb] = useState(0);
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const a = Keyboard.addListener(show, (e) => setKb(e.endCoordinates.height));
+    const b = Keyboard.addListener(hide, () => setKb(0));
+    return () => { a.remove(); b.remove(); };
+  }, []);
   const expanded = contentH > 0 ? screenH - Math.min(contentH, maxH) : screenH;
   const collapsed = collapsedHeightPct ? screenH - Math.min(screenH * collapsedHeightPct, maxH) : undefined;
 
@@ -123,7 +139,7 @@ export function PanelSheet({
         scrollEventThrottle={16}
         bounces={false}
         showsVerticalScrollIndicator={false}
-        style={{ maxHeight: maxH - insets.bottom }}
+        style={{ maxHeight: maxH - insets.bottom - kb }}
       >
         {children}
       </Animated.ScrollView>
@@ -148,7 +164,7 @@ export function PanelSheet({
         <GestureDetector gesture={panGesture}>
           <Animated.View style={[styles.sheetContainer, { height: screenH }, sheetStyle]}>
             <View
-              style={[styles.sheetBody, { maxHeight: maxH, paddingBottom: Math.max(insets.bottom, 16) }, sheetBodyStyle]}
+              style={[styles.sheetBody, { maxHeight: maxH, paddingBottom: Math.max(insets.bottom, 16) + kb }, sheetBodyStyle]}
               onLayout={(e) => {
                 const h = Math.ceil(e.nativeEvent.layout.height);
                 if (h !== contentH) setContentH(h);

@@ -209,6 +209,29 @@ export const OVERVIEW_REFIT_TOLERANCE_DEG = 0.0005;
  * the subject sitting behind the panel until the driver happened to move far
  * enough. Same points, different visible area, different frame.
  */
+/**
+ * Identity of a `setCamera` plan, for the follow loop's dedupe. The loop runs
+ * every frame, but a stationary vehicle produces the same plan every frame —
+ * and each duplicate `setCamera({ animationDuration: 0 })` still reaches the
+ * native map, cancels whatever it was doing (a fling, a pitch settle, the
+ * first frames of a drag before JS hears about it) and re-issues the region
+ * callbacks. Sixty of those a second is what made the driver map feel held
+ * rather than free. Coordinates are keyed at ~1 cm so GPS noise below the
+ * interpolator's own resolution does not count as movement.
+ */
+export function setCameraKey(plan: CameraPlan): string {
+  if (plan.kind !== 'setCamera' || !plan.centerCoordinate) return '';
+  const c = plan.centerCoordinate;
+  return [
+    c[0].toFixed(7), c[1].toFixed(7),
+    plan.zoomLevel, Math.round((plan.heading ?? 0) * 10), plan.pitch,
+    paddingKeyOf(plan.padding ?? {}),
+  ].join('|');
+}
+
+/** How long a resumed follow glides back to the vehicle before per-frame locking takes over. */
+export const RESUME_GLIDE_MS = 600;
+
 export function overviewKey(
   bounds: { ne: Coord; sw: Coord },
   padding: CameraPadding,

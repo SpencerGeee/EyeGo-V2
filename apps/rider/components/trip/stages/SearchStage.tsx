@@ -372,7 +372,8 @@ function SearchStageImpl() {
   // animation 'none', so morphBack owns the entire exit choreography.
   const { morphBack } = useMorph();
   const handleClose = useCallback(() => {
-    morphBack(() => goBack());
+    // Flight first, pop after — see the note on `departedStyle` in trip.tsx.
+    morphBack(() => goBack(), { popAfterFlight: true });
   }, [morphBack, router]);
 
   useEffect(() => {

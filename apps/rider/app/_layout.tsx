@@ -35,7 +35,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useAuthStore, registerLogoutCleanup } from '../stores/auth.store';
 import { useThemeStore } from '../stores/theme.store';
 import { configureApiClient, configureSocket, refreshSocketAuth, setApiBaseUrl, setAuthReadyGate, userApi } from '@eyego/api';
-import { resolveApiUrl } from '../stores/api.store';
+import { getStoredApiUrl } from '../stores/api.store';
 import { useTripStore } from '../stores/trip.store';
 import { useColors } from '../utils/useColors';
 import { Text, ColorsProvider, AppBackground, AmbientRotationProvider, MorphProvider, FrameHealthBadge, enableSmoothNavigation, SmoothNavigationProvider, smoothScreenLayout , NoticeHost, OverlayPortal, OfflineBanner } from '@eyego/ui';
@@ -334,11 +334,14 @@ export default function RootLayout() {
     // Intentionally runs once on mount — configures singleton API/socket clients
     // using store getters (not React state) so no deps are needed.
     //
-    // RC6: In sideloaded production builds the compiled EXPO_PUBLIC_API_URL
-    // points at a PC LAN IP that was unknown at build time.  Resolve it from
-    // SecureStore so the user can set it once inside the app.
-    resolveApiUrl().then((url) => {
-      setApiBaseUrl(url);
+    // RC6: a URL saved in SecureStore wins. ONLY a saved one — this used to
+    // fall through to 'http://localhost:5020/v1' when nothing was stored and
+    // overwrite the base URL @eyego/api had already resolved correctly (the
+    // Metro host in dev, EXPO_PUBLIC_API_URL in a sideload). The driver app
+    // has no such override, which is why it reached the same backend and the
+    // rider showed dashes.
+    getStoredApiUrl().then((url) => {
+      if (url) setApiBaseUrl(url);
     });
 
     configureApiClient({

@@ -35,6 +35,7 @@ import {
   overviewKey,
   paddingKeyOf,
   planCamera,
+  setCameraKey,
   paddingForSheet,
   shouldAutoResume,
   shouldReleaseToUser,
@@ -175,6 +176,20 @@ describe('camera policy', () => {
     // A rider watching a car approach should not have the world rotate.
     assert.equal(plan.heading, 0);
     assert.equal(plan.pitch, 0);
+  });
+
+  test('a parked vehicle plans the same camera every frame — the loop must send it once', () => {
+    const a = planCamera('follow', { center: accra, bearing: 137 }, padding, { animationDuration: 0 });
+    const b = planCamera('follow', { center: [accra[0] + 1e-9, accra[1]], bearing: 137 }, padding, { animationDuration: 0 });
+    assert.equal(setCameraKey(a), setCameraKey(b));
+    // Real movement, a new heading or a new sheet inset each earn a send.
+    const moved = planCamera('follow', { center: tema, bearing: 137 }, padding);
+    const turned = planCamera('followCourse', { center: accra, bearing: 140 }, padding);
+    const resized = planCamera('follow', { center: accra, bearing: 137 }, { ...padding, paddingBottom: 200 });
+    assert.notEqual(setCameraKey(a), setCameraKey(moved));
+    assert.notEqual(setCameraKey(a), setCameraKey(turned));
+    assert.notEqual(setCameraKey(a), setCameraKey(resized));
+    assert.equal(setCameraKey(planCamera('free', { center: accra }, padding)), '');
   });
 
   test('followCourse rotates to the direction of travel and tilts', () => {
